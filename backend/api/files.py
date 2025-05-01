@@ -10,7 +10,7 @@ import os
 
 from core.logging import get_logger
 from core.security import get_current_user
-from db.session import get_db
+from backend.db.session import get_db
 from models.user import User
 from schemas.file import FileResponse, FileUploadResponse
 from services.file_service import FileService
