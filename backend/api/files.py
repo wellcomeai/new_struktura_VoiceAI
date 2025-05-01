@@ -2,24 +2,30 @@
 File API endpoints for WellcomeAI application.
 """
 
+"""
+File API endpoints for WellcomeAI application.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Path, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
 
-from core.logging import get_logger
-from core.security import get_current_user
-from backend.db.session import get_db
-from models.user import User
-from schemas.file import FileResponse, FileUploadResponse
-from services.file_service import FileService
+from backend.core.logging import get_logger  # Изменен импорт core
+from backend.core.security import get_current_user  # Изменен импорт core
+from backend.db.session import get_db  # Уже корректный импорт
+from backend.models.user import User  # Изменен импорт models
+from backend.schemas.file import FileResponse, FileUploadResponse  # Изменен импорт schemas
+from backend.services.file_service import FileService  # Изменен импорт services
 
 # Initialize logger
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+# Остальной код остается без изменений
 
 @router.post("/upload", response_model=FileUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
