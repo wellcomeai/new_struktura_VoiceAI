@@ -3,19 +3,27 @@ FastAPI dependencies for WellcomeAI application.
 Contains reusable dependency functions that can be used across API endpoints.
 """
 
+"""
+FastAPI dependencies for WellcomeAI application.
+Contains reusable dependency functions that can be used across API endpoints.
+"""
+
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import uuid
 from typing import Optional
 
-from .security import get_current_user_id
-from .logging import get_logger
-from models.user import User
-from models.assistant import AssistantConfig
-from db.session import get_db
+from backend.core.security import get_current_user_id  # Изменен импорт .security
+from backend.core.logging import get_logger  # Изменен импорт .logging
+from backend.models.user import User  # Изменен импорт models
+from backend.models.assistant import AssistantConfig  # Изменен импорт models
+from backend.db.session import get_db  # Изменен импорт db
+from backend.core.config import settings  # Добавлен импорт settings
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Остальной код остается без изменений
 
 async def get_current_user(
     user_id: str = Depends(get_current_user_id),
