@@ -4,7 +4,8 @@ Handles environment variables and default configuration.
 """
 
 import os
-from pydantic import BaseSettings, SecretStr, validator
+from pydantic_settings import BaseSettings
+from pydantic import SecretStr, validator
 from typing import Optional
 from dotenv import load_dotenv
 
