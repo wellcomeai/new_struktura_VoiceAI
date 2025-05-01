@@ -190,4 +190,31 @@ class UserService:
             return True
             
         except Exception as e:
-            db.
+            db.rollback()
+            logger.error(f"Error deactivating user: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to deactivate user"
+            )
+    
+    @staticmethod
+    async def add_usage_tokens(db: Session, user_id: str, token_count: int) -> None:
+        """
+        Add usage tokens to a user's account
+        
+        Args:
+            db: Database session
+            user_id: User ID
+            token_count: Number of tokens to add
+        """
+        try:
+            user = await UserService.get_user_by_id(db, user_id)
+            
+            user.usage_tokens += token_count
+            db.commit()
+            
+            logger.debug(f"Added {token_count} tokens to user {user_id}, total: {user.usage_tokens}")
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error adding usage tokens: {str(e)}")
