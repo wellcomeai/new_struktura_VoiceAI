@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мои агенты | Live VoiceAI</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    .locked-feature {
+      opacity: 0.6;
+      cursor: not-allowed;
+      position: relative;
+    }
+    
+    .locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .page-actions {
+      display: flex;
+      gap: 1rem;
+    }
+    
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .btn-danger {
+      background-color: #ef4444;
+      color: var(--white);
+    }
+    
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Табы */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+    }
+    
+    .tab {
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-weight: 500;
+    }
+    
+    .tab.active {
+      color: var(--primary-blue);
+      border-bottom-color: var(--primary-blue);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    /* Форма */
+    .form-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    textarea.form-control {
+      min-height: 150px;
+      resize: vertical;
+    }
+    
+    .form-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    
+    /* Селект для голоса */
+    .voice-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    
+    .voice-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .voice-option:hover {
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option.selected {
+      border-color: var(--primary-blue);
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option input {
+      margin: 0;
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+    
+    /* Встраивание */
+    .embed-container {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .embed-code {
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 0.5rem;
+      font-family: monospace;
+      white-space: pre-wrap;
+      user-select: all;
+      overflow-x: auto;
+    }
+    
+    .embed-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+    
+    /* Статистика */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .stat-card {
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+    
+    .stat-title {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    
+    .stat-change {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+    }
+    
+    .stat-change.positive {
+      color: #10b981;
+    }
+    
+    .stat-change.negative {
+      color: #ef4444;
+    }
+
+    /* Состояние загрузки */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .debug-panel {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+      max-width: 400px;
+      max-height: 200px;
+      overflow: auto;
+      font-family: monospace;
+      font-size: 12px;
+      z-index: 9999;
+      display: none;
+    }
+    
+    /* Стили для списка агентов */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    .agents-list-container {
+      margin-top: 2rem;
+    }
+    
+    .agent-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .agents-count {
+      color: var(--text-gray);
+      font-weight: 500;
+      margin: 0;
+    }
+    
+    .agent-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 1.5rem;
+    }
+    
+    .agent-item {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      display: flex;
+      gap: 1.25rem;
+      transition: all 0.2s;
+    }
+    
+    .agent-item:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    
+    .agent-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4a86e8, #2b59c3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    
+    .agent-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .agent-name {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .agent-description {
+      color: var(--text-gray);
+      margin-bottom: 0.75rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 0.95rem;
+    }
+    
+    .agent-meta {
+      display: flex;
+      gap: 1rem;
+      color: var(--text-light);
+      font-size: 0.875rem;
+    }
+    
+    .agent-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    
+    .empty-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+    
+    .empty-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    
+    .empty-description {
+      color: var(--text-gray);
+      max-width: 500px;
+      margin: 0 auto 2rem;
+    }
+    
+    @media (max-width: 768px) {
+      .agent-items {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">Live VoiceAI</a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item active">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Расширения</div>
+      <a href="#" class="sidebar-nav-item locked-feature">
+        <i class="fas fa-plug"></i> Интеграции
+      </a>
+      <a href="#" class="sidebar-nav-item locked-feature">
+        <i class="fas fa-wand-magic-sparkles"></i> Навыки
+      </a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+      <a href="#" class="sidebar-nav-item" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </nav>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <h1 class="page-title">Мои агенты</h1>
+      
+      <div class="page-actions">
+        <button class="btn btn-outline" id="view-embed-code" style="display: none;">
+          <i class="fas fa-code"></i> Код для встраивания
+        </button>
+        <button class="btn btn-danger" id="delete-agent" style="display: none;">
+          <i class="fas fa-trash"></i> Удалить
+        </button>
+        <button class="btn btn-primary" id="save-agent" style="display: none;">
+          <i class="fas fa-save"></i> Сохранить
+        </button>
+        <button class="btn btn-primary" id="create-new-agent-btn">
+          <i class="fas fa-plus"></i> Создать агента
+        </button>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Контейнер для списка агентов (показывается в режиме списка) -->
+      <div id="agents-list-container" class="agents-list-container">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Ваши голосовые ассистенты</h2>
+          </div>
+          <div id="agents-list" class="agents-list">
+            <!-- Содержимое будет заполнено динамически -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Контейнер для редактирования агента (показывается в режиме редактирования) -->
+      <div id="edit-agent-container" style="display: none;">
+        <!-- Табы -->
+        <div class="tabs">
+          <div class="tab active" data-tab="settings">Настройки</div>
+          <div class="tab" data-tab="statistics">Статистика</div>
+          <div class="tab" data-tab="embed">Встраивание</div>
+        </div>
+        
+        <!-- Таб настроек -->
+        <div class="tab-content active" id="settings-tab">
+          <form id="agent-form">
+            <div class="form-section">
+              <div class="form-group">
+                <label for="agent-name">Название агента</label>
+                <input type="text" id="agent-name" class="form-control" placeholder="Введите название" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="agent-description">Описание (опционально)</label>
+                <textarea id="agent-description" class="form-control" placeholder="Описание вашего голосового ассистента"></textarea>
+              </div>
+            </div>
+            
+            <div class="form-section">
+              <div class="form-group">
+                <label for="system-prompt">Системный промпт</label>
+                <textarea id="system-prompt" class="form-control" placeholder="Инструкции для ассистента" required></textarea>
+                <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.
+                </p>
+              </div>
+            </div>
+            
+            <div class="form-section">
+              <div class="form-group">
+                <label>Голос ассистента</label>
+                <div class="voice-options">
+                  <label class="voice-option selected">
+                    <input type="radio" name="voice" value="alloy" checked>
+                    <span>Alloy</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="echo">
+                    <span>Echo</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="fable">
+                    <span>Fable</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="onyx">
+                    <span>Onyx</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="nova">
+                    <span>Nova</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="shimmer">
+                    <span>Shimmer</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-footer">
+              <button type="button" class="btn btn-outline" id="cancel-button">Отмена</button>
+              <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Таб статистики -->
+        <div class="tab-content" id="statistics-tab">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-title">Всего взаимодействий</div>
+              <div class="stat-value" id="total-interactions">245</div>
+              <div class="stat-change positive">
+                <i class="fas fa-arrow-up"></i> 12% за последнюю неделю
+              </div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-title">Сегодня</div>
+              <div class="stat-value" id="today-interactions">32</div>
+              <div class="stat-change positive">
+                <i class="fas fa-arrow-up"></i> 8% от вчера
+              </div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-title">Среднее время ответа</div>
+              <div class="stat-value" id="avg-response-time">1.8 сек</div>
+              <div class="stat-change negative">
+                <i class="fas fa-arrow-down"></i> 0.3 сек от прошлой недели
+              </div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-title">Успешные взаимодействия</div>
+              <div class="stat-value" id="success-rate">92%</div>
+              <div class="stat-change positive">
+                <i class="fas fa-arrow-up"></i> 3% от прошлого месяца
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Последние взаимодействия</h3>
+            <p>Здесь будет таблица с историей взаимодействий пользователей с ботом.</p>
+          </div>
+        </div>
+        
+        <!-- Таб встраивания -->
+        <div class="tab-content" id="embed-tab">
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Код для встраивания</h3>
+            <p>Скопируйте этот код и вставьте его на свой сайт, чтобы добавить голосового ассистента.</p>
+            
+            <div class="embed-container">
+              <div class="embed-code" id="embed-code">
+              <!-- Код будет загружен динамически -->
+              </div>
+              <div class="embed-actions">
+                <button class="btn btn-primary" id="copy-embed-code">
+                  <i class="fas fa-copy"></i> Копировать код
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Предпросмотр</h3>
+            <p>Так будет выглядеть ваш ассистент на сайте:</p>
+            
+            <div style="margin-top: 1.5rem; text-align: center;">
+              <div style="display: inline-block; position: relative;">
+                <div style="width: 400px; height: 300px; background-color: #f3f4f6; border: 1px dashed #d1d5db; border-radius: 0.5rem; display: flex; justify-content: center; align-items: center;">
+                  <div style="position: absolute; bottom: 20px; right: 20px; width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #4a86e8, #2563eb); display: flex; justify-content: center; align-items: center; color: white; box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4);">
+                    <i class="fas fa-robot" style="font-size: 1.5rem;"></i>
+                  </div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-gray);">Пример вашего сайта с виджетом голосового ассистента</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+    </div>
+
+    <!-- Панель отладки -->
+    <div class="debug-panel" id="debug-panel"></div>
+  </main>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Определение переменных
+      let currentAgentId = null;
+      let isLoading = false;
+      
+      // Получаем элементы
+      const tabs = document.querySelectorAll('.tab');
+      const tabContents = document.querySelectorAll('.tab-content');
+      const voiceOptions = document.querySelectorAll('.voice-option');
+      const agentForm = document.getElementById('agent-form');
+      const viewEmbedCodeBtn = document.getElementById('view-embed-code');
+      const deleteAgentBtn = document.getElementById('delete-agent');
+      const saveAgentBtn = document.getElementById('save-agent');
+      const createNewAgentBtn = document.getElementById('create-new-agent-btn');
+      const cancelButton = document.getElementById('cancel-button');
+      const copyEmbedCodeBtn = document.getElementById('copy-embed-code');
+      const logoutButton = document.getElementById('logout-button');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const loadingOverlay = document.getElementById('loading-overlay');
+      const debugPanel = document.getElementById('debug-panel');
+      const agentsListContainer = document.getElementById('agents-list-container');
+      const editAgentContainer = document.getElementById('edit-agent-container');
+      
+      // Включение режима отладки (установите в true для показа панели отладки)
+      const DEBUG_MODE = false;
+      
+      // Функция для логирования в режиме отладки
+      function debugLog(message) {
+        if (DEBUG_MODE) {
+          console.log('[DEBUG]', message);
+          const now = new Date().toLocaleTimeString();
+          const logEntry = document.createElement('div');
+          logEntry.textContent = `[${now}] ${message}`;
+          debugPanel.appendChild(logEntry);
+          debugPanel.scrollTop = debugPanel.scrollHeight;
+          
+          if (debugPanel.style.display !== 'block') {
+            debugPanel.style.display = 'block';
+          }
+        }
+      }
+      
+      // Установка состояния загрузки
+      function setLoading(loading) {
+        isLoading = loading;
+        loadingOverlay.style.display = loading ? 'flex' : 'none';
+        
+        // Блокируем/разблокируем кнопки во время загрузки
+        const buttons = document.querySelectorAll('.btn');
+        buttons.forEach(button => {
+          button.disabled = loading;
+        });
+      }
+      
+      // Основные функции для работы с API
+      const api = {
+        baseUrl: '/api',
+        
+        // Получение токена авторизации
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        // Проверка авторизации
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        // Базовая функция для запросов к API
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            debugLog(`Отправка ${options.method || 'GET'} запроса на ${endpoint}`);
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            if (response.status === 401) {
+              localStorage.removeItem('auth_token');
+              window.location.href = '/static/login.html';
+              throw new Error('Требуется авторизация');
+            }
+            
+            // Для файлов без JSON ответа
+            if (options.method === 'GET' && endpoint.includes('/download/')) {
+              return response;
+            }
+            
+            const responseText = await response.text();
+            let data;
+            try {
+              data = JSON.parse(responseText);
+            } catch (e) {
+              debugLog(`Ошибка парсинга JSON: ${e.message}. Текст ответа: ${responseText.substring(0, 100)}...`);
+              throw new Error('Некорректный формат ответа от сервера');
+            }
+            
+            if (!response.ok) {
+              debugLog(`Ошибка API: ${response.status}, ${data.detail || 'Нет деталей ошибки'}`);
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            debugLog(`Успешный ответ от ${endpoint}: ${JSON.stringify(data).substring(0, 100)}...`);
+            return data;
+          } catch (error) {
+            debugLog(`API Error: ${error.message}`);
+            throw error;
+          }
+        },
+        
+        // Методы для различных типов запросов
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        },
+        
+        // Получение агента по ID
+        getAgent(id) {
+          debugLog(`Запрос агента по ID: ${id}`);
+          return this.get(`/assistants/${id}`);
+        },
+        
+        // Получение списка агентов
+        getAssistants() {
+          debugLog(`Запрос списка агентов`);
+          return this.get(`/assistants`);
+        },
+        
+        // Создание нового агента
+        createAssistant(data) {
+          debugLog(`Создание агента с данными: ${JSON.stringify(data)}`);
+          return this.post(`/assistants`, data);
+        },
+        
+        // Обновление агента
+        updateAgent(id, data) {
+          debugLog(`Обновление агента ${id} с данными: ${JSON.stringify(data)}`);
+          return this.put(`/assistants/${id}`, data);
+        },
+        
+        // Удаление агента
+        deleteAgent(id) {
+          debugLog(`Удаление агента ${id}`);
+          return this.delete(`/assistants/${id}`);
+        },
+        
+        // Получение кода встраивания
+        getEmbedCode(id) {
+          debugLog(`Получение кода встраивания для агента ${id}`);
+          return this.get(`/assistants/${id}/embed-code`);
+        }
+      };
+      
+      // Вспомогательные функции для UI
+      const ui = {
+        // Показать уведомление
+        showNotification(message, type = 'success') {
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          notification.classList.add(`notification-${type}`);
+          
+          // Изменяем иконку
+          const iconElement = notification.querySelector('.notification-icon i');
+          iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                               type === 'error' ? 'fas fa-exclamation-circle' : 
+                               'fas fa-info-circle';
+          
+          // Устанавливаем сообщение
+          notificationMessage.textContent = message;
+          
+          // Показываем уведомление
+          notification.style.display = 'flex';
+          setTimeout(() => {
+            notification.classList.add('show');
+          }, 10);
+          
+          // Автоматически скрываем через 5 секунд
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        // Скрыть уведомление
+        hideNotification() {
+          notification.classList.remove('show');
+          setTimeout(() => {
+            notification.style.display = 'none';
+          }, 300);
+        },
+        
+        // Переключение вкладок
+        switchTab(tabId) {
+          tabs.forEach(tab => {
+            tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+          });
+          
+          tabContents.forEach(content => {
+            content.classList.toggle('active', content.id === `${tabId}-tab`);
+          });
+        },
+        
+        // Заполнение формы данными агента
+        fillAgentForm(agent) {
+          if (!agent) {
+            debugLog('Попытка заполнить форму пустыми данными агента');
+            return;
+          }
+          
+          debugLog(`Заполнение формы данными агента: ${JSON.stringify(agent).substring(0, 100)}...`);
+          
+          document.getElementById('agent-name').value = agent.name || '';
+          document.getElementById('agent-description').value = agent.description || '';
+          document.getElementById('system-prompt').value = agent.system_prompt || '';
+          
+          // Выбор голоса
+          const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice}"]`);
+          if (voiceInput) {
+            voiceOptions.forEach(option => {
+              option.classList.remove('selected');
+            });
+            voiceInput.closest('.voice-option').classList.add('selected');
+            voiceInput.checked = true;
+          } else {
+            debugLog(`Голос "${agent.voice}" не найден в опциях формы`);
+          }
+          
+          debugLog('Форма успешно заполнена');
+        },
+        
+        // Получение данных из формы
+        getFormData() {
+          const formData = {
+            name: document.getElementById('agent-name').value,
+            description: document.getElementById('agent-description').value,
+            system_prompt: document.getElementById('system-prompt').value,
+            voice: document.querySelector('input[name="voice"]:checked')?.value || 'alloy'
+          };
+          
+          debugLog(`Получены данные формы: ${JSON.stringify(formData)}`);
+          return formData;
+        }
+      };
+      
+      // Проверка авторизации
+      function checkAuth() {
+        if (!api.isAuthenticated()) {
+          debugLog('Пользователь не авторизован, перенаправление на страницу входа');
+          window.location.href = '/static/login.html';
+          return false;
+        }
+        debugLog('Пользователь авторизован');
+        return true;
+      }
+      
+      // Получение ID агента из URL параметров
+      function getAgentIdFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const id = urlParams.get('id');
+        debugLog(`ID агента из URL: ${id}`);
+        
+        // Просто возвращаем ID, может быть null
+        return id;
+      }
+      
+      // Проверка URL параметров
+      function checkUrlParams() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const id = urlParams.get('id');
+        const mode = urlParams.get('mode');
+        
+        if (id) {
+          // Режим редактирования
+          return { mode: 'edit', id };
+        } else if (mode === 'create') {
+          // Режим создания
+          return { mode: 'create' };
+        } else {
+          // Режим списка
+          return { mode: 'list' };
+        }
+      }
+      
+      // Загрузка данных агента
+      async function loadAgentData() {
+        if (!currentAgentId) {
+          debugLog('Попытка загрузить данные без ID агента');
+          return;
+        }
+        
+        try {
+          setLoading(true);
+          debugLog(`Загрузка данных агента: ${currentAgentId}`);
+          
+          // Запрашиваем данные агента
+          const agent = await api.getAgent(currentAgentId);
+          debugLog(`Получены данные агента: ${JSON.stringify(agent).substring(0, 100)}...`);
+          
+          // Заполняем форму данными
+          ui.fillAgentForm(agent);
+          
+          // Загружаем код встраивания
+          const embedData = await api.getEmbedCode(currentAgentId);
+          document.getElementById('embed-code').textContent = embedData.embed_code;
+          debugLog('Код встраивания загружен');
+          
+          // Показываем кнопки действий для режима редактирования
+          viewEmbedCodeBtn.style.display = 'inline-flex';
+          deleteAgentBtn.style.display = 'inline-flex';
+          saveAgentBtn.style.display = 'inline-flex';
+          createNewAgentBtn.style.display = 'none';
+        } catch (error) {
+          debugLog(`Ошибка загрузки данных агента: ${error.message}`);
+          ui.showNotification(error.message || 'Ошибка при загрузке данных агента', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      // Загрузка списка агентов
+      async function loadAgentsList() {
+        try {
+          setLoading(true);
+          const agents = await api.getAssistants();
+          renderAgentsList(agents);
+        } catch (error) {
+          debugLog(`Ошибка при загрузке списка агентов: ${error.message}`);
+          ui.showNotification(error.message || 'Ошибка при загрузке списка агентов', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      // Отрисовка списка агентов
+      function renderAgentsList(agents) {
+        const container = document.getElementById('agents-list');
+        container.innerHTML = '';
+        
+        if (agents.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">
+                <i class="fas fa-robot"></i>
+              </div>
+              <h3 class="empty-title">У вас еще нет агентов</h3>
+              <p class="empty-description">
+                Создайте вашего первого голосового ассистента, чтобы встроить его на сайт или приложение
+              </p>
+              <button class="btn btn-primary" id="empty-create-agent-btn">
+                <i class="fas fa-plus"></i> Создать нового агента
+              </button>
+            </div>
+          `;
+          document.getElementById('empty-create-agent-btn').addEventListener('click', navigateToCreateAgent);
+          return;
+        }
+        
+        // Заголовок с количеством
+        const headerEl = document.createElement('div');
+        headerEl.className = 'agent-list-header';
+        headerEl.innerHTML = `
+          <h4 class="agents-count">Найдено агентов: ${agents.length}</h4>
+        `;
+        container.appendChild(headerEl);
+        
+        // Создаем список агентов
+        const listEl = document.createElement('div');
+        listEl.className = 'agent-items';
+        
+        agents.forEach(agent => {
+          const agentEl = document.createElement('div');
+          agentEl.className = 'agent-item';
+          agentEl.innerHTML = `
+            <div class="agent-icon">
+              <i class="fas fa-robot"></i>
+            </div>
+            <div class="agent-info">
+              <h3 class="agent-name">${agent.name}</h3>
+              <p class="agent-description">${agent.description || 'Нет описания'}</p>
+              <div class="agent-meta">
+                <span class="agent-voice"><i class="fas fa-volume-up"></i> ${agent.voice}</span>
+                <span class="agent-date"><i class="fas fa-calendar"></i> Создан: ${new Date(agent.created_at).toLocaleDateString()}</span>
+              </div>
+            </div>
+            <div class="agent-actions">
+              <button class="btn btn-outline get-embed-code" data-id="${agent.id}" title="Получить код для встраивания">
+                <i class="fas fa-code"></i>
+              </button>
+              <button class="btn btn-primary edit-agent" data-id="${agent.id}">
+                <i class="fas fa-edit"></i> Редактировать
+              </button>
+            </div>
+          `;
+          listEl.appendChild(agentEl);
+        });
+        
+        container.appendChild(listEl);
+        
+        // Добавляем обработчики для кнопок
+        document.querySelectorAll('.edit-agent').forEach(button => {
+          button.addEventListener('click', function() {
+            const agentId = this.getAttribute('data-id');
+            window.location.href = `/static/agents.html?id=${agentId}`;
+          });
+        });
+        
+        document.querySelectorAll('.get-embed-code').forEach(button => {
+          button.addEventListener('click', async function() {
+            const agentId = this.getAttribute('data-id');
+            try {
+              setLoading(true);
+              const embedData = await api.getEmbedCode(agentId);
+              
+              // Переключаемся на режим редактирования
+              currentAgentId = agentId;
+              switchToEditMode();
+              
+              // Загружаем данные агента
+              await loadAgentData();
+              
+              // Показываем код встраивания
+              document.getElementById('embed-code').textContent = embedData.embed_code;
+              ui.switchTab('embed');
+            } catch (error) {
+              ui.showNotification(error.message || 'Ошибка при получении кода встраивания', 'error');
+            } finally {
+              setLoading(false);
+            }
+          });
+        });
+      }
+      
+      // Функция для перехода на страницу создания агента
+      function navigateToCreateAgent() {
+        window.location.href = '/static/agents.html?mode=create';
+      }
+      
+      // Функция для инициализации формы создания нового агента
+      function initCreateMode() {
+        // Заполняем форму значениями по умолчанию
+        document.getElementById('agent-name').value = '';
+        document.getElementById('agent-description').value = '';
+        document.getElementById('system-prompt').value = 'Ты умный голосовой помощник. Отвечай на вопросы пользователя коротко, информативно и с небольшой ноткой юмора, когда это уместно. Стремись быть полезным и предоставлять точную информацию.';
+          
+        // Выбираем голос по умолчанию
+        const voiceInput = document.querySelector('input[name="voice"][value="alloy"]');
+        if (voiceInput) {
+          voiceOptions.forEach(option => {
+            option.classList.remove('selected');
+          });
+          voiceInput.closest('.voice-option').classList.add('selected');
+          voiceInput.checked = true;
+        }
+          
+        // Обновляем заголовок страницы
+        document.querySelector('.page-title').textContent = 'Создание нового агента';
+          
+        // Меняем текст кнопки сохранения
+        saveAgentBtn.innerHTML = '<i class="fas fa-plus"></i> Создать';
+          
+        // Скрываем кнопку удаления
+        deleteAgentBtn.style.display = 'none';
+          
+        // Скрываем кнопку "Код для встраивания"
+        viewEmbedCodeBtn.style.display = 'none';
+        
+        // Показываем кнопку сохранения
+        saveAgentBtn.style.display = 'inline-flex';
+        
+        // Скрываем кнопку создания нового агента
+        createNewAgentBtn.style.display = 'none';
+      }
+      
+      // Переключение на режим редактирования
+      function switchToEditMode() {
+        // Скрываем список агентов
+        agentsListContainer.style.display = 'none';
+        
+        // Показываем форму редактирования
+        editAgentContainer.style.display = 'block';
+        
+        // Обновляем заголовок
+        document.querySelector('.page-title').textContent = 'Управление агентом';
+        
+        // Обновляем видимость кнопок
+        viewEmbedCodeBtn.style.display = 'inline-flex';
+        deleteAgentBtn.style.display = 'inline-flex';
+        saveAgentBtn.style.display = 'inline-flex';
+        saveAgentBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+        createNewAgentBtn.style.display = 'none';
+      }
+      
+      // Переключение на режим списка
+      function switchToListMode() {
+        // Показываем список агентов
+        agentsListContainer.style.display = 'block';
+        
+        // Скрываем форму редактирования
+        editAgentContainer.style.display = 'none';
+        
+        // Обновляем заголовок
+        document.querySelector('.page-title').textContent = 'Мои агенты';
+        
+        // Обновляем видимость кнопок
+        viewEmbedCodeBtn.style.display = 'none';
+        deleteAgentBtn.style.display = 'none';
+        saveAgentBtn.style.display = 'none';
+        createNewAgentBtn.style.display = 'inline-flex';
+        
+        // Сбрасываем текущий ID агента
+        currentAgentId = null;
+      }
+      
+      // Обработчики событий
+      
+      // Переключение вкладок
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabId = tab.getAttribute('data-tab');
+          debugLog(`Переключение на вкладку: ${tabId}`);
+          ui.switchTab(tabId);
+        });
+      });
+      
+      // Выбор голоса
+      voiceOptions.forEach(option => {
+        option.addEventListener('click', function() {
+          voiceOptions.forEach(opt => {
+            opt.classList.remove('selected');
+          });
+          this.classList.add('selected');
+          this.querySelector('input').checked = true;
+          debugLog(`Выбран голос: ${this.querySelector('input').value}`);
+        });
+      });
+      
+      // Кнопка "Код для встраивания"
+      viewEmbedCodeBtn.addEventListener('click', () => {
+        debugLog('Нажата кнопка "Код для встраивания"');
+        ui.switchTab('embed');
+      });
+      
+      // Копирование кода встраивания
+      copyEmbedCodeBtn.addEventListener('click', () => {
+        debugLog('Копирование кода встраивания');
+        const embedCode = document.getElementById('embed-code');
+        const tempTextarea = document.createElement('textarea');
+        tempTextarea.value = embedCode.textContent;
+        document.body.appendChild(tempTextarea);
+        tempTextarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempTextarea);
+        
+        ui.showNotification('Код для встраивания скопирован!', 'success');
+      });
+      
+      // Создание нового агента
+      createNewAgentBtn.addEventListener('click', () => {
+        navigateToCreateAgent();
+      });
+      
+      // Сохранение изменений (кнопка в верхней панели)
+      saveAgentBtn.addEventListener('click', async () => {
+        debugLog('Нажата кнопка "Сохранить" в верхней панели');
+        agentForm.dispatchEvent(new Event('submit'));
+      });
+      
+      // Отправка формы
+      agentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const formData = ui.getFormData();
+        const params = checkUrlParams();
+        
+        try {
+          setLoading(true);
+          
+          if (params.mode === 'create') {
+            // Создаем нового агента
+            const newAgent = await api.createAssistant(formData);
+            ui.showNotification('Агент успешно создан!', 'success');
+            
+            // Перенаправляем на страницу редактирования
+            setTimeout(() => {
+              window.location.href = `/static/agents.html?id=${newAgent.id}`;
+            }, 1000);
+          } else if (currentAgentId) {
+            // Обновляем существующего агента
+            await api.updateAgent(currentAgentId, formData);
+            ui.showNotification('Изменения успешно сохранены!', 'success');
+            
+            // Перезагружаем данные для обновления всех полей
+            await loadAgentData();
+          } else {
+            ui.showNotification('ID агента не определен', 'error');
+          }
+        } catch (error) {
+          debugLog(`Ошибка при сохранении: ${error.message}`);
+          ui.showNotification(error.message || 'Ошибка при сохранении изменений', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Отмена изменений
+      cancelButton.addEventListener('click', () => {
+        debugLog('Отмена изменений');
+        
+        const params = checkUrlParams();
+        
+        if (params.mode === 'create') {
+          // В режиме создания переходим на список агентов
+          window.location.href = '/static/agents.html';
+        } else if (params.mode === 'edit') {
+          // В режиме редактирования перезагружаем данные агента
+          loadAgentData();
+        } else {
+          // В других случаях переходим на список агентов
+          window.location.href = '/static/agents.html';
+        }
+      });
+      
+      // Удаление агента
+      deleteAgentBtn.addEventListener('click', async () => {
+        debugLog('Нажата кнопка "Удалить"');
+        
+        if (!currentAgentId) {
+          ui.showNotification('ID агента не определен', 'error');
+          return;
+        }
+        
+        const confirmed = confirm('Вы уверены, что хотите удалить этого агента? Это действие нельзя отменить.');
+        
+        if (confirmed) {
+          try {
+            setLoading(true);
+            await api.deleteAgent(currentAgentId);
+            ui.showNotification('Агент успешно удален!', 'success');
+            
+            // Перенаправляем на страницу со списком агентов
+            setTimeout(() => {
+              window.location.href = '/static/agents.html';
+            }, 1000);
+          } catch (error) {
+            debugLog(`Ошибка при удалении: ${error.message}`);
+            ui.showNotification(error.message || 'Ошибка при удалении агента', 'error');
+          } finally {
+            setLoading(false);
+          }
+        } else {
+          debugLog('Отмена удаления агента');
+        }
+      });
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', () => {
+        ui.hideNotification();
+      });
+      
+      // Выход из системы
+      logoutButton.addEventListener('click', () => {
+        debugLog('Выход из системы');
+        localStorage.removeItem('auth_token');
+        window.location.href = '/static/login.html';
+      });
+      
+      // Инициализация страницы
+      function initPage() {
+        if (!checkAuth()) return;
+        
+        const params = checkUrlParams();
+        
+        if (params.mode === 'edit') {
+          // Режим редактирования
+          currentAgentId = params.id;
+          debugLog(`Инициализация страницы с ID агента: ${currentAgentId}`);
+          
+          // Переключаемся на режим редактирования
+          switchToEditMode();
+          
+          // Загружаем данные агента
+          loadAgentData();
+        } else if (params.mode === 'create') {
+          // Режим создания
+          debugLog('Инициализация страницы в режиме создания');
+          
+          // Переключаемся на режим редактирования
+          switchToEditMode();
+          
+          // Инициализируем форму для создания
+          initCreateMode();
+        } else {
+          // Режим списка
+          debugLog('Инициализация страницы в режиме списка агентов');
+          
+          // Переключаемся на режим списка
+          switchToListMode();
+          
+          // Загружаем список агентов
+          loadAgentsList();
+        }
+      }
+      
+      // Запускаем инициализацию
+      initPage();
+    });
+  </script>
+</body>
+</html>
