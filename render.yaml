@@ -4,7 +4,7 @@ services:
     env: python
     region: frankfurt  # Выберите регион, наиболее близкий к вашим пользователям
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:$PORT main:app
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:$PORT main:application
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
