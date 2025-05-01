@@ -4,9 +4,15 @@
 """
 
 import os
+import sys
 import uvicorn
 import logging
 from dotenv import load_dotenv
+
+# Добавляем текущую директорию в Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
 # Загружаем переменные окружения из .env файла, если он существует
 load_dotenv()
@@ -18,6 +24,9 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 
 # Импортируем приложение из app.py
 from app import app
+
+# Экспортируем переменную application для Gunicorn
+application = app
 
 # Базовая настройка логирования для этого файла
 logger = logging.getLogger("wellcome-ai")
