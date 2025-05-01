@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
 from backend.core.logging import get_logger
-from db.session import get_db
+from backend.db.session import get_db
 from schemas.auth import LoginRequest, RegisterRequest, Token
 from schemas.user import UserResponse
 from services.auth_service import AuthService
