@@ -2,24 +2,30 @@
 Assistant API endpoints for WellcomeAI application.
 """
 
+"""
+Assistant API endpoints for WellcomeAI application.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from core.logging import get_logger
-from core.security import get_current_user
-from backend.db.session import get_db
-from models.user import User
-from schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse
-from schemas.conversation import ConversationResponse, ConversationStats
-from services.assistant_service import AssistantService
-from services.conversation_service import ConversationService
+from backend.core.logging import get_logger  # Изменен импорт core
+from backend.core.security import get_current_user  # Изменен импорт core
+from backend.db.session import get_db  # Уже корректный
+from backend.models.user import User  # Изменен импорт models
+from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse  # Изменен импорт schemas
+from backend.schemas.conversation import ConversationResponse, ConversationStats  # Изменен импорт schemas
+from backend.services.assistant_service import AssistantService  # Изменен импорт services
+from backend.services.conversation_service import ConversationService  # Изменен импорт services
 
 # Initialize logger
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+# Остальной код остается без изменений
 
 @router.get("", response_model=List[AssistantResponse])
 async def get_assistants(
