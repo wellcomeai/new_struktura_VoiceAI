@@ -2,7 +2,7 @@ services:
   - type: web
     name: wellcomeai
     env: python
-    region: frankfurt  # Выберите регион, наиболее близкий к вашим пользователям
+    region: frankfurt
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:$PORT main:application
     envVars:
@@ -31,4 +31,4 @@ services:
 databases:
   - name: wellcomeai-db
     region: frankfurt
-    plan: free  # Можно изменить на paid, если нужно больше ресурсов
+    plan: free
