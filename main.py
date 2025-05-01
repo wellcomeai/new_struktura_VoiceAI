@@ -15,25 +15,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-# Создаем символические ссылки для импорта модулей из backend
-modules_to_patch = ['db', 'core', 'models', 'schemas', 'services', 'utils', 'api']
-for module_name in modules_to_patch:
-    # Проверяем, что модуль еще не импортирован
-    if module_name not in sys.modules:
-        # Пытаемся импортировать из backend
-        try:
-            module_spec = importlib.util.find_spec(f'backend.{module_name}')
-            if module_spec:
-                # Создаем модуль в корневом пространстве имен
-                module = importlib.util.module_from_spec(module_spec)
-                sys.modules[module_name] = module
-                # Выполняем модуль
-                module_spec.loader.exec_module(module)
-                print(f"Patched import for {module_name}")
-        except Exception as e:
-            print(f"Failed to patch {module_name}: {str(e)}")
-
-# Загружаем переменные окружения из .env файла, если он существует
+# Загружаем переменные окружения из .env файла
 load_dotenv()
 
 # Настройки для запуска
@@ -41,14 +23,50 @@ PORT = int(os.getenv('PORT', 5050))
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 
+# Базовая настройка логирования для этого файла
+logger = logging.getLogger("wellcome-ai")
+
+# Пакетная правка импортов - создаем символические ссылки
+def setup_imports():
+    # 1. Сначала импортируем backend модули
+    try:
+        import backend.core.security
+        import backend.core.dependencies
+        import backend.db.session
+        import backend.models.user
+        import backend.models.base
+        
+        # 2. Создаем импорты для корневых модулей
+        if 'core' not in sys.modules:
+            sys.modules['core'] = sys.modules['backend.core']
+        if 'db' not in sys.modules:
+            sys.modules['db'] = sys.modules['backend.db']
+        if 'models' not in sys.modules:
+            sys.modules['models'] = sys.modules['backend.models']
+        if 'schemas' not in sys.modules:
+            import backend.schemas
+            sys.modules['schemas'] = sys.modules['backend.schemas']
+        if 'services' not in sys.modules:
+            import backend.services
+            sys.modules['services'] = sys.modules['backend.services']
+        
+        # 3. Важное исправление: добавляем get_current_user в security
+        if not hasattr(sys.modules['core.security'], 'get_current_user'):
+            sys.modules['core.security'].get_current_user = sys.modules['backend.core.dependencies'].get_current_user
+        
+        print("Import patching complete")
+    except Exception as e:
+        print(f"Error setting up imports: {str(e)}")
+        raise
+
+# Устанавливаем импорты перед загрузкой приложения
+setup_imports()
+
 # Импортируем приложение из app.py
 from app import app
 
 # Экспортируем переменную application для Gunicorn
 application = app
-
-# Базовая настройка логирования для этого файла
-logger = logging.getLogger("wellcome-ai")
 
 if __name__ == "__main__":
     # Логирование при запуске
