@@ -2,12 +2,23 @@
 Health check and status endpoints for WellcomeAI application.
 """
 
+"""
+Health check and status endpoints for WellcomeAI application.
+"""
 from fastapi import APIRouter, Depends, status
 from datetime import datetime
 
-from core.logging import get_logger
-from core.config import settings
-from backend.db.session import get_db
+from backend.core.logging import get_logger  # Изменен импорт core
+from backend.core.config import settings  # Изменен импорт core
+from backend.db.session import get_db  # Уже корректный импорт
+
+# Initialize logger
+logger = get_logger(__name__)
+
+# Create router
+router = APIRouter()
+
+# Остальной код остается без изменений
 
 # Initialize logger
 logger = get_logger(__name__)
