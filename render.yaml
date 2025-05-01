@@ -32,12 +32,3 @@ databases:
   - name: wellcomeai-db
     region: frankfurt
     plan: free  # Можно изменить на paid, если нужно больше ресурсов
-
-# Настройка для автоматического деплоя из GitHub
-# Раскомментируйте и настройте, если используете:
-# github:
-#   repo: ваш_аккаунт/wellcomeai
-#   branch: main
-#   deploy:
-#     - type: web
-#       name: wellcomeai
