@@ -2,15 +2,20 @@
 User API endpoints for WellcomeAI application.
 """
 
+"""
+User API endpoints for WellcomeAI application.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.logging import get_logger
-from core.security import get_current_user
-from backend.db.session import get_db
-from models.user import User
-from schemas.user import UserUpdate, UserResponse, UserDetailResponse, UserPasswordUpdate
-from services.user_service import UserService
+from backend.core.logging import get_logger  # Изменен импорт core
+from backend.core.security import get_current_user  # Изменен импорт core
+from backend.db.session import get_db  # Уже корректный импорт
+from backend.models.user import User  # Изменен импорт models
+from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse, UserPasswordUpdate  # Изменен импорт schemas
+from backend.services.user_service import UserService  # Изменен импорт services
+from backend.services.auth_service import AuthService  # Добавлен импорт AuthService
 
 # Initialize logger
 logger = get_logger(__name__)
