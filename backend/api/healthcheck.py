@@ -7,7 +7,7 @@ from datetime import datetime
 
 from core.logging import get_logger
 from core.config import settings
-from db.session import get_db
+from backend.db.session import get_db
 
 # Initialize logger
 logger = get_logger(__name__)
