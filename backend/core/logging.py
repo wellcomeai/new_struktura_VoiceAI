@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 import traceback
 import json
 
-from .config import settings
+from backend.core.config import settings
 
 # Constants
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
