@@ -6,77 +6,109 @@
 import os
 import sys
 import importlib
+import importlib.util
+import importlib.abc
 import types
 import uvicorn
 import logging
 from dotenv import load_dotenv
 
-# Настройка импортов - выполняется до всего остального
-def fix_imports():
-    # Добавляем текущую директорию в Python path
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    if current_dir not in sys.path:
-        sys.path.append(current_dir)
-    
-    # 1. Создаем пустые модули-заглушки для всех модулей верхнего уровня
-    stub_modules = ['core', 'db', 'models', 'schemas', 'services', 'utils', 'api', 'websockets']
-    for module_name in stub_modules:
-        if module_name not in sys.modules:
-            module = types.ModuleType(module_name)
-            sys.modules[module_name] = module
-            module.__path__ = []
-            print(f"Created stub for {module_name}")
-    
-    # 2. Импортируем реальные модули из backend
-    try:
-        import backend.core
-        import backend.db
-        import backend.models
-        import backend.schemas
-        import backend.services
-        import backend.utils
-        
-        # 3. Перенаправляем импорты
-        sys.modules['core'] = sys.modules['backend.core']
-        sys.modules['db'] = sys.modules['backend.db']
-        sys.modules['models'] = sys.modules['backend.models']
-        sys.modules['schemas'] = sys.modules['backend.schemas']
-        sys.modules['services'] = sys.modules['backend.services']
-        sys.modules['utils'] = sys.modules['backend.utils']
-        
-        # 4. Перенаправляем подмодули для каждого модуля
-        backend_modules = {
-            'core': ['config', 'logging', 'security', 'dependencies', 'exceptions', 'rate_limiter'],
-            'db': ['session', 'base', 'repositories'],
-            'models': ['user', 'assistant', 'conversation', 'file', 'base'],
-            'schemas': ['auth', 'user', 'assistant', 'conversation', 'file'],
-            'services': ['auth_service', 'user_service', 'assistant_service', 'file_service', 'conversation_service']
-        }
-        
-        for parent, submodules in backend_modules.items():
-            for submodule in submodules:
-                full_name = f"{parent}.{submodule}"
-                if full_name not in sys.modules:
-                    backend_name = f"backend.{full_name}"
-                    # Проверяем, существует ли реальный модуль
-                    try:
-                        real_module = importlib.import_module(backend_name)
-                        sys.modules[full_name] = real_module
-                        print(f"Redirected {full_name} -> {backend_name}")
-                    except ImportError:
-                        pass  # Игнорируем, если модуль не существует
-                        
-        print("Import redirection complete")
-        return True
-    except Exception as e:
-        print(f"Error setting up imports: {str(e)}")
-        return False
+# Добавляем текущую директорию в Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
-# Первым делом настраиваем импорты
-if not fix_imports():
-    sys.exit(1)
+# Настройка метаимпортов
+class BackendImportFinder(importlib.abc.MetaPathFinder):
+    """
+    Finder для перенаправления импортов без префикса к backend пакету.
+    Например, 'core.config' -> 'backend.core.config'
+    """
+    
+    def __init__(self):
+        self.prefix = 'backend.'
+        self.main_modules = ['core', 'db', 'models', 'schemas', 'services', 'utils', 'api', 'websockets']
+        self.imported_modules = set()
+    
+    def find_spec(self, fullname, path, target=None):
+        # Если модуль уже импортирован, возвращаем None, чтобы продолжить стандартный импорт
+        if fullname in sys.modules:
+            return None
+        
+        # Проверяем, что это один из наших модулей
+        parts = fullname.split('.')
+        if parts[0] not in self.main_modules:
+            return None
+        
+        # Формируем имя модуля с префиксом backend
+        backend_name = self.prefix + fullname
+        
+        try:
+            # Пытаемся найти модуль в backend
+            spec = importlib.util.find_spec(backend_name)
+            if spec:
+                # Сохраняем соответствие для loader
+                self.imported_modules.add(fullname)
+                print(f"Перенаправление импорта: {fullname} -> {backend_name}")
+                
+                # Создаем новый модуль и устанавливаем его в sys.modules
+                loader = BackendImportLoader(fullname, backend_name)
+                return importlib.machinery.ModuleSpec(fullname, loader)
+        except (ImportError, AttributeError):
+            pass
+        
+        return None
 
-# Загружаем переменные окружения из .env файла
+class BackendImportLoader(importlib.abc.Loader):
+    """Загрузчик для модулей, перенаправляемых к backend."""
+    
+    def __init__(self, fullname, backend_name):
+        self.fullname = fullname
+        self.backend_name = backend_name
+    
+    def create_module(self, spec):
+        # Создаем модуль, если он еще не существует
+        if self.fullname in sys.modules:
+            return sys.modules[self.fullname]
+        
+        try:
+            # Импортируем модуль из backend
+            backend_module = importlib.import_module(self.backend_name)
+            
+            # Создаем новый модуль
+            module = types.ModuleType(self.fullname)
+            
+            # Копируем атрибуты из backend модуля
+            for attr in dir(backend_module):
+                if not attr.startswith('__'):
+                    setattr(module, attr, getattr(backend_module, attr))
+            
+            # Добавляем необходимые атрибуты
+            module.__file__ = getattr(backend_module, '__file__', None)
+            module.__name__ = self.fullname
+            module.__package__ = self.fullname.rpartition('.')[0] or None
+            
+            # Связываем с родительским модулем, если это подмодуль
+            if '.' in self.fullname:
+                parent_name, _, child_name = self.fullname.rpartition('.')
+                if parent_name in sys.modules:
+                    setattr(sys.modules[parent_name], child_name, module)
+            
+            # Регистрируем модуль
+            sys.modules[self.fullname] = module
+            return module
+        except Exception as e:
+            print(f"Ошибка при создании модуля {self.fullname}: {str(e)}")
+            return None
+    
+    def exec_module(self, module):
+        # Модуль уже инициализирован в create_module
+        pass
+
+# Устанавливаем finder в начало списка meta_path перед любыми импортами
+sys.meta_path.insert(0, BackendImportFinder())
+
+# Загружаем переменные окружения
 load_dotenv()
 
 # Настройки для запуска
@@ -84,8 +116,8 @@ PORT = int(os.getenv('PORT', 5050))
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 
-# Теперь импортируем приложение - после настройки импортов
-from app import app  
+# Импортируем приложение из app.py
+from app import app
 
 # Экспортируем переменную application для Gunicorn
 application = app
@@ -96,7 +128,6 @@ logger = logging.getLogger("wellcome-ai")
 if __name__ == "__main__":
     logger.info(f"Запуск сервера на порту {PORT}, режим отладки: {DEBUG}")
     
-    # Запуск uvicorn сервера
     uvicorn.run(
         "app:app", 
         host="0.0.0.0", 
