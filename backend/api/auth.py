@@ -2,15 +2,29 @@
 Authentication API endpoints for WellcomeAI application.
 """
 
+"""
+Authentication API endpoints for WellcomeAI application.
+"""
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
-from backend.core.logging import get_logger
-from backend.db.session import get_db
-from schemas.auth import LoginRequest, RegisterRequest, Token
-from schemas.user import UserResponse
-from services.auth_service import AuthService
+from backend.core.logging import get_logger  # Уже корректный
+from backend.db.session import get_db  # Уже корректный
+from backend.schemas.auth import LoginRequest, RegisterRequest, Token  # Изменен импорт schemas
+from backend.schemas.user import UserResponse  # Изменен импорт schemas
+from backend.services.auth_service import AuthService  # Изменен импорт services
+
+# Initialize logger
+logger = get_logger(__name__)
+
+# Create router
+router = APIRouter()
+
+# Security scheme
+security = HTTPBearer()
+
+# Остальной код остается без изменений
 
 # Initialize logger
 logger = get_logger(__name__)
