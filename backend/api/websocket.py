@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPExce
 from sqlalchemy.orm import Session
 
 from core.logging import get_logger
-from db.session import get_db
+from backend.db.session import get_db
 from websockets.handler import handle_websocket_connection
 
 # Initialize logger
