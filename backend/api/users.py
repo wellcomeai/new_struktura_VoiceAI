@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.core.logging import get_logger  # Изменен импорт core
-from backend.core.security import get_current_user  # Изменен импорт core
+from backend.core.dependencies import get_current_user  # Изменен импорт core
 from backend.db.session import get_db  # Уже корректный импорт
 from backend.models.user import User  # Изменен импорт models
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse, UserPasswordUpdate  # Изменен импорт schemas
