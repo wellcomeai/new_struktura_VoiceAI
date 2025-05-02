@@ -41,22 +41,21 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Connect API routes
-app.include_router(auth.router, prefix="/api", tags=["Authentication"])
-app.include_router(users.router, prefix="/api", tags=["Users"])
-app.include_router(assistants.router, prefix="/api", tags=["Assistants"])
-app.include_router(files.router, prefix="/api", tags=["Files"])
+# Connect API routes with CORRECTED PREFIXES
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(users.router, prefix="/api/users", tags=["Users"])
+app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
+app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(healthcheck.router, tags=["Health"])
 
 # Check and create directories for static files
-# Updated path to use backend/static instead of just static
 static_dir = os.path.join(os.getcwd(), "backend/static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
     logger.info(f"Created static directory at {static_dir}")
 
-# Mount static files - Updated to use backend/static
+# Mount static files from backend/static directory
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 # Application startup handler
