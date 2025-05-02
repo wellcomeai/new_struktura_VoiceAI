@@ -27,12 +27,17 @@ class BackendImportFinder(importlib.abc.MetaPathFinder):
     
     def __init__(self):
         self.prefix = 'backend.'
-        self.main_modules = ['core', 'db', 'models', 'schemas', 'services', 'utils', 'api', 'websockets']
+        # Убрали websockets из списка перенаправляемых модулей
+        self.main_modules = ['core', 'db', 'models', 'schemas', 'services', 'utils', 'api']
         self.imported_modules = set()
     
     def find_spec(self, fullname, path, target=None):
         # Если модуль уже импортирован, возвращаем None, чтобы продолжить стандартный импорт
         if fullname in sys.modules:
+            return None
+        
+        # Исключаем websockets из перенаправления
+        if fullname == 'websockets' or fullname.startswith('websockets.'):
             return None
         
         # Проверяем, что это один из наших модулей
