@@ -11,7 +11,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .base import Base, BaseModel
-from core.config import settings
+from backend.core.config import settings
 
 class File(Base, BaseModel):
     """
