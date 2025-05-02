@@ -42,15 +42,17 @@ class OpenAIRealtimeClient:
         self.conversation_id = None
         
     async def connect(self):
-        """Establish connection to OpenAI Realtime API"""
-        try:
-            # Create headers for authorization
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
+    try:
+        # Create headers for authorization
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "openai-beta": "realtime=v1"  # Добавляем обязательный заголовок для Realtime API
+        }
+        
+        logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
+        
+        # Далее остальной код без изменений...
             
             # Establish connection to OpenAI
             self.ws = await websockets.connect(
