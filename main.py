@@ -125,6 +125,7 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 from app import app
 
 # Экспортируем переменную application для Gunicorn
+# Важно: переменная называется 'application', как указано в render.yaml
 application = app
 
 # Базовая настройка логирования
