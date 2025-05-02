@@ -10,12 +10,14 @@ import asyncio
 import uuid
 import base64
 from typing import Dict, Any, Optional, List
-from backend.models.user import User
 
 from backend.core.logging import get_logger
+from backend.core.config import settings
+from backend.models.user import User  # Добавлен правильный импорт User
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
 from backend.utils.audio_utils import base64_to_audio_buffer, create_wav_from_pcm
+from backend.websockets.openai_client import OpenAIRealtimeClient  # Импортируем новый класс
 
 logger = get_logger(__name__)
 
@@ -37,6 +39,7 @@ async def handle_websocket_connection(
     """
     # Client identifier
     client_id = str(uuid.uuid4())
+    openai_client = None
     
     try:
         # Accept connection
@@ -48,10 +51,10 @@ async def handle_websocket_connection(
             active_connections[assistant_id] = []
         active_connections[assistant_id].append(websocket)
         
-        # Загружаем ассистента из базы данных - улучшенная обработка ошибок
+        # Загружаем ассистента из базы данных
         assistant = None
         try:
-            # Попытка найти ассистента напрямую без преобразования ID
+            # Проверяем, это демо-режим или нет
             if assistant_id == "demo":
                 # Используем демо-логику
                 assistant = db.query(AssistantConfig).filter(AssistantConfig.is_public == True).first()
@@ -61,12 +64,11 @@ async def handle_websocket_connection(
                 logger.info(f"Using assistant {assistant.id if assistant else 'None'} for demo")
             else:
                 # Пробуем с разными форматами ID
-                # 1. Сначала проверяем UUID формат
                 try:
                     uuid_obj = uuid.UUID(assistant_id)
                     assistant = db.query(AssistantConfig).filter(AssistantConfig.id == uuid_obj).first()
                 except ValueError:
-                    # 2. Если не UUID, пробуем как строку
+                    # Если не UUID, пробуем как строку
                     assistant = db.query(AssistantConfig).filter(
                         AssistantConfig.id.cast(str) == assistant_id
                     ).first()
@@ -120,6 +122,46 @@ async def handle_websocket_connection(
                     logger.warning("No assistants available and no demo assistant created")
                     await websocket.close(code=1008)
                     return
+                
+            # Получаем API ключ для OpenAI
+            api_key = None
+            if assistant.user_id:
+                user = db.query(User).filter(User.id == assistant.user_id).first()
+                if user and user.openai_api_key:
+                    api_key = user.openai_api_key
+            
+            # Если нет ключа у пользователя, используем ключ из настроек
+            if not api_key:
+                api_key = settings.OPENAI_API_KEY
+                
+            if not api_key:
+                logger.error(f"No OpenAI API key found for assistant {assistant_id}")
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "no_api_key",
+                        "message": "Не найден API ключ OpenAI. Пожалуйста, добавьте ключ в настройках."
+                    }
+                })
+                await websocket.close(code=1008)
+                return
+                
+            # Создаем клиент для OpenAI
+            openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db)
+            
+            # Подключаемся к OpenAI
+            connected = await openai_client.connect()
+            if not connected:
+                logger.error(f"Failed to connect to OpenAI for assistant {assistant_id}")
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "openai_connection_failed",
+                        "message": "Не удалось подключиться к OpenAI. Пожалуйста, попробуйте позже."
+                    }
+                })
+                await websocket.close(code=1008)
+                return
             
             # Отправляем подтверждение подключения
             await websocket.send_json({
@@ -131,7 +173,7 @@ async def handle_websocket_connection(
             # Отправляем информацию о сессии
             await websocket.send_json({
                 "type": "session.created",
-                "session_id": f"session_{client_id}",
+                "session_id": openai_client.session_id,
                 "assistant": {
                     "id": str(assistant.id),
                     "name": assistant.name
@@ -156,13 +198,16 @@ async def handle_websocket_connection(
         # Флаги состояния
         is_processing = False
         
-        # Главный цикл обработки сообщений
+        # Запускаем задачу для чтения сообщений от OpenAI
+        openai_task = asyncio.create_task(handle_openai_messages(openai_client, websocket))
+        
+        # Главный цикл обработки сообщений от клиента
         while True:
             try:
                 # Получаем сообщение (текст или бинарные данные)
                 message = await websocket.receive()
                 
-                # Тут добавляем подробное логирование
+                # Логирование типа сообщения
                 if 'text' in message:
                     logger.debug(f"Received text message: {message['text'][:50]}...")
                 elif 'bytes' in message:
@@ -215,40 +260,18 @@ async def handle_websocket_connection(
                                 is_processing = False
                                 continue
                             
-                            # В этом месте должна быть отправка аудио на обработку
-                            # и получение ответа от модели, но для примера просто отправим эхо
-                            
-                            # Симулируем ответ от модели
-                            response_text = "Я получил ваше сообщение. Чем могу помочь?"
-                            
-                            # Отправляем текстовый ответ клиенту
-                            for char in response_text:
+                            # Отправляем аудио в OpenAI
+                            if openai_client and openai_client.is_connected:
+                                await openai_client.process_audio(audio_buffer)
+                            else:
+                                logger.error("Cannot process audio: OpenAI client not connected")
                                 await websocket.send_json({
-                                    "type": "response.text.delta",
-                                    "delta": char
+                                    "type": "error",
+                                    "error": {
+                                        "code": "openai_not_connected",
+                                        "message": "Соединение с OpenAI потеряно"
+                                    }
                                 })
-                                await asyncio.sleep(0.02)  # Имитация задержки набора текста
-                            
-                            # Завершаем текстовый ответ
-                            await websocket.send_json({
-                                "type": "response.text.done"
-                            })
-                            
-                            # Отправляем аудио-ответ (эхо входящего аудио для теста)
-                            await websocket.send_json({
-                                "type": "response.audio.delta",
-                                "delta": base64.b64encode(bytes(audio_buffer)).decode('utf-8')
-                            })
-                            
-                            # Завершаем аудио-ответ
-                            await websocket.send_json({
-                                "type": "response.audio.done"
-                            })
-                            
-                            # Завершаем весь ответ
-                            await websocket.send_json({
-                                "type": "response.done"
-                            })
                             
                             # Сбрасываем состояние
                             audio_buffer.clear()
@@ -266,7 +289,7 @@ async def handle_websocket_connection(
                         
                         # Отмена текущего ответа
                         if msg_type == "response.cancel":
-                            # Здесь должна быть логика отмены, но для примера просто подтвердим
+                            # TODO: Имплементировать отмену в OpenAI
                             await websocket.send_json({
                                 "type": "response.cancel.ack",
                                 "event_id": data.get("event_id", "unknown")
@@ -319,14 +342,145 @@ async def handle_websocket_connection(
                 except:
                     # Если не можем отправить сообщение об ошибке, прекращаем обработку
                     break
+        
+        # Отменяем задачу чтения сообщений от OpenAI
+        if 'openai_task' in locals() and not openai_task.done():
+            openai_task.cancel()
     
     except WebSocketDisconnect:
         logger.info(f"WebSocket connection closed: client_id={client_id}")
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
     finally:
-        # Remove connection from active list
+        # Закрываем соединение с OpenAI
+        if openai_client:
+            await openai_client.close()
+            
+        # Удаляем соединение из активных
         if assistant_id in active_connections and websocket in active_connections[assistant_id]:
             active_connections[assistant_id].remove(websocket)
             if not active_connections[assistant_id]:
                 del active_connections[assistant_id]
+
+async def handle_openai_messages(openai_client, websocket):
+    """
+    Handle messages from OpenAI and forward to client
+    
+    Args:
+        openai_client: OpenAI client
+        websocket: WebSocket connection to client
+    """
+    if not openai_client or not openai_client.ws:
+        return
+        
+    try:
+        while True:
+            # Get message from OpenAI
+            response = await openai_client.ws.recv()
+            
+            try:
+                # Parse response as JSON
+                response_data = json.loads(response)
+                
+                # Handle different response types
+                if response_data.get("type") == "message":
+                    # Text response
+                    content = response_data.get("message", {}).get("content", "")
+                    
+                    # Send text to client character by character
+                    for char in content:
+                        await websocket.send_json({
+                            "type": "response.text.delta",
+                            "delta": char
+                        })
+                        await asyncio.sleep(0.01)  # Simulate typing delay
+                    
+                    # Complete text response
+                    await websocket.send_json({
+                        "type": "response.text.done"
+                    })
+                    
+                    # Save response to database if conversation_id exists
+                    if openai_client.db_session and openai_client.conversation_id:
+                        try:
+                            conversation = openai_client.db_session.query(Conversation).filter(
+                                Conversation.id == uuid.UUID(openai_client.conversation_id)
+                            ).first()
+                            
+                            if conversation:
+                                conversation.assistant_message = content
+                                openai_client.db_session.commit()
+                        except Exception as db_error:
+                            logger.error(f"Error updating conversation: {str(db_error)}")
+                
+                elif response_data.get("type") == "audio":
+                    # Audio response
+                    audio_base64 = response_data.get("audio", "")
+                    
+                    if audio_base64:
+                        # Send audio to client
+                        await websocket.send_json({
+                            "type": "response.audio.delta",
+                            "delta": audio_base64
+                        })
+                        
+                        # Complete audio response
+                        await websocket.send_json({
+                            "type": "response.audio.done"
+                        })
+                
+                elif response_data.get("type") == "audio_transcript":
+                    # Audio transcription
+                    transcript = response_data.get("text", "")
+                    
+                    if transcript:
+                        logger.info(f"Got audio transcript: {transcript}")
+                        
+                        # Update conversation in database
+                        if openai_client.db_session and openai_client.conversation_id:
+                            try:
+                                conversation = openai_client.db_session.query(Conversation).filter(
+                                    Conversation.id == uuid.UUID(openai_client.conversation_id)
+                                ).first()
+                                
+                                if conversation:
+                                    conversation.user_message = transcript
+                                    openai_client.db_session.commit()
+                            except Exception as db_error:
+                                logger.error(f"Error updating conversation with transcript: {str(db_error)}")
+                
+                elif response_data.get("type") == "error":
+                    # Error from OpenAI
+                    error_msg = response_data.get("error", {}).get("message", "Неизвестная ошибка")
+                    logger.error(f"Error from OpenAI: {error_msg}")
+                    
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": {
+                            "code": "openai_error",
+                            "message": error_msg
+                        }
+                    })
+                
+                elif response_data.get("type") == "status":
+                    # Status from OpenAI
+                    status = response_data.get("status", "")
+                    logger.debug(f"Status from OpenAI: {status}")
+                    
+                    # If final status, send response completion
+                    if status == "done":
+                        await websocket.send_json({
+                            "type": "response.done"
+                        })
+                
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON from OpenAI: {response[:100]}...")
+            except Exception as e:
+                logger.error(f"Error processing OpenAI message: {str(e)}")
+                
+    except asyncio.CancelledError:
+        logger.info(f"OpenAI message handler cancelled for client {openai_client.client_id}")
+    except ConnectionClosed:
+        logger.warning(f"OpenAI connection closed for client {openai_client.client_id}")
+    except Exception as e:
+        logger.error(f"Error in OpenAI message handler: {str(e)}")
