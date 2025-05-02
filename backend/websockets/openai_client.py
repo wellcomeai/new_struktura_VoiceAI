@@ -72,10 +72,11 @@ class OpenAIRealtimeClient:
         if not self.is_connected or not self.ws:
             return False
         try:
-            # УДАЛЕНО session_id из payload
+            # Добавлено поле type в объект item
             init_payload = {
                 "type": "conversation.item.create",
                 "item": {
+                    "type": "text",  # Добавленное поле
                     "role": "system",
                     "content": self.assistant_config.system_prompt
                                 or "You are a helpful voice assistant."
@@ -108,7 +109,7 @@ class OpenAIRealtimeClient:
             return False
         try:
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
-            # УДАЛЕНО session_id из payload
+            # Тут параметр type не нужен, так как он уже указан в корне сообщения
             audio_payload = {
                 "type": "input_audio_buffer.append",
                 "audio_format": "pcm_s16le",
@@ -134,7 +135,7 @@ class OpenAIRealtimeClient:
             logger.error("Not connected: cannot commit audio")
             return False
         try:
-            # УДАЛЕНО session_id из payload
+            # Тут параметр type не требуется в дополнительных полях
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.commit"
             }))
@@ -150,7 +151,7 @@ class OpenAIRealtimeClient:
             logger.error("Not connected: cannot clear audio buffer")
             return False
         try:
-            # УДАЛЕНО session_id из payload
+            # Тут параметр type не требуется в дополнительных полях
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.clear"
             }))
@@ -166,10 +167,13 @@ class OpenAIRealtimeClient:
             logger.error("Not connected: cannot send response")
             return False
         try:
-            # УДАЛЕНО session_id из payload
+            # Добавлено поле type в объект response
             payload = {
                 "type": "response.create",
-                "response": {"content": content}
+                "response": {
+                    "type": "text",  # Добавленное поле
+                    "content": content
+                }
             }
             await self.ws.send(json.dumps(payload))
             logger.debug("Sent response payload")
