@@ -16,7 +16,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-# Database schema initialization - ТОЛЬКО СОЗДАНИЕ ТАБЛИЦ, БЕЗ СБРОСА ДАННЫХ
+# Database schema initialization - только создание таблиц
 from backend.db.session import engine
 from backend.models.base import Base
 
