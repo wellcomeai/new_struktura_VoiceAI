@@ -25,7 +25,7 @@ class User(Base, BaseModel):
     company_name = Column(String, nullable=True)
     openai_api_key = Column(String, nullable=True)
     subscription_plan = Column(String, default="free")
-    # ВАЖНО: разкомментировано поле usage_tokens
+    # Колонка уже существует в БД, оставляем её в модели
     usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
     google_sheets_token = Column(JSON, nullable=True)
