@@ -14,11 +14,11 @@ from websockets.exceptions import ConnectionClosed
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
-from backend.models.user import User  # Добавлен правильный импорт User
+from backend.models.user import User
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
 from backend.utils.audio_utils import base64_to_audio_buffer, create_wav_from_pcm
-from backend.websockets.openai_client import OpenAIRealtimeClient  # Импортируем новый класс
+from backend.websockets.openai_client import OpenAIRealtimeClient
 
 logger = get_logger(__name__)
 
@@ -171,10 +171,9 @@ async def handle_websocket_connection(
                 "message": "Соединение установлено"
             })
             
-            # Отправляем информацию о сессии
+            # Отправляем информацию о сессии без session_id
             await websocket.send_json({
                 "type": "session.created",
-                "session_id": openai_client.session_id,
                 "assistant": {
                     "id": str(assistant.id),
                     "name": assistant.name
@@ -263,7 +262,10 @@ async def handle_websocket_connection(
                             
                             # Отправляем аудио в OpenAI
                             if openai_client and openai_client.is_connected:
+                                # Сначала отправляем аудио данные
                                 await openai_client.process_audio(audio_buffer)
+                                # Затем вызываем commit без session_id
+                                await openai_client.commit_audio()
                             else:
                                 logger.error("Cannot process audio: OpenAI client not connected")
                                 await websocket.send_json({
@@ -282,6 +284,9 @@ async def handle_websocket_connection(
                         # Очистка буфера
                         if msg_type == "input_audio_buffer.clear":
                             audio_buffer.clear()
+                            # Вызываем clear_audio_buffer без session_id
+                            if openai_client and openai_client.is_connected:
+                                await openai_client.clear_audio_buffer()
                             await websocket.send_json({
                                 "type": "input_audio_buffer.clear.ack",
                                 "event_id": data.get("event_id", "unknown")
@@ -290,7 +295,11 @@ async def handle_websocket_connection(
                         
                         # Отмена текущего ответа
                         if msg_type == "response.cancel":
-                            # TODO: Имплементировать отмену в OpenAI
+                            # Отправляем команду отмены без session_id
+                            if openai_client and openai_client.is_connected:
+                                await openai_client.ws.send(json.dumps({
+                                    "type": "response.cancel"
+                                }))
                             await websocket.send_json({
                                 "type": "response.cancel.ack",
                                 "event_id": data.get("event_id", "unknown")
@@ -330,23 +339,33 @@ async def handle_websocket_connection(
             except WebSocketDisconnect:
                 logger.info(f"WebSocket client {client_id} disconnected")
                 break
+            except ConnectionClosed:
+                logger.info(f"WebSocket connection closed for client {client_id}")
+                break
             except Exception as e:
                 logger.error(f"Error in WebSocket message processing: {str(e)}")
                 try:
-                    await websocket.send_json({
-                        "type": "error",
-                        "error": {
-                            "code": "processing_error",
-                            "message": f"Ошибка обработки сообщения: {str(e)}"
-                        }
-                    })
+                    # Проверяем, что соединение все еще активно перед отправкой
+                    if websocket.client_state.CONNECTED:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {
+                                "code": "processing_error",
+                                "message": f"Ошибка обработки сообщения: {str(e)}"
+                            }
+                        })
                 except:
                     # Если не можем отправить сообщение об ошибке, прекращаем обработку
+                    logger.error(f"Cannot send error message, connection may be closed")
                     break
         
         # Отменяем задачу чтения сообщений от OpenAI
         if 'openai_task' in locals() and not openai_task.done():
             openai_task.cancel()
+            try:
+                await asyncio.wait_for(openai_task, timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                logger.info(f"OpenAI task cancelled for client {client_id}")
     
     except WebSocketDisconnect:
         logger.info(f"WebSocket connection closed: client_id={client_id}")
@@ -355,13 +374,21 @@ async def handle_websocket_connection(
     finally:
         # Закрываем соединение с OpenAI
         if openai_client:
-            await openai_client.close()
+            try:
+                await openai_client.close()
+                logger.info(f"Successfully closed OpenAI connection for client {client_id}")
+            except Exception as e:
+                logger.error(f"Error closing OpenAI connection: {str(e)}")
             
         # Удаляем соединение из активных
-        if assistant_id in active_connections and websocket in active_connections[assistant_id]:
-            active_connections[assistant_id].remove(websocket)
-            if not active_connections[assistant_id]:
-                del active_connections[assistant_id]
+        try:
+            if assistant_id in active_connections and websocket in active_connections[assistant_id]:
+                active_connections[assistant_id].remove(websocket)
+                if not active_connections[assistant_id]:
+                    del active_connections[assistant_id]
+            logger.info(f"Removed WebSocket connection from active connections: client_id={client_id}")
+        except Exception as e:
+            logger.error(f"Error removing connection from active_connections: {str(e)}")
 
 async def handle_openai_messages(openai_client, websocket):
     """
@@ -402,10 +429,10 @@ async def handle_openai_messages(openai_client, websocket):
                     })
                     
                     # Save response to database if conversation_id exists
-                    if openai_client.db_session and openai_client.conversation_id:
+                    if openai_client.db_session and openai_client.conversation_record_id:
                         try:
                             conversation = openai_client.db_session.query(Conversation).filter(
-                                Conversation.id == uuid.UUID(openai_client.conversation_id)
+                                Conversation.id == uuid.UUID(openai_client.conversation_record_id)
                             ).first()
                             
                             if conversation:
@@ -438,10 +465,10 @@ async def handle_openai_messages(openai_client, websocket):
                         logger.info(f"Got audio transcript: {transcript}")
                         
                         # Update conversation in database
-                        if openai_client.db_session and openai_client.conversation_id:
+                        if openai_client.db_session and openai_client.conversation_record_id:
                             try:
                                 conversation = openai_client.db_session.query(Conversation).filter(
-                                    Conversation.id == uuid.UUID(openai_client.conversation_id)
+                                    Conversation.id == uuid.UUID(openai_client.conversation_record_id)
                                 ).first()
                                 
                                 if conversation:
