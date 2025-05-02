@@ -16,7 +16,7 @@ from backend.models.conversation import Conversation
 
 logger = get_logger(__name__)
 
-# Хранение активных соединений для каждого ассистента
+# Store active connections for each assistant
 active_connections: Dict[str, List[WebSocket]] = {}
 
 async def handle_websocket_connection(
@@ -25,105 +25,111 @@ async def handle_websocket_connection(
     db: Session
 ) -> None:
     """
-    Обработчик WebSocket соединения
+    WebSocket connection handler
     
     Args:
-        websocket: WebSocket соединение
-        assistant_id: ID ассистента
-        db: Сессия базы данных
+        websocket: WebSocket connection
+        assistant_id: Assistant ID
+        db: Database session
     """
-    # Идентификатор клиента
+    # Client identifier
     client_id = str(uuid.uuid4())
     
     try:
-        # Принимаем соединение
+        # Accept connection
         await websocket.accept()
-        logger.info(f"WebSocket соединение принято: client_id={client_id}, assistant_id={assistant_id}")
+        logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}")
         
-        # Регистрируем соединение
+        # Register connection
         if assistant_id not in active_connections:
             active_connections[assistant_id] = []
         active_connections[assistant_id].append(websocket)
         
-        # Отправляем приветственное сообщение
+        # Send welcome message
         await websocket.send_json({
             "type": "connection_status",
             "status": "connected",
-            "message": "Соединение установлено"
+            "message": "Connection established"
         })
         
-        # Загружаем ассистента из базы данных
+        # Load assistant from database
         assistant = None
         try:
             assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
             if not assistant:
-                logger.warning(f"Ассистент не найден: {assistant_id}")
+                logger.warning(f"Assistant not found: {assistant_id}")
                 await websocket.send_json({
                     "type": "error",
                     "error": {
                         "code": "assistant_not_found",
-                        "message": "Ассистент не найден"
+                        "message": "Assistant not found"
                     }
                 })
+                await websocket.close(code=1008)  # Policy violation
                 return
         except Exception as e:
-            logger.error(f"Ошибка при загрузке ассистента: {str(e)}")
+            logger.error(f"Error loading assistant: {str(e)}")
             await websocket.send_json({
                 "type": "error",
                 "error": {
                     "code": "database_error",
-                    "message": "Ошибка при загрузке ассистента"
+                    "message": "Error loading assistant"
                 }
             })
+            await websocket.close(code=1011)  # Internal server error
             return
         
-        # Главный цикл обработки сообщений
+        # Main message processing loop
         while True:
-            # Получаем сообщение
-            data = await websocket.receive_text()
-            
+            # Get message
             try:
-                # Парсим JSON
+                data = await websocket.receive_text()
+                
+                # Parse JSON
                 message = json.loads(data)
                 
-                # Обрабатываем сообщение
+                # Process message
                 if message.get("type") == "ping":
-                    # Отвечаем на пинг
+                    # Respond to ping
                     await websocket.send_text("pong")
                     continue
                 
-                # Здесь будет основная логика обработки сообщений
-                # Пока просто отправляем эхо
+                # Main message processing logic will go here
+                # For now just send echo
                 await websocket.send_json({
                     "type": "echo",
                     "message": message
                 })
                 
             except json.JSONDecodeError:
-                logger.warning(f"Получено некорректное JSON сообщение: {data}")
+                logger.warning(f"Received invalid JSON message: {data}")
                 await websocket.send_json({
                     "type": "error",
                     "error": {
                         "code": "invalid_json",
-                        "message": "Некорректный формат JSON"
+                        "message": "Invalid JSON format"
                     }
                 })
             except Exception as e:
-                logger.error(f"Ошибка при обработке сообщения: {str(e)}")
+                logger.error(f"Error processing message: {str(e)}")
                 await websocket.send_json({
                     "type": "error",
                     "error": {
                         "code": "processing_error",
-                        "message": f"Ошибка при обработке сообщения: {str(e)}"
+                        "message": f"Error processing message: {str(e)}"
                     }
                 })
     
     except WebSocketDisconnect:
-        logger.info(f"WebSocket соединение закрыто: client_id={client_id}")
+        logger.info(f"WebSocket connection closed: client_id={client_id}")
     except Exception as e:
-        logger.error(f"Ошибка WebSocket: {str(e)}")
+        logger.error(f"WebSocket error: {str(e)}")
+        try:
+            await websocket.close(code=1011)  # Internal server error
+        except:
+            pass
     finally:
-        # Удаляем соединение из списка активных
+        # Remove connection from active list
         if assistant_id in active_connections and websocket in active_connections[assistant_id]:
             active_connections[assistant_id].remove(websocket)
             if not active_connections[assistant_id]:
