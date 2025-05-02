@@ -7,29 +7,21 @@ import types
 import uvicorn
 import logging
 from dotenv import load_dotenv
-from sqlalchemy import text
 
 # Load environment variables
 load_dotenv()
-
-# Database schema reset: drop and recreate schema to handle dependent objects
-from backend.db.session import engine
-from backend.models.base import Base
-
-with engine.begin() as conn:
-    # Drop and recreate the public schema, removing all dependent objects
-    conn.execute(text("DROP SCHEMA public CASCADE"))
-    conn.execute(text("CREATE SCHEMA public"))
-    # Optionally, re-grant permissions if needed
-    conn.execute(text("GRANT USAGE ON SCHEMA public TO public"))
-
-# Create tables according to current models
-Base.metadata.create_all(bind=engine)
 
 # Add current directory to Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
+
+# Database schema initialization - ТОЛЬКО СОЗДАНИЕ ТАБЛИЦ, БЕЗ СБРОСА ДАННЫХ
+from backend.db.session import engine
+from backend.models.base import Base
+
+# Создаем таблицы только если они не существуют
+Base.metadata.create_all(bind=engine)
 
 # Meta import configuration
 class BackendImportFinder(importlib.abc.MetaPathFinder):
