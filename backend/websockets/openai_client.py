@@ -1,3 +1,8 @@
+"""
+OpenAI Realtime client for WellcomeAI application.
+Handles WebSocket connections to OpenAI Realtime API.
+"""
+
 import asyncio
 import json
 import uuid
@@ -35,7 +40,7 @@ class OpenAIRealtimeClient:
         self.is_connected = False
         self.openai_url = settings.REALTIME_WS_URL
         self.session_id = str(uuid.uuid4())
-        self.conversation_id = None
+        self.conversation_record_id = None  # DB record
         
     async def connect(self) -> bool:
         """Establish WebSocket connection to OpenAI Realtime API"""
@@ -69,7 +74,7 @@ class OpenAIRealtimeClient:
         try:
             init_payload = {
                 "type": "conversation.item.create",
-                "conversation_id": self.session_id,
+                "session_id": self.session_id,
                 "item": {
                     "role": "system",
                     "content": self.assistant_config.system_prompt
@@ -89,8 +94,8 @@ class OpenAIRealtimeClient:
                 self.db_session.add(conv)
                 self.db_session.commit()
                 self.db_session.refresh(conv)
-                self.conversation_id = str(conv.id)
-                logger.info(f"Created conversation record: {self.conversation_id}")
+                self.conversation_record_id = str(conv.id)
+                logger.info(f"Created conversation record: {self.conversation_record_id}")
             return True
         except Exception as e:
             logger.error(f"Error initializing conversation: {e}")
@@ -107,13 +112,14 @@ class OpenAIRealtimeClient:
                 "type": "input_audio_buffer.append",
                 "audio_format": "pcm_s16le",
                 "sample_rate": 24000,
-                "audio": audio_base64
+                "audio": audio_base64,
+                "session_id": self.session_id
             }
             await self.ws.send(json.dumps(audio_payload))
             logger.debug(f"Appended audio buffer ({len(audio_buffer)} bytes)")
 
-            if self.db_session and self.conversation_id:
-                conv = self.db_session.query(Conversation).get(uuid.UUID(self.conversation_id))
+            if self.db_session and self.conversation_record_id:
+                conv = self.db_session.query(Conversation).get(uuid.UUID(self.conversation_record_id))
                 if conv:
                     conv.user_message = "[Audio message]"
                     self.db_session.commit()
@@ -128,7 +134,10 @@ class OpenAIRealtimeClient:
             logger.error("Not connected: cannot commit audio")
             return False
         try:
-            await self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+            await self.ws.send(json.dumps({
+                "type": "input_audio_buffer.commit",
+                "session_id": self.session_id
+            }))
             logger.debug("Committed audio buffer")
             return True
         except Exception as e:
@@ -141,7 +150,10 @@ class OpenAIRealtimeClient:
             logger.error("Not connected: cannot clear audio buffer")
             return False
         try:
-            await self.ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+            await self.ws.send(json.dumps({
+                "type": "input_audio_buffer.clear",
+                "session_id": self.session_id
+            }))
             logger.debug("Cleared audio buffer")
             return True
         except Exception as e:
@@ -156,7 +168,7 @@ class OpenAIRealtimeClient:
         try:
             payload = {
                 "type": "response.create",
-                "conversation_id": self.session_id,
+                "session_id": self.session_id,
                 "response": {"content": content}
             }
             await self.ws.send(json.dumps(payload))
