@@ -9,8 +9,8 @@ from typing import Optional, List, Tuple
 import mimetypes
 from pathlib import Path
 
-from core.logging import get_logger
-from core.config import settings
+from backend.core.logging import get_logger
+from backend.core.config import settings
 
 logger = get_logger(__name__)
 
