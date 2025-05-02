@@ -1,6 +1,6 @@
 """
-Базовые классы и функции для работы с БД.
-Содержит базовый класс для всех моделей SQLAlchemy и общие функции для работы с БД.
+Base classes and functions for working with the database.
+Contains the base class for all SQLAlchemy models and common database functions.
 """
 
 import logging
@@ -24,7 +24,8 @@ try:
         max_overflow=20,     # Allow up to 20 overflows
         echo=settings.DEBUG  # Log SQL statements in debug mode
     )
-    logger.info(f"Database engine created for {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'database'}")
+    database_url_masked = settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'database'
+    logger.info(f"Database engine created for {database_url_masked}")
 except Exception as e:
     logger.error(f"Failed to create database engine: {str(e)}")
     raise
@@ -61,7 +62,7 @@ class BaseModel:
             if k in [c.name for c in cls.__table__.columns]
         })
 
-# Добавляем функцию create_tables
+# Function to create tables
 def create_tables(engine):
     """
     Create database tables for all models.
@@ -70,14 +71,14 @@ def create_tables(engine):
         engine: SQLAlchemy engine
     """
     try:
-        # Импортируем здесь все модели, которые должны быть созданы
-        # Это важно для правильной работы SQLAlchemy
+        # Import all models that should be created
+        # This is important for SQLAlchemy to work correctly
         from backend.models.user import User
         from backend.models.assistant import AssistantConfig
         from backend.models.conversation import Conversation
         from backend.models.file import File
         
-        # Создаем все таблицы
+        # Create all tables
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
     except Exception as e:
