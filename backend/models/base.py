@@ -40,7 +40,7 @@ class BaseModel:
 def create_tables(engine):
     """
     Создаёт таблицы (если их нет) и добавляет в:
-      - users: отсутствующие колонки last_login, is_active
+      - users: отсутствующие колонки last_login, is_active, usage_tokens
       - assistant_configs: отсутствующую колонку api_access_token
     """
     # 1) Создаём все таблицы по описанным моделям
@@ -65,6 +65,11 @@ def create_tables(engine):
                         "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
                     ))
                     logger.info("Added missing column is_active to users")
+                if "usage_tokens" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN usage_tokens INTEGER NOT NULL DEFAULT 0"
+                    ))
+                    logger.info("Added missing column usage_tokens to users")
 
             # — migrate assistant_configs —
             if "assistant_configs" in existing_tables:
