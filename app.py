@@ -50,13 +50,14 @@ app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(healthcheck.router, tags=["Health"])
 
 # Check and create directories for static files
-static_dir = os.path.join(os.getcwd(), "static")
+# Updated path to use backend/static instead of just static
+static_dir = os.path.join(os.getcwd(), "backend/static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
-    logger.info(f"Created static directory")
+    logger.info(f"Created static directory at {static_dir}")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files - Updated to use backend/static
+app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 
 # Application startup handler
 @app.on_event("startup")
