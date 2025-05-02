@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 from models.user import User
 from schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
