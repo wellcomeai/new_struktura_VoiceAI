@@ -63,24 +63,25 @@ class BaseModel:
         })
 
 # Function to create tables
+# Function to create tables
 def create_tables(engine):
     """
-    Create database tables for all models.
+    Create (recreate) database tables for all models.
     
     Args:
         engine: SQLAlchemy engine
     """
     try:
-        # Import all models that should be created
-        # This is important for SQLAlchemy to work correctly
+        # Импорт всех моделей, чтобы SQLAlchemy "увидела" их
         from backend.models.user import User
         from backend.models.assistant import AssistantConfig
         from backend.models.conversation import Conversation
         from backend.models.file import File
-        
-        # Create all tables
+
+        # Сбрасываем все (пустые) таблицы и создаём по свежей схеме
+        Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
-        logger.info("Database tables created successfully")
+        logger.info("Database tables recreated successfully")
     except Exception as e:
-        logger.error(f"Failed to create database tables: {str(e)}")
+        logger.error(f"Failed to recreate database tables: {str(e)}")
         raise
