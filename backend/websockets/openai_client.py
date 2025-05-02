@@ -1,7 +1,7 @@
-"""
-OpenAI Realtime client for WellcomeAI application.
-Handles WebSocket connections to OpenAI Realtime API.
-"""
+ """
+ OpenAI Realtime client for WellcomeAI application.
+ Handles WebSocket connections to OpenAI Realtime API.
+ """
 
 import asyncio
 import json
@@ -18,10 +18,17 @@ from backend.models.conversation import Conversation
 
 logger = get_logger(__name__)
 
+
 class OpenAIRealtimeClient:
     """Client for OpenAI Realtime API"""
     
-    def __init__(self, api_key: str, assistant_config: AssistantConfig, client_id: str, db_session=None):
+    def __init__(
+        self,
+        api_key: str,
+        assistant_config: AssistantConfig,
+        client_id: str,
+        db_session=None
+    ):
         """
         Initialize OpenAI Realtime client
         
@@ -41,20 +48,19 @@ class OpenAIRealtimeClient:
         self.session_id = str(uuid.uuid4())
         self.conversation_id = None
         
-    async def connect(self):
-    try:
-        # Create headers for authorization
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "openai-beta": "realtime=v1"  # Добавляем обязательный заголовок для Realtime API
-        }
-        
-        logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
-        
-        # Далее остальной код без изменений...
+    async def connect(self) -> bool:
+        """Establish WebSocket connection to OpenAI Realtime API"""
+        try:
+            # Create headers for authorization
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "openai-beta": "realtime=v1"  # Required header for Realtime API
+            }
             
-            # Establish connection to OpenAI
+            logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
+            
+            # Establish connection
             self.ws = await websockets.connect(
                 self.openai_url,
                 extra_headers=headers,
@@ -71,29 +77,30 @@ class OpenAIRealtimeClient:
             
             return True
         except Exception as e:
-            logger.error(f"Failed to connect to OpenAI Realtime API: {str(e)}")
+            logger.error(f"Failed to connect to OpenAI Realtime API: {e}")
             self.is_connected = False
             return False
-    
-    async def _init_conversation(self):
+
+    async def _init_conversation(self) -> bool:
         """Initialize conversation with system prompt"""
         if not self.is_connected or not self.ws:
             return False
-            
+        
         try:
             # Send system prompt
             init_message = {
                 "type": "message",
                 "message": {
                     "role": "system",
-                    "content": self.assistant_config.system_prompt or "You are a helpful voice assistant."
+                    "content": self.assistant_config.system_prompt
+                                or "You are a helpful voice assistant."
                 }
             }
             
             await self.ws.send(json.dumps(init_message))
-            logger.debug(f"Sent system prompt to OpenAI")
+            logger.debug("Sent system prompt to OpenAI")
             
-            # Create new conversation record in database, if session exists
+            # Create new conversation record in DB
             if self.db_session:
                 try:
                     conversation = Conversation(
@@ -108,70 +115,67 @@ class OpenAIRealtimeClient:
                     self.conversation_id = str(conversation.id)
                     logger.info(f"Created new conversation record: {self.conversation_id}")
                 except Exception as db_error:
-                    logger.error(f"Error creating conversation record: {str(db_error)}")
+                    logger.error(f"Error creating conversation record: {db_error}")
             
             return True
         except Exception as e:
-            logger.error(f"Error initializing conversation: {str(e)}")
+            logger.error(f"Error initializing conversation: {e}")
             return False
-    
+
     async def process_audio(self, audio_buffer: bytes) -> bool:
         """
         Send audio for processing to OpenAI
         
         Args:
             audio_buffer: Audio data as bytes
-            
         Returns:
             True if successful
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot process audio: not connected to OpenAI")
             return False
-            
+
         try:
             # Convert audio to base64
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
             
-            # Create message for sending
+            # Build message
             audio_message = {
                 "type": "audio",
                 "audio": audio_base64,
-                "audio_format": "pcm_s16le",  # 16-bit signed PCM, little-endian
+                "audio_format": "pcm_s16le",
                 "sample_rate": 24000,
-                "model": "gpt-4o"  # or another model supporting audio
+                "model": "gpt-4o"
             }
             
-            # Send audio to OpenAI
+            # Send audio
             await self.ws.send(json.dumps(audio_message))
             logger.debug(f"Sent audio to OpenAI ({len(audio_buffer)} bytes)")
             
-            # Update conversation in database
+            # Update conversation record
             if self.db_session and self.conversation_id:
                 try:
                     conversation = self.db_session.query(Conversation).filter(
                         Conversation.id == uuid.UUID(self.conversation_id)
                     ).first()
-                    
                     if conversation:
-                        # We mark that user sent a message, content will be updated later with transcription
                         conversation.user_message = "[Audio message]"
                         self.db_session.commit()
                 except Exception as db_error:
-                    logger.error(f"Error updating conversation: {str(db_error)}")
-            
+                    logger.error(f"Error updating conversation: {db_error}")
+
             return True
         except Exception as e:
-            logger.error(f"Error sending audio to OpenAI: {str(e)}")
+            logger.error(f"Error sending audio to OpenAI: {e}")
             return False
-    
-    async def close(self):
+
+    async def close(self) -> None:
         """Close connection to OpenAI"""
         if self.ws:
             try:
                 await self.ws.close()
                 logger.info(f"Closed connection to OpenAI for client {self.client_id}")
             except Exception as e:
-                logger.error(f"Error closing OpenAI connection: {str(e)}")
+                logger.error(f"Error closing OpenAI connection: {e}")
         
         self.is_connected = False
