@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from backend.core.logging import get_logger  # Изменен импорт core
-from backend.core.security import get_current_user  # Изменен импорт core
+from backend.core.dependencies import get_current_user
 from backend.db.session import get_db  # Уже корректный
 from backend.models.user import User  # Изменен импорт models
 from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse  # Изменен импорт schemas
