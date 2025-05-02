@@ -1,7 +1,7 @@
- """
- OpenAI Realtime client for WellcomeAI application.
- Handles WebSocket connections to OpenAI Realtime API.
- """
+"""
+OpenAI Realtime client for WellcomeAI application.
+Handles WebSocket connections to OpenAI Realtime API.
+"""
 
 import asyncio
 import json
