@@ -57,7 +57,7 @@ async def upload_file(
             detail="Failed to upload file"
         )
 
-@router.get("", response_model=List[FileResponse])
+@router.get("/", response_model=List[FileResponse])
 async def get_files(
     assistant_id: Optional[str] = Query(None, description="Optional assistant ID to filter files"),
     skip: int = Query(0, ge=0, description="Number of files to skip"),
