@@ -1,6 +1,6 @@
 """
-Инициализация FastAPI приложения WellcomeAI.
-Этот файл настраивает все компоненты приложения: маршруты, middleware, логирование, и т.д.
+FastAPI application initialization for WellcomeAI.
+This file configures all application components: routes, middleware, logging, etc.
 """
 
 import os
@@ -10,62 +10,65 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
 from backend.core.logging import setup_logging
-from backend.api import auth, users, assistants, files, websocket
+from backend.api import auth, users, assistants, files, websocket, healthcheck
 from backend.models.base import create_tables
 from backend.db.session import engine
 
-# Настройка логирования
+# Setup logging
 logger = setup_logging()
 
-# Создание и настройка FastAPI приложения
+# Create and configure FastAPI application
 app = FastAPI(
-    title="WellcomeAI - SaaS голосовой помощник",
-    description="API для управления персонализированными голосовыми помощниками на базе OpenAI",
+    title="WellcomeAI - SaaS Voice Assistant",
+    description="API for managing personalized voice assistants based on OpenAI",
     version="1.0.0",
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
 
-# Настройка CORS
+# Setup CORS
+origins = settings.CORS_ORIGINS.split(",") if isinstance(settings.CORS_ORIGINS, str) else settings.CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
 
-# Подключение API маршрутов
-app.include_router(auth.router, prefix="/api", tags=["Авторизация"])
-app.include_router(users.router, prefix="/api", tags=["Пользователи"])
-app.include_router(assistants.router, prefix="/api", tags=["Ассистенты"])
-app.include_router(files.router, prefix="/api", tags=["Файлы"])
+# Connect API routes
+app.include_router(auth.router, prefix="/api", tags=["Authentication"])
+app.include_router(users.router, prefix="/api", tags=["Users"])
+app.include_router(assistants.router, prefix="/api", tags=["Assistants"])
+app.include_router(files.router, prefix="/api", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
+app.include_router(healthcheck.router, tags=["Health"])
 
-# Проверка и создание директорий для статических файлов
+# Check and create directories for static files
 static_dir = os.path.join(os.getcwd(), "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
-    logger.info(f"Создана директория static")
+    logger.info(f"Created static directory")
 
-# Монтирование статических файлов
+# Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Обработчик запуска приложения
+# Application startup handler
 @app.on_event("startup")
 async def startup_event():
-    # Создание таблиц в базе данных, если они отсутствуют
+    # Create database tables if they don't exist
     create_tables(engine)
-    logger.info("Приложение запущено успешно")
+    logger.info("Application started successfully")
 
-# Главная страница (перенаправление на статическую страницу)
+# Main page (redirects to static page)
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/static/index.html")
 
-# Обработчик остановки приложения
+# Application shutdown handler
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Приложение остановлено")
+    logger.info("Application stopped")
