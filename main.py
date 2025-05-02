@@ -7,15 +7,22 @@ import types
 import uvicorn
 import logging
 from dotenv import load_dotenv
+from sqlalchemy import text
 
 # Load environment variables
 load_dotenv()
 
-# Reset database schema completely (drop and recreate tables)
+# Database schema reset: drop and recreate schema to handle dependent objects
 from backend.db.session import engine
 from backend.models.base import Base
-# Drop all existing tables
-Base.metadata.drop_all(bind=engine)
+
+with engine.begin() as conn:
+    # Drop and recreate the public schema, removing all dependent objects
+    conn.execute(text("DROP SCHEMA public CASCADE"))
+    conn.execute(text("CREATE SCHEMA public"))
+    # Optionally, re-grant permissions if needed
+    conn.execute(text("GRANT USAGE ON SCHEMA public TO public"))
+
 # Create tables according to current models
 Base.metadata.create_all(bind=engine)
 
