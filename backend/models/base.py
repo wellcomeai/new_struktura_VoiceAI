@@ -1,5 +1,10 @@
+"""
+Base classes and functions for working with the database.
+Contains the base class for all SQLAlchemy models and common database functions.
+"""
+
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -14,15 +19,16 @@ try:
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,   # Check connection before using from pool
-        pool_recycle=3600,    # Recycle connections after 1 hour
-        pool_size=10,         # Maximum pool size
-        max_overflow=20,      # Allow up to 20 overflows
-        echo=settings.DEBUG   # Log SQL statements in debug mode
+        pool_recycle=3600,     # Recycle connections after 1 hour
+        pool_size=10,          # Maximum pool size
+        max_overflow=20,       # Allow up to 20 overflows
+        echo=settings.DEBUG    # Log SQL statements in debug mode
     )
-    database_url_masked = settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'database'
+    database_url_masked = settings.DATABASE_URL.split('@')[-1] \
+        if '@' in settings.DATABASE_URL else 'database'
     logger.info(f"Database engine created for {database_url_masked}")
 except Exception as e:
-    logger.error(f"Failed to create database engine: {e}")
+    logger.error(f"Failed to create database engine: {str(e)}")
     raise
 
 # Create sessionmaker
@@ -35,18 +41,18 @@ SessionLocal = sessionmaker(
 # Create base class for models
 Base = declarative_base()
 
-# Add common functionality to all models
+
 class BaseModel:
     """
     Base class for adding common functionality to all models.
     """
-    
+
     def to_dict(self):
         """
         Convert model instance to dictionary.
         """
         return {c.name: getattr(self, c.name) for c in self.__table__.columns}
-    
+
     @classmethod
     def from_dict(cls, data):
         """
@@ -57,29 +63,39 @@ class BaseModel:
             if k in [c.name for c in cls.__table__.columns]
         })
 
-# Function to create or update tables
+
 def create_tables(engine):
     """
-    Ensure database schema is up-to-date:
-    - добавляет колонку last_login в users, если её нет
-    - создаёт недостающие таблицы
+    Create or update database tables for all models.
+    - Импортирует все модели, чтобы они попали в Base.metadata.
+    - Если таблица users уже есть, но в ней нет last_login, добавляет колонку.
+    - Вызывает create_all, который создаёт все отсутствующие таблицы/колонки.
     """
     try:
-        # Импорт моделей для регистрации в metadata
+        # Импорт всех моделей
         from backend.models.user import User
         from backend.models.assistant import AssistantConfig
         from backend.models.conversation import Conversation
         from backend.models.file import File
 
-        # Добавляем missing column без сброса всех таблиц
-        with engine.connect() as conn:
-            conn.execute(text(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ NULL"
-            ))
+        inspector = inspect(engine)
 
-        # Создаём отсутствующие таблицы, не трогая уже существующие
+        # Если таблица users существует, но нет колонки last_login — добавляем её
+        if 'users' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('users')]
+            if 'last_login' not in existing_cols:
+                logger.info("Adding missing column last_login to users table")
+                with engine.begin() as conn:
+                    conn.execute(
+                        text(
+                            "ALTER TABLE users "
+                            "ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
+                        )
+                    )
+
+        # Создаём/обновляем все таблицы
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created/updated successfully")
     except Exception as e:
-        logger.error(f"Failed to create/update database tables: {e}")
+        logger.error(f"Failed to create/update database tables: {str(e)}")
         raise
