@@ -8,9 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from core.config import settings
-from core.logging import get_logger
-
+from backend.core.config import settings
+from backend.core.logging import get_logger
 # Initialize logger
 logger = get_logger(__name__)
 
