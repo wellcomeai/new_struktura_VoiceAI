@@ -25,8 +25,8 @@ class User(Base, BaseModel):
     company_name = Column(String, nullable=True)
     openai_api_key = Column(String, nullable=True)
     subscription_plan = Column(String, default="free")
-    # Комментируем проблемную колонку, которой нет в БД
-    # usage_tokens = Column(Integer, default=0)
+    # ВАЖНО: разкомментировано поле usage_tokens
+    usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
     google_sheets_token = Column(JSON, nullable=True)
     google_sheets_authorized = Column(Boolean, default=False)
@@ -69,9 +69,3 @@ class User(Base, BaseModel):
     def has_api_key(self):
         """Проверить, настроен ли ключ OpenAI API у пользователя"""
         return bool(self.openai_api_key)
-        
-    # Добавляем метод для совместимости с кодом, который использует usage_tokens
-    @property
-    def usage_tokens(self):
-        """Заглушка для совместимости с существующим кодом"""
-        return 0
