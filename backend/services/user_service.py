@@ -9,8 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 
 from backend.core.logging import get_logger
-from models.user import User
-from schemas.user import UserUpdate, UserResponse, UserDetailResponse
+from backend.models.user import User
+from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
 logger = get_logger(__name__)
 
