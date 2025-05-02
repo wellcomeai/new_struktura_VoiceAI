@@ -6,7 +6,7 @@ import re
 from typing import Tuple, Optional, Dict
 import uuid
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
