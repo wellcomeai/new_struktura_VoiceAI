@@ -1,71 +1,78 @@
-# backend/models/base.py
-
 """
-Здесь определяются:
-  - SQLAlchemy Declarative Base для всех ORM-моделей
-  - Импорт движка подключения (engine) из backend/db/session.py
-  - Функция create_tables для автоматического создания/обновления таблиц
-    и добавления недостающих колонок в таблицу users (last_login, is_active)
+backend/models/base.py
+
+Базовый модуль для SQLAlchemy-моделей:
+- объявляет движок `engine`
+- декларативный базовый класс `Base`
+- миксин `BaseModel` с to_dict()
+- функцию create_tables() с простыми миграциями
 """
 
+import os
 import logging
 
-from sqlalchemy import inspect, text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base
-
-from backend.db.session import engine  # движок создаётся в backend/db/session.py
 
 logger = logging.getLogger(__name__)
 
-# декларативная база для всех моделей
+# Проверяем, что URL к БД задан через переменную окружения
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+
+# Создаём SQLAlchemy engine
+engine = create_engine(DATABASE_URL, future=True)
+logger.info(f"Database engine created for {DATABASE_URL}")
+
+# Декларативный базовый класс для всех моделей
 Base = declarative_base()
 
-
-def create_tables(bind_engine=None):
+class BaseModel:
     """
-    Создаёт все таблицы, описанные в метаданных Base.metadata,
-    затем проверяет в таблице users наличие колонок last_login и is_active
-    и добавляет их, если их нет.
+    Миксин для SQLAlchemy-моделей, добавляет метод to_dict().
+    Не наследует Pydantic.BaseModel, чтобы избежать конфликтов метаклассов.
     """
-    bind_engine = bind_engine or engine
-    inspector = inspect(bind_engine)
 
-    try:
-        Base.metadata.create_all(bind_engine)
-        logger.info("Database tables created/updated successfully")
-    except Exception as e:
-        logger.error(f"Failed to create/update database tables: {e}")
+    def to_dict(self):
+        """
+        Конвертирует экземпляр модели в словарь по всем колонкам таблицы.
+        """
+        return {col.name: getattr(self, col.name) for col in self.__table__.columns}
 
-    try:
-        existing_cols = {col["name"] for col in inspector.get_columns("users")}
-    except Exception:
-        existing_cols = set()
+def create_tables(engine):
+    """
+    Создаёт таблицы (если их нет) и «мигрирует» недостающие колонки в таблице users:
+      - last_login (TIMESTAMP WITH TIME ZONE)
+      - is_active  (BOOLEAN DEFAULT TRUE)
+    """
+    # 1) Создать таблицы по описанным моделям
+    Base.metadata.create_all(engine)
+    logger.info("Database tables created successfully")
 
-    # Работаем в текстовом режиме, т.к. на уровне ORM ALTER TABLE не делают
-    with bind_engine.connect() as conn:
-        # Добавляем last_login, если нет
-        if "last_login" not in existing_cols:
-            try:
-                logger.info("Adding missing column last_login to users table")
-                conn.execute(
-                    text(
-                        "ALTER TABLE users "
-                        "ADD COLUMN last_login TIMESTAMPTZ NULL"
-                    )
-                )
-            except ProgrammingError as e:
-                logger.error(f"Could not add last_login column: {e}")
+    # 2) Простая миграция: добавить колонки, если их нет
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        try:
+            if inspector.has_table("users"):
+                # last_login
+                if not inspector.has_column("users", "last_login"):
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
+                    ))
+                    logger.info("Adding missing column last_login to users table")
 
-        # Добавляем is_active, если нет
-        if "is_active" not in existing_cols:
-            try:
-                logger.info("Adding missing column is_active to users table")
-                conn.execute(
-                    text(
-                        "ALTER TABLE users "
-                        "ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
-                    )
-                )
-            except ProgrammingError as e:
-                logger.error(f"Could not add is_active column: {e}")
+                # is_active
+                if not inspector.has_column("users", "is_active"):
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
+                    ))
+                    logger.info("Adding missing column is_active to users table")
+
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create/update database tables: {e}")
+            # Пробрасываем дальше, чтобы приложение не стартовало с неконсистентной схемой
+            raise
+
+    logger.info("Database tables updated successfully")
