@@ -13,8 +13,8 @@ from typing import List, Optional, BinaryIO
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
-from models.file import File
-from schemas.file import FileCreate, FileResponse, FileUploadResponse
+from backend.models.file import File
+from backend.schemas.file import FileCreate, FileResponse, FileUploadResponse
 
 logger = get_logger(__name__)
 
