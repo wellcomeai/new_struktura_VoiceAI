@@ -1,10 +1,5 @@
-"""
-Base classes and functions for working with the database.
-Contains the base class for all SQLAlchemy models and common database functions.
-"""
-
 import logging
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -18,16 +13,16 @@ logger = get_logger(__name__)
 try:
     engine = create_engine(
         settings.DATABASE_URL,
-        pool_pre_ping=True,  # Check connection before using from pool
-        pool_recycle=3600,   # Recycle connections after 1 hour
-        pool_size=10,        # Maximum pool size
-        max_overflow=20,     # Allow up to 20 overflows
-        echo=settings.DEBUG  # Log SQL statements in debug mode
+        pool_pre_ping=True,   # Check connection before using from pool
+        pool_recycle=3600,    # Recycle connections after 1 hour
+        pool_size=10,         # Maximum pool size
+        max_overflow=20,      # Allow up to 20 overflows
+        echo=settings.DEBUG   # Log SQL statements in debug mode
     )
     database_url_masked = settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'database'
     logger.info(f"Database engine created for {database_url_masked}")
 except Exception as e:
-    logger.error(f"Failed to create database engine: {str(e)}")
+    logger.error(f"Failed to create database engine: {e}")
     raise
 
 # Create sessionmaker
@@ -58,30 +53,33 @@ class BaseModel:
         Create model instance from dictionary.
         """
         return cls(**{
-            k: v for k, v in data.items() 
+            k: v for k, v in data.items()
             if k in [c.name for c in cls.__table__.columns]
         })
 
-# Function to create tables
-# Function to create tables
+# Function to create or update tables
 def create_tables(engine):
     """
-    Create (recreate) database tables for all models.
-    
-    Args:
-        engine: SQLAlchemy engine
+    Ensure database schema is up-to-date:
+    - добавляет колонку last_login в users, если её нет
+    - создаёт недостающие таблицы
     """
     try:
-        # Импорт всех моделей, чтобы SQLAlchemy "увидела" их
+        # Импорт моделей для регистрации в metadata
         from backend.models.user import User
         from backend.models.assistant import AssistantConfig
         from backend.models.conversation import Conversation
         from backend.models.file import File
 
-        # Сбрасываем все (пустые) таблицы и создаём по свежей схеме
-        Base.metadata.drop_all(bind=engine)
+        # Добавляем missing column без сброса всех таблиц
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ NULL"
+            ))
+
+        # Создаём отсутствующие таблицы, не трогая уже существующие
         Base.metadata.create_all(bind=engine)
-        logger.info("Database tables recreated successfully")
+        logger.info("Database tables created/updated successfully")
     except Exception as e:
-        logger.error(f"Failed to recreate database tables: {str(e)}")
+        logger.error(f"Failed to create/update database tables: {e}")
         raise
