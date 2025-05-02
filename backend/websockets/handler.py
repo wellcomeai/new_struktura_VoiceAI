@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 import json
 import asyncio
 import uuid
+import base64
 from typing import Dict, Any, Optional, List
 
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
+from backend.utils.audio_utils import base64_to_audio_buffer, create_wav_from_pcm
 
 logger = get_logger(__name__)
 
@@ -45,89 +47,228 @@ async def handle_websocket_connection(
             active_connections[assistant_id] = []
         active_connections[assistant_id].append(websocket)
         
-        # Send welcome message
-        await websocket.send_json({
-            "type": "connection_status",
-            "status": "connected",
-            "message": "Connection established"
-        })
-        
-        # Load assistant from database
+        # Загружаем ассистента из базы данных - подробная обработка ошибок
         assistant = None
         try:
-            assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
+            # Используем UUID формат для поиска ассистента
+            try:
+                uuid_obj = uuid.UUID(assistant_id)
+                assistant = db.query(AssistantConfig).filter(AssistantConfig.id == uuid_obj).first()
+            except ValueError:
+                # Если assistant_id "demo", используем специальную логику
+                if assistant_id == "demo":
+                    # Находим любого доступного ассистента для демо
+                    assistant = db.query(AssistantConfig).filter(AssistantConfig.is_public == True).first()
+                    if assistant:
+                        logger.info(f"Using public assistant {assistant.id} for demo")
+                    else:
+                        # Если публичного нет, берем первого попавшегося
+                        assistant = db.query(AssistantConfig).first()
+            
             if not assistant:
                 logger.warning(f"Assistant not found: {assistant_id}")
                 await websocket.send_json({
                     "type": "error",
                     "error": {
                         "code": "assistant_not_found",
-                        "message": "Assistant not found"
+                        "message": "Ассистент не найден. Пожалуйста, проверьте ID или создайте нового ассистента."
                     }
                 })
-                await websocket.close(code=1008)  # Policy violation
                 return
+            
+            # Отправляем подтверждение подключения
+            await websocket.send_json({
+                "type": "connection_status",
+                "status": "connected",
+                "message": "Соединение установлено"
+            })
+            
+            # Отправляем информацию о сессии
+            await websocket.send_json({
+                "type": "session.created",
+                "session_id": f"session_{client_id}",
+                "assistant": {
+                    "id": str(assistant.id),
+                    "name": assistant.name
+                }
+            })
+            
         except Exception as e:
             logger.error(f"Error loading assistant: {str(e)}")
             await websocket.send_json({
                 "type": "error",
                 "error": {
                     "code": "database_error",
-                    "message": "Error loading assistant"
+                    "message": f"Ошибка загрузки ассистента: {str(e)}"
                 }
             })
-            await websocket.close(code=1011)  # Internal server error
             return
         
-        # Main message processing loop
+        # Буфер для входящего аудио
+        audio_buffer = bytearray()
+        
+        # Флаги состояния
+        is_processing = False
+        
+        # Главный цикл обработки сообщений
         while True:
-            # Get message
             try:
-                data = await websocket.receive_text()
+                # Получаем сообщение (текст или бинарные данные)
+                message = await websocket.receive()
                 
-                # Parse JSON
-                message = json.loads(data)
+                # Проверяем тип сообщения
+                if "text" in message:
+                    # Обработка текстового сообщения
+                    try:
+                        data = json.loads(message["text"])
+                        
+                        # Обработка различных типов сообщений
+                        msg_type = data.get("type", "")
+                        
+                        # Пинг-понг для поддержания соединения
+                        if msg_type == "ping":
+                            await websocket.send_json({"type": "pong"})
+                            continue
+                        
+                        # Обработка аудио-буфера
+                        if msg_type == "input_audio_buffer.append":
+                            if "audio" in data:
+                                # Декодируем аудио из base64
+                                audio_chunk = base64_to_audio_buffer(data["audio"])
+                                audio_buffer.extend(audio_chunk)
+                                
+                                # Отвечаем подтверждением
+                                await websocket.send_json({
+                                    "type": "input_audio_buffer.append.ack",
+                                    "event_id": data.get("event_id", "unknown")
+                                })
+                            continue
+                        
+                        # Завершение буфера и отправка на обработку
+                        if msg_type == "input_audio_buffer.commit" and not is_processing:
+                            is_processing = True
+                            
+                            # Проверяем, есть ли данные в буфере
+                            if len(audio_buffer) == 0:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "error": {
+                                        "code": "input_audio_buffer_commit_empty",
+                                        "message": "Аудио буфер пуст"
+                                    }
+                                })
+                                is_processing = False
+                                continue
+                            
+                            # В этом месте должна быть отправка аудио на обработку
+                            # и получение ответа от модели, но для примера просто отправим эхо
+                            
+                            # Симулируем ответ от модели
+                            response_text = "Я получил ваше сообщение. Чем могу помочь?"
+                            
+                            # Отправляем текстовый ответ клиенту
+                            for char in response_text:
+                                await websocket.send_json({
+                                    "type": "response.text.delta",
+                                    "delta": char
+                                })
+                                await asyncio.sleep(0.02)  # Имитация задержки набора текста
+                            
+                            # Завершаем текстовый ответ
+                            await websocket.send_json({
+                                "type": "response.text.done"
+                            })
+                            
+                            # Отправляем аудио-ответ (эхо входящего аудио для теста)
+                            await websocket.send_json({
+                                "type": "response.audio.delta",
+                                "delta": base64.b64encode(bytes(audio_buffer)).decode('utf-8')
+                            })
+                            
+                            # Завершаем аудио-ответ
+                            await websocket.send_json({
+                                "type": "response.audio.done"
+                            })
+                            
+                            # Завершаем весь ответ
+                            await websocket.send_json({
+                                "type": "response.done"
+                            })
+                            
+                            # Сбрасываем состояние
+                            audio_buffer.clear()
+                            is_processing = False
+                            continue
+                        
+                        # Очистка буфера
+                        if msg_type == "input_audio_buffer.clear":
+                            audio_buffer.clear()
+                            await websocket.send_json({
+                                "type": "input_audio_buffer.clear.ack",
+                                "event_id": data.get("event_id", "unknown")
+                            })
+                            continue
+                        
+                        # Отмена текущего ответа
+                        if msg_type == "response.cancel":
+                            # Здесь должна быть логика отмены, но для примера просто подтвердим
+                            await websocket.send_json({
+                                "type": "response.cancel.ack",
+                                "event_id": data.get("event_id", "unknown")
+                            })
+                            continue
+                        
+                        # Неизвестный тип сообщения
+                        logger.warning(f"Unknown message type: {msg_type}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {
+                                "code": "unknown_message_type",
+                                "message": f"Неизвестный тип сообщения: {msg_type}"
+                            }
+                        })
+                        
+                    except json.JSONDecodeError:
+                        logger.warning(f"Invalid JSON: {message['text']}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {
+                                "code": "invalid_json",
+                                "message": "Некорректный формат JSON"
+                            }
+                        })
                 
-                # Process message
-                if message.get("type") == "ping":
-                    # Respond to ping
-                    await websocket.send_text("pong")
-                    continue
+                # Обработка бинарных данных (если ожидаются)
+                elif "bytes" in message:
+                    # Просто добавляем в буфер
+                    audio_buffer.extend(message["bytes"])
+                    
+                    # Отправляем подтверждение
+                    await websocket.send_json({
+                        "type": "binary.ack"
+                    })
                 
-                # Main message processing logic will go here
-                # For now just send echo
-                await websocket.send_json({
-                    "type": "echo",
-                    "message": message
-                })
-                
-            except json.JSONDecodeError:
-                logger.warning(f"Received invalid JSON message: {data}")
-                await websocket.send_json({
-                    "type": "error",
-                    "error": {
-                        "code": "invalid_json",
-                        "message": "Invalid JSON format"
-                    }
-                })
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket client {client_id} disconnected")
+                break
             except Exception as e:
-                logger.error(f"Error processing message: {str(e)}")
-                await websocket.send_json({
-                    "type": "error",
-                    "error": {
-                        "code": "processing_error",
-                        "message": f"Error processing message: {str(e)}"
-                    }
-                })
+                logger.error(f"Error in WebSocket message processing: {str(e)}")
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": {
+                            "code": "processing_error",
+                            "message": f"Ошибка обработки сообщения: {str(e)}"
+                        }
+                    })
+                except:
+                    # Если не можем отправить сообщение об ошибке, прекращаем обработку
+                    break
     
     except WebSocketDisconnect:
         logger.info(f"WebSocket connection closed: client_id={client_id}")
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
-        try:
-            await websocket.close(code=1011)  # Internal server error
-        except:
-            pass
     finally:
         # Remove connection from active list
         if assistant_id in active_connections and websocket in active_connections[assistant_id]:
