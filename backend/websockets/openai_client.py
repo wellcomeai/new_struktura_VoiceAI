@@ -1,8 +1,3 @@
-"""
-OpenAI Realtime client for WellcomeAI application.
-Handles WebSocket connections to OpenAI Realtime API.
-"""
-
 import asyncio
 import json
 import uuid
@@ -31,12 +26,6 @@ class OpenAIRealtimeClient:
     ):
         """
         Initialize OpenAI Realtime client
-        
-        Args:
-            api_key: OpenAI API key
-            assistant_config: Assistant configuration
-            client_id: Client identifier
-            db_session: Database session
         """
         self.api_key = api_key
         self.assistant_config = assistant_config
@@ -51,16 +40,12 @@ class OpenAIRealtimeClient:
     async def connect(self) -> bool:
         """Establish WebSocket connection to OpenAI Realtime API"""
         try:
-            # Create headers for authorization
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "openai-beta": "realtime=v1"  # Required header for Realtime API
+                "openai-beta": "realtime=v1"
             }
-            
             logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
-            
-            # Establish connection
             self.ws = await websockets.connect(
                 self.openai_url,
                 extra_headers=headers,
@@ -68,16 +53,12 @@ class OpenAIRealtimeClient:
                 ping_timeout=60,
                 close_timeout=30
             )
-            
             self.is_connected = True
-            logger.info(f"Connected to OpenAI Realtime API for client {self.client_id}")
-            
-            # Initialize conversation with system prompt
+            logger.info(f"Connected for client {self.client_id}")
             await self._init_conversation()
-            
             return True
         except Exception as e:
-            logger.error(f"Failed to connect to OpenAI Realtime API: {e}")
+            logger.error(f"Failed to connect: {e}")
             self.is_connected = False
             return False
 
@@ -85,97 +66,112 @@ class OpenAIRealtimeClient:
         """Initialize conversation with system prompt"""
         if not self.is_connected or not self.ws:
             return False
-        
         try:
-            # Send system prompt
-            init_message = {
-                "type": "message",
-                "message": {
+            init_payload = {
+                "type": "conversation.item.create",
+                "conversation_id": self.session_id,
+                "item": {
                     "role": "system",
                     "content": self.assistant_config.system_prompt
                                 or "You are a helpful voice assistant."
                 }
             }
-            
-            await self.ws.send(json.dumps(init_message))
-            logger.debug("Sent system prompt to OpenAI")
-            
-            # Create new conversation record in DB
+            await self.ws.send(json.dumps(init_payload))
+            logger.debug("Sent system prompt payload")
+
             if self.db_session:
-                try:
-                    conversation = Conversation(
-                        assistant_id=self.assistant_config.id,
-                        session_id=self.session_id,
-                        user_message="",
-                        assistant_message="",
-                    )
-                    self.db_session.add(conversation)
-                    self.db_session.commit()
-                    self.db_session.refresh(conversation)
-                    self.conversation_id = str(conversation.id)
-                    logger.info(f"Created new conversation record: {self.conversation_id}")
-                except Exception as db_error:
-                    logger.error(f"Error creating conversation record: {db_error}")
-            
+                conv = Conversation(
+                    assistant_id=self.assistant_config.id,
+                    session_id=self.session_id,
+                    user_message="",
+                    assistant_message="",
+                )
+                self.db_session.add(conv)
+                self.db_session.commit()
+                self.db_session.refresh(conv)
+                self.conversation_id = str(conv.id)
+                logger.info(f"Created conversation record: {self.conversation_id}")
             return True
         except Exception as e:
             logger.error(f"Error initializing conversation: {e}")
             return False
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
-        """
-        Send audio for processing to OpenAI
-        
-        Args:
-            audio_buffer: Audio data as bytes
-        Returns:
-            True if successful
-        """
+        """Send audio buffer to OpenAI Realtime API"""
         if not self.is_connected or not self.ws:
-            logger.error("Cannot process audio: not connected to OpenAI")
+            logger.error("Not connected: cannot send audio")
             return False
-
         try:
-            # Convert audio to base64
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
-            
-            # Build message
-            audio_message = {
-                "type": "audio",
-                "audio": audio_base64,
+            audio_payload = {
+                "type": "input_audio_buffer.append",
                 "audio_format": "pcm_s16le",
                 "sample_rate": 24000,
-                "model": "gpt-4o"
+                "audio": audio_base64
             }
-            
-            # Send audio
-            await self.ws.send(json.dumps(audio_message))
-            logger.debug(f"Sent audio to OpenAI ({len(audio_buffer)} bytes)")
-            
-            # Update conversation record
-            if self.db_session and self.conversation_id:
-                try:
-                    conversation = self.db_session.query(Conversation).filter(
-                        Conversation.id == uuid.UUID(self.conversation_id)
-                    ).first()
-                    if conversation:
-                        conversation.user_message = "[Audio message]"
-                        self.db_session.commit()
-                except Exception as db_error:
-                    logger.error(f"Error updating conversation: {db_error}")
+            await self.ws.send(json.dumps(audio_payload))
+            logger.debug(f"Appended audio buffer ({len(audio_buffer)} bytes)")
 
+            if self.db_session and self.conversation_id:
+                conv = self.db_session.query(Conversation).get(uuid.UUID(self.conversation_id))
+                if conv:
+                    conv.user_message = "[Audio message]"
+                    self.db_session.commit()
             return True
         except Exception as e:
-            logger.error(f"Error sending audio to OpenAI: {e}")
+            logger.error(f"Error sending audio: {e}")
+            return False
+
+    async def commit_audio(self) -> bool:
+        """Commit the appended audio buffers"""
+        if not self.is_connected or not self.ws:
+            logger.error("Not connected: cannot commit audio")
+            return False
+        try:
+            await self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+            logger.debug("Committed audio buffer")
+            return True
+        except Exception as e:
+            logger.error(f"Error committing audio: {e}")
+            return False
+
+    async def clear_audio_buffer(self) -> bool:
+        """Clear any buffered audio data"""
+        if not self.is_connected or not self.ws:
+            logger.error("Not connected: cannot clear audio buffer")
+            return False
+        try:
+            await self.ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
+            logger.debug("Cleared audio buffer")
+            return True
+        except Exception as e:
+            logger.error(f"Error clearing audio buffer: {e}")
+            return False
+
+    async def send_response(self, content: str) -> bool:
+        """Send a text response via Realtime API"""
+        if not self.is_connected or not self.ws:
+            logger.error("Not connected: cannot send response")
+            return False
+        try:
+            payload = {
+                "type": "response.create",
+                "conversation_id": self.session_id,
+                "response": {"content": content}
+            }
+            await self.ws.send(json.dumps(payload))
+            logger.debug("Sent response payload")
+            return True
+        except Exception as e:
+            logger.error(f"Error sending response: {e}")
             return False
 
     async def close(self) -> None:
-        """Close connection to OpenAI"""
+        """Close WebSocket connection"""
         if self.ws:
             try:
                 await self.ws.close()
-                logger.info(f"Closed connection to OpenAI for client {self.client_id}")
+                logger.info(f"Connection closed for client {self.client_id}")
             except Exception as e:
-                logger.error(f"Error closing OpenAI connection: {e}")
-        
+                logger.error(f"Error closing connection: {e}")
         self.is_connected = False
