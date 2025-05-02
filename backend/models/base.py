@@ -1,34 +1,37 @@
 # backend/models/base.py
 
 """
-Defines the declarative base for ORM models and provides a utility
-to create/update tables (including adding missing columns) on startup.
+Defines:
+  - SQLAlchemy Base для всех моделей
+  - Pydantic BaseModel с настройкой from_attributes (ранее orm_mode)
+  - Экспорт движка engine
+  - Утилиту create_tables для автоматического создания/обновления таблиц и добавления недостающих колонок
 """
 
 import logging
-
 from sqlalchemy import inspect
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import declarative_base
+from backend.db.session import engine  # общий движок из вашего модуля сессии
 
-# Import the shared engine so it can be re-exported from this module
-from backend.db.session import engine
+from pydantic import BaseModel as PydanticBaseModel
 
 logger = logging.getLogger(__name__)
 
-# The base class for all ORM models
+# SQLAlchemy declarative base
 Base = declarative_base()
+
+# Pydantic базовая модель для схем, с поддержкой загрузки из ORM-объектов
+class BaseModel(PydanticBaseModel):
+    model_config = {
+        "from_attributes": True,  # позволяет создавать Pydantic-модели из ORM-объектов
+    }
 
 
 def create_tables(engine):
     """
-    Create all tables for the metadata, then ensure that any new
-    columns added to the User model are present in the database.
-
-    This will:
-      - run Base.metadata.create_all(engine)
-      - add `last_login` column to users if missing
-      - add `is_active` column to users if missing
+    Создаёт все таблицы по метаданным SQLAlchemy, затем проверяет и
+    добавляет в таблицу users недостающие колонки last_login и is_active.
     """
     inspector = inspect(engine)
 
@@ -38,11 +41,11 @@ def create_tables(engine):
     except Exception as e:
         logger.error(f"Failed to create/update database tables: {e}")
 
-    # Fetch existing column names in "users" table
+    # Получаем список существующих колонок в users
     existing = inspector.get_columns("users")
-    cols = {c["name"] for c in existing}
+    cols = {col["name"] for col in existing}
 
-    # Add missing columns
+    # Открываем соединение для ALTER TABLE
     with engine.connect() as conn:
         if "last_login" not in cols:
             try:
