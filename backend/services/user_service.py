@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from backend.core.logging import get_logger
 from backend.models.user import User
+from backend.models.assistant import AssistantConfig  # Правильный импорт модели
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
 logger = get_logger(__name__)
@@ -82,9 +83,9 @@ class UserService:
         """
         user = await UserService.get_user_by_id(db, user_id)
         
-        # Count user's assistants
-        total_assistants = db.query(models.assistant.AssistantConfig).filter(
-            models.assistant.AssistantConfig.user_id == user.id
+        # Count user's assistants - исправленный код
+        total_assistants = db.query(AssistantConfig).filter(
+            AssistantConfig.user_id == user.id
         ).count()
         
         # Get total conversations count
