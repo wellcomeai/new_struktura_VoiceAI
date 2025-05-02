@@ -11,9 +11,9 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.core.logging import get_logger
 from backend.core.security import hash_password, verify_password, create_jwt_token
-from models.user import User
-from schemas.auth import LoginRequest, RegisterRequest
-from schemas.user import UserCreate, UserResponse
+from backend.models.user import User
+from backend.schemas.auth import LoginRequest, RegisterRequest
+from backend.schemas.user import UserCreate, UserResponse
 
 logger = get_logger(__name__)
 
