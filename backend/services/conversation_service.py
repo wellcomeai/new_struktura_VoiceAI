@@ -10,9 +10,9 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from backend.core.logging import get_logger
-from models.conversation import Conversation
-from models.assistant import AssistantConfig
-from schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
+from backend.models.conversation import Conversation
+from backend.models.assistant import AssistantConfig
+from backend.schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
 
 logger = get_logger(__name__)
 
