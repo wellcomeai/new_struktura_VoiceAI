@@ -9,7 +9,7 @@ import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Union
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
