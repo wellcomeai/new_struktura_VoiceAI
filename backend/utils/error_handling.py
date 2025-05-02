@@ -7,7 +7,7 @@ import sys
 from typing import Dict, Any, Optional, Type, List, Union
 from fastapi import HTTPException, status
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
