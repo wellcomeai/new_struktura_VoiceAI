@@ -4,7 +4,7 @@ Defines schemas for user-related requests and responses.
 """
 
 from pydantic import BaseModel, Field, EmailStr, validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -33,7 +33,7 @@ class UserUpdate(BaseModel):
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
     
     class Config:
-        json_schema_extra = {
+        json_schema_extra = {  # Updated from schema_extra for Pydantic v2
             "example": {
                 "first_name": "John",
                 "last_name": "Doe",
@@ -66,7 +66,7 @@ class UserResponse(UserBase):
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
     
     class Config:
-        orm_mode = True  # Allow conversion from ORM models
+        from_attributes = True  # Updated from orm_mode for Pydantic v2
         
 class UserDetailResponse(UserResponse):
     """Schema for detailed user response with usage stats"""
@@ -76,4 +76,4 @@ class UserDetailResponse(UserResponse):
     last_login: Optional[datetime] = Field(None, description="Last login timestamp")
     
     class Config:
-        orm_mode = True
+        from_attributes = True  # Updated from orm_mode for Pydantic v2
