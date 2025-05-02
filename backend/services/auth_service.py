@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 from core.security import hash_password, verify_password, create_jwt_token
 from models.user import User
 from schemas.auth import LoginRequest, RegisterRequest
