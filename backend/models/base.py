@@ -1,6 +1,6 @@
 """
-Base configuration for SQLAlchemy models.
-Provides base class and database connection setup.
+Базовые классы и функции для работы с БД.
+Содержит базовый класс для всех моделей SQLAlchemy и общие функции для работы с БД.
 """
 
 import logging
@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.core.config import settings
 from backend.core.logging import get_logger
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -59,3 +60,26 @@ class BaseModel:
             k: v for k, v in data.items() 
             if k in [c.name for c in cls.__table__.columns]
         })
+
+# Добавляем функцию create_tables
+def create_tables(engine):
+    """
+    Create database tables for all models.
+    
+    Args:
+        engine: SQLAlchemy engine
+    """
+    try:
+        # Импортируем здесь все модели, которые должны быть созданы
+        # Это важно для правильной работы SQLAlchemy
+        from backend.models.user import User
+        from backend.models.assistant import AssistantConfig
+        from backend.models.conversation import Conversation
+        from backend.models.file import File
+        
+        # Создаем все таблицы
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create database tables: {str(e)}")
+        raise
