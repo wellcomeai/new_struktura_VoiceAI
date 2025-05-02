@@ -1,6 +1,6 @@
 """
-Управление сессиями базы данных.
-Содержит функции и объекты для создания и управления сессиями SQLAlchemy.
+Database session management for WellcomeAI application.
+Contains functions and objects for creating and managing SQLAlchemy sessions.
 """
 
 import os
@@ -11,29 +11,39 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 
 from backend.core.config import settings
+from backend.core.logging import get_logger
 
-# Создаем URL для подключения к базе данных
+logger = get_logger(__name__)
+
+# Create database connection URL
 DATABASE_URL = os.getenv("DATABASE_URL", settings.DATABASE_URL)
 
-# Создаем движок SQLAlchemy для подключения к БД
-# echo=True включает логирование SQL-запросов (полезно для отладки)
-engine = create_engine(
-    DATABASE_URL, 
-    echo=settings.DEBUG,
-    pool_pre_ping=True  # Проверяет соединение перед использованием
-)
+# Create SQLAlchemy engine
+try:
+    engine = create_engine(
+        DATABASE_URL, 
+        echo=settings.DEBUG,
+        pool_pre_ping=True  # Check connection before using it
+    )
+    
+    # Log connection with masked sensitive information
+    database_url_masked = DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'database'
+    logger.info(f"Database engine created for {database_url_masked}")
+except Exception as e:
+    logger.error(f"Failed to create database engine: {str(e)}")
+    raise
 
-# Создаем фабрику сессий
+# Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Функция для получения сессии БД
+# Function for getting database session
 def get_db() -> Generator[Session, None, None]:
     """
-    Функция-генератор для получения сессии БД.
-    Используется в качестве зависимости FastAPI для инъекции сессии в эндпоинты.
+    Generator function for getting database session.
+    Used as FastAPI dependency for injecting session into endpoints.
     
     Yields:
-        Session: Сессия SQLAlchemy для работы с БД
+        Session: SQLAlchemy session for working with database
     """
     db = SessionLocal()
     try:
