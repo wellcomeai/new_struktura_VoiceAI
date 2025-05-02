@@ -14,11 +14,11 @@ from .websocket import router as websocket_router
 # Create a main API router
 api_router = APIRouter()
 
-# Include all sub-routers
-api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
-api_router.include_router(users_router, prefix="/users", tags=["Users"])
-api_router.include_router(assistants_router, prefix="/assistants", tags=["Assistants"])
-api_router.include_router(files_router, prefix="/files", tags=["Files"])
+# Исправлено: удалены префиксы, будут добавлены в app.py
+api_router.include_router(auth_router, tags=["Authentication"])
+api_router.include_router(users_router, tags=["Users"])
+api_router.include_router(assistants_router, tags=["Assistants"])
+api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
 
 # Export all routers for use in app.py
