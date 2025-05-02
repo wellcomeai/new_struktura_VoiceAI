@@ -53,7 +53,7 @@ async def get_assistants(
             detail="Failed to retrieve assistants"
         )
 
-@router.post("", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
 async def create_assistant(
     assistant_data: AssistantCreate,
     current_user: User = Depends(get_current_user),
