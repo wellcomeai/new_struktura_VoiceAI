@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, BinaryIO
 
-from core.logging import get_logger
-from core.config import settings
+from backend.core.logging import get_logger
+from backend.core.config import settings
 from models.file import File
 from schemas.file import FileCreate, FileResponse, FileUploadResponse
 
