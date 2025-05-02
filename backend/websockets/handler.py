@@ -10,6 +10,7 @@ import asyncio
 import uuid
 import base64
 from typing import Dict, Any, Optional, List
+from backend.models.user import User
 
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
