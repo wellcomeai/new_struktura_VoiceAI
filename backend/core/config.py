@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "WellcomeAI"
     VERSION: str = "1.0.0"
     DEBUG: bool = os.getenv("DEBUG", "False") == "True"
+    PRODUCTION: bool = os.getenv("PRODUCTION", "False") == "True"
     
     # Server settings
     PORT: int = int(os.getenv("PORT", "5050"))
@@ -53,6 +54,9 @@ class Settings(BaseSettings):
     # Path settings
     STATIC_DIR: str = os.path.join(os.getcwd(), "static")
     TEMPLATE_DIR: str = os.path.join(os.getcwd(), "templates")
+    
+    # CORS Settings
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
     
     # Validators
     @validator("DATABASE_URL")
