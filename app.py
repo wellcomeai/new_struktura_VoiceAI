@@ -9,13 +9,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
-from backend.core.logging import setup_logging
+from backend.core.logging import setup_logging, get_logger
 from backend.api import auth, users, assistants, files, websocket, healthcheck
 from backend.models.base import create_tables
 from backend.db.session import engine
 
-# Setup logging
-logger = setup_logging()
+# Setup logging system
+setup_logging()
+
+# Get module logger
+logger = get_logger(__name__)
 
 # Create and configure FastAPI application
 app = FastAPI(
