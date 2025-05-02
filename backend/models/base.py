@@ -5,6 +5,7 @@ Contains the base class for all SQLAlchemy models and common database functions.
 
 import logging
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -28,7 +29,7 @@ try:
         if '@' in settings.DATABASE_URL else 'database'
     logger.info(f"Database engine created for {database_url_masked}")
 except Exception as e:
-    logger.error(f"Failed to create database engine: {str(e)}")
+    logger.error(f"Failed to create database engine: {e!r}")
     raise
 
 # Create sessionmaker
@@ -60,7 +61,7 @@ class BaseModel:
         """
         return cls(**{
             k: v for k, v in data.items()
-            if k in [c.name for c in cls.__table__.columns]
+            if k in {c.name for c in cls.__table__.columns}
         })
 
 
@@ -68,11 +69,11 @@ def create_tables(engine):
     """
     Create or update database tables for all models.
     - Импортирует все модели, чтобы они попали в Base.metadata.
-    - Если таблица users уже есть, но в ней нет last_login, добавляет колонку.
+    - Если таблица users уже есть, но в ней нет last_login, добавляет колонку через IF NOT EXISTS.
     - Вызывает create_all, который создаёт все отсутствующие таблицы/колонки.
     """
     try:
-        # Импорт всех моделей
+        # Импорт всех моделей, чтобы они зарегистрировались в Base.metadata
         from backend.models.user import User
         from backend.models.assistant import AssistantConfig
         from backend.models.conversation import Conversation
@@ -80,22 +81,23 @@ def create_tables(engine):
 
         inspector = inspect(engine)
 
-        # Если таблица users существует, но нет колонки last_login — добавляем её
+        # Если таблица users существует, проверяем и добавляем колонку
         if 'users' in inspector.get_table_names():
-            existing_cols = [col['name'] for col in inspector.get_columns('users')]
+            existing_cols = {col['name'] for col in inspector.get_columns('users')}
             if 'last_login' not in existing_cols:
                 logger.info("Adding missing column last_login to users table")
+                # Используем IF NOT EXISTS, чтобы убрать гонки между воркерами
                 with engine.begin() as conn:
                     conn.execute(
                         text(
                             "ALTER TABLE users "
-                            "ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
+                            "ADD COLUMN IF NOT EXISTS last_login TIMESTAMP WITH TIME ZONE NULL"
                         )
                     )
 
-        # Создаём/обновляем все таблицы
+        # Создаём/обновляем все таблицы (создаст любые недостающие модели)
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created/updated successfully")
-    except Exception as e:
-        logger.error(f"Failed to create/update database tables: {str(e)}")
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to create/update database tables: {e!r}")
         raise
