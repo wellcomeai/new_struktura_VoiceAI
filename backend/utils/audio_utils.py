@@ -8,7 +8,7 @@ import numpy as np
 from typing import Union, Optional
 import io
 
-from core.logging import get_logger
+from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
