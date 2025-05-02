@@ -39,41 +39,44 @@ class BaseModel:
 
 def create_tables(engine):
     """
-    Создаёт таблицы (если их нет) и добавляет в users отсутствующие колонки:
-      - last_login (TIMESTAMP WITH TIME ZONE)
-      - is_active  (BOOLEAN NOT NULL DEFAULT TRUE)
+    Создаёт таблицы (если их нет) и добавляет в:
+      - users: отсутствующие колонки last_login, is_active
+      - assistant_configs: отсутствующую колонку api_access_token
     """
     # 1) Создаём все таблицы по описанным моделям
     Base.metadata.create_all(engine)
     logger.info("Database tables created successfully")
 
-    # 2) Простая «ручная» миграция
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()
 
-    if "users" not in existing_tables:
-        # если таблицы users ещё нет, мигрировать нечего
-        return
-
-    # получаем имена колонок в users
-    existing_columns = {col["name"] for col in inspector.get_columns("users")}
-
     with engine.begin() as conn:
         try:
-            if "last_login" not in existing_columns:
-                conn.execute(text(
-                    "ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
-                ))
-                logger.info("Added missing column last_login to users")
+            # — migrate users —
+            if "users" in existing_tables:
+                cols = {c["name"] for c in inspector.get_columns("users")}
+                if "last_login" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
+                    ))
+                    logger.info("Added missing column last_login to users")
+                if "is_active" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
+                    ))
+                    logger.info("Added missing column is_active to users")
 
-            if "is_active" not in existing_columns:
-                conn.execute(text(
-                    "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
-                ))
-                logger.info("Added missing column is_active to users")
+            # — migrate assistant_configs —
+            if "assistant_configs" in existing_tables:
+                cols = {c["name"] for c in inspector.get_columns("assistant_configs")}
+                if "api_access_token" not in cols:
+                    conn.execute(text(
+                        "ALTER TABLE assistant_configs ADD COLUMN api_access_token TEXT NULL"
+                    ))
+                    logger.info("Added missing column api_access_token to assistant_configs")
 
         except SQLAlchemyError as e:
             logger.error(f"Failed to create/update database tables: {e}")
-            raise  # чтобы приложение не стартовало с неконсистентной схемой
+            raise
 
     logger.info("Database tables updated successfully")
