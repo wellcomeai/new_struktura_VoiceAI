@@ -10,11 +10,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
 
-from core.logging import get_logger
-from core.config import settings
-from models.assistant import AssistantConfig
-from models.user import User
-from schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse
+from backend.core.logging import get_logger
+from backend.core.config import settings
+from backend.models.assistant import AssistantConfig
+from backend.models.user import User
+from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse
 
 logger = get_logger(__name__)
 
