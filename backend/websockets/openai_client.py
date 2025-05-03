@@ -136,7 +136,8 @@ class OpenAIRealtimeClient:
         functions=None
     ) -> bool:
         """
-        Обновляет настройки сессии с модальностями, полученными от сервера
+        Обновляет настройки сессии с модальностями, полученными от сервера.
+        Для работы только с аудио используем соответствующие настройки.
         
         Args:
             voice: Голос для синтеза речи
@@ -158,16 +159,18 @@ class OpenAIRealtimeClient:
             server_modalities = data.get("session", {}).get("modalities", [])
             
             # Используем модальности сервера как есть, без преобразований
+            # Важно: не меняем формат, который приходит от сервера
             client_modalities = server_modalities
             
-            # Если не получили модальности от сервера, используем базовый набор
+            # Если не получили модальности от сервера, используем ["audio"]
+            # поскольку в приложении используется только аудио-взаимодействие
             if not server_modalities:
-                client_modalities = ["text", "audio"]
-                logger.warning(f"Не удалось получить модальности от сервера, используем базовые: {client_modalities}")
+                client_modalities = ["audio"]
+                logger.warning(f"Не удалось получить модальности от сервера, используем только аудио: {client_modalities}")
             else:
                 logger.info(f"Получены модальности от сервера: {server_modalities}")
 
-            # Подготовка turn_detection и инструментов
+            # Подготовка turn_detection для автоматического обнаружения речи
             turn_detection = {
                 "type": "server_vad",
                 "threshold": 0.25,
@@ -238,7 +241,7 @@ class OpenAIRealtimeClient:
                     "role": "system",
                     "content": [
                         {
-                            "type": "text",
+                            "type": "text",  # Для системных сообщений используем "text"
                             "text": system_prompt
                         }
                     ]
@@ -293,6 +296,7 @@ class OpenAIRealtimeClient:
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
             
             # Prepare audio payload согласно документации - только необходимые поля
+            # Важно: для input_audio_buffer.append не требуются дополнительные поля
             audio_payload = {
                 "type": "input_audio_buffer.append",
                 "audio": audio_base64
