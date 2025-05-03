@@ -138,7 +138,13 @@ class UserService:
             else:
                 # Pydantic v2
                 update_data = user_data.model_dump(exclude_unset=True)
-                
+            
+            # Явно обрабатываем случай с API ключом
+            if 'openai_api_key' in update_data:
+                # Разрешаем пустую строку или None
+                user.openai_api_key = update_data.pop('openai_api_key')
+            
+            # Обновляем остальные поля
             for key, value in update_data.items():
                 setattr(user, key, value)
             
