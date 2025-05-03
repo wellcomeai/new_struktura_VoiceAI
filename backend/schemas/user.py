@@ -62,7 +62,8 @@ class UserResponse(UserBase):
     created_at: datetime = Field(..., description="User creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="User update timestamp")
     
-    # We don't return the openai_api_key, but we indicate if it's set
+    # Добавляем сам ключ API в ответ
+    openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
     
     class Config:
