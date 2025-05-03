@@ -113,34 +113,34 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             return False
 
-    async def _update_session_settings(self) -> bool:
-        """
-        Update session settings with OpenAI
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.is_connected or not self.ws:
-            return False
-        
-        try:
-            # Prepare session update with correct modalities
-            session_update = {
-                "type": "session.update",
-                "session": {
-                    "modalities": ["input_text", "audio"],  # Используем input_text вместо text
-                    "save_audio_to_storage": False
-                }
+async def _update_session_settings(self) -> bool:
+    """
+    Update session settings with OpenAI
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not self.is_connected or not self.ws:
+        return False
+    
+    try:
+        # Prepare session update with correct modalities
+        # ВАЖНО: удален параметр save_audio_to_storage и правильно указана модальность input_text
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "modalities": ["input_text", "audio"]  # Используем input_text вместо text
             }
-            
-            # Send session update
-            await self.ws.send(json.dumps(session_update))
-            logger.debug(f"Sent session update with modalities for client {self.client_id}")
-            
-            return True
-        except Exception as e:
-            logger.error(f"Error updating session settings: {str(e)}")
-            return False
+        }
+        
+        # Send session update
+        await self.ws.send(json.dumps(session_update))
+        logger.debug(f"Sent session update with modalities for client {self.client_id}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Error updating session settings: {str(e)}")
+        return False
 
     async def _ping_manager(self):
         """Manage ping/pong to keep connection alive"""
