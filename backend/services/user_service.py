@@ -42,33 +42,33 @@ class UserService:
             )
         return user
     
-@staticmethod
-async def get_user_profile(db: Session, user_id: str) -> UserResponse:
-    """
-    Get user profile information
-    
-    Args:
-        db: Database session
-        user_id: User ID
+    @staticmethod
+    async def get_user_profile(db: Session, user_id: str) -> UserResponse:
+        """
+        Get user profile information
         
-    Returns:
-        UserResponse with user profile information
-    """
-    user = await UserService.get_user_by_id(db, user_id)
-    
-    return UserResponse(
-        id=str(user.id),
-        email=user.email,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        company_name=user.company_name,
-        subscription_plan=user.subscription_plan,
-        openai_api_key=user.openai_api_key,  # Включаем API ключ в ответ
-        has_api_key=bool(user.openai_api_key),
-        google_sheets_authorized=user.google_sheets_authorized,
-        created_at=user.created_at,
-        updated_at=user.updated_at
-    )
+        Args:
+            db: Database session
+            user_id: User ID
+            
+        Returns:
+            UserResponse with user profile information
+        """
+        user = await UserService.get_user_by_id(db, user_id)
+        
+        return UserResponse(
+            id=str(user.id),
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            company_name=user.company_name,
+            subscription_plan=user.subscription_plan,
+            openai_api_key=user.openai_api_key,  # Включаем API ключ в ответ
+            has_api_key=bool(user.openai_api_key),
+            google_sheets_authorized=user.google_sheets_authorized,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
     
     @staticmethod
     async def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
