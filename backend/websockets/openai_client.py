@@ -70,7 +70,6 @@ class OpenAIRealtimeClient:
             # Формирование HTTP-заголовков
             headers = [
                 ("Authorization", f"Bearer {self.api_key}"),
-                ("Content-Type", "application/json"),
                 ("OpenAI-Beta", "realtime=v1"),
                 ("User-Agent", "WellcomeAI/1.0")
             ]
@@ -81,7 +80,6 @@ class OpenAIRealtimeClient:
             connect_timeout = 30  # Seconds
             
             # Используем нативный websockets.connect, который создаст WebSocketClientProtocol
-            # с встроенными ping/pong и корректным методом close()
             self.ws = await asyncio.wait_for(
                 websockets.connect(
                     self.openai_url,
@@ -97,25 +95,18 @@ class OpenAIRealtimeClient:
             self.is_connected = True
             logger.info(f"Connected to OpenAI for client {self.client_id}")
             
-            # Update session settings с модальностями
+            # Update session settings
             system_message = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
             voice = self.assistant_config.voice or DEFAULT_VOICE
             
-            # Вызов функции обновления сессии с адаптивными модальностями
-            success = await self._update_session_with_adaptive_modalities(
+            # Вызов функции обновления сессии
+            success = await self.update_session(
                 voice=voice, 
                 system_message=system_message
             )
             
             if not success:
                 logger.error(f"Failed to update session settings for client {self.client_id}")
-                await self.close()
-                return False
-            
-            # Initialize conversation with system prompt
-            success = await self._init_conversation()
-            if not success:
-                logger.error(f"Failed to initialize conversation for client {self.client_id}")
                 await self.close()
                 return False
                 
@@ -129,15 +120,14 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             return False
 
-    async def _update_session_with_adaptive_modalities(
+    async def update_session(
         self, 
         voice=DEFAULT_VOICE, 
         system_message=DEFAULT_SYSTEM_MESSAGE, 
         functions=None
     ) -> bool:
         """
-        Обновляет настройки сессии с модальностями, полученными от сервера.
-        Для работы только с аудио используются правильные модальности.
+        Обновляет настройки сессии с правильными параметрами
         
         Args:
             voice: Голос для синтеза речи
@@ -151,106 +141,48 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            # Ждём от OpenAI первого сообщения session.created
-            msg = await self.ws.recv()
-            data = json.loads(msg)
-            
-            # Извлекаем поддерживаемые сервером модальности
-            server_modalities = data.get("session", {}).get("modalities", [])
-            
-            # ИСПРАВЛЕНО: Используем модальности сервера как есть, БЕЗ преобразований
-            client_modalities = server_modalities
-            
-            # Если не получили модальности от сервера, используем ["audio"]
-            if not server_modalities:
-                # ИСПРАВЛЕНО: используем правильные модальности согласно документации
-                client_modalities = ["audio"]
-                logger.warning(f"Не удалось получить модальности от сервера, используем только аудио: {client_modalities}")
-            else:
-                logger.info(f"Получены модальности от сервера: {server_modalities}")
-
             # Подготовка turn_detection для автоматического обнаружения речи
             turn_detection = {
                 "type": "server_vad",
-                "threshold": 0.25,
-                "prefix_padding_ms": 200,
-                "silence_duration_ms": 300,
-                "create_response": True,
+                "threshold": 0.25,           # Чувствительность обнаружения голоса
+                "prefix_padding_ms": 200,    # Начальное время записи до речи
+                "silence_duration_ms": 300,  # Длительность тишины для определения окончания речи
+                "create_response": True,     # Автоматически создавать ответ при обнаружении конца речи
             }
             
+            # Подготовка инструментов (функций)
             tools = []
             if functions:
                 for func in functions:
                     tools.append({
                         "type": "function",
-                        "name": func["name"],
-                        "description": func["description"],
-                        "parameters": func["parameters"],
+                        "name": func.get("name"),
+                        "description": func.get("description"),
+                        "parameters": func.get("parameters")
                     })
-
-            # Собираем payload с правильными модальностями
+            
+            # Собираем payload с нужными настройками
             session_update = {
                 "type": "session.update",
                 "session": {
                     "turn_detection": turn_detection,
-                    "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "voice": voice,
-                    "instructions": system_message,
-                    "modalities": client_modalities,  # ИСПРАВЛЕНО: используем правильные модальности
-                    "temperature": 0.7,
-                    "max_response_output_tokens": 500,
+                    "input_audio_format": "pcm16",     # Формат входящего аудио
+                    "output_audio_format": "pcm16",    # Формат исходящего аудио
+                    "voice": voice,                    # Голос ассистента
+                    "instructions": system_message,    # Системное сообщение из БД
+                    "modalities": ["text", "audio"],   # Поддерживаемые модальности
+                    "temperature": 0.7,                # Температура генерации
+                    "max_response_output_tokens": 500, # Лимит токенов для ответа
+                    "tools": tools,                    # Инструменты (функции)
+                    "tool_choice": "auto" if tools else "none"  # Метод выбора инструментов
                 }
             }
-            
-            # Добавляем tools только если они есть
-            if tools:
-                session_update["session"]["tools"] = tools
-                session_update["session"]["tool_choice"] = "auto"
-            else:
-                session_update["session"]["tool_choice"] = "none"
 
             # Отправляем обновлённые настройки сессии
             await self.ws.send(json.dumps(session_update))
-            logger.info(f"Настройки сессии с голосом {voice} и модальностями {client_modalities} отправлены")
+            logger.info(f"Настройки сессии с голосом {voice} отправлены")
             
-            return True
-        except Exception as e:
-            logger.error(f"Error updating session settings: {str(e)}")
-            return False
-
-    async def _init_conversation(self) -> bool:
-        """
-        Initialize conversation with system prompt
-        
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.is_connected or not self.ws:
-            return False
-        try:
-            # Получаем системный промпт
-            system_prompt = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
-            
-            # ИСПРАВЛЕНО: Создаем сообщение согласно документации
-            # Для системных сообщений используем "text" тип контента
-            init_payload = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": system_prompt
-                        }
-                    ]
-                }
-            }
-            await self.ws.send(json.dumps(init_payload))
-            logger.debug(f"Sent system prompt for client {self.client_id}")
-
-            # Create conversation record in database if session is available
+            # Создаем запись о разговоре в БД, если сессия доступна
             if self.db_session:
                 try:
                     conv = Conversation(
@@ -266,11 +198,10 @@ class OpenAIRealtimeClient:
                     logger.info(f"Created conversation record: {self.conversation_record_id}")
                 except Exception as db_error:
                     logger.error(f"Error creating conversation record: {str(db_error)}")
-                    # Continue anyway, as this is not critical
             
             return True
         except Exception as e:
-            logger.error(f"Error initializing conversation: {str(e)}")
+            logger.error(f"Error updating session settings: {str(e)}")
             return False
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
@@ -295,27 +226,16 @@ class OpenAIRealtimeClient:
             # Convert audio to base64
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
             
-            # ИСПРАВЛЕНО: Подготавливаем аудио сообщение согласно документации
-            # Убрано audio_format и sample_rate - эти поля не нужны
+            # Подготавливаем аудио сообщение согласно документации
             audio_payload = {
                 "type": "input_audio_buffer.append",
-                "audio": audio_base64
+                "audio": audio_base64,
+                "event_id": f"audio_{time.time()}"
             }
             
             # Send audio data
             await self.ws.send(json.dumps(audio_payload))
             logger.debug(f"Sent audio buffer ({len(audio_buffer)} bytes)")
-            
-            # Update conversation record if available
-            if self.db_session and self.conversation_record_id:
-                try:
-                    conv = self.db_session.query(Conversation).get(uuid.UUID(self.conversation_record_id))
-                    if conv:
-                        if not conv.user_message:
-                            conv.user_message = "[Audio message]"
-                        self.db_session.commit()
-                except Exception as db_error:
-                    logger.error(f"Error updating conversation record: {str(db_error)}")
                     
             return True
         except ConnectionClosed:
@@ -340,7 +260,8 @@ class OpenAIRealtimeClient:
         try:
             # Send commit command согласно документации
             await self.ws.send(json.dumps({
-                "type": "input_audio_buffer.commit"
+                "type": "input_audio_buffer.commit",
+                "event_id": f"commit_{time.time()}"
             }))
             logger.debug(f"Committed audio buffer for client {self.client_id}")
             return True
@@ -366,7 +287,8 @@ class OpenAIRealtimeClient:
         try:
             # Send clear command
             await self.ws.send(json.dumps({
-                "type": "input_audio_buffer.clear"
+                "type": "input_audio_buffer.clear",
+                "event_id": f"clear_{time.time()}"
             }))
             logger.debug(f"Cleared audio buffer for client {self.client_id}")
             return True
@@ -377,27 +299,6 @@ class OpenAIRealtimeClient:
         except Exception as e:
             logger.error(f"Error clearing audio buffer: {str(e)}")
             return False
-
-    async def process_message(self, message: str) -> Any:
-        """
-        Process a message from OpenAI
-        
-        Args:
-            message: JSON message string
-            
-        Returns:
-            Parsed message or None if parsing failed
-        """
-        try:
-            # Parse JSON message
-            data = json.loads(message)
-            return data
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid JSON received from OpenAI: {message[:100]}...")
-            return None
-        except Exception as e:
-            logger.error(f"Error processing message: {str(e)}")
-            return None
 
     async def close(self) -> None:
         """Close WebSocket connection"""
