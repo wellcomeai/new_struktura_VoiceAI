@@ -76,8 +76,9 @@ def validate_api_key(api_key: str) -> Tuple[bool, Optional[str]]:
     Returns:
         Tuple of (is_valid, error_message)
     """
+    # Разрешаем пустой API-ключ
     if not api_key:
-        return False, "API key is required"
+        return True, None
     
     # OpenAI API keys start with 'sk-' and are followed by a long string
     if not api_key.startswith('sk-'):
