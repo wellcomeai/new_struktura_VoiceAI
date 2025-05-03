@@ -2096,7 +2096,8 @@
               if (data.type === 'connection_status') {
                 widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
                 if (data.status === 'connected') {
-                // Соединение установлено, можно начинать слушать
+                  //
+// Соединение установлено, можно начинать слушать
                   isConnected = true;
                   reconnectAttempts = 0;
                   connectionFailedPermanently = false;
