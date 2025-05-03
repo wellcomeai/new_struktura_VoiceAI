@@ -1025,7 +1025,7 @@
           });
         },
         
-        // Блокировка функций (если API ключ не добавлен)
+        // Блокировка функций (если API ключ не добавлен или удален)
         lockFeatures() {
           hasApiKey = false;
           
@@ -1049,6 +1049,15 @@
         // Режим просмотра API ключа
         viewKeyMode() {
           isEditingKey = false;
+          
+          // Если ключ пустой, показываем форму добавления
+          if (!actualApiKey) {
+            apiKeyForm.style.display = 'flex';
+            apiKeyStatus.style.display = 'none';
+            return;
+          }
+          
+          // Если ключ есть, показываем статус
           apiKeyForm.style.display = 'none';
           apiKeyStatus.style.display = 'flex';
         },
@@ -1212,10 +1221,11 @@
         
         const apiKey = apiKeyInput.value.trim();
         
-        if (!apiKey) {
-          ui.showNotification('Пожалуйста, введите API ключ', 'error');
-          return;
-        }
+        // Удалена проверка, чтобы разрешить пустые значения
+        // if (!apiKey) {
+        //    ui.showNotification('Пожалуйста, введите API ключ', 'error');
+        //    return;
+        // }
         
         // Если ключ не изменился, просто переключаем режим
         if (isEditingKey && apiKey === actualApiKey) {
@@ -1226,20 +1236,27 @@
         try {
           await api.saveApiKey(apiKey);
           
-          // Сохраняем ключ в памяти
+          // Сохраняем ключ в памяти (может быть пустой строкой)
           actualApiKey = apiKey;
           
           // Переключаем режим
           ui.viewKeyMode();
           
           // Уведомление
-          ui.showNotification('API ключ успешно сохранен');
-          
-          // Разблокируем дополнительные функции
-          ui.unlockFeatures();
-          
-          // Загружаем статистику
-          loadStats();
+          if (apiKey) {
+            ui.showNotification('API ключ успешно сохранен');
+            
+            // Разблокируем дополнительные функции
+            ui.unlockFeatures();
+            
+            // Загружаем статистику
+            loadStats();
+          } else {
+            ui.showNotification('API ключ успешно удален');
+            
+            // Блокируем функции, если ключ был удален
+            ui.lockFeatures();
+          }
         } catch (error) {
           ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
         }
