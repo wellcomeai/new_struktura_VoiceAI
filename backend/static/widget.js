@@ -866,7 +866,7 @@
       loaderModal: document.getElementById('wellcomeai-loader-modal'),
       messageDisplay: document.getElementById('wellcomeai-message-display'),
       connectionError: document.getElementById('wellcomeai-connection-error'),
-      retryButton: document.getElementById('wellcomeai-connection-error').querySelector('#wellcomeai-retry-button'),
+      retryButton: document.getElementById('wellcomeai-retry-button'),
       statusIndicator: document.getElementById('wellcomeai-status-indicator'),
       statusDot: document.getElementById('wellcomeai-status-dot'),
       statusText: document.getElementById('wellcomeai-status-text'),
@@ -1702,6 +1702,10 @@
     elements: null,
     audioConfig: null,
     minimumAudioLength: 300,
+    silenceCheckIntervalId: null,
+    silenceStartTime: null,
+    bufferCheckIntervalId: null,
+    manualListen: false,
     
     /**
      * Initialize widget
@@ -1886,365 +1890,713 @@
           this.resetConnection();
         });
       }
-    },
-    
-    /**
-     * Connect to WebSocket server
-     */
-    connectToServer: function() {
-      ConnectionManager.connect({
-        onConnecting: () => {
-          this.elements.loaderModal.classList.add('active');
-          this.updateConnectionStatus('connecting', 'Connecting...');
-        },
-        
-        onConnected: () => {
-          this.elements.loaderModal.classList.remove('active');
-          this.hideConnectionError();
-          
-          if (STATE.isWidgetOpen) {
-            this.updateConnectionStatus('connected', 'Connected');
-            
-            // На iOS автоматически активируем аудио и микрофон без ожидания
-            if (DEVICE.isIOS) {
-              // Запускаем агрессивную разблокировку аудио
-              AudioManager.aggressiveIOSAudioUnlock().then(() => {
-                // После разблокировки сразу начинаем слушать
-                setTimeout(() => {
-                  this.startListening();
-                }, 100);
-              });
-            } else {
-              // Для других устройств сразу начинаем слушать
-              this.startListening();
-            }
-          }
-        },
-        
-        onConnectionFailed: (message) => {
-          this.elements.loaderModal.classList.remove('active');
-          
-          if (STATE.isWidgetOpen) {
-            this.showConnectionError(message);
-            this.updateConnectionStatus('disconnected', 'Disconnected');
-          } else {
-            // If widget is closed, add pulse animation to button
-            this.elements.button.classList.add('wellcomeai-pulse-animation');
-          }
-        },
-        
-        onReconnecting: (delay, attempt, maxAttempts) => {
-          if (STATE.isWidgetOpen) {
-            this.showMessage(`Connection timeout. Retrying in ${Math.round(delay/1000)} sec...`);
-            this.updateConnectionStatus('connecting', 'Reconnecting...');
-          }
-        },
-        
-        onReconnectNeeded: (initialDelay = 0) => {
-          this.reconnectWithDelay(initialDelay);
-        },
-        
-        onError: (error) => {
-          if (STATE.isWidgetOpen) {
-            this.showMessage("Connection error with server");
-            this.updateConnectionStatus('disconnected', 'Connection error');
-          }
-        },
-        
-        onMessage: (event) => {
-          this.handleServerMessage(event);
+      // Document interaction events - close widget when clicking outside
+      document.addEventListener('click', (e) => {
+        if (STATE.isWidgetOpen && !this.elements.container.contains(e.target)) {
+          this.closeWidget();
+        }
+      });
+      
+      // Keyboard events for accessibility
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && STATE.isWidgetOpen) {
+          this.closeWidget();
         }
       });
     },
     
     /**
-     * Handle server messages
+     * Open the widget
+     */
+    openWidget: function() {
+      if (STATE.isWidgetOpen) return;
+      
+      STATE.isWidgetOpen = true;
+      this.elements.container.classList.add('active');
+      this.showStatusIndicator();
+      
+      // For iOS, show audio activation button if needed
+      if (DEVICE.isIOS && !STATE.iosAudioFullyActivated) {
+        this.elements.iosAudioButton.classList.add('visible');
+        
+        // Try to unlock audio automatically
+        AudioManager.aggressiveIOSAudioUnlock().then(success => {
+          if (success) {
+            this.elements.iosAudioButton.classList.remove('visible');
+            STATE.iosAudioFullyActivated = true;
+          }
+        });
+      }
+      
+      // If no connection established, try to connect
+      if (!STATE.isConnected && !STATE.isReconnecting && !STATE.connectionFailedPermanently) {
+        this.connectToServer();
+      }
+      
+      widgetLog('Widget opened');
+    },
+    
+    /**
+     * Close the widget
+     */
+    closeWidget: function() {
+      if (!STATE.isWidgetOpen) return;
+      
+      STATE.isWidgetOpen = false;
+      this.elements.container.classList.remove('active');
+      
+      // Stop listening if active
+      if (STATE.isListening) {
+        this.stopListening();
+      }
+      
+      // Hide all messages and indicators
+      this.hideMessage();
+      this.hideStatusIndicator();
+      this.hideConnectionError();
+      
+      widgetLog('Widget closed');
+    },
+    
+    /**
+     * Connect to server
+     */
+    connectToServer: function() {
+      // Show loader during connection
+      this.elements.loaderModal.classList.add('active');
+      this.updateStatus('connecting', 'Connecting...');
+      
+      ConnectionManager.connect({
+        onConnecting: () => {
+          widgetLog('Connecting to server...');
+          this.updateStatus('connecting', 'Connecting...');
+        },
+        
+        onConnected: () => {
+          widgetLog('Connected to server');
+          this.elements.loaderModal.classList.remove('active');
+          this.updateStatus('connected', 'Connected');
+          
+          // If widget is open, show status
+          if (STATE.isWidgetOpen) {
+            this.showStatusIndicator();
+          }
+          
+          // Hide connection error if visible
+          this.hideConnectionError();
+        },
+        
+        onMessage: (event) => {
+          this.handleServerMessage(event);
+        },
+        
+        onReconnecting: (delay, attempt, maxAttempts) => {
+          widgetLog(`Reconnecting (${attempt}/${maxAttempts})...`);
+          this.updateStatus('connecting', `Reconnecting (${attempt}/${maxAttempts})...`);
+          
+          // Show connection error if widget is open
+          if (STATE.isWidgetOpen) {
+            this.showConnectionError(`Reconnecting... (${attempt}/${maxAttempts})`);
+          }
+        },
+        
+        onReconnectNeeded: (delay = 3000) => {
+          if (STATE.isReconnecting) return;
+          
+          this.updateStatus('connecting', 'Connection lost');
+          
+          STATE.isReconnecting = true;
+          
+          if (STATE.isListening) {
+            this.stopListening();
+          }
+          
+          // Reconnect after delay
+          setTimeout(() => {
+            if (STATE.isWidgetOpen) {
+              this.connectToServer();
+            } else {
+              STATE.isReconnecting = false;
+            }
+          }, delay);
+        },
+        
+        onConnectionFailed: (message) => {
+          widgetLog(`Connection failed: ${message}`, 'error');
+          
+          this.elements.loaderModal.classList.remove('active');
+          this.updateStatus('disconnected', 'Disconnected');
+          
+          if (STATE.isWidgetOpen) {
+            this.showConnectionError(message);
+          }
+        },
+        
+        onError: (error) => {
+          widgetLog(`Connection error: ${error}`, 'error');
+          this.updateStatus('disconnected', 'Error');
+        }
+      });
+    },
+    
+    /**
+     * Reset connection and attempt reconnect
+     */
+    resetConnection: function() {
+      STATE.connectionFailedPermanently = false;
+      STATE.reconnectAttempts = 0;
+      STATE.isReconnecting = false;
+      
+      // Hide connection error message
+      this.hideConnectionError();
+      
+      // Reconnect
+      this.connectToServer();
+    },
+    
+    /**
+     * Handle messages from the server
      * @param {MessageEvent} event - WebSocket message event
      */
     handleServerMessage: function(event) {
       try {
-        // Handle possible binary data
-        if (event.data instanceof Blob) {
-          widgetLog("Received binary data from server");
+        // Check if it's a binary audio message
+        if (event.data instanceof ArrayBuffer) {
+          widgetLog(`Received binary audio data: ${event.data.byteLength} bytes`);
+          this.handleAudioResponse(event.data);
           return;
         }
         
-        // Check for empty message
-        if (!event.data) {
-          widgetLog("Received empty message from server", "warn");
-          return;
-        }
-
-        // Handle text messages
-        try {
-          const data = JSON.parse(event.data);
-          
-          // Update last pong time with any message
-          STATE.lastPongTime = Date.now();
-          
-          // Log all message types except frequent audio messages
-          if (data.type !== 'input_audio_buffer.append') {
-            widgetLog(`Received message type: ${data.type || 'unknown'}`);
-          }
-          
-          // Check for session.created and session.updated message
-          if (data.type === 'session.created' || data.type === 'session.updated') {
-            widgetLog(`Received session info: ${data.type}`);
-            // Just accept this message, no special handling needed
-            return;
-          }
-          
-          // Check for connection_status message
-          if (data.type === 'connection_status') {
-            widgetLog(`Connection status: ${data.status} - ${data.message}`);
-            if (data.status === 'connected') {
-              // Connection established, can start listening
-              STATE.isConnected = true;
-              STATE.reconnectAttempts = 0;
-              STATE.connectionFailedPermanently = false;
-              
-              // Hide connection error if shown
-              this.hideConnectionError();
-              
-              // Автоматически начинаем слушать если виджет открыт
-              if (STATE.isWidgetOpen) {
-                if (DEVICE.isIOS) {
-                  // Для iOS запускаем разблокировку аудио
-                  AudioManager.aggressiveIOSAudioUnlock().then(() => {
-                    setTimeout(() => {
-                      this.startListening();
-                    }, 100);
-                  });
-                } else {
-                  this.startListening();
-                }
-              }
-            }
-            return;
-          }
-          
-          // Handle errors
-          if (data.type === 'error') {
-            // Special handling for empty audio buffer error
-            if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-              widgetLog("Error: empty audio buffer", "warn");
-              // На iOS могут быть проблемы с пустым буфером, пробуем заново начать запись
-              if (STATE.isWidgetOpen && !STATE.isPlayingAudio && !STATE.isReconnecting) {
-                if (DEVICE.isIOS) {
-                  // Разблокируем аудио перед перезапуском
-                  AudioManager.aggressiveIOSAudioUnlock().then(() => {
-                    setTimeout(() => { 
-                      this.startListening(); 
-                    }, 300);
-                  });
-                } else {
-                  setTimeout(() => { 
-                    this.startListening(); 
-                  }, 500);
-                }
-              }
-              return;
-            }
-            
-            // Other errors
-            widgetLog(`Server error: ${data.error ? data.error.message : 'Unknown error'}`, "error");
-            this.showMessage(data.error ? data.error.message : 'Server error occurred', 5000);
-            return;
-          } 
-          
-          // Handle text response
-          if (data.type === 'response.text.delta') {
-            if (data.delta) {
-              this.showMessage(data.delta, 0); // Set duration = 0 to keep message visible
-              
-              // If widget is closed, add pulse to button
-              if (!STATE.isWidgetOpen) {
-                this.elements.button.classList.add('wellcomeai-pulse-animation');
-              }
-            }
-            return;
-          }
-          
-          // Text completion
-          if (data.type === 'response.text.done') {
-            // After text completion, set timer to hide message
-            setTimeout(() => {
-              this.hideMessage();
-            }, 5000);
-            return;
-          }
-          
-          // Handle audio
-          if (data.type === 'response.audio.delta') {
-            if (data.delta) {
-              STATE.audioChunksBuffer.push(data.delta);
-            }
-            return;
-          }
-          
-          // Handle audio transcription
-          if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-            // Could save or display audio transcription here
-            return;
-          }
-          
-          // Audio ready for playback
-          if (data.type === 'response.audio.done') {
-            if (STATE.audioChunksBuffer.length > 0) {
-              const fullAudio = STATE.audioChunksBuffer.join('');
-              this.addAudioToPlaybackQueue(fullAudio);
-              STATE.audioChunksBuffer = [];
-            }
-            return;
-          }
-          
-          // Response complete
-          if (data.type === 'response.done') {
-            widgetLog('Response done received');
-            // Автоматически начинаем слушать снова если виджет открыт
-            if (STATE.isWidgetOpen && !STATE.isPlayingAudio && !STATE.isReconnecting) {
-              // Проверяем состояние аудио для iOS перед стартом
-              if (DEVICE.isIOS) {
-                // Сначала разблокируем аудио, потом начинаем слушать
-                AudioManager.aggressiveIOSAudioUnlock().then(() => {
-                  setTimeout(() => {
-                    this.startListening();
-                  }, 300);
-                });
-              } else {
-                setTimeout(() => {
-                  this.startListening();
-                }, 800);
-              }
-            }
-            return;
-          }
-          
-          // If we reached this point, we have an unknown message type
-          widgetLog(`Unknown message type: ${data.type}`, "warn");
-          
-        } catch (parseError) {
-          // If JSON parsing failed, just log the error
-          widgetLog(`JSON parsing error: ${parseError.message}`, "warn");
-          
-          // Check for ping-pong messages
-          if (event.data === 'pong') {
+        // Parse JSON message
+        const message = JSON.parse(event.data);
+        
+        // Handle different message types
+        switch (message.type) {
+          case 'pong':
+            // Update last pong time for connection health check
             STATE.lastPongTime = Date.now();
-            widgetLog("Received pong response");
-            return;
-          }
-          
-          widgetLog(`Message content: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'not a string'}...`, "debug");
+            break;
+            
+          case 'text':
+            if (message.text && message.text.trim()) {
+              this.showMessage(message.text);
+            }
+            break;
+            
+          case 'audio_start':
+            widgetLog('Server sent audio_start signal');
+            // Handle start of audio from server
+            this.beginAudioPlayback(message.data);
+            break;
+            
+          case 'audio_chunk':
+            widgetLog('Received audio chunk');
+            // Handle audio chunk from server
+            if (message.data) {
+              this.queueAudioChunk(message.data);
+            }
+            break;
+            
+          case 'audio_end':
+            widgetLog('Server sent audio_end signal');
+            // Handle end of audio from server
+            this.finishAudioPlayback();
+            break;
+            
+          case 'error':
+            widgetLog(`Server error: ${message.message}`, 'error');
+            this.showMessage(`Error: ${message.message}`);
+            break;
+            
+          default:
+            widgetLog(`Unknown message type: ${message.type}`, 'warn');
         }
-      } catch (generalError) {
-        widgetLog(`General message processing error: ${generalError.message}`, "error");
+      } catch (error) {
+        widgetLog(`Error handling server message: ${error.message}`, 'error');
       }
     },
     
     /**
-     * Улучшенная функция начала записи аудио для iOS
+     * Show message in the widget
+     * @param {string} text - Message text
      */
-    startListening: async function() {
-      if (!STATE.isConnected) {
-        widgetLog('Невозможно начать запись: нет соединения с сервером', 'warn');
-        return;
-      }
+    showMessage: function(text) {
+      if (!text || !this.elements.messageDisplay) return;
       
-      // Проверяем что не воспроизводим аудио и не в процессе переподключения
-      if (STATE.isPlayingAudio || STATE.isReconnecting) {
-        widgetLog(`Невозможно начать запись: isPlayingAudio=${STATE.isPlayingAudio}, isReconnecting=${STATE.isReconnecting}`, 'warn');
-        return;
-      }
+      this.elements.messageDisplay.textContent = text;
+      this.elements.messageDisplay.classList.add('show');
       
-      // Можем начать запись, даже если уже слушаем (перезапустить)
-      if (STATE.isListening) {
-        // Останавливаем текущую запись
-        AudioManager.stopCapture();
+      // Auto-hide message after 5 seconds
+      setTimeout(() => {
+        this.hideMessage();
+      }, 5000);
+    },
+    
+    /**
+     * Hide message display
+     */
+    hideMessage: function() {
+      if (this.elements.messageDisplay) {
+        this.elements.messageDisplay.classList.remove('show');
+      }
+    },
+    
+    /**
+     * Show connection error
+     * @param {string} message - Error message
+     */
+    showConnectionError: function(message) {
+      if (this.elements.connectionError) {
+        this.elements.connectionError.textContent = message || 'Connection error';
         
-        // Очищаем установленные интервалы
-        if (STATE.autoCommitIntervalId) {
-          clearInterval(STATE.autoCommitIntervalId);
-          STATE.autoCommitIntervalId = null;
+        // Add retry button if not already present
+        if (!this.elements.connectionError.querySelector('.wellcomeai-retry-button')) {
+          this.elements.connectionError.appendChild(this.elements.retryButton);
         }
-      }
-      
-      // Устанавливаем флаг записи
-      STATE.isListening = true;
-      widgetLog('Начинаем запись аудио');
-      
-      // Отправляем команду очистки входного буфера
-      if (ConnectionManager.websocket && ConnectionManager.websocket.readyState === WebSocket.OPEN) {
-        ConnectionManager.send({
-          type: "input_audio_buffer.clear",
-          event_id: `clear_${Date.now()}`
-        });
-      }
-      
-      // Специальная обработка для iOS устройств - агрессивная разблокировка аудио
-      if (DEVICE.isIOS) {
-        await AudioManager.aggressiveIOSAudioUnlock();
         
-        // Даже если не удалось полностью активировать, продолжаем
-        // iOS часто требует несколько попыток
-        if (!window.audioContextInitialized) {
-          widgetLog('Аудио контекст не полностью инициализирован, но продолжаем', 'warn');
-          window.audioContextInitialized = true; // Принудительно устанавливаем флаг
-        }
+        this.elements.connectionError.classList.add('visible');
+      }
+    },
+    
+    /**
+     * Hide connection error
+     */
+    hideConnectionError: function() {
+      if (this.elements.connectionError) {
+        this.elements.connectionError.classList.remove('visible');
+      }
+    },
+    
+    /**
+     * Update connection status indicator
+     * @param {string} status - Status type (connected, connecting, disconnected)
+     * @param {string} text - Status text
+     */
+    updateStatus: function(status, text) {
+      if (!this.elements.statusDot || !this.elements.statusText) return;
+      
+      // Update status dot
+      this.elements.statusDot.className = 'wellcomeai-status-dot';
+      if (status === 'disconnected') {
+        this.elements.statusDot.classList.add('disconnected');
+      } else if (status === 'connecting') {
+        this.elements.statusDot.classList.add('connecting');
       }
       
-      // Проверяем инициализацию аудио
-      if (!AudioManager.audioContext) {
-        const success = await AudioManager.initAudio();
+      // Update status text
+      this.elements.statusText.textContent = text || '';
+    },
+    
+    /**
+     * Show status indicator
+     */
+    showStatusIndicator: function() {
+      if (this.elements.statusIndicator) {
+        this.elements.statusIndicator.classList.add('show');
+      }
+    },
+    
+    /**
+     * Hide status indicator
+     */
+    hideStatusIndicator: function() {
+      if (this.elements.statusIndicator) {
+        this.elements.statusIndicator.classList.remove('show');
+      }
+    },
+    
+    /**
+     * Start listening for audio input
+     */
+    startListening: function() {
+      if (STATE.isListening || STATE.isPlayingAudio) return;
+      
+      widgetLog('Start listening...');
+      
+      // Initialize audio context and media stream if not already done
+      AudioManager.initAudio().then(success => {
         if (!success) {
-          widgetLog('Не удалось инициализировать аудио', 'error');
-          STATE.isListening = false;
+          widgetLog('Failed to initialize audio', 'error');
+          this.showMessage('Microphone access is required');
+          return;
+        }
+        
+        // Update UI state
+        STATE.isListening = true;
+        this.elements.mainCircle.classList.add('listening');
+        
+        // Send start listening message to server
+        ConnectionManager.send({
+          type: 'start_listening'
+        });
+        
+        // Reset audio buffer
+        STATE.audioChunksBuffer = [];
+        STATE.hasAudioData = false;
+        STATE.audioDataStartTime = Date.now();
+        
+        // Start audio capture
+        AudioManager.startCapture((audioEvent) => {
+          const audioData = audioEvent.inputBuffer.getChannelData(0);
           
-          // Для iOS попробуем еще раз активировать аудио
-          if (DEVICE.isIOS) {
-            widgetLog('Повторная попытка активации аудио на iOS', 'info');
-            
-            try {
-              await AudioManager.aggressiveIOSAudioUnlock();
-              
-              // Пробуем заново инициализировать аудио после разблокировки
-              const secondAttempt = await AudioManager.initAudio();
-              if (!secondAttempt) {
-                widgetLog('Вторая попытка инициализации аудио не удалась', 'error');
-                return;
-              }
-            } catch (e) {
-              widgetLog(`Ошибка повторной активации аудио: ${e.message}`, 'error');
-              return;
+          // Update audio visualization
+          this.updateAudioVisualization(audioData);
+          
+          // Check for audio data (non-silent)
+          this.processAudioData(audioData);
+        });
+        
+        // Setup buffer check interval for silence detection
+        this.bufferCheckIntervalId = setInterval(() => {
+          this.checkAudioBuffer();
+        }, this.audioConfig.bufferCheckInterval);
+        
+        // For iOS, setup auto-commit interval if needed
+        if (DEVICE.isIOS && this.audioConfig.forceCommitAudio && this.audioConfig.autoCommitInterval) {
+          STATE.autoCommitIntervalId = setInterval(() => {
+            // If we have been recording for enough time, force send
+            const recordingTime = Date.now() - STATE.audioDataStartTime;
+            if (recordingTime > this.audioConfig.autoCommitInterval && STATE.hasAudioData) {
+              widgetLog(`Auto-committing audio after ${recordingTime}ms`);
+              this.sendAudioBuffer();
             }
-          } else {
-            // Для других платформ показываем сообщение об ошибке
-            this.showMessage("Ошибка доступа к микрофону. Проверьте разрешения браузера.");
-            return;
+          }, this.audioConfig.autoCommitInterval);
+        }
+      }).catch(error => {
+        widgetLog(`Error starting audio capture: ${error.message}`, 'error');
+        this.showMessage('Error accessing microphone');
+      });
+    },
+    
+    /**
+     * Stop listening for audio input
+     */
+    stopListening: function() {
+      if (!STATE.isListening) return;
+      
+      widgetLog('Stop listening');
+      
+      // Update UI state
+      STATE.isListening = false;
+      this.elements.mainCircle.classList.remove('listening');
+      this.resetAudioVisualization();
+      
+      // Clear intervals
+      if (this.silenceCheckIntervalId) {
+        clearInterval(this.silenceCheckIntervalId);
+        this.silenceCheckIntervalId = null;
+      }
+      
+      if (this.bufferCheckIntervalId) {
+        clearInterval(this.bufferCheckIntervalId);
+        this.bufferCheckIntervalId = null;
+      }
+      
+      if (STATE.autoCommitIntervalId) {
+        clearInterval(STATE.autoCommitIntervalId);
+        STATE.autoCommitIntervalId = null;
+      }
+      
+      // Stop audio capture
+      AudioManager.stopCapture();
+      
+      // Send stop_listening message
+      ConnectionManager.send({
+        type: 'stop_listening'
+      });
+      
+      // Send any remaining audio data
+      if (STATE.hasAudioData && STATE.audioChunksBuffer.length > 0) {
+        this.sendAudioBuffer();
+      }
+    },
+    
+    /**
+     * Process incoming audio data
+     * @param {Float32Array} audioData - Audio samples
+     */
+    processAudioData: function(audioData) {
+      // Convert Float32Array to Int16Array for efficient transmission
+      const int16Data = new Int16Array(audioData.length);
+      
+      // Calculate volume for silence detection
+      let volume = 0;
+      let hasSoundDetected = false;
+      
+      for (let i = 0; i < audioData.length; i++) {
+        // Convert to 16-bit PCM
+        int16Data[i] = audioData[i] * 32767;
+        
+        // Accumulate for volume calculation
+        volume += Math.abs(audioData[i]);
+        
+        // Check for sound detection
+        if (Math.abs(audioData[i]) > this.audioConfig.soundDetectionThreshold) {
+          hasSoundDetected = true;
+        }
+      }
+      
+      // Calculate average volume
+      volume = volume / audioData.length;
+      
+      // Add data to buffer if it contains sound or if we're forcing audio
+      if (hasSoundDetected || (DEVICE.isIOS && this.audioConfig.forceAudioActivation)) {
+        STATE.hasAudioData = true;
+        STATE.audioChunksBuffer.push(int16Data.buffer);
+        
+        // Reset silence detection
+        this.silenceStartTime = null;
+      } else if (volume < this.audioConfig.silenceThreshold) {
+        // Silence detected
+        if (!this.silenceStartTime) {
+          this.silenceStartTime = Date.now();
+        } else {
+          // Check if silence duration exceeds threshold
+          const silenceDuration = Date.now() - this.silenceStartTime;
+          
+          if (silenceDuration >= this.audioConfig.silenceDuration && STATE.hasAudioData) {
+            // Send audio buffer and reset
+            this.sendAudioBuffer();
+            this.silenceStartTime = null;
           }
         }
-      } else if (AudioManager.audioContext.state === 'suspended') {
-        // Восстанавливаем AudioContext если приостановлен
-        try {
-          await AudioManager.audioContext.resume();
-          widgetLog('AudioContext возобновлен');
-        } catch (error) {
-          widgetLog(`Ошибка возобновления AudioContext: ${error.message}`, 'error');
+      } else {
+        // Not silent enough to trigger, but not sound either
+        this.silenceStartTime = null;
+      }
+    },
+    
+    /**
+     * Check audio buffer and send if conditions are met
+     */
+    checkAudioBuffer: function() {
+      // Check recording duration
+      const recordingDuration = Date.now() - STATE.audioDataStartTime;
+      
+      // Send buffer if we have data and enough time has passed
+      if (STATE.hasAudioData && recordingDuration > this.minimumAudioLength) {
+        // For iOS, we may want to wait for auto-commit
+        if (DEVICE.isIOS && this.audioConfig.forceCommitAudio) {
+          // Let the auto-commit handle it
+          return;
+        }
+        
+        // Check if silence period has passed
+        if (this.silenceStartTime) {
+          const silenceDuration = Date.now() - this.silenceStartTime;
           
-          // Для iOS пробуем перезапустить аудио полностью
-          if (DEVICE.isIOS) {
-            AudioManager.stopCapture();
-            
-            try {
-              await AudioManager.aggressiveIOSAudioUnlock();
-              await AudioManager.initAudio();
-            } catch (e) {
-              widgetLog(`Не удалось перезапустить аудио: ${e.message}`, 'error');
-              STATE.isListening = false;
-              return;
-            }
-          } else {
-            STATE.isListening = false;
-            this.showMessage("Ошибка доступа к аудио. Пожалуйста, перезагрузите страницу.");
-            return;
+          if (silenceDuration >= this.audioConfig.silenceDuration) {
+            this.sendAudioBuffer();
           }
         }
+      }
+    },
+    
+    /**
+     * Send audio buffer to server
+     */
+    sendAudioBuffer: function() {
+      if (!STATE.hasAudioData || STATE.audioChunksBuffer.length === 0) {
+        return;
+      }
+      
+      widgetLog(`Sending audio buffer: ${STATE.audioChunksBuffer.length} chunks`);
+      
+      try {
+        // Concatenate all audio chunks
+        let totalLength = 0;
+        STATE.audioChunksBuffer.forEach(buffer => {
+          totalLength += buffer.byteLength;
+        });
+        
+        // Create combined buffer
+        const combinedBuffer = new ArrayBuffer(totalLength);
+        const combinedView = new Uint8Array(combinedBuffer);
+        
+        let offset = 0;
+        STATE.audioChunksBuffer.forEach(buffer => {
+          combinedView.set(new Uint8Array(buffer), offset);
+          offset += buffer.byteLength;
+        });
+        
+        // Send audio data to server
+        if (ConnectionManager.websocket && ConnectionManager.websocket.readyState === WebSocket.OPEN) {
+          ConnectionManager.websocket.send(combinedBuffer);
+        } else {
+          widgetLog('WebSocket not open, cannot send audio', 'warn');
+        }
+      } catch (error) {
+        widgetLog(`Error sending audio: ${error.message}`, 'error');
+      }
+      
+      // Reset audio buffer
+      STATE.audioChunksBuffer = [];
+      STATE.hasAudioData = false;
+      STATE.audioDataStartTime = Date.now();
+      this.silenceStartTime = null;
+    },
+    
+    /**
+     * Handle audio response from server
+     * @param {ArrayBuffer} audioData - Binary audio data
+     */
+    handleAudioResponse: function(audioData) {
+      // Convert ArrayBuffer to base64 for storage/playback
+      const base64Audio = DataUtils.arrayBufferToBase64(audioData);
+      
+      // Queue for playback
+      this.queueAudioForPlayback(base64Audio);
+    },
+    
+    /**
+     * Begin audio playback sequence
+     */
+    beginAudioPlayback: function() {
+      if (STATE.isPlayingAudio) return;
+      
+      widgetLog('Beginning audio playback');
+      
+      // Update UI
+      STATE.isPlayingAudio = true;
+      this.elements.mainCircle.classList.add('speaking');
+      
+      // Clear audio queue
+      STATE.audioPlaybackQueue = [];
+    },
+    
+    /**
+     * Queue audio chunk for playback
+     * @param {string} audioBase64 - Base64 encoded audio chunk
+     */
+    queueAudioChunk: function(audioBase64) {
+      if (!audioBase64) return;
+      
+      // Add to queue
+      STATE.audioPlaybackQueue.push(audioBase64);
+      
+      // Start playback if not already playing
+      this.processAudioQueue();
+    },
+    
+    /**
+     * Queue complete audio for playback
+     * @param {string} audioBase64 - Base64 encoded audio
+     */
+    queueAudioForPlayback: function(audioBase64) {
+      if (!audioBase64) return;
+      
+      // Begin playback sequence
+      this.beginAudioPlayback();
+      
+      // Queue audio
+      this.queueAudioChunk(audioBase64);
+    },
+    
+    /**
+     * Process audio playback queue
+     */
+    processAudioQueue: function() {
+      if (!STATE.isPlayingAudio || STATE.audioPlaybackQueue.length === 0) return;
+      
+      widgetLog(`Processing audio queue: ${STATE.audioPlaybackQueue.length} items`);
+      
+      // Get next audio chunk
+      const audioBase64 = STATE.audioPlaybackQueue.shift();
+      
+      // Play audio
+      AudioManager.playAudio(audioBase64, 
+        // On complete
+        () => {
+          // If queue has more items, play next
+          if (STATE.audioPlaybackQueue.length > 0) {
+            this.processAudioQueue();
+          } else if (STATE.isPlayingAudio) {
+            // If no more items and still in playing state, finish playback
+            this.finishAudioPlayback();
+          }
+        },
+        // On error
+        (error) => {
+          widgetLog(`Audio playback error: ${error.message}`, 'error');
+          this.finishAudioPlayback();
+        }
+      );
+    },
+    
+    /**
+     * Finish audio playback
+     */
+    finishAudioPlayback: function() {
+      if (!STATE.isPlayingAudio) return;
+      
+      widgetLog('Finishing audio playback');
+      
+      // Update UI
+      STATE.isPlayingAudio = false;
+      this.elements.mainCircle.classList.remove('speaking');
+      
+      // Clear queue
+      STATE.audioPlaybackQueue = [];
+    },
+    
+    /**
+     * Check initialization status
+     */
+    checkInitialization: function() {
+      setTimeout(() => {
+        // Check widget visibility
+        const widgetStyle = window.getComputedStyle(this.elements.container);
+        if (widgetStyle.display === 'none' || widgetStyle.visibility === 'hidden') {
+          widgetLog('Widget is not visible after initialization', 'warn');
+        }
+        
+        // Check if widget is properly positioned
+        const rect = this.elements.container.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) {
+          widgetLog('Widget has zero dimensions after initialization', 'warn');
+        }
+        
+        // Hide loader when initialization is complete
+        this.elements.loaderModal.classList.remove('active');
+      }, 1000);
+    }
+  };
+
+  /**
+   * Main initialization function
+   */
+  function initializeWidget() {
+    widgetLog('Initializing widget...');
+    
+    try {
+      // Load Font Awesome
+      loadFontAwesome();
+      
+      // Get server URL and assistant ID
+      const serverUrl = getServerUrl();
+      const assistantId = getAssistantId();
+      
+      if (!assistantId) {
+        widgetLog('No assistant ID provided, widget will not be initialized', 'error');
+        return;
+      }
+      
+      // Get widget position
+      const position = getWidgetPosition();
+      
+      // Initialize widget controller
+      WidgetController.init(serverUrl, assistantId, position);
+      
+      widgetLog('Widget initialized successfully');
+    } catch (error) {
+      widgetLog(`Error initializing widget: ${error.message}`, 'error');
+    }
+  }
+
+  // Initialize widget when DOM is fully loaded
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeWidget);
+  } else {
+    initializeWidget();
+  }
+})();
