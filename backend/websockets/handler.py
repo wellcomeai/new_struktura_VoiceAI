@@ -441,19 +441,21 @@ async def handle_openai_messages(openai_client, websocket):
                 response_type = response_data.get("type", "")
                 logger.debug(f"Received OpenAI event: {response_type}")
                 
-                # События сессии - пересылаем клиенту как есть
+                # ИСПРАВЛЕНО: Корректная обработка сообщений от OpenAI Realtime API
+                
+                # События сессии
                 if response_type in ["session.created", "session.updated"]:
                     logger.info(f"Received session update from OpenAI: {response_type}")
                     await websocket.send_json(response_data)
                     continue
                 
-                # События разговора - пересылаем клиенту как есть
+                # События разговора
                 if response_type in ["conversation.created", "conversation.item.created"]:
                     logger.info(f"Received conversation update from OpenAI: {response_type}")
                     await websocket.send_json(response_data)
                     continue
                 
-                # Транскрипция аудио
+                # Транскрипция аудио от пользователя
                 if response_type == "conversation.item.input_audio_transcription.completed":
                     logger.info(f"Received audio transcription from OpenAI")
                     await websocket.send_json(response_data)
@@ -480,78 +482,50 @@ async def handle_openai_messages(openai_client, websocket):
                     await websocket.send_json(response_data)
                     continue
                 
-                # Аудио-ответ
+                # Обработка аудио-ответа и текстового ответа (дельты)
                 if response_type == "response.audio.delta":
-                    delta = response_data.get("delta", "")
-                    if delta:
-                        await websocket.send_json({
-                            "type": "response.audio.delta",
-                            "delta": delta
-                        })
+                    await websocket.send_json(response_data)
                     continue
-                    
+                
                 if response_type == "response.audio.done":
-                    await websocket.send_json({
-                        "type": "response.audio.done"
-                    })
+                    await websocket.send_json(response_data)
                     continue
-                    
-                # Транскрипция аудио-ответа
-                if response_type == "response.audio_transcript.delta":
-                    delta = response_data.get("delta", "")
-                    if delta:
-                        await websocket.send_json({
-                            "type": "response.audio_transcript.delta",
-                            "delta": delta
-                        })
+                
+                if response_type == "response.text.delta":
+                    await websocket.send_json(response_data)
                     continue
+                
+                if response_type == "response.text.done":
+                    text = response_data.get("text", "")
+                    await websocket.send_json(response_data)
                     
-                if response_type == "response.audio_transcript.done":
-                    transcript = response_data.get("transcript", "")
-                    await websocket.send_json({
-                        "type": "response.audio_transcript.done",
-                        "transcript": transcript
-                    })
-                    
-                    # Сохраняем транскрипцию ответа в БД
-                    if openai_client.db_session and openai_client.conversation_record_id and transcript:
+                    # Сохраняем текст ответа в БД
+                    if openai_client.db_session and openai_client.conversation_record_id and text:
                         try:
                             conversation = openai_client.db_session.query(Conversation).filter(
                                 Conversation.id == uuid.UUID(openai_client.conversation_record_id)
                             ).first()
                             
                             if conversation:
-                                conversation.assistant_message = transcript
+                                conversation.assistant_message = text
                                 openai_client.db_session.commit()
-                                logger.info(f"Updated conversation with assistant message: {transcript[:50]}...")
+                                logger.info(f"Updated conversation with assistant message: {text[:50]}...")
                         except Exception as db_error:
                             logger.error(f"Error updating conversation: {str(db_error)}")
                     continue
                 
-                # Текстовый ответ (поскольку используется только аудио, это событие может не возникать,
-                # но для полноты обрабатываем и его)
-                if response_type == "response.text.delta":
-                    delta = response_data.get("delta", "")
-                    if delta:
-                        await websocket.send_json({
-                            "type": "response.text.delta",
-                            "delta": delta
-                        })
+                # Транскрипция аудио-ответа ассистента
+                if response_type == "response.audio_transcript.delta":
+                    await websocket.send_json(response_data)
                     continue
                 
-                if response_type == "response.text.done":
-                    text = response_data.get("text", "")
-                    await websocket.send_json({
-                        "type": "response.text.done",
-                        "text": text
-                    })
+                if response_type == "response.audio_transcript.done":
+                    await websocket.send_json(response_data)
                     continue
                 
                 # Завершение ответа
                 if response_type == "response.done":
-                    await websocket.send_json({
-                        "type": "response.done"
-                    })
+                    await websocket.send_json(response_data)
                     continue
                 
                 # Обработка ошибок
@@ -561,13 +535,7 @@ async def handle_openai_messages(openai_client, websocket):
                     error_code = error.get("code", "unknown_error")
                     logger.error(f"Error from OpenAI: {error_code} - {error_msg}")
                     
-                    await websocket.send_json({
-                        "type": "error",
-                        "error": {
-                            "code": error_code,
-                            "message": error_msg
-                        }
-                    })
+                    await websocket.send_json(response_data)
                     continue
                 
                 # Для других типов сообщений просто пересылаем их клиенту
