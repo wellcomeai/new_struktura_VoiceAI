@@ -142,10 +142,11 @@ class OpenAIRealtimeClient:
             return False
         try:
             # Send system message to set up the conversation
+            # Fixed: changed 'text' to 'message' to match the OpenAI API requirements
             init_payload = {
                 "type": "conversation.item.create",
                 "item": {
-                    "type": "text",
+                    "type": "message",  # Changed from 'text' to 'message'
                     "role": "system",
                     "content": self.assistant_config.system_prompt or "You are a helpful voice assistant."
                 }
