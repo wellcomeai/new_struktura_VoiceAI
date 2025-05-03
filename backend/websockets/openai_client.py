@@ -136,7 +136,7 @@ class OpenAIRealtimeClient:
         functions=None
     ) -> bool:
         """
-        Обновляет настройки сессии с адаптивным определением модальностей
+        Обновляет настройки сессии с модальностями, полученными от сервера
         
         Args:
             voice: Голос для синтеза речи
@@ -157,18 +157,15 @@ class OpenAIRealtimeClient:
             # Извлекаем поддерживаемые сервером модальности
             server_modalities = data.get("session", {}).get("modalities", [])
             
+            # Используем модальности сервера как есть, без преобразований
+            client_modalities = server_modalities
+            
             # Если не получили модальности от сервера, используем базовый набор
             if not server_modalities:
-                client_modalities = ["input_text", "audio"]
+                client_modalities = ["text", "audio"]
                 logger.warning(f"Не удалось получить модальности от сервера, используем базовые: {client_modalities}")
             else:
-                # Переводим их в формат, который ждёт сервер в session.update
-                # (например, text → input_text, audio остаётся audio)
-                client_modalities = [
-                    "input_text" if m == "text" else m
-                    for m in server_modalities
-                ]
-                logger.info(f"Получены модальности от сервера: {server_modalities}, преобразованы в: {client_modalities}")
+                logger.info(f"Получены модальности от сервера: {server_modalities}")
 
             # Подготовка turn_detection и инструментов
             turn_detection = {
@@ -233,7 +230,7 @@ class OpenAIRealtimeClient:
             # Получаем системный промпт
             system_prompt = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
             
-            # Исправлено: content теперь массив объектов вместо строки
+            # Создаем сообщение согласно документации
             init_payload = {
                 "type": "conversation.item.create",
                 "item": {
@@ -295,11 +292,9 @@ class OpenAIRealtimeClient:
             # Convert audio to base64
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
             
-            # Prepare audio payload
+            # Prepare audio payload согласно документации - только необходимые поля
             audio_payload = {
                 "type": "input_audio_buffer.append",
-                "audio_format": "pcm_s16le",   # 16-bit signed little-endian PCM
-                "sample_rate": 24000,          # 24 kHz sample rate
                 "audio": audio_base64
             }
             
@@ -339,7 +334,7 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            # Send commit command
+            # Send commit command согласно документации
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.commit"
             }))
