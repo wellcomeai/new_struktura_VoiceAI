@@ -141,14 +141,21 @@ class OpenAIRealtimeClient:
         if not self.is_connected or not self.ws:
             return False
         try:
-            # Send system message to set up the conversation
-            # Fixed: changed 'text' to 'message' to match the OpenAI API requirements
+            # Получаем системный промпт
+            system_prompt = self.assistant_config.system_prompt or "You are a helpful voice assistant."
+            
+            # Исправлено: content теперь массив объектов вместо строки
             init_payload = {
                 "type": "conversation.item.create",
                 "item": {
-                    "type": "message",  # Changed from 'text' to 'message'
+                    "type": "message",
                     "role": "system",
-                    "content": self.assistant_config.system_prompt or "You are a helpful voice assistant."
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": system_prompt
+                        }
+                    ]
                 }
             }
             await self.ws.send(json.dumps(init_payload))
