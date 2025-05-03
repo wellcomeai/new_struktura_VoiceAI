@@ -63,6 +63,7 @@ class UserService:
             last_name=user.last_name,
             company_name=user.company_name,
             subscription_plan=user.subscription_plan,
+            openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
             has_api_key=bool(user.openai_api_key),
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -100,6 +101,7 @@ class UserService:
             last_name=user.last_name,
             company_name=user.company_name,
             subscription_plan=user.subscription_plan,
+            openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
             has_api_key=bool(user.openai_api_key),
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -129,8 +131,14 @@ class UserService:
         try:
             user = await UserService.get_user_by_id(db, user_id)
             
-            # Update only provided fields
-            update_data = user_data.dict(exclude_unset=True)
+            # Update only provided fields - совместимость с Pydantic v1 и v2
+            if hasattr(user_data, 'dict'):
+                # Pydantic v1
+                update_data = user_data.dict(exclude_unset=True)
+            else:
+                # Pydantic v2
+                update_data = user_data.model_dump(exclude_unset=True)
+                
             for key, value in update_data.items():
                 setattr(user, key, value)
             
@@ -146,6 +154,7 @@ class UserService:
                 last_name=user.last_name,
                 company_name=user.company_name,
                 subscription_plan=user.subscription_plan,
+                openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
                 has_api_key=bool(user.openai_api_key),
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
