@@ -137,7 +137,7 @@ class OpenAIRealtimeClient:
     ) -> bool:
         """
         Обновляет настройки сессии с модальностями, полученными от сервера.
-        Для работы только с аудио используем соответствующие настройки.
+        Для работы только с аудио используются правильные модальности.
         
         Args:
             voice: Голос для синтеза речи
@@ -158,13 +158,12 @@ class OpenAIRealtimeClient:
             # Извлекаем поддерживаемые сервером модальности
             server_modalities = data.get("session", {}).get("modalities", [])
             
-            # Используем модальности сервера как есть, без преобразований
-            # Важно: не меняем формат, который приходит от сервера
+            # ИСПРАВЛЕНО: Используем модальности сервера как есть, БЕЗ преобразований
             client_modalities = server_modalities
             
             # Если не получили модальности от сервера, используем ["audio"]
-            # поскольку в приложении используется только аудио-взаимодействие
             if not server_modalities:
+                # ИСПРАВЛЕНО: используем правильные модальности согласно документации
                 client_modalities = ["audio"]
                 logger.warning(f"Не удалось получить модальности от сервера, используем только аудио: {client_modalities}")
             else:
@@ -198,7 +197,7 @@ class OpenAIRealtimeClient:
                     "output_audio_format": "pcm16",
                     "voice": voice,
                     "instructions": system_message,
-                    "modalities": client_modalities,
+                    "modalities": client_modalities,  # ИСПРАВЛЕНО: используем правильные модальности
                     "temperature": 0.7,
                     "max_response_output_tokens": 500,
                 }
@@ -213,7 +212,7 @@ class OpenAIRealtimeClient:
 
             # Отправляем обновлённые настройки сессии
             await self.ws.send(json.dumps(session_update))
-            logger.info(f"Настройки сессии отправлены с модальностями {client_modalities}")
+            logger.info(f"Настройки сессии с голосом {voice} и модальностями {client_modalities} отправлены")
             
             return True
         except Exception as e:
@@ -233,7 +232,8 @@ class OpenAIRealtimeClient:
             # Получаем системный промпт
             system_prompt = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
             
-            # Создаем сообщение согласно документации
+            # ИСПРАВЛЕНО: Создаем сообщение согласно документации
+            # Для системных сообщений используем "text" тип контента
             init_payload = {
                 "type": "conversation.item.create",
                 "item": {
@@ -241,7 +241,7 @@ class OpenAIRealtimeClient:
                     "role": "system",
                     "content": [
                         {
-                            "type": "text",  # Для системных сообщений используем "text"
+                            "type": "text",
                             "text": system_prompt
                         }
                     ]
@@ -295,8 +295,8 @@ class OpenAIRealtimeClient:
             # Convert audio to base64
             audio_base64 = base64.b64encode(audio_buffer).decode('utf-8')
             
-            # Prepare audio payload согласно документации - только необходимые поля
-            # Важно: для input_audio_buffer.append не требуются дополнительные поля
+            # ИСПРАВЛЕНО: Подготавливаем аудио сообщение согласно документации
+            # Убрано audio_format и sample_rate - эти поля не нужны
             audio_payload = {
                 "type": "input_audio_buffer.append",
                 "audio": audio_base64
