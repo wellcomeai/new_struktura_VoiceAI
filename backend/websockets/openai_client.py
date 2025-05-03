@@ -9,6 +9,7 @@ import uuid
 import base64
 from typing import Dict, Any, Optional, List
 import websockets
+from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 import time
 
@@ -48,10 +49,6 @@ class OpenAIRealtimeClient:
         self.openai_url = settings.REALTIME_WS_URL
         self.session_id = str(uuid.uuid4())
         self.conversation_record_id = None
-        self.ping_interval = 20  # Seconds
-        self.ping_task = None
-        self.last_pong_time = 0
-        self.pong_timeout = 60  # Seconds
         
     async def connect(self) -> bool:
         """
@@ -61,35 +58,42 @@ class OpenAIRealtimeClient:
             True if connection successful, False otherwise
         """
         try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "openai-beta": "realtime=v1"
-            }
+            # Проверка API ключа
+            if not self.api_key:
+                logger.error("API ключ OpenAI не предоставлен")
+                return False
+
+            # Формирование HTTP-заголовков
+            headers = [
+                ("Authorization", f"Bearer {self.api_key}"),
+                ("Content-Type", "application/json"),
+                ("OpenAI-Beta", "realtime=v1"),
+                ("User-Agent", "WellcomeAI/1.0")
+            ]
+            
             logger.info(f"Connecting to OpenAI Realtime API: {self.openai_url}")
             
             # Add timeout for connection
             connect_timeout = 30  # Seconds
             
+            # Используем нативный websockets.connect, который создаст WebSocketClientProtocol
+            # с встроенными ping/pong и корректным методом close()
             self.ws = await asyncio.wait_for(
                 websockets.connect(
                     self.openai_url,
                     extra_headers=headers,
-                    ping_interval=None,  # We'll handle ping/pong ourselves
-                    ping_timeout=None,
-                    close_timeout=30
+                    max_size=15 * 1024 * 1024,  # 15 MB максимальный размер сообщения
+                    ping_interval=30,  # Отправка ping каждые 30 секунд
+                    ping_timeout=120,  # Ожидание pong до 120 секунд
+                    close_timeout=15   # Таймаут на закрытие соединения
                 ),
                 timeout=connect_timeout
             )
             
             self.is_connected = True
-            self.last_pong_time = time.time()
             logger.info(f"Connected to OpenAI for client {self.client_id}")
             
-            # Start ping/pong monitoring
-            self.ping_task = asyncio.create_task(self._ping_manager())
-            
-            # Update session settings - добавляем отправку session.update
+            # Update session settings
             success = await self._update_session_settings()
             if not success:
                 logger.error(f"Failed to update session settings for client {self.client_id}")
@@ -113,59 +117,34 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             return False
 
-async def _update_session_settings(self) -> bool:
-    """
-    Update session settings with OpenAI
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    if not self.is_connected or not self.ws:
-        return False
-    
-    try:
-        # Prepare session update with correct modalities
-        # ВАЖНО: удален параметр save_audio_to_storage и правильно указана модальность input_text
-        session_update = {
-            "type": "session.update",
-            "session": {
-                "modalities": ["input_text", "audio"]  # Используем input_text вместо text
-            }
-        }
+    async def _update_session_settings(self) -> bool:
+        """
+        Update session settings with OpenAI
         
-        # Send session update
-        await self.ws.send(json.dumps(session_update))
-        logger.debug(f"Sent session update with modalities for client {self.client_id}")
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.is_connected or not self.ws:
+            return False
         
-        return True
-    except Exception as e:
-        logger.error(f"Error updating session settings: {str(e)}")
-        return False
-
-    async def _ping_manager(self):
-        """Manage ping/pong to keep connection alive"""
         try:
-            while self.is_connected and self.ws:
-                try:
-                    # Send ping
-                    await self.ws.send(json.dumps({"type": "ping"}))
-                    
-                    # Check if we've received a pong recently
-                    if time.time() - self.last_pong_time > self.pong_timeout:
-                        logger.warning(f"No pong received in {self.pong_timeout}s, closing connection")
-                        await self.close()
-                        break
-                        
-                    # Wait for next ping
-                    await asyncio.sleep(self.ping_interval)
-                except Exception as e:
-                    logger.error(f"Error in ping manager: {str(e)}")
-                    await self.close()
-                    break
-        except asyncio.CancelledError:
-            logger.debug(f"Ping manager cancelled for client {self.client_id}")
+            # Prepare session update with correct modalities
+            # ВАЖНО: используем input_text вместо text и НЕ добавляем save_audio_to_storage
+            session_update = {
+                "type": "session.update",
+                "session": {
+                    "modalities": ["input_text", "audio"]
+                }
+            }
+            
+            # Send session update
+            await self.ws.send(json.dumps(session_update))
+            logger.debug(f"Sent session update with modalities for client {self.client_id}")
+            
+            return True
         except Exception as e:
-            logger.error(f"Unexpected error in ping manager: {str(e)}")
+            logger.error(f"Error updating session settings: {str(e)}")
+            return False
 
     async def _init_conversation(self) -> bool:
         """
@@ -337,18 +316,8 @@ async def _update_session_settings(self) -> bool:
             Parsed message or None if parsing failed
         """
         try:
-            # Update last pong time if this is a pong message
-            if message == "pong" or message == '{"type":"pong"}':
-                self.last_pong_time = time.time()
-                return {"type": "pong"}
-                
             # Parse JSON message
             data = json.loads(message)
-            
-            # Handle pong message
-            if data.get("type") == "pong":
-                self.last_pong_time = time.time()
-                
             return data
         except json.JSONDecodeError:
             logger.warning(f"Invalid JSON received from OpenAI: {message[:100]}...")
@@ -359,14 +328,6 @@ async def _update_session_settings(self) -> bool:
 
     async def close(self) -> None:
         """Close WebSocket connection"""
-        # Cancel ping manager task
-        if self.ping_task and not self.ping_task.done():
-            self.ping_task.cancel()
-            try:
-                await self.ping_task
-            except asyncio.CancelledError:
-                pass
-                
         # Close WebSocket connection
         if self.ws:
             try:
