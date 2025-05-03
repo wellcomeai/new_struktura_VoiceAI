@@ -287,13 +287,14 @@ async def handle_websocket_connection(
                     audio_buffer.extend(message["bytes"])
                     await websocket.send_json({"type": "binary.ack"})
 
-            except WebSocketDisconnect:
-                logger.info(f"WebSocket client {client_id} disconnected")
-                break
-            except ConnectionClosed:
+            except (WebSocketDisconnect, ConnectionClosed):
                 logger.info(f"WebSocket connection closed for client {client_id}")
                 break
             except Exception as e:
+                # ignore “receive after disconnect” errors
+                if "Cannot call \"receive\" once a disconnect" in str(e):
+                    logger.info(f"Ignoring receive-after-disconnect for client {client_id}")
+                    break
                 logger.error(f"Error in WebSocket message processing: {e}")
                 try:
                     if websocket.client_state.CONNECTED:
@@ -304,9 +305,9 @@ async def handle_websocket_connection(
                                 "message": f"Error processing message: {e}"
                             }
                         })
-                except:
-                    logger.error("Cannot send error message, connection may be closed")
-                    break
+                except Exception:
+                    logger.warning("Cannot send error message, connection may be closed")
+                break
 
         # teardown
         if not openai_task.done():
