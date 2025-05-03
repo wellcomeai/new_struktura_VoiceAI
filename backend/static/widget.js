@@ -1,6 +1,6 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.1.1
+ * Версия: 1.1.2
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
@@ -20,6 +20,10 @@
   let lastPongTime = Date.now();
   let isReconnecting = false;
   let debugQueue = [];
+  
+  // Глобальные флаги для мобильных устройств
+  window.audioContextInitialized = false;
+  window.tempAudioContext = null;
 
   // Функция для логирования состояния виджета
   const widgetLog = (message, type = 'info') => {
@@ -922,6 +926,22 @@
         expandedWidget.style.zIndex = "2147483647";
       }
       
+      // Handle mobile audio initialization
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile && !window.audioContextInitialized) {
+        // Create a silent audio context to initialize audio on mobile
+        try {
+          window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+          
+          // On iOS, we need user interaction to start audio context
+          if (window.tempAudioContext.state === 'suspended') {
+            showMessage("Tap to enable audio", 5000);
+          }
+        } catch (e) {
+          widgetLog(`Failed to initialize audio context: ${e.message}`, "error");
+        }
+      }
+      
       // Показываем сообщение о проблеме с подключением, если оно есть
       if (connectionFailedPermanently) {
         showConnectionError('Не удалось подключиться к серверу. Нажмите кнопку "Повторить подключение".');
@@ -1345,15 +1365,57 @@
         const blob = new Blob([wavBuffer], { type: 'audio/wav' });
         const audioUrl = URL.createObjectURL(blob);
         
-        // Воспроизводим звук
+        // Создаем аудио-элемент
         const audio = new Audio(audioUrl);
         
+        // Настройка для мобильных устройств
         audio.oncanplaythrough = function() {
-          audio.play().catch(err => {
-            widgetLog(`Ошибка при воспроизведении: ${err.message}`, "error");
-            playNextAudio(); // В случае ошибки переходим к следующему аудио
-          });
+          // Проверяем, является ли устройство iOS
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+          
+          if (isIOS && !window.audioContextInitialized) {
+            // Создаем пустой аудио-контекст, если его нет
+            if (!window.tempAudioContext) {
+              window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            // Возобновляем контекст, если он приостановлен
+            if (window.tempAudioContext.state === 'suspended') {
+              window.tempAudioContext.resume().then(() => {
+                window.audioContextInitialized = true;
+                audio.play().catch(handlePlaybackError);
+              });
+            } else {
+              window.audioContextInitialized = true;
+              audio.play().catch(handlePlaybackError);
+            }
+          } else {
+            // Обычное воспроизведение для не-iOS
+            audio.play().catch(handlePlaybackError);
+          }
         };
+        
+        function handlePlaybackError(err) {
+          widgetLog(`Ошибка воспроизведения: ${err.message}`, "error");
+          
+          // Если ошибка связана с необходимостью взаимодействия пользователя
+          if (err.name === 'NotAllowedError') {
+            showMessage("Нажмите в любом месте для включения звука", 0);
+            
+            // Добавляем одноразовый обработчик клика для включения звука
+            const enableAudio = function() {
+              document.removeEventListener('click', enableAudio);
+              audio.play().catch(err => {
+                widgetLog(`Всё ещё не удаётся воспроизвести: ${err.message}`, "error");
+                playNextAudio(); // Пробуем следующий аудио-фрагмент
+              });
+            };
+            
+            document.addEventListener('click', enableAudio);
+          } else {
+            playNextAudio(); // Пробуем следующий аудио-фрагмент
+          }
+        }
         
         // После окончания воспроизведения
         audio.onended = function() {
@@ -1831,6 +1893,16 @@
     // Обработчик для основного круга (для запуска распознавания голоса)
     mainCircle.addEventListener('click', function() {
       widgetLog(`Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
+      
+      // На iOS этот клик также поможет инициализировать аудио-контекст
+      if (window.tempAudioContext && window.tempAudioContext.state === 'suspended') {
+        window.tempAudioContext.resume().then(() => {
+          window.audioContextInitialized = true;
+          widgetLog('Audio context resumed on user interaction');
+        }).catch(e => {
+          widgetLog(`Failed to resume audio context: ${e}`, 'error');
+        });
+      }
       
       if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
         if (isConnected) {
