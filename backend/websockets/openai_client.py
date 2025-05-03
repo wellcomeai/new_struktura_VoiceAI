@@ -20,6 +20,10 @@ from backend.models.conversation import Conversation
 
 logger = get_logger(__name__)
 
+# Константы по умолчанию
+DEFAULT_VOICE = "alloy"
+DEFAULT_SYSTEM_MESSAGE = "You are a helpful voice assistant."
+
 
 class OpenAIRealtimeClient:
     """Client for OpenAI Realtime API"""
@@ -93,8 +97,16 @@ class OpenAIRealtimeClient:
             self.is_connected = True
             logger.info(f"Connected to OpenAI for client {self.client_id}")
             
-            # Update session settings
-            success = await self._update_session_settings()
+            # Update session settings с модальностями
+            system_message = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
+            voice = self.assistant_config.voice or DEFAULT_VOICE
+            
+            # Вызов функции обновления сессии с адаптивными модальностями
+            success = await self._update_session_with_adaptive_modalities(
+                voice=voice, 
+                system_message=system_message
+            )
+            
             if not success:
                 logger.error(f"Failed to update session settings for client {self.client_id}")
                 await self.close()
@@ -117,29 +129,91 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             return False
 
-    async def _update_session_settings(self) -> bool:
+    async def _update_session_with_adaptive_modalities(
+        self, 
+        voice=DEFAULT_VOICE, 
+        system_message=DEFAULT_SYSTEM_MESSAGE, 
+        functions=None
+    ) -> bool:
         """
-        Update session settings with OpenAI
+        Обновляет настройки сессии с адаптивным определением модальностей
         
+        Args:
+            voice: Голос для синтеза речи
+            system_message: Системное сообщение для ассистента
+            functions: Описание доступных функций
+            
         Returns:
-            True if successful, False otherwise
+            True если обновление успешно, иначе False
         """
         if not self.is_connected or not self.ws:
             return False
-        
+            
         try:
-            # Prepare session update with correct modalities
-            # ВАЖНО: используем input_text вместо text и НЕ добавляем save_audio_to_storage
+            # Ждём от OpenAI первого сообщения session.created
+            msg = await self.ws.recv()
+            data = json.loads(msg)
+            
+            # Извлекаем поддерживаемые сервером модальности
+            server_modalities = data.get("session", {}).get("modalities", [])
+            
+            # Если не получили модальности от сервера, используем базовый набор
+            if not server_modalities:
+                client_modalities = ["input_text", "audio"]
+                logger.warning(f"Не удалось получить модальности от сервера, используем базовые: {client_modalities}")
+            else:
+                # Переводим их в формат, который ждёт сервер в session.update
+                # (например, text → input_text, audio остаётся audio)
+                client_modalities = [
+                    "input_text" if m == "text" else m
+                    for m in server_modalities
+                ]
+                logger.info(f"Получены модальности от сервера: {server_modalities}, преобразованы в: {client_modalities}")
+
+            # Подготовка turn_detection и инструментов
+            turn_detection = {
+                "type": "server_vad",
+                "threshold": 0.25,
+                "prefix_padding_ms": 200,
+                "silence_duration_ms": 300,
+                "create_response": True,
+            }
+            
+            tools = []
+            if functions:
+                for func in functions:
+                    tools.append({
+                        "type": "function",
+                        "name": func["name"],
+                        "description": func["description"],
+                        "parameters": func["parameters"],
+                    })
+
+            # Собираем payload с правильными модальностями
             session_update = {
                 "type": "session.update",
                 "session": {
-                    "modalities": ["input_text", "audio"]
+                    "turn_detection": turn_detection,
+                    "input_audio_format": "pcm16",
+                    "output_audio_format": "pcm16",
+                    "voice": voice,
+                    "instructions": system_message,
+                    "modalities": client_modalities,
+                    "temperature": 0.7,
+                    "max_response_output_tokens": 500,
                 }
             }
             
-            # Send session update
+            # Добавляем tools только если они есть
+            if tools:
+                session_update["session"]["tools"] = tools
+                session_update["session"]["tool_choice"] = "auto"
+            else:
+                session_update["session"]["tool_choice"] = "none"
+
+            # Отправляем обновлённые настройки сессии
             await self.ws.send(json.dumps(session_update))
-            logger.debug(f"Sent session update with modalities for client {self.client_id}")
+            logger.info(f"Настройки сессии отправлены с модальностями {client_modalities}")
             
             return True
         except Exception as e:
@@ -157,7 +231,7 @@ class OpenAIRealtimeClient:
             return False
         try:
             # Получаем системный промпт
-            system_prompt = self.assistant_config.system_prompt or "You are a helpful voice assistant."
+            system_prompt = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
             
             # Исправлено: content теперь массив объектов вместо строки
             init_payload = {
