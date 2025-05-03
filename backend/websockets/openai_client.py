@@ -1,4 +1,3 @@
-# backend/websockets/openai_client.py
 import asyncio
 import json
 import uuid
@@ -37,6 +36,11 @@ class OpenAIRealtimeClient:
         self.conversation_record_id: Optional[str] = None
 
     async def connect(self) -> bool:
+        """
+        Establish WebSocket connection to OpenAI Realtime API
+        and immediately send up-to-date session settings,
+        including the system_prompt from the database.
+        """
         if not self.api_key:
             logger.error("API ключ OpenAI не предоставлен")
             return False
@@ -61,8 +65,17 @@ class OpenAIRealtimeClient:
             self.is_connected = True
             logger.info(f"Connected to OpenAI for client {self.client_id}")
 
-            # отправляем настройки сессии
-            if not await self.update_session():
+            # Fetch fresh settings from assistant_config
+            voice = self.assistant_config.voice or DEFAULT_VOICE
+            system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
+            functions = getattr(self.assistant_config, "functions", None)
+
+            # Send updated session settings with actual system_prompt
+            if not await self.update_session(
+                voice=voice,
+                system_message=system_message,
+                functions=functions
+            ):
                 await self.close()
                 return False
 
@@ -77,6 +90,9 @@ class OpenAIRealtimeClient:
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         functions: Optional[List[Dict[str, Any]]] = None
     ) -> bool:
+        """
+        Update session settings on the OpenAI Realtime API side.
+        """
         if not self.is_connected or not self.ws:
             return False
 
@@ -116,12 +132,12 @@ class OpenAIRealtimeClient:
 
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Настройки сессии отправлены ({voice})")
+            logger.info(f"Настройки сессии отправлены (voice={voice})")
         except Exception as e:
             logger.error(f"Error sending session.update: {e}")
             return False
 
-        # создаём запись разговора
+        # Create a conversation record in the database if available
         if self.db_session:
             try:
                 conv = Conversation(
