@@ -59,20 +59,19 @@ async def handle_websocket_connection(
             return
 
         # Определяем API-ключ
-        api_key = None
-        if assistant.user_id:
-            user = db.query(User).get(assistant.user_id)
-            if user and user.openai_api_key:
-                api_key = user.openai_api_key
-        if not api_key:
-            api_key = settings.OPENAI_API_KEY
-        if not api_key:
-            await websocket.send_json({
-                "type": "error",
-                "error": {"code": "no_api_key", "message": "No OpenAI API key"}
-            })
-            await websocket.close(code=1008)
-            return
+api_key = None
+if assistant.user_id:
+    user = db.query(User).get(assistant.user_id)
+    if user and user.openai_api_key:
+        api_key = user.openai_api_key
+# Проверяем наличие пользовательского ключа
+if not api_key:
+    await websocket.send_json({
+        "type": "error",
+        "error": {"code": "no_api_key", "message": "Отсутствует ключ API OpenAI. Пожалуйста, добавьте ключ в настройках личного кабинета."}
+    })
+    await websocket.close(code=1008)
+    return
 
         # Подключаемся к OpenAI
         openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db)
