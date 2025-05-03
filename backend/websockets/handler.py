@@ -58,13 +58,15 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
-        # Определяем API-ключ
+        # Меняем этот фрагмент в методе handle_websocket_connection
+
+# Определяем API-ключ
 api_key = None
 if assistant.user_id:
     user = db.query(User).get(assistant.user_id)
     if user and user.openai_api_key:
         api_key = user.openai_api_key
-# Проверяем наличие пользовательского ключа
+# Удаляем использование глобального ключа и сразу выдаем ошибку
 if not api_key:
     await websocket.send_json({
         "type": "error",
