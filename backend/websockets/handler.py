@@ -440,6 +440,13 @@ async def handle_openai_messages(openai_client, websocket):
                 # Handle different response types
                 response_type = response_data.get("type", "")
                 
+                # Added handling for session.created and session.updated messages
+                if response_type == "session.created" or response_type == "session.updated":
+                    logger.info(f"Received session update from OpenAI: {response_type}")
+                    # Forward this message to the client
+                    await websocket.send_json(response_data)
+                    continue
+                
                 if response_type == "message":
                     # Check for message object and its type
                     message = response_data.get("message", {})
