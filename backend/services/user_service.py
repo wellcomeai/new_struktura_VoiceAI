@@ -42,7 +42,7 @@ class UserService:
             )
         return user
     
-    @staticmethod
+@staticmethod
 async def get_user_profile(db: Session, user_id: str) -> UserResponse:
     """
     Get user profile information
@@ -63,7 +63,7 @@ async def get_user_profile(db: Session, user_id: str) -> UserResponse:
         last_name=user.last_name,
         company_name=user.company_name,
         subscription_plan=user.subscription_plan,
-        openai_api_key=user.openai_api_key,  # Явно включаем API ключ
+        openai_api_key=user.openai_api_key,  # Включаем API ключ в ответ
         has_api_key=bool(user.openai_api_key),
         google_sheets_authorized=user.google_sheets_authorized,
         created_at=user.created_at,
