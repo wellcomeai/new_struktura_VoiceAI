@@ -779,7 +779,7 @@
         
         <form class="api-key-form" id="api-key-form">
           <div class="api-key-input-wrapper">
-            <input type="password" id="api-key-input" placeholder="Введите API ключ OpenAI" required>
+            <input type="password" id="api-key-input" placeholder="Введите API ключ OpenAI">
             <button type="button" class="toggle-password" id="toggle-password" title="Показать/скрыть ключ">
               <i class="fas fa-eye"></i>
             </button>
@@ -1221,11 +1221,8 @@
         
         const apiKey = apiKeyInput.value.trim();
         
-        // Удалена проверка, чтобы разрешить пустые значения
-        // if (!apiKey) {
-        //    ui.showNotification('Пожалуйста, введите API ключ', 'error');
-        //    return;
-        // }
+        // ИСПРАВЛЕНО: Удалена проверка на пустой ключ
+        // Теперь пустой ключ будет сохраняться без ошибки
         
         // Если ключ не изменился, просто переключаем режим
         if (isEditingKey && apiKey === actualApiKey) {
