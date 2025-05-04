@@ -2470,14 +2470,14 @@
         connectWebSocket();
       }
       
-      // Добавляем обработчики событий
+            // Добавляем обработчики событий
       widgetButton.addEventListener('click', function() {
         if (!isWidgetOpen) {
           openWidget();
         } else {
           closeWidget();
         }
-      }
+      }); // <-- Исправлено
       
       widgetClose.addEventListener('click', closeWidget);
       
