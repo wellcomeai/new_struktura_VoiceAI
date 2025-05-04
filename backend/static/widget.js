@@ -2051,4 +2051,467 @@
       hasAudioData = false;
       audioDataStartTime = 0;
     }
-});
+    
+    // Обновление аудио визуализации
+    function updateAudioVisualization(audioData) {
+      if (!audioBars) return;
+      
+      const bars = audioBars.children;
+      if (!bars.length) return;
+      
+      // Вычисляем громкость для визуализации
+      let sum = 0;
+      const sampleSize = Math.floor(audioData.length / bars.length);
+      
+      for (let i = 0; i < bars.length; i++) {
+        const start = i * sampleSize;
+        let volume = 0;
+        
+        // Суммируем квадрат амплитуды для громкости
+        for (let j = 0; j < sampleSize; j++) {
+          if (start + j < audioData.length) {
+            volume += audioData[start + j] * audioData[start + j];
+          }
+        }
+        
+        // Среднеквадратичное значение и масштабирование
+        volume = Math.sqrt(volume / sampleSize) * 100;
+        
+        // Ограничение значения
+        volume = Math.min(30, Math.max(2, volume));
+        
+        // Применяем высоту к бару с анимацией
+        bars[i].style.height = volume + 'px';
+        sum += volume;
+      }
+    }
+    
+    // Сброс визуализации
+    function resetAudioVisualization() {
+      if (!audioBars) return;
+      
+      const bars = audioBars.children;
+      for (let i = 0; i < bars.length; i++) {
+        bars[i].style.height = '2px';
+      }
+    }
+    
+    // Функция преобразования ArrayBuffer в Base64
+      function arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+      }
+      
+      // Подключение WebSocket
+      function connectWebSocket() {
+        if (websocket && (websocket.readyState === WebSocket.CONNECTING || 
+                         websocket.readyState === WebSocket.OPEN)) {
+          widgetLog("WebSocket уже подключен или в процессе подключения");
+          return;
+        }
+        
+        isReconnecting = true;
+        loaderModal.classList.add('active');
+        
+        try {
+          // Создаем новое WebSocket соединение
+          websocket = new WebSocket(WS_URL);
+          
+          // Установка тайм-аута для подключения
+          const connectionTimeoutId = setTimeout(() => {
+            if (websocket && websocket.readyState !== WebSocket.OPEN) {
+              widgetLog("Таймаут соединения WebSocket", "error");
+              
+              websocket.close();
+              
+              // Увеличиваем счетчик попыток
+              reconnectAttempts++;
+              
+              if (reconnectAttempts < (isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS)) {
+                widgetLog(`Попытка переподключения ${reconnectAttempts}/${isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS}`);
+                
+                setTimeout(() => {
+                  connectWebSocket();
+                }, 1000 * Math.min(reconnectAttempts, 5)); // Экспоненциальная задержка
+              } else {
+                widgetLog("Достигнуто максимальное количество попыток подключения", "error");
+                
+                connectionFailedPermanently = true;
+                isReconnecting = false;
+                
+                loaderModal.classList.remove('active');
+                
+                showConnectionError('Не удалось подключиться к серверу. Проверьте соединение с интернетом и попробуйте снова.');
+                showMessage("Ошибка соединения с сервером");
+              }
+            }
+          }, CONNECTION_TIMEOUT);
+          
+          // Обработчик успешного подключения
+          websocket.onopen = function() {
+            widgetLog("WebSocket соединение установлено");
+            
+            // Очищаем таймаут
+            clearTimeout(connectionTimeoutId);
+            
+            isConnected = true;
+            isReconnecting = false;
+            loaderModal.classList.remove('active');
+            hideConnectionError();
+            
+            // Сбрасываем счетчик попыток
+            reconnectAttempts = 0;
+            
+            // Устанавливаем интервал проверки соединения (ping/pong)
+            if (pingIntervalId) {
+              clearInterval(pingIntervalId);
+            }
+            
+            pingIntervalId = setInterval(() => {
+              if (websocket && websocket.readyState === WebSocket.OPEN) {
+                try {
+                  websocket.send(JSON.stringify({ 
+                    type: "ping",
+                    event_id: `ping_${Date.now()}`
+                  }));
+                  
+                  lastPingTime = Date.now();
+                  
+                  // Проверяем, получили ли мы ответ на предыдущий ping
+                  if (Date.now() - lastPongTime > (isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL) * 3) {
+                    widgetLog("Нет ответа на ping, переподключение...", "warn");
+                    
+                    // Сбрасываем соединение и переподключаемся
+                    reconnect();
+                  }
+                } catch (e) {
+                  widgetLog(`Ошибка отправки ping: ${e.message}`, "error");
+                  reconnect();
+                }
+              }
+            }, isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL);
+            
+            // Запускаем прослушивание если виджет открыт
+            if (isWidgetOpen && !isListening && !isPlayingAudio) {
+              // На мобильных устройствах используем безопасный метод запуска
+              if (isMobile) {
+                safeStartListeningOnMobile();
+              } else {
+                startListening();
+              }
+            }
+            
+            updateConnectionStatus('connected', 'Подключено');
+          };
+          
+          // Обработчик ошибок WebSocket
+          websocket.onerror = function(error) {
+            widgetLog(`WebSocket ошибка: ${error.message || "Неизвестная ошибка"}`, "error");
+            
+            // Очищаем таймаут для избежания двойных переподключений
+            clearTimeout(connectionTimeoutId);
+            
+            // Отмечаем как отключенный
+            isConnected = false;
+            
+            // Пробуем переподключиться
+            reconnectAttempts++;
+            
+            if (reconnectAttempts < (isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS)) {
+              widgetLog(`Ошибка соединения, переподключение ${reconnectAttempts}/${isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS}`);
+              
+              setTimeout(() => {
+                connectWebSocket();
+              }, 1000 * Math.min(reconnectAttempts, 5));
+            } else {
+              widgetLog("Достигнуто максимальное количество попыток, соединение не установлено", "error");
+              
+              connectionFailedPermanently = true;
+              isReconnecting = false;
+              
+              loaderModal.classList.remove('active');
+              
+              showConnectionError('Не удалось подключиться к серверу. Проверьте соединение с интернетом и попробуйте снова.');
+              showMessage("Ошибка соединения с сервером");
+              
+              updateConnectionStatus('disconnected', 'Отключено');
+            }
+          };
+          
+          // Обработчик закрытия соединения
+          websocket.onclose = function(event) {
+            widgetLog(`WebSocket соединение закрыто: код ${event.code}, причина: ${event.reason}`);
+            
+            // Очищаем интервал
+            if (pingIntervalId) {
+              clearInterval(pingIntervalId);
+              pingIntervalId = null;
+            }
+            
+            // Отмечаем как отключенный если не в процессе переподключения
+            if (!isReconnecting) {
+              isConnected = false;
+              
+              // Пробуем переподключиться если не было сверхлимитных попыток
+              if (!connectionFailedPermanently) {
+                reconnectAttempts++;
+                
+                if (reconnectAttempts < (isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS)) {
+                  widgetLog(`Соединение закрыто, переподключение ${reconnectAttempts}/${isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS}`);
+                  
+                  isReconnecting = true;
+                  
+                  setTimeout(() => {
+                    connectWebSocket();
+                  }, 1000 * Math.min(reconnectAttempts, 5));
+                  
+                  updateConnectionStatus('connecting', 'Переподключение...');
+                } else {
+                  widgetLog("Достигнуто максимальное количество попыток, соединение не установлено", "error");
+                  
+                  connectionFailedPermanently = true;
+                  isReconnecting = false;
+                  
+                  loaderModal.classList.remove('active');
+                  
+                  showConnectionError('Соединение с сервером потеряно. Нажмите "Повторить подключение".');
+                  showMessage("Соединение потеряно");
+                  
+                  updateConnectionStatus('disconnected', 'Отключено');
+                }
+              }
+            }
+          };
+          
+          // Обработчик сообщений от сервера
+          websocket.onmessage = function(event) {
+            try {
+              const message = JSON.parse(event.data);
+              
+              // Обработка pong-сообщений
+              if (message.type === "pong") {
+                lastPongTime = Date.now();
+                return;
+              }
+              
+              // Обработка сообщений с аудио
+              if (message.type === "speech.data") {
+                if (message.data && message.data.audio) {
+                  // Преобразуем base64 в бинарные данные
+                  const audioData = base64ToArrayBuffer(message.data.audio);
+                  
+                  // Добавляем аудио в очередь воспроизведения
+                  audioPlaybackQueue.push(audioData);
+                  
+                  // Запускаем воспроизведение если не активно
+                  if (!isPlayingAudio) {
+                    playNextAudioInQueue();
+                  }
+                }
+              }
+              
+              // Обработка текстовых сообщений
+              if (message.type === "speech.transcript") {
+                if (message.data && message.data.text) {
+                  showMessage(message.data.text);
+                }
+              }
+              
+              // Обработка начала генерации речи
+              if (message.type === "speech.started") {
+                // Добавляем класс для отображения состояния
+                mainCircle.classList.remove('listening');
+                mainCircle.classList.add('speaking');
+              }
+              
+              // Обработка завершения генерации речи
+              if (message.type === "speech.done") {
+                // После завершения всего ответа и проигрывания аудио
+                // возвращаемся к прослушиванию
+                setTimeout(() => {
+                  mainCircle.classList.remove('speaking');
+                  
+                  // Восстанавливаем микрофон после воспроизведения если нужно
+                  restoreMicrophoneIfNeeded();
+                  
+                  // Если виджет открыт, снова начинаем слушать
+                  if (isWidgetOpen && isConnected && !isListening && !isPlayingAudio) {
+                    startListening();
+                  }
+                }, 500);
+              }
+            } catch (error) {
+              widgetLog(`Ошибка обработки сообщения: ${error.message}`, "error");
+            }
+          };
+        } catch (error) {
+          widgetLog(`Ошибка создания WebSocket: ${error.message}`, "error");
+          
+          isReconnecting = false;
+          loaderModal.classList.remove('active');
+          
+          showConnectionError('Ошибка при подключении к серверу.');
+          showMessage("Ошибка соединения с сервером");
+        }
+      }
+      
+      // Функция конвертации Base64 в ArrayBuffer
+      function base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        return bytes.buffer;
+      }
+      
+      // Воспроизведение аудио из очереди
+      function playNextAudioInQueue() {
+        if (audioPlaybackQueue.length === 0) {
+          isPlayingAudio = false;
+          return;
+        }
+        
+        isPlayingAudio = true;
+        
+        // Для iOS нужно сохранить состояние микрофона
+        if (isIOS && isListening) {
+          // Отмечаем, что нужно восстановить микрофон после воспроизведения
+          shouldRestoreMicrophoneAfterPlayback = true;
+          
+          // Останавливаем микрофон на время воспроизведения
+          stopMicrophoneCapture();
+        }
+        
+        // Берем следующий фрагмент аудио из очереди
+        const audioData = audioPlaybackQueue.shift();
+        
+        // Создаем аудиоконтекст если его нет
+        if (!audioContext) {
+          try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          } catch (e) {
+            widgetLog(`Ошибка создания AudioContext: ${e.message}`, "error");
+            isPlayingAudio = false;
+            return;
+          }
+        }
+        
+        // Декодируем аудиоданные
+        audioContext.decodeAudioData(audioData, 
+          // Успешное декодирование
+          function(decodedData) {
+            // Создаем источник
+            const source = audioContext.createBufferSource();
+            source.buffer = decodedData;
+            
+            // Подключаем к выходу
+            source.connect(audioContext.destination);
+            
+            // По окончании воспроизведения
+            source.onended = function() {
+              // Воспроизводим следующий фрагмент если есть
+              if (audioPlaybackQueue.length > 0) {
+                playNextAudioInQueue();
+              } else {
+                isPlayingAudio = false;
+                
+                // Восстанавливаем микрофон если нужно
+                restoreMicrophoneIfNeeded();
+                
+                // Если виджет открыт, возвращаемся к прослушиванию
+                if (isWidgetOpen && isConnected && !isListening) {
+                  mainCircle.classList.remove('speaking');
+                  startListening();
+                }
+              }
+            };
+            
+            // Запускаем воспроизведение
+            source.start(0);
+          }, 
+          // Ошибка декодирования
+          function(error) {
+            widgetLog(`Ошибка декодирования аудио: ${error.message}`, "error");
+            
+            // Переходим к следующему аудио в очереди
+            playNextAudioInQueue();
+          }
+        );
+      }
+      
+      // Функция переподключения
+      function reconnect() {
+        if (isReconnecting) return;
+        
+        // Очищаем существующие ресурсы
+        if (websocket) {
+          try {
+            websocket.close();
+          } catch (e) {
+            widgetLog(`Ошибка закрытия websocket: ${e.message}`, "warn");
+          }
+        }
+        
+        // Сбрасываем флаги
+        isConnected = false;
+        
+        // Останавливаем аудиопроцессы
+        stopAllAudioProcessing();
+        
+        // Пытаемся переподключиться
+        connectWebSocket();
+      }
+      
+      // Добавляем обработчики событий
+      widgetButton.addEventListener('click', function() {
+        if (!isWidgetOpen) {
+          openWidget();
+        } else {
+          closeWidget();
+        }
+      });
+      
+      widgetClose.addEventListener('click', closeWidget);
+      
+      // Обработчик для кнопки повторного подключения
+      if (retryButton) {
+        retryButton.addEventListener('click', resetConnection);
+      }
+    }
+
+    // Запускаем функцию инициализации виджета
+    initWidget();
+    
+    // Запускаем WebSocket подключение
+    connectWebSocket();
+  }
+
+  // Проверяем готовность DOM и запускаем инициализацию виджета
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      // Создаем стили и HTML структуру
+      createStyles();
+      loadFontAwesome();
+      createWidgetHTML();
+      
+      // Инициализируем виджет
+      initWidget();
+    });
+  } else {
+    // DOM уже загружен
+    createStyles();
+    loadFontAwesome();
+    createWidgetHTML();
+    
+    // Инициализируем виджет
+    initWidget();
+  }
+})();
