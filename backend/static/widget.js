@@ -2495,7 +2495,7 @@
   }
 
   // Проверяем готовность DOM и запускаем инициализацию виджета
-  if (document.readyState === 'loading') {
+  if (document.readyState === 'loading')
     document.addEventListener('DOMContentLoaded', function() {
       createStyles();
       loadFontAwesome();
