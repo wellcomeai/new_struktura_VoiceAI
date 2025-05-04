@@ -2051,3 +2051,4 @@
       hasAudioData = false;
       audioDataStartTime = 0;
     }
+});
