@@ -2668,16 +2668,17 @@
   }
   
   // Проверяем, есть ли уже виджет на странице
-  if (!document.getElementById('wellcomeai-widget-container')) {
-    widgetLog('Starting initialization process');
-    // Если DOM уже загружен, инициализируем сразу
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initializeWidget);
-      widgetLog('Will initialize on DOMContentLoaded');
-    } else {
-      widgetLog('DOM already loaded, initializing immediately');
-      initializeWidget();
-    }
+if (!document.getElementById('wellcomeai-widget-container')) {
+  widgetLog('Starting initialization process');
+  // Если DOM уже загружен, инициализируем сразу
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeWidget);
+    widgetLog('Will initialize on DOMContentLoaded');
   } else {
-    widgetLog('Widget already exists on the page, skipping initialization');
+    widgetLog('DOM already loaded, initializing immediately');
+    initializeWidget();
   }
+} else {
+  widgetLog('Widget already exists on the page, skipping initialization');
+}
+})(); // <-- Убедитесь, что эта закрывающая конструкция присутствует
