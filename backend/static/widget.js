@@ -1447,7 +1447,7 @@
       minSilenceDuration: isIOS ? 800 : (isMobile ? 600 : 600),
       minSpeechDuration: 300,
       smoothingFactor: 0.2
-    }
+    });
     
     // Обновление индикатора статуса соединения
     function updateConnectionStatus(status, message) {
