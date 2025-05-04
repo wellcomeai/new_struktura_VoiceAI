@@ -1,6 +1,6 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.2.1
+ * Версия: 1.3.0
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
@@ -32,6 +32,56 @@
   window.audioContextInitialized = false;
   window.tempAudioContext = null;
   window.hasPlayedSilence = false;
+
+  // Аудио переменные
+  let audioChunksBuffer = [];
+  let audioPlaybackQueue = [];
+  let isPlayingAudio = false;
+  let hasAudioData = false;
+  let audioDataStartTime = 0;
+  let minimumAudioLength = 300;
+  let isListening = false;
+  let websocket = null;
+  let audioContext = null;
+  let mediaStream = null;
+  let audioProcessor = null;
+  let isConnected = false;
+  let isWidgetOpen = false;
+  let connectionFailedPermanently = false;
+  let pingInterval = null;
+  let lastPingTime = Date.now();
+  let lastCommitTime = 0;
+  let voiceDetector = null;
+  let shouldRestoreMicrophoneAfterPlayback = false;
+
+  // Конфигурация для оптимизации потока аудио
+  const AUDIO_CONFIG = {
+    silenceThreshold: 0.01,      // Порог для определения тишины
+    silenceDuration: 300,        // Длительность тишины для отправки (мс)
+    bufferCheckInterval: 50,     // Частота проверки буфера (мс)
+    soundDetectionThreshold: 0.02 // Чувствительность к звуку
+  };
+  
+  // Специальные настройки для мобильных устройств
+  const ANDROID_AUDIO_CONFIG = {
+    silenceThreshold: 0.018,      // Специальный порог для Android
+    silenceDuration: 600,         // Оптимизированная длительность тишины
+    bufferCheckInterval: 80,      // Более частые проверки
+    soundDetectionThreshold: 0.02 // Менее чувствительное определение для Android
+  };
+  
+  // Отдельные настройки для iOS
+  const IOS_AUDIO_CONFIG = {
+    silenceThreshold: 0.012,      // Более низкий порог для iOS
+    silenceDuration: 800,         // Увеличенная длительность тишины 
+    bufferCheckInterval: 120,     // Увеличенный интервал проверки
+    soundDetectionThreshold: 0.01 // Более чувствительное определение звука
+  };
+  
+  // Выбираем нужную конфигурацию в зависимости от устройства
+  const effectiveAudioConfig = isIOS ? 
+                              IOS_AUDIO_CONFIG : 
+                              (isMobile ? ANDROID_AUDIO_CONFIG : AUDIO_CONFIG);
 
   // Функция для логирования состояния виджета
   const widgetLog = (message, type = 'info') => {
@@ -757,6 +807,121 @@
     widgetLog("HTML structure created and appended to body");
   }
 
+  // Класс для определения голосовой активности
+  class VoiceActivityDetector {
+    constructor(options = {}) {
+      this.threshold = options.threshold || 0.015;
+      this.minSilenceDuration = options.minSilenceDuration || 1000;
+      this.minSpeechDuration = options.minSpeechDuration || 300;
+      this.smoothingFactor = options.smoothingFactor || 0.2;
+      
+      this.lastVoiceDetection = 0;
+      this.silenceStartTime = 0;
+      this.isSilent = true;
+      this.averageVolume = 0;
+      this.isFirstFrame = true;
+      this.activeFrameCount = 0;
+      this.totalFrameCount = 0;
+      this.hasVoiceActivity = false;
+      
+      // Адаптивный порог определения голоса
+      this.adaptiveThreshold = this.threshold;
+      this.backgroundNoiseLevel = 0;
+      this.backgroundSamples = [];
+    }
+    
+    // Обработка нового аудиофрейма
+    process(audioData) {
+      // Вычисляем текущую громкость (RMS)
+      let sumSquares = 0;
+      for (let i = 0; i < audioData.length; i++) {
+        sumSquares += audioData[i] * audioData[i];
+      }
+      const rms = Math.sqrt(sumSquares / audioData.length);
+      
+      // Сглаживаем значение громкости
+      if (this.isFirstFrame) {
+        this.averageVolume = rms;
+        this.isFirstFrame = false;
+      } else {
+        this.averageVolume = this.averageVolume * (1 - this.smoothingFactor) + rms * this.smoothingFactor;
+      }
+      
+      // Обновляем счетчик фреймов
+      this.totalFrameCount++;
+      
+      // Адаптируем порог на основе фонового шума
+      if (this.totalFrameCount < 50) {
+        // В начале записи собираем данные для оценки фонового шума
+        this.backgroundSamples.push(rms);
+        if (this.backgroundSamples.length > 20) {
+          // Сортируем и берем нижние 30% как фоновый шум
+          const sortedSamples = [...this.backgroundSamples].sort((a, b) => a - b);
+          const backgroundSampleCount = Math.floor(sortedSamples.length * 0.3);
+          
+          if (backgroundSampleCount > 0) {
+            let sum = 0;
+            for (let i = 0; i < backgroundSampleCount; i++) {
+              sum += sortedSamples[i];
+            }
+            this.backgroundNoiseLevel = sum / backgroundSampleCount;
+            
+            // Устанавливаем адаптивный порог
+            this.adaptiveThreshold = Math.max(this.threshold, this.backgroundNoiseLevel * 2.5);
+          }
+        }
+      }
+      
+      // Определяем голосовую активность
+      const now = Date.now();
+      const hasVoice = this.averageVolume > this.adaptiveThreshold;
+      
+      if (hasVoice) {
+        this.activeFrameCount++;
+        this.lastVoiceDetection = now;
+        
+        if (this.isSilent) {
+          // Переключаемся из тишины в голос
+          this.isSilent = false;
+        }
+      } else if (!this.isSilent) {
+        // Проверяем, достаточно ли долго была тишина
+        const silenceDuration = now - this.lastVoiceDetection;
+        
+        if (silenceDuration > this.minSilenceDuration) {
+          this.isSilent = true;
+          this.silenceStartTime = this.lastVoiceDetection;
+        }
+      }
+      
+      // Определяем, была ли значимая голосовая активность
+      const voiceRatio = this.activeFrameCount / Math.max(1, this.totalFrameCount);
+      this.hasVoiceActivity = voiceRatio > 0.05 && this.activeFrameCount > 10;
+      
+      return {
+        volume: this.averageVolume,
+        threshold: this.adaptiveThreshold,
+        hasVoice: hasVoice,
+        isSilent: this.isSilent,
+        silenceDuration: this.isSilent ? now - this.lastVoiceDetection : 0,
+        hasVoiceActivity: this.hasVoiceActivity
+      };
+    }
+    
+    // Сброс детектора
+    reset() {
+      this.lastVoiceDetection = 0;
+      this.silenceStartTime = 0;
+      this.isSilent = true;
+      this.averageVolume = 0;
+      this.isFirstFrame = true;
+      this.activeFrameCount = 0;
+      this.totalFrameCount = 0;
+      this.hasVoiceActivity = false;
+      this.backgroundSamples = [];
+    }
+  }
+
   // Функция для разблокировки аудио на iOS
   function unlockAudioOnIOS() {
     if (!isIOS) return Promise.resolve(true);
@@ -916,6 +1081,307 @@
     }
   }
 
+  // Получение оптимизированных настроек для Android
+  function getAndroidDeviceType() {
+    const ua = navigator.userAgent.toLowerCase();
+    
+    if (ua.indexOf('samsung') > -1) return 'samsung';
+    if (ua.indexOf('pixel') > -1) return 'pixel';
+    if (ua.indexOf('xiaomi') > -1 || ua.indexOf('redmi') > -1) return 'xiaomi';
+    if (ua.indexOf('huawei') > -1) return 'huawei';
+    
+    return 'generic';
+  }
+  
+  // Функция настройки специфичных параметров для разных Android устройств
+  function getOptimizedConstraintsForAndroid() {
+    const deviceType = getAndroidDeviceType();
+    const baseConstraints = { 
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: 16000,
+      channelCount: 1,
+      deviceId: 'default'
+    };
+    
+    switch(deviceType) {
+      case 'samsung':
+        // Samsung устройства часто требуют более высокую громкость
+        baseConstraints.autoGainControl = true;
+        break;
+      case 'pixel':
+        // Google Pixel имеет хорошее шумоподавление
+        baseConstraints.noiseSuppression = true;
+        break;
+      case 'xiaomi':
+        // Xiaomi требует особых настроек для надежной работы
+        baseConstraints.echoCancellation = true;
+        baseConstraints.noiseSuppression = true;
+        break;
+      default:
+        // Для других устройств используем наиболее совместимые настройки
+        baseConstraints.echoCancellation = true;
+        baseConstraints.noiseSuppression = true;
+        baseConstraints.autoGainControl = true;
+    }
+    
+    widgetLog(`Применены оптимизированные настройки для Android устройства типа: ${deviceType}`);
+    return baseConstraints;
+  }
+
+  // Улучшенное качество аудио и нормализация
+  function processAudioForUpload(inputData) {
+    // Если нет данных, возвращаем пустой массив
+    if (!inputData || inputData.length === 0) return new Float32Array(0);
+    
+    // Создаем копию данных для обработки
+    const processedData = new Float32Array(inputData.length);
+    
+    // Анализ данных для нормализации
+    let maxAmplitude = 0;
+    let sumAmplitude = 0;
+    
+    for (let i = 0; i < inputData.length; i++) {
+      const absValue = Math.abs(inputData[i]);
+      maxAmplitude = Math.max(maxAmplitude, absValue);
+      sumAmplitude += absValue;
+    }
+    
+    // Средняя амплитуда
+    const avgAmplitude = sumAmplitude / inputData.length;
+    
+    // Применение обработки в зависимости от характеристик сигнала
+    if (maxAmplitude > 0) {
+      // Если сигнал слишком слабый, усиливаем его
+      if (maxAmplitude < 0.1) {
+        const gain = Math.min(4, 0.3 / maxAmplitude); // Усиление с ограничением
+        
+        for (let i = 0; i < inputData.length; i++) {
+          processedData[i] = inputData[i] * gain;
+        }
+      } 
+      // Если сигнал слишком сильный, немного снижаем
+      else if (maxAmplitude > 0.9) {
+        const reduction = 0.8 / maxAmplitude;
+        
+        for (let i = 0; i < inputData.length; i++) {
+          processedData[i] = inputData[i] * reduction;
+        }
+      }
+      // Если нормальный уровень, просто копируем
+      else {
+        for (let i = 0; i < inputData.length; i++) {
+          processedData[i] = inputData[i];
+        }
+      }
+      
+      // Дополнительная обработка для улучшения разборчивости речи
+      // Простой высокочастотный фильтр для улучшения четкости
+      if (avgAmplitude < 0.05) { // Применяем только для тихой речи
+        let prevSample = 0;
+        for (let i = 0; i < processedData.length; i++) {
+          // Простой фильтр высоких частот
+          const highpass = processedData[i] - prevSample * 0.5;
+          processedData[i] = highpass;
+          prevSample = processedData[i];
+        }
+      }
+    }
+    
+    return processedData;
+  }
+
+  // Функция для остановки записи микрофона
+  function stopMicrophoneCapture() {
+    if (!mediaStream) return;
+    
+    // Останавливаем все аудиотреки
+    mediaStream.getTracks().forEach(track => {
+      if (track.kind === 'audio') {
+        track.stop();
+      }
+    });
+    
+    // Отключаем processor если он есть
+    if (audioProcessor) {
+      try {
+        audioProcessor.disconnect();
+      } catch (e) {
+        widgetLog('Ошибка при отключении аудиопроцессора: ' + e.message, 'warn');
+      }
+    }
+    
+    isListening = false;
+  }
+
+  // Восстановление микрофона после окончания воспроизведения
+  function restoreMicrophoneIfNeeded() {
+    if (isIOS && shouldRestoreMicrophoneAfterPlayback) {
+      shouldRestoreMicrophoneAfterPlayback = false;
+      
+      // Даем небольшую паузу перед повторной инициализацией микрофона
+      setTimeout(() => {
+        // Полностью переинициализируем аудио
+        initAudio().then(success => {
+          if (success && isWidgetOpen && isConnected) {
+            startListening();
+          }
+        });
+      }, 300);
+    }
+  }
+
+  // Улучшенная функция проверки и перезапуска микрофона для Android
+  function checkAndroidMicrophoneStatus() {
+    if (!isMobile || isIOS || !mediaStream) return;
+    
+    let isAudioActive = false;
+    
+    // Проверяем активность треков
+    if (mediaStream) {
+      mediaStream.getAudioTracks().forEach(track => {
+        if (track.readyState === 'live' && track.enabled) {
+          isAudioActive = true;
+        }
+      });
+    }
+    
+    // Если треки неактивны, пересоздаем микрофон
+    if (!isAudioActive && isListening) {
+      widgetLog('Обнаружен неактивный микрофон на Android, перезапуск...', 'warn');
+      
+      // Останавливаем текущий стрим
+      stopMicrophoneCapture();
+      
+      // Пересоздаем микрофон с оптимизированными настройками
+      navigator.mediaDevices.getUserMedia({ 
+        audio: getOptimizedConstraintsForAndroid() 
+      }).then(stream => {
+        mediaStream = stream;
+        
+        // Подключаем микрофон к аудиопроцессору
+        if (audioContext && audioProcessor) {
+          const streamSource = audioContext.createMediaStreamSource(mediaStream);
+          streamSource.connect(audioProcessor);
+          audioProcessor.connect(audioContext.destination);
+          
+          widgetLog('Микрофон на Android успешно переинициализирован');
+          
+          // Восстанавливаем состояние прослушивания
+          isListening = true;
+        }
+      }).catch(err => {
+        widgetLog(`Ошибка при перезапуске микрофона: ${err.message}`, 'error');
+        showMessage("Проблема с доступом к микрофону. Пожалуйста, перезагрузите страницу.");
+      });
+    }
+  }
+
+  // Запускаем периодическую проверку микрофона для Android
+  function startAndroidMicrophoneMonitoring() {
+    if (!isMobile || isIOS) return;
+    
+    // Проверяем микрофон каждые 5 секунд
+    setInterval(checkAndroidMicrophoneStatus, 5000);
+    widgetLog('Запущен мониторинг микрофона для Android');
+  }
+
+  // Настройка процессора обработки аудио
+  function configureAudioProcessor() {
+    if (!audioProcessor) return;
+    
+    audioProcessor.onaudioprocess = function(e) {
+      if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
+        // Получаем данные с микрофона
+        const inputBuffer = e.inputBuffer;
+        const rawInputData = inputBuffer.getChannelData(0);
+        
+        // Проверка на пустые данные
+        if (rawInputData.length === 0) return;
+        
+        // Применяем улучшенную обработку аудио
+        const processedData = processAudioForUpload(rawInputData);
+        
+        // Анализируем аудио с помощью детектора голосовой активности
+        const vadResult = voiceDetector.process(processedData);
+        
+        // Обновляем визуализацию
+        updateAudioVisualization(processedData);
+        
+        // Преобразуем float32 в int16 для отправки через WebSocket
+        const pcm16Data = new Int16Array(processedData.length);
+        for (let i = 0; i < processedData.length; i++) {
+          pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(processedData[i] * 32767)));
+        }
+        
+        // Отправляем данные через WebSocket
+        try {
+          const message = JSON.stringify({
+            type: "input_audio_buffer.append",
+            event_id: `audio_${Date.now()}`,
+            audio: arrayBufferToBase64(pcm16Data.buffer)
+          });
+          
+          websocket.send(message);
+          
+          // Отмечаем наличие аудиоданных
+          if (!hasAudioData && vadResult.hasVoice) {
+            hasAudioData = true;
+            audioDataStartTime = Date.now();
+            widgetLog("Начало записи аудиоданных");
+          }
+        } catch (error) {
+          widgetLog(`Ошибка отправки аудио: ${error.message}`, "error");
+        }
+        
+        // Логика определения тишины и автоматической отправки
+        const now = Date.now();
+        
+        if (vadResult.hasVoice) {
+          // Активируем визуальное состояние прослушивания
+          if (!mainCircle.classList.contains('listening') && 
+              !mainCircle.classList.contains('speaking')) {
+            mainCircle.classList.add('listening');
+          }
+        } else if (vadResult.isSilent && vadResult.silenceDuration > effectiveAudioConfig.silenceDuration) {
+          // Если достаточная тишина после голоса, отправляем буфер
+          if (hasAudioData && now - lastCommitTime > 1000) {
+            commitAudioBuffer();
+            lastCommitTime = now;
+          }
+        }
+      }
+    };
+  }
+
+  // Подключение аудиографа с учетом особенностей платформ
+  function connectAudioGraph() {
+    if (!audioContext || !audioProcessor || !mediaStream) return;
+    
+    try {
+      const streamSource = audioContext.createMediaStreamSource(mediaStream);
+      streamSource.connect(audioProcessor);
+      
+      // Для iOS НЕ соединяем напрямую с выходом, чтобы избежать обратной связи
+      if (isIOS) {
+        // Для iOS создаем "отключенный" узел чтобы избежать обратной связи
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = 0; // Установка громкости на ноль
+        audioProcessor.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        widgetLog('Используем отключенный выход для iOS чтобы избежать обратной связи');
+      } else {
+        // Для других устройств подключаем к выходу
+        audioProcessor.connect(audioContext.destination);
+      }
+      
+      widgetLog("Аудиограф успешно подключен");
+    } catch (error) {
+      widgetLog(`Ошибка при подключении аудиографа: ${error.message}`, 'error');
+    }
+  }
+
   // Основная логика виджета
   function initWidget() {
     // Проверяем, что ID ассистента существует
@@ -946,44 +1412,13 @@
       return;
     }
     
-    // Переменные для обработки аудио
-    let audioChunksBuffer = [];
-    let audioPlaybackQueue = [];
-    let isPlayingAudio = false;
-    let hasAudioData = false;
-    let audioDataStartTime = 0;
-    let minimumAudioLength = 300;
-    let isListening = false;
-    let websocket = null;
-    let audioContext = null;
-    let mediaStream = null;
-    let audioProcessor = null;
-    let isConnected = false;
-    let isWidgetOpen = false;
-    let connectionFailedPermanently = false;
-    let pingInterval = null;
-    let lastPingTime = Date.now();
-    let lastPongTime = Date.now();
-    let connectionTimeout = null;
-    
-    // Конфигурация для оптимизации потока аудио - разные настройки для десктопа и мобильных
-    const AUDIO_CONFIG = {
-      silenceThreshold: 0.01,      // Порог для определения тишины
-      silenceDuration: 300,        // Длительность тишины для отправки (мс)
-      bufferCheckInterval: 50,     // Частота проверки буфера (мс)
-      soundDetectionThreshold: 0.02 // Чувствительность к звуку
-    };
-    
-    // Специальные настройки для мобильных устройств
-    const MOBILE_AUDIO_CONFIG = {
-      silenceThreshold: 0.015,      // Более низкий порог для мобильных
-      silenceDuration: 500,         // Увеличенная длительность тишины 
-      bufferCheckInterval: 100,     // Увеличенный интервал проверки
-      soundDetectionThreshold: 0.015 // Более чувствительное определение звука
-    };
-    
-    // Выбираем нужную конфигурацию в зависимости от устройства
-    const effectiveAudioConfig = isMobile ? MOBILE_AUDIO_CONFIG : AUDIO_CONFIG;
+    // Инициализируем детектор голосовой активности
+    voiceDetector = new VoiceActivityDetector({
+      threshold: isIOS ? 0.01 : (isMobile ? 0.018 : 0.015),
+      minSilenceDuration: isIOS ? 800 : (isMobile ? 600 : 600),
+      minSpeechDuration: 300,
+      smoothingFactor: 0.2
+    });
     
     // Обновление индикатора статуса соединения
     function updateConnectionStatus(status, message) {
@@ -1261,237 +1696,133 @@
           throw new Error("Ваш браузер не поддерживает доступ к микрофону");
         }
         
-        // Особые настройки для iOS
-        const audioConstraints = isIOS ? 
-          { 
-            echoCancellation: false, // На iOS лучше отключить
-            noiseSuppression: true,
-            autoGainControl: true
-          } : 
-          isMobile ? 
-          { 
+        // Подготовим оптимальные настройки для разных устройств
+        let audioConstraints;
+        
+        if (isIOS) {
+          // Оптимальные настройки для iOS
+          audioConstraints = { 
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
-          } :
-          {
+            autoGainControl: true,
+            // На iOS чаще всего лучшие результаты с частотой 16кГц
+            sampleRate: 16000
+          };
+          
+          // Для iOS сначала разблокируем аудио
+          await unlockAudioOnIOS();
+        } else if (isMobile) {
+          // Используем функцию оптимизации для Android
+          audioConstraints = getOptimizedConstraintsForAndroid();
+        } else {
+          // Настройки для десктопа
+          audioConstraints = {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
             sampleRate: 24000
           };
-        
-        // На iOS сначала разблокируем аудио
-        if (isIOS) {
-          await unlockAudioOnIOS();
         }
         
-        // Запрашиваем доступ к микрофону с оптимальными настройками
+        widgetLog(`Применяем настройки аудио для ${isIOS ? 'iOS' : (isMobile ? 'Android' : 'десктопа')}`);
+        
+        // Пробуем получить доступ к микрофону с оптимальными настройками
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-          widgetLog(`Доступ к микрофону получен (${isIOS ? 'iOS настройки' : (isMobile ? 'Android настройки' : 'десктопные настройки')})`);
-        } catch (micError) {
-          widgetLog(`Ошибка доступа к микрофону: ${micError.message}`, 'error');
+          widgetLog(`Доступ к микрофону получен с оптимизированными настройками`);
           
-          // Для iOS пробуем резервный вариант с базовыми настройками
-          if (isIOS) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            widgetLog('Доступ к микрофону получен с базовыми настройками для iOS');
-          } else {
-            throw micError; // Пробрасываем ошибку дальше
+          // Логирование параметров аудиотрека для отладки
+          const audioTrack = mediaStream.getAudioTracks()[0];
+          if (audioTrack) {
+            widgetLog(`Получен аудиотрек: ${audioTrack.label}`);
+            
+            // Получаем и логируем настройки трека
+            const trackSettings = audioTrack.getSettings();
+            widgetLog(`Параметры аудиотрека: sampleRate=${trackSettings.sampleRate || 'N/A'}, 
+                      channelCount=${trackSettings.channelCount || 'N/A'}, 
+                      echoCancellation=${trackSettings.echoCancellation || 'N/A'}`);
           }
+        } catch (micError) {
+          widgetLog(`Ошибка с оптимизированными настройками: ${micError.message}`, 'warn');
+          
+          // Пробуем резервный вариант с базовыми настройками
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            widgetLog('Доступ к микрофону получен с базовыми настройками');
+          } catch (fallbackError) {
+            widgetLog(`Критическая ошибка доступа к микрофону: ${fallbackError.message}`, 'error');
+            throw fallbackError;
+          }
+        }
+        
+        // Инициализация AudioContext с правильными настройками
+        let contextOptions = {};
+        
+        // Настраиваем частоту дискретизации в зависимости от устройства
+        if (isIOS) {
+          contextOptions.sampleRate = 16000; // Меньше нагрузка для iOS
+        } else if (isMobile) {
+          contextOptions.sampleRate = 16000; // Оптимальная для распознавания речи
+        } else {
+          contextOptions.sampleRate = 24000; // Высокое качество для десктопа
         }
         
         // Для iOS используем существующий контекст
-        if (isIOS) {
-          if (window.tempAudioContext) {
-            audioContext = window.tempAudioContext;
-            
-            if (audioContext.state === 'suspended') {
-              await audioContext.resume();
-              window.audioContextInitialized = true;
-              widgetLog('Существующий AudioContext активирован на iOS');
-            }
-          } else {
-            // Создаем новый AudioContext с меньшей частотой дискретизации для iOS
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({
-              sampleRate: 16000 // Меньше нагрузка для iOS
-            });
-            window.tempAudioContext = audioContext;
+        if (isIOS && window.tempAudioContext) {
+          audioContext = window.tempAudioContext;
+          
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
             window.audioContextInitialized = true;
+            widgetLog('Существующий AudioContext активирован на iOS');
           }
         } else {
-          // Для других устройств
-          const contextOptions = isMobile ? {} : { sampleRate: 24000 };
-          audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
+          // Создаем новый AudioContext
+          try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
+            
+            if (isIOS) {
+              window.tempAudioContext = audioContext;
+              window.audioContextInitialized = true;
+            }
+            
+            widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
+          } catch (contextError) {
+            widgetLog(`Ошибка создания AudioContext: ${contextError.message}`, 'error');
+            throw contextError;
+          }
         }
-        
-        widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
         
         // Оптимизированные размеры буфера для разных устройств
         const bufferSize = isIOS ? 2048 : // Больше для iOS для стабильности
-                          isMobile ? 1024 : 
-                          2048;
+                         isMobile ? 1024 : 
+                         2048;
         
-        // Проверка на поддержку ScriptProcessorNode
-        if (audioContext.createScriptProcessor) {
-          audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-          widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
-        } else if (audioContext.createJavaScriptNode) { // Для старых версий Safari
-          audioProcessor = audioContext.createJavaScriptNode(bufferSize, 1, 1);
-          widgetLog(`Создан устаревший JavaScriptNode с размером буфера ${bufferSize}`);
-        } else {
-          throw new Error("Ваш браузер не поддерживает обработку аудио");
+        // Создаем процессор для обработки аудио
+        try {
+          if (audioContext.createScriptProcessor) {
+            audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+            widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
+          } else if (audioContext.createJavaScriptNode) { // Для старых версий Safari
+            audioProcessor = audioContext.createJavaScriptNode(bufferSize, 1, 1);
+            widgetLog(`Создан устаревший JavaScriptNode с размером буфера ${bufferSize}`);
+          } else {
+            throw new Error("Ваш браузер не поддерживает обработку аудио");
+          }
+        } catch (processorError) {
+          widgetLog(`Ошибка создания аудиопроцессора: ${processorError.message}`, 'error');
+          throw processorError;
         }
         
-        // Переменные для отслеживания звука
-        let isSilent = true;
-        let silenceStartTime = Date.now();
-        let lastCommitTime = 0;
-        let hasSentAudioInCurrentSegment = false;
-        let audioSampleCounter = 0; // Счетчик для отладки
+        // Настройка обработчика аудио с улучшенной логикой
+        configureAudioProcessor();
         
-        // Обработчик аудио с оптимизацией для iOS
-        audioProcessor.onaudioprocess = function(e) {
-          if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
-            // Получаем данные с микрофона
-            const inputBuffer = e.inputBuffer;
-            let inputData = inputBuffer.getChannelData(0);
-            
-            // Проверка на пустые данные
-            if (inputData.length === 0) {
-              return;
-            }
-            
-            audioSampleCounter++;
-            
-            // Вычисляем максимальную амплитуду
-            let maxAmplitude = 0;
-            let sumAmplitude = 0;
-            
-            for (let i = 0; i < inputData.length; i++) {
-              const absValue = Math.abs(inputData[i]);
-              maxAmplitude = Math.max(maxAmplitude, absValue);
-              sumAmplitude += absValue;
-            }
-            
-            // Средняя амплитуда (полезна для iOS)
-            const avgAmplitude = sumAmplitude / inputData.length;
-            
-            // Применяем нормализацию для iOS устройств для улучшения качества
-            if (isIOS && maxAmplitude > 0) {
-              // Если слишком тихий сигнал, усиливаем его
-              const normalizedData = new Float32Array(inputData.length);
-              if (maxAmplitude < 0.1) {
-                const gain = Math.min(5, 0.3 / maxAmplitude); // Усиление, но не слишком сильное
-                for (let i = 0; i < inputData.length; i++) {
-                  normalizedData[i] = inputData[i] * gain;
-                }
-                // Обновляем входные данные нормализованными
-                inputData = normalizedData;
-              }
-            }
-            
-            // Используем настройки в зависимости от устройства
-            const soundThreshold = isIOS ? 
-                                0.005 : // Более низкий порог для iOS
-                                effectiveAudioConfig.soundDetectionThreshold;
-            
-            const hasSound = maxAmplitude > soundThreshold;
-            
-            // Обновляем визуализацию
-            updateAudioVisualization(inputData);
-            
-            // Преобразуем float32 в int16 с нормализацией для iOS
-            const pcm16Data = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i++) {
-              // Для iOS применяем дополнительное усиление если нужно
-              const sample = isIOS && maxAmplitude < 0.1 ? 
-                          inputData[i] * 2 : // Усиливаем слабый сигнал
-                          inputData[i];
-              pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(sample * 32767)));
-            }
-            
-            // Отправляем данные через WebSocket
-            try {
-              const message = JSON.stringify({
-                type: "input_audio_buffer.append",
-                event_id: `audio_${Date.now()}`,
-                audio: arrayBufferToBase64(pcm16Data.buffer)
-              });
-              
-              websocket.send(message);
-              hasSentAudioInCurrentSegment = true;
-              
-              // Отмечаем наличие аудиоданных
-              if (!hasAudioData && hasSound) {
-                hasAudioData = true;
-                audioDataStartTime = Date.now();
-                widgetLog("Начало записи аудиоданных");
-              }
-              
-            } catch (error) {
-              widgetLog(`Ошибка отправки аудио: ${error.message}`, "error");
-            }
-            
-            // Логика определения тишины и автоматической отправки
-            const now = Date.now();
-            
-            if (hasSound) {
-              // Сбрасываем время начала тишины
-              isSilent = false;
-              silenceStartTime = now;
-              
-              // Активируем визуальное состояние прослушивания
-              if (!mainCircle.classList.contains('listening') && 
-                  !mainCircle.classList.contains('speaking')) {
-                mainCircle.classList.add('listening');
-              }
-            } else if (!isSilent) {
-              // Если наступила тишина
-              const silenceDuration = now - silenceStartTime;
-              
-              // Для iOS используем увеличенную длительность тишины
-              const effectiveSilenceDuration = isIOS ? 
-                                            800 : // Больше времени для обработки на iOS
-                                            effectiveAudioConfig.silenceDuration;
-              
-              if (silenceDuration > effectiveSilenceDuration) {
-                isSilent = true;
-                
-                // Если прошло достаточно времени с последней отправки и были данные
-                if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
-                  // Для iOS добавляем задержку перед отправкой
-                  const iosDelay = isIOS ? 300 : 100;
-                  
-                  setTimeout(() => {
-                    // Проверяем снова, не появился ли звук
-                    if (isSilent && isListening && !isReconnecting) {
-                      commitAudioBuffer();
-                      lastCommitTime = Date.now();
-                      hasSentAudioInCurrentSegment = false;
-                    }
-                  }, iosDelay);
-                }
-              }
-            }
-          }
-        };
+        // Подключаем обработчик аудио к источнику и выходу
+        connectAudioGraph();
         
-        // Подключаем обработчик
-        const streamSource = audioContext.createMediaStreamSource(mediaStream);
-        streamSource.connect(audioProcessor);
-        
-        // Для iOS НЕ соединяем напрямую с выходом, чтобы избежать обратной связи
-        if (!isIOS) {
-          audioProcessor.connect(audioContext.destination);
-        } else {
-          // Для iOS создаем "пустой" узел чтобы избежать обратной связи
-          const gainNode = audioContext.createGain();
-          gainNode.gain.value = 0; // Установка громкости на ноль
-          audioProcessor.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          widgetLog('Используем нулевой gainNode для iOS чтобы избежать обратной связи');
+        // Для Android запускаем мониторинг состояния микрофона
+        if (isMobile && !isIOS) {
+          startAndroidMicrophoneMonitoring();
         }
         
         widgetLog("Аудио инициализировано успешно");
@@ -1585,6 +1916,11 @@
       // Сбрасываем флаги аудио данных
       hasAudioData = false;
       audioDataStartTime = 0;
+      
+      // Сбрасываем VAD детектор
+      if (voiceDetector) {
+        voiceDetector.reset();
+      }
       
       // Активируем визуальное состояние прослушивания если не воспроизводится аудио
       if (!isPlayingAudio) {
@@ -1732,7 +2068,7 @@
       });
     }
     
-    // Создаём простой WAV из PCM данных
+   // Создаём простой WAV из PCM данных
     function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
       // Создаём заголовок WAV
       const wavHeader = new ArrayBuffer(44);
@@ -1794,23 +2130,25 @@
           widgetButton.classList.add('wellcomeai-pulse-animation');
         }
         
-        if (isWidgetOpen) {
+        // Восстанавливаем микрофон если нужно (для iOS)
+        restoreMicrophoneIfNeeded();
+        
+        // Для других устройств продолжаем прослушивание
+        if (isWidgetOpen && !isIOS) {
           setTimeout(() => {
-            if (isIOS) {
-              unlockAudioOnIOS().then(unlocked => {
-                if (unlocked) {
-                  startListening();
-                } else if (iosAudioButton) {
-                  iosAudioButton.classList.add('visible');
-                  showMessage("Нажмите кнопку для активации микрофона", 0);
-                }
-              });
-            } else {
+            if (!isListening && !isPlayingAudio && !isReconnecting) {
               startListening();
             }
           }, 800);
         }
+        
         return;
+      }
+      
+      // Если мы на iOS, останавливаем микрофон перед воспроизведением
+      if (isIOS && mediaStream && isListening) {
+        stopMicrophoneCapture();
+        shouldRestoreMicrophoneAfterPlayback = true;
       }
       
       isPlayingAudio = true;
@@ -1820,7 +2158,6 @@
       const audioBase64 = audioPlaybackQueue.shift();
       
       try {
-        // Для iOS - разблокировка перед воспроизведением
         const playAudio = () => {
           const audioData = base64ToArrayBuffer(audioBase64);
           if (audioData.byteLength === 0) {
@@ -1828,20 +2165,26 @@
             return;
           }
           
+          // Создаем WAV из PCM данных
           const wavBuffer = createWavFromPcm(audioData);
           const blob = new Blob([wavBuffer], { type: 'audio/wav' });
           const audioUrl = URL.createObjectURL(blob);
           
-          // Важно: используем одиночный аудио элемент для iOS
+          // Используем одиночный аудио элемент
           const audio = new Audio();
           audio.src = audioUrl;
           
-          // Предзагрузка для iOS
+          // Предзагрузка
           audio.preload = 'auto';
           audio.load();
           
           // Отслеживаем готовность к воспроизведению
           audio.oncanplaythrough = function() {
+            widgetLog("Аудио готово к воспроизведению");
+            
+            // Максимальная громкость для всех устройств
+            audio.volume = 1.0;
+            
             // Пробуем воспроизвести
             const playPromise = audio.play();
             
@@ -1872,6 +2215,7 @@
           };
           
           audio.onended = function() {
+            widgetLog("Воспроизведение аудио завершено");
             URL.revokeObjectURL(audioUrl);
             playNextAudio();
           };
@@ -1883,6 +2227,7 @@
           };
         };
         
+        // На iOS требуется разблокировка перед воспроизведением
         if (isIOS) {
           unlockAudioOnIOS().then(() => {
             playAudio();
