@@ -2497,21 +2497,15 @@
   // Проверяем готовность DOM и запускаем инициализацию виджета
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function() {
-      // Создаем стили и HTML структуру
       createStyles();
       loadFontAwesome();
       createWidgetHTML();
-      
-      // Инициализируем виджет
       initWidget();
     });
   } else {
-    // DOM уже загружен
     createStyles();
     loadFontAwesome();
     createWidgetHTML();
-    
-    // Инициализируем виджет
     initWidget();
   }
 })();
