@@ -2331,13 +2331,18 @@
                 
               case "error":
                 // Ошибка от сервера
-                widgetLog(`Серверная ошибка: ${message.error || 'Неизвестная ошибка'}`, 'error');
-                showMessage(`Ошибка: ${message.error || 'Что-то пошло не так'}`, 5000);
+                const errorMessage = typeof message.error === 'object' 
+                  ? JSON.stringify(message.error) 
+                  : (message.error || 'Неизвестная ошибка');
                 
-                // Если это критическая ошибка с ID ассистента
-                if (message.error && message.error.includes('assistant')) {
+                widgetLog(`Серверная ошибка: ${errorMessage}`, 'error');
+                showMessage(`Ошибка: ${errorMessage}`, 5000);
+                
+                // Если это критическая ошибка с ID ассистента (проверяем как строку)
+                const errorStr = String(errorMessage).toLowerCase();
+                if (errorStr.includes('assistant') || errorStr.includes('id')) {
                   connectionFailedPermanently = true;
-                  showConnectionError(`Ошибка: ${message.error}`);
+                  showConnectionError(`Ошибка: ${errorMessage}`);
                 }
                 break;
                 
