@@ -2485,7 +2485,7 @@
       if (retryButton) {
         retryButton.addEventListener('click', resetConnection);
       }
-    });
+    }
 
     // Запускаем функцию инициализации виджета
     initWidget();
