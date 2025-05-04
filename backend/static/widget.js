@@ -1,6 +1,6 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.2.1
+ * Версия: 1.3.0
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
@@ -32,6 +32,18 @@
   window.audioContextInitialized = false;
   window.tempAudioContext = null;
   window.hasPlayedSilence = false;
+
+  // Отдельные настройки именно для Android
+  const ANDROID_AUDIO_CONFIG = {
+    silenceThreshold: 0.01,       // Снижаем порог для Android
+    silenceDuration: 400,         // Уменьшаем время ожидания тишины
+    bufferCheckInterval: 75,      // Более частая проверка буфера
+    soundDetectionThreshold: 0.01 // Повышаем чувствительность
+  };
+
+  // Глобальная переменная для отслеживания фонового шума
+  let backgroundNoise = 0.01;
+  let previousBuffer = null;
 
   // Функция для логирования состояния виджета
   const widgetLog = (message, type = 'info') => {
@@ -673,6 +685,24 @@
       .wellcomeai-ios-audio-button.visible {
         display: block;
       }
+      
+      /* Добавляем оптимизацию размера виджета для мобильных устройств */
+      @media (max-width: 480px) {
+        .wellcomeai-widget-container {
+          bottom: 10px;
+          right: 10px;
+        }
+        
+        .wellcomeai-widget-button {
+          width: 50px;
+          height: 50px;
+        }
+        
+        .wellcomeai-widget-expanded {
+          width: 280px;
+          max-width: 90vw;
+        }
+      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("Styles created and added to head");
@@ -916,6 +946,66 @@
     }
   }
 
+  // Функция для измерения фонового шума
+  function measureBackgroundNoise(audioData) {
+    if (!isListening || isPlayingAudio) return;
+    
+    let sum = 0;
+    for (let i = 0; i < audioData.length; i++) {
+      sum += Math.abs(audioData[i]);
+    }
+    const avgAmplitude = sum / audioData.length;
+    
+    // Обновляем значение фонового шума
+    backgroundNoise = backgroundNoise * 0.95 + avgAmplitude * 0.05;
+    
+    // Адаптируем порог в зависимости от фонового шума
+    effectiveAudioConfig.silenceThreshold = backgroundNoise * 1.5;
+    effectiveAudioConfig.soundDetectionThreshold = backgroundNoise * 2;
+  }
+
+  // Функция для обнаружения обратной связи (эха)
+  function detectFeedback(currentBuffer, previousBuffer) {
+    if (!previousBuffer) return false;
+    
+    // Вычисляем схожесть текущего и предыдущего буфера
+    let similarity = 0;
+    for (let i = 0; i < Math.min(currentBuffer.length, previousBuffer.length); i++) {
+      similarity += Math.abs(currentBuffer[i] - previousBuffer[i]);
+    }
+    similarity /= currentBuffer.length;
+    
+    // Если буферы очень похожи - возможно это обратная связь
+    if (similarity < 0.05) {
+      return true;
+    }
+    return false;
+  }
+
+  // Функция принудительной переинициализации аудио при проблемах
+  function forceReinitializeAudio() {
+    // Освобождаем ресурсы
+    if (audioProcessor) {
+      audioProcessor.disconnect();
+    }
+    if (audioContext) {
+      audioContext.close();
+    }
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Сбрасываем переменные
+    audioContext = null;
+    mediaStream = null;
+    audioProcessor = null;
+    
+    // Запускаем инициализацию заново
+    setTimeout(() => {
+      initAudio();
+    }, 1000);
+  }
+
   // Основная логика виджета
   function initWidget() {
     // Проверяем, что ID ассистента существует
@@ -983,7 +1073,9 @@
     };
     
     // Выбираем нужную конфигурацию в зависимости от устройства
-    const effectiveAudioConfig = isMobile ? MOBILE_AUDIO_CONFIG : AUDIO_CONFIG;
+    const effectiveAudioConfig = isMobile ? 
+                                (isIOS ? MOBILE_AUDIO_CONFIG : ANDROID_AUDIO_CONFIG) : 
+                                AUDIO_CONFIG;
     
     // Обновление индикатора статуса соединения
     function updateConnectionStatus(status, message) {
@@ -1264,9 +1356,9 @@
         // Особые настройки для iOS
         const audioConstraints = isIOS ? 
           { 
-            echoCancellation: false, // На iOS лучше отключить
+            echoCancellation: true,    // Включаем подавление эха для iOS
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: false     // Отключаем автоусиление для iOS
           } : 
           isMobile ? 
           { 
@@ -1329,8 +1421,8 @@
         widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
         
         // Оптимизированные размеры буфера для разных устройств
-        const bufferSize = isIOS ? 2048 : // Больше для iOS для стабильности
-                          isMobile ? 1024 : 
+        const bufferSize = isIOS ? 2048 : 
+                          (isMobile && !isIOS) ? 2048 : // Больше для Android
                           2048;
         
         // Проверка на поддержку ScriptProcessorNode
@@ -1351,7 +1443,7 @@
         let hasSentAudioInCurrentSegment = false;
         let audioSampleCounter = 0; // Счетчик для отладки
         
-        // Обработчик аудио с оптимизацией для iOS
+        // Обработчик аудио с оптимизацией для iOS и Android
         audioProcessor.onaudioprocess = function(e) {
           if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
             // Получаем данные с микрофона
@@ -1375,12 +1467,15 @@
               sumAmplitude += absValue;
             }
             
-            // Средняя амплитуда (полезна для iOS)
+            // Средняя амплитуда
             const avgAmplitude = sumAmplitude / inputData.length;
             
-            // Применяем нормализацию для iOS устройств для улучшения качества
+            // Измеряем фоновый шум для адаптивного порога
+            measureBackgroundNoise(inputData);
+            
+            // Применяем нормализацию и усиление для разных устройств
             if (isIOS && maxAmplitude > 0) {
-              // Если слишком тихий сигнал, усиливаем его
+              // Если слишком тихий сигнал на iOS, усиливаем его
               const normalizedData = new Float32Array(inputData.length);
               if (maxAmplitude < 0.1) {
                 const gain = Math.min(5, 0.3 / maxAmplitude); // Усиление, но не слишком сильное
@@ -1390,7 +1485,29 @@
                 // Обновляем входные данные нормализованными
                 inputData = normalizedData;
               }
+            } else if (isMobile && !isIOS && maxAmplitude > 0) {
+              // Усиление сигнала для Android
+              const normalizedData = new Float32Array(inputData.length);
+              const gain = Math.min(3, 0.2 / maxAmplitude); // Адаптивное усиление
+              for (let i = 0; i < inputData.length; i++) {
+                normalizedData[i] = inputData[i] * gain;
+              }
+              inputData = normalizedData;
             }
+            
+            // Обнаружение обратной связи (эха)
+            if (detectFeedback(inputData, previousBuffer)) {
+              widgetLog("Обнаружена обратная связь, временно отключаем микрофон", "warn");
+              if (mediaStream && mediaStream.getAudioTracks) {
+                mediaStream.getAudioTracks().forEach(track => track.enabled = false);
+                setTimeout(() => { 
+                  mediaStream.getAudioTracks().forEach(track => track.enabled = true);
+                }, 500);
+              }
+            }
+            
+            // Сохраняем текущий буфер для следующего сравнения
+            previousBuffer = new Float32Array(inputData);
             
             // Используем настройки в зависимости от устройства
             const soundThreshold = isIOS ? 
@@ -1402,7 +1519,7 @@
             // Обновляем визуализацию
             updateAudioVisualization(inputData);
             
-            // Преобразуем float32 в int16 с нормализацией для iOS
+            // Преобразуем float32 в int16 с нормализацией для мобильных
             const pcm16Data = new Int16Array(inputData.length);
             for (let i = 0; i < inputData.length; i++) {
               // Для iOS применяем дополнительное усиление если нужно
@@ -1797,14 +1914,25 @@
         if (isWidgetOpen) {
           setTimeout(() => {
             if (isIOS) {
-              unlockAudioOnIOS().then(unlocked => {
-                if (unlocked) {
-                  startListening();
-                } else if (iosAudioButton) {
-                  iosAudioButton.classList.add('visible');
-                  showMessage("Нажмите кнопку для активации микрофона", 0);
+              // Принудительно отключаем микрофон при воспроизведении на iOS
+              if (mediaStream && mediaStream.getAudioTracks) {
+                mediaStream.getAudioTracks().forEach(track => track.enabled = false);
+              }
+              
+              // Только после воспроизведения снова включаем микрофон с задержкой
+              setTimeout(() => {
+                if (mediaStream && mediaStream.getAudioTracks) {
+                  mediaStream.getAudioTracks().forEach(track => track.enabled = true);
                 }
-              });
+                unlockAudioOnIOS().then(unlocked => {
+                  if (unlocked) {
+                    startListening();
+                  } else if (iosAudioButton) {
+                    iosAudioButton.classList.add('visible');
+                    showMessage("Нажмите кнопку для активации микрофона", 0);
+                  }
+                });
+              }, 1500); // Увеличенная задержка для iOS
             } else {
               startListening();
             }
@@ -1840,6 +1968,11 @@
           audio.preload = 'auto';
           audio.load();
           
+          // На iOS принудительно отключаем микрофон во время воспроизведения
+          if (isIOS && mediaStream && mediaStream.getAudioTracks) {
+            mediaStream.getAudioTracks().forEach(track => track.enabled = false);
+          }
+          
           // Отслеживаем готовность к воспроизведению
           audio.oncanplaythrough = function() {
             // Пробуем воспроизвести
@@ -1873,12 +2006,28 @@
           
           audio.onended = function() {
             URL.revokeObjectURL(audioUrl);
+            
+            // На iOS возвращаем микрофон в рабочее состояние с задержкой
+            if (isIOS && mediaStream && mediaStream.getAudioTracks) {
+              setTimeout(() => {
+                mediaStream.getAudioTracks().forEach(track => track.enabled = true);
+              }, 500);
+            }
+            
             playNextAudio();
           };
           
           audio.onerror = function() {
             widgetLog('Ошибка воспроизведения аудио', 'error');
             URL.revokeObjectURL(audioUrl);
+            
+            // На iOS возвращаем микрофон в рабочее состояние с задержкой
+            if (isIOS && mediaStream && mediaStream.getAudioTracks) {
+              setTimeout(() => {
+                mediaStream.getAudioTracks().forEach(track => track.enabled = true);
+              }, 500);
+            }
+            
             playNextAudio();
           };
         };
@@ -2533,4 +2682,3 @@
   } else {
     widgetLog('Widget already exists on the page, skipping initialization');
   }
-})();
