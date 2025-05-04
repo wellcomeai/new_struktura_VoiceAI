@@ -2477,7 +2477,7 @@
         } else {
           closeWidget();
         }
-      });
+      }
       
       widgetClose.addEventListener('click', closeWidget);
       
