@@ -33,18 +33,6 @@
   window.tempAudioContext = null;
   window.hasPlayedSilence = false;
 
-  // Отдельные настройки именно для Android
-  const ANDROID_AUDIO_CONFIG = {
-    silenceThreshold: 0.01,       // Снижаем порог для Android
-    silenceDuration: 400,         // Уменьшаем время ожидания тишины
-    bufferCheckInterval: 75,      // Более частая проверка буфера
-    soundDetectionThreshold: 0.01 // Повышаем чувствительность
-  };
-
-  // Глобальная переменная для отслеживания фонового шума
-  let backgroundNoise = 0.01;
-  let previousBuffer = null;
-
   // Функция для логирования состояния виджета
   const widgetLog = (message, type = 'info') => {
     // На сервере Render будет доступен объект global
@@ -946,66 +934,6 @@
     }
   }
 
-  // Функция для измерения фонового шума
-  function measureBackgroundNoise(audioData) {
-    if (!isListening || isPlayingAudio) return;
-    
-    let sum = 0;
-    for (let i = 0; i < audioData.length; i++) {
-      sum += Math.abs(audioData[i]);
-    }
-    const avgAmplitude = sum / audioData.length;
-    
-    // Обновляем значение фонового шума
-    backgroundNoise = backgroundNoise * 0.95 + avgAmplitude * 0.05;
-    
-    // Адаптируем порог в зависимости от фонового шума
-    effectiveAudioConfig.silenceThreshold = backgroundNoise * 1.5;
-    effectiveAudioConfig.soundDetectionThreshold = backgroundNoise * 2;
-  }
-
-  // Функция для обнаружения обратной связи (эха)
-  function detectFeedback(currentBuffer, previousBuffer) {
-    if (!previousBuffer) return false;
-    
-    // Вычисляем схожесть текущего и предыдущего буфера
-    let similarity = 0;
-    for (let i = 0; i < Math.min(currentBuffer.length, previousBuffer.length); i++) {
-      similarity += Math.abs(currentBuffer[i] - previousBuffer[i]);
-    }
-    similarity /= currentBuffer.length;
-    
-    // Если буферы очень похожи - возможно это обратная связь
-    if (similarity < 0.05) {
-      return true;
-    }
-    return false;
-  }
-
-  // Функция принудительной переинициализации аудио при проблемах
-  function forceReinitializeAudio() {
-    // Освобождаем ресурсы
-    if (audioProcessor) {
-      audioProcessor.disconnect();
-    }
-    if (audioContext) {
-      audioContext.close();
-    }
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(track => track.stop());
-    }
-    
-    // Сбрасываем переменные
-    audioContext = null;
-    mediaStream = null;
-    audioProcessor = null;
-    
-    // Запускаем инициализацию заново
-    setTimeout(() => {
-      initAudio();
-    }, 1000);
-  }
-
   // Основная логика виджета
   function initWidget() {
     // Проверяем, что ID ассистента существует
@@ -1055,6 +983,8 @@
     let lastPingTime = Date.now();
     let lastPongTime = Date.now();
     let connectionTimeout = null;
+    let previousBuffer = null;
+    let backgroundNoise = 0.01;
     
     // Конфигурация для оптимизации потока аудио - разные настройки для десктопа и мобильных
     const AUDIO_CONFIG = {
@@ -1072,10 +1002,18 @@
       soundDetectionThreshold: 0.015 // Более чувствительное определение звука
     };
     
+    // Специальные настройки для Android
+    const ANDROID_AUDIO_CONFIG = {
+      silenceThreshold: 0.01,       // Снижаем порог для Android
+      silenceDuration: 400,         // Уменьшаем время ожидания тишины
+      bufferCheckInterval: 75,      // Более частая проверка буфера
+      soundDetectionThreshold: 0.01 // Повышаем чувствительность
+    };
+    
     // Выбираем нужную конфигурацию в зависимости от устройства
     const effectiveAudioConfig = isMobile ? 
-                                (isIOS ? MOBILE_AUDIO_CONFIG : ANDROID_AUDIO_CONFIG) : 
-                                AUDIO_CONFIG;
+                              (isIOS ? MOBILE_AUDIO_CONFIG : ANDROID_AUDIO_CONFIG) : 
+                              AUDIO_CONFIG;
     
     // Обновление индикатора статуса соединения
     function updateConnectionStatus(status, message) {
@@ -1341,6 +1279,42 @@
         expandedWidget.style.height = "0";
         expandedWidget.style.pointerEvents = "none";
       }
+    }
+    
+    // Функция для измерения фонового шума
+    function measureBackgroundNoise(audioData) {
+      if (!isListening || isPlayingAudio) return;
+      
+      let sum = 0;
+      for (let i = 0; i < audioData.length; i++) {
+        sum += Math.abs(audioData[i]);
+      }
+      const avgAmplitude = sum / audioData.length;
+      
+      // Обновляем значение фонового шума
+      backgroundNoise = backgroundNoise * 0.95 + avgAmplitude * 0.05;
+      
+      // Адаптируем порог в зависимости от фонового шума
+      effectiveAudioConfig.silenceThreshold = backgroundNoise * 1.5;
+      effectiveAudioConfig.soundDetectionThreshold = backgroundNoise * 2;
+    }
+    
+    // Функция для обнаружения обратной связи (эха)
+    function detectFeedback(currentBuffer, previousBuffer) {
+      if (!previousBuffer) return false;
+      
+      // Вычисляем схожесть текущего и предыдущего буфера
+      let similarity = 0;
+      for (let i = 0; i < Math.min(currentBuffer.length, previousBuffer.length); i++) {
+        similarity += Math.abs(currentBuffer[i] - previousBuffer[i]);
+      }
+      similarity /= currentBuffer.length;
+      
+      // Если буферы очень похожи - возможно это обратная связь
+      if (similarity < 0.05) {
+        return true;
+      }
+      return false;
     }
     
     // Инициализация микрофона и AudioContext
@@ -1912,9 +1886,10 @@
         }
         
         if (isWidgetOpen) {
+          // Задержка перед запуском прослушивания
           setTimeout(() => {
             if (isIOS) {
-              // Принудительно отключаем микрофон при воспроизведении на iOS
+              // На iOS принудительно отключаем микрофон при воспроизведении
               if (mediaStream && mediaStream.getAudioTracks) {
                 mediaStream.getAudioTracks().forEach(track => track.enabled = false);
               }
@@ -2646,6 +2621,30 @@
         }
       }
     }, 2000);
+  }
+
+  // Принудительная переинициализация аудио при проблемах
+  function forceReinitializeAudio() {
+    // Освобождаем ресурсы
+    if (audioProcessor) {
+      audioProcessor.disconnect();
+    }
+    if (audioContext) {
+      audioContext.close();
+    }
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+    }
+    
+    // Сбрасываем переменные
+    audioContext = null;
+    mediaStream = null;
+    audioProcessor = null;
+    
+    // Запускаем инициализацию заново
+    setTimeout(() => {
+      initAudio();
+    }, 1000);
   }
 
   // Инициализируем виджет
