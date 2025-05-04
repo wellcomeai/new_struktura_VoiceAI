@@ -740,69 +740,150 @@
 
   // Создание HTML структуры виджета
   function createWidgetHTML() {
-    const widgetContainer = document.createElement('div');
-    widgetContainer.className = 'wellcomeai-widget-container';
-    widgetContainer.id = 'wellcomeai-widget-container';
-    widgetContainer.style.zIndex = "2147483647";
-
-    let widgetHTML = `
-      <!-- Кнопка (минимизированное состояние) -->
-      <div class="wellcomeai-widget-button" id="wellcomeai-widget-button">
-        <i class="fas fa-robot wellcomeai-widget-icon"></i>
-      </div>
+    try {
+      // Проверка на существующий контейнер
+      if (document.getElementById('wellcomeai-widget-container')) {
+        console.log('[WellcomeAI Widget] Контейнер виджета уже существует, пропускаем создание HTML');
+        return;
+      }
       
-      <!-- Развернутый виджет -->
-      <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
-        <div class="wellcomeai-widget-header">
-          <div class="wellcomeai-widget-title">WellcomeAI</div>
-          <button class="wellcomeai-widget-close" id="wellcomeai-widget-close">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-        <div class="wellcomeai-widget-content">
-          <!-- Основной элемент - круг с иконкой микрофона -->
-          <div class="wellcomeai-main-circle" id="wellcomeai-main-circle">
-            <i class="fas fa-microphone wellcomeai-mic-icon"></i>
-            
-            <!-- Аудио визуализация -->
-            <div class="wellcomeai-audio-visualization" id="wellcomeai-audio-visualization">
-              <div class="wellcomeai-audio-bars" id="wellcomeai-audio-bars"></div>
-            </div>
-          </div>
-          
-          <!-- Сообщение -->
-          <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
-          
-          <!-- Сообщение об ошибке соединения -->
-          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
-            Ошибка соединения с сервером
-            <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
-              Повторить подключение
-            </button>
-          </div>
-          
-          <!-- Специальная кнопка для активации аудио на iOS -->
-          <button class="wellcomeai-ios-audio-button" id="wellcomeai-ios-audio-button">
-            Нажмите для активации аудио
-          </button>
-          
-          <!-- Индикатор статуса -->
-          <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
-            <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div>
-            <span id="wellcomeai-status-text">Подключено</span>
-          </div>
-        </div>
-      </div>
+      console.log('[WellcomeAI Widget] Создаем HTML структуру виджета...');
       
-      <!-- Модальное окно загрузки -->
-      <div id="wellcomeai-loader-modal" class="wellcomeai-loader-modal active">
-        <div class="wellcomeai-loader"></div>
-      </div>
-    `;
-
-    widgetContainer.innerHTML = widgetHTML;
-    document.body.appendChild(widgetContainer);
-    widgetLog("HTML structure created and appended to body");
+      // Создаем контейнер
+      const widgetContainer = document.createElement('div');
+      widgetContainer.className = 'wellcomeai-widget-container';
+      widgetContainer.id = 'wellcomeai-widget-container';
+      widgetContainer.style.zIndex = "2147483647";
+      
+      // Пошаговая сборка DOM для лучшей надежности
+      
+      // 1. Создаем кнопку виджета
+      const widgetButton = document.createElement('div');
+      widgetButton.className = 'wellcomeai-widget-button';
+      widgetButton.id = 'wellcomeai-widget-button';
+      widgetButton.style.display = 'flex'; // Гарантируем видимость
+      
+      const buttonIcon = document.createElement('i');
+      buttonIcon.className = 'fas fa-robot wellcomeai-widget-icon';
+      widgetButton.appendChild(buttonIcon);
+      widgetContainer.appendChild(widgetButton);
+      
+      // 2. Создаем развернутый виджет
+      const expandedWidget = document.createElement('div');
+      expandedWidget.className = 'wellcomeai-widget-expanded';
+      expandedWidget.id = 'wellcomeai-widget-expanded';
+      
+      // 3. Создаем заголовок
+      const header = document.createElement('div');
+      header.className = 'wellcomeai-widget-header';
+      
+      const title = document.createElement('div');
+      title.className = 'wellcomeai-widget-title';
+      title.textContent = 'WellcomeAI';
+      header.appendChild(title);
+      
+      const closeButton = document.createElement('button');
+      closeButton.className = 'wellcomeai-widget-close';
+      closeButton.id = 'wellcomeai-widget-close';
+      
+      const closeIcon = document.createElement('i');
+      closeIcon.className = 'fas fa-times';
+      closeButton.appendChild(closeIcon);
+      header.appendChild(closeButton);
+      
+      expandedWidget.appendChild(header);
+      
+      // 4. Создаем содержимое
+      const content = document.createElement('div');
+      content.className = 'wellcomeai-widget-content';
+      
+      // 5. Создаем основной круг
+      const mainCircle = document.createElement('div');
+      mainCircle.className = 'wellcomeai-main-circle';
+      mainCircle.id = 'wellcomeai-main-circle';
+      
+      const micIcon = document.createElement('i');
+      micIcon.className = 'fas fa-microphone wellcomeai-mic-icon';
+      mainCircle.appendChild(micIcon);
+      
+      // 6. Создаем визуализацию аудио
+      const audioViz = document.createElement('div');
+      audioViz.className = 'wellcomeai-audio-visualization';
+      audioViz.id = 'wellcomeai-audio-visualization';
+      
+      const audioBars = document.createElement('div');
+      audioBars.className = 'wellcomeai-audio-bars';
+      audioBars.id = 'wellcomeai-audio-bars';
+      audioViz.appendChild(audioBars);
+      
+      mainCircle.appendChild(audioViz);
+      content.appendChild(mainCircle);
+      
+      // 7. Создаем отображение сообщений
+      const messageDisplay = document.createElement('div');
+      messageDisplay.className = 'wellcomeai-message-display';
+      messageDisplay.id = 'wellcomeai-message-display';
+      content.appendChild(messageDisplay);
+      
+      // 8. Создаем блок ошибки соединения
+      const connectionError = document.createElement('div');
+      connectionError.className = 'wellcomeai-connection-error';
+      connectionError.id = 'wellcomeai-connection-error';
+      connectionError.innerHTML = `
+        Ошибка соединения с сервером
+        <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
+          Повторить подключение
+        </button>
+      `;
+      content.appendChild(connectionError);
+      
+      // 9. Создаем кнопку для iOS
+      const iosButton = document.createElement('button');
+      iosButton.className = 'wellcomeai-ios-audio-button';
+      iosButton.id = 'wellcomeai-ios-audio-button';
+      iosButton.textContent = 'Нажмите для активации аудио';
+      content.appendChild(iosButton);
+      
+      // 10. Создаем индикатор статуса
+      const statusIndicator = document.createElement('div');
+      statusIndicator.className = 'wellcomeai-status-indicator';
+      statusIndicator.id = 'wellcomeai-status-indicator';
+      
+      const statusDot = document.createElement('div');
+      statusDot.className = 'wellcomeai-status-dot';
+      statusDot.id = 'wellcomeai-status-dot';
+      statusIndicator.appendChild(statusDot);
+      
+      const statusText = document.createElement('span');
+      statusText.id = 'wellcomeai-status-text';
+      statusText.textContent = 'Подключено';
+      statusIndicator.appendChild(statusText);
+      
+      content.appendChild(statusIndicator);
+      expandedWidget.appendChild(content);
+      widgetContainer.appendChild(expandedWidget);
+      
+      // 11. Создаем модальное окно загрузки
+      const loaderModal = document.createElement('div');
+      loaderModal.id = 'wellcomeai-loader-modal';
+      loaderModal.className = 'wellcomeai-loader-modal active';
+      
+      const loader = document.createElement('div');
+      loader.className = 'wellcomeai-loader';
+      loaderModal.appendChild(loader);
+      
+      widgetContainer.appendChild(loaderModal);
+      
+      // Добавляем контейнер в body
+      document.body.appendChild(widgetContainer);
+      
+      console.log('[WellcomeAI Widget] HTML структура создана и добавлена в body');
+      return true;
+    } catch (error) {
+      console.error(`[WellcomeAI Widget] Ошибка при создании HTML: ${error.message}`);
+      console.error(error);
+      return false;
+    }
   }
 
   // Функция для разблокировки аудио на iOS
@@ -2435,23 +2516,98 @@
   
   // Инициализируем виджет
   function initApp() {
-    // Добавляем стили
-    createStyles();
-    
-    // Загружаем иконки
-    loadFontAwesome();
-    
-    // Создаем HTML структуру
-    createWidgetHTML();
-    
-    // Запускаем основную логику
-    setTimeout(initWidget, 100);
+    try {
+      // Проверка на существующий виджет (чтобы избежать дубликатов)
+      if (document.getElementById('wellcomeai-widget-container')) {
+        console.log('[WellcomeAI Widget] Виджет уже существует на странице, пропускаем инициализацию');
+        return;
+      }
+      
+      console.log('[WellcomeAI Widget] Начинаем инициализацию виджета...');
+      
+      // Добавляем стили
+      createStyles();
+      console.log('[WellcomeAI Widget] Стили успешно добавлены');
+      
+      // Загружаем иконки
+      loadFontAwesome();
+      console.log('[WellcomeAI Widget] Font Awesome загружен');
+      
+      // Создаем HTML структуру
+      createWidgetHTML();
+      
+      // Проверяем, создался ли контейнер виджета
+      const widgetContainer = document.getElementById('wellcomeai-widget-container');
+      if (!widgetContainer) {
+        console.error('[WellcomeAI Widget] Ошибка: Контейнер виджета не был создан!');
+        return;
+      }
+      console.log('[WellcomeAI Widget] HTML структура успешно создана');
+      
+      // Проверяем доступность всех необходимых элементов
+      const criticalElements = [
+        'wellcomeai-widget-button',
+        'wellcomeai-widget-expanded', 
+        'wellcomeai-widget-close',
+        'wellcomeai-main-circle'
+      ];
+      
+      const missingElements = criticalElements.filter(id => !document.getElementById(id));
+      if (missingElements.length > 0) {
+        console.error(`[WellcomeAI Widget] Ошибка: Не найдены критические элементы: ${missingElements.join(', ')}`);
+        return;
+      }
+      
+      // Принудительно устанавливаем видимость кнопки виджета
+      const widgetButton = document.getElementById('wellcomeai-widget-button');
+      if (widgetButton) {
+        widgetButton.style.display = 'flex';
+        widgetButton.style.visibility = 'visible';
+        widgetButton.style.opacity = '1';
+      }
+      
+      // Запускаем основную логику с небольшой задержкой
+      console.log('[WellcomeAI Widget] Запуск основной логики через 100мс...');
+      setTimeout(() => {
+        try {
+          initWidget();
+          console.log('[WellcomeAI Widget] Виджет успешно инициализирован');
+        } catch (error) {
+          console.error(`[WellcomeAI Widget] Критическая ошибка при инициализации: ${error.message}`);
+          console.error(error);
+          
+          // Пытаемся восстановить виджет в минимальном режиме
+          const widgetButton = document.getElementById('wellcomeai-widget-button');
+          if (widgetButton) {
+            widgetButton.style.display = 'flex';
+            widgetButton.style.visibility = 'visible';
+            widgetButton.style.opacity = '1';
+            
+            // Добавляем базовый обработчик
+            widgetButton.addEventListener('click', function() {
+              alert('К сожалению, виджет не смог инициализироваться. Пожалуйста, обновите страницу или свяжитесь с поддержкой.');
+            });
+          }
+        }
+      }, 100);
+      
+    } catch (error) {
+      console.error(`[WellcomeAI Widget] Критическая ошибка: ${error.message}`);
+      console.error(error);
+    }
   }
   
-  // Запускаем приложение с учетом загрузки DOM
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-  } else {
-    initApp();
+  // Запускаем приложение с учетом загрузки DOM и добавляем обработку ошибок
+  try {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+      console.log('[WellcomeAI Widget] Настроен запуск по событию DOMContentLoaded');
+    } else {
+      console.log('[WellcomeAI Widget] DOM уже загружен, запускаем сразу');
+      initApp();
+    }
+  } catch (error) {
+    console.error(`[WellcomeAI Widget] Критическая ошибка при запуске: ${error.message}`);
+    console.error(error);
   }
 })();
