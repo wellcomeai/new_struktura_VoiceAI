@@ -1,150 +1,250 @@
 (function() {
-  // Настройки виджета (Константы)
-  const DEBUG_MODE = false; // Отключаем режим отладки в продакшене
-  const MAX_RECONNECT_ATTEMPTS = 5; // Максимальное количество попыток переподключения
-  const MOBILE_MAX_RECONNECT_ATTEMPTS = 10; // Увеличенное количество попыток для мобильных
-  const PING_INTERVAL = 15000; // Интервал отправки ping (в миллисекундах)
+  // --- Константы и Настройки ---
+  const DEBUG_MODE = true; // Включаем отладочный режим для тестирования
+  const MAX_RECONNECT_ATTEMPTS = 10; // Максимальное количество попыток переподключения
+  const MOBILE_MAX_RECONNECT_ATTEMPTS = 15; // Увеличено для мобильных
+  const PING_INTERVAL = 15000; // Интервал отправки ping (мс)
   const MOBILE_PING_INTERVAL = 10000; // Более частые пинги для мобильных
-  const CONNECTION_TIMEOUT = 20000; // Таймаут для установления соединения (в миллисекундах)
-  const MAX_DEBUG_ITEMS = 10; // Максимальное количество записей отладки
+  const CONNECTION_TIMEOUT = 25000; // Таймаут для установления соединения (мс) - увеличено
+  const AUDIO_SEND_INTERVAL = 100; // Интервал отправки аудио пакетов на сервер (мс)
+  const UI_MESSAGE_DURATION = 5000; // Длительность показа временных сообщений UI (мс)
+  const AUDIO_COMMIT_MIN_LENGTH = 100; // Минимальная длина аудио для отправки на сервер после "коммита" (мс)
 
-  // Глобальное хранение состояния (Переменные)
-  let reconnectAttempts = 0;
-  let pingIntervalId = null;
-  let lastPongTime = Date.now();
-  let isReconnecting = false;
-  let debugQueue = [];
+  // --- Глобальные Переменные Состояния (инкапсулированы в IIFE) ---
+  let websocket = null;
+  let audioContext = null; // Контекст для Input/Output
+  let mediaStream = null; // Поток с микрофона
+  let audioProcessor = null; // Node для обработки аудио
+  let clientAudioBuffer = []; // Буфер для накопления аудио перед отправкой на сервер
+  let audioSendTimer = null; // Таймер для периодической отправки буфера
+  let audioPlaybackQueue = []; // Очередь для воспроизведения аудио
+  let audioBufferSourceNode = null; // Текущий воспроизводимый AudioBufferSourceNode
+  let audioPlaybackStartTime = 0; // Время начала воспроизведения текущего буфера
+  let audioPlaybackOffset = 0; // Смещение в текущем буфере
+  let pingIntervalId = null; // ID таймера для ping
+  let connectionTimeoutId = null; // ID таймаута соединения
+  let reconnectAttempts = 0; // Счетчик попыток переподключения
+  let retryConnectTimerId = null; // ID таймера для повторного подключения
+  let messageDisplayTimerId = null; // ID таймера для скрытия сообщения UI
+  let audioDataAccumulated = false; // Флаг, показывающий, были ли записаны аудиоданные в текущем сегменте
 
-  // Определяем тип устройства
+  // --- Управление Состоянием Виджета ---
+  const widgetState = {
+    current: 'LOADING', // Состояния: 'LOADING', 'IDLE', 'CONNECTING', 'CONNECTED', 'LISTENING', 'SPEAKING', 'RECONNECTING', 'ERROR'
+    message: '', // Сообщение для отображения пользователю
+    isConnected: false,
+    isWidgetOpen: false,
+    isListening: false,
+    isPlayingAudio: false,
+    isReconnecting: false,
+    isMicInitialized: false, // Флаг успешной инициализации микрофона/аудио контекста
+    connectionFailedPermanently: false // Флаг невосстановимой ошибки соединения
+  };
+
+  // --- Определение Устройства ---
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-  const isAndroid = /Android/i.test(navigator.userAgent);
-  const isMobile = isIOS || isAndroid || /Poco|mi|Redmi|GT/i.test(navigator.userAgent);
 
-  // Глобальные флаги для мобильных устройств (особенно iOS)
-  window.audioContextInitialized = false;
-  window.tempAudioContext = null; // Используется для iOS разблокировки
-  window.hasPlayedSilence = false; // Флаг, что тишина была воспроизведена для iOS
+  // --- DOM Элементы (собираются после создания HTML) ---
+  const elements = {};
 
-  // Аудио переменные
-  // let audioChunksBuffer = []; // Не используется в текущей логике отправки по тишине, можно убрать
-  let audioPlaybackQueue = []; // Очередь для воспроизведения аудио с сервера
-  let isPlayingAudio = false; // Флаг активного воспроизведения с сервера
-  let hasAudioData = false; // Флаг, что были обнаружены голосовые данные после начала прослушивания
-  let audioDataStartTime = 0; // Время начала обнаружения голосовых данных
-  let minimumAudioLength = 300; // Минимальная длина аудио (мс) для начала определения тишины после голоса
-  let isListening = false; // Флаг активной записи с микрофона
-  let websocket = null; // WebSocket объект
-  let audioContext = null; // AudioContext
-  let mediaStream = null; // MediaStream с микрофона
-  let audioProcessor = null; // ScriptProcessorNode или AudioWorkletNode
-  let isConnected = false; // Флаг активного WebSocket соединения
-  let isWidgetOpen = false; // Флаг открытого виджета
-  let connectionFailedPermanently = false; // Флаг постоянной ошибки соединения
-  let lastPingTime = Date.now(); // Время последнего пинга
-  let lastCommitTime = 0; // Время последней отправки буфера на сервер
-  let voiceDetector = null; // Экземпляр VoiceActivityDetector
-  let shouldRestoreMicrophoneAfterPlayback = false; // Флаг для iOS: нужно ли восстановить микрофон после воспроизведения
-  let androidMicMonitorIntervalId = null; // ID интервала для мониторинга микрофона на Android
+  // --- Вспомогательные Функции ---
 
-  // UI элементы (объявляем здесь, присваиваем в initWidget)
-  let widgetContainer = null;
-  let widgetButton = null;
-  let widgetClose = null;
-  let mainCircle = null;
-  let audioBars = null;
-  let loaderModal = null;
-  let messageDisplay = null;
-  let connectionError = null;
-  let retryButton = null;
-  let statusIndicator = null;
-  let statusDot = null;
-  let statusText = null;
-  let iosAudioButton = null;
-
-  // Конфигурация для оптимизации потока аудио
-  const AUDIO_CONFIG = {
-    silenceThreshold: 0.01,
-    silenceDuration: 300,
-    bufferCheckInterval: 50,
-    soundDetectionThreshold: 0.02
-  };
-
-  const ANDROID_AUDIO_CONFIG = {
-    silenceThreshold: 0.018,
-    silenceDuration: 600,
-    bufferCheckInterval: 80,
-    soundDetectionThreshold: 0.02
-  };
-
-  const IOS_AUDIO_CONFIG = {
-    silenceThreshold: 0.012,
-    silenceDuration: 800,
-    bufferCheckInterval: 120,
-    soundDetectionThreshold: 0.01
-  };
-
-  // Выбираем нужную конфигурацию в зависимости от устройства
-  const effectiveAudioConfig = isIOS ?
-    IOS_AUDIO_CONFIG :
-    (isMobile ? ANDROID_AUDIO_CONFIG : AUDIO_CONFIG);
-
-
-  // --- Определения всех вспомогательных функций ---
-
-  // Функция для логирования состояния виджета (должна быть определена первой из функций)
-  const widgetLog = (message, type = 'info', details = null) => {
-    if (typeof window === 'undefined' || !window.location) return;
-
-    const logPrefix = '[WellcomeAI Widget]';
+  // Логирование
+  const widgetLog = (message, type = 'info') => {
+    const prefix = '[WellcomeAI Widget]';
     const timestamp = new Date().toISOString().slice(11, 23);
-    const formattedMessage = `${timestamp} | ${type.toUpperCase()} | ${message}`;
+    const logMessage = `${prefix} ${timestamp} | ${type.toUpperCase()} | ${message}`;
 
-    if (DEBUG_MODE || type === 'error' || type === 'warn') {
-      if (type === 'error') {
-        console.error(`${logPrefix} ERROR:`, message, details || '');
-      } else if (type === 'warn') {
-        console.warn(`${logPrefix} WARNING:`, message, details || '');
-      } else if (DEBUG_MODE) {
-        console.log(`${logPrefix}`, message, details || '');
+    // Для Render.com или любого хостинга, где console.* перенаправляется
+    if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('render.com')) {
+      console.log(logMessage); // Render собирает console.log
+    } else if (DEBUG_MODE || type === 'error' || type === 'warn') {
+      // Для локальной разработки или важных сообщений
+      if (type === 'error') console.error(logMessage);
+      else if (type === 'warn') console.warn(logMessage);
+      else if (DEBUG_MODE) console.log(logMessage);
+    }
+  };
+
+  // Сбор DOM элементов после их создания
+  const getDOMElements = () => {
+    elements.widgetContainer = document.getElementById('wellcomeai-widget-container');
+    elements.widgetButton = document.getElementById('wellcomeai-widget-button');
+    elements.widgetClose = document.getElementById('wellcomeai-widget-close');
+    elements.mainCircle = document.getElementById('wellcomeai-main-circle');
+    elements.audioBarsContainer = document.getElementById('wellcomeai-audio-bars');
+    elements.loaderModal = document.getElementById('wellcomeai-loader-modal');
+    elements.messageDisplay = document.getElementById('wellcomeai-message-display');
+    elements.connectionError = document.getElementById('wellcomeai-connection-error');
+    elements.retryButton = document.getElementById('wellcomeai-retry-button');
+    elements.statusIndicator = document.getElementById('wellcomeai-status-indicator');
+    elements.statusDot = document.getElementById('wellcomeai-status-dot');
+    elements.statusText = document.getElementById('wellcomeai-status-text');
+    elements.iosAudioButton = document.getElementById('wellcomeai-ios-audio-button');
+
+    // Проверка наличия основных элементов
+    if (!elements.widgetContainer || !elements.widgetButton || !elements.widgetClose || !elements.mainCircle || !elements.audioBarsContainer || !elements.loaderModal || !elements.messageDisplay) {
+      widgetLog("ERROR: One or more essential UI elements not found in DOM!", 'error');
+      return false;
+    }
+    widgetLog("All essential UI elements found.");
+    return true;
+  };
+
+  // Обновление UI на основе текущего состояния
+  const updateUI = () => {
+    if (!getDOMElements()) return; // Проверка, что элементы доступны
+
+    // Обновление основного контейнера
+    if (widgetState.isWidgetOpen) {
+      elements.widgetContainer.classList.add('active');
+      // Принудительное управление стилями для большей надежности на конструкторах
+      elements.widgetContainer.style.opacity = '1';
+      elements.widgetContainer.style.pointerEvents = 'all';
+      elements.widgetContainer.style.zIndex = '2147483647'; // Агрессивный z-index
+      if (elements.widgetExpanded) {
+         elements.widgetExpanded.style.height = '400px';
+         elements.widgetExpanded.style.opacity = '1';
+         elements.widgetExpanded.style.pointerEvents = 'all';
+         elements.widgetExpanded.style.zIndex = '2147483647'; // Агрессивный z-index
       }
     } else {
-       if (type === 'error' || type === 'warn') {
-           console.log(`${logPrefix} ${formattedMessage}`, details || '');
+      elements.widgetContainer.classList.remove('active');
+       if (elements.widgetExpanded) {
+         elements.widgetExpanded.style.height = '0';
+         elements.widgetExpanded.style.opacity = '0';
+         elements.widgetExpanded.style.pointerEvents = 'none';
        }
     }
-  };
 
-  // Функция для отслеживания ошибок (упрощена без отладочной панели)
-  const addToDebugQueue = (message, type = 'info') => {
-    if (!DEBUG_MODE) return;
-
-    const timestamp = new Date().toISOString();
-    debugQueue.push({
-      timestamp,
-      message,
-      type
-    });
-
-    if (debugQueue.length > MAX_DEBUG_ITEMS) {
-      debugQueue.shift();
+    // Обновление состояния основного круга (микрофона)
+    elements.mainCircle.classList.remove('listening', 'speaking');
+    if (widgetState.isListening) {
+      elements.mainCircle.classList.add('listening');
+      resetAudioVisualization(); // Сброс визализации при начале прослушивания
+    } else if (widgetState.isPlayingAudio) {
+      elements.mainCircle.classList.add('speaking');
+    } else {
+       resetAudioVisualization(); // Сброс визализации, когда не слушаем и не говорим
     }
-     updateDebugPanel();
+
+
+    // Управление лоадером
+    if (widgetState.current === 'LOADING' || widgetState.current === 'CONNECTING' || widgetState.current === 'RECONNECTING') {
+      elements.loaderModal.classList.add('active');
+    } else {
+       elements.loaderModal.classList.remove('active');
+    }
+
+    // Управление сообщением UI
+    if (widgetState.message) {
+        elements.messageDisplay.textContent = widgetState.message;
+        elements.messageDisplay.classList.add('show');
+    } else {
+       elements.messageDisplay.classList.remove('show');
+    }
+
+    // Управление ошибкой соединения
+    if (widgetState.current === 'ERROR' && widgetState.connectionFailedPermanently) {
+       showConnectionError("Не удалось подключиться к серверу.");
+    } else {
+       hideConnectionError();
+    }
+
+    // Управление кнопкой iOS активации аудио
+    if (isIOS && !widgetState.isMicInitialized && widgetState.isWidgetOpen && (widgetState.current === 'IDLE' || widgetState.current === 'CONNECTED')) {
+       elements.iosAudioButton.classList.add('visible');
+    } else {
+       elements.iosAudioButton.classList.remove('visible');
+    }
+
+    // Управление индикатором статуса
+    if (widgetState.isWidgetOpen && (widgetState.current === 'CONNECTED' || widgetState.current === 'CONNECTING' || widgetState.current === 'RECONNECTING' || widgetState.current === 'ERROR')) {
+        elements.statusIndicator.classList.add('show');
+        if (widgetState.current === 'CONNECTED') {
+            elements.statusDot.className = 'wellcomeai-status-dot connected';
+            elements.statusText.textContent = 'Подключено';
+        } else if (widgetState.current === 'CONNECTING' || widgetState.current === 'RECONNECTING') {
+            elements.statusDot.className = 'wellcomeai-status-dot connecting';
+            elements.statusText.textContent = 'Подключение...';
+        } else if (widgetState.current === 'ERROR' || widgetState.connectionFailedPermanently) {
+            elements.statusDot.className = 'wellcomeai-status-dot disconnected';
+            elements.statusText.textContent = 'Отключено';
+        } else {
+             elements.statusDot.className = 'wellcomeai-status-dot'; // Default
+             elements.statusText.textContent = '';
+        }
+    } else {
+         elements.statusIndicator.classList.remove('show');
+    }
+
+     // Управление пульсацией кнопки (для привлечения внимания)
+     if (!widgetState.isWidgetOpen && !widgetState.isConnected && !widgetState.isReconnecting && widgetState.connectionFailedPermanently) {
+         elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+     } else {
+         elements.widgetButton.classList.remove('wellcomeai-pulse-animation');
+     }
   };
 
-  // Получить отладочную информацию в виде строки
-  const getDebugInfo = () => {
-    if (!DEBUG_MODE) return "";
-    return debugQueue.map(item => `[${item.timestamp}] ${item.type.toUpperCase()}: ${item.message}`).join('\n');
+  // Функция смены состояния
+  const updateState = (newState, message = '') => {
+    widgetLog(`State transition: ${widgetState.current} -> ${newState}`);
+    widgetState.current = newState;
+    widgetState.message = message; // Устанавливаем или очищаем сообщение UI
+
+    // Обновляем основные флаги в соответствии с новым состоянием
+    widgetState.isConnected = (newState === 'CONNECTED' || newState === 'LISTENING' || newState === 'SPEAKING');
+    widgetState.isListening = (newState === 'LISTENING');
+    widgetState.isPlayingAudio = (newState === 'SPEAKING');
+    widgetState.isReconnecting = (newState === 'RECONNECTING');
+    // Флаг connectionFailedPermanently управляется отдельно
+
+    // Сброс таймера сообщения, если устанавливается новое
+    if (messageDisplayTimerId) {
+      clearTimeout(messageDisplayTimerId);
+      messageDisplayTimerId = null;
+    }
+
+    // Запускаем таймер для скрытия сообщения, если оно временное (есть message и не 'ERROR')
+    if (message && newState !== 'ERROR' && UI_MESSAGE_DURATION > 0) {
+        messageDisplayTimerId = setTimeout(() => {
+            widgetState.message = ''; // Очищаем сообщение
+            updateUI(); // Обновляем UI, чтобы скрыть сообщение
+        }, UI_MESSAGE_DURATION);
+    }
+
+
+    updateUI(); // Обновляем пользовательский интерфейс
   };
 
-  // Обновление отладочной панели (стабы для совместимости)
-  const updateDebugPanel = () => {
-    if (!DEBUG_MODE) return;
-    // TODO: Add UI update logic if needed
+   // Показать ошибку соединения с кнопкой повтора
+  const showConnectionError = (message) => {
+    if (elements.connectionError) {
+        elements.connectionError.innerHTML = `
+          ${message || 'Ошибка соединения с сервером'}
+          <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
+            Повторить подключение
+          </button>
+        `;
+        elements.connectionError.classList.add('visible');
+
+        // Добавляем обработчик для новой кнопки повтора
+        const newRetryButton = elements.connectionError.querySelector('#wellcomeai-retry-button');
+        if (newRetryButton) {
+            newRetryButton.onclick = resetConnection; // Используем уже определенную функцию
+        }
+    }
   };
 
+  // Скрыть ошибку соединения
+  const hideConnectionError = () => {
+    if (elements.connectionError) {
+        elements.connectionError.classList.remove('visible');
+    }
+  };
 
-  // Функция для определения URL сервера
+  // Получить URL сервера
   const getServerUrl = () => {
     const scriptTags = document.querySelectorAll('script');
     let serverUrl = null;
@@ -152,22 +252,21 @@
     for (let i = 0; i < scriptTags.length; i++) {
       if (scriptTags[i].hasAttribute('data-server') || (scriptTags[i].dataset && scriptTags[i].dataset.server)) {
         serverUrl = scriptTags[i].getAttribute('data-server') || scriptTags[i].dataset.server;
-        // Log calls moved below where SERVER_URL is assigned
+        widgetLog(`Found server URL from script attribute: ${serverUrl}`);
         break;
       }
-
       const src = scriptTags[i].getAttribute('src');
-      if (src && src.includes('widget.js')) {
+      if (src && src.includes('widget.js')) { // Ищем скрипт виджета по имени файла
         try {
           const url = new URL(src, window.location.href);
           serverUrl = url.origin;
-          // Log calls moved below
+          widgetLog(`Extracted server URL from script src: ${serverUrl}`);
           break;
         } catch (e) {
-          // Log calls moved below
-          if (src.startsWith('/') || src.startsWith('./') || src.startsWith('../')) {
+          widgetLog(`Error extracting server URL from src: ${e.message}`, 'warn');
+          if (src.startsWith('/')) {
             serverUrl = window.location.origin;
-            // Log calls moved below
+            widgetLog(`Using current origin for relative path: ${serverUrl}`);
             break;
           }
         }
@@ -176,30 +275,30 @@
 
     if (serverUrl && !serverUrl.match(/^https?:\/\//)) {
       serverUrl = window.location.protocol + '//' + serverUrl;
-      // Log calls moved below
+      widgetLog(`Added protocol to server URL: ${serverUrl}`);
     }
 
     if (!serverUrl) {
-      serverUrl = 'https://realtime-saas.onrender.com';
-      // Log calls moved below
+      serverUrl = 'https://realtime-saas.onrender.com'; // Fallback URL
+      widgetLog(`Using fallback server URL: ${serverUrl}`);
     }
 
-    return serverUrl.replace(/\/$/, '');
+    return serverUrl.replace(/\/$/, ''); // Убираем конечный слеш
   };
 
-  // Функция для получения ID ассистента
+  // Получить ID ассистента
   const getAssistantId = () => {
     const scriptTags = document.querySelectorAll('script');
     for (let i = 0; i < scriptTags.length; i++) {
-      if (scriptTags[i].hasAttribute('data-assistantId') || scriptTags[i].hasAttribute('data-assistantid')) {
-        const id = scriptTags[i].getAttribute('data-assistantId') || scriptTags[i].getAttribute('data-assistantid');
-        // Log calls moved below
+      const data = scriptTags[i].dataset;
+      if (data && (data.assistantId || data.assistantid)) { // Проверяем оба варианта
+        const id = data.assistantId || data.assistantid;
+        widgetLog(`Found assistant ID from dataset: ${id}`);
         return id;
       }
-
-      if (scriptTags[i].dataset && (scriptTags[i].dataset.assistantId || scriptTags[i].dataset.assistantid)) {
-        const id = scriptTags[i].dataset.assistantId || scriptTags[i].dataset.assistantid;
-        // Log calls moved below
+      if (scriptTags[i].hasAttribute('data-assistantId') || scriptTags[i].hasAttribute('data-assistantid')) {
+        const id = scriptTags[i].getAttribute('data-assistantId') || scriptTags[i].getAttribute('data-assistantid');
+        widgetLog(`Found assistant ID from attribute: ${id}`);
         return id;
       }
     }
@@ -207,804 +306,1941 @@
     const urlParams = new URLSearchParams(window.location.search);
     const idFromUrl = urlParams.get('assistantId') || urlParams.get('assistantid');
     if (idFromUrl) {
-      // Log calls moved below
+      widgetLog(`Found assistant ID in URL param: ${idFromUrl}`);
       return idFromUrl;
     }
 
     if (window.wellcomeAIAssistantId) {
-      // Log calls moved below
+      widgetLog(`Found assistant ID in global variable: ${window.wellcomeAIAssistantId}`);
       return window.wellcomeAIAssistantId;
     }
 
+     // Для демонстрации
     if (window.location.hostname.includes('demo') || window.location.pathname.includes('demo')) {
-      // Log calls moved below
+      widgetLog(`Using demo ID on demo page`);
       return 'demo';
     }
 
-    // Log calls moved below
+    widgetLog('No assistant ID found!', 'error');
     return null;
   };
 
-  // Получение позиции виджета
-  const getWidgetPosition = () => {
-    const defaultPosition = { horizontal: 'right', vertical: 'bottom', distance: '20px' };
-    const scriptTags = document.querySelectorAll('script');
-    for (let i = 0; i < scriptTags.length; i++) {
-      if (scriptTags[i].hasAttribute('data-position') || (scriptTags[i].dataset && scriptTags[i].dataset.position)) {
-        return parsePosition(scriptTags[i].getAttribute('data-position') || scriptTags[i].dataset.position);
-      }
-    }
-    return defaultPosition;
+    // Получение позиции виджета
+    const getWidgetPosition = () => {
+        const defaultPosition = { horizontal: 'right', vertical: 'bottom', distance: '20px' };
+        const scriptTags = document.querySelectorAll('script');
+        for (let i = 0; i < scriptTags.length; i++) {
+            const data = scriptTags[i].dataset;
+            if (data && data.position) {
+                return parsePosition(data.position);
+            }
+             if (scriptTags[i].hasAttribute('data-position')) {
+                 return parsePosition(scriptTags[i].getAttribute('data-position'));
+             }
+        }
+        return defaultPosition;
 
-    function parsePosition(positionString) {
-      const position = { ...defaultPosition };
-      if (!positionString) return position;
-      const parts = positionString.split('-');
-      if (parts.length === 2) {
-        if (parts[0] === 'top' || parts[0] === 'bottom') { position.vertical = parts[0]; position.horizontal = parts[1]; }
-        else if (parts[1] === 'top' || parts[1] === 'bottom') { position.vertical = parts[1]; position.horizontal = parts[0]; }
+        function parsePosition(positionString) {
+            const position = { ...defaultPosition };
+            if (!positionString) return position;
+            const parts = positionString.toLowerCase().split('-');
+            if (parts.length === 2) {
+                if (parts[0] === 'top' || parts[0] === 'bottom') {
+                    position.vertical = parts[0];
+                    position.horizontal = parts[1];
+                } else if (parts[1] === 'top' || parts[1] === 'bottom') {
+                     position.vertical = parts[1];
+                     position.horizontal = parts[0];
+                }
+            }
+             // Парсинг расстояния (опционально, можно добавить в data-distance)
+             // Пока не реализовано, используется дефолтное.
+            return position;
+        }
+    };
+
+  // Конфигурация виджета
+  const SERVER_URL = getServerUrl();
+  const ASSISTANT_ID = getAssistantId();
+  const WIDGET_POSITION = getWidgetPosition();
+  const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+
+  widgetLog(`Configuration: Server URL: ${SERVER_URL}, Assistant ID: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
+  widgetLog(`WebSocket URL: ${WS_URL}`);
+  widgetLog(`Device: ${isIOS ? 'iOS' : (isMobile ? 'Android/Mobile' : 'Desktop')}`);
+
+
+  // --- Аудио Вспомогательные Функции ---
+
+  // Создание AudioContext (с учетом префикса для старых браузеров)
+  const createAudioContext = () => {
+      if (audioContext) return audioContext; // Используем существующий контекст
+
+      try {
+          // Опции контекста - можно адаптировать sample rate
+          const contextOptions = isMobile ? {} : { sampleRate: 24000 }; // Десктоп может поддерживать более высокий SR
+          audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
+          widgetLog(`AudioContext created with sample rate: ${audioContext.sampleRate}`);
+
+           // Проверка и попытка возобновления, если нужно (особенно на iOS/мобильных)
+           if (audioContext.state === 'suspended') {
+               widgetLog('AudioContext is suspended, attempting to resume...');
+               audioContext.resume().then(() => {
+                   widgetLog('AudioContext resumed successfully.');
+                   widgetState.isMicInitialized = true; // Считаем инициализированным после resume
+                   updateUI();
+               }).catch(err => {
+                    widgetLog(`Failed to resume AudioContext: ${err.message}`, 'error');
+                    // Возможно, потребуется пользовательское взаимодействие
+                    widgetState.isMicInitialized = false;
+                    updateUI();
+               });
+           } else {
+                widgetState.isMicInitialized = true; // Контекст сразу активен
+                updateUI();
+           }
+
+
+          return audioContext;
+      } catch (e) {
+          widgetLog(`Error creating AudioContext: ${e.message}`, 'error');
+          widgetState.isMicInitialized = false;
+          updateUI();
+          return null;
       }
-      return position;
-    }
+  };
+
+    // Инициализация микрофона и аудио-обработки
+    const initMic = async () => {
+        if (widgetState.isMicInitialized && mediaStream) {
+             widgetLog("Микрофон уже инициализирован.");
+             return true; // Уже готово
+        }
+
+        widgetLog("Инициализация микрофона...");
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+             widgetLog("Ваш браузер не поддерживает доступ к микрофону.", 'error');
+             updateState('ERROR', 'Ошибка: Доступ к микрофону не поддерживается.');
+             return false;
+        }
+
+         // Создаем AudioContext, если он еще не создан
+         const ctx = createAudioContext();
+         if (!ctx) {
+              updateState('ERROR', 'Ошибка: Не удалось создать AudioContext.');
+              return false;
+         }
+
+        // Конфигурация захвата аудио
+        const audioConstraints = isIOS ?
+           {
+             echoCancellation: false, // Отключаем для iOS
+             noiseSuppression: true,
+             autoGainControl: true
+           } :
+           isMobile ?
+           {
+             echoCancellation: true, // Включаем для Android
+             noiseSuppression: true,
+             autoGainControl: true
+           } :
+           {
+             echoCancellation: true, // Настройки для десктопа
+             noiseSuppression: true,
+             autoGainControl: true,
+             // sampleRate: 24000 // Предпочитаемый sample rate, но может быть изменен браузером
+           };
+
+        try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+            widgetLog(`Доступ к микрофону получен. Sample Rate аудиопотока: ${ctx.sampleRate} Гц`);
+
+            const streamSource = ctx.createMediaStreamSource(mediaStream);
+
+            // Использование ScriptProcessorNode (устаревший, но широко поддерживаемый)
+            // Альтернатива: AudioWorklet (современнее, но меньшая поддержка в старых браузерах)
+            const bufferSize = isIOS ? 4096 : (isMobile ? 2048 : 4096); // Размеры буфера
+             // На iOS используем больший буфер для стабильности, на Android можно меньше
+            audioProcessor = ctx.createScriptProcessor(bufferSize, 1, 1);
+            widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
+
+            // Обработчик аудиопроцессинга
+            audioProcessor.onaudioprocess = function(e) {
+              if (!widgetState.isListening || !websocket || websocket.readyState !== WebSocket.OPEN) {
+                // Если не слушаем или WS не открыт, просто возвращаемся
+                clientAudioBuffer = []; // Очищаем буфер, если запись остановлена
+                return;
+              }
+
+              const inputBuffer = e.inputBuffer.getChannelData(0);
+              if (inputBuffer.length === 0) return;
+
+              // --- Визуализация аудио (остается) ---
+              updateAudioVisualization(inputBuffer);
+
+              // --- Обработка и буферизация аудио для отправки ---
+              // Преобразование Float32Array в Int16Array
+              const pcm16Data = new Int16Array(inputBuffer.length);
+              let maxAmplitude = 0;
+              for (let i = 0; i < inputBuffer.length; i++) {
+                 const sample = inputBuffer[i];
+                 pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(sample * 32767)));
+                 maxAmplitude = Math.max(maxAmplitude, Math.abs(sample));
+              }
+
+               // Добавляем данные в клиентский буфер
+              clientAudioBuffer.push(pcm16Data.buffer); // Храним как ArrayBuffer
+
+              // Проверяем, появились ли хоть какие-то звуковые данные
+              const soundThreshold = isIOS ? 0.005 : 0.01; // Чувствительность к звуку
+              if (!audioDataAccumulated && maxAmplitude > soundThreshold) {
+                  audioDataAccumulated = true;
+                  widgetLog("Обнаружены первые звуковые данные.");
+              }
+
+              // NOTE: Логика автоматического "коммита" по тишине на клиенте удалена/упрощена.
+              // Теперь полагаемся на сервер для определения конца фразы или отправляем поток.
+              // Команда commit будет отправлена только при явной остановке записи или по событию.
+            };
+
+            // Подключаем узлы: Источник (микрофон) -> Обработчик -> ...
+            streamSource.connect(audioProcessor);
+
+            // Для iOS и Android: не подключаем processor напрямую к destination,
+            // чтобы избежать обратной связи и эха. Используем GainNode с громкостью 0.
+             const gainNode = ctx.createGain();
+             gainNode.gain.value = 0;
+             audioProcessor.connect(gainNode);
+             gainNode.connect(ctx.destination);
+             widgetLog('Используем нулевой gainNode для предотвращения обратной связи');
+
+             widgetState.isMicInitialized = true; // Микрофон успешно инициализирован
+             updateUI();
+             return true; // Успех
+        } catch (err) {
+            widgetLog(`Ошибка при доступе к микрофону: ${err.name} - ${err.message}`, 'error');
+            mediaStream = null;
+            audioProcessor = null;
+            widgetState.isMicInitialized = false; // Инициализация микрофона не удалась
+            updateUI();
+            // Сообщение об ошибке будет показано UI
+            updateState('ERROR', `Ошибка микрофона: ${err.message}. Проверьте разрешения.`);
+            return false; // Неудача
+        }
+    };
+
+
+    // Запуск таймера для отправки аудио-буфера на сервер
+    const startAudioSendTimer = () => {
+      if (audioSendTimer) {
+        clearInterval(audioSendTimer);
+      }
+      // Отправляем собранные данные регулярно
+      audioSendTimer = setInterval(sendAudioBufferChunk, AUDIO_SEND_INTERVAL);
+      widgetLog(`Таймер отправки аудио запущен с интервалом ${AUDIO_SEND_INTERVAL} мс`);
+    };
+
+    // Остановка таймера отправки аудио-буфера
+    const stopAudioSendTimer = () => {
+      if (audioSendTimer) {
+        clearInterval(audioSendTimer);
+        audioSendTimer = null;
+      }
+      widgetLog("Таймер отправки аудио остановлен.");
+    };
+
+    // Отправка накопленного аудио-буфера на сервер
+    const sendAudioBufferChunk = () => {
+      if (!websocket || websocket.readyState !== WebSocket.OPEN || clientAudioBuffer.length === 0 || widgetState.isReconnecting) {
+        //widgetLog("Пропуск отправки аудио чанка (WS не готов или буфер пуст)", "debug");
+        return;
+      }
+
+       // Объединяем все ArrayBuffers в clientAudioBuffer
+       const totalLength = clientAudioBuffer.reduce((sum, buffer) => sum + buffer.byteLength, 0);
+       if (totalLength === 0) {
+           clientAudioBuffer = []; // Очищаем на всякий случай
+           return;
+       }
+
+       // Создаем один большой Int16Array из всех буферов
+       const combinedBuffer = new Uint8Array(totalLength);
+       let offset = 0;
+       for (const buffer of clientAudioBuffer) {
+           combinedBuffer.set(new Uint8Array(buffer), offset);
+           offset += buffer.byteLength;
+       }
+
+       // Очищаем клиентский буфер после сборки
+       clientAudioBuffer = [];
+
+      try {
+        // Преобразуем объединенный буфер в Base64 и отправляем
+        websocket.send(JSON.stringify({
+          type: "input_audio_buffer.append",
+          event_id: `audio_chunk_${Date.now()}_${Math.random().toString(16).slice(2, 6)}`, // Уникальный ID для каждого чанка
+          audio: arrayBufferToBase64(combinedBuffer.buffer)
+        }));
+         // widgetLog(`Отправлен аудио чанк ${combinedBuffer.buffer.byteLength} байт`, "debug"); // Осторожно, может генерировать много логов
+      } catch (error) {
+        widgetLog(`Ошибка отправки аудио чанка: ${error.message}`, "error");
+        // Если ошибка отправки, возможно, соединение нестабильно.
+        // WS onclose/onerror должны обрабатывать переподключение.
+      }
+    };
+
+     // Сигнал "коммита" буфера на сервере (например, по кнопке Стоп или после детектирования тишины на сервере)
+     const commitAudioBuffer = () => {
+       if (!websocket || websocket.readyState !== WebSocket.OPEN || widgetState.isReconnecting) {
+          widgetLog("Невозможно отправить команду commit (WS не готов)", "warn");
+          return;
+       }
+
+       // Перед отправкой commit, убедимся, что последний чанк отправлен
+       sendAudioBufferChunk(); // Отправляем все, что осталось в буфере
+
+        // Проверяем, были ли вообще какие-то данные отправлены в текущем сегменте
+        // Эта проверка менее надежна при потоковой отправке, лучше полагаться на сервер
+        // if (!audioDataAccumulated) {
+        //    widgetLog("Нет накопленных аудио данных для коммита.", "warn");
+        //    stopListening(); // Просто останавливаем запись
+        //    return;
+        // }
+
+
+        // Отправляем команду commit
+       websocket.send(JSON.stringify({
+         type: "input_audio_buffer.commit",
+         event_id: `commit_${Date.now()}`
+       }));
+       widgetLog("Отправлена команда input_audio_buffer.commit");
+
+        audioDataAccumulated = false; // Сбрасываем флаг после коммита (или после завершения ответа?)
+     };
+
+
+    // Начало прослушивания
+    const startListening = async () => {
+        if (!widgetState.isConnected || widgetState.isListening || widgetState.isPlayingAudio || widgetState.isReconnecting || widgetState.current === 'ERROR') {
+             widgetLog(`Cannot start listening: isConnected=${widgetState.isConnected}, isListening=${widgetState.isListening}, isPlayingAudio=${widgetState.isPlayingAudio}, isReconnecting=${widgetState.isReconnecting}, state=${widgetState.current}`);
+             return;
+        }
+
+        widgetLog('Attempting to start listening...');
+
+         // Инициализация микрофона, если еще не сделано
+        if (!widgetState.isMicInitialized) {
+            const micInitSuccess = await initMic();
+            if (!micInitSuccess) {
+                widgetLog('Failed to initialize microphone', 'error');
+                 // initMic уже обновит состояние до ERROR и покажет сообщение
+                return;
+            }
+        }
+
+         // Убедиться, что AudioContext активен (особенно после приостановки на iOS/мобильных)
+        if (audioContext && audioContext.state === 'suspended') {
+            widgetLog('AudioContext is suspended, attempting to resume before listening...');
+            try {
+                 await audioContext.resume();
+                 widgetLog('AudioContext resumed successfully before listening.');
+                 widgetState.isMicInitialized = true; // Устанавливаем флаг, если успешно
+                 updateUI();
+            } catch (err) {
+                 widgetLog(`Failed to resume AudioContext before listening: ${err.message}`, 'error');
+                 // На iOS может потребоваться клик пользователя
+                 if (isIOS && elements.iosAudioButton) {
+                      elements.iosAudioButton.classList.add('visible');
+                     updateState('IDLE', "Нажмите кнопку ниже для активации микрофона"); // Переходим в IDLE, ожидая активации
+                 } else {
+                      updateState('ERROR', 'Ошибка активации микрофона. Попробуйте позже.');
+                 }
+                 return; // Не удалось возобновить, не начинаем слушать
+            }
+        } else if (!audioContext) {
+             // Этого не должно произойти, если initMic прошел успешно, но на всякий случай
+             widgetLog('AudioContext is null after initMic. Cannot start listening.', 'error');
+             updateState('ERROR', 'Ошибка инициализации аудио.');
+             return;
+        }
+
+
+        // Убеждаемся, что WS соединение открыто
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+             widgetLog("WebSocket is not open, cannot start listening.", "warn");
+             if (!widgetState.isReconnecting && !widgetState.connectionFailedPermanently) {
+                  connectWebSocket(); // Попытка переподключения
+             }
+             return;
+        }
+
+        // Отправляем команду серверу, что начинаем принимать аудио
+        websocket.send(JSON.stringify({
+          type: "input_audio_stream.start",
+          event_id: `start_${Date.now()}`
+        }));
+        widgetLog("Отправлена команда input_audio_stream.start");
+
+
+        updateState('LISTENING', 'Говорите...'); // Обновляем состояние и UI
+        startAudioSendTimer(); // Запускаем таймер регулярной отправки буфера
+        audioDataAccumulated = false; // Сбрасываем флаг накопления данных
+
+        // Скрываем iOS кнопку активации, если она была видна
+        if (elements.iosAudioButton) {
+             elements.iosAudioButton.classList.remove('visible');
+        }
+
+        // Если виджет закрыт, добавляем пульсацию на кнопку
+         if (!widgetState.isWidgetOpen) {
+             elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+         } else {
+             elements.widgetButton.classList.remove('wellcomeai-pulse-animation');
+         }
+    };
+
+    // Остановка прослушивания
+    const stopListening = () => {
+        if (!widgetState.isListening) {
+             widgetLog("Прослушивание уже остановлено.");
+             return;
+        }
+
+        widgetLog('Stopping listening...');
+
+        // Отправляем команду серверу, что прекращаем принимать аудио
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            // Перед остановкой отправляем все оставшиеся данные в буфере
+            sendAudioBufferChunk();
+            websocket.send(JSON.stringify({
+              type: "input_audio_stream.stop",
+              event_id: `stop_${Date.now()}`
+            }));
+             widgetLog("Отправлена команда input_audio_stream.stop");
+        }
+
+        stopAudioSendTimer(); // Останавливаем таймер отправки
+        clientAudioBuffer = []; // Очищаем буфер
+        audioDataAccumulated = false; // Сбрасываем флаг
+
+        // Если не говорим, переходим в состояние CONNECTED/IDLE
+        if (!widgetState.isPlayingAudio) {
+             updateState('CONNECTED', 'Готов'); // Или 'IDLE' если виджет закрыт?
+             if (!widgetState.isWidgetOpen) {
+                  updateState('IDLE', '');
+             }
+        } else {
+            // Если воспроизводится ответ, остаемся в состоянии SPEAKING
+            // Переход в CONNECTED/IDLE произойдет после завершения воспроизведения
+        }
+    };
+
+
+    // Преобразование ArrayBuffer в Base64
+    const arrayBufferToBase64 = (buffer) => {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    };
+
+    // Преобразование Base64 в ArrayBuffer
+    const base64ToArrayBuffer = (base64) => {
+      try {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      } catch (e) {
+        widgetLog(`Ошибка при декодировании base64: ${e.message}`, "error");
+        return new ArrayBuffer(0);
+      }
+    };
+
+    // Обновление визуализации аудио
+    const updateAudioVisualization = (audioData) => {
+      if (!elements.audioBarsContainer) return;
+      const bars = elements.audioBarsContainer.querySelectorAll('.wellcomeai-audio-bar');
+      if (bars.length === 0) return;
+
+      const step = Math.floor(audioData.length / bars.length);
+      const multiplier = isMobile ? 150 : 100; // Увеличение чувствительности для мобильных
+
+      for (let i = 0; i < bars.length; i++) {
+        let sum = 0;
+        const start = i * step;
+        const end = Math.min(start + step, audioData.length);
+
+        for (let j = start; j < end; j++) {
+          sum += Math.abs(audioData[j]);
+        }
+        const average = sum / (end - start);
+
+        // Нормализация и ограничение высоты
+        const height = 2 + Math.min(28, Math.floor(average * multiplier));
+        bars[i].style.height = `${height}px`;
+      }
+    };
+
+    // Сброс визуализации аудио
+    const resetAudioVisualization = () => {
+       if (!elements.audioBarsContainer) return;
+       const bars = elements.audioBarsContainer.querySelectorAll('.wellcomeai-audio-bar');
+       bars.forEach(bar => {
+         bar.style.height = '2px';
+       });
+    };
+
+    // Добавление аудио данных в очередь воспроизведения
+    const addAudioToPlaybackQueue = (audioBase64Chunk) => {
+       if (!audioBase64Chunk) return;
+       // Декодируем Base64 и добавляем ArrayBuffer в очередь
+       const audioBuffer = base64ToArrayBuffer(audioBase64Chunk);
+       if (audioBuffer.byteLength > 0) {
+            audioPlaybackQueue.push(audioBuffer);
+            // widgetLog(`Добавлен аудио чанк ${audioBuffer.byteLength} байт в очередь. Длина очереди: ${audioPlaybackQueue.length}`);
+            // Если воспроизведение не активно, запускаем его
+           if (!widgetState.isPlayingAudio) {
+               playNextAudioFromQueue();
+           }
+       }
+    };
+
+    // Воспроизведение следующего аудио из очереди с использованием Web Audio API
+    const playNextAudioFromQueue = async () => {
+        if (audioPlaybackQueue.length === 0 && !audioBufferSourceNode) {
+             // Очередь пуста и нет текущего воспроизведения
+             widgetState.isPlayingAudio = false;
+             updateUI(); // Обновляем UI (убираем состояние 'speaking')
+
+             // Когда воспроизведение закончено, возвращаемся к прослушиванию, если виджет открыт
+             if (widgetState.isWidgetOpen) {
+                // Небольшая пауза перед возвратом к прослушиванию
+                setTimeout(() => {
+                  if (!widgetState.isListening && !widgetState.isReconnecting && widgetState.current === 'CONNECTED') {
+                      startListening();
+                  }
+                }, 800); // Пауза
+             } else {
+                 updateState('IDLE', '');
+             }
+
+             return;
+        }
+
+        if (widgetState.isPlayingAudio && audioBufferSourceNode) {
+             // Уже что-то воспроизводится
+             // widgetLog("Аудио уже воспроизводится, ожидаем...");
+             return;
+        }
+
+        widgetState.isPlayingAudio = true;
+        updateUI(); // Обновляем UI (ставим состояние 'speaking')
+
+
+        // Берем первый буфер из очереди
+        const nextAudioBuffer = audioPlaybackQueue.shift();
+        if (!nextAudioBuffer || nextAudioBuffer.byteLength === 0) {
+             widgetLog("Пустой аудио буфер в очереди, пропускаем.", "warn");
+             playNextAudioFromQueue(); // Переходим к следующему
+             return;
+        }
+
+         // Создаем AudioContext если еще не создан (или пытаемся возобновить)
+        const ctx = createAudioContext();
+        if (!ctx) {
+             widgetLog("Не удалось получить AudioContext для воспроизведения.", "error");
+             widgetState.isPlayingAudio = false;
+             updateUI();
+             playNextAudioFromQueue(); // Пропускаем этот буфер
+             return;
+        }
+
+         // Убедиться, что AudioContext активен (особенно после приостановки на iOS/мобильных)
+         if (ctx.state === 'suspended') {
+             widgetLog('Playback AudioContext is suspended, attempting to resume...');
+             try {
+                 await ctx.resume();
+                 widgetLog('Playback AudioContext resumed successfully.');
+                 widgetState.isMicInitialized = true; // Считаем активированным
+                 updateUI();
+             } catch (err) {
+                 widgetLog(`Failed to resume Playback AudioContext: ${err.message}`, 'error');
+                 // На iOS может потребоваться клик пользователя
+                 if (isIOS && elements.iosAudioButton) {
+                      elements.iosAudioButton.classList.add('visible');
+                     updateState('CONNECTED', "Нажмите кнопку ниже для активации звука"); // Сообщаем о необходимости активации
+                 } else {
+                      updateState('ERROR', 'Ошибка воспроизведения звука. Попробуйте позже.');
+                 }
+                 widgetState.isPlayingAudio = false; // Не удалось воспроизвести
+                 updateUI();
+                 // Не запускаем playNextAudioFromQueue автоматически, ждем активации/решения проблемы
+                 return;
+             }
+         }
+
+        // Декодируем ArrayBuffer в AudioBuffer
+        try {
+             const audioBuffer = await ctx.decodeAudioData(nextAudioBuffer);
+
+             // Создаем AudioBufferSourceNode
+             audioBufferSourceNode = ctx.createBufferSource();
+             audioBufferSourceNode.buffer = audioBuffer;
+             audioBufferSourceNode.connect(ctx.destination);
+
+             // Вычисляем время начала воспроизведения
+             const now = ctx.currentTime;
+             let startTime = audioPlaybackStartTime > now ? audioPlaybackStartTime : now;
+
+             audioBufferSourceNode.start(startTime, audioPlaybackOffset);
+
+             // Обновляем время начала для следующего буфера
+             audioPlaybackStartTime = startTime + audioBuffer.duration;
+             audioPlaybackOffset = 0; // Сбрасываем смещение после успешного воспроизведения буфера
+
+             // Обработчик окончания воспроизведения текущего буфера
+             audioBufferSourceNode.onended = () => {
+                 audioBufferSourceNode = null; // Очищаем ссылку
+                 playNextAudioFromQueue(); // Проигрываем следующий из очереди
+             };
+
+             widgetLog(`Начато воспроизведение аудио буфера (${audioBuffer.duration.toFixed(2)} сек)`);
+
+        } catch (e) {
+             widgetLog(`Ошибка декодирования или воспроизведения аудио: ${e.message}`, "error");
+             audioBufferSourceNode = null; // Очищаем ссылку
+             widgetState.isPlayingAudio = false;
+             updateUI();
+             playNextAudioFromQueue(); // Пропускаем этот буфер и переходим к следующему
+        }
+    };
+
+     // --- WebSocket Управление ---
+
+     // Очистка всех связанных с WS таймеров
+     const clearWebSocketTimers = () => {
+          if (pingIntervalId) {
+              clearInterval(pingIntervalId);
+              pingIntervalId = null;
+          }
+          if (connectionTimeoutId) {
+              clearTimeout(connectionTimeoutId);
+              connectionTimeoutId = null;
+          }
+          if (retryConnectTimerId) {
+              clearTimeout(retryConnectTimerId);
+              retryConnectTimerId = null;
+          }
+          widgetLog("Очищены WS таймеры.");
+     };
+
+    // Полное отключение WebSocket
+    const disconnectWebSocket = (code = 1000, reason = "Client initiated") => {
+        if (websocket && websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
+            try {
+                websocket.close(code, reason);
+                widgetLog(`Закрытие WebSocket соединения с кодом ${code} и причиной: ${reason}`);
+            } catch (e) {
+                widgetLog(`Ошибка при попытке закрытия WS: ${e.message}`, "warn");
+            }
+        } else {
+             widgetLog("WS уже закрыт или в процессе закрытия.", "warn");
+        }
+         // Очистка ресурсов должна быть в обработчике onclose
+    };
+
+     // Сброс состояния соединения и попытка переподключения
+    const resetConnection = () => {
+        widgetLog("Запрошен сброс соединения.");
+        // Очищаем все таймеры и текущее соединение
+        clearWebSocketTimers();
+        disconnectWebSocket(1001, "Client reset"); // Закрываем текущее соединение если есть
+
+        // Сбрасываем флаги и счетчик попыток
+        reconnectAttempts = 0;
+        widgetState.connectionFailedPermanently = false; // Сброс флага, если пользователь явно нажал "Повторить"
+
+        // Меняем состояние и обновляем UI
+        updateState('CONNECTING', 'Попытка подключения...');
+        hideConnectionError(); // Скрываем сообщение об ошибке соединения
+
+        // Небольшая задержка перед первой попыткой после сброса
+        retryConnectTimerId = setTimeout(() => {
+            connectWebSocket();
+        }, 500);
+    };
+
+
+    // Запуск процесса переподключения с экспоненциальной задержкой
+    const reconnectWithDelay = () => {
+         // Если уже идет переподключение или соединение было закрыто нормально, ничего не делаем
+         if (widgetState.isReconnecting || websocket && (websocket.readyState === WebSocket.CLOSING || websocket.readyState === WebSocket.CLOSED)) {
+              // Проверяем код закрытия, если доступен
+              // Note: event.code доступен только в обработчике onclose
+              // Если isReconnecting уже true, значит мы уже в процессе
+              widgetLog("Уже в процессе переподключения или соединение закрыто чисто. Не запускаем новое.");
+              return;
+         }
+
+        const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+
+        if (reconnectAttempts >= maxAttempts) {
+            widgetLog(`Maximum reconnection attempts (${maxAttempts}) reached. Giving up.`);
+            widgetState.isReconnecting = false; // Выходим из состояния переподключения
+            widgetState.connectionFailedPermanently = true; // Помечаем как невосстановимую ошибку
+            updateState('ERROR', 'Не удалось подключиться. Нажмите кнопку ниже.'); // Обновляем UI на ошибку
+            // UI updateState покажет ошибку соединения с кнопкой "Повторить"
+            return;
+        }
+
+         widgetState.isReconnecting = true; // Входим в состояние переподключения
+         updateState('RECONNECTING', `Переподключение (${reconnectAttempts + 1}/${maxAttempts})...`); // Обновляем UI
+
+         // Экспоненциальная задержка
+         const baseDelay = isMobile ? 1000 : 2000; // Базовая задержка (мс)
+         const delay = Math.min(30000, baseDelay * Math.pow(1.5, reconnectAttempts) + (Math.random() * 1000)); // Добавляем немного случайности
+
+         reconnectAttempts++; // Увеличиваем счетчик *перед* установкой таймера
+
+         widgetLog(`Попытка переподключения через ${Math.round(delay/1000)} секунд...`);
+
+         retryConnectTimerId = setTimeout(() => {
+             widgetLog("Запуск connectWebSocket из таймера переподключения.");
+             connectWebSocket(); // Запускаем следующую попытку
+         }, delay);
+    };
+
+
+    // Подключение к WebSocket серверу
+    const connectWebSocket = async () => {
+        if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
+            widgetLog("WebSocket уже подключается или открыт.", "warn");
+            return; // Не пытаемся подключиться повторно, если уже в процессе
+        }
+         if (!ASSISTANT_ID) {
+             widgetLog('Assistant ID не найден. Подключение невозможно.', 'error');
+             updateState('ERROR', 'Ошибка: ID ассистента не указан.');
+             widgetState.connectionFailedPermanently = true; // Невозможно подключиться без ID
+             updateUI();
+             return; // Не пытаемся подключиться без ID
+         }
+
+        widgetLog(`Попытка подключения к WebSocket: ${WS_URL}`);
+
+        // Очищаем предыдущие таймеры перед новой попыткой
+        clearWebSocketTimers();
+        disconnectWebSocket(1001, "Reconnecting"); // Закрываем предыдущее, если не закрыто
+
+        updateState('CONNECTING', 'Подключение...'); // Обновляем UI
+
+        websocket = new WebSocket(WS_URL);
+        websocket.binaryType = 'arraybuffer'; // Для аудио данных
+
+        // Устанавливаем таймаут на открытие соединения
+        connectionTimeoutId = setTimeout(() => {
+            widgetLog("Таймаут соединения WebSocket.", "error");
+            // Если таймаут сработал до onopen, это ошибка
+            if (websocket && websocket.readyState !== WebSocket.OPEN) {
+                 disconnectWebSocket(1001, "Connection timeout"); // Закрываем с кодом ошибки
+                 // reconnectWithDelay будет вызван из onclose/onerror
+            }
+        }, CONNECTION_TIMEOUT);
+
+        // --- Обработчики событий WebSocket ---
+
+        websocket.onopen = function() {
+            clearTimeout(connectionTimeoutId); // Соединение установлено, отменяем таймаут
+            widgetLog('WebSocket connection established.');
+
+            widgetState.isConnected = true; // Флаг подключения установлен
+            widgetState.isReconnecting = false; // Выходим из состояния переподключения
+            reconnectAttempts = 0; // Сбрасываем счетчик при успешном подключении
+            widgetState.connectionFailedPermanently = false; // Сброс флага
+
+            // Обновляем состояние и UI
+            updateState('CONNECTED', 'Подключено');
+
+            // Запускаем ping
+            startPing();
+
+            // Если виджет открыт, автоматически начинаем слушать
+            if (widgetState.isWidgetOpen) {
+                // Проверяем состояние микрофона/аудио контекста, особенно для iOS
+                if (!widgetState.isMicInitialized || (audioContext && audioContext.state === 'suspended')) {
+                     // Показываем iOS кнопку, если она еще не видна
+                     if (isIOS && elements.iosAudioButton) {
+                          elements.iosAudioButton.classList.add('visible');
+                         updateState('CONNECTED', "Нажмите кнопку ниже для активации микрофона"); // Сообщаем о необходимости активации
+                     } else if (!isIOS) {
+                          // На Android/Desktop пытаемся инициализировать микрофон сразу
+                         initMic().then(success => {
+                             if (success) startListening();
+                         });
+                     } else {
+                         // На iOS не начинаем слушать без активации
+                          widgetLog("iOS AudioContext не активен, ожидаем активации...");
+                     }
+                } else {
+                    // Микрофон уже готов и контекст активен, начинаем слушать
+                    startListening();
+                }
+            } else {
+                 // Если виджет закрыт, просто показываем статус "Подключено"
+                 updateState('IDLE', 'Подключено');
+                 // Добавляем пульсацию на кнопку, чтобы показать, что виджет готов
+                 elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+            }
+        };
+
+        websocket.onmessage = function(event) {
+            // Обработка пинг-понга (если сервер отправляет 'pong' текстом)
+            if (typeof event.data === 'string' && event.data === 'pong') {
+                // widgetLog("Получен pong"); // Слишком много логов в DEBUG
+                return; // Просто игнорируем текстовый pong
+            }
+
+            try {
+                // Ожидаем JSON для всех остальных сообщений
+                const data = JSON.parse(event.data);
+                //widgetLog(`Получено сообщение типа: ${data.type}`); // Логируем тип
+
+                 // Обработка сообщений по типу
+                handleWebSocketMessage(data);
+
+            } catch (e) {
+                widgetLog(`Ошибка парсинга сообщения от сервера: ${e.message}. Содержимое: ${typeof event.data === 'string' ? event.data.substring(0, 200) : typeof event.data}`, 'warn');
+                 // Если парсинг не удался, возможно, это не JSON (например, старый текстовый pong)
+                 // Или поврежденные данные. Пока игнорируем, если не смогли распарсить как JSON.
+            }
+        };
+
+        websocket.onerror = function(error) {
+            widgetLog(`WebSocket error: ${error.message || error}`, 'error');
+
+            // Ошибка обычно приводит к последующему событию onclose, где и будет логика переподключения.
+            // Здесь можно обновить UI, если нужно сразу показать ошибку.
+             if (widgetState.current !== 'RECONNECTING') {
+                  updateState('ERROR', 'Ошибка соединения.');
+             }
+        };
+
+        websocket.onclose = function(event) {
+            widgetLog(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}. Clean: ${event.wasClean}`);
+            widgetState.isConnected = false; // Соединение закрыто
+            stopListening(); // Останавливаем прослушивание, если было активно
+            stopAudioSendTimer(); // Останавливаем таймер отправки аудио
+            clientAudioBuffer = []; // Очищаем буфер аудио
+
+            clearWebSocketTimers(); // Очищаем таймеры ping и connectionTimeout
+
+            // Если закрытие было чистым (код 1000 или 1001), не пытаемся переподключиться автоматически
+            if (event.wasClean || event.code === 1000 || event.code === 1001) {
+                widgetLog('Clean WebSocket close. No automatic reconnection.');
+                widgetState.isReconnecting = false; // Выходим из состояния переподключения, если были
+                updateState('IDLE', 'Отключено'); // Просто меняем статус на IDLE
+                // Если виджет закрыт, добавляем пульсацию, чтобы показать, что нужно кликнуть для активации
+                 if (!widgetState.isWidgetOpen) {
+                      elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+                 }
+            } else {
+                // Не чистое закрытие - пытаемся переподключиться
+                widgetLog('WebSocket closed unexpectedly. Attempting to reconnect...');
+                reconnectWithDelay(); // Запускаем логику переподключения
+            }
+
+             // Скрываем загрузчик, если он висел
+            if (elements.loaderModal) {
+                 elements.loaderModal.classList.remove('active');
+            }
+        };
+
+        // Возвращаем true, если процесс подключения начался (не гарантирует успех)
+        return true;
+    };
+
+     // Запуск ping для поддержания соединения
+    const startPing = () => {
+        if (pingIntervalId) {
+            clearInterval(pingIntervalId);
+        }
+        const pingFreq = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
+        widgetLog(`Запуск пинга с интервалом ${pingFreq} мс`);
+
+        // Таймер для отправки пинга
+        pingIntervalId = setInterval(() => {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                try {
+                    // Отправляем ping в формате, понятном серверу (JSON)
+                     websocket.send(JSON.stringify({ type: "ping", timestamp: Date.now() }));
+                     // widgetLog("Пинг отправлен"); // Слишком много логов в DEBUG
+
+                    // Если сервер не ответил на ping в течение 3 интервалов, считаем соединение потерянным
+                    // (Предполагается, что любое входящее сообщение обновляет статус активности сервера)
+                    // Более надежный способ - отслеживать время последнего *полученного* сообщения.
+                    // Но если сервер отправляет Pong на каждый Ping, можно отслеживать Pong.
+                    // Ваша текущая логика onmessage обновляет lastPongTime - это хорошо.
+                    // Здесь просто отправляем пинг. Отслеживание таймаутаpong
+                    // происходит неявно через onclose/onerror, если соединение обрывается.
+
+                } catch (e) {
+                    widgetLog(`Ошибка отправки пинга: ${e.message}`, "error");
+                    // Ошибка отправки может означать, что соединение уже неактивно,
+                    // onclose/onerror сработает.
+                }
+            } else {
+                 widgetLog("Невозможно отправить пинг, WS не открыт.", "warn");
+                 // Если WS не открыт, вероятно, уже сработал onclose/onerror
+                 // Очищаем интервал, чтобы избежать спама
+                 clearInterval(pingIntervalId);
+                 pingIntervalId = null;
+            }
+        }, pingFreq);
+    };
+
+
+     // --- Обработчики сообщений WebSocket по типу ---
+
+    const handleWebSocketMessage = (data) => {
+       // Обновляем время последнего pong при получении любого сообщения
+       // (предполагаем, что любое сообщение от сервера говорит о его активности)
+       // Или можно добавить явное обновление при получении pong.
+       // lastPongTime = Date.now(); // У вас был этот флаг, но он не используется в новой логике таймаута/пинга.
+       // Новая логика полагается на события onclose/onerror.
+
+       switch (data.type) {
+           case 'session.created':
+           case 'session.updated':
+               handleSessionUpdate(data);
+               break;
+           case 'connection_status':
+               handleConnectionStatus(data);
+               break;
+           case 'error':
+               handleServerError(data);
+               break;
+           case 'response.text.delta':
+               handleTextDelta(data);
+               break;
+           case 'response.text.done':
+               handleTextDone(data);
+               break;
+           case 'response.audio.delta':
+               handleAudioDelta(data);
+               break;
+           case 'response.audio.done':
+               handleAudioDone(data);
+               break;
+           case 'response.audio_transcript.delta':
+           case 'response.audio_transcript.done':
+                handleTranscriptUpdate(data); // Опционально: обрабатывать транскрипцию
+                break;
+           case 'response.done':
+               handleResponseDone(data);
+               break;
+           case 'pong': // Если сервер отправляет pong в JSON формате
+               // widgetLog("Получен JSON pong"); // Слишком много логов в DEBUG
+               // Ничего не делаем, главное - что пришло сообщение
+               break;
+           default:
+               widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
+       }
+    };
+
+     const handleSessionUpdate = (data) => {
+       widgetLog(`Session ${data.type}: ID=${data.session_id}`);
+        // Сохранить ID сессии, если нужно
+     };
+
+     const handleConnectionStatus = (data) => {
+       widgetLog(`Connection Status: ${data.status} - ${data.message}`);
+        // Обновлять UI статус индикатор, если он отдельный от основного состояния
+        // (Сейчас статус UI обновляется через общее widgetState.current)
+     };
+
+     const handleServerError = (data) => {
+       widgetLog(`Server Error: Code=${data.error.code}, Message=${data.error.message}`, 'error');
+
+       // Особая обработка для конкретных ошибок, если требуется
+       if (data.error.code === 'input_audio_buffer_commit_empty' || data.error.code === 'input_audio_stream_empty') {
+            widgetLog("Ошибка: пустой аудио ввод. Возможно, не было обнаружено речи.");
+           // Можно показать краткое сообщение пользователю
+           if (widgetState.isWidgetOpen) {
+               updateState('CONNECTED', 'Не расслышал, попробуйте снова.'); // Возвращаемся в состояние готовности
+           } else {
+                updateState('IDLE', 'Не расслышал.');
+                 elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+           }
+            // Убедиться, что прослушивание остановлено и очищены буферы
+            stopListening(); // Это уже делается при ошибке, но явный вызов не повредит
+       } else if (data.error.code === 'assistant_not_found') {
+             widgetLog("Ошибка: ID ассистента недействителен.", 'error');
+             updateState('ERROR', 'Ошибка: Ассистент не найден.');
+             widgetState.connectionFailedPermanently = true;
+             // Не пытаемся переподключиться, если ID неверный
+             disconnectWebSocket(1000, "Invalid assistant ID"); // Чистое закрытие
+       }
+       else {
+            // Для прочих ошибок
+             updateState('CONNECTED', `Ошибка: ${data.error.message}`); // Показываем сообщение об ошибке, оставаясь в CONNECTED
+       }
+     };
+
+     let fullTranscript = ""; // Переменная для накопления транскрипции
+
+     const handleTextDelta = (data) => {
+       if (data.delta) {
+          // Отображаем текст ответа. Можно добавлять к текущему, если ответ потоковый
+          // В текущей реализации UI MessageDisplay показывает только последнее сообщение.
+          // Если нужен накопительный чат, UI должен быть другим.
+          // Пока просто показываем последнее полученное дельта как сообщение.
+          // updateState('SPEAKING', data.delta); // Это переключит в SPEAKING, но не для каждого дельта
+          // Лучше:
+          if (widgetState.current !== 'SPEAKING') {
+               updateState('SPEAKING', data.delta);
+          } else {
+               // Можно добавить логику накопления текста, если UI это поддерживает
+               // elements.messageDisplay.textContent += data.delta;
+               updateState('SPEAKING', data.delta); // Обновляем текст сообщения полностью с каждым дельта
+          }
+
+           // Если виджет закрыт, добавляем пульсацию на кнопку, чтобы показать активность
+           if (!widgetState.isWidgetOpen) {
+               elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+           }
+       }
+     };
+
+     const handleTextDone = (data) => {
+        widgetLog('Text response done.');
+        // Текстовый ответ завершен. Сообщение на UI останется видимым согласно логике updateState.
+        // Таймер скрытия сообщения запустится из updateState.
+     };
+
+     const handleAudioDelta = (data) => {
+       if (data.delta) {
+          // Накапливаем аудио чанки (Base64)
+          addAudioToPlaybackQueue(data.delta);
+       }
+     };
+
+     const handleAudioDone = (data) => {
+        widgetLog('Audio response done.');
+        // Все аудио чанки получены. Очередь воспроизведения должна их обработать.
+        // playNextAudioFromQueue() будет вызываться автоматически пока очередь не пуста.
+     };
+
+     const handleTranscriptUpdate = (data) => {
+        // Пример обработки транскрипции (если сервер ее отправляет)
+        if (data.type === 'response.audio_transcript.delta') {
+            fullTranscript += data.text;
+             // Можно отобразить fullTranscript где-то в UI, если есть место
+             // widgetLog(`Transcript Delta: ${data.text}`);
+        } else if (data.type === 'response.audio_transcript.done') {
+            widgetLog(`Final Transcript: ${fullTranscript}`);
+             // Можно отобразить finalTranscript где-то
+             fullTranscript = ""; // Сброс для следующего раза
+        }
+     };
+
+
+     const handleResponseDone = (data) => {
+        widgetLog('Full response processing done (audio, text, etc.).');
+        // Ответ от сервера полностью обработан.
+        // Возвращаемся к прослушиванию, если виджет открыт и не воспроизводится аудио
+         if (widgetState.isWidgetOpen && !widgetState.isPlayingAudio && !widgetState.isReconnecting) {
+              // Небольшая пауза перед возвратом к прослушиванию
+              setTimeout(() => {
+                 // Дополнительная проверка на состояние, чтобы не начать слушать, если пользователь уже закрыл виджет или что-то изменилось
+                 if (widgetState.isWidgetOpen && !widgetState.isListening && !widgetState.isReconnecting && widgetState.current === 'CONNECTED') {
+                     startListening(); // Начинаем слушать снова
+                 } else if (widgetState.isWidgetOpen && widgetState.current === 'SPEAKING') {
+                      // Если still SPEAKING, значит воспроизведение аудио еще идет,
+                      // startListening будет вызван после завершения воспроизведения
+                 }
+              }, 800); // Пауза перед переходом к прослушиванию
+         } else if (!widgetState.isWidgetOpen && !widgetState.isPlayingAudio) {
+              // Если виджет закрыт и нет воспроизведения аудио, переходим в IDLE
+              updateState('IDLE', '');
+               // Добавляем пульсацию на кнопку
+              elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+         }
+         // Если isPlayingAudio === true, переход в IDLE/CONNECTED произойдет после завершения воспроизведения audio.done
+     };
+
+
+    // --- UI События ---
+
+    const openWidget = async () => {
+      if (widgetState.isWidgetOpen) {
+         widgetLog("Widget is already open.");
+         return;
+      }
+      widgetLog("Opening widget.");
+      widgetState.isWidgetOpen = true;
+      updateUI(); // Обновляем UI для открытия
+
+      // Скрываем ошибку соединения, если она видна
+      hideConnectionError();
+
+      // Если соединение не установлено и нет попытки переподключения, пытаемся подключиться
+      if (!widgetState.isConnected && !widgetState.isReconnecting && !widgetState.connectionFailedPermanently) {
+           connectWebSocket();
+      } else if (widgetState.connectionFailedPermanently) {
+           // Если была невосстановимая ошибка, показываем ее снова
+           showConnectionError("Не удалось подключиться к серверу. Нажмите кнопку 'Повторить подключение'.");
+           updateState('ERROR', 'Отключено'); // Обновляем статус
+      } else if (widgetState.isConnected) {
+           // Если уже подключено, пытаемся начать слушать
+            // Проверяем состояние микрофона/аудио контекста, особенно для iOS
+            if (!widgetState.isMicInitialized || (audioContext && audioContext.state === 'suspended')) {
+                if (isIOS && elements.iosAudioButton) {
+                    elements.iosAudioButton.classList.add('visible');
+                   updateState('CONNECTED', "Нажмите кнопку ниже для активации микрофона");
+                } else if (!isIOS) {
+                    // На Android/Desktop пытаемся инициализировать микрофон сразу
+                    initMic().then(success => {
+                        if (success) startListening();
+                    });
+                } else {
+                     widgetLog("iOS AudioContext не активен, ожидаем активации...");
+                }
+            } else {
+               startListening(); // Начинаем слушать
+            }
+      }
+      // Если isReconnecting, UI уже покажет "Переподключение..."
+
+      // Убираем пульсацию с кнопки
+      elements.widgetButton.classList.remove('wellcomeai-pulse-animation');
+    };
+
+    const closeWidget = () => {
+       if (!widgetState.isWidgetOpen) {
+           widgetLog("Widget is already closed.");
+           return;
+       }
+      widgetLog("Closing widget.");
+      widgetState.isWidgetOpen = false;
+
+      // Останавливаем прослушивание и воспроизведение
+      stopListening();
+
+      // Очищаем очередь воспроизведения и останавливаем текущий AudioBufferSourceNode
+      audioPlaybackQueue = [];
+      if (audioBufferSourceNode) {
+         try {
+            audioBufferSourceNode.stop();
+         } catch(e) { widgetLog(`Error stopping AudioBufferSourceNode: ${e.message}`, 'warn');}
+         audioBufferSourceNode = null;
+      }
+      audioPlaybackStartTime = 0; // Сбрасываем время начала воспроизведения
+      audioPlaybackOffset = 0;
+
+      // Скрываем сообщения и ошибки
+      updateState('IDLE', ''); // Переходим в состояние IDLE, очищаем сообщение
+      hideConnectionError();
+
+       // Скрываем iOS кнопку, если она была видна
+      if (elements.iosAudioButton) {
+         elements.iosAudioButton.classList.remove('visible');
+      }
+
+      // Обновляем UI для закрытия
+      updateUI();
+
+      // Добавляем пульсацию на кнопку, если соединение не потеряно
+      if (widgetState.isConnected || widgetState.isReconnecting) {
+         elements.widgetButton.classList.add('wellcomeai-pulse-animation');
+      }
+
+      // Если соединение потеряно без возможности переподключения, пульсация уже есть
+    };
+
+    // Обработчик клика по основному кругу
+    const handleMainCircleClick = async () => {
+       widgetLog(`Main Circle clicked. State: ${widgetState.current}`);
+
+       // Если виджет открыт и не находится в состоянии прослушивания, воспроизведения или переподключения
+       if (widgetState.isWidgetOpen && !widgetState.isListening && !widgetState.isPlayingAudio && !widgetState.isReconnecting) {
+           if (widgetState.isConnected) {
+                // Если подключено, пытаемся начать слушать
+               // Проверяем состояние микрофона/аудио контекста, особенно для iOS
+                if (!widgetState.isMicInitialized || (audioContext && audioContext.state === 'suspended')) {
+                    if (isIOS && elements.iosAudioButton) {
+                        elements.iosAudioButton.classList.add('visible');
+                       updateState('CONNECTED', "Нажмите кнопку ниже для активации микрофона");
+                    } else if (!isIOS) {
+                        // На Android/Desktop пытаемся инициализировать микрофон сразу
+                        initMic().then(success => {
+                            if (success) startListening();
+                        });
+                    } else {
+                         widgetLog("iOS AudioContext не активен, ожидаем активации...");
+                    }
+                } else {
+                   startListening(); // Начинаем слушать
+                }
+           } else if (widgetState.connectionFailedPermanently) {
+               // Если ошибка невосстановима, показываем сообщение
+                showConnectionError("Не удалось подключиться к серверу. Нажмите кнопку 'Повторить подключение'.");
+               updateState('ERROR', 'Отключено'); // Обновляем статус
+           } else {
+               // Если не подключено, но ошибка не невосстановима, пробуем подключиться
+               connectWebSocket();
+           }
+       } else if (widgetState.isListening) {
+           // Если слушаем, клик может означать "Стоп" или "Отправить"
+           stopListening(); // Останавливаем прослушивание
+           // Возможно, тут же отправить команду commit, чтобы сервер обработал накопленное
+           commitAudioBuffer(); // Отправляем команду коммита
+
+       } else if (widgetState.isPlayingAudio) {
+           // Если говорим, клик может означать "Прервать"
+           // Очищаем очередь воспроизведения и останавливаем текущий узел
+           audioPlaybackQueue = [];
+           if (audioBufferSourceNode) {
+                try {
+                    audioBufferSourceNode.stop();
+                } catch(e) { widgetLog(`Error stopping AudioBufferSourceNode: ${e.message}`, 'warn');}
+                audioBufferSourceNode = null;
+           }
+           audioPlaybackStartTime = 0; // Сбрасываем время начала
+           audioPlaybackOffset = 0; // Сбрасываем смещение
+            widgetState.isPlayingAudio = false; // Меняем флаг
+           updateState('CONNECTED', 'Отменено.'); // Обновляем статус и сообщение
+            // И сразу пытаемся вернуться к прослушиванию
+            setTimeout(() => {
+                if (widgetState.isWidgetOpen && !widgetState.isListening && !widgetState.isReconnecting) {
+                    startListening();
+                }
+            }, 500); // Короткая пауза
+       }
+       // Если в состоянии LOADING, CONNECTING, RECONNECTING, клик игнорируется
+    };
+
+     // Обработчик клика по кнопке активации iOS аудио
+    const handleIOSAudioButtonClick = async () => {
+        widgetLog("iOS Audio Button clicked.");
+        // Попытка инициализировать микрофон и активировать AudioContext
+        const success = await initMic();
+
+        if (success && audioContext && audioContext.state !== 'suspended') {
+             widgetLog("iOS AudioContext активирован после клика по кнопке.");
+            widgetState.isMicInitialized = true; // Флаг успешной инициализации
+            updateUI(); // Скрываем кнопку
+             // Пытаемся начать слушать, если виджет открыт и состояние позволяет
+             if (widgetState.isWidgetOpen && widgetState.isConnected && !widgetState.isListening && !widgetState.isReconnecting) {
+                 startListening();
+             }
+        } else {
+             widgetLog("Не удалось активировать iOS AudioContext после клика.", "warn");
+             // Кнопка останется видимой, если не удалось
+             updateState('CONNECTED', "Не удалось активировать микрофон. Попробуйте снова.");
+        }
+    };
+
+
+  // --- HTML Структура и Стили (интегрированы для самодостаточности) ---
+
+  // SVG Иконки (замена Font Awesome)
+  const svgIcons = {
+      robot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><path fill="currentColor" d="M272 512c-9.6 0-19.2-3.8-26.5-11.1l-32-32c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l32 32c7.8 7.8 20.5 7.8 28.3 0l32-32c12.5-12.5 32.8-12.5 45.3 0s12.5 32.8 0 45.3l-32 32c-7.3 7.3-16.9 11.1-26.5 11.1H272zM256 256c0-17.7 14.3-32 32-32h64c17.7 0 32 14.3 32 32v96c0 17.7-14.3 32-32 32H288c-17.7 0-32-14.3-32-32V256zM544 160H96C43 160 0 203 0 256v32C0 336.8 35.2 372 80 372c17.7 0 32-14.3 32-32s-14.3-32-32-32c-8.8 0-16-7.2-16-16s7.2-16 16-16H560c8.8 0 16 7.2 16 16s-7.2 16-16 16c-17.7 0-32 14.3-32 32s14.3 32 32 32c44.8 0 80-35.2 80-80V256c0-53-43-96-96-96zM160 128c17.7 0 32-14.3 32-32V64c0-17.7-14.3-32-32-32H480c-17.7 0-32 14.3-32 32V96c0 17.7 14.3 32 32 32h32c17.7 0 32-14.3 32-32V64c0-35.3-28.7-64-64-64H160C124.7 0 96 28.7 96 64V96c0 17.7 14.3 32 32 32h32z"/></svg>',
+      times: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><path fill="currentColor" d="M310.6 150.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L160 210.7 54.6 105.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L114.7 256 9.4 361.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L160 301.3 265.4 406.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L205.3 256 310.6 150.6z"/></svg>',
+      microphone: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><path fill="currentColor" d="M192 0C159.2 0 133.3 25.88 133.3 58.67V160C133.3 192.8 159.2 218.7 192 218.7C224.8 218.7 250.7 192.8 250.7 160V58.67C250.7 25.88 224.8 0 192 0zM368 218.7C358.4 218.7 349.3 222.5 342.6 229.2C335.9 235.9 332 245 332 254.7V320C332 407.5 262.8 477.3 176 478.9C175.8 478.9 175.6 478.9 175.3 478.9H176C89.24 477.3 20 407.5 20 320V254.7C20 245 16.13 235.9 9.375 229.2C2.617 222.5-6.506 218.7-16 218.7C-25.5 218.7-34.62 222.5-41.38 229.2C-48.04 235.9-51.91 245-51.91 254.7V320C-51.91 440.3 42.05 538.7 160 543.5V576C160 585.7 163.9 594.7 170.6 601.4C177.3 608.1 186.4 612 195.1 612C204.7 612 213.8 608.1 220.5 601.4C227.2 594.7 231 585.7 231 576V543.5C349 538.7 442.9 440.3 442.9 320V254.7C442.9 245 439 235.9 432.2 229.2C425.5 222.5 416.4 218.7 406.9 218.7H368z"/></svg>'
   };
 
 
-  // Создаем стили для виджета
+  // Создание стилей (встраиваем CSS прямо в JS)
   function createStyles() {
-    if (document.getElementById('wellcomeai-widget-styles')) { return; }
-    const styleEl = document.createElement('style');
-    styleEl.id = 'wellcomeai-widget-styles';
-    styleEl.textContent = `
-      .wellcomeai-widget-container {
-        position: fixed; ${WIDGET_POSITION.vertical}: ${WIDGET_POSITION.distance}; ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance};
-        z-index: 2147483647; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-family: 'Segoe UI', 'Roboto', sans-serif;
-      }
-      .wellcomeai-widget-button {
-        width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #4a86e8, #2b59c3);
-        box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4); display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden; z-index: 2147483647; border: none; outline: none;
-      }
-      .wellcomeai-widget-button:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(74, 134, 232, 0.5); }
-      .wellcomeai-widget-button::before {
-        content: ''; position: absolute; width: 150%; height: 150%;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2));
-        transform: rotate(45deg); top: -30%; left: -30%; transition: all 0.6s ease;
-      }
-      .wellcomeai-widget-button:hover::before { transform: rotate(90deg); }
-      .wellcomeai-widget-icon { color: white; font-size: 22px; z-index: 2; transition: all 0.3s ease; }
-      .wellcomeai-widget-expanded {
-        position: absolute; ${WIDGET_POSITION.vertical}: 0; ${WIDGET_POSITION.horizontal}: 0;
-        width: 320px; height: 0; opacity: 0; pointer-events: none; background: white;
-        border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); overflow: hidden;
-        transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; flex-direction: column; z-index: 2147483647;
-      }
-      .wellcomeai-widget-container.active .wellcomeai-widget-expanded { height: 400px; opacity: 1; pointer-events: all; }
-      .wellcomeai-widget-container.active .wellcomeai-widget-button { transform: scale(0.9); box-shadow: 0 2px 10px rgba(74, 134, 232, 0.3); }
-      .wellcomeai-widget-header {
-        padding: 15px 20px; background: linear-gradient(135deg, #4a86e8, #2b59c3); color: white;
-        display: flex; justify-content: space-between; align-items: center; border-radius: 20px 20px 0 0;
-      }
-      .wellcomeai-widget-title { font-weight: 600; font-size: 16px; letter-spacing: 0.3px; }
-      .wellcomeai-widget-close { background: none; border: none; color: white; font-size: 18px; cursor: pointer; opacity: 0.8; transition: all 0.2s; }
-      .wellcomeai-widget-close:hover { opacity: 1; transform: scale(1.1); }
-      .wellcomeai-widget-content {
-        flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: #f9fafc; position: relative; padding: 20px;
-      }
-      .wellcomeai-main-circle {
-        width: 180px; height: 180px; border-radius: 50%; background: linear-gradient(135deg, #ffffff, #e1f5fe, #4a86e8);
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); position: relative; overflow: hidden;
-        transition: all 0.3s ease; display: flex; align-items: center; justify-content: center;
-      }
-      .wellcomeai-main-circle::before {
-        content: ''; position: absolute; width: 140%; height: 140%;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(74, 134, 232, 0.2));
-        animation: wellcomeai-wave 8s linear infinite; border-radius: 40%;
-      }
-      @keyframes wellcomeai-wave { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      .wellcomeai-main-circle.listening { background: linear-gradient(135deg, #ffffff, #e3f2fd, #2196f3); box-shadow: 0 0 30px rgba(33, 150, 243, 0.6); }
-      .wellcomeai-main-circle.listening::before { animation: wellcomeai-wave 4s linear infinite; background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(33, 150, 243, 0.3)); }
-      .wellcomeai-main-circle.listening::after {
-        content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%;
-        border: 3px solid rgba(33, 150, 243, 0.5); animation: wellcomeai-pulse 1.5s ease-out infinite;
-      }
-      @keyframes wellcomeai-pulse { 0% { transform: scale(0.95); opacity: 0.7; } 50% { transform: scale(1.05); opacity: 0.3; } 100% { transform: scale(0.95); opacity: 0.7; } }
-      .wellcomeai-main-circle.speaking { background: linear-gradient(135deg, #ffffff, #e8f5e9, #4caf50); box-shadow: 0 0 30px rgba(76, 175, 80, 0.6); }
-      .wellcomeai-main-circle.speaking::before { animation: wellcomeai-wave 3s linear infinite; background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(76, 175, 80, 0.3)); }
-      .wellcomeai-main-circle.speaking::after {
-        content: ''; position: absolute; width: 100%; height: 100%;
-        background: radial-gradient(circle, transparent 50%, rgba(76, 175, 80, 0.1) 100%);
-        border-radius: 50%; animation: wellcomeai-ripple 2s ease-out infinite;
-      }
-      @keyframes wellcomeai-ripple { 0% { transform: scale(0.8); opacity: 0; } 50% { opacity: 0.5; } 100% { transform: scale(1.2); opacity: 0; } }
-      .wellcomeai-mic-icon { color: #4a86e8; font-size: 32px; z-index: 10; }
-      .wellcomeai-main-circle.listening .wellcomeai-mic-icon { color: #2196f3; }
-      .wellcomeai-main-circle.speaking .wellcomeai-mic-icon { color: #4caf50; }
-      .wellcomeai-audio-visualization {
-        position: absolute; width: 100%; max-width: 160px; height: 30px; bottom: -5px;
-        opacity: 0.8; pointer-events: none;
-      }
-      .wellcomeai-audio-bars { display: flex; align-items: flex-end; height: 30px; gap: 2px; width: 100%; justify-content: center; }
-      .wellcomeai-audio-bar { width: 3px; height: 2px; background-color: #4a86e8; border-radius: 1px; transition: height 0.1s ease; }
-      .wellcomeai-loader-modal {
-        position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.7);
-        display: flex; align-items: center; justify-content: center; z-index: 2147483646;
-        opacity: 0; visibility: hidden; transition: all 0.3s; border-radius: 20px;
-      }
-      .wellcomeai-loader-modal.active { opacity: 1; visibility: visible; }
-      .wellcomeai-loader {
-        width: 40px; height: 40px; border: 3px solid rgba(74, 134, 232, 0.3);
-        border-radius: 50%; border-top-color: #4a86e8; animation: wellcomeai-spin 1s linear infinite;
-      }
-      @keyframes wellcomeai-spin { to { transform: rotate(360deg); } }
-      .wellcomeai-message-display {
-        position: absolute; width: 90%; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: white; padding: 12px 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        text-align: center; font-size: 14px; line-height: 1.4; opacity: 0; transition: all 0.3s;
-        max-height: 100px; overflow-y: auto; z-index: 10;
-      }
-      .wellcomeai-message-display.show { opacity: 1; }
-      @keyframes wellcomeai-button-pulse { 0% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(74, 134, 232, 0); } 100% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0); } }
-      .wellcomeai-pulse-animation { animation: wellcomeai-button-pulse 2s infinite; }
-      .wellcomeai-connection-error {
-        color: #ef4444; background-color: rgba(254, 226, 226, 0.8); border: 1px solid #ef4444;
-        padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; margin-top: 10px;
-        text-align: center; display: none;
-      }
-      .wellcomeai-connection-error.visible { display: block; }
-      .wellcomeai-retry-button {
-        background-color: #ef4444; color: white; border: none; border-radius: 4px;
-        padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 8px; transition: all 0.2s;
-      }
-      .wellcomeai-retry-button:hover { background-color: #dc2626; }
-      .wellcomeai-status-indicator {
-        position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 11px;
-        color: #64748b; padding: 4px 8px; border-radius: 10px; background-color: rgba(255, 255, 255, 0.7);
-        display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.3s;
-      }
-      .wellcomeai-status-indicator.show { opacity: 0.8; }
-      .wellcomeai-status-dot { width: 6px; height: 6px; border-radius: 50%; background-color: #10b981; }
-      .wellcomeai-status-dot.disconnected { background-color: #ef4444; }
-      .wellcomeai-status-dot.connecting { background-color: #f59e0b; }
-      .wellcomeai-ios-audio-button {
-        position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
-        background-color: #4a86e8; color: white; border: none; border-radius: 15px;
-        padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
-        display: none; z-index: 100;
-      }
-      .wellcomeai-ios-audio-button.visible { display: block; }
-    `;
-    document.head.appendChild(styleEl);
-    widgetLog("Styles created and added to head");
-  }
+      if (document.getElementById('wellcomeai-widget-styles')) return; // Избегаем дублирования
+      const styleEl = document.createElement('style');
+      styleEl.id = 'wellcomeai-widget-styles';
+      styleEl.textContent = `
+        .wellcomeai-widget-container {
+          position: fixed;
+          ${WIDGET_POSITION.vertical}: ${WIDGET_POSITION.distance};
+          ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance};
+          z-index: 2147483647;
+          transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+          font-family: 'Segoe UI', 'Roboto', sans-serif;
+          /* Начальное состояние - скрыто */
+          opacity: 0;
+          pointer-events: none;
+        }
+        
+        /* Активация контейнера при открытии */
+        .wellcomeai-widget-container.active {
+          opacity: 1;
+          pointer-events: all;
+        }
 
-  // Загрузка Font Awesome для иконок
-  function loadFontAwesome() {
-    if (!document.getElementById('font-awesome-css')) {
-      const link = document.createElement('link');
-      link.id = 'font-awesome-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
-      document.head.appendChild(link);
-      widgetLog("Font Awesome loaded");
-    }
+        .wellcomeai-widget-button {
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #4a86e8, #2b59c3);
+          box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          position: relative;
+          overflow: hidden;
+          z-index: 2147483647; /* Кнопка должна быть поверх развернутого виджета */
+          border: none;
+          outline: none;
+        }
+
+        .wellcomeai-widget-button:hover {
+          transform: scale(1.05);
+          box-shadow: 0 6px 20px rgba(74, 134, 232, 0.5);
+        }
+
+        .wellcomeai-widget-button::before {
+          content: '';
+          position: absolute;
+          width: 150%;
+          height: 150%;
+          background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2));
+          transform: rotate(45deg);
+          top: -30%;
+          left: -30%;
+          transition: all 0.6s ease;
+        }
+
+        .wellcomeai-widget-button:hover::before {
+          transform: rotate(90deg);
+        }
+
+        .wellcomeai-widget-icon svg { /* Стили для SVG внутри кнопки */
+          color: white;
+          width: 22px;
+          height: 22px;
+          z-index: 2;
+          transition: all 0.3s ease;
+        }
+
+        .wellcomeai-widget-expanded {
+          position: absolute;
+          ${WIDGET_POSITION.vertical}: 0;
+          ${WIDGET_POSITION.horizontal}: 0;
+          width: 320px;
+          max-width: 90vw; /* Ограничение ширины для маленьких экранов */
+          height: 0; /* Изначально свернут */
+          opacity: 0;
+          pointer-events: none;
+          background: white;
+          border-radius: 20px;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+          overflow: hidden;
+          transition: height 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+          display: flex;
+          flex-direction: column;
+          z-index: 2147483646; /* Ниже кнопки */
+        }
+
+        .wellcomeai-widget-container.active .wellcomeai-widget-expanded {
+          height: 400px;
+          opacity: 1;
+          pointer-events: all;
+        }
+
+        .wellcomeai-widget-container.active .wellcomeai-widget-button {
+          transform: scale(0.9);
+          box-shadow: 0 2px 10px rgba(74, 134, 232, 0.3);
+        }
+
+        .wellcomeai-widget-header {
+          flex-shrink: 0; /* Не сжимать шапку */
+          padding: 15px 20px;
+          background: linear-gradient(135deg, #4a86e8, #2b59c3);
+          color: white;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-radius: 20px 20px 0 0;
+        }
+
+        .wellcomeai-widget-title {
+          font-weight: 600;
+          font-size: 16px;
+          letter-spacing: 0.3px;
+          user-select: none; /* Не выделять текст заголовка */
+        }
+
+        .wellcomeai-widget-close {
+          background: none;
+          border: none;
+          color: white;
+          font-size: 18px;
+          cursor: pointer;
+          opacity: 0.8;
+          transition: all 0.2s;
+          display: flex; /* Центрирование SVG */
+          align-items: center;
+          justify-content: center;
+        }
+         .wellcomeai-widget-close svg {
+             width: 18px;
+             height: 18px;
+         }
+
+        .wellcomeai-widget-close:hover {
+          opacity: 1;
+          transform: scale(1.1);
+        }
+
+        .wellcomeai-widget-content {
+          flex: 1; /* Занимает все доступное место */
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: #f9fafc;
+          position: relative;
+          padding: 20px;
+          overflow: hidden; /* Скрываем контент, выходящий за рамки */
+        }
+
+        .wellcomeai-main-circle {
+          width: 180px;
+          height: 180px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #ffffff, #e1f5fe, #4a86e8);
+          box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+          position: relative;
+          overflow: hidden;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer; /* Круг кликабельный */
+        }
+
+        .wellcomeai-main-circle::before {
+          content: '';
+          position: absolute;
+          width: 140%;
+          height: 140%;
+          background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(74, 134, 232, 0.2));
+          animation: wellcomeai-wave 8s linear infinite;
+          border-radius: 40%;
+        }
+
+        @keyframes wellcomeai-wave {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .wellcomeai-main-circle.listening {
+          background: linear-gradient(135deg, #ffffff, #e3f2fd, #2196f3);
+          box-shadow: 0 0 30px rgba(33, 150, 243, 0.6);
+        }
+
+        .wellcomeai-main-circle.listening::before {
+          animation: wellcomeai-wave 4s linear infinite;
+          background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(33, 150, 243, 0.3));
+        }
+
+        .wellcomeai-main-circle.listening::after {
+          content: '';
+          position: absolute;
+          width: 100%;
+          height: 100%;
+          border-radius: 50%;
+          border: 3px solid rgba(33, 150, 243, 0.5);
+          animation: wellcomeai-pulse 1.5s ease-out infinite;
+        }
+
+        @keyframes wellcomeai-pulse {
+          0% {
+            transform: scale(0.95);
+            opacity: 0.7;
+          }
+          50% {
+            transform: scale(1.05);
+            opacity: 0.3;
+          }
+          100% {
+            transform: scale(0.95);
+            opacity: 0.7;
+          }
+        }
+
+        .wellcomeai-main-circle.speaking {
+          background: linear-gradient(135deg, #ffffff, #e8f5e9, #4caf50);
+          box-shadow: 0 0 30px rgba(76, 175, 80, 0.6);
+        }
+
+        .wellcomeai-main-circle.speaking::before {
+          animation: wellcomeai-wave 3s linear infinite;
+          background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(76, 175, 80, 0.3));
+        }
+
+        .wellcomeai-main-circle.speaking::after {
+           content: '';
+           position: absolute;
+           width: 100%;
+           height: 100%;
+           /* Использование радиального градиента для эффекта расходящихся волн */
+           background: radial-gradient(circle, transparent 50%, rgba(76, 175, 80, 0.1) 100%);
+           border-radius: 50%;
+           animation: wellcomeai-ripple 2s ease-out infinite; /* Анимация "ряби" */
+         }
+
+        @keyframes wellcomeai-ripple {
+          0% {
+            transform: scale(0.8);
+            opacity: 0;
+          }
+          50% {
+            opacity: 0.5;
+          }
+          100% {
+            transform: scale(1.2);
+            opacity: 0;
+          }
+        }
+
+
+        .wellcomeai-mic-icon svg { /* Стили для SVG иконки микрофона */
+          color: #4a86e8;
+          width: 32px;
+          height: 32px;
+          z-index: 10;
+        }
+
+        .wellcomeai-main-circle.listening .wellcomeai-mic-icon svg {
+          color: #2196f3;
+        }
+
+        .wellcomeai-main-circle.speaking .wellcomeai-mic-icon svg {
+          color: #4caf50;
+        }
+
+        .wellcomeai-audio-visualization {
+          position: absolute;
+          width: 100%;
+          max-width: 160px;
+          height: 30px;
+          bottom: 15px; /* Немного выше */
+          opacity: 0.8;
+          pointer-events: none;
+        }
+
+        .wellcomeai-audio-bars {
+          display: flex;
+          align-items: flex-end;
+          height: 30px;
+          gap: 2px;
+          width: 100%;
+          justify-content: center;
+        }
+
+        .wellcomeai-audio-bar {
+          width: 3px;
+          height: 2px; /* Минимальная высота */
+          background-color: #4a86e8;
+          border-radius: 1px;
+          transition: height 0.1s ease;
+        }
+         .wellcomeai-main-circle.listening .wellcomeai-audio-bar {
+             background-color: #2196f3; /* Синий при прослушивании */
+         }
+         .wellcomeai-main-circle.speaking .wellcomeai-audio-bar {
+             background-color: #4caf50; /* Зеленый при воспроизведении */
+         }
+
+
+        .wellcomeai-loader-modal {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(255, 255, 255, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 2147483640; /* Ниже основных элементов виджета */
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.3s;
+          border-radius: 20px;
+        }
+
+        .wellcomeai-loader-modal.active {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .wellcomeai-loader {
+          width: 40px;
+          height: 40px;
+          border: 3px solid rgba(74, 134, 232, 0.3);
+          border-radius: 50%;
+          border-top-color: #4a86e8;
+          animation: wellcomeai-spin 1s linear infinite;
+        }
+
+        @keyframes wellcomeai-spin {
+          to { transform: rotate(360deg); }
+        }
+
+        .wellcomeai-message-display {
+          position: absolute;
+          width: 90%;
+          bottom: 80px; /* Выше, чтобы не перекрывать статус и кнопку iOS */
+          left: 50%;
+          transform: translateX(-50%);
+          background: white;
+          padding: 12px 15px;
+          border-radius: 12px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          text-align: center;
+          font-size: 14px;
+          line-height: 1.4;
+          opacity: 0;
+          transition: all 0.3s;
+          max-height: 80px; /* Ограничиваем высоту, чтобы не перекрывать все */
+          overflow-y: auto;
+          z-index: 10;
+          pointer-events: none; /* Сообщение не должно блокировать клики */
+        }
+
+        .wellcomeai-message-display.show {
+          opacity: 1;
+           pointer-events: auto; /* Активно, только когда показано, но только для чтения */
+        }
+
+        @keyframes wellcomeai-button-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7); }
+          70% { box-shadow: 0 0 0 15px rgba(74, 134, 232, 0); } /* Увеличен радиус пульсации */
+          100% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0); }
+        }
+
+        .wellcomeai-pulse-animation {
+          animation: wellcomeai-button-pulse 2s infinite;
+        }
+
+        .wellcomeai-connection-error {
+          color: #ef4444;
+          background-color: rgba(254, 226, 226, 0.9); /* Немного менее прозрачный фон */
+          border: 1px solid #ef4444;
+          padding: 8px 12px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 500;
+          margin-top: 10px;
+          text-align: center;
+          display: flex; /* Используем flex для центрирования текста и кнопки */
+          flex-direction: column;
+          align-items: center;
+          gap: 5px; /* Отступ между текстом и кнопкой */
+          position: absolute; /* Абсолютное позиционирование внутри контента */
+          bottom: 20px; /* Позиция внизу */
+          left: 20px; /* Отступы от краев */
+          right: 20px;
+          z-index: 20; /* Выше других элементов контента */
+          visibility: hidden; /* Изначально скрыто */
+          opacity: 0;
+          transition: opacity 0.3s, visibility 0.3s;
+        }
+
+        .wellcomeai-connection-error.visible {
+          visibility: visible;
+          opacity: 1;
+        }
+
+        .wellcomeai-retry-button {
+          background-color: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 5px 10px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s;
+          flex-shrink: 0; /* Не сжимать кнопку */
+        }
+
+        .wellcomeai-retry-button:hover {
+          background-color: #dc2626;
+        }
+
+        .wellcomeai-status-indicator {
+          position: absolute;
+          bottom: 10px;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 11px;
+          color: #64748b;
+          padding: 4px 8px;
+          border-radius: 10px;
+          background-color: rgba(255, 255, 255, 0.8); /* Чуть менее прозрачный */
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.3s, visibility 0.3s;
+          z-index: 15; /* Выше основной визуализации, но ниже сообщения */
+          user-select: none; /* Не выделять текст статуса */
+        }
+
+        .wellcomeai-status-indicator.show {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .wellcomeai-status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background-color: #64748b; /* Серый по умолчанию */
+        }
+
+        .wellcomeai-status-dot.connected {
+          background-color: #10b981; /* Зеленый */
+        }
+
+        .wellcomeai-status-dot.disconnected {
+          background-color: #ef4444; /* Красный */
+        }
+
+        .wellcomeai-status-dot.connecting {
+          background-color: #f59e0b; /* Оранжевый */
+        }
+
+        /* Кнопка принудительной активации аудио для iOS */
+        .wellcomeai-ios-audio-button {
+          position: absolute;
+          bottom: 20px; /* Позиция */
+          left: 50%;
+          transform: translateX(-50%);
+          background-color: #4a86e8;
+          color: white;
+          border: none;
+          border-radius: 15px;
+          padding: 8px 15px; /* Увеличил паддинг */
+          font-size: 13px; /* Увеличил шрифт */
+          font-weight: 500;
+          cursor: pointer;
+          display: none; /* Изначально скрыта */
+          z-index: 100; /* Высокий z-index */
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+           transition: background-color 0.2s ease;
+        }
+
+        .wellcomeai-ios-audio-button:hover {
+            background-color: #2b59c3;
+        }
+
+        .wellcomeai-ios-audio-button.visible {
+          display: block;
+        }
+
+        /* Медиа-запросы для адаптации на маленьких экранах */
+        @media (max-width: 400px) {
+            .wellcomeai-widget-expanded {
+                 width: 95vw; /* Немного уже на очень маленьких экранах */
+                 height: 350px; /* Меньше высота */
+            }
+             .wellcomeai-main-circle {
+                 width: 150px; /* Меньше круг */
+                 height: 150px;
+             }
+            .wellcomeai-mic-icon svg {
+                width: 28px; /* Меньше иконка микрофона */
+                height: 28px;
+            }
+            .wellcomeai-audio-visualization {
+                 max-width: 130px; /* Меньше визуализация */
+                 bottom: 10px;
+            }
+             .wellcomeai-message-display {
+                 bottom: 60px; /* Выше сообщение */
+                 font-size: 13px;
+                 max-height: 70px;
+             }
+             .wellcomeai-ios-audio-button {
+                 bottom: 15px; /* Ниже кнопка iOS */
+                 font-size: 12px;
+                 padding: 6px 10px;
+             }
+             .wellcomeai-connection-error {
+                 bottom: 10px; /* Ниже ошибка */
+                 left: 10px;
+                 right: 10px;
+                 padding: 6px 10px;
+                 font-size: 12px;
+             }
+        }
+      `;
+      document.head.appendChild(styleEl);
+      widgetLog("Styles created and added to head.");
   }
 
   // Создание HTML структуры виджета
   function createWidgetHTML() {
-    if (document.getElementById('wellcomeai-widget-container')) { return; }
+      if (document.getElementById('wellcomeai-widget-container')) return; // Избегаем дублирования
 
-    widgetContainer = document.createElement('div');
-    widgetContainer.className = 'wellcomeai-widget-container';
-    widgetContainer.id = 'wellcomeai-widget-container';
-    widgetContainer.style.zIndex = "2147483647";
+      const widgetContainer = document.createElement('div');
+      widgetContainer.className = 'wellcomeai-widget-container';
+      widgetContainer.id = 'wellcomeai-widget-container';
+      // Z-index и видимость будут управляться через CSS класс 'active' и JS
 
-    let widgetHTML = `
-      <div class="wellcomeai-widget-button" id="wellcomeai-widget-button"> <i class="fas fa-robot wellcomeai-widget-icon"></i> </div>
-      <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
-        <div class="wellcomeai-widget-header"> <div class="wellcomeai-widget-title">WellcomeAI</div> <button class="wellcomeai-widget-close" id="wellcomeai-widget-close"> <i class="fas fa-times"></i> </button> </div>
-        <div class="wellcomeai-widget-content">
-          <div class="wellcomeai-main-circle" id="wellcomeai-main-circle"> <i class="fas fa-microphone wellcomeai-mic-icon"></i>
-            <div class="wellcomeai-audio-visualization" id="wellcomeai-audio-visualization"> <div class="wellcomeai-audio-bars" id="wellcomeai-audio-bars"></div> </div>
-          </div>
-          <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
-          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
-            <span>Ошибка соединения с сервером</span> <button class="wellcomeai-retry-button" id="wellcomeai-retry-button"> Повторить подключение </button>
-          </div>
-          <button class="wellcomeai-ios-audio-button" id="wellcomeai-ios-audio-button"> Нажмите для активации аудио </button>
-          <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator"> <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div> <span id="wellcomeai-status-text">Подключено</span> </div>
+      widgetContainer.innerHTML = `
+        <!-- Кнопка (минимизированное состояние) -->
+        <div class="wellcomeai-widget-button" id="wellcomeai-widget-button">
+          <span class="wellcomeai-widget-icon">${svgIcons.robot}</span>
         </div>
-      </div>
-      <div id="wellcomeai-loader-modal" class="wellcomeai-loader-modal active"> <div class="wellcomeai-loader"></div> </div>
-    `;
 
-    widgetContainer.innerHTML = widgetHTML;
-    document.body.appendChild(widgetContainer);
-    widgetLog("HTML structure created and appended to body");
+        <!-- Развернутый виджет -->
+        <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
+          <div class="wellcomeai-widget-header">
+            <div class="wellcomeai-widget-title">WellcomeAI</div>
+            <button class="wellcomeai-widget-close" id="wellcomeai-widget-close">
+              ${svgIcons.times}
+            </button>
+          </div>
+          <div class="wellcomeai-widget-content">
+            <!-- Основной элемент - круг с иконкой микрофона -->
+            <div class="wellcomeai-main-circle" id="wellcomeai-main-circle">
+              <span class="wellcomeai-mic-icon">${svgIcons.microphone}</span>
+
+              <!-- Аудио визуализация -->
+              <div class="wellcomeai-audio-visualization" id="wellcomeai-audio-visualization">
+                <div class="wellcomeai-audio-bars" id="wellcomeai-audio-bars"></div>
+              </div>
+            </div>
+
+            <!-- Сообщение UI (текст ответа или статус) -->
+            <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
+
+            <!-- Сообщение об ошибке соединения -->
+            <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
+              <!-- Content populated by JS -->
+            </div>
+
+            <!-- Специальная кнопка для активации аудио на iOS -->
+            <button class="wellcomeai-ios-audio-button" id="wellcomeai-ios-audio-button">
+              Нажмите для активации
+            </button>
+
+            <!-- Индикатор статуса -->
+            <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
+              <span class="wellcomeai-status-dot" id="wellcomeai-status-dot"></span>
+              <span id="wellcomeai-status-text">Загрузка...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Модальное окно загрузки -->
+        <div id="wellcomeai-loader-modal" class="wellcomeai-loader-modal active">
+          <div class="wellcomeai-loader"></div>
+        </div>
+      `;
+
+      document.body.appendChild(widgetContainer);
+      widgetLog("HTML structure created and appended to body.");
+
+      // Создаем аудио-бары сразу после создания контейнера
+      createAudioBars();
   }
 
-  // Класс для определения голосовой активности
-  class VoiceActivityDetector {
-    constructor(options = {}) {
-      this.threshold = options.threshold || 0.015; this.minSilenceDuration = options.minSilenceDuration || 1000;
-      this.minSpeechDuration = options.minSpeechDuration || 300; this.smoothingFactor = options.smoothingFactor || 0.2;
-      this.lastVoiceDetection = 0; this.silenceStartTime = 0; this.isSilent = true; this.averageVolume = 0;
-      this.isFirstFrame = true; this.activeFrameCount = 0; this.totalFrameCount = 0; this.hasVoiceActivity = false;
-      this.adaptiveThreshold = this.threshold; this.backgroundNoiseLevel = 0; this.backgroundSamples = [];
-    }
-    process(audioData) {
-      if (!audioData || audioData.length === 0) return { volume: 0, threshold: this.adaptiveThreshold, hasVoice: false, isSilent: true, silenceDuration: Date.now() - this.lastVoiceDetection, hasVoiceActivity: this.hasVoiceActivity };
-      let sumSquares = 0; for (let i = 0; i < audioData.length; i++) { sumSquares += audioData[i] * audioData[i]; } const rms = Math.sqrt(sumSquares / audioData.length);
-      if (this.isFirstFrame) { this.averageVolume = rms; this.isFirstFrame = false; } else { this.averageVolume = this.averageVolume * (1 - this.smoothingFactor) + rms * this.smoothingFactor; }
-      this.totalFrameCount++;
-      if (this.totalFrameCount < 50) { this.backgroundSamples.push(rms); if (this.backgroundSamples.length > 20) { const sortedSamples = [...this.backgroundSamples].sort((a, b) => a - b); const backgroundSampleCount = Math.floor(sortedSamples.length * 0.3); if (backgroundSampleCount > 0) { let sum = 0; for (let i = 0; i < backgroundSampleCount; i++) { sum += sortedSamples[i]; } this.backgroundNoiseLevel = sum / backgroundSampleCount; this.adaptiveThreshold = Math.max(this.threshold, this.backgroundNoiseLevel * 2.5); } } }
-      const now = Date.now(); const hasVoice = this.averageVolume > this.adaptiveThreshold;
-      if (hasVoice) { this.activeFrameCount++; this.lastVoiceDetection = now; if (this.isSilent) { this.isSilent = false; } }
-      else if (!this.isSilent) { const silenceDuration = now - this.lastVoiceDetection; if (silenceDuration > this.minSilenceDuration) { this.isSilent = true; this.silenceStartTime = this.lastVoiceDetection; } }
-      const voiceRatio = this.activeFrameCount / Math.max(1, this.totalFrameCount); this.hasVoiceActivity = voiceRatio > 0.05 && this.activeFrameCount > 10;
-      return { volume: this.averageVolume, threshold: this.adaptiveThreshold, hasVoice: hasVoice, isSilent: this.isSilent, silenceDuration: this.isSilent ? now - this.lastVoiceDetection : 0, hasVoiceActivity: this.hasVoiceActivity };
-    }
-    reset() {
-      this.lastVoiceDetection = 0; this.silenceStartTime = 0; this.isSilent = true; this.averageVolume = 0;
-      this.isFirstFrame = true; this.activeFrameCount = 0; this.totalFrameCount = 0; this.hasVoiceActivity = false;
-      this.backgroundSamples = []; this.adaptiveThreshold = this.threshold; this.backgroundNoiseLevel = 0;
-    }
-  }
-
-  // Функция для разблокировки аудио на iOS
-  function unlockAudioOnIOS() {
-    if (!isIOS) return Promise.resolve(true); widgetLog('Попытка разблокировки аудио на iOS');
-    return new Promise((resolve) => {
-      const tempAudio = document.createElement('audio'); tempAudio.setAttribute('src', 'data:audio/mp3;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
-      tempAudio.volume = 0; tempAudio.muted = true;
-      tempAudio.play().then(() => {
-        widgetLog('Успешно разблокировано аудио через элемент audio');
-         if (window.tempAudioContext && window.tempAudioContext.state === 'suspended') { window.tempAudioContext.resume().then(() => { window.audioContextInitialized = true; window.hasPlayedSilence = true; widgetLog('AudioContext успешно активирован (возобновлен)'); resolve(true); }).catch(err => { widgetLog(`Не удалось активировать AudioContext (resume): ${err.message}`, 'error'); window.audioContextInitialized = false; resolve(false); });
-          } else if (window.tempAudioContext && window.tempAudioContext.state === 'running') { window.audioContextInitialized = true; window.hasPlayedSilence = true; widgetLog('AudioContext уже running.'); resolve(true); }
-          else { widgetLog('No active tempAudioContext found after audio element play.', 'debug'); window.audioContextInitialized = false; window.hasPlayedSilence = true; resolve(true); }
-      }).catch(err => { widgetLog(`Ошибка при play() аудио для разблокировки: ${err.message}`, 'error'); window.audioContextInitialized = false; window.hasPlayedSilence = false; resolve(false); });
-    });
-  }
-
-  // Функция для форсированной разблокировки аудио на iOS (через тоны)
-  function forceIOSAudioUnlock() {
-    if (!isIOS) return Promise.resolve(true); widgetLog('Попытка форсированной разблокировки аудио на iOS (через тоны)');
-    return new Promise((resolve) => {
-      const frequencies = [100, 200, 300]; let index = 0;
-      function playNextTone() {
-        if (window.audioContextInitialized && window.hasPlayedSilence) { widgetLog('AudioContext уже активирован, остановка воспроизведения тонов.'); resolve(true); return; }
-        if (index >= frequencies.length) { widgetLog('Завершены попытки воспроизведения тонов.'); resolve(window.audioContextInitialized); return; }
-        try {
-          if (!window.tempAudioContext || window.tempAudioContext.state === 'closed') { try { window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)(); widgetLog('Создан новый AudioContext для форсированной разблокировки тонами'); } catch (e) { widgetLog(`Ошибка создания AudioContext при форсированной разблокировке: ${e.message}`, 'error'); window.audioContextInitialized = false; resolve(false); return; } }
-          const ctx = window.tempAudioContext;
-          if (ctx.state === 'suspended') {
-            widgetLog(`AudioContext suspended, пытаемся возобновить для тона ${frequencies[index]}Hz`);
-            ctx.resume().then(() => { window.audioContextInitialized = true; widgetLog('AudioContext успешно возобновлен для воспроизведения тонов.'); scheduleTone(ctx, frequencies[index]); index++; setTimeout(playNextTone, 200); }).catch(err => { widgetLog(`Не удалось возобновить AudioContext для тона ${frequencies[index]}Hz: ${err.message}`, 'warn'); window.audioContextInitialized = false; index++; setTimeout(playNextTone, 200); });
-          } else { widgetLog(`AudioContext running, воспроизводим тон ${frequencies[index]}Hz`); window.audioContextInitialized = true; scheduleTone(ctx, frequencies[index]); index++; setTimeout(playNextTone, 200); }
-        } catch (e) { widgetLog(`Ошибка при воспроизведении тонов: ${e.name}: ${e.message}`, 'warn'); window.audioContextInitialized = false; index++; setTimeout(playNextTone, 200); }
+    // Создание аудио-баров для визуализации
+    function createAudioBars(count = 25) { // Увеличил количество баров для более плавной визуализации
+      if (!elements.audioBarsContainer) return;
+      elements.audioBarsContainer.innerHTML = '';
+      for (let i = 0; i < count; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'wellcomeai-audio-bar';
+        elements.audioBarsContainer.appendChild(bar);
       }
-      function scheduleTone(ctx, frequency) { try { const oscillator = ctx.createOscillator(); const gainNode = ctx.createGain(); gainNode.gain.value = 0.01; oscillator.type = 'sine'; oscillator.frequency.value = frequency; oscillator.connect(gainNode); gainNode.connect(ctx.destination); const startTime = ctx.currentTime; oscillator.start(startTime); oscillator.stop(startTime + 0.05); } catch (e) { widgetLog(`Ошибка при планировании тона ${frequency}Hz: ${e.name}: ${e.message}`, 'error'); } }
-      playNextTone();
-    });
-  }
-
-  // Воспроизведение тишины (резервная функция для iOS)
-  function playSilence() {
-    try {
-       if (!window.tempAudioContext || window.tempAudioContext.state === 'closed') { try { window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)(); widgetLog('Создан новый AudioContext для playSilence'); } catch (e) { widgetLog(`Ошибка создания AudioContext для playSilence: ${e.message}`, 'error'); window.audioContextInitialized = false; return; } }
-      const ctx = window.tempAudioContext; const silentBuffer = ctx.createBuffer(1, 1, 22050); const source = ctx.createBufferSource(); source.buffer = silentBuffer;
-      const gainNode = ctx.createGain(); gainNode.gain.value = 0; source.connect(gainNode); gainNode.connect(ctx.destination);
-      source.start(0); source.stop(0.001); window.hasPlayedSilence = true; widgetLog("Played silence to unlock audio on iOS");
-      if (ctx.state === 'suspended') { ctx.resume().then(() => { window.audioContextInitialized = true; widgetLog("Audio context successfully resumed on iOS after playing silence"); }).catch(err => { widgetLog(`Failed to resume audio context after playSilence: ${err.message}`, 'error'); window.audioContextInitialized = false; }); }
-      else { window.audioContextInitialized = true; widgetLog(`Audio context state after playSilence: ${ctx.state}`); }
-    } catch (e) { widgetLog(`Error playing silence: ${e.name}: ${e.message}`, 'error'); window.audioContextInitialized = false; }
-  }
-
-  // Получение оптимизированных настроек для Android
-  function getAndroidDeviceType() {
-    const ua = navigator.userAgent.toLowerCase();
-    if (ua.indexOf('samsung') > -1) return 'samsung'; if (ua.indexOf('pixel') > -1) return 'pixel';
-    if (ua.indexOf('xiaomi') > -1) return 'xiaomi'; if (ua.indexOf('redmi') > -1) return 'redmi';
-    if (ua.indexOf('poco') > -1) return 'poco'; if (ua.indexOf('huawei') > -1) return 'huawei';
-    if (ua.indexOf('gt') > -1) return 'realme_gt'; return 'generic';
-  }
-
-  // Функция настройки специфичных параметров для разных Android устройств
-  function getOptimizedConstraintsForAndroid() {
-    const deviceType = getAndroidDeviceType(); const baseConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 16000, channelCount: 1, deviceId: 'default' };
-    switch (deviceType) { case 'samsung': break; case 'xiaomi': case 'redmi': case 'poco': break; case 'realme_gt': break; default: break; }
-    widgetLog(`Применены оптимизированные настройки для Android устройства типа: ${deviceType}`, 'info', baseConstraints); return baseConstraints;
-  }
-
-
-  // Улучшенное качество аудио и нормализация
-  function processAudioForUpload(inputData) {
-    if (!inputData || inputData.length === 0) return new Float32Array(0);
-    const processedData = new Float32Array(inputData.length); let maxAmplitude = 0;
-    for (let i = 0; i < inputData.length; i++) { const absValue = Math.abs(inputData[i]); maxAmplitude = Math.max(maxAmplitude, absValue); processedData[i] = inputData[i]; }
-     if (maxAmplitude > 0) { let gain = 1.0; if (maxAmplitude < 0.2) { gain = Math.min(3.0, 0.5 / maxAmplitude); } else if (maxAmplitude > 0.95) { gain = 0.95 / maxAmplitude; }
-       if (gain !== 1.0) { for (let i = 0; i < processedData.length; i++) { processedData[i] *= gain; processedData[i] = Math.max(-1, Math.min(1, processedData[i])); } }
-    } else { return new Float32Array(0); }
-    return processedData;
-  }
-
-
-  // Функция для остановки записи микрофона
-  function stopMicrophoneCapture() {
-    if (!mediaStream) { return; } widgetLog("Stopping microphone capture.");
-    mediaStream.getTracks().forEach(track => { if (track.kind === 'audio') { track.stop(); } });
-    if (audioProcessor) { try { audioProcessor.disconnect(); } catch (e) { widgetLog('Ошибка при отключении аудиопроцессора: ' + e.message, 'warn'); } }
-    isListening = false; mediaStream = null;
-  }
-
-  // Восстановление микрофона после окончания воспроизведения
-  function restoreMicrophoneIfNeeded() {
-    if (isIOS && shouldRestoreMicrophoneAfterPlayback) { widgetLog("Restore microphone needed after playback on iOS."); shouldRestoreMicrophoneAfterPlayback = false;
-      setTimeout(() => {
-        if (isWidgetOpen && isConnected) { widgetLog("Attempting to restore microphone capture on iOS."); initAudio().then(success => { if (success) { startListening(); } else { widgetLog("Failed to re-initialize audio after playback on iOS.", "error"); showMessage("Ошибка восстановления микрофона после ответа."); } }).catch(e => { widgetLog(`Error during re-initialization of audio after playback: ${e.message}`, "error"); showMessage("Критическая ошибка восстановления аудио."); });
-        } else { widgetLog("Not restoring microphone on iOS because widget is closed or disconnected.", "info"); }
-      }, 300);
+       widgetLog(`Created ${count} audio bars.`);
     }
-  }
-
-  // Улучшенная функция проверки и перезапуска микрофона для Android
-  function checkAndroidMicrophoneStatus() {
-    if (!isAndroid || !isListening || !mediaStream) return;
-    let isAudioActive = false; const audioTracks = mediaStream.getAudioTracks();
-    if (audioTracks.length > 0) { audioTracks.forEach(track => { if (track.readyState === 'live' && track.enabled) { isAudioActive = true; } }); }
-    if (!isAudioActive) { widgetLog('Обнаружен неактивный микрофон на Android, попытка перезапуска...', 'warn'); stopMicrophoneCapture();
-      if (isWidgetOpen && isConnected) { widgetLog("Attempting to re-initialize audio stream on Android."); initAudio().then(success => { if (success) { widgetLog("Audio re-initialization successful on Android."); startListening(); } else { widgetLog("Failed to re-initialize audio on Android.", "error"); showMessage("Проблема с доступом к микрофону. Пожалуйста, перезагрузите страницу."); } }).catch(err => { widgetLog(`Error during re-initialization of audio on Android: ${err.message}`, "error"); showMessage("Критическая ошибка при перезапуске микрофона."); });
-      } else { widgetLog("Not restarting microphone on Android because widget is closed or disconnected.", "info"); }
-    }
-  }
-
-  // Запускаем периодическую проверку микрофона для Android
-  function startAndroidMicrophoneMonitoring() {
-    if (!isAndroid || androidMicMonitorIntervalId) { return; }
-    widgetLog('Запущен мониторинг микрофона для Android (интервал 5с)');
-    androidMicMonitorIntervalId = setInterval(checkAndroidMicrophoneStatus, 5000);
-  }
-
-   // Остановка мониторинга микрофона для Android
-   function stopAndroidMicrophoneMonitoring() {
-       if (androidMicMonitorIntervalId) { widgetLog("Stopping Android microphone monitoring."); clearInterval(androidMicMonitorIntervalId); androidMicMonitorIntervalId = null; }
-   }
 
 
-  // Настройка процессора обработки аудио
-  function configureAudioProcessor() {
-    if (!audioProcessor) { widgetLog("configureAudioProcessor called but audioProcessor is null.", "error"); return; }
-    widgetLog("Configuring audio processor onaudioprocess handler.");
-    audioProcessor.onaudioprocess = function(e) {
-      if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting && !isPlayingAudio) {
-        const inputBuffer = e.inputBuffer; const rawInputData = inputBuffer.getChannelData(0);
-        if (rawInputData.length === 0) { resetAudioVisualization(); return; }
-        const processedData = processAudioForUpload(rawInputData); const vadResult = voiceDetector.process(processedData);
-        updateAudioVisualization(processedData);
-        const pcm16Data = new Int16Array(processedData.length);
-        for (let i = 0; i < processedData.length; i++) { pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(processedData[i] * 32767))); }
-        try { if (websocket.readyState === WebSocket.OPEN) { const message = JSON.stringify({ type: "input_audio_buffer.append", event_id: `audio_${Date.now()}`, audio: arrayBufferToBase64(pcm16Data.buffer) }); websocket.send(message); } }
-        catch (error) { widgetLog(`Ошибка отправки аудио буфера через WebSocket: ${error.name}: ${error.message}`, "error"); }
-        const now = Date.now();
-        if (vadResult.hasVoice) { voiceDetector.silenceStartTime = now; if (!isPlayingAudio && mainCircle && !mainCircle.classList.contains('listening') && !mainCircle.classList.contains('speaking')) { mainCircle.classList.add('listening'); } hasAudioData = true; if (audioDataStartTime === 0) { audioDataStartTime = now; widgetLog("Начало обнаружения голосовых данных (hasAudioData = true, audioDataStartTime set)"); } }
-        else { const silenceDuration = now - voiceDetector.lastVoiceDetection; if (hasAudioData && silenceDuration > effectiveAudioConfig.silenceDuration) { if (now - lastCommitTime > 500) { widgetLog(`Обнаружена тишина после голоса. Длительность тишины: ${silenceDuration}мс. Длительность сегмента с голосом: ${now - audioDataStartTime}мс. Отправка аудиобуфера.`); commitAudioBuffer(); lastCommitTime = now; hasAudioData = false; audioDataStartTime = 0; } } }
-      } else { if (!isListening && mainCircle && mainCircle.classList.contains('listening')) { resetAudioVisualization(); mainCircle.classList.remove('listening'); widgetLog("onaudioprocess: Resetting listening state visual.", "debug"); } }
-    };
-  }
+  // --- Инициализация и События ---
 
-  // Подключение аудиографа с учетом особенностей платформ
-  function connectAudioGraph() {
-    if (!audioContext || !audioProcessor || !mediaStream) { widgetLog("connectAudioGraph: Missing required components.", "error"); return; }
-    try {
-      if (mediaStream._sourceNode) { mediaStream._sourceNode.disconnect(); mediaStream._sourceNode = null; }
-      audioProcessor.disconnect();
-      const streamSource = audioContext.createMediaStreamSource(mediaStream); mediaStream._sourceNode = streamSource; streamSource.connect(audioProcessor);
-      if (isIOS) { widgetLog('Подключение аудиографа для iOS: процессор -> GainNode (volume 0) -> destination'); const gainNode = audioContext.createGain(); gainNode.gain.value = 0; audioProcessor.connect(gainNode); gainNode.connect(audioContext.destination); audioProcessor._outputNode = gainNode; }
-      else { widgetLog('Подключение аудиографа для Desktop/Android: процессор -> destination'); audioProcessor.connect(audioContext.destination); audioProcessor._outputNode = audioContext.destination; }
-      widgetLog("Аудиограф успешно подключен");
-    } catch (error) { widgetLog(`Ошибка при подключении аудиографа: ${error.name}: ${error.message}`, 'error'); stopMicrophoneCapture(); }
-  }
+  function initWidget() {
+    widgetLog('Initializing widget logic...');
 
-  // Функция для последовательного запуска аудио на мобильных устройствах
-  function safeStartListeningOnMobile() {
-    if (!isAndroid || !isConnected || isPlayingAudio || isReconnecting || isListening || !isWidgetOpen) { return; } widgetLog('Безопасный запуск прослушивания на Android');
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-      try { websocket.send(JSON.stringify({ type: "ping", event_id: `mobile_safe_start_${Date.now()}` }));
-        setTimeout(() => { if (isConnected && !isPlayingAudio && !isReconnecting && !isListening && isWidgetOpen) { widgetLog("Attempting startListening after safe mobile delay."); startListening(); } }, 700);
-      } catch (e) { widgetLog(`Ошибка отправки ping при безопасном запуске на Android: ${e.message}`, 'error'); }
-    }
-  }
-
-  // Обновление индикатора статуса соединения
-  function updateConnectionStatus(status, message) {
-    if (!statusIndicator || !statusDot || !statusText) return;
-    statusText.textContent = message || status;
-    statusDot.classList.remove('connected', 'disconnected', 'connecting');
-    if (status === 'connected') { statusDot.classList.add('connected'); } else if (status === 'disconnected') { statusDot.classList.add('disconnected'); } else { statusDot.classList.add('connecting'); }
-    statusIndicator.classList.add('show');
-    if (statusIndicator._hideTimeout) clearTimeout(statusIndicator._hideTimeout);
-    if (status === 'connected') { statusIndicator._hideTimeout = setTimeout(() => { statusIndicator.classList.remove('show'); statusIndicator._hideTimeout = null; }, 3000); }
-  }
-
-  // Показать сообщение
-  function showMessage(message, duration = 5000) {
-    if (!messageDisplay) return;
-    if (messageDisplay._hideTimeoutId) { clearTimeout(messageDisplay._hideTimeoutId); }
-    messageDisplay.textContent = message; messageDisplay.classList.add('show');
-    if (duration > 0) { messageDisplay._hideTimeoutId = setTimeout(() => { messageDisplay.classList.remove('show'); messageDisplay._hideTimeoutId = null; }, duration); }
-  }
-
-  // Скрыть сообщение
-  function hideMessage() {
-    if (!messageDisplay) return;
-    if (messageDisplay._hideTimeoutId) { clearTimeout(messageDisplay._hideTimeoutId); messageDisplay._hideTimeoutId = null; }
-    messageDisplay.classList.remove('show');
-  }
-
-  // Показать ошибку соединения
-  function showConnectionError(message) {
-    if (connectionError) {
-      widgetLog(`Показана ошибка соединения: "${message}"`);
-      const messageSpan = connectionError.querySelector('span');
-       if(messageSpan) { messageSpan.textContent = message || 'Ошибка соединения с сервером'; }
-       else { connectionError.innerHTML = `<span>${message || 'Ошибка соединения с сервером'}</span> <button class="wellcomeai-retry-button" id="wellcomeai-retry-button"> Повторить подключение </button>`; const newRetryButton = connectionError.querySelector('#wellcomeai-retry-button'); if(newRetryButton) { newRetryButton.addEventListener('click', resetConnection); } }
-      connectionError.classList.add('visible');
-    }
-  }
-
-  // Скрыть ошибку соединения
-  function hideConnectionError() {
-    if (connectionError) { connectionError.classList.remove('visible'); }
-  }
-
-  // Сброс состояния соединения и повторная попытка
-  function resetConnection() {
-    widgetLog("Resetting connection state and attempting reconnect.");
-    reconnectAttempts = 0; connectionFailedPermanently = false; isReconnecting = false;
-    hideConnectionError(); hideMessage(); showMessage("Попытка подключения..."); updateConnectionStatus('connecting', 'Подключение...');
-    connectWebSocket();
-  }
-
-  // Функция переподключения (вызывается из onclose при ошибке)
-  function reconnect() {
-    if (isReconnecting) { return; } widgetLog("Initiating reconnect process..."); isReconnecting = true;
-    if (websocket) { websocket.onopen = websocket.onerror = websocket.onclose = websocket.onmessage = null; try { if (websocket.readyState !== WebSocket.CLOSING && websocket.readyState !== WebSocket.CLOSED) { websocket.close(1000, "Reconnecting"); } } catch(e) { widgetLog("Error closing previous websocket upon reconnect:", e.message, "warn"); } websocket = null; }
-    isConnected = false; stopAllAudioProcessing(); connectWebSocket();
-  }
-
-  // Подключение WebSocket
-  async function connectWebSocket() {
-    if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
-        if (!isReconnecting && websocket.readyState === WebSocket.CONNECTING) { updateConnectionStatus('connecting', 'Подключение...'); }
-        else if (!isConnected && websocket.readyState === WebSocket.OPEN) { updateConnectionStatus('connected', 'Подключено'); }
+    // Собираем ссылки на DOM элементы
+    if (!getDOMElements()) {
+        widgetLog("Failed to get essential DOM elements. Aborting initialization.", 'error');
         return;
     }
-     if (connectionFailedPermanently) { widgetLog("Cannot connect WebSocket: Permanent connection failure flag is set.", "warn"); showConnectionError('Не удалось подключиться к серверу. Нажмите кнопку "Повторить подключение".'); updateConnectionStatus('disconnected', 'Отключено'); return; }
-    widgetLog(`Попытка подключения WebSocket к ${WS_URL}. Попытка #${reconnectAttempts + 1}`);
-    isReconnecting = true; if (loaderModal) loaderModal.classList.add('active');
-    if (websocket) { websocket.onopen = websocket.onerror = websocket.onclose = websocket.onmessage = null; try { if (websocket.readyState !== WebSocket.CLOSING && websocket.readyState !== WebSocket.CLOSED) { websocket.close(); } } catch(e) { widgetLog("Error cleaning up previous websocket object:", e.message, "warn"); } websocket = null; }
-     if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; } if (window.connectionTimeoutId) { clearTimeout(window.connectionTimeoutId); }
-    try {
-      websocket = new WebSocket(WS_URL); websocket.binaryType = 'arraybuffer';
-      window.connectionTimeoutId = setTimeout(() => {
-        widgetLog(`Таймаут соединения WebSocket (${CONNECTION_TIMEOUT}мс)`, "error");
-        if (websocket && websocket.readyState !== WebSocket.OPEN && websocket.readyState !== WebSocket.CLOSING && websocket.readyState !== WebSocket.CLOSED) { widgetLog("Закрываем WebSocket из-за таймаута."); websocket.close(); }
-        else if (!websocket && !isReconnecting && !connectionFailedPermanently) { widgetLog("WebSocket object null on timeout. Manually triggering reconnect logic.", "warn"); reconnectAttempts++; const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS; if (reconnectAttempts <= maxAttempts) { const delay = Math.min(reconnectAttempts, 5) * 1000 + Math.random() * 500; widgetLog(`Manual reconnect attempt ${reconnectAttempts}/${maxAttempts} in ${delay.toFixed(0)}ms.`); setTimeout(connectWebSocket, delay); updateConnectionStatus('connecting', 'Переподключение...'); showMessage("Переподключение..."); } else { widgetLog("Max reconnect attempts reached after WebSocket null on timeout.", "error"); connectionFailedPermanently = true; isReconnecting = false; if(loaderModal) loaderModal.classList.remove('active'); showConnectionError('Не удалось подключиться к серверу. Проверьте соединение с интернетом и попробуйте снова.'); showMessage("Ошибка соединения с сервером"); updateConnectionStatus('disconnected', 'Отключено'); } }
-      }, CONNECTION_TIMEOUT);
-      websocket.onopen = function() {
-        clearTimeout(window.connectionTimeoutId); widgetLog('WebSocket connection established');
-        isConnected = true; isReconnecting = false; reconnectAttempts = 0; connectionFailedPermanently = false;
-        if(loaderModal) loaderModal.classList.remove('active'); hideConnectionError(); hideMessage(); lastPingTime = Date.now(); lastPongTime = Date.now();
-        if (pingIntervalId) { clearInterval(pingIntervalId); } const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
-        pingIntervalId = setInterval(() => {
-          if (websocket && websocket.readyState === WebSocket.OPEN) { try { websocket.send(JSON.stringify({ type: "ping" })); lastPingTime = Date.now();
-                if (Date.now() - lastPongTime > pingIntervalTime * 2 + 5000) { widgetLog(`Ping timeout, no pong received for ${Date.now() - lastPongTime}ms. Reconnecting...`, "warn"); if (websocket.readyState === WebSocket.OPEN) { websocket.close(); } }
-            } catch (e) { widgetLog(`Error sending ping: ${e.message}`, "error"); if (websocket.readyState === WebSocket.OPEN) { websocket.close(); } }
-          } else { if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; } }
-        }, pingIntervalTime);
-        if (isWidgetOpen && !isListening && !isPlayingAudio) {
-          if (isAndroid) { safeStartListeningOnMobile(); } else { widgetLog("WebSocket opened, widget open, attempting startListening."); startListening(); }
-        } updateConnectionStatus('connected', 'Подключено');
-      };
-      websocket.onerror = function(error) { widgetLog(`WebSocket error: ${error.message || "Неизвестная ошибка"}`, "error"); };
-      websocket.onclose = function(event) {
-        widgetLog(`WebSocket соединение закрыто: код ${event.code}, причина: ${event.reason}`);
-        clearTimeout(window.connectionTimeoutId); if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
-        isConnected = false; stopAllAudioProcessing();
-        if (event.code === 1000 || event.code === 1001) { isReconnecting = false; widgetLog('Clean WebSocket close, not reconnecting'); updateConnectionStatus('disconnected', 'Отключено'); if (isWidgetOpen) showMessage("Соединение закрыто."); }
-        else if (!connectionFailedPermanently) { reconnectAttempts++; const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS; if (reconnectAttempts <= maxAttempts) { widgetLog(`Соединение закрыто (${event.code}), попытка переподключения ${reconnectAttempts}/${maxAttempts}`); isReconnecting = true; const delay = Math.min(reconnectAttempts, 5) * 1000 + Math.random() * 500; widgetLog(`Задержка перед следующей попыткой: ${delay.toFixed(0)}мс`); setTimeout(connectWebSocket, delay); updateConnectionStatus('connecting', `Переподключение (${reconnectAttempts})...`); showMessage(`Переподключение...`); }
-          else { widgetLog(`Достигнуто максимальное количество попыток (${maxAttempts}), соединение не установлено`, "error"); connectionFailedPermanently = true; isReconnecting = false; if(loaderModal) loaderModal.classList.remove('active'); showConnectionError('Не удалось подключиться к серверу. Проверьте соединение с интернетом и попробуйте снова.'); showMessage("Ошибка соединения с сервером"); updateConnectionStatus('disconnected', 'Отключено'); }
-        } else { widgetLog("Соединение закрыто после достижения лимита попыток переподключения.", "info"); updateConnectionStatus('disconnected', 'Отключено'); } websocket = null;
-      };
-      websocket.onmessage = function(event) {
-        try {
-          if (event.data instanceof ArrayBuffer) { widgetLog(`Получены бинарные данные (${event.data.byteLength} bytes).`, "debug"); return; }
-          if (typeof event.data !== 'string' || event.data.length === 0) { widgetLog("Received non-string or empty message data.", "warn"); return; }
-          const data = JSON.parse(event.data); lastPongTime = Date.now();
-          if (data.type === "pong") { if (!isConnected) { isConnected = true; updateConnectionStatus('connected', 'Подключено'); hideConnectionError(); hideMessage(); widgetLog("Connection status updated to 'connected' after receiving pong.", "info"); } if (isReconnecting) { isReconnecting = false; widgetLog("isReconnecting flag reset after receiving pong.", "debug"); } if (isWidgetOpen && !isListening && !isPlayingAudio) { if (isAndroid) { safeStartListeningOnMobile(); } else { startListening(); } } return; }
-          if (data.type === 'session.created' || data.type === 'session.updated') { widgetLog(`Получена информация о сессии: ${data.type}`); return; }
-          if (data.type === 'connection_status') {
-            widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
-             if (data.status === 'connected') { isConnected = true; reconnectAttempts = 0; connectionFailedPermanently = false; hideConnectionError(); hideMessage(); if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) { if (isAndroid) { safeStartListeningOnMobile(); } else { startListening(); } } }
-             else if (data.status === 'disconnected') { isConnected = false; }
-             updateConnectionStatus(data.status, data.message); return;
-          }
-          if (data.type === 'error') { if (data.error && data.error.code === 'input_audio_buffer_commit_empty') { widgetLog("Ошибка: пустой аудиобуфер", "warn"); if (isWidgetOpen && !isPlayingAudio && !isReconnecting) { setTimeout(() => { widgetLog("Attempting restart listening after empty buffer error."); startListening(); }, 500); } return; }
-            widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error"); showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000); return;
-          }
-          if (data.type === 'response.text.delta') { if (data.delta) { showMessage(data.delta, 0); if (!isWidgetOpen && widgetButton) widgetButton.classList.add('wellcomeai-pulse-animation'); } return; }
-          if (data.type === 'response.text.done') { widgetLog("response.text.done received."); setTimeout(() => { hideMessage(); }, 5000); return; }
-           if (data.type === "speech.data") { if (data.data && data.data.audio) { addAudioToPlaybackQueue(data.data.audio); } else { widgetLog("Получен speech.data без аудио данных.", "warn"); } return; }
-          if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') { return; }
-          if (data.type === 'response.done') {
-            widgetLog('Response done received');
-            setTimeout(() => {
-                if (mainCircle && mainCircle.classList.contains('speaking')) { widgetLog("response.done received, removing 'speaking' class."); mainCircle.classList.remove('speaking'); }
-                if (audioPlaybackQueue.length === 0 && !isPlayingAudio) { widgetLog("Response done, playback queue empty. Checking conditions to start listening.");
-                     setTimeout(() => { if (isWidgetOpen && isConnected && !isListening && !isReconnecting) { widgetLog("Conditions met after response.done and empty queue. Starting listening."); startListening(); } }, 100);
-                } else { widgetLog(`Response done, but playback queue not empty (${audioPlaybackQueue.length}) or isPlayingAudio=${isPlayingAudio}. Will start listening after playback finishes.`, "debug"); }
-            }, 200); return;
-          }
-          widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
-        } catch (parseError) { widgetLog(`Ошибка парсинга JSON из сообщения от сервера: ${parseError.message}`, "warn"); widgetLog(`Received message content (first 200 chars): ${typeof event.data === 'string' ? event.data.substring(0, 200) : 'Not a string'}`, "debug"); showMessage("Получен некорректный ответ от сервера."); }
-      };
-    } catch (error) {
-      widgetLog(`Ошибка создания WebSocket: ${error.name}: ${error.message}`, "error");
-      isReconnecting = false; if(loaderModal) loaderModal.classList.remove('active');
-      reconnectAttempts++; const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-      if (reconnectAttempts <= maxAttempts) { widgetLog(`Ошибка создания WebSocket, попытка переподключения ${reconnectAttempts}/${maxAttempts}`); const delay = Math.min(reconnectAttempts, 5) * 1000 + Math.random() * 500; widgetLog(`Задержка перед следующей попыткой: ${delay.toFixed(0)}мс`); setTimeout(connectWebSocket, delay); updateConnectionStatus('connecting', 'Переподключение...'); showMessage(`Переподключение...`); }
-      else { widgetLog(`Достигнуто максимальное количество попыток (${maxAttempts}), не удалось создать WebSocket`, "error"); connectionFailedPermanently = true; showConnectionError('Не удалось подключиться к серверу. Возможно, адрес сервера неверен или он недоступен.'); showMessage("Ошибка соединения с сервером"); updateConnectionStatus('disconnected', 'Отключено'); }
-    }
-  }
 
-  // Создаём простой WAV из PCM данных
-    function createWavFromPcm(pcmBuffer, sampleRate = 16000) {
-      const numChannels = 1; const bytesPerSample = 2; const blockAlign = numChannels * bytesPerSample;
-      const byteRate = sampleRate * blockAlign; const dataSize = pcmBuffer.byteLength; const fileSize = 36 + dataSize;
-      const buffer = new ArrayBuffer(44 + dataSize); const view = new DataView(buffer);
-      function writeString(view, offset, string) { for (let i = 0; i < string.length; i++) { view.setUint8(offset + i, string.charCodeAt(i)); } }
-      writeString(view, 0, 'RIFF'); view.setUint32(4, fileSize, true); writeString(view, 8, 'WAVE');
-      writeString(view, 12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
-      view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
-      view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true);
-      view.setUint16(34, bytesPerSample * 8, true);
-      writeString(view, 36, 'data'); view.setUint32(40, dataSize, true);
-      const pcmBytes = new Uint8Array(pcmBuffer); const dataBytes = new Uint8Array(buffer, 44); dataBytes.set(pcmBytes);
-      return buffer;
-  }
+     // Создаем аудио бары
+     createAudioBars();
 
-  // Воспроизведение следующего аудио в очереди
-  function playNextAudioInQueue() {
-    if (audioPlaybackQueue.length === 0) {
-      widgetLog("Очередь воспроизведения пуста. Воспроизведение завершено.");
-      isPlayingAudio = false; if (mainCircle && mainCircle.classList.contains('speaking')) { mainCircle.classList.remove('speaking'); } restoreMicrophoneIfNeeded();
-      setTimeout(() => { if (isWidgetOpen && isConnected && !isListening && !isReconnecting) { widgetLog("Очередь пуста, условия для начала прослушивания выполнены. Начинаем прослушивание."); startListening(); } }, 100);
-      return;
-    }
-    isPlayingAudio = true; if (mainCircle) { mainCircle.classList.remove('listening'); mainCircle.classList.add('speaking'); }
-    const audioBase64 = audioPlaybackQueue.shift();
-    if (isIOS && isListening) { widgetLog("Пауза записи микрофона на iOS на время воспроизведения."); shouldRestoreMicrophoneAfterPlayback = true; stopMicrophoneCapture(); }
-    try {
-      const pcmAudioData = base64ToArrayBuffer(audioBase64); if (pcmAudioData.byteLength === 0) { widgetLog("Декодированные аудиоданные пусты, пропускаем этот фрагмент.", "warn"); playNextAudioInQueue(); return; }
-       if (!audioContext || audioContext.state === 'closed') { widgetLog("AudioContext не доступен для воспроизведения...", "warn"); initAudio().then(success => { if (success) { widgetLog("AudioContext успешно восстановлен..."); audioPlaybackQueue.unshift(audioBase64); setTimeout(playNextAudioInQueue, 200); } else { widgetLog("Не удалось восстановить AudioContext...", "error"); isPlayingAudio = false; audioPlaybackQueue = []; showMessage("Ошибка воспроизведения аудио."); restoreMicrophoneIfNeeded(); } }).catch(e => { widgetLog(`Ошибка при попытке восстановления аудиоконтекста...: ${e.message}`, "error"); isPlayingAudio = false; audioPlaybackQueue = []; showMessage("Критическая ошибка воспроизведения аудио."); restoreMicrophoneIfNeeded(); }); return; }
-       if (audioContext.state === 'suspended') { widgetLog("AudioContext suspended во время воспроизведения...", "warn"); audioContext.resume().then(() => { widgetLog("AudioContext успешно возобновлен для воспроизведения."); audioPlaybackQueue.unshift(audioBase64); setTimeout(playNextAudioInQueue, 100); }).catch(err => { widgetLog(`Не удалось возобновить AudioContext...: ${err.message}`, "error"); isPlayingAudio = false; audioPlaybackQueue = []; showMessage("Ошибка активации аудио для воспроизведения."); restoreMicrophoneIfNeeded(); }); return; }
-      const audioBuffer = audioContext.createBuffer(1, pcmAudioData.byteLength / 2, 16000); const channelData = audioBuffer.getChannelData(0); const int16Array = new Int16Array(pcmAudioData);
-      for (let i = 0; i < int16Array.length; i++) { channelData[i] = int16Array[i] / 32768; }
-      const source = audioContext.createBufferSource(); source.buffer = audioBuffer;
-      if (!audioContext.destination) { widgetLog("AudioContext destination is not available!", "error"); isPlayingAudio = false; audioPlaybackQueue = []; showMessage("Ошибка воспроизведения: AudioContext не готов."); restoreMicrophoneIfNeeded(); return; }
-      source.connect(audioContext.destination);
-      source.onended = function() { if (audioPlaybackQueue.length > 0) { playNextAudioInQueue(); } else { isPlayingAudio = false; } };
-      source.start(0); if (mainCircle) { mainCircle.classList.remove('listening'); mainCircle.classList.add('speaking'); }
-    } catch (error) { widgetLog(`Ошибка воспроизведения аудио из очереди: ${error.name}: ${error.message}`, "error"); playNextAudioInQueue(); }
-  }
+    // Добавляем обработчики событий UI
+    elements.widgetButton.addEventListener('click', openWidget);
+    elements.widgetClose.addEventListener('click', closeWidget);
+    elements.mainCircle.addEventListener('click', handleMainCircleClick);
 
-  // Функция преобразования ArrayBuffer в Base64
-  function arrayBufferToBase64(buffer) {
-    if (!(buffer instanceof ArrayBuffer)) { widgetLog("Input is not an ArrayBuffer for base64 conversion.", "error"); return ""; }
-    const bytes = new Uint8Array(buffer); let binary = ''; const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
-    try { return window.btoa(binary); } catch (e) { widgetLog(`Ошибка btoa кодирования: ${e.message}`, "error"); return ""; }
-  }
-
-  // Функция конвертации Base64 в ArrayBuffer
-  function base64ToArrayBuffer(base64) {
-    if (typeof base64 !== 'string' || base64.length === 0) { widgetLog("Invalid input for base64ToArrayBuffer.", "warn"); return new ArrayBuffer(0); }
-    try {
-      const binaryString = window.atob(base64); const len = binaryString.length; const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) { bytes[i] = binaryString.charCodeAt(i); } return bytes.buffer;
-    } catch (e) { widgetLog(`Ошибка atob декодирования: ${e.message}`, "error"); return new ArrayBuffer(0); }
-  }
-
-
-  // Инициализация микрофона и AudioContext
-  async function initAudio() {
-    if (audioContext && audioContext.state !== 'closed' && mediaStream && mediaStream.active) {
-        if (audioContext.state === 'suspended') { widgetLog("AudioContext is suspended, attempting to resume."); try { await audioContext.resume(); widgetLog("AudioContext resumed successfully.", "info"); window.audioContextInitialized = true; return true; } catch (e) { widgetLog(`Failed to resume existing AudioContext: ${e.name}: ${e.message}`, "error"); audioContext = null; mediaStream = null; audioProcessor = null; } }
-        else { window.audioContextInitialized = true; return true; }
-    } else { if (mediaStream) { stopMicrophoneCapture(); } if (audioContext && audioContext.state !== 'closed') { try { audioContext.close(); } catch(e){}; audioContext = null; } audioProcessor = null; window.audioContextInitialized = false; }
-
-    try {
-      widgetLog("Запрос разрешения на доступ к микрофону...");
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { throw new Error("Ваш браузер не поддерживает доступ к микрофону (getUserMedia)"); }
-      let audioConstraints = {};
-      if (isIOS) { audioConstraints = { echoCancellation: false, noiseSuppression: true, autoGainControl: true, sampleRate: 16000 }; if (!window.audioContextInitialized || !window.hasPlayedSilence) { await unlockAudioOnIOS().catch(e => widgetLog(`UnlockAudioOnIOS error during init: ${e.message}`, "warn")); } if (window.tempAudioContext?.state !== 'running' && window.tempAudioContext?.state !== 'suspended') { widgetLog("AudioContext not ready after unlockAudioOnIOS.", "warn"); } }
-      else if (isAndroid) { audioConstraints = getOptimizedConstraintsForAndroid(); }
-      else { audioConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 24000 }; }
-      widgetLog(`Применяем настройки аудио для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : 'десктопа')}`, 'info', audioConstraints);
-
-      try { mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints }); widgetLog(`Доступ к микрофону получен.`); const audioTrack = mediaStream.getAudioTracks()[0]; if (audioTrack) { const settings = audioTrack.getSettings(); widgetLog(`Параметры аудиотрека: sampleRate=${settings.sampleRate}, channelCount=${settings.channelCount}, echoCancellation=${settings.echoCancellation}, deviceId=${settings.deviceId}`); } }
-      catch (micError) {
-        widgetLog(`Ошибка доступа к микрофону: ${micError.name}: ${micError.message}`, 'error');
-        if (micError.name !== 'NotAllowedError' && micError.name !== 'PermissionDeniedError') {
-            try { widgetLog('Попытка получения микрофона с базовыми настройками...'); mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true }); widgetLog('Доступ к микрофону получен с базовыми настройками'); const audioTrack = mediaStream.getAudioTracks()[0]; if (audioTrack) { const settings = audioTrack.getSettings(); widgetLog(`Параметры базового аудиотрека: sampleRate=${settings.sampleRate}, channelCount=${settings.channelCount}, echoCancellation=${settings.echoCancellation}, deviceId=${settings.deviceId}`); } }
-            catch (fallbackError) { widgetLog(`Критическая ошибка доступа к микрофону (fallback): ${fallbackError.name}: ${fallbackError.message}`, 'error'); throw fallbackError; }
-        } else { throw micError; }
-      }
-
-      let contextOptions = {}; const streamSampleRate = mediaStream.getAudioTracks()[0]?.getSettings()?.sampleRate;
-      if (streamSampleRate && streamSampleRate > 0) { contextOptions.sampleRate = streamSampleRate; widgetLog(`Используем sampleRate из стрима для AudioContext: ${streamSampleRate} Гц`); }
-      else if (isIOS || isMobile) { contextOptions.sampleRate = 16000; widgetLog(`Используем default sampleRate для мобильных: 16000 Гц`); }
-      else { contextOptions.sampleRate = 24000; widgetLog(`Используем default sampleRate для десктопа: 24000 Гц`); }
-
-      if (isIOS && window.tempAudioContext && window.tempAudioContext.state !== 'closed') { audioContext = window.tempAudioContext; widgetLog('Используем существующий AudioContext на iOS'); if (audioContext.state === 'suspended') { widgetLog("Existing AudioContext is suspended, attempting to resume."); await audioContext.resume().then(() => { widgetLog("Existing AudioContext resumed successfully."); window.audioContextInitialized = true; }).catch(err => { widgetLog(`Failed to resume existing AudioContext: ${err.name}: ${err.message}`, "error"); window.audioContextInitialized = false; }); } else { window.audioContextInitialized = true; }
-      }
-      if (!audioContext || audioContext.state === 'closed' || (isIOS && audioContext.state === 'suspended' && !window.audioContextInitialized)) {
-          try { audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions); widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
-              if (isIOS) { window.tempAudioContext = audioContext; window.audioContextInitialized = true; if (audioContext.state === 'suspended') { widgetLog("Newly created AudioContext is suspended on iOS, attempting to resume..."); await audioContext.resume().then(() => { widgetLog("Newly created AudioContext resumed successfully."); }).catch(err => { widgetLog(`Failed to resume newly created AudioContext on iOS: ${err.name}: ${err.message}`, 'error'); window.audioContextInitialized = false; throw err; }); } }
-              else if (isMobile && audioContext.state === 'suspended') { widgetLog("Newly created AudioContext is suspended on Android, attempting to resume..."); await audioContext.resume().then(() => { widgetLog("Newly created AudioContext resumed successfully on Android."); }).catch(err => { widgetLog(`Не удалось возобновить AudioContext на Android: ${err.name}: ${err.message}`, 'error'); showMessage("Ошибка активации аудио. Нажмите на микрофон для повторной попытки."); }); }
-          } catch (contextError) { widgetLog(`Ошибка создания AudioContext: ${contextError.name}: ${contextError.message}`, 'error'); if (mediaStream) { stopMicrophoneCapture(); mediaStream = null; } if (audioContext && audioContext.state !== 'closed') { try { audioContext.close(); } catch(e){}; audioContext = null; } throw contextError; }
-      }
-      const bufferSize = 1024;
-      try { if (audioContext.createScriptProcessor) { audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1); widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`); } else if (audioContext.createJavaScriptNode) { audioProcessor = audioContext.createJavaScriptNode(bufferSize, 1, 1); widgetLog(`Создан устаревший JavaScriptNode с размером буфера ${bufferSize}`); } else { throw new Error("Ваш браузер не поддерживает обработку аудио (ScriptProcessorNode/JavaScriptNode)"); }
-      } catch (processorError) { widgetLog(`Ошибка создания аудиопроцессора: ${processorError.name}: ${processorError.message}`, 'error'); if (mediaStream) { stopMicrophoneCapture(); mediaStream = null; } if (audioContext && audioContext.state !== 'closed') { try { audioContext.close(); } catch(e){}; audioContext = null; } throw processorError; }
-
-      configureAudioProcessor(); connectAudioGraph();
-      if (isAndroid) { startAndroidMicrophoneMonitoring(); }
-      widgetLog("Аудио инициализировано успешно"); return true;
-    } catch (error) {
-      widgetLog(`Ошибка инициализации аудио: ${error.name}: ${error.message}`, "error");
-      if (mediaStream) { stopMicrophoneCapture(); mediaStream = null; } if (audioContext && audioContext.state !== 'closed') { try { audioContext.close(); } catch(e){}; audioContext = null; } audioProcessor = null; stopAndroidMicrophoneMonitoring();
-      if (isIOS && iosAudioButton) { if (!iosAudioButton._listenerAdded) { const currentIosButton = document.getElementById('wellcomeai-ios-audio-button'); if (currentIosButton) { currentIosButton.classList.add('visible'); showMessage("Нажмите кнопку ниже для активации микрофона", 0); currentIosButton.addEventListener('click', async function handler() { widgetLog("iOS audio activation button clicked after init error."); const success = await initAudio(); if (success) { widgetLog("iOS audio successfully initialized via button click after error."); currentIosButton.classList.remove('visible'); hideMessage(); if (isWidgetOpen && isConnected && !isListening && !isPlayingAudio && !isReconnecting) { startListening(); } currentIosButton.removeEventListener('click', handler); currentIosButton._listenerAdded = false; } else { widgetLog("iOS audio initialization failed again after button click.", "error"); showMessage("Не удалось активировать микрофон. Попробуйте перезагрузить страницу.", 0); } }, { once: true }); iosAudioButton._listenerAdded = true; } } }
-      else { if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') { showMessage("Ошибка доступа к микрофону. Пожалуйста, разрешите доступ в настройках браузера или устройства."); } else if (error.name === 'NotFoundError') { showMessage("Микрофон не найден. Пожалуйста, подключите микрофон."); } else if (error.name === 'NotReadableError') { showMessage("Микрофон занят другим приложением. Пожалуйста, закройте его и попробуйте снова."); } else { showMessage("Ошибка инициализации микрофона: " + error.message); } }
-      return false;
-    }
-  }
-
-  // Начало записи голоса
-  async function startListening() {
-    if (!isConnected || isPlayingAudio || isReconnecting || isListening || !isWidgetOpen) { return; } widgetLog('Начинаем прослушивание...');
-    if (!audioContext || audioContext.state === 'closed' || !mediaStream || !mediaStream.active) { widgetLog("Аудио не инициализировано/активно, инициализируем перед стартом прослушивания..."); const success = await initAudio(); if (!success) { widgetLog('Не удалось инициализировать аудио, не можем начать прослушивание.', 'error'); isListening = false; return; } }
-    else if (audioContext.state === 'suspended') { widgetLog("AudioContext suspended, attempting resume in startListening."); try { await audioContext.resume(); widgetLog('AudioContext возобновлен в startListening.'); } catch (error) { widgetLog(`Не удалось возобновить AudioContext в startListening: ${error.name}: ${error.message}`, 'error'); isListening = false; if (isIOS && iosAudioButton) { iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку ниже для активации микрофона", 0); } else if (!isIOS) { showMessage("Ошибка активации аудио. Попробуйте снова."); } return; } }
-
-    hasAudioData = false; audioDataStartTime = 0;
-    if (voiceDetector) { voiceDetector.reset(); } isListening = true;
-
-    if (websocket && websocket.readyState === WebSocket.OPEN) { websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_start_${Date.now()}` })); }
-    else { widgetLog("WebSocket не открыт, не можем отправить команду очистки буфера.", "warn"); }
-
-    if (!isPlayingAudio && mainCircle) { mainCircle.classList.add('listening'); mainCircle.classList.remove('speaking'); hideMessage(); }
-    if (isAndroid) { startAndroidMicrophoneMonitoring(); } widgetLog("Прослушивание активно.");
-  }
-
-
-  // --- Основная логика инициализации виджета ---
-
-  // Функция инициализации UI элементов и обработчиков
-  function initWidget() {
-    widgetLog("initWidget started.");
-    if (!ASSISTANT_ID) { widgetLog("Assistant ID not found...", 'error'); alert('WellcomeAI Widget Error: Assistant ID not found. Please add data-assistantId attribute to the script tag.'); connectionFailedPermanently = true; showConnectionError('Ошибка: ID ассистента не найден.'); if(loaderModal) loaderModal.classList.remove('active'); return; }
-
-    widgetContainer = document.getElementById('wellcomeai-widget-container'); widgetButton = document.getElementById('wellcomeai-widget-button'); widgetClose = document.getElementById('wellcomeai-widget-close');
-    mainCircle = document.getElementById('wellcomeai-main-circle'); audioBars = document.getElementById('wellcomeai-audio-bars'); loaderModal = document.getElementById('wellcomeai-loader-modal');
-    messageDisplay = document.getElementById('wellcomeai-message-display'); connectionError = document.getElementById('wellcomeai-connection-error');
-    retryButton = connectionError ? connectionError.querySelector('#wellcomeai-retry-button') : null;
-    statusIndicator = document.getElementById('wellcomeai-status-indicator'); statusDot = document.getElementById('wellcomeai-status-dot'); statusText = document.getElementById('wellcomeai-status-text');
-    iosAudioButton = document.getElementById('wellcomeai-ios-audio-button');
-
-    const requiredElements = { 'widgetContainer': widgetContainer, 'widgetButton': widgetButton, 'widgetClose': widgetClose, 'mainCircle': mainCircle, 'audioBars': audioBars, 'loaderModal': loaderModal, 'messageDisplay': messageDisplay, 'connectionError': connectionError, 'statusIndicator': statusIndicator, 'statusDot': statusDot, 'statusText': statusText, 'iosAudioButton': iosAudioButton };
-    let missingElements = []; for (const id in requiredElements) { if (!requiredElements[id]) { missingElements.push(id); } }
-
-    if (missingElements.length > 0) {
-       const errorMessage = `WellcomeAI Widget Error: Missing required UI elements: ${missingElements.join(', ')}. Cannot initialize.`;
-       widgetLog(errorMessage, 'error'); alert(errorMessage);
-       connectionFailedPermanently = true; if (connectionError) { showConnectionError("Критическая ошибка инициализации виджета. Не найдены все элементы."); }
-       if(loaderModal) loaderModal.classList.remove('active'); return;
-    }
-
-    voiceDetector = new VoiceActivityDetector({ threshold: effectiveAudioConfig.soundDetectionThreshold, minSilenceDuration: effectiveAudioConfig.silenceDuration, minSpeechDuration: 300, smoothingFactor: 0.2 });
-    widgetLog("VoiceActivityDetector initialized.");
-    createAudioBars();
-
-    widgetButton.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); openWidget(); });
-    widgetClose.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); closeWidget(); });
-
-    mainCircle.addEventListener('click', function(e) {
-       e.preventDefault(); e.stopPropagation();
-       if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
-           if (isConnected) {
-               if (isIOS) { unlockAudioOnIOS().then(unlocked => { if (unlocked) { widgetLog('Audio context potentially unlocked via main circle click.'); if (iosAudioButton) iosAudioButton.classList.remove('visible'); startListening(); } else { widgetLog('iOS audio context not unlocked via main circle click. Showing button.', 'warn'); if (iosAudioButton) iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку ниже для активации микрофона", 0); } }); }
-               else { startListening(); }
-           } else if (connectionFailedPermanently) { showConnectionError("Соединение с сервером отсутствует. Нажмите кнопку 'Повторить подключение'."); }
-           else { widgetLog("Main circle clicked, but not connected. Attempting connectWebSocket."); connectWebSocket(); }
-       } else {
-           if (isPlayingAudio) showMessage("Подождите, пока завершится ответ.");
-           else if (isReconnecting) showMessage("Переподключение...");
-           else if (!isConnected && !connectionFailedPermanently) { showConnectionError('Соединение не установлено. Нажмите "Повторить подключение".'); updateConnectionStatus('disconnected', 'Отключено'); }
-       }
-    });
-
-    if (retryButton) {
-      const oldRetryButton = retryButton.cloneNode(true); retryButton.parentNode.replaceChild(oldRetryButton, retryButton);
-      retryButton = connectionError.querySelector('#wellcomeai-retry-button');
-      if (retryButton) { retryButton.addEventListener('click', function() { widgetLog('Retry button clicked'); resetConnection(); }); }
-      else { widgetLog("Retry button element not found after replacement!", "error"); }
-    } else { widgetLog("Retry button element not found during init.", "warn"); }
-
-    if (isIOS && iosAudioButton) {
-       const oldIosButton = iosAudioButton.cloneNode(true); iosAudioButton.parentNode.replaceChild(oldIosButton, iosAudioButton);
-       iosAudioButton = document.getElementById('wellcomeai-ios-audio-button');
-       if (iosAudioButton) {
-           iosAudioButton.addEventListener('click', async function handler() {
-             widgetLog("iOS audio activation button clicked.");
-             const success = await initAudio();
-             if (success) { widgetLog("iOS audio successfully initialized via button click."); iosAudioButton.classList.remove('visible'); hideMessage(); if (isWidgetOpen && isConnected && !isListening && !isPlayingAudio && !isReconnecting) { startListening(); } else { widgetLog("Not starting listening after iOS button init success: conditions not met.", "debug"); } iosAudioButton._listenerAdded = false; }
-             else { widgetLog("iOS audio initialization failed again after button click.", "error"); showMessage("Не удалось активировать микрофон. Попробуйте перезагрузить страницу.", 0); }
-           }, { once: true }); iosAudioButton._listenerAdded = true;
-       } else { widgetLog("iOS audio button element not found after replacement!", "error"); }
-    } else if (iosAudioButton) { iosAudioButton.style.display = 'none'; widgetLog("iOS audio button hidden on non-iOS device."); }
-
-    if(loaderModal) loaderModal.classList.add('active');
-    updateConnectionStatus('connecting', 'Загрузка...');
-
-    widgetLog("initWidget completed. UI elements found, listeners added.");
-  }
-
-
-  // --- Запуск виджета после определения всех функций ---
-
-  // Функция для выполнения после загрузки DOM или сразу, если DOM уже готов
-  function initializeWidget() {
-    widgetLog('Initializing widget...');
-    widgetLog(`Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : 'Desktop')}, Mobile: ${isMobile}`);
-
-    loadFontAwesome(); createStyles(); createWidgetHTML(); initWidget();
-
-     if (connectionFailedPermanently) {
-         widgetLog("Initialization failed during initWidget. Skipping WebSocket connection.", "error");
-         if(loaderModal) loaderModal.classList.remove('active'); return;
+     if (isIOS && elements.iosAudioButton) {
+          elements.iosAudioButton.addEventListener('click', handleIOSAudioButtonClick);
      }
 
+     // Обработчик кнопки повтора (изначально отсутствует, добавляется при показе ошибки)
+     // Добавляется динамически в showConnectionError
+
+    // Начинаем с состояния LOADING и пытаемся подключиться
+    updateState('LOADING', 'Загрузка...');
     connectWebSocket();
 
-    widgetLog('Initialization process completed.');
+     // Дополнительная проверка DOM после небольшой задержки
+     setTimeout(() => {
+         widgetLog('Post-initialization DOM and State check.');
+         widgetLog(`Current State: ${widgetState.current}`);
+         widgetLog(`UI Elements Visibility: Loader=${elements.loaderModal.classList.contains('active')}, Message=${elements.messageDisplay.classList.contains('show')}, Error=${elements.connectionError.classList.contains('visible')}, iOSButton=${elements.iosAudioButton && elements.iosAudioButton.classList.contains('visible')}`);
+         if (audioContext) {
+              widgetLog(`AudioContext State: ${audioContext.state}, SampleRate: ${audioContext.sampleRate}`);
+         } else {
+              widgetLog("AudioContext is not yet created.");
+         }
+          if (mediaStream) {
+              widgetLog("MediaStream obtained.");
+          } else {
+              widgetLog("MediaStream not obtained.");
+          }
 
-    setTimeout(function() {
-      widgetLog('DOM and state check 2 seconds after initialization:');
-      const container = document.getElementById('wellcomeai-widget-container'); const button = document.getElementById('wellcomeai-widget-button'); const expanded = document.getElementById('wellcomeai-widget-expanded');
-      widgetLog(`Container found: ${!!container}, Button found: ${!!button}, Expanded found: ${!!expanded}`);
-      if (container) widgetLog(`Container z-index = ${getComputedStyle(container).zIndex}`);
-      if (button) widgetLog(`Button is visible = ${button.offsetParent !== null}`);
-      widgetLog(`Connection state = ${websocket ? websocket.readyState : 'No websocket object'}`);
-      widgetLog(`Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}, connectionFailedPermanently: ${connectionFailedPermanently}`);
-      if (isMobile && audioContext) { widgetLog(`AudioContext state=${audioContext.state}, sampleRate=${audioContext.sampleRate}`); if (mediaStream && mediaStream.getAudioTracks().length > 0) { const track = mediaStream.getAudioTracks()[0]; widgetLog(`Mic track state: readyState=${track.readyState}, enabled=${track.enabled}`); } else { widgetLog("Media stream or audio tracks not available/active.", "debug"); } }
-      if (loaderModal) { widgetLog(`Loader modal is active: ${loaderModal.classList.contains('active')}`); }
-    }, 2000);
+     }, 2000);
   }
 
+  // --- Главная Точка Входа ---
+  widgetLog('WellcomeAI Widget script loaded.');
 
-  // Проверяем, есть ли уже виджет на странице перед началом инициализации
+  // Проверяем, есть ли уже виджет на странице по его ID
   if (!document.getElementById('wellcomeai-widget-container')) {
-    widgetLog('Starting overall widget initialization process.');
+    widgetLog('Widget container not found. Starting full initialization.');
+
+    // Создаем стили и HTML
+    createStyles();
+    createWidgetHTML(); // HTML должен быть создан до initWidget для getDOMElements
+
+    // Ждем загрузки DOM, если он еще не готов
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initializeWidget);
-      widgetLog('Will trigger initializeWidget on DOMContentLoaded');
+        document.addEventListener('DOMContentLoaded', initWidget);
+        widgetLog('Will initialize on DOMContentLoaded.');
     } else {
-      widgetLog('DOM already loaded, triggering initializeWidget immediately');
-      initializeWidget();
+        // DOM уже готов, инициализируем сразу
+        widgetLog('DOM already loaded. Initializing immediately.');
+        initWidget();
     }
   } else {
-    widgetLog('Widget container element already exists on the page, skipping full initialization process.');
+    widgetLog('Widget container already exists. Skipping initialization.');
   }
-
-
 })();
