@@ -33,7 +33,7 @@ class UserUpdate(BaseModel):
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
     
     class Config:
-        json_schema_extra = {  # Updated from schema_extra for Pydantic v2
+        json_schema_extra = {
             "example": {
                 "first_name": "John",
                 "last_name": "Doe",
@@ -66,8 +66,13 @@ class UserResponse(UserBase):
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
     
+    # Новые поля для тарификации
+    is_trial: bool = Field(False, description="Whether user is in trial period")
+    is_admin: bool = Field(False, description="Whether user is an admin")
+    subscription_end_date: Optional[datetime] = Field(None, description="End date of subscription")
+    
     class Config:
-        from_attributes = True  # Updated from orm_mode for Pydantic v2
+        from_attributes = True
         
 class UserDetailResponse(UserResponse):
     """Schema for detailed user response with usage stats"""
@@ -76,5 +81,10 @@ class UserDetailResponse(UserResponse):
     usage_tokens: int = Field(0, description="Total tokens used")
     last_login: Optional[datetime] = Field(None, description="Last login timestamp")
     
+    # Дополнительная информация о подписке
+    subscription_plan_name: Optional[str] = Field(None, description="Subscription plan name")
+    days_left: Optional[int] = Field(None, description="Days left in subscription")
+    max_assistants: Optional[int] = Field(None, description="Maximum number of assistants allowed")
+    
     class Config:
-        from_attributes = True  # Updated from orm_mode for Pydantic v2
+        from_attributes = True
