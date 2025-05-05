@@ -2,30 +2,24 @@
 Assistant API endpoints for WellcomeAI application.
 """
 
-"""
-Assistant API endpoints for WellcomeAI application.
-"""
-
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from backend.core.logging import get_logger  # Изменен импорт core
-from backend.core.dependencies import get_current_user
-from backend.db.session import get_db  # Уже корректный
-from backend.models.user import User  # Изменен импорт models
-from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse  # Изменен импорт schemas
-from backend.schemas.conversation import ConversationResponse, ConversationStats  # Изменен импорт schemas
-from backend.services.assistant_service import AssistantService  # Изменен импорт services
-from backend.services.conversation_service import ConversationService  # Изменен импорт services
+from backend.core.logging import get_logger
+from backend.core.dependencies import get_current_user, check_assistant_limit
+from backend.db.session import get_db
+from backend.models.user import User
+from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse
+from backend.schemas.conversation import ConversationResponse, ConversationStats
+from backend.services.assistant_service import AssistantService
+from backend.services.conversation_service import ConversationService
 
 # Initialize logger
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
-
-# Остальной код остается без изменений
 
 @router.get("/", response_model=List[AssistantResponse])
 async def get_assistants(
@@ -56,7 +50,7 @@ async def get_assistants(
 @router.post("/", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
 async def create_assistant(
     assistant_data: AssistantCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_assistant_limit), # Изменено с get_current_user на check_assistant_limit
     db: Session = Depends(get_db)
 ):
     """
@@ -64,7 +58,7 @@ async def create_assistant(
     
     Args:
         assistant_data: Assistant creation data
-        current_user: Current authenticated user
+        current_user: Current authenticated user with checked assistant limit
         db: Database session dependency
     
     Returns:
