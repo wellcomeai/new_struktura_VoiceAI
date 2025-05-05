@@ -69,7 +69,7 @@ async def startup_event():
     try:
         from scripts.init_db import main as init_db
         import asyncio
-        asyncio.run(init_db())
+        asyncio.run(init_db())  # <-- Проблема здесь
         logger.info("Subscription plans initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize subscription plans: {str(e)}")
