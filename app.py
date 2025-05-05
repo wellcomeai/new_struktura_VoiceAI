@@ -67,15 +67,17 @@ async def startup_event():
     
     # Initialize subscription plans
     try:
-        from scripts.init_db import main as init_db
-        import asyncio
-        asyncio.run(init_db())  # <-- Проблема здесь
-        logger.info("Subscription plans initialized successfully")
+        from scripts.init_db import main_sync as init_db_sync
+        # Используем синхронную версию вместо асинхронной
+        success = init_db_sync()
+        if success:
+            logger.info("Subscription plans initialized successfully")
+        else:
+            logger.error("Failed to initialize subscription plans")
     except Exception as e:
         logger.error(f"Failed to initialize subscription plans: {str(e)}")
     
     logger.info("Application started successfully")
-
 # Main page (redirects to static page)
 @app.get("/")
 async def root():
