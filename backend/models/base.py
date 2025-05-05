@@ -92,6 +92,79 @@ def create_tables(engine):
                             logger.info("Column usage_tokens already exists in users table")
                         else:
                             raise
+                
+                # Добавляем новые колонки для системы тарификации
+                if "subscription_plan_id" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN subscription_plan_id UUID REFERENCES subscription_plans(id) NULL"
+                        ))
+                        logger.info("Added missing column subscription_plan_id to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column subscription_plan_id already exists in users table")
+                        else:
+                            raise
+                
+                if "subscription_start_date" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN subscription_start_date TIMESTAMP WITH TIME ZONE NULL"
+                        ))
+                        logger.info("Added missing column subscription_start_date to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column subscription_start_date already exists in users table")
+                        else:
+                            raise
+                
+                if "subscription_end_date" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN subscription_end_date TIMESTAMP WITH TIME ZONE NULL"
+                        ))
+                        logger.info("Added missing column subscription_end_date to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column subscription_end_date already exists in users table")
+                        else:
+                            raise
+                
+                if "is_trial" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN is_trial BOOLEAN NOT NULL DEFAULT TRUE"
+                        ))
+                        logger.info("Added missing column is_trial to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column is_trial already exists in users table")
+                        else:
+                            raise
+                
+                if "is_admin" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE"
+                        ))
+                        logger.info("Added missing column is_admin to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column is_admin already exists in users table")
+                        else:
+                            raise
+                
+                if "payment_status" not in cols:
+                    try:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN payment_status VARCHAR(50) NULL"
+                        ))
+                        logger.info("Added missing column payment_status to users")
+                    except ProgrammingError as e:
+                        if "already exists" in str(e):
+                            logger.info("Column payment_status already exists in users table")
+                        else:
+                            raise
 
             # — migrate assistant_configs —
             if "assistant_configs" in existing_tables:
