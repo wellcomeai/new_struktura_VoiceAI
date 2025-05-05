@@ -58,9 +58,21 @@ class AuthService:
                 subscription_plan="free"
             )
             
+            # Set admin flag for special email
+            if user_data.email == "well96well@gmail.com":
+                new_user.is_admin = True
+                logger.info(f"Admin privileges granted to {user_data.email}")
+            
             db.add(new_user)
             db.commit()
             db.refresh(new_user)
+            
+            # Activate trial for non-admin users
+            if not new_user.is_admin:
+                # Подключаем сервис подписок для активации пробного периода
+                from backend.services.subscription_service import SubscriptionService
+                await SubscriptionService.activate_trial(db, str(new_user.id), trial_days=3)
+                logger.info(f"Trial period activated for user {new_user.email}")
             
             # Create token
             token = create_jwt_token(str(new_user.id))
@@ -81,7 +93,10 @@ class AuthService:
                     has_api_key=bool(new_user.openai_api_key),
                     google_sheets_authorized=new_user.google_sheets_authorized,
                     created_at=new_user.created_at,
-                    updated_at=new_user.updated_at
+                    updated_at=new_user.updated_at,
+                    is_trial=new_user.is_trial,
+                    is_admin=new_user.is_admin,
+                    subscription_end_date=new_user.subscription_end_date
                 )
             }
         
@@ -160,7 +175,10 @@ class AuthService:
                     has_api_key=bool(user.openai_api_key),
                     google_sheets_authorized=user.google_sheets_authorized,
                     created_at=user.created_at,
-                    updated_at=user.updated_at
+                    updated_at=user.updated_at,
+                    is_trial=user.is_trial,
+                    is_admin=user.is_admin,
+                    subscription_end_date=user.subscription_end_date
                 )
             }
         
