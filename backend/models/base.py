@@ -39,7 +39,8 @@ class BaseModel:
 
 def create_tables(engine):
     """
-    Создаёт таблицы (если их нет) и добавляет недостающие колонки
+    Создаёт таблицы (если их нет) и добавляет недостающие колонки.
+    Каждое изменение выполняется в отдельной транзакции для надежности.
     """
     # 1) Создаём все таблицы по описанным моделям
     Base.metadata.create_all(engine)
@@ -48,143 +49,50 @@ def create_tables(engine):
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()
 
-    with engine.begin() as conn:
-        try:
-            # — migrate users —
-            if "users" in existing_tables:
-                cols = {c["name"] for c in inspector.get_columns("users")}
-                
-                # Добавляем колонки, только если их нет, каждую в отдельном try-except блоке
-                if "last_login" not in cols:
-                    try:
+    # Для таблицы users добавляем колонки, если их нет
+    if "users" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("users")}
+        
+        # Выполняем миграции для каждого столбца в отдельной транзакции
+        for col_data in [
+            {"name": "last_login", "type": "TIMESTAMP WITH TIME ZONE NULL"},
+            {"name": "is_active", "type": "BOOLEAN NOT NULL DEFAULT TRUE"},
+            {"name": "usage_tokens", "type": "INTEGER NOT NULL DEFAULT 0"},
+            {"name": "subscription_plan_id", "type": "UUID REFERENCES subscription_plans(id) NULL"},
+            {"name": "subscription_start_date", "type": "TIMESTAMP WITH TIME ZONE NULL"},
+            {"name": "subscription_end_date", "type": "TIMESTAMP WITH TIME ZONE NULL"},
+            {"name": "is_trial", "type": "BOOLEAN NOT NULL DEFAULT TRUE"},
+            {"name": "is_admin", "type": "BOOLEAN NOT NULL DEFAULT FALSE"},
+            {"name": "payment_status", "type": "VARCHAR(50) NULL"}
+        ]:
+            if col_data["name"] not in cols:
+                try:
+                    with engine.begin() as conn:
                         conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN last_login TIMESTAMP WITH TIME ZONE NULL"
+                            f"ALTER TABLE users ADD COLUMN {col_data['name']} {col_data['type']}"
                         ))
-                        logger.info("Added missing column last_login to users")
-                    except ProgrammingError as e:
-                        # Если колонка уже существует, просто логируем и продолжаем
-                        if "already exists" in str(e):
-                            logger.info("Column last_login already exists in users table")
-                        else:
-                            raise
-                
-                if "is_active" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"
-                        ))
-                        logger.info("Added missing column is_active to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column is_active already exists in users table")
-                        else:
-                            raise
-                
-                # Для usage_tokens, который вызывает ошибку
-                if "usage_tokens" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN usage_tokens INTEGER NOT NULL DEFAULT 0"
-                        ))
-                        logger.info("Added missing column usage_tokens to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column usage_tokens already exists in users table")
-                        else:
-                            raise
-                
-                # Добавляем новые колонки для системы тарификации
-                if "subscription_plan_id" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN subscription_plan_id UUID REFERENCES subscription_plans(id) NULL"
-                        ))
-                        logger.info("Added missing column subscription_plan_id to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column subscription_plan_id already exists in users table")
-                        else:
-                            raise
-                
-                if "subscription_start_date" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN subscription_start_date TIMESTAMP WITH TIME ZONE NULL"
-                        ))
-                        logger.info("Added missing column subscription_start_date to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column subscription_start_date already exists in users table")
-                        else:
-                            raise
-                
-                if "subscription_end_date" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN subscription_end_date TIMESTAMP WITH TIME ZONE NULL"
-                        ))
-                        logger.info("Added missing column subscription_end_date to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column subscription_end_date already exists in users table")
-                        else:
-                            raise
-                
-                if "is_trial" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN is_trial BOOLEAN NOT NULL DEFAULT TRUE"
-                        ))
-                        logger.info("Added missing column is_trial to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column is_trial already exists in users table")
-                        else:
-                            raise
-                
-                if "is_admin" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT FALSE"
-                        ))
-                        logger.info("Added missing column is_admin to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column is_admin already exists in users table")
-                        else:
-                            raise
-                
-                if "payment_status" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE users ADD COLUMN payment_status VARCHAR(50) NULL"
-                        ))
-                        logger.info("Added missing column payment_status to users")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column payment_status already exists in users table")
-                        else:
-                            raise
+                        logger.info(f"Added missing column {col_data['name']} to users")
+                except ProgrammingError as e:
+                    if "already exists" in str(e):
+                        logger.info(f"Column {col_data['name']} already exists in users table")
+                    else:
+                        logger.error(f"Error adding column {col_data['name']}: {e}")
 
-            # — migrate assistant_configs —
-            if "assistant_configs" in existing_tables:
-                cols = {c["name"] for c in inspector.get_columns("assistant_configs")}
-                if "api_access_token" not in cols:
-                    try:
-                        conn.execute(text(
-                            "ALTER TABLE assistant_configs ADD COLUMN api_access_token TEXT NULL"
-                        ))
-                        logger.info("Added missing column api_access_token to assistant_configs")
-                    except ProgrammingError as e:
-                        if "already exists" in str(e):
-                            logger.info("Column api_access_token already exists in assistant_configs table")
-                        else:
-                            raise
-
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to create/update database tables: {e}")
-            # Не выбрасываем исключение, чтобы приложение могло запуститься
-            # даже если не удалось добавить некоторые колонки
-            logger.warning("Continuing despite database migration errors")
+    # Для таблицы assistant_configs добавляем колонки, если их нет
+    if "assistant_configs" in existing_tables:
+        cols = {c["name"] for c in inspector.get_columns("assistant_configs")}
+        
+        if "api_access_token" not in cols:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        "ALTER TABLE assistant_configs ADD COLUMN api_access_token TEXT NULL"
+                    ))
+                    logger.info("Added missing column api_access_token to assistant_configs")
+            except ProgrammingError as e:
+                if "already exists" in str(e):
+                    logger.info("Column api_access_token already exists in assistant_configs table")
+                else:
+                    logger.error(f"Error adding column api_access_token: {e}")
 
     logger.info("Database tables updated successfully")
