@@ -70,7 +70,7 @@ def ensure_admin_user(db):
         print(f"Admin user not found: {admin_email}. Please register with this email to get admin privileges.")
 
 async def main():
-    """Main function"""
+    """Main async function"""
     print("Creating tables...")
     Base.metadata.create_all(bind=engine)
     
@@ -83,6 +83,56 @@ async def main():
         ensure_admin_user(db)
         
         print("Database initialization completed!")
+    finally:
+        db.close()
+
+# Добавляем синхронную версию для использования в startup_event
+def main_sync():
+    """Synchronous version of main function"""
+    print("Creating tables...")
+    Base.metadata.create_all(bind=engine)
+    
+    db = SessionLocal()
+    try:
+        print("Initializing subscription plans...")
+        # Используем синхронный подход вместо асинхронного
+        plans = [
+            {
+                "name": "Бесплатный пробный период",
+                "code": "free",
+                "price": 0,
+                "max_assistants": 1,
+                "description": "Бесплатный пробный период на 3 дня"
+            },
+            {
+                "name": "Старт",
+                "code": "start",
+                "price": 1990,
+                "max_assistants": 3,
+                "description": "Тариф 'Старт' - 3 ассистента, все функции"
+            }
+        ]
+        
+        for plan_data in plans:
+            # Check if plan already exists
+            existing_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_data["code"]).first()
+            if not existing_plan:
+                plan = SubscriptionPlan(**plan_data)
+                db.add(plan)
+                print(f"Created plan: {plan_data['name']}")
+            else:
+                print(f"Plan already exists: {plan_data['name']}")
+        
+        db.commit()
+        
+        print("Ensuring admin user...")
+        ensure_admin_user(db)
+        
+        print("Database initialization completed!")
+        return True
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        return False
     finally:
         db.close()
 
