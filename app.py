@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
 from backend.core.logging import setup_logging, get_logger
-from backend.api import auth, users, assistants, files, websocket, healthcheck
+from backend.api import auth, users, assistants, files, websocket, healthcheck, subscriptions  # Добавлен импорт subscriptions
 from backend.models.base import create_tables
 from backend.db.session import engine
 
@@ -46,6 +46,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
+app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])  # Новый маршрут для подписок
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(healthcheck.router, tags=["Health"])
 
@@ -63,6 +64,16 @@ app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 async def startup_event():
     # Create database tables if they don't exist
     create_tables(engine)
+    
+    # Initialize subscription plans
+    try:
+        from scripts.init_db import main as init_db
+        import asyncio
+        asyncio.run(init_db())
+        logger.info("Subscription plans initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize subscription plans: {str(e)}")
+    
     logger.info("Application started successfully")
 
 # Main page (redirects to static page)
