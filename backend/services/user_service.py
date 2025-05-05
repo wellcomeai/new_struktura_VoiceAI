@@ -7,10 +7,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
+from datetime import datetime, timedelta
 
 from backend.core.logging import get_logger
 from backend.models.user import User
 from backend.models.assistant import AssistantConfig  # Правильный импорт модели
+from backend.models.subscription import SubscriptionPlan # Добавлен импорт для подписок
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
 logger = get_logger(__name__)
@@ -234,3 +236,117 @@ class UserService:
         except Exception as e:
             db.rollback()
             logger.error(f"Error adding usage tokens: {str(e)}")
+    
+    @staticmethod
+    async def check_subscription_status(db: Session, user_id: str) -> dict:
+        """
+        Проверить статус подписки пользователя
+        
+        Args:
+            db: Сессия базы данных
+            user_id: ID пользователя
+            
+        Returns:
+            Словарь с информацией о статусе подписки
+        """
+        try:
+            user = await UserService.get_user_by_id(db, user_id)
+            
+            # Администраторы всегда имеют активную подписку
+            if user.is_admin:
+                return {
+                    "active": True,
+                    "is_trial": False,
+                    "days_left": None,
+                    "max_assistants": float('inf')  # Без ограничений
+                }
+                
+            # Проверяем, есть ли активная подписка
+            now = datetime.now()
+            has_active_subscription = (
+                user.subscription_plan_id is not None and
+                user.subscription_end_date is not None and
+                user.subscription_end_date > now
+            )
+            
+            # Получаем максимальное количество ассистентов из плана подписки
+            max_assistants = 0
+            if user.subscription_plan_id:
+                plan = db.query(SubscriptionPlan).get(user.subscription_plan_id)
+                if plan:
+                    max_assistants = plan.max_assistants
+            
+            # Вычисляем, сколько дней осталось
+            days_left = None
+            if user.subscription_end_date and has_active_subscription:
+                delta = user.subscription_end_date - now
+                days_left = max(0, delta.days)
+            
+            return {
+                "active": has_active_subscription,
+                "is_trial": user.is_trial if has_active_subscription else False,
+                "days_left": days_left,
+                "max_assistants": max_assistants if has_active_subscription else 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking subscription status: {str(e)}")
+            # Возвращаем статус неактивной подписки в случае ошибки
+            return {
+                "active": False,
+                "is_trial": False,
+                "days_left": 0,
+                "max_assistants": 0
+            }
+
+    @staticmethod
+    async def set_subscription_plan(db: Session, user_id: str, plan_code: str, duration_days: int) -> User:
+        """
+        Установить план подписки для пользователя
+        
+        Args:
+            db: Сессия базы данных
+            user_id: ID пользователя
+            plan_code: Код плана подписки
+            duration_days: Продолжительность подписки в днях
+            
+        Returns:
+            Обновленный объект пользователя
+        """
+        try:
+            user = await UserService.get_user_by_id(db, user_id)
+            
+            # Находим план подписки по коду
+            subscription_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
+            if not subscription_plan:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Subscription plan with code {plan_code} not found"
+                )
+            
+            # Устанавливаем даты начала и окончания подписки
+            now = datetime.now()
+            user.subscription_plan_id = subscription_plan.id
+            user.subscription_start_date = now
+            user.subscription_end_date = now + timedelta(days=duration_days)
+            
+            # Если бесплатный план, то это пробный период
+            user.is_trial = plan_code == "free"
+            
+            # Сохраняем изменения
+            db.commit()
+            db.refresh(user)
+            
+            logger.info(f"Set subscription plan {plan_code} for user {user_id} for {duration_days} days")
+            
+            return user
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error setting subscription plan: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to set subscription plan"
+            )
