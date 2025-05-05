@@ -25,7 +25,6 @@ class User(Base, BaseModel):
     company_name = Column(String, nullable=True)
     openai_api_key = Column(String, nullable=True)
     subscription_plan = Column(String, default="free")
-    # Колонка уже существует в БД, оставляем её в модели
     usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
     google_sheets_token = Column(JSON, nullable=True)
@@ -33,10 +32,19 @@ class User(Base, BaseModel):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Новые поля для системы тарификации
+    subscription_plan_id = Column(UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=True)
+    subscription_start_date = Column(DateTime(timezone=True), nullable=True)
+    subscription_end_date = Column(DateTime(timezone=True), nullable=True)
+    is_trial = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)
+    payment_status = Column(String(50), nullable=True)
 
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
+    subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
 
     def __repr__(self):
         """Строковое представление пользователя"""
@@ -63,9 +71,22 @@ class User(Base, BaseModel):
         # Преобразуем UUID в строку для сериализации JSON
         if isinstance(data.get("id"), uuid.UUID):
             data["id"] = str(data["id"])
+        if isinstance(data.get("subscription_plan_id"), uuid.UUID):
+            data["subscription_plan_id"] = str(data["subscription_plan_id"])
             
         return data
     
     def has_api_key(self):
         """Проверить, настроен ли ключ OpenAI API у пользователя"""
         return bool(self.openai_api_key)
+    
+    def has_active_subscription(self):
+        """Проверить, активна ли подписка пользователя"""
+        if self.is_admin:
+            return True
+            
+        from datetime import datetime
+        if self.subscription_end_date and self.subscription_end_date > datetime.now():
+            return True
+            
+        return False
