@@ -4,7 +4,7 @@ import json
 import uuid
 import base64
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import websockets
 from websockets.exceptions import ConnectionClosed
 from fastapi import WebSocket
