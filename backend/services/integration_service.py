@@ -1,141 +1,246 @@
+"""
+Integration service module for WellcomeAI application.
+"""
+
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any
 import uuid
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
 
-from backend.core.logging import get_logger
 from backend.models.integration import Integration
-from backend.models.assistant import AssistantConfig
-from backend.schemas.integration import IntegrationCreate, IntegrationUpdate
+from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 class IntegrationService:
-    """Сервис для работы с интеграциями."""
-    
     @staticmethod
-    async def get_integrations(db: Session, assistant_id: str) -> List[Integration]:
-        """Получить все интеграции для ассистента."""
-        return db.query(Integration).filter(Integration.assistant_id == assistant_id).all()
-    
-    @staticmethod
-    async def get_integration_by_id(db: Session, integration_id: str, assistant_id: str) -> Integration:
-        """Получить интеграцию по ID."""
-        integration = db.query(Integration).filter(
-            Integration.id == integration_id,
-            Integration.assistant_id == assistant_id
-        ).first()
+    async def get_integrations(db: Session, assistant_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all integrations for an assistant.
         
-        if not integration:
+        Args:
+            db: Database session
+            assistant_id: Assistant ID
+            
+        Returns:
+            List of integrations
+        """
+        try:
+            integrations = db.query(Integration).filter(Integration.assistant_id == assistant_id).all()
+            
+            result = []
+            for integration in integrations:
+                result.append({
+                    "id": str(integration.id),
+                    "assistant_id": str(integration.assistant_id),
+                    "name": integration.name,
+                    "type": integration.type,
+                    "webhook_url": integration.webhook_url,
+                    "is_active": integration.is_active,
+                    "created_at": integration.created_at,
+                    "updated_at": integration.updated_at
+                })
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error getting integrations: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Интеграция не найдена"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error getting integrations: {str(e)}"
+            )
+    
+    @staticmethod
+    async def create_integration(db: Session, assistant_id: str, integration_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new integration for an assistant.
+        
+        Args:
+            db: Database session
+            assistant_id: Assistant ID
+            integration_data: Integration data
+            
+        Returns:
+            New integration
+        """
+        try:
+            # Validate required fields
+            required_fields = ["name", "type", "webhook_url"]
+            for field in required_fields:
+                if field not in integration_data:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Missing required field: {field}"
+                    )
+            
+            # Convert assistant_id to UUID if it's a string
+            try:
+                assistant_uuid = uuid.UUID(assistant_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid assistant ID format"
+                )
+            
+            # Create integration
+            integration = Integration(
+                assistant_id=assistant_uuid,
+                name=integration_data["name"],
+                type=integration_data["type"],
+                webhook_url=integration_data["webhook_url"],
+                is_active=integration_data.get("is_active", True)
             )
             
-        return integration
-    
-    @staticmethod
-    async def create_integration(db: Session, assistant_id: str, integration_data: IntegrationCreate) -> Integration:
-        """Создать новую интеграцию."""
-        # Проверяем существование ассистента
-        assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
-        if not assistant:
+            db.add(integration)
+            db.commit()
+            db.refresh(integration)
+            
+            return {
+                "id": str(integration.id),
+                "assistant_id": str(integration.assistant_id),
+                "name": integration.name,
+                "type": integration.type,
+                "webhook_url": integration.webhook_url,
+                "is_active": integration.is_active,
+                "created_at": integration.created_at,
+                "updated_at": integration.updated_at
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error creating integration: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Ассистент не найден"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error creating integration: {str(e)}"
             )
-        
-        integration = Integration(
-            assistant_id=assistant_id,
-            name=integration_data.name,
-            type=integration_data.type,
-            webhook_url=integration_data.webhook_url,
-            is_active=True
-        )
-        
-        db.add(integration)
-        
-        # Обновляем функции ассистента
-        await IntegrationService.update_assistant_functions(db, assistant)
-        
-        db.commit()
-        db.refresh(integration)
-        
-        return integration
     
     @staticmethod
-    async def update_integration(db: Session, integration_id: str, assistant_id: str, integration_data: IntegrationUpdate) -> Integration:
-        """Обновить интеграцию."""
-        integration = await IntegrationService.get_integration_by_id(db, integration_id, assistant_id)
+    async def update_integration(db: Session, assistant_id: str, integration_id: str, integration_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update an existing integration.
         
-        # Обновляем данные
-        update_data = integration_data.dict(exclude_unset=True)
-        for key, value in update_data.items():
-            setattr(integration, key, value)
-        
-        # Обновляем функции ассистента
-        assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
-        await IntegrationService.update_assistant_functions(db, assistant)
-        
-        db.commit()
-        db.refresh(integration)
-        
-        return integration
+        Args:
+            db: Database session
+            assistant_id: Assistant ID
+            integration_id: Integration ID
+            integration_data: Integration data
+            
+        Returns:
+            Updated integration
+        """
+        try:
+            # Find integration
+            try:
+                integration_uuid = uuid.UUID(integration_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid integration ID format"
+                )
+                
+            try:
+                assistant_uuid = uuid.UUID(assistant_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid assistant ID format"
+                )
+            
+            integration = db.query(Integration).filter(
+                Integration.id == integration_uuid,
+                Integration.assistant_id == assistant_uuid
+            ).first()
+            
+            if not integration:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Integration not found"
+                )
+            
+            # Update fields
+            if "name" in integration_data:
+                integration.name = integration_data["name"]
+            
+            if "type" in integration_data:
+                integration.type = integration_data["type"]
+            
+            if "webhook_url" in integration_data:
+                integration.webhook_url = integration_data["webhook_url"]
+            
+            if "is_active" in integration_data:
+                integration.is_active = integration_data["is_active"]
+            
+            db.commit()
+            db.refresh(integration)
+            
+            return {
+                "id": str(integration.id),
+                "assistant_id": str(integration.assistant_id),
+                "name": integration.name,
+                "type": integration.type,
+                "webhook_url": integration.webhook_url,
+                "is_active": integration.is_active,
+                "created_at": integration.created_at,
+                "updated_at": integration.updated_at
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating integration: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error updating integration: {str(e)}"
+            )
     
     @staticmethod
-    async def delete_integration(db: Session, integration_id: str, assistant_id: str) -> bool:
-        """Удалить интеграцию."""
-        integration = await IntegrationService.get_integration_by_id(db, integration_id, assistant_id)
+    async def delete_integration(db: Session, assistant_id: str, integration_id: str) -> None:
+        """
+        Delete an integration.
         
-        db.delete(integration)
-        
-        # Обновляем функции ассистента
-        assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
-        await IntegrationService.update_assistant_functions(db, assistant)
-        
-        db.commit()
-        
-        return True
-    
-    @staticmethod
-    async def update_assistant_functions(db: Session, assistant: AssistantConfig) -> None:
-        """Обновить функции ассистента на основе его интеграций."""
-        active_integrations = db.query(Integration).filter(
-            Integration.assistant_id == assistant.id,
-            Integration.is_active == True
-        ).all()
-        
-        # Базовый список функций ассистента (если есть)
-        existing_functions = assistant.functions or []
-        
-        # Функции, не связанные с интеграциями (если есть)
-        non_integration_functions = [
-            f for f in existing_functions 
-            if not f.get("name", "").startswith("integration_")
-        ]
-        
-        # Создаем новые функции для интеграций
-        integration_functions = []
-        
-        for integration in active_integrations:
-            if integration.type == "n8n":
-                # Создаем функцию для n8n вебхука
-                n8n_function = {
-                    "name": f"integration_{integration.id}",
-                    "description": f"Отправить данные в n8n: {integration.name}",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "text": {
-                                "type": "string",
-                                "description": "Текст для отправки в n8n вебхук"
-                            }
-                        },
-                        "required": ["text"]
-                    }
-                }
-                integration_functions.append(n8n_function)
-        
-        # Обновляем функции ассистента
-        assistant.functions = non_integration_functions + integration_functions
-        db.commit()
+        Args:
+            db: Database session
+            assistant_id: Assistant ID
+            integration_id: Integration ID
+        """
+        try:
+            # Find integration
+            try:
+                integration_uuid = uuid.UUID(integration_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid integration ID format"
+                )
+                
+            try:
+                assistant_uuid = uuid.UUID(assistant_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid assistant ID format"
+                )
+            
+            integration = db.query(Integration).filter(
+                Integration.id == integration_uuid,
+                Integration.assistant_id == assistant_uuid
+            ).first()
+            
+            if not integration:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Integration not found"
+                )
+            
+            # Delete integration
+            db.delete(integration)
+            db.commit()
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error deleting integration: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error deleting integration: {str(e)}"
+            )
