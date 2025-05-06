@@ -8,6 +8,7 @@ from .user import User
 from .assistant import AssistantConfig
 from .conversation import Conversation
 from .file import File
+from .integration import Integration
 
 # Export specific models
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "AssistantConfig", 
     "Conversation", 
     "File"
+    "Integration"
 ]
