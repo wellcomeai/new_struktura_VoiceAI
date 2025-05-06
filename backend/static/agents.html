@@ -616,6 +616,145 @@
       margin: 0 auto 2rem;
     }
     
+    /* Стили для раздела тестирования */
+    .testing-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 2rem;
+    }
+    
+    .testing-container {
+      padding: 1.5rem;
+    }
+    
+    .testing-description {
+      margin-bottom: 2rem;
+      color: var(--text-gray);
+      line-height: 1.6;
+    }
+    
+    .testing-features {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+    
+    .feature-item i {
+      font-size: 1.25rem;
+      color: var(--primary-blue);
+    }
+    
+    .testing-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+      padding: 1rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+    
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-gray);
+    }
+    
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    
+    .status-indicator.connected {
+      background-color: #10b981;
+    }
+    
+    .status-indicator.connecting {
+      background-color: #f59e0b;
+      animation: pulse 1.5s infinite;
+    }
+    
+    .status-indicator.disconnected {
+      background-color: #ef4444;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+    
+    #testing-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    
+    .testing-tip {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--text-light);
+      margin-top: 0.5rem;
+    }
+    
+    /* Анимация пульсирующей кнопки для привлечения внимания */
+    .pulse-animation {
+      animation: pulse-animation 2s infinite;
+    }
+    
+    @keyframes pulse-animation {
+      0% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+      }
+    }
+
+    /* Стили для минималистичного тестирования */
+    .widget-indicator {
+      position: fixed;
+      bottom: 100px;
+      right: 30px;
+      padding: 8px 12px;
+      background: rgba(37, 99, 235, 0.1);
+      border: 1px dashed var(--primary-blue);
+      border-radius: 5px;
+      color: var(--primary-blue);
+      font-size: 0.875rem;
+      pointer-events: none;
+      animation: fade-out 5s forwards;
+      z-index: 90;
+    }
+    
+    @keyframes fade-out {
+      0% { opacity: 1; }
+      80% { opacity: 1; }
+      100% { opacity: 0; }
+    }
+    
     @media (max-width: 768px) {
       .agent-items {
         grid-template-columns: 1fr;
@@ -701,7 +840,7 @@
         <!-- Табы -->
         <div class="tabs">
           <div class="tab active" data-tab="settings">Настройки</div>
-          <div class="tab" data-tab="statistics">Статистика</div>
+          <div class="tab" data-tab="testing">Тестирование</div>
           <div class="tab" data-tab="embed">Встраивание</div>
         </div>
         
@@ -769,45 +908,44 @@
           </form>
         </div>
         
-        <!-- Таб статистики -->
-        <div class="tab-content" id="statistics-tab">
-          <div class="stats-grid">
-            <div class="stat-card">
-              <div class="stat-title">Всего взаимодействий</div>
-              <div class="stat-value" id="total-interactions">245</div>
-              <div class="stat-change positive">
-                <i class="fas fa-arrow-up"></i> 12% за последнюю неделю
-              </div>
+        <!-- Таб тестирования -->
+        <div class="tab-content" id="testing-tab">
+          <div class="card testing-section">
+            <div class="card-header">
+              <h3 style="margin-bottom: 1rem;">Тестирование вашего голосового ассистента</h3>
             </div>
             
-            <div class="stat-card">
-              <div class="stat-title">Сегодня</div>
-              <div class="stat-value" id="today-interactions">32</div>
-              <div class="stat-change positive">
-                <i class="fas fa-arrow-up"></i> 8% от вчера
+            <div class="testing-container">
+              <div class="testing-description">
+                <p>Голосовой ассистент готов к использованию. Для взаимодействия нажмите на кнопку в правом нижнем углу экрана.</p>
+                <div class="testing-features">
+                  <div class="feature-item">
+                    <i class="fas fa-microphone"></i>
+                    <span>Говорите с ассистентом через микрофон</span>
+                  </div>
+                  <div class="feature-item">
+                    <i class="fas fa-volume-up"></i>
+                    <span>Слушайте ответы в выбранном голосе</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="testing-status">
+                <div class="status-item" id="testing-connection-status">
+                  <div class="status-indicator connecting"></div>
+                  <span>Подключение...</span>
+                </div>
+                <div class="status-item" id="testing-voice-status">
+                  <i class="fas fa-volume-up"></i>
+                  <span>Голос: <span id="voice-name">загрузка...</span></span>
+                </div>
+              </div>
+              
+              <div class="testing-tip" style="text-align: center; margin-top: 2rem;">
+                <i class="fas fa-arrow-right"></i>
+                <span>Виджет доступен в правом нижнем углу экрана</span>
               </div>
             </div>
-            
-            <div class="stat-card">
-              <div class="stat-title">Среднее время ответа</div>
-              <div class="stat-value" id="avg-response-time">1.8 сек</div>
-              <div class="stat-change negative">
-                <i class="fas fa-arrow-down"></i> 0.3 сек от прошлой недели
-              </div>
-            </div>
-            
-            <div class="stat-card">
-              <div class="stat-title">Успешные взаимодействия</div>
-              <div class="stat-value" id="success-rate">92%</div>
-              <div class="stat-change positive">
-                <i class="fas fa-arrow-up"></i> 3% от прошлого месяца
-              </div>
-            </div>
-          </div>
-          
-          <div class="form-section">
-            <h3 style="margin-bottom: 1rem;">Последние взаимодействия</h3>
-            <p>Здесь будет таблица с историей взаимодействий пользователей с ботом.</p>
           </div>
         </div>
         
@@ -866,6 +1004,11 @@
 
     <!-- Панель отладки -->
     <div class="debug-panel" id="debug-panel"></div>
+    
+    <!-- Индикатор для виджета -->
+    <div id="widget-indicator" class="widget-indicator" style="display: none;">
+      Виджет голосового ассистента доступен здесь
+    </div>
   </main>
   
   <script>
@@ -873,6 +1016,10 @@
       // Определение переменных
       let currentAgentId = null;
       let isLoading = false;
+      let testWidgetScript = null;
+      let isTestWidgetInitialized = false;
+      let isMicPermissionGranted = false;
+      let isTestActive = false;
       
       // Получаем элементы
       const tabs = document.querySelectorAll('.tab');
@@ -1382,6 +1529,9 @@
         saveAgentBtn.style.display = 'inline-flex';
         saveAgentBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
         createNewAgentBtn.style.display = 'none';
+        
+        // Инициализируем обработчики для тестирования
+        setupTestingTab();
       }
       
       // Переключение на режим списка
@@ -1403,6 +1553,155 @@
         
         // Сбрасываем текущий ID агента
         currentAgentId = null;
+      }
+      
+      // Функция для инициализации вкладки тестирования
+      function initTestingTab() {
+        // Находим элементы интерфейса
+        const connectionStatus = document.getElementById('testing-connection-status');
+        const voiceNameElement = document.getElementById('voice-name');
+        const widgetIndicator = document.getElementById('widget-indicator');
+        
+        // Обновляем имя голоса если доступно
+        if (voiceNameElement) {
+          const selectedVoice = document.querySelector('input[name="voice"]:checked');
+          if (selectedVoice) {
+            voiceNameElement.textContent = selectedVoice.value;
+          }
+        }
+        
+        // Сразу инициализируем виджет
+        if (!isTestWidgetInitialized && currentAgentId) {
+          initTestWidget();
+          
+          // Показываем индикатор виджета
+          if (widgetIndicator) {
+            widgetIndicator.style.display = 'block';
+            setTimeout(() => {
+              widgetIndicator.style.display = 'none';
+            }, 5000);
+          }
+        }
+      }
+      
+      // Инициализация виджета для тестирования
+      function initTestWidget() {
+        if (isTestWidgetInitialized || !currentAgentId) return;
+        
+        // Обновляем статус
+        updateTestConnectionStatus('connecting', 'Подключение...');
+        
+        // Удаляем предыдущий скрипт, если есть
+        if (testWidgetScript) {
+          testWidgetScript.remove();
+        }
+        
+        // Создаем новый скрипт для виджета с ID текущего агента
+        testWidgetScript = document.createElement('script');
+        testWidgetScript.src = '/static/widget.js';
+        testWidgetScript.dataset.assistantId = currentAgentId;
+        testWidgetScript.dataset.position = 'bottom-right';
+        
+        // Добавляем обработчик загрузки скрипта
+        testWidgetScript.onload = function() {
+          isTestWidgetInitialized = true;
+          
+          // Проверяем, появился ли виджет
+          setTimeout(() => {
+            const widgetButton = document.querySelector('.wellcomeai-widget-button');
+            if (widgetButton) {
+              updateTestConnectionStatus('connected', 'Подключено');
+              
+              // Добавляем класс пульсации для привлечения внимания
+              widgetButton.classList.add('pulse-animation');
+              
+              // Запрашиваем разрешение на использование микрофона
+              requestMicrophonePermission();
+            } else {
+              updateTestConnectionStatus('disconnected', 'Не удалось загрузить виджет');
+            }
+          }, 2000);
+        };
+        
+        // Обработчик ошибки загрузки
+        testWidgetScript.onerror = function() {
+          updateTestConnectionStatus('disconnected', 'Ошибка загрузки виджета');
+          isTestWidgetInitialized = false;
+        };
+        
+        // Добавляем скрипт на страницу
+        document.head.appendChild(testWidgetScript);
+      }
+      
+      // Запрос разрешения на использование микрофона
+      function requestMicrophonePermission() {
+        if (isMicPermissionGranted) return;
+        
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+              isMicPermissionGranted = true;
+              // Останавливаем потоки, так как нам нужно было только проверить разрешение
+              stream.getTracks().forEach(track => track.stop());
+            })
+            .catch(function(err) {
+              console.error('Ошибка доступа к микрофону:', err);
+              // Показываем уведомление с ошибкой
+              ui.showNotification('Для тестирования голосового ассистента необходим доступ к микрофону', 'error');
+            });
+        } else {
+          ui.showNotification('Ваш браузер не поддерживает доступ к микрофону', 'error');
+        }
+      }
+      
+      // Обновление статуса подключения
+      function updateTestConnectionStatus(status, message) {
+        const connectionStatus = document.getElementById('testing-connection-status');
+        if (!connectionStatus) return;
+        
+        const statusIndicator = connectionStatus.querySelector('.status-indicator');
+        const statusText = connectionStatus.querySelector('span');
+        
+        if (statusIndicator) {
+          statusIndicator.className = 'status-indicator ' + status;
+        }
+        
+        if (statusText) {
+          statusText.textContent = message;
+        }
+      }
+      
+      // Добавим обработчик для переключения вкладок
+      function setupTestingTab() {
+        const tabs = document.querySelectorAll('.tab');
+        
+        tabs.forEach(tab => {
+          tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-tab');
+            
+            // Если переключились на вкладку тестирования
+            if (tabId === 'testing' && currentAgentId) {
+              // Инициализируем интерфейс тестирования
+              setTimeout(initTestingTab, 100);
+              
+              // Автоматически инициализируем виджет если еще не инициализирован
+              if (!isTestWidgetInitialized) {
+                setTimeout(initTestWidget, 200);
+                
+                // Показываем индикатор виджета
+                setTimeout(() => {
+                  const widgetIndicator = document.getElementById('widget-indicator');
+                  if (widgetIndicator) {
+                    widgetIndicator.style.display = 'block';
+                    setTimeout(() => {
+                      widgetIndicator.style.display = 'none';
+                    }, 5000);
+                  }
+                }, 1000);
+              }
+            }
+          });
+        });
       }
       
       // Обработчики событий
@@ -1485,6 +1784,35 @@
             
             // Перезагружаем данные для обновления всех полей
             await loadAgentData();
+            
+            // После сохранения обновляем виджет независимо от активной вкладки
+        // Если виджет был инициализирован, перезагружаем его
+        if (isTestWidgetInitialized) {
+          isTestWidgetInitialized = false;
+          
+          // Удаляем существующий виджет
+          const existingWidget = document.querySelector('.wellcomeai-widget-container');
+          if (existingWidget) {
+            existingWidget.remove();
+          }
+          
+          // Через небольшую задержку инициализируем заново
+          setTimeout(() => {
+            initTestWidget();
+          }, 1000);
+          
+          // Показываем индикатор виджета если на вкладке тестирования
+          const activeTab = document.querySelector('.tab.active');
+          if (activeTab && activeTab.getAttribute('data-tab') === 'testing') {
+            const widgetIndicator = document.getElementById('widget-indicator');
+            if (widgetIndicator) {
+              widgetIndicator.style.display = 'block';
+              setTimeout(() => {
+                widgetIndicator.style.display = 'none';
+              }, 5000);
+            }
+          }
+        }
           } else {
             ui.showNotification('ID агента не определен', 'error');
           }
