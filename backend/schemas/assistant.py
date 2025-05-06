@@ -32,14 +32,25 @@ class AssistantBase(BaseModel):
     voice: str = Field("alloy", description="Voice for the assistant")
     language: str = Field("ru", description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
-    functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
-    
+    # Теперь принимаем и список, и словарь (config с enabled_functions)
+    functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(
+        None,
+        description="Functions configuration (list of function dicts, or dict with enabled_functions)"
+    )
+
     @validator('voice')
     def validate_voice(cls, v):
         """Validate voice is one of the supported voices"""
         allowed_voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
         if v not in allowed_voices:
             raise ValueError(f'Voice must be one of {", ".join(allowed_voices)}')
+        return v
+
+    @validator('functions', pre=True)
+    def coerce_functions(cls, v):
+        """Coerce single dict into a list for backward compatibility"""
+        if isinstance(v, dict):
+            return [v]
         return v
 
 class AssistantCreate(AssistantBase):
@@ -54,12 +65,16 @@ class AssistantUpdate(BaseModel):
     voice: Optional[str] = Field(None, description="Voice for the assistant")
     language: Optional[str] = Field(None, description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
-    functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
+    # Теперь принимаем и список, и словарь (config с enabled_functions)
+    functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(
+        None,
+        description="Functions configuration (list of function dicts, or dict with enabled_functions)"
+    )
     is_active: Optional[bool] = Field(None, description="Whether the assistant is active")
     is_public: Optional[bool] = Field(None, description="Whether the assistant is public")
     temperature: Optional[float] = Field(None, description="Temperature for generation")
     max_tokens: Optional[int] = Field(None, description="Max tokens for generation")
-    
+
     @validator('voice')
     def validate_voice(cls, v):
         """Validate voice is one of the supported voices"""
@@ -69,7 +84,7 @@ class AssistantUpdate(BaseModel):
         if v not in allowed_voices:
             raise ValueError(f'Voice must be one of {", ".join(allowed_voices)}')
         return v
-    
+
     @validator('temperature')
     def validate_temperature(cls, v):
         """Validate temperature is between 0 and 1"""
@@ -90,7 +105,7 @@ class AssistantResponse(AssistantBase):
     total_conversations: Optional[int] = Field(None, description="Total number of conversations")
     temperature: Optional[float] = Field(0.7, description="Temperature for generation")
     max_tokens: Optional[int] = Field(500, description="Max tokens for generation")
-    
+
     class Config:
         orm_mode = True  # Allow conversion from ORM models
 
