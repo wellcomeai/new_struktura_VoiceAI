@@ -197,6 +197,73 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             return False
 
+    async def handle_function_call(self, function_name: str, arguments: dict) -> dict:
+        """
+        Обработка вызова функции.
+        
+        Args:
+            function_name: Название функции
+            arguments: Аргументы функции
+            
+        Returns:
+            Результат вызова функции
+        """
+        try:
+            # Проверяем, является ли функция интеграцией
+            if function_name.startswith("integration_"):
+                integration_id = function_name.split("_")[1]
+                return await self.call_integration(integration_id, arguments)
+            
+            # Здесь можно добавить обработку других функций
+            
+            return {"error": "Неизвестная функция"}
+        except Exception as e:
+            logger.error(f"Ошибка при вызове функции {function_name}: {str(e)}")
+            return {"error": f"Ошибка при вызове функции: {str(e)}"}
+
+    async def call_integration(self, integration_id: str, arguments: dict) -> dict:
+        """
+        Вызов функции интеграции.
+        
+        Args:
+            integration_id: ID интеграции
+            arguments: Аргументы функции
+            
+        Returns:
+            Результат вызова интеграции
+        """
+        if not self.db_session:
+            return {"error": "Нет доступа к базе данных"}
+        
+        # Получаем интеграцию из базы данных
+        from backend.models.integration import Integration
+        integration = self.db_session.query(Integration).filter(Integration.id == integration_id).first()
+        
+        if not integration:
+            return {"error": "Интеграция не найдена"}
+        
+        if not integration.is_active:
+            return {"error": "Интеграция не активна"}
+        
+        # Отправляем данные в вебхук
+        import httpx
+        
+        try:
+            text = arguments.get("text", "")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    integration.webhook_url,
+                    json={"text": text, "source": "wellcomeai", "integration_id": str(integration.id)}
+                )
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    return {"success": True, "message": "Данные успешно отправлены"}
+                else:
+                    return {"error": f"Ошибка при отправке данных: {response.status_code} {response.text}"}
+        except Exception as e:
+            logger.error(f"Ошибка при вызове вебхука {integration.webhook_url}: {str(e)}")
+            return {"error": f"Ошибка при вызове вебхука: {str(e)}"}
+
     async def close(self) -> None:
         if self.ws:
             try:
