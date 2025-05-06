@@ -40,8 +40,7 @@ class OpenAIRealtimeClient:
     async def connect(self) -> bool:
         """
         Establish WebSocket connection to OpenAI Realtime API
-        and immediately send up-to-date session settings,
-        including the system_prompt from the database.
+        and immediately send up-to-date session settings.
         """
         if not self.api_key:
             logger.error("❌ API ключ OpenAI не предоставлен")
@@ -68,18 +67,12 @@ class OpenAIRealtimeClient:
             self.is_connected = True
             logger.info(f"✅ Подключено к OpenAI для клиента {self.client_id}")
 
-            # Fetch fresh settings from assistant_config
+            # Fetch fresh settings
             voice = self.assistant_config.voice or DEFAULT_VOICE
             system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
             functions = getattr(self.assistant_config, "functions", None)
             
-            logger.info(f"📋 Данные ассистента: ID={self.assistant_config.id}, имя={self.assistant_config.name}")
-            if functions:
-                logger.info(f"🔧 Настроенные функции: {json.dumps(functions)}")
-            else:
-                logger.info("⚠️ Функции не настроены для этого ассистента")
-
-            # Send updated session settings with actual system_prompt
+            # Send session update
             if not await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -114,12 +107,9 @@ class OpenAIRealtimeClient:
         }
 
         tools = []
-        
-        # Добавляем функции из реестра, если они указаны в настройках ассистента
         if functions and "enabled_functions" in functions:
             enabled_functions = functions.get("enabled_functions", [])
             registered_functions = get_all_functions()
-            
             for func_id in enabled_functions:
                 if func_id in registered_functions:
                     func_info = registered_functions[func_id]
@@ -131,7 +121,7 @@ class OpenAIRealtimeClient:
                             "parameters": func_info["parameters"]
                         }
                     })
-                    logger.info(f"🛠️ Добавлена функция из реестра: {func_id} - {func_info['description']}")
+                    logger.info(f"🛠️ Добавлена функция из реестра: {func_id}")
 
         payload = {
             "type": "session.update",
@@ -156,7 +146,7 @@ class OpenAIRealtimeClient:
             logger.error(f"❌ Ошибка отправки session.update: {e}")
             return False
 
-        # Create a conversation record in the database if available
+        # Create a conversation record if DB session is provided
         if self.db_session:
             try:
                 conv = Conversation(
@@ -176,6 +166,9 @@ class OpenAIRealtimeClient:
         return True
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
+        """
+        Append audio data to the stream.
+        """
         if not self.is_connected or not self.ws or not audio_buffer:
             return False
         try:
@@ -191,10 +184,12 @@ class OpenAIRealtimeClient:
             return False
 
     async def commit_audio(self) -> bool:
+        """
+        Signal end of audio chunk.
+        """
         if not self.is_connected or not self.ws:
             return False
         try:
-            logger.info("🎤 Отправка аудио для обработки")
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.commit",
                 "event_id": f"commit_{time.time()}"
@@ -205,6 +200,9 @@ class OpenAIRealtimeClient:
             return False
 
     async def clear_audio_buffer(self) -> bool:
+        """
+        Clear buffered audio.
+        """
         if not self.is_connected or not self.ws:
             return False
         try:
@@ -219,42 +217,30 @@ class OpenAIRealtimeClient:
 
     async def handle_function_call(self, function_name: str, arguments: dict) -> dict:
         """
-        Обработка вызова функции.
-        
-        Args:
-            function_name: Название функции
-            arguments: Аргументы функции
-            
-        Returns:
-            Результат вызова функции
+        Выполняет зарегистрированную функцию через OpenAI.
         """
         logger.info(f"🔔 ФУНКЦИЯ ВЫЗВАНА: {function_name} с аргументами: {json.dumps(arguments)}")
         try:
-            # Получаем функцию из реестра
             func_info = get_function(function_name)
             if not func_info:
-                logger.warning(f"⚠️ Функция не найдена: {function_name}")
                 return {"error": f"Функция '{function_name}' не найдена"}
-            
-            # Получаем параметры из конфигурации ассистента
+
             function_configs = {}
             if hasattr(self.assistant_config, 'functions') and isinstance(self.assistant_config.functions, dict):
                 function_configs = self.assistant_config.functions.get("function_configs", {}).get(function_name, {})
-                
-            # Объединяем параметры из конфигурации с полученными аргументами
             merged_args = {**function_configs, **arguments}
-            
-            # Вызываем функцию
-            func = func_info["function"]
-            result = await func(**merged_args)
+
+            result = await func_info["function"](**merged_args)
             logger.info(f"📊 Результат вызова функции: {json.dumps(result)}")
             return result
-            
         except Exception as e:
             logger.error(f"❌ ОШИБКА при вызове функции: {str(e)}")
             return {"error": f"Ошибка при вызове функции: {str(e)}"}
 
     async def close(self) -> None:
+        """
+        Закрывает WebSocket-соединение.
+        """
         if self.ws:
             try:
                 await self.ws.close()
