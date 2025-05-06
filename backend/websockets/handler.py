@@ -21,7 +21,6 @@ logger = get_logger(__name__)
 # Активные соединения по каждому assistant_id
 active_connections: Dict[str, List[WebSocket]] = {}
 
-
 async def handle_websocket_connection(
     websocket: WebSocket,
     assistant_id: str,
@@ -29,6 +28,7 @@ async def handle_websocket_connection(
 ) -> None:
     client_id = str(uuid.uuid4())
     openai_client = None
+    response_task = None
 
     try:
         await websocket.accept()
@@ -86,6 +86,9 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
+        # Запускаем асинхронную задачу для прослушивания ответов от OpenAI
+        response_task = asyncio.create_task(openai_client.listen_for_responses(websocket))
+
         if hasattr(assistant, 'functions') and assistant.functions:
             logger.info(f"🔧 Доступные функции ассистента: {json.dumps(assistant.functions)}")
 
@@ -98,13 +101,36 @@ async def handle_websocket_connection(
                 logger.info("🎤 Пользователь закончил говорить, обрабатываем аудио")
                 audio_buffer = base64_to_audio_buffer(data["audio"])
                 await openai_client.process_audio(audio_buffer, websocket)
+            elif data["type"] == "ping":
+                # Простой пинг для проверки соединения
+                await websocket.send_json({"type": "pong", "timestamp": data.get("timestamp")})
 
     except WebSocketDisconnect:
         logger.info(f"🔌 Клиент отключился: client_id={client_id}")
     except Exception as e:
         logger.error(f"❌ Ошибка в WebSocket цикле: {e}")
+        # Попытка отправить сообщение об ошибке клиенту
+        try:
+            if websocket.client_state.CONNECTED:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {"message": f"Произошла ошибка: {str(e)}"}
+                })
+        except Exception:
+            pass
     finally:
+        # Отменяем задачу прослушивания ответов
+        if response_task:
+            response_task.cancel()
+            try:
+                await response_task
+            except asyncio.CancelledError:
+                pass
+        
         if openai_client:
             await openai_client.close()
-        active_connections[assistant_id].remove(websocket)
+        
+        if assistant_id in active_connections and websocket in active_connections[assistant_id]:
+            active_connections[assistant_id].remove(websocket)
+        
         logger.info(f"🔌 Удалено WebSocket соединение: client_id={client_id}")
