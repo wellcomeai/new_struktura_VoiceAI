@@ -35,6 +35,7 @@ class AssistantConfig(Base, BaseModel):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     total_conversations = Column(Integer, default=0)
     total_tokens = Column(Integer, default=0)
+    integrations = relationship("Integration", back_populates="assistant", cascade="all, delete-orphan")
     
     # Special settings
     temperature = Column(Float, default=0.7)
