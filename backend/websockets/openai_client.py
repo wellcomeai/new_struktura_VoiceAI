@@ -1,3 +1,4 @@
+# backend/websockets/openai_client.py
 import asyncio
 import json
 import uuid
@@ -58,7 +59,6 @@ class OpenAIRealtimeClient:
             system_message = self.assistant_config.system_prompt or DEFAULT_SYSTEM_MESSAGE
             functions_cfg = getattr(self.assistant_config, "functions", None)
 
-            # сразу обновляем сессию
             success = await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -82,7 +82,6 @@ class OpenAIRealtimeClient:
         if not self.is_connected or not self.ws:
             return False
 
-        # turn_detection остаётся как есть
         turn_detection = {
             "type": "server_vad",
             "threshold": 0.25,
@@ -91,7 +90,6 @@ class OpenAIRealtimeClient:
             "create_response": True,
         }
 
-        # собираем список инструментов
         tools = []
         if functions and isinstance(functions, dict) and "enabled_functions" in functions:
             enabled = functions.get("enabled_functions", [])
@@ -99,7 +97,6 @@ class OpenAIRealtimeClient:
             for fid in enabled:
                 if fid in registry:
                     finfo = registry[fid]
-                    # **ВАЖНО**: теперь name, description и parameters — в корне объекта
                     tools.append({
                         "type": "function",
                         "name": fid,
@@ -131,7 +128,6 @@ class OpenAIRealtimeClient:
             logger.error(f"❌ Ошибка отправки session.update: {e}")
             return False
 
-        # создаём запись разговора
         if self.db_session:
             try:
                 conv = Conversation(
@@ -196,9 +192,12 @@ class OpenAIRealtimeClient:
         try:
             info = get_function(function_name)
             if not info:
+                logger.warning(f"⚠️ Функция {function_name} не найдена в реестре")
                 return {"error": f"Function '{function_name}' not found"}
             func = info["function"]
-            return await func(**arguments)
+            result = await func(**arguments)
+            logger.info(f"📤 Результат функции {function_name} отправлен: {result}")
+            return result
         except Exception as e:
             logger.error(f"❌ Ошибка в handle_function_call: {e}")
             return {"error": str(e)}
