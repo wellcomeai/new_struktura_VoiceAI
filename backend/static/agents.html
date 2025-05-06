@@ -1601,7 +1601,6 @@
         testWidgetScript.src = '/static/widget.js';
         testWidgetScript.dataset.assistantId = currentAgentId;
         testWidgetScript.dataset.position = 'bottom-right';
-        testWidgetScript.dataset.testingMode = 'true'; // Устанавливаем флаг тестового режима
         
         // Добавляем обработчик загрузки скрипта
         testWidgetScript.onload = function() {
@@ -1611,16 +1610,13 @@
           setTimeout(() => {
             const widgetButton = document.querySelector('.wellcomeai-widget-button');
             if (widgetButton) {
-              updateTestConnectionStatus('disconnected', 'Не активен (виджет закрыт)');
+              updateTestConnectionStatus('connected', 'Подключено');
               
               // Добавляем класс пульсации для привлечения внимания
               widgetButton.classList.add('pulse-animation');
               
               // Запрашиваем разрешение на использование микрофона
               requestMicrophonePermission();
-              
-              // Добавляем обработчики для отслеживания состояния виджета
-              setupWidgetStateTracking();
             } else {
               updateTestConnectionStatus('disconnected', 'Не удалось загрузить виджет');
             }
@@ -1635,36 +1631,6 @@
         
         // Добавляем скрипт на страницу
         document.head.appendChild(testWidgetScript);
-      }
-      
-      // Отслеживание состояния виджета (открыт/закрыт)
-      function setupWidgetStateTracking() {
-        // Наблюдаем за DOM для отслеживания изменений состояния виджета
-        const observer = new MutationObserver((mutations) => {
-          mutations.forEach((mutation) => {
-            if (mutation.type === 'childList' || mutation.type === 'attributes') {
-              // Проверяем, открыт ли контейнер виджета
-              const widgetContainer = document.querySelector('.wellcomeai-widget-container');
-              const widgetContent = document.querySelector('.wellcomeai-widget-content');
-              
-              if (widgetContainer && widgetContent && 
-                  window.getComputedStyle(widgetContent).display !== 'none') {
-                // Виджет открыт - соединение активно
-                updateTestConnectionStatus('connected', 'Активен (виджет открыт)');
-              } else {
-                // Виджет закрыт - соединение не активно
-                updateTestConnectionStatus('disconnected', 'Не активен (виджет закрыт)');
-              }
-            }
-          });
-        });
-        
-        // Начинаем наблюдение за всем телом документа
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true
-        });
       }
       
         // Запрос разрешения на использование микрофона
@@ -1951,8 +1917,14 @@
         window.location.href = '/static/login.html';
       });
       
-      // Инициализация страницы
-      function initPage() {
+      const originalSwitchToEditMode = switchToEditMode;
+      switchToEditMode = function() {
+        originalSwitchToEditMode();
+        
+        // При входе в режим редактирования удаляем виджет,
+        // он будет добавлен только на вкладке тестирования
+        removeTestWidget();
+      };
         if (!checkAuth()) return;
         
         const params = checkUrlParams();
