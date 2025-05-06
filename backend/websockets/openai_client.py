@@ -11,6 +11,7 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
+from backend.functions.registry import get_function, get_all_functions
 
 logger = get_logger(__name__)
 
@@ -96,7 +97,7 @@ class OpenAIRealtimeClient:
         self,
         voice: str = DEFAULT_VOICE,
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
-        functions: Optional[List[Dict[str, Any]]] = None
+        functions: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
         Update session settings on the OpenAI Realtime API side.
@@ -113,7 +114,25 @@ class OpenAIRealtimeClient:
         }
 
         tools = []
-        if functions:
+        
+        # Добавляем функции из реестра, если они указаны в настройках ассистента
+        if functions and "enabled_functions" in functions:
+            enabled_functions = functions.get("enabled_functions", [])
+            registered_functions = get_all_functions()
+            
+            for func_id in enabled_functions:
+                if func_id in registered_functions:
+                    func_info = registered_functions[func_id]
+                    tools.append({
+                        "type": "function",
+                        "name": func_id,
+                        "description": func_info["description"],
+                        "parameters": func_info["parameters"]
+                    })
+                    logger.info(f"🛠️ Добавлена функция из реестра: {func_id} - {func_info['description']}")
+        
+        # Для обратной совместимости со старыми функциями интеграций
+        elif functions and isinstance(functions, list):
             for f in functions:
                 tools.append({
                     "type": "function",
@@ -220,7 +239,7 @@ class OpenAIRealtimeClient:
         """
         logger.info(f"🔔 ФУНКЦИЯ ВЫЗВАНА: {function_name} с аргументами: {json.dumps(arguments)}")
         try:
-            # Проверяем, является ли функция интеграцией
+            # Обратная совместимость со старыми интеграциями
             if function_name.startswith("integration_"):
                 integration_id = function_name.split("_")[1]
                 logger.info(f"🔌 Вызов интеграции ID={integration_id}")
@@ -228,11 +247,28 @@ class OpenAIRealtimeClient:
                 logger.info(f"📊 Результат вызова интеграции: {json.dumps(result)}")
                 return result
             
-            # Здесь можно добавить обработку других функций
-            logger.warning(f"⚠️ Неизвестная функция: {function_name}")
-            return {"error": "Неизвестная функция"}
+            # Новый подход - вызов из реестра функций
+            func_info = get_function(function_name)
+            if not func_info:
+                logger.warning(f"⚠️ Функция не найдена: {function_name}")
+                return {"error": "Функция не найдена"}
+            
+            # Получаем параметры из конфигурации ассистента
+            function_configs = {}
+            if self.assistant_config.functions and isinstance(self.assistant_config.functions, dict):
+                function_configs = self.assistant_config.functions.get("function_configs", {}).get(function_name, {})
+                
+            # Объединяем параметры из конфигурации с полученными аргументами
+            merged_args = {**function_configs, **arguments}
+            
+            # Вызываем функцию
+            func = func_info["function"]
+            result = await func(**merged_args)
+            logger.info(f"📊 Результат вызова функции: {json.dumps(result)}")
+            return result
+            
         except Exception as e:
-            logger.error(f"❌ ОШИБКА при вызове функции {function_name}: {str(e)}")
+            logger.error(f"❌ ОШИБКА при вызове функции: {str(e)}")
             return {"error": f"Ошибка при вызове функции: {str(e)}"}
 
     async def call_integration(self, integration_id: str, arguments: dict) -> dict:
