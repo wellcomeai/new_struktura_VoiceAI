@@ -1,5 +1,3 @@
-# backend/services/assistant_service.py
-
 import uuid
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -13,7 +11,7 @@ from backend.schemas.assistant import (
     AssistantCreate,
     AssistantUpdate,
     AssistantResponse,
-    EmbedCodeResponse,
+    EmbedCodeResponse
 )
 
 logger = get_logger(__name__)
@@ -24,14 +22,12 @@ class AssistantService:
     @staticmethod
     async def get_assistants(db: Session, user_id: str) -> List[AssistantResponse]:
         """
-        Получить всех ассистентов пользователя.
+        Возвращает список всех ассистентов пользователя
         """
-        assistants = (
-            db
-            .query(AssistantConfig)
-            .filter(AssistantConfig.user_id == user_id)
-            .all()
-        )
+        assistants = db.query(AssistantConfig).filter(
+            AssistantConfig.user_id == user_id
+        ).all()
+
         return [
             AssistantResponse(
                 id=str(a.id),
@@ -49,7 +45,7 @@ class AssistantService:
                 updated_at=a.updated_at,
                 total_conversations=a.total_conversations,
                 temperature=a.temperature,
-                max_tokens=a.max_tokens,
+                max_tokens=a.max_tokens
             )
             for a in assistants
         ]
@@ -61,47 +57,47 @@ class AssistantService:
         user_id: Optional[str] = None
     ) -> AssistantConfig:
         """
-        Получить ассистента по ID и проверить, что он принадлежит user_id (если указан).
+        Возвращает объект AssistantConfig по ID, проверяет принадлежность пользователю
         """
-        assistant = (
-            db
-            .query(AssistantConfig)
-            .filter(AssistantConfig.id == assistant_id)
-            .first()
-        )
+        assistant = db.query(AssistantConfig).filter(
+            AssistantConfig.id == assistant_id
+        ).first()
+
         if not assistant:
             logger.warning(f"Assistant not found: {assistant_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Assistant not found"
             )
+
         if user_id and str(assistant.user_id) != user_id:
-            logger.warning(f"Unauthorized access to assistant {assistant_id} by user {user_id}")
+            logger.warning(f"Unauthorized access: assistant {assistant_id}, user {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this assistant"
             )
+
         return assistant
 
     @staticmethod
     async def create_assistant(
         db: Session,
         user_id: str,
-        assistant_data: AssistantCreate
+        data: AssistantCreate
     ) -> AssistantResponse:
         """
-        Создать нового ассистента.
+        Создаёт нового ассистента
         """
         try:
             assistant = AssistantConfig(
                 user_id=user_id,
-                name=assistant_data.name,
-                description=assistant_data.description,
-                system_prompt=assistant_data.system_prompt,
-                voice=assistant_data.voice,
-                language=assistant_data.language,
-                google_sheet_id=assistant_data.google_sheet_id,
-                functions=assistant_data.functions,
+                name=data.name,
+                description=data.description,
+                system_prompt=data.system_prompt,
+                voice=data.voice,
+                language=data.language,
+                google_sheet_id=data.google_sheet_id,
+                functions=data.functions,
                 is_active=True,
                 is_public=False
             )
@@ -129,19 +125,18 @@ class AssistantService:
                 updated_at=assistant.updated_at,
                 total_conversations=assistant.total_conversations,
                 temperature=assistant.temperature,
-                max_tokens=assistant.max_tokens,
+                max_tokens=assistant.max_tokens
             )
-
         except IntegrityError as e:
             db.rollback()
-            logger.error(f"Database integrity error during assistant creation: {e}")
+            logger.error(f"IntegrityError on create: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Creation failed due to database constraint"
             )
         except Exception as e:
             db.rollback()
-            logger.error(f"Unexpected error during assistant creation: {e}")
+            logger.error(f"Unexpected error on create: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Creation failed due to server error"
@@ -152,23 +147,25 @@ class AssistantService:
         db: Session,
         assistant_id: str,
         user_id: str,
-        assistant_data: AssistantUpdate
+        data: AssistantUpdate
     ) -> AssistantResponse:
         """
-        Обновить существующего ассистента.
+        Обновляет поля ассистента
         """
+        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
+        update_data = data.dict(exclude_unset=True)
+
+        for key, value in update_data.items():
+            setattr(assistant, key, value)
+
+        # Если стала публичной и ещё нет токена — сгенерировать
+        if update_data.get("is_public") and not assistant.api_access_token:
+            assistant.api_access_token = str(uuid.uuid4())
+
         try:
-            assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
-            update_data = assistant_data.dict(exclude_unset=True)
-            for key, value in update_data.items():
-                setattr(assistant, key, value)
-
-            if update_data.get("is_public") and not assistant.api_access_token:
-                assistant.api_access_token = str(uuid.uuid4())
-
             db.commit()
             db.refresh(assistant)
-            logger.info(f"Assistant updated: {assistant_id}")
+            logger.info(f"Assistant updated: {assistant.id}")
 
             return AssistantResponse(
                 id=str(assistant.id),
@@ -186,21 +183,18 @@ class AssistantService:
                 updated_at=assistant.updated_at,
                 total_conversations=assistant.total_conversations,
                 temperature=assistant.temperature,
-                max_tokens=assistant.max_tokens,
+                max_tokens=assistant.max_tokens
             )
-
         except IntegrityError as e:
             db.rollback()
-            logger.error(f"Database integrity error during assistant update: {e}")
+            logger.error(f"IntegrityError on update: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Update failed due to database constraint"
             )
-        except HTTPException:
-            raise
         except Exception as e:
             db.rollback()
-            logger.error(f"Unexpected error during assistant update: {e}")
+            logger.error(f"Unexpected error on update: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Update failed due to server error"
@@ -213,17 +207,14 @@ class AssistantService:
         user_id: str
     ) -> bool:
         """
-        Удалить ассистента.
+        Удаляет ассистента
         """
+        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
         try:
-            assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
             db.delete(assistant)
             db.commit()
             logger.info(f"Assistant deleted: {assistant_id}")
             return True
-
-        except HTTPException:
-            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error deleting assistant: {e}")
@@ -239,10 +230,9 @@ class AssistantService:
         user_id: str
     ) -> EmbedCodeResponse:
         """
-        Сгенерировать HTML-виджет для встраивания.
+        Генерирует HTML-код виджета для встраивания
         """
         assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
-
         if not assistant.is_active:
             logger.warning(f"Attempt to get embed code for inactive assistant: {assistant_id}")
             raise HTTPException(
@@ -250,20 +240,22 @@ class AssistantService:
                 detail="This assistant is not active. Please activate it first."
             )
 
-        host_url = settings.HOST_URL
-        embed_code = f"""<!-- WellcomeAI Voice Assistant -->
-<script>
-    (function() {{
-        var script = document.createElement('script');
-        script.src = '{host_url}/static/widget.js';
-        script.dataset.assistantId = '{assistant_id}';
-        script.dataset.server = '{host_url}';
-        script.dataset.position = 'bottom-right';
-        script.async = true;
-        document.head.appendChild(script);
-    }})();
-</script>
-<!-- End WellcomeAI -->"""
+        host = settings.HOST_URL.rstrip("/")
+        embed_code = (
+            "<!-- WellcomeAI Voice Assistant -->\n"
+            "<script>\n"
+            "  (function() {\n"
+            f"    var script = document.createElement('script');\n"
+            f"    script.src = '{host}/static/widget.js';\n"
+            f"    script.dataset.assistantId = '{assistant_id}';\n"
+            f"    script.dataset.server = '{host}';\n"
+            "    script.dataset.position = 'bottom-right';\n"
+            "    script.async = true;\n"
+            "    document.head.appendChild(script);\n"
+            "  })();\n"
+            "</script>\n"
+            "<!-- End WellcomeAI -->"
+        )
 
         return EmbedCodeResponse(
             embed_code=embed_code,
@@ -276,19 +268,16 @@ class AssistantService:
         assistant_id: str
     ) -> None:
         """
-        Увеличить счётчик диалогов ассистента.
+        Увеличивает счётчик разговоров у ассистента
         """
         try:
-            assistant = (
-                db
-                .query(AssistantConfig)
-                .filter(AssistantConfig.id == assistant_id)
-                .first()
-            )
+            assistant = db.query(AssistantConfig).filter(
+                AssistantConfig.id == assistant_id
+            ).first()
             if assistant:
                 assistant.total_conversations += 1
                 db.commit()
-                logger.debug(f"Incremented conversation count for assistant {assistant_id}")
+                logger.debug(f"Incremented conversation count: {assistant_id}")
         except Exception as e:
             db.rollback()
             logger.error(f"Error incrementing conversation count: {e}")
