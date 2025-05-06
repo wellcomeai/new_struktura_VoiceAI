@@ -30,5 +30,6 @@ __all__ = [
     "users_router",
     "assistants_router",
     "files_router",
-    "websocket_router"
+    "websocket_router",
+    "integrations_router"
 ]
