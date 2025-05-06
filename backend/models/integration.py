@@ -7,7 +7,7 @@ from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
-from backend.db.base_class import Base
+from backend.models.base import Base
 
 class Integration(Base):
     """
