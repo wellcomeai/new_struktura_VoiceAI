@@ -187,12 +187,50 @@ async def handle_websocket_connection(
 async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket: WebSocket):
     if not openai_client.is_connected or not openai_client.ws:
         return
-
     try:
         while True:
             raw = await openai_client.ws.recv()
             response_data = json.loads(raw)
-
+            
+            # Если это вызов функции
+            if response_data.get("type") == "tool_call" or response_data.get("type") == "function_call":
+                function_name = None
+                arguments = {}
+                
+                # Обработка вызова функции в новом формате
+                if response_data.get("type") == "tool_call":
+                    tool_call = response_data.get("tool_call", {})
+                    if tool_call.get("type") == "function":
+                        function_name = tool_call.get("function", {}).get("name")
+                        arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+                        try:
+                            arguments = json.loads(arguments_str)
+                        except:
+                            arguments = {"text": arguments_str}
+                
+                # Обработка вызова функции в старом формате
+                elif response_data.get("type") == "function_call":
+                    function_name = response_data.get("function", {}).get("name")
+                    arguments_str = response_data.get("function", {}).get("arguments", "{}")
+                    try:
+                        arguments = json.loads(arguments_str)
+                    except:
+                        arguments = {"text": arguments_str}
+                
+                if function_name and function_name.startswith("integration_"):
+                    # Вызываем функцию
+                    result = await openai_client.handle_function_call(function_name, arguments)
+                    
+                    # Отправляем результат обратно в OpenAI
+                    await openai_client.ws.send(json.dumps({
+                        "type": "tool_call.result" if response_data.get("type") == "tool_call" else "function_call.response",
+                        "id": response_data.get("id", ""),
+                        "result": result
+                    }))
+                    
+                    # Не отправляем клиенту вызов функции
+                    continue
+                
             # если это аудио-чанк — отдаём как bytes
             if response_data.get("type") == "audio":
                 b64 = response_data.get("data", "")
