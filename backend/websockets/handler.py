@@ -69,7 +69,7 @@ async def handle_websocket_connection(
                 logger.info(f"🔑 Найден API ключ пользователя для ассистента")
             else:
                 logger.warning(f"⚠️ API ключ не найден для пользователя {user.id if user else 'None'}")
-        # Удаляем использование глобального ключа и сразу выдаем ошибку
+        
         if not api_key:
             logger.error("❌ Отсутствует ключ API OpenAI для ассистента")
             await websocket.send_json({
@@ -228,53 +228,37 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
             
             logger.debug(f"📩 Получено сообщение от OpenAI: тип={response_type}")
             
-            # Если это вызов функции
-            if response_data.get("type") == "tool_call" or response_data.get("type") == "function_call":
-                function_name = None
-                arguments = {}
+            # Обрабатываем вызовы инструментов (tools)
+            if response_type == "tool_call":
+                tool_call = response_data.get("tool_call", {})
                 
-                # Обработка вызова функции в новом формате
-                if response_data.get("type") == "tool_call":
-                    logger.info(f"🛠️ ВЫЗОВ ФУНКЦИИ (tool_call): {json.dumps(response_data)}")
-                    tool_call = response_data.get("tool_call", {})
-                    if tool_call.get("type") == "function":
-                        function_name = tool_call.get("function", {}).get("name")
-                        arguments_str = tool_call.get("function", {}).get("arguments", "{}")
-                        try:
-                            arguments = json.loads(arguments_str)
-                        except:
-                            arguments = {"text": arguments_str}
-                
-                # Обработка вызова функции в старом формате
-                elif response_data.get("type") == "function_call":
-                    logger.info(f"🛠️ ВЫЗОВ ФУНКЦИИ (function_call): {json.dumps(response_data)}")
-                    function_name = response_data.get("function", {}).get("name")
-                    arguments_str = response_data.get("function", {}).get("arguments", "{}")
+                # Проверяем, что это вызов функции
+                if tool_call.get("type") == "function":
+                    function_name = tool_call.get("function", {}).get("name")
+                    arguments_str = tool_call.get("function", {}).get("arguments", "{}")
+                    
                     try:
                         arguments = json.loads(arguments_str)
-                    except:
+                    except json.JSONDecodeError:
                         arguments = {"text": arguments_str}
-                
-                if function_name and function_name.startswith("integration_"):
-                    logger.info(f"🔌 Обнаружен вызов интеграции: {function_name}")
+                    
+                    logger.info(f"🛠️ Вызов функции: {function_name} с аргументами: {json.dumps(arguments)}")
+                    
                     # Вызываем функцию
                     result = await openai_client.handle_function_call(function_name, arguments)
                     
                     # Отправляем результат обратно в OpenAI
-                    response_type = "tool_call.result" if response_data.get("type") == "tool_call" else "function_call.response"
-                    logger.info(f"📤 Отправка результата функции в OpenAI (тип={response_type}): {json.dumps(result)}")
-                    
                     await openai_client.ws.send(json.dumps({
-                        "type": response_type,
+                        "type": "tool_call.result",
                         "id": response_data.get("id", ""),
                         "result": result
                     }))
                     
                     # Не отправляем клиенту вызов функции
                     continue
-                
+            
             # если это аудио-чанк — отдаём как bytes
-            if response_data.get("type") == "audio":
+            if response_type == "audio":
                 b64 = response_data.get("data", "")
                 chunk = base64.b64decode(b64)
                 await websocket.send_bytes(chunk)
@@ -284,8 +268,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
             await websocket.send_json(response_data)
 
             # сохранение текста/транскрипции
-            t = response_data.get("type")
-            if t == "response.text.done":
+            if response_type == "response.text.done":
                 text = response_data.get("text", "")
                 logger.info(f"📝 Ответ ассистента: {text}")
                 if openai_client.db_session and openai_client.conversation_record_id and text:
@@ -294,7 +277,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     )
                     conv.assistant_message = text
                     openai_client.db_session.commit()
-            elif t == "conversation.item.input_audio_transcription.completed":
+            elif response_type == "conversation.item.input_audio_transcription.completed":
                 transcript = response_data.get("transcript", "")
                 logger.info(f"🎤 Транскрипция аудио пользователя: {transcript}")
                 if openai_client.db_session and openai_client.conversation_record_id and transcript:
