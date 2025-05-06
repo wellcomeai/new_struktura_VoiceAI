@@ -27,8 +27,7 @@ class AssistantConfig(Base, BaseModel):
     language = Column(String, default="ru")
     google_sheet_id = Column(String, nullable=True)
     functions = Column(JSON, nullable=True)
-integrations = relationship("Integration", back_populates="assistant", cascade="all, delete-orphan")
-    # Исправлено: поле api_access_token теперь имеет default=None и нет unique=True
+    integrations = relationship("Integration", back_populates="assistant", cascade="all, delete-orphan")
     api_access_token = Column(String, nullable=True, default=None)
     is_active = Column(Boolean, default=True)
     is_public = Column(Boolean, default=False)
