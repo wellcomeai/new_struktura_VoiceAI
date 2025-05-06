@@ -34,13 +34,6 @@ async def get_assistants(
 ):
     """
     Get all assistants for the current user.
-    
-    Args:
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        List of AssistantResponse objects
     """
     try:
         return await AssistantService.get_assistants(db, str(current_user.id))
@@ -61,14 +54,6 @@ async def create_assistant(
 ):
     """
     Create a new assistant.
-    
-    Args:
-        assistant_data: Assistant creation data
-        current_user: Current authenticated user with checked assistant limit
-        db: Database session dependency
-    
-    Returns:
-        AssistantResponse with the new assistant information
     """
     try:
         return await AssistantService.create_assistant(db, str(current_user.id), assistant_data)
@@ -89,18 +74,9 @@ async def get_assistant(
 ):
     """
     Get assistant by ID.
-    
-    Args:
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        AssistantResponse with the assistant information
     """
     try:
         assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
-        
         return AssistantResponse(
             id=str(assistant.id),
             user_id=str(assistant.user_id),
@@ -137,15 +113,6 @@ async def update_assistant(
 ):
     """
     Update an assistant.
-    
-    Args:
-        assistant_data: Assistant update data
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        AssistantResponse with the updated assistant information
     """
     try:
         return await AssistantService.update_assistant(db, assistant_id, str(current_user.id), assistant_data)
@@ -166,14 +133,6 @@ async def delete_assistant(
 ):
     """
     Delete an assistant.
-    
-    Args:
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        Confirmation message
     """
     try:
         await AssistantService.delete_assistant(db, assistant_id, str(current_user.id))
@@ -195,14 +154,6 @@ async def get_embed_code(
 ):
     """
     Get embed code for an assistant.
-    
-    Args:
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        EmbedCodeResponse with the embed code
     """
     try:
         return await AssistantService.get_embed_code(db, assistant_id, str(current_user.id))
@@ -225,21 +176,9 @@ async def get_conversations(
 ):
     """
     Get conversations for an assistant.
-    
-    Args:
-        assistant_id: Assistant ID
-        skip: Number of conversations to skip
-        limit: Maximum number of conversations to return
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        List of ConversationResponse objects
     """
     try:
-        # Verify assistant belongs to user
         await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
-        
         return await ConversationService.get_conversations(db, assistant_id, skip, limit)
     except HTTPException:
         raise
@@ -258,19 +197,9 @@ async def get_conversation_stats(
 ):
     """
     Get conversation statistics for an assistant.
-    
-    Args:
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        ConversationStats with statistics information
     """
     try:
-        # Verify assistant belongs to user
         await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
-        
         return await ConversationService.get_conversation_stats(db, assistant_id)
     except HTTPException:
         raise
@@ -289,28 +218,13 @@ async def get_available_functions(
 ):
     """
     Get available functions for the assistant.
-    
-    Args:
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        List of available functions
     """
     try:
-        # Verify assistant belongs to user
         assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
-        
-        # Get all registered functions
         registered_functions = get_all_functions()
-        
-        # Get enabled functions from assistant config
         enabled_functions = []
         if assistant.functions and isinstance(assistant.functions, dict) and "enabled_functions" in assistant.functions:
             enabled_functions = assistant.functions.get("enabled_functions", [])
-        
-        # Build response
         functions_list = []
         for func_id, func_info in registered_functions.items():
             functions_list.append({
@@ -320,7 +234,6 @@ async def get_available_functions(
                 "parameters": func_info["parameters"],
                 "enabled": func_id in enabled_functions
             })
-        
         return functions_list
     except HTTPException:
         raise
@@ -340,36 +253,21 @@ async def test_function(
 ):
     """
     Test a function with the assistant.
-    
-    Args:
-        function_data: Function name and arguments
-        assistant_id: Assistant ID
-        current_user: Current authenticated user
-        db: Database session dependency
-    
-    Returns:
-        Function execution result
     """
     try:
-        # Verify assistant belongs to user
         assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
-        
-        # Create a client for function testing
         from backend.websockets.openai_client import OpenAIRealtimeClient
-        
+
         client = OpenAIRealtimeClient(
             api_key=current_user.openai_api_key or "",
             assistant_config=assistant,
             client_id="test_function",
             db_session=db
         )
-        
-        # Call the function
         result = await client.handle_function_call(
             function_data.function_name,
             function_data.arguments
         )
-        
         return {
             "function": function_data.function_name,
             "arguments": function_data.arguments,
