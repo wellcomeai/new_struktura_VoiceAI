@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 # Активные соединения по каждому assistant_id
 active_connections: Dict[str, List[WebSocket]] = {}
 
+
 async def handle_websocket_connection(
     websocket: WebSocket,
     assistant_id: str,
