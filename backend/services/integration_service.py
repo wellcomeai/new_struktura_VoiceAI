@@ -81,6 +81,30 @@ class IntegrationService:
                     detail="Invalid assistant ID format"
                 )
             
+            # Автоматически включаем функцию send_webhook для интеграции n8n
+            if integration_data["type"].lower() == "n8n" and integration_data.get("is_active", True):
+                # Получаем ассистента для обновления функций
+                from backend.services.assistant_service import AssistantService
+                assistant = await AssistantService.get_assistant_by_id(db, assistant_id)
+                
+                # Обновляем функции ассистента, чтобы включить send_webhook
+                functions = assistant.functions or {}
+                if not isinstance(functions, dict):
+                    functions = {}
+                
+                # Инициализируем enabled_functions, если его нет
+                if "enabled_functions" not in functions:
+                    functions["enabled_functions"] = []
+                
+                # Добавляем функцию send_webhook, если она еще не включена
+                if "send_webhook" not in functions["enabled_functions"]:
+                    functions["enabled_functions"].append("send_webhook")
+                    
+                    # Обновляем ассистента с новыми функциями
+                    assistant.functions = functions
+                    db.commit()
+                    logger.info(f"Automatically enabled send_webhook function for assistant {assistant_id}")
+            
             # Create integration
             integration = Integration(
                 assistant_id=assistant_uuid,
@@ -167,8 +191,35 @@ class IntegrationService:
             if "webhook_url" in integration_data:
                 integration.webhook_url = integration_data["webhook_url"]
             
+            # Если активируем интеграцию n8n, убедимся, что функция send_webhook активирована
             if "is_active" in integration_data:
+                was_active = integration.is_active
                 integration.is_active = integration_data["is_active"]
+                
+                if (integration.type.lower() == "n8n" and 
+                    integration_data["is_active"] and 
+                    not was_active):
+                    # Получаем ассистента для обновления функций
+                    from backend.services.assistant_service import AssistantService
+                    assistant = await AssistantService.get_assistant_by_id(db, assistant_id)
+                    
+                    # Обновляем функции ассистента, чтобы включить send_webhook
+                    functions = assistant.functions or {}
+                    if not isinstance(functions, dict):
+                        functions = {}
+                    
+                    # Инициализируем enabled_functions, если его нет
+                    if "enabled_functions" not in functions:
+                        functions["enabled_functions"] = []
+                    
+                    # Добавляем функцию send_webhook, если она еще не включена
+                    if "send_webhook" not in functions["enabled_functions"]:
+                        functions["enabled_functions"].append("send_webhook")
+                        
+                        # Обновляем ассистента с новыми функциями
+                        assistant.functions = functions
+                        db.commit()
+                        logger.info(f"Automatically enabled send_webhook function for assistant {assistant_id} during integration activation")
             
             db.commit()
             db.refresh(integration)
