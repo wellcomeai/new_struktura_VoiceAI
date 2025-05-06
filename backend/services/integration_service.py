@@ -87,18 +87,14 @@ class IntegrationService:
                 from backend.services.assistant_service import AssistantService
                 assistant = await AssistantService.get_assistant_by_id(db, assistant_id)
                 
-                # Обновляем функции ассистента, чтобы включить send_webhook
-                functions = assistant.functions or {}
-                if not isinstance(functions, dict):
-                    functions = {}
+                # ИСПРАВЛЕННАЯ ЛОГИКА: Обновляем функции ассистента как список, не словарь
+                functions = assistant.functions or []
+                if not isinstance(functions, list):
+                    functions = []
                 
-                # Инициализируем enabled_functions, если его нет
-                if "enabled_functions" not in functions:
-                    functions["enabled_functions"] = []
-                
-                # Добавляем функцию send_webhook, если она еще не включена
-                if "send_webhook" not in functions["enabled_functions"]:
-                    functions["enabled_functions"].append("send_webhook")
+                # Добавляем send_webhook функцию, если она еще не включена
+                if "send_webhook" not in functions:
+                    functions.append("send_webhook")
                     
                     # Обновляем ассистента с новыми функциями
                     assistant.functions = functions
@@ -203,18 +199,14 @@ class IntegrationService:
                     from backend.services.assistant_service import AssistantService
                     assistant = await AssistantService.get_assistant_by_id(db, assistant_id)
                     
-                    # Обновляем функции ассистента, чтобы включить send_webhook
-                    functions = assistant.functions or {}
-                    if not isinstance(functions, dict):
-                        functions = {}
+                    # ИСПРАВЛЕННАЯ ЛОГИКА: Обновляем функции ассистента как список, не словарь
+                    functions = assistant.functions or []
+                    if not isinstance(functions, list):
+                        functions = []
                     
-                    # Инициализируем enabled_functions, если его нет
-                    if "enabled_functions" not in functions:
-                        functions["enabled_functions"] = []
-                    
-                    # Добавляем функцию send_webhook, если она еще не включена
-                    if "send_webhook" not in functions["enabled_functions"]:
-                        functions["enabled_functions"].append("send_webhook")
+                    # Добавляем send_webhook функцию, если она еще не включена
+                    if "send_webhook" not in functions:
+                        functions.append("send_webhook")
                         
                         # Обновляем ассистента с новыми функциями
                         assistant.functions = functions
