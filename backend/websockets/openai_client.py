@@ -11,7 +11,7 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
-from backend.functions.registry import get_function, get_all_functions
+from backend.functions.registry import get_function, get_all_functions, get_tools_for_openai
 
 logger = get_logger(__name__)
 
@@ -125,22 +125,13 @@ class OpenAIRealtimeClient:
                     func_info = registered_functions[func_id]
                     tools.append({
                         "type": "function",
-                        "name": func_id,
-                        "description": func_info["description"],
-                        "parameters": func_info["parameters"]
+                        "function": {
+                            "name": func_id,
+                            "description": func_info["description"],
+                            "parameters": func_info["parameters"]
+                        }
                     })
                     logger.info(f"🛠️ Добавлена функция из реестра: {func_id} - {func_info['description']}")
-        
-        # Для обратной совместимости со старыми функциями интеграций
-        elif functions and isinstance(functions, list):
-            for f in functions:
-                tools.append({
-                    "type": "function",
-                    "name": f["name"],
-                    "description": f["description"],
-                    "parameters": f["parameters"]
-                })
-                logger.info(f"🛠️ Добавлена функция: {f['name']} - {f['description']}")
 
         payload = {
             "type": "session.update",
@@ -239,23 +230,15 @@ class OpenAIRealtimeClient:
         """
         logger.info(f"🔔 ФУНКЦИЯ ВЫЗВАНА: {function_name} с аргументами: {json.dumps(arguments)}")
         try:
-            # Обратная совместимость со старыми интеграциями
-            if function_name.startswith("integration_"):
-                integration_id = function_name.split("_")[1]
-                logger.info(f"🔌 Вызов интеграции ID={integration_id}")
-                result = await self.call_integration(integration_id, arguments)
-                logger.info(f"📊 Результат вызова интеграции: {json.dumps(result)}")
-                return result
-            
-            # Новый подход - вызов из реестра функций
+            # Получаем функцию из реестра
             func_info = get_function(function_name)
             if not func_info:
                 logger.warning(f"⚠️ Функция не найдена: {function_name}")
-                return {"error": "Функция не найдена"}
+                return {"error": f"Функция '{function_name}' не найдена"}
             
             # Получаем параметры из конфигурации ассистента
             function_configs = {}
-            if self.assistant_config.functions and isinstance(self.assistant_config.functions, dict):
+            if hasattr(self.assistant_config, 'functions') and isinstance(self.assistant_config.functions, dict):
                 function_configs = self.assistant_config.functions.get("function_configs", {}).get(function_name, {})
                 
             # Объединяем параметры из конфигурации с полученными аргументами
@@ -270,60 +253,6 @@ class OpenAIRealtimeClient:
         except Exception as e:
             logger.error(f"❌ ОШИБКА при вызове функции: {str(e)}")
             return {"error": f"Ошибка при вызове функции: {str(e)}"}
-
-    async def call_integration(self, integration_id: str, arguments: dict) -> dict:
-        """
-        Вызов функции интеграции.
-        
-        Args:
-            integration_id: ID интеграции
-            arguments: Аргументы функции
-            
-        Returns:
-            Результат вызова интеграции
-        """
-        logger.info(f"🔌 ИНТЕГРАЦИЯ: Вызов ID={integration_id}, аргументы={json.dumps(arguments)}")
-        if not self.db_session:
-            logger.error("❌ ИНТЕГРАЦИЯ: Нет доступа к базе данных")
-            return {"error": "Нет доступа к базе данных"}
-        
-        # Получаем интеграцию из базы данных
-        from backend.models.integration import Integration
-        integration = self.db_session.query(Integration).filter(Integration.id == integration_id).first()
-        
-        if not integration:
-            logger.warning(f"⚠️ ИНТЕГРАЦИЯ: Не найдена ID={integration_id}")
-            return {"error": "Интеграция не найдена"}
-        
-        logger.info(f"📌 ИНТЕГРАЦИЯ: Найдена {integration.name}, URL={integration.webhook_url}")
-        
-        if not integration.is_active:
-            logger.warning(f"⚠️ ИНТЕГРАЦИЯ: Не активна ID={integration_id}")
-            return {"error": "Интеграция не активна"}
-        
-        # Отправляем данные в вебхук
-        import httpx
-        
-        try:
-            text = arguments.get("text", "")
-            logger.info(f"📤 ИНТЕГРАЦИЯ: Отправка на вебхук, текст: {text}")
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    integration.webhook_url,
-                    json={"text": text, "source": "wellcomeai", "integration_id": str(integration.id)}
-                )
-                
-                logger.info(f"📥 ИНТЕГРАЦИЯ: Ответ от вебхука: статус={response.status_code}")
-                
-                if response.status_code >= 200 and response.status_code < 300:
-                    logger.info(f"✅ ИНТЕГРАЦИЯ: Успешная отправка на вебхук {integration.webhook_url}")
-                    return {"success": True, "message": "Данные успешно отправлены"}
-                else:
-                    logger.warning(f"⚠️ ИНТЕГРАЦИЯ: Ошибка от вебхука: {response.text}")
-                    return {"error": f"Ошибка при отправке данных: {response.status_code} {response.text}"}
-        except Exception as e:
-            logger.error(f"❌ ИНТЕГРАЦИЯ: Ошибка при вызове вебхука {integration.webhook_url}: {str(e)}")
-            return {"error": f"Ошибка при вызове вебхука: {str(e)}"}
 
     async def close(self) -> None:
         if self.ws:
