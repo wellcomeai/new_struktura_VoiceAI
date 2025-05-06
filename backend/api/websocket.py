@@ -1,15 +1,11 @@
 """
 WebSocket API endpoints for WellcomeAI application.
 """
-
-"""
-WebSocket API endpoints for WellcomeAI application.
-"""
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException, Query
 from sqlalchemy.orm import Session
-from backend.core.logging import get_logger  # Изменен импорт core
-from backend.db.session import get_db  # Уже корректный импорт
-from backend.websockets.handler import handle_websocket_connection  # Изменен импорт websockets
+from backend.core.logging import get_logger
+from backend.db.session import get_db
+from backend.websockets.handler import handle_websocket_connection
 
 # Initialize logger
 logger = get_logger(__name__)
