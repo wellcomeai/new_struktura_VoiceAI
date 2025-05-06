@@ -1584,7 +1584,7 @@
         }
       }
       
-      // Функция для инициализации виджета для тестирования
+      // Инициализация виджета для тестирования
       function initTestWidget() {
         if (isTestWidgetInitialized || !currentAgentId) return;
         
@@ -1633,44 +1633,43 @@
         document.head.appendChild(testWidgetScript);
       }
       
-        // Запрос разрешения на использование микрофона
-        function requestMicrophonePermission() {
-          if (isMicPermissionGranted) return;
-          
-          if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-              .then(function(stream) {
-                isMicPermissionGranted = true;
-                // Останавливаем потоки, так как нам нужно было только проверить разрешение
-                stream.getTracks().forEach(track => track.stop());
-                debugLog('Разрешение на доступ к микрофону получено');
-              })
-              .catch(function(err) {
-                console.error('Ошибка доступа к микрофону:', err);
-                // Показываем уведомление с ошибкой
-                ui.showNotification('Для тестирования голосового ассистента необходим доступ к микрофону', 'error');
-              });
-          } else {
-            ui.showNotification('Ваш браузер не поддерживает доступ к микрофону', 'error');
-          }
+      // Запрос разрешения на использование микрофона
+      function requestMicrophonePermission() {
+        if (isMicPermissionGranted) return;
+        
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+              isMicPermissionGranted = true;
+              // Останавливаем потоки, так как нам нужно было только проверить разрешение
+              stream.getTracks().forEach(track => track.stop());
+            })
+            .catch(function(err) {
+              console.error('Ошибка доступа к микрофону:', err);
+              // Показываем уведомление с ошибкой
+              ui.showNotification('Для тестирования голосового ассистента необходим доступ к микрофону', 'error');
+            });
+        } else {
+          ui.showNotification('Ваш браузер не поддерживает доступ к микрофону', 'error');
+        }
+      }
+      
+      // Обновление статуса подключения
+      function updateTestConnectionStatus(status, message) {
+        const connectionStatus = document.getElementById('testing-connection-status');
+        if (!connectionStatus) return;
+        
+        const statusIndicator = connectionStatus.querySelector('.status-indicator');
+        const statusText = connectionStatus.querySelector('span');
+        
+        if (statusIndicator) {
+          statusIndicator.className = 'status-indicator ' + status;
         }
         
-        // Обновление статуса подключения
-        function updateTestConnectionStatus(status, message) {
-          const connectionStatus = document.getElementById('testing-connection-status');
-          if (!connectionStatus) return;
-          
-          const statusIndicator = connectionStatus.querySelector('.status-indicator');
-          const statusText = connectionStatus.querySelector('span');
-          
-          if (statusIndicator) {
-            statusIndicator.className = 'status-indicator ' + status;
-          }
-          
-          if (statusText) {
-            statusText.textContent = message;
-          }
+        if (statusText) {
+          statusText.textContent = message;
         }
+      }
       
       // Добавим обработчик для переключения вкладок
       function setupTestingTab() {
@@ -1713,38 +1712,8 @@
           const tabId = tab.getAttribute('data-tab');
           debugLog(`Переключение на вкладку: ${tabId}`);
           ui.switchTab(tabId);
-          
-          // При переключении со вкладки тестирования на другую, удаляем виджет
-          const previousActiveTab = document.querySelector('.tab.active');
-          const previousTabId = previousActiveTab ? previousActiveTab.getAttribute('data-tab') : null;
-          
-          if (previousTabId === 'testing' && tabId !== 'testing') {
-            // Удаляем виджет при переходе с вкладки тестирования
-            removeTestWidget();
-          } else if (tabId === 'testing' && currentAgentId) {
-            // Инициализируем виджет на вкладке тестирования
-            setTimeout(initTestingTab, 100);
-          }
         });
       });
-      
-      // Функция для удаления тестового виджета
-      function removeTestWidget() {
-        if (isTestWidgetInitialized) {
-          debugLog('Удаление тестового виджета');
-          
-          // Удаляем скрипт виджета
-          if (testWidgetScript) {
-            testWidgetScript.remove();
-          }
-          
-          // Удаляем все элементы виджета
-          const widgetElements = document.querySelectorAll('[class^="wellcomeai-widget"]');
-          widgetElements.forEach(el => el.remove());
-          
-          isTestWidgetInitialized = false;
-        }
-      }
       
       // Выбор голоса
       voiceOptions.forEach(option => {
@@ -1917,14 +1886,8 @@
         window.location.href = '/static/login.html';
       });
       
-      const originalSwitchToEditMode = switchToEditMode;
-      switchToEditMode = function() {
-        originalSwitchToEditMode();
-        
-        // При входе в режим редактирования удаляем виджет,
-        // он будет добавлен только на вкладке тестирования
-        removeTestWidget();
-      };
+      // Инициализация страницы
+      function initPage() {
         if (!checkAuth()) return;
         
         const params = checkUrlParams();
