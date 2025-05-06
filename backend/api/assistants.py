@@ -15,7 +15,7 @@ from backend.schemas.assistant import AssistantCreate, AssistantUpdate, Assistan
 from backend.schemas.conversation import ConversationResponse, ConversationStats
 from backend.services.assistant_service import AssistantService
 from backend.services.conversation_service import ConversationService
-from backend.functions.registry import get_all_functions
+from backend.functions.registry import get_function, get_all_functions, get_tools_for_openai
 
 # Initialize logger
 logger = get_logger(__name__)
