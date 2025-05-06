@@ -13,7 +13,7 @@ from backend.core.logging import setup_logging, get_logger
 from backend.api import auth, users, assistants, files, websocket, healthcheck, subscriptions  # Добавлен импорт subscriptions
 from backend.models.base import create_tables
 from backend.db.session import engine
-
+from backend.api import integrations
 # Setup logging system
 setup_logging()
 
@@ -49,7 +49,7 @@ app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])  # Новый маршрут для подписок
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(healthcheck.router, tags=["Health"])
-
+app.include_router(integrations.router, prefix="/api/assistants", tags=["Integrations"])
 # Check and create directories for static files
 static_dir = os.path.join(os.getcwd(), "backend/static")
 if not os.path.exists(static_dir):
