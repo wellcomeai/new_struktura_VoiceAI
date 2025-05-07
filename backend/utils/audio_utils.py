@@ -37,6 +37,28 @@ def base64_to_audio_buffer(b64_data: str) -> bytes:
         logger.error(f"❌ Ошибка при декодировании base64 аудио: {e}")
         raise ValueError(f"Некорректные base64 данные: {e}")
 
+def audio_buffer_to_base64(audio_buffer: bytes, mime_type: str = "audio/wav") -> str:
+    """
+    Преобразует бинарный аудио-буфер в строку base64.
+    
+    Args:
+        audio_buffer: Бинарные аудио данные
+        mime_type: MIME-тип аудио (например, "audio/wav", "audio/mp3")
+        
+    Returns:
+        str: Аудио данные в формате base64 с префиксом MIME типа
+    """
+    try:
+        # Кодируем бинарные данные в base64
+        b64_data = base64.b64encode(audio_buffer).decode('utf-8')
+        
+        # Возвращаем с префиксом MIME типа
+        return f"data:{mime_type};base64,{b64_data}"
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при кодировании аудио в base64: {e}")
+        raise ValueError(f"Ошибка преобразования в base64: {e}")
+
 def pcm_to_wav(
     pcm_data: bytes, 
     sample_rate: int = 16000, 
