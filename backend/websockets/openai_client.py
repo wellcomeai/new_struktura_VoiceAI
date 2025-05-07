@@ -1,647 +1,541 @@
-# backend/websockets/openai_client.py
-import asyncio
+# backend/websockets/handler.py
+from fastapi import WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
 import json
+import asyncio
 import uuid
 import base64
 import time
-from typing import Optional, Dict, Any, List, Tuple
-import websockets
+from typing import Dict, List, Optional, Set
 from websockets.exceptions import ConnectionClosed
-from fastapi import WebSocket
 
-from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.core.config import settings
+from backend.models.user import User
+from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
-from backend.functions.registry import get_all_functions, get_function
+from backend.utils.audio_utils import base64_to_audio_buffer
+from backend.websockets.openai_client import OpenAIRealtimeClient
+from backend.services.assistant_service import AssistantService
 
 logger = get_logger(__name__)
 
-DEFAULT_VOICE = "alloy"
-DEFAULT_SYSTEM_MESSAGE = "You are a helpful voice assistant."
+# Активные соединения по каждому assistant_id
+active_connections: Dict[str, List[WebSocket]] = {}
 
-class OpenAIRealtimeClient:
+# Активные OpenAI клиенты по идентификаторам WebSocket
+active_clients: Dict[str, OpenAIRealtimeClient] = {}
+
+# Лимиты и счетчики для защиты от перегрузки
+connection_limits: Dict[str, int] = {}  # Лимиты подключений по IP
+rate_limits: Dict[str, List[float]] = {}  # Временные метки запросов по IP
+blocked_ips: Dict[str, float] = {}  # Заблокированные IP с временем блокировки (в секундах)
+block_warnings: Dict[str, int] = {}  # Счетчик предупреждений для прогрессивной блокировки
+
+# Константы для лимитов
+MAX_CONNECTIONS_PER_IP = 5       # Максимальное число одновременных соединений с одного IP
+MAX_REQUESTS_PER_MINUTE = 30     # Максимальное число запросов в минуту
+BLOCK_DURATION_BASE = 60         # Базовая длительность блокировки (сек)
+EXCESSIVE_REQUESTS_MULTIPLIER = 3 # Множитель для определения чрезмерных запросов
+
+
+async def handle_websocket_connection(
+    websocket: WebSocket,
+    assistant_id: str,
+    db: Session
+) -> None:
     """
-    Клиент для взаимодействия с OpenAI Realtime API через WebSockets.
-    Обрабатывает аудио, получает ответы и вызывает функции.
+    Обрабатывает WebSocket соединение для голосового ассистента.
+    
+    Args:
+        websocket: WebSocket соединение
+        assistant_id: ID ассистента
+        db: Сессия базы данных
     """
-    def __init__(self, api_key: str, assistant_config: Any, client_id: str, db_session=None):
-        self.api_key = api_key
-        self.assistant_config = assistant_config
-        self.client_id = client_id
-        self.db_session = db_session
-        self.ws = None
-        self.is_connected = False
-        self.openai_url = settings.REALTIME_WS_URL
-        self.session_id = str(uuid.uuid4())
-        self.conversation_record_id: Optional[str] = None
-        self.client_websocket: Optional[WebSocket] = None
-        self.function_call_cache = {}  # Кэш результатов функций
-        logger.info(f"🚀 Инициализация OpenAI клиента: {client_id}")
-
-    async def connect(self) -> bool:
-        """
-        Устанавливает соединение с OpenAI WebSocket API.
-        Возвращает True при успешном подключении.
-        """
-        if not self.api_key:
-            logger.error("❌ API ключ не предоставлен")
-            return False
-            
-        headers = [
-            ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
-            ("User-Agent", "WellcomeAI/1.0")
-        ]
-        
+    client_id = str(uuid.uuid4())
+    openai_client = None
+    response_task = None
+    client_ip = websocket.client.host if hasattr(websocket, "client") else "unknown"
+    
+    # Проверка на блокировку IP
+    if await is_ip_blocked(client_ip):
         try:
-            # Устанавливаем соединение с увеличенным таймаутом для стабильности
-            self.ws = await asyncio.wait_for(
-                websockets.connect(
-                    self.openai_url,
-                    extra_headers=headers,
-                    max_size=20*1024*1024,  # Увеличенный размер буфера
-                    ping_interval=30,
-                    ping_timeout=120,
-                    close_timeout=15
-                ),
-                timeout=30
-            )
-            self.is_connected = True
-            logger.info(f"✅ Подключено к OpenAI: {self.client_id}")
-
-            # Настраиваем сессию с параметрами ассистента
-            voice = getattr(self.assistant_config, "voice", None) or DEFAULT_VOICE
-            system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
-            temperature = getattr(self.assistant_config, "temperature", 0.7)
-            max_tokens = getattr(self.assistant_config, "max_tokens", 500)
-            functions_cfg = getattr(self.assistant_config, "functions", None)
-
-            success = await self.update_session(
-                voice=voice,
-                system_message=system_message,
-                functions=functions_cfg,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            
-            if not success:
-                await self.close()
-                return False
-                
-            return True
-
-        except asyncio.TimeoutError:
-            logger.error(f"❌ Таймаут при подключении к OpenAI")
-            return False
-        except Exception as e:
-            logger.error(f"❌ Ошибка подключения к OpenAI: {e}")
-            return False
-
-    async def update_session(
-        self,
-        voice: str = DEFAULT_VOICE,
-        system_message: str = DEFAULT_SYSTEM_MESSAGE,
-        functions: Optional[Dict[str, Any]] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 500
-    ) -> bool:
-        """
-        Обновляет параметры сессии с OpenAI.
-        
-        Args:
-            voice: Голос для синтеза речи
-            system_message: Системный промпт для ассистента
-            functions: Конфигурация доступных функций
-            temperature: Температура генерации (0.0-1.0)
-            max_tokens: Максимальное кол-во токенов в ответе
-            
-        Returns:
-            bool: Успешно ли обновлена сессия
-        """
-        if not self.is_connected or not self.ws:
-            return False
-
-        # Настройка определения окончания речи пользователя
-        turn_detection = {
-            "type": "server_vad",
-            "threshold": 0.25,
-            "prefix_padding_ms": 200,
-            "silence_duration_ms": 300,
-            "create_response": True,
-        }
-
-        # Подготовка инструментов (функций) для ассистента
-        tools = []
-        if functions and isinstance(functions, dict) and "enabled_functions" in functions:
-            enabled = functions.get("enabled_functions", [])
-            registry = get_all_functions()
-            
-            for fid in enabled:
-                if fid in registry:
-                    finfo = registry[fid]
-                    tools.append({
-                        "type": "function",
-                        "name": fid,
-                        "description": finfo["description"],
-                        "parameters": finfo["parameters"]
-                    })
-                    logger.info(f"🛠 Добавлена функция: {fid}")
-
-        # Формирование сообщения для обновления сессии
-        payload = {
-            "type": "session.update",
-            "session": {
-                "turn_detection": turn_detection,
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "voice": voice,
-                "instructions": system_message,
-                "modalities": ["text", "audio"],
-                "temperature": temperature,
-                "max_response_output_tokens": max_tokens,
-                "tools": tools,
-                "tool_choice": "auto" if tools else "none"
-            }
-        }
-
-        try:
-            await self.ws.send(json.dumps(payload))
-            logger.info(f"✅ session.update отправлен (voice={voice}, tools={len(tools)})")
-            
-            # Создаем запись о разговоре в БД, если есть сессия
-            if self.db_session:
-                await self._create_conversation_record()
-                
-            return True
-        except Exception as e:
-            logger.error(f"❌ Ошибка отправки session.update: {e}")
-            return False
-
-    async def _create_conversation_record(self) -> None:
-        """Создает запись о разговоре в базе данных"""
-        try:
-            conv = Conversation(
-                assistant_id=self.assistant_config.id,
-                session_id=self.session_id,
-                user_message="",
-                assistant_message="",
-            )
-            self.db_session.add(conv)
-            self.db_session.commit()
-            self.db_session.refresh(conv)
-            self.conversation_record_id = str(conv.id)
-            logger.info(f"📝 Разговор в БД создан: {self.conversation_record_id}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка сохранения Conversation: {e}")
-
-    async def process_audio(self, audio_buffer: bytes, client_websocket=None) -> bool:
-        """
-        Обрабатывает аудио от клиента, отправляет в OpenAI и затем вызывает commit
-        
-        Args:
-            audio_buffer: Аудио данные в бинарном формате
-            client_websocket: WebSocket соединение с клиентом
-            
-        Returns:
-            bool: Успешно ли обработано аудио
-        """
-        if not (self.is_connected and self.ws and audio_buffer):
-            logger.warning("⚠️ Попытка отправки аудио при отсутствии соединения")
-            return False
-            
-        try:
-            # Сохраняем ссылку на клиентский WebSocket для отправки ответов
-            if client_websocket:
-                self.client_websocket = client_websocket
-                
-            # Отправляем аудио в буфер
-            data_b64 = base64.b64encode(audio_buffer).decode("utf-8")
-            event_id = f"audio_{time.time()}"
-            
-            await self.ws.send(json.dumps({
-                "type": "input_audio_buffer.append",
-                "audio": data_b64,
-                "event_id": event_id
-            }))
-            
-            logger.debug(f"📤 Аудио отправлено: {len(audio_buffer)} байт, event_id={event_id}")
-            
-            # Фиксируем аудио в буфере
-            await self.commit_audio()
-            return True
-            
-        except ConnectionClosed:
-            logger.warning("🔌 Соединение с OpenAI закрыто при отправке аудио")
-            self.is_connected = False
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при отправке аудио: {e}")
-            return False
-
-    async def commit_audio(self) -> bool:
-        """
-        Фиксирует аудио в буфере OpenAI, сигнализируя о завершении сегмента аудио
-        
-        Returns:
-            bool: Успешно ли зафиксировано аудио
-        """
-        if not (self.is_connected and self.ws):
-            return False
-            
-        try:
-            event_id = f"commit_{time.time()}"
-            
-            await self.ws.send(json.dumps({
-                "type": "input_audio_buffer.commit",
-                "event_id": event_id
-            }))
-            
-            logger.info(f"✅ Аудио зафиксировано в буфере (event_id={event_id})")
-            return True
-            
-        except ConnectionClosed:
-            logger.warning("🔌 Соединение с OpenAI закрыто при фиксации аудио")
-            self.is_connected = False
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при фиксации аудио: {e}")
-            return False
-
-    async def clear_audio_buffer(self) -> bool:
-        """
-        Очищает буфер аудио на стороне OpenAI
-        
-        Returns:
-            bool: Успешно ли очищен буфер
-        """
-        if not (self.is_connected and self.ws):
-            return False
-            
-        try:
-            event_id = f"clear_{time.time()}"
-            
-            await self.ws.send(json.dumps({
-                "type": "input_audio_buffer.clear",
-                "event_id": event_id
-            }))
-            
-            logger.info(f"🧹 Аудио буфер очищен (event_id={event_id})")
-            return True
-            
-        except ConnectionClosed:
-            logger.warning("🔌 Соединение с OpenAI закрыто при очистке буфера")
-            self.is_connected = False
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при очистке аудио буфера: {e}")
-            return False
-
-    async def listen_for_responses(self, client_websocket):
-        """
-        Слушает ответы от OpenAI и пересылает их клиенту
-        
-        Args:
-            client_websocket: WebSocket соединение с клиентом
-        """
-        if not self.ws:
-            logger.error("❌ WebSocket соединение с OpenAI отсутствует")
+            await websocket.accept()
+            remaining_time = int(blocked_ips[client_ip] - time.time())
+            if remaining_time > 0:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "ip_blocked", 
+                        "message": f"Ваш IP временно заблокирован из-за превышения лимитов. Повторите через {remaining_time} секунд."
+                    }
+                })
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "ip_blocked", 
+                        "message": "Ваш IP временно заблокирован из-за превышения лимитов."
+                    }
+                })
+            await websocket.close(code=1008)
             return
-            
+        except Exception:
+            return
+
+    # Проверка ограничения количества соединений по IP
+    if not await check_connection_limits(client_ip):
         try:
-            self.client_websocket = client_websocket
-            user_message = ""
-            assistant_message = ""
-            current_function_name = None
-            current_function_args = ""
-            
-            while True:
+            await websocket.accept()
+            await websocket.send_json({
+                "type": "error",
+                "error": {
+                    "code": "connection_limit", 
+                    "message": f"Превышено максимальное число одновременных подключений ({MAX_CONNECTIONS_PER_IP})."
+                }
+            })
+            await websocket.close(code=1008)
+            return
+        except Exception:
+            return
+
+    try:
+        # Принимаем соединение
+        await websocket.accept()
+        logger.info(f"✅ WebSocket соединение принято: client_id={client_id}, assistant_id={assistant_id}, ip={client_ip}")
+
+        # Регистрируем соединение
+        active_connections.setdefault(assistant_id, []).append(websocket)
+        
+        # Поиск ассистента
+        try:
+            # Демо режим
+            if assistant_id == "demo":
+                assistant = db.query(AssistantConfig).filter(AssistantConfig.is_public.is_(True)).first()
+                if not assistant:
+                    assistant = db.query(AssistantConfig).first()
+                logger.info(f"🔍 Используется ассистент {assistant.id if assistant else 'None'} для демо")
+            else:
+                # Поиск по UUID
                 try:
-                    message = await asyncio.wait_for(self.ws.recv(), timeout=30)
-                    event = json.loads(message)
-                    event_type = event.get("type")
-                    
-                    # Логирование для отладки (кроме технических событий)
-                    if event_type not in ["rate_limits.updated"]:
-                        logger.debug(f"📩 Получено событие от OpenAI: {event_type}")
-                    
-                    # Обрабатываем различные типы событий
-                    if event_type == "input_audio_buffer.speech_started":
-                        # Началось распознавание речи пользователя
-                        await client_websocket.send_json({
-                            "type": "speech_started",
-                            "item_id": event.get("item_id")
-                        })
-                        logger.debug(f"👂 Начало распознавания речи, item_id={event.get('item_id')}")
-                    
-                    elif event_type == "input_audio_buffer.speech_stopped":
-                        # Закончилось распознавание речи пользователя
-                        await client_websocket.send_json({
-                            "type": "speech_stopped",
-                            "item_id": event.get("item_id")
-                        })
-                        logger.debug(f"🛑 Конец распознавания речи, item_id={event.get('item_id')}")
-                    
-                    elif event_type == "conversation.item.input_audio_transcription.completed":
-                        # Транскрипция аудио пользователя
-                        transcript = event.get("transcript", "")
-                        user_message = transcript
-                        
-                        await client_websocket.send_json({
-                            "type": "transcript",
-                            "text": transcript,
-                            "item_id": event.get("item_id")
-                        })
-                        
-                        logger.info(f"🗣️ Транскрипция: '{transcript[:50]}...' (длина: {len(transcript)})")
-                    
-                    elif event_type == "response.created":
-                        # Создан новый ответ ассистента
-                        response_id = event.get("response", {}).get("id")
-                        
-                        await client_websocket.send_json({
-                            "type": "response_started",
-                            "response_id": response_id
-                        })
-                        
-                        logger.debug(f"🤖 Начало ответа ассистента, response_id={response_id}")
-                    
-                    elif event_type == "response.text.delta":
-                        # Получаем фрагмент текста
-                        delta = event.get("delta", "")
-                        assistant_message += delta
-                        
-                        # Отправляем клиенту
-                        await client_websocket.send_json({
-                            "type": "text",
-                            "text": delta,
-                            "is_final": False,
-                            "item_id": event.get("item_id")
-                        })
-                    
-                    elif event_type == "response.text.done":
-                        # Финальный текст
-                        final_text = event.get("text", "")
-                        
-                        await client_websocket.send_json({
-                            "type": "text",
-                            "text": final_text,
-                            "is_final": True,
-                            "item_id": event.get("item_id")
-                        })
-                        
-                        logger.info(f"📝 Текст ответа: '{final_text[:50]}...' (длина: {len(final_text)})")
-                    
-                    elif event_type == "response.audio.delta":
-                        # Получаем фрагмент аудио
-                        audio_data = event.get("delta", "")
-                        
-                        await client_websocket.send_json({
-                            "type": "audio",
-                            "audio": audio_data,
-                            "is_final": False,
-                            "item_id": event.get("item_id")
-                        })
-                    
-                    elif event_type == "response.audio.done":
-                        # Финальное аудио
-                        await client_websocket.send_json({
-                            "type": "audio",
-                            "is_final": True,
-                            "item_id": event.get("item_id")
-                        })
-                        
-                        logger.debug(f"🔊 Аудио ответ завершен, item_id={event.get('item_id')}")
-                    
-                    elif event_type == "response.function_call_arguments.delta":
-                        # Получаем фрагмент аргументов функции
-                        delta = event.get("delta", "")
-                        current_function_args += delta
-                        
-                        # Получаем информацию о функции
-                        if current_function_name is None:
-                            item = await self._get_item_info(event.get("item_id"))
-                            if item and "function" in item:
-                                current_function_name = item.get("function", {}).get("name")
-                                logger.info(f"🔍 Определена функция для вызова: {current_function_name}")
-                        
-                        await client_websocket.send_json({
-                            "type": "function_call_delta",
-                            "function_name": current_function_name,
-                            "arguments_delta": delta,
-                            "call_id": event.get("call_id"),
-                            "item_id": event.get("item_id")
-                        })
-                    
-                    elif event_type == "response.function_call_arguments.done":
-                        # Вызов функции завершен
-                        call_id = event.get("call_id")
-                        arguments = event.get("arguments", "{}")
-                        
-                        try:
-                            args_dict = json.loads(arguments)
-                            
-                            if current_function_name:
-                                # Проверяем кэш для оптимизации повторных вызовов
-                                cache_key = f"{current_function_name}:{json.dumps(args_dict, sort_keys=True)}"
-                                cached_result = self.function_call_cache.get(cache_key)
-                                
-                                if cached_result:
-                                    logger.info(f"📦 Использован кэшированный результат для {current_function_name}")
-                                    result = cached_result
-                                else:
-                                    # Вызываем функцию
-                                    result = await self.handle_function_call(current_function_name, args_dict)
-                                    # Сохраняем в кэш (только если успешно)
-                                    if not isinstance(result, dict) or "error" not in result:
-                                        self.function_call_cache[cache_key] = result
-                                
-                                # Отправляем результат клиенту
-                                await client_websocket.send_json({
-                                    "type": "function_result",
-                                    "function_name": current_function_name,
-                                    "result": result,
-                                    "call_id": call_id,
-                                    "item_id": event.get("item_id")
-                                })
-                                
-                                # Отправляем результат обратно в OpenAI
-                                await self.ws.send(json.dumps({
-                                    "type": "conversation.item.create",
-                                    "item": {
-                                        "type": "function_call_response",
-                                        "function_call_id": call_id,
-                                        "content": result
-                                    }
-                                }))
-                                
-                                logger.info(f"✅ Результат функции {current_function_name} отправлен в OpenAI")
-                                
-                                # Сбрасываем для следующего вызова функции
-                                current_function_name = None
-                                current_function_args = ""
-                            else:
-                                logger.error("❌ Имя функции не определено для вызова")
-                        except json.JSONDecodeError:
-                            logger.error(f"❌ Ошибка декодирования JSON аргументов: {arguments}")
-                        except Exception as e:
-                            logger.error(f"❌ Ошибка при вызове функции: {e}")
-                    
-                    elif event_type == "response.done":
-                        # Ответ завершен
-                        response_id = event.get("response", {}).get("id")
-                        
-                        await client_websocket.send_json({
-                            "type": "response_done",
-                            "response_id": response_id
-                        })
-                        
-                        logger.info(f"🏁 Ответ завершен, response_id={response_id}")
-                        
-                        # Обновляем запись разговора в БД
-                        await self._update_conversation_record(user_message, assistant_message)
-                    
-                    elif event_type == "error":
-                        # Обработка ошибок от OpenAI
-                        error_msg = event.get("error", {}).get("message", "Unknown error")
-                        error_code = event.get("error", {}).get("code", "unknown")
-                        
-                        logger.error(f"❌ Ошибка от OpenAI: {error_code} - {error_msg}")
-                        
-                        await client_websocket.send_json({
-                            "type": "error",
-                            "error": {
-                                "code": error_code,
-                                "message": error_msg
-                            }
-                        })
+                    uuid_obj = uuid.UUID(assistant_id)
+                    assistant = db.query(AssistantConfig).get(uuid_obj)
+                    logger.info(f"🔍 Загружен ассистент: {assistant.id}, имя: {assistant.name}")
+                except ValueError:
+                    # Поиск по строковому ID
+                    assistant = db.query(AssistantConfig).filter(AssistantConfig.id.cast(str) == assistant_id).first()
+                    if assistant:
+                        logger.info(f"🔍 Загружен ассистент по строковому ID: {assistant.id}, имя: {assistant.name}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при поиске ассистента: {e}")
+            assistant = None
+
+        if not assistant:
+            logger.error(f"❌ Ассистент не найден: {assistant_id}")
+            await websocket.send_json({
+                "type": "error",
+                "error": {"code": "assistant_not_found", "message": "Assistant not found"}
+            })
+            await websocket.close(code=1008)
+            return
+        
+        # Увеличиваем счетчик разговоров для статистики
+        asyncio.create_task(AssistantService.increment_conversation_count(db, str(assistant.id)))
+
+        # Получение API ключа пользователя
+        api_key = None
+        if assistant.user_id:
+            user = db.query(User).get(assistant.user_id)
+            if user and user.openai_api_key:
+                api_key = user.openai_api_key
+                logger.info(f"🔑 Найден API ключ пользователя для ассистента")
+            else:
+                logger.warning(f"⚠️ API ключ не найден для пользователя {user.id if user else 'None'}")
+
+        if not api_key:
+            logger.error("❌ Отсутствует ключ API OpenAI для ассистента")
+            await websocket.send_json({
+                "type": "error",
+                "error": {"code": "no_api_key", "message": "Отсутствует ключ API OpenAI. Пожалуйста, добавьте ключ в настройках личного кабинета."}
+            })
+            await websocket.close(code=1008)
+            return
+
+        # Создание клиента OpenAI
+        openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db)
+        active_clients[client_id] = openai_client
+        
+        # Подключение к OpenAI
+        if not await openai_client.connect():
+            logger.error("❌ Не удалось подключиться к OpenAI")
+            await websocket.send_json({
+                "type": "error",
+                "error": {"code": "openai_connection_failed", "message": "Failed to connect to OpenAI"}
+            })
+            await websocket.close(code=1008)
+            return
+
+        # Запускаем асинхронную задачу для прослушивания ответов от OpenAI
+        response_task = asyncio.create_task(openai_client.listen_for_responses(websocket))
+
+        # Логируем информацию о функциях ассистента
+        if hasattr(assistant, 'functions') and assistant.functions:
+            enabled_functions = assistant.functions.get("enabled_functions", [])
+            logger.info(f"🔧 Доступные функции ассистента ({len(enabled_functions)}): {', '.join(enabled_functions) if enabled_functions else 'нет'}")
+
+        # Отправляем подтверждение подключения
+        await websocket.send_json({
+            "type": "connection_status", 
+            "status": "connected",
+            "assistant": {
+                "id": str(assistant.id),
+                "name": assistant.name,
+                "voice": assistant.voice
+            }
+        })
+
+        # Сбрасываем счетчик предупреждений при новом соединении
+        if client_ip in block_warnings:
+            # Уменьшаем, но не сбрасываем полностью, чтобы сохранить историю нарушений
+            block_warnings[client_ip] = max(0, block_warnings[client_ip] - 1)
+
+        excessive_warnings = 0  # Счетчик чрезмерных предупреждений
+        has_blocked = False     # Флаг, что соединение было заблокировано
+
+        # Основной цикл обработки сообщений от клиента
+        while True:
+            try:
+                data = await websocket.receive_json()
+            except json.JSONDecodeError:
+                logger.warning(f"⚠️ Получены некорректные JSON данные от {client_ip}")
+                continue
+            
+            # Проверка ограничения частоты запросов
+            rate_check_result = await check_rate_limits(client_ip)
+            
+            if rate_check_result == "blocked":
+                # IP был заблокирован из-за превышения лимита
+                has_blocked = True
                 
-                except asyncio.TimeoutError:
-                    # Таймаут не критичен, продолжаем слушать
-                    continue
-                    
-                except ConnectionClosed:
-                    logger.warning("🔌 Соединение с OpenAI закрыто")
+                # Отправляем сообщение о блокировке
+                block_time = int(blocked_ips[client_ip] - time.time())
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {
+                        "code": "rate_limit_exceeded", 
+                        "message": f"Превышен лимит запросов. Ваш IP заблокирован на {block_time} секунд."
+                    }
+                })
+                
+                # Закрываем соединение при первой блокировке
+                if excessive_warnings == 0:
+                    logger.warning(f"🚫 Закрытие соединения для {client_ip} из-за блокировки IP")
                     break
                     
-                except json.JSONDecodeError as e:
-                    logger.error(f"❌ Ошибка декодирования JSON от OpenAI: {e}")
-                    continue
+                # Продолжаем счетчик предупреждений
+                excessive_warnings += 1
+                continue
+                
+            elif rate_check_result == "warning":
+                # Предупреждение о приближении к лимиту
+                excessive_warnings += 1
+                
+                # Закрываем соединение при чрезмерном превышении лимита
+                if excessive_warnings > 10:
+                    logger.warning(f"🚫 Закрытие соединения для {client_ip} из-за чрезмерного превышения лимита ({excessive_warnings} предупреждений)")
                     
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": {
+                            "code": "excessive_requests", 
+                            "message": "Соединение закрыто из-за чрезмерной активности."
+                        }
+                    })
+                    break
+                
+                # Отправляем предупреждение (не каждый раз, чтобы не спамить)
+                if excessive_warnings % 5 == 0:
+                    await websocket.send_json({
+                        "type": "warning",
+                        "warning": {
+                            "code": "approaching_rate_limit", 
+                            "message": "Приближение к лимиту запросов. Пожалуйста, снизьте частоту запросов."
+                        }
+                    })
+                
+                continue
+
+            # Обработка запросов
+            if data["type"] == "audio":
+                logger.info("🎤 Пользователь закончил говорить, обрабатываем аудио")
+                try:
+                    audio_buffer = base64_to_audio_buffer(data["audio"])
+                    await openai_client.process_audio(audio_buffer, websocket)
                 except Exception as e:
-                    logger.error(f"❌ Ошибка при обработке ответа от OpenAI: {e}")
-                    # Продолжаем работу даже при ошибке в обработке одного события
-                    continue
-        
-        except Exception as e:
-            logger.error(f"❌ Критическая ошибка в listen_for_responses: {e}")
-        finally:
-            logger.info("🔚 Завершение прослушивания ответов OpenAI")
-
-    async def _update_conversation_record(self, user_message: str, assistant_message: str) -> None:
-        """Обновляет запись разговора в базе данных"""
-        if self.db_session and self.conversation_record_id:
-            try:
-                conv = self.db_session.query(Conversation).filter(
-                    Conversation.id == uuid.UUID(self.conversation_record_id)
-                ).first()
+                    logger.error(f"❌ Ошибка при обработке аудио: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": {"code": "audio_processing_error", "message": "Error processing audio"}
+                    })
+                    
+            elif data["type"] == "ping":
+                # Простой пинг для проверки соединения
+                await websocket.send_json({
+                    "type": "pong", 
+                    "timestamp": data.get("timestamp"),
+                    "server_time": time.time()
+                })
                 
-                if conv:
-                    # Обрезаем сообщения, чтобы избежать переполнения БД
-                    conv.user_message = user_message[:1000]
-                    conv.assistant_message = assistant_message[:1000]
-                    self.db_session.commit()
-                    logger.info(f"📊 Обновлена запись разговора: {self.conversation_record_id}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка обновления записи разговора: {e}")
-
-    async def _get_item_info(self, item_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Получает информацию об элементе разговора по его ID
-        
-        Args:
-            item_id: Идентификатор элемента разговора
-            
-        Returns:
-            Optional[Dict[str, Any]]: Информация об элементе или None при ошибке
-        """
-        if not (self.is_connected and self.ws):
-            return None
-            
-        try:
-            event_id = f"retrieve_{time.time()}"
-            
-            await self.ws.send(json.dumps({
-                "type": "conversation.item.retrieve",
-                "item_id": item_id,
-                "event_id": event_id
-            }))
-            
-            # Ждем ответ с информацией об элементе
-            for _ in range(5):  # Пробуем до 5 раз
-                message = await asyncio.wait_for(self.ws.recv(), timeout=5)
-                event = json.loads(message)
+            elif data["type"] == "clear_audio":
+                # Очистка буфера аудио
+                logger.info("🧹 Запрос на очистку аудио буфера")
+                await openai_client.clear_audio_buffer()
+                await websocket.send_json({
+                    "type": "audio_buffer_cleared"
+                })
                 
-                if event.get("type") == "conversation.item.retrieved" and event.get("item_id") == item_id:
-                    return event.get("item")
-            
-            logger.warning(f"⚠️ Не удалось получить информацию для item_id={item_id}")
-            return None
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка при получении информации об элементе: {e}")
-            return None
+            elif data["type"] == "stop_response":
+                # Остановка текущего ответа
+                logger.info("🛑 Запрос на остановку ответа")
+                await websocket.send_json({
+                    "type": "stop_acknowledged"
+                })
 
-    async def handle_function_call(self, function_name: str, arguments: dict) -> Any:
-        """
-        Вызывает зарегистрированную функцию с переданными аргументами
-        
-        Args:
-            function_name: Имя функции для вызова
-            arguments: Словарь аргументов функции
-            
-        Returns:
-            Any: Результат вызова функции или словарь с ошибкой
-        """
-        logger.info(f"🔔 Вызов функции {function_name}, args={json.dumps(arguments, default=str)[:100]}")
-        
+    except WebSocketDisconnect:
+        logger.info(f"🔌 Клиент отключился: client_id={client_id}")
+    except ConnectionClosed:
+        logger.info(f"🔌 Соединение закрыто: client_id={client_id}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка в WebSocket цикле: {e}")
+        # Попытка отправить сообщение об ошибке клиенту
         try:
-            # Получаем информацию о функции из реестра
-            info = get_function(function_name)
-            
-            if not info:
-                logger.warning(f"⚠️ Функция {function_name} не найдена в реестре")
-                return {"error": f"Function '{function_name}' not found"}
-            
-            # Вызываем функцию с переданными аргументами
-            func = info["function"]
-            start_time = time.time()
-            result = await func(**arguments)
-            execution_time = time.time() - start_time
-            
-            logger.info(f"📤 Результат функции {function_name} получен за {execution_time:.2f}с")
-            return result
-            
-        except TypeError as e:
-            # Ошибка несоответствия аргументов
-            logger.error(f"❌ Ошибка типов аргументов в {function_name}: {e}")
-            return {"error": f"Invalid arguments: {str(e)}"}
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка в handle_function_call ({function_name}): {e}")
-            return {"error": str(e)}
-
-    async def close(self) -> None:
-        """Закрывает соединение с OpenAI WebSocket API"""
-        if self.ws:
+            if websocket.client_state.CONNECTED:
+                await websocket.send_json({
+                    "type": "error",
+                    "error": {"code": "internal_error", "message": f"Произошла ошибка: {str(e)}"}
+                })
+        except Exception:
+            pass
+    finally:
+        # Отменяем задачу прослушивания ответов
+        if response_task:
+            response_task.cancel()
             try:
-                await self.ws.close()
-                logger.info(f"🔒 WebSocket закрыт: {self.client_id}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка при закрытии WebSocket: {e}")
+                await response_task
+            except asyncio.CancelledError:
+                pass
         
-        # Очистка ресурсов
-        self.is_connected = False
-        self.function_call_cache.clear()
+        # Закрываем клиент OpenAI
+        if openai_client:
+            await openai_client.close()
+            
+        # Удаляем из активных клиентов
+        if client_id in active_clients:
+            del active_clients[client_id]
+        
+        # Удаляем из активных соединений
+        if assistant_id in active_connections and websocket in active_connections[assistant_id]:
+            active_connections[assistant_id].remove(websocket)
+            if not active_connections[assistant_id]:
+                del active_connections[assistant_id]
+        
+        # Уменьшаем счетчик соединений по IP
+        if client_ip in connection_limits:
+            connection_limits[client_ip] -= 1
+            if connection_limits[client_ip] <= 0:
+                del connection_limits[client_ip]
+        
+        logger.info(f"🔌 Удалено WebSocket соединение: client_id={client_id}")
+
+async def is_ip_blocked(client_ip: str) -> bool:
+    """
+    Проверяет, заблокирован ли IP-адрес.
+    
+    Args:
+        client_ip: IP-адрес клиента
+        
+    Returns:
+        bool: True если IP заблокирован, False если нет
+    """
+    if client_ip not in blocked_ips:
+        return False
+        
+    # Проверяем, не истекло ли время блокировки
+    block_until = blocked_ips[client_ip]
+    if time.time() > block_until:
+        # Разблокируем IP
+        del blocked_ips[client_ip]
+        return False
+        
+    return True
+
+async def check_connection_limits(client_ip: str) -> bool:
+    """
+    Проверяет ограничение на количество одновременных соединений с одного IP.
+    
+    Args:
+        client_ip: IP-адрес клиента
+        
+    Returns:
+        bool: True если лимит не превышен, False если превышен
+    """
+    current = connection_limits.get(client_ip, 0)
+    if current >= MAX_CONNECTIONS_PER_IP:
+        logger.warning(f"⚠️ Превышен лимит соединений для IP {client_ip}: {current}/{MAX_CONNECTIONS_PER_IP}")
+        return False
+        
+    connection_limits[client_ip] = current + 1
+    return True
+
+async def check_rate_limits(client_ip: str) -> str:
+    """
+    Проверяет ограничение частоты запросов с одного IP.
+    
+    Args:
+        client_ip: IP-адрес клиента
+        
+    Returns:
+        str: 
+            - "ok" - лимит не превышен
+            - "warning" - лимит превышен, но не критично
+            - "blocked" - IP заблокирован из-за превышения лимита
+    """
+    # Проверяем, не заблокирован ли уже IP
+    if await is_ip_blocked(client_ip):
+        return "blocked"
+    
+    now = time.time()
+    
+    # Инициализируем список временных меток, если его еще нет
+    if client_ip not in rate_limits:
+        rate_limits[client_ip] = []
+        
+    # Добавляем текущую временную метку
+    rate_limits[client_ip].append(now)
+    
+    # Удаляем устаревшие метки (старше 60 секунд)
+    rate_limits[client_ip] = [t for t in rate_limits[client_ip] if t > now - 60]
+    
+    # Текущее количество запросов за последнюю минуту
+    current_requests = len(rate_limits[client_ip])
+    
+    # Блокируем IP при чрезмерном превышении лимита
+    if current_requests > MAX_REQUESTS_PER_MINUTE:
+        # Регистрируем предупреждение при превышении лимита
+        logger.warning(f"⚠️ Превышен лимит запросов для IP {client_ip}: {current_requests}/{MAX_REQUESTS_PER_MINUTE} за 60с")
+        
+        # Проверяем чрезмерное превышение (более чем в EXCESSIVE_REQUESTS_MULTIPLIER раз)
+        if current_requests > MAX_REQUESTS_PER_MINUTE * EXCESSIVE_REQUESTS_MULTIPLIER:
+            # Увеличиваем счетчик предупреждений
+            block_warnings[client_ip] = block_warnings.get(client_ip, 0) + 1
+            
+            # Блокируем IP при повторном чрезмерном превышении
+            if block_warnings[client_ip] >= 2:
+                # Прогрессивная длительность блокировки
+                block_duration = BLOCK_DURATION_BASE * (2 ** (block_warnings[client_ip] - 1))
+                block_duration = min(block_duration, 3600 * 6)  # Максимум 6 часов
+                
+                # Устанавливаем время блокировки
+                blocked_ips[client_ip] = now + block_duration
+                
+                logger.warning(f"🚫 IP {client_ip} заблокирован на {block_duration} секунд после {block_warnings[client_ip]} предупреждений")
+                return "blocked"
+                
+        return "warning"
+        
+    return "ok"
+
+async def broadcast_to_assistant(assistant_id: str, message: dict) -> None:
+    """
+    Отправляет сообщение всем активным соединениям для указанного ассистента.
+    
+    Args:
+        assistant_id: ID ассистента
+        message: Сообщение для отправки
+    """
+    if assistant_id not in active_connections:
+        return
+        
+    disconnected = []
+    
+    for connection in active_connections[assistant_id]:
+        try:
+            await connection.send_json(message)
+        except Exception:
+            disconnected.append(connection)
+            
+    # Удаляем отключенные соединения
+    for conn in disconnected:
+        if conn in active_connections[assistant_id]:
+            active_connections[assistant_id].remove(conn)
+            
+    if not active_connections[assistant_id]:
+        del active_connections[assistant_id]
+
+async def close_all_connections() -> None:
+    """
+    Закрывает все активные WebSocket соединения. 
+    Используется при завершении работы сервера.
+    """
+    logger.info("🔌 Закрытие всех WebSocket соединений...")
+    
+    # Закрываем все OpenAI клиенты
+    for client_id, client in active_clients.items():
+        try:
+            await client.close()
+        except Exception as e:
+            logger.error(f"❌ Ошибка при закрытии OpenAI клиента {client_id}: {e}")
+    
+    active_clients.clear()
+    
+    # Закрываем все WebSocket соединения
+    for assistant_id, connections in active_connections.items():
+        for connection in connections:
+            try:
+                await connection.close(code=1001)
+            except Exception as e:
+                logger.error(f"❌ Ошибка при закрытии WebSocket соединения: {e}")
+    
+    active_connections.clear()
+    connection_limits.clear()
+    rate_limits.clear()
+    blocked_ips.clear()
+    block_warnings.clear()
+    
+    logger.info("✅ Все WebSocket соединения закрыты")
+
+# Периодическая очистка устаревших данных
+async def cleanup_task():
+    """
+    Периодически очищает устаревшие данные о лимитах и блокировках.
+    Запускается как фоновая задача при старте приложения.
+    """
+    while True:
+        try:
+            now = time.time()
+            
+            # Очистка устаревших данных лимитов частоты запросов
+            for ip in list(rate_limits.keys()):
+                rate_limits[ip] = [t for t in rate_limits[ip] if t > now - 60]
+                if not rate_limits[ip]:
+                    del rate_limits[ip]
+            
+            # Очистка истекших блокировок
+            for ip in list(blocked_ips.keys()):
+                if blocked_ips[ip] <= now:
+                    del blocked_ips[ip]
+                    logger.info(f"✅ IP {ip} разблокирован (истек срок блокировки)")
+            
+            # Снижение счетчиков предупреждений со временем
+            for ip in list(block_warnings.keys()):
+                # Если нет активного подключения и нет активной блокировки, постепенно снижаем счетчик
+                if ip not in connection_limits and ip not in blocked_ips:
+                    block_warnings[ip] = max(0, block_warnings[ip] - 1)
+                    if block_warnings[ip] == 0:
+                        del block_warnings[ip]
+                        
+        except Exception as e:
+            logger.error(f"❌ Ошибка в задаче очистки: {e}")
+            
+        # Запускаем каждые 5 минут
+        await asyncio.sleep(300)
