@@ -1,243 +1,303 @@
-"""
-Audio utilities for WellcomeAI application.
-"""
-
+# backend/utils/audio_utils.py
 import base64
 import struct
-import numpy as np
-from typing import Union, Optional
 import io
+import wave
+from typing import Optional, Tuple, Union
+import numpy as np
 
 from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-def audio_buffer_to_base64(buffer: Union[bytes, bytearray, memoryview]) -> str:
+def base64_to_audio_buffer(b64_data: str) -> bytes:
     """
-    Convert audio buffer to base64 string
+    Преобразует base64-строку в бинарный аудио-буфер.
     
     Args:
-        buffer: Audio buffer as bytes, bytearray, or memoryview
+        b64_data: Аудио данные в формате base64
         
     Returns:
-        Base64 encoded string
-    """
-    try:
-        if isinstance(buffer, memoryview):
-            buffer = buffer.tobytes()
-            
-        return base64.b64encode(buffer).decode('utf-8')
-    except Exception as e:
-        logger.error(f"Error converting audio buffer to base64: {str(e)}")
-        raise
-
-def base64_to_audio_buffer(base64_str: str) -> bytes:
-    """
-    Convert base64 string to audio buffer
-    
-    Args:
-        base64_str: Base64 encoded string
+        bytes: Бинарный аудио-буфер
         
-    Returns:
-        Audio buffer as bytes
+    Raises:
+        ValueError: Если данные не являются корректной base64-строкой
     """
     try:
-        return base64.b64decode(base64_str)
+        # Проверяем и удаляем префикс data:audio/*, если присутствует
+        if b64_data.startswith('data:audio/'):
+            # Удаляем префикс data:audio и все до base64,
+            b64_data = b64_data.split('base64,')[1]
+        
+        # Декодируем base64 в бинарные данные
+        audio_bytes = base64.b64decode(b64_data)
+        return audio_bytes
+        
     except Exception as e:
-        logger.error(f"Error converting base64 to audio buffer: {str(e)}")
-        raise
+        logger.error(f"❌ Ошибка при декодировании base64 аудио: {e}")
+        raise ValueError(f"Некорректные base64 данные: {e}")
 
-def create_wav_from_pcm(
+def pcm_to_wav(
     pcm_data: bytes, 
-    sample_rate: int = 24000, 
-    sample_width: int = 2, 
+    sample_rate: int = 16000, 
+    sample_width: int = 2,
     channels: int = 1
 ) -> bytes:
     """
-    Create a WAV file from PCM audio data
+    Преобразует PCM аудио данные в формат WAV.
     
     Args:
-        pcm_data: PCM audio data
-        sample_rate: Sample rate in Hz (default: 24000)
-        sample_width: Sample width in bytes (default: 2 for 16-bit)
-        channels: Number of channels (default: 1 for mono)
+        pcm_data: PCM аудио данные
+        sample_rate: Частота дискретизации
+        sample_width: Количество байт на сэмпл (2 = 16 бит)
+        channels: Количество каналов
         
     Returns:
-        WAV file as bytes
+        bytes: Аудио данные в формате WAV
     """
-    try:
-        # Calculate sizes
-        data_size = len(pcm_data)
-        file_size = 36 + data_size
+    with io.BytesIO() as wav_buffer:
+        with wave.open(wav_buffer, 'wb') as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_data)
         
-        # Create header
-        header = bytearray()
-        
-        # RIFF chunk descriptor
-        header.extend(b'RIFF')
-        header.extend(struct.pack('<I', file_size))
-        header.extend(b'WAVE')
-        
-        # fmt sub-chunk
-        header.extend(b'fmt ')
-        header.extend(struct.pack('<I', 16))  # Subchunk1Size (16 for PCM)
-        header.extend(struct.pack('<H', 1))   # AudioFormat (1 for PCM)
-        header.extend(struct.pack('<H', channels))  # NumChannels
-        header.extend(struct.pack('<I', sample_rate))  # SampleRate
-        header.extend(struct.pack('<I', sample_rate * channels * sample_width))  # ByteRate
-        header.extend(struct.pack('<H', channels * sample_width))  # BlockAlign
-        header.extend(struct.pack('<H', sample_width * 8))  # BitsPerSample
-        
-        # data sub-chunk
-        header.extend(b'data')
-        header.extend(struct.pack('<I', data_size))
-        
-        # Combine header and PCM data
-        wav_data = header + pcm_data
-        
-        return wav_data
-    except Exception as e:
-        logger.error(f"Error creating WAV from PCM: {str(e)}")
-        raise
+        return wav_buffer.getvalue()
 
-def float32_to_int16(
-    float32_array: np.ndarray
-) -> np.ndarray:
+def wav_to_pcm(wav_data: bytes) -> Tuple[bytes, int, int, int]:
     """
-    Convert float32 numpy array to int16 numpy array
+    Извлекает PCM данные из WAV файла.
     
     Args:
-        float32_array: Float32 numpy array in range [-1.0, 1.0]
+        wav_data: Аудио данные в формате WAV
         
     Returns:
-        Int16 numpy array
+        Tuple[bytes, int, int, int]: PCM данные, частота дискретизации, ширина сэмпла, количество каналов
+        
+    Raises:
+        ValueError: Если данные не являются корректным WAV файлом
     """
     try:
-        # Ensure input is float32 array
-        float32_array = np.asarray(float32_array, dtype=np.float32)
-        
-        # Clip to [-1.0, 1.0] range to avoid overflow
-        float32_array = np.clip(float32_array, -1.0, 1.0)
-        
-        # Scale to int16 range and convert
-        return (float32_array * 32767.0).astype(np.int16)
+        with io.BytesIO(wav_data) as wav_buffer:
+            with wave.open(wav_buffer, 'rb') as wav_file:
+                channels = wav_file.getnchannels()
+                sample_width = wav_file.getsampwidth()
+                sample_rate = wav_file.getframerate()
+                pcm_data = wav_file.readframes(wav_file.getnframes())
+                
+                return pcm_data, sample_rate, sample_width, channels
     except Exception as e:
-        logger.error(f"Error converting float32 to int16: {str(e)}")
-        raise
-
-def int16_to_float32(
-    int16_array: np.ndarray
-) -> np.ndarray:
-    """
-    Convert int16 numpy array to float32 numpy array
-    
-    Args:
-        int16_array: Int16 numpy array
-        
-    Returns:
-        Float32 numpy array in range [-1.0, 1.0]
-    """
-    try:
-        # Ensure input is int16 array
-        int16_array = np.asarray(int16_array, dtype=np.int16)
-        
-        # Scale to [-1.0, 1.0] range
-        return int16_array.astype(np.float32) / 32767.0
-    except Exception as e:
-        logger.error(f"Error converting int16 to float32: {str(e)}")
-        raise
+        logger.error(f"❌ Ошибка при извлечении PCM из WAV: {e}")
+        raise ValueError(f"Некорректные WAV данные: {e}")
 
 def resample_audio(
-    audio_data: np.ndarray,
-    original_sample_rate: int,
-    target_sample_rate: int,
+    audio_data: bytes,
+    original_rate: int,
+    target_rate: int = 16000,
+    sample_width: int = 2,
     channels: int = 1
-) -> np.ndarray:
+) -> bytes:
     """
-    Resample audio to a different sample rate
+    Изменяет частоту дискретизации аудио.
     
     Args:
-        audio_data: Audio data as numpy array
-        original_sample_rate: Original sample rate in Hz
-        target_sample_rate: Target sample rate in Hz
-        channels: Number of channels (default: 1)
+        audio_data: PCM аудио данные
+        original_rate: Исходная частота дискретизации
+        target_rate: Целевая частота дискретизации
+        sample_width: Количество байт на сэмпл
+        channels: Количество каналов
         
     Returns:
-        Resampled audio data
-    
-    Note:
-        Requires scipy to be installed
+        bytes: PCM аудио данные с новой частотой дискретизации
     """
     try:
-        from scipy import signal
+        # Проверяем, нужна ли передискретизация
+        if original_rate == target_rate:
+            return audio_data
+            
+        # Конвертируем бинарные данные в numpy array
+        if sample_width == 2:  # 16-bit PCM
+            fmt = f"<{len(audio_data)//2}h"
+            samples = np.array(struct.unpack(fmt, audio_data))
+        elif sample_width == 1:  # 8-bit PCM
+            fmt = f"<{len(audio_data)}b"
+            samples = np.array(struct.unpack(fmt, audio_data))
+        elif sample_width == 4:  # 32-bit PCM
+            fmt = f"<{len(audio_data)//4}i"
+            samples = np.array(struct.unpack(fmt, audio_data))
+        else:
+            raise ValueError(f"Неподдерживаемая ширина сэмпла: {sample_width}")
         
-        # Calculate resampling factor
-        resampling_factor = target_sample_rate / original_sample_rate
+        # Передискретизация
+        samples_count = len(samples)
+        ratio = target_rate / original_rate
+        new_samples_count = int(samples_count * ratio)
         
-        # Calculate new length
-        new_length = int(len(audio_data) * resampling_factor)
+        # Интерполяция
+        resampled = np.interp(
+            np.linspace(0, samples_count - 1, new_samples_count),
+            np.arange(samples_count),
+            samples
+        )
         
-        # Resample
-        resampled_audio = signal.resample(audio_data, new_length)
-        
-        return resampled_audio
-    except ImportError:
-        logger.warning("scipy is not installed. Audio resampling is not available.")
-        raise ImportError("scipy is required for audio resampling")
+        # Конвертируем обратно в бинарные данные
+        if sample_width == 2:  # 16-bit PCM
+            return struct.pack(f"<{len(resampled)}h", *resampled.astype(np.int16))
+        elif sample_width == 1:  # 8-bit PCM
+            return struct.pack(f"<{len(resampled)}b", *resampled.astype(np.int8))
+        elif sample_width == 4:  # 32-bit PCM
+            return struct.pack(f"<{len(resampled)}i", *resampled.astype(np.int32))
+            
     except Exception as e:
-        logger.error(f"Error resampling audio: {str(e)}")
-        raise
+        logger.error(f"❌ Ошибка при изменении частоты дискретизации: {e}")
+        # В случае ошибки возвращаем исходные данные
+        return audio_data
+
+def get_audio_duration(
+    audio_data: bytes,
+    sample_rate: int = 16000,
+    sample_width: int = 2,
+    channels: int = 1
+) -> float:
+    """
+    Рассчитывает длительность аудио в секундах.
+    
+    Args:
+        audio_data: PCM аудио данные
+        sample_rate: Частота дискретизации
+        sample_width: Количество байт на сэмпл
+        channels: Количество каналов
+        
+    Returns:
+        float: Длительность аудио в секундах
+    """
+    bytes_per_sample = sample_width * channels
+    samples_count = len(audio_data) // bytes_per_sample
+    duration = samples_count / sample_rate
+    return duration
+
+def adjust_audio_volume(
+    audio_data: bytes,
+    volume_factor: float,
+    sample_width: int = 2
+) -> bytes:
+    """
+    Изменяет громкость аудио.
+    
+    Args:
+        audio_data: PCM аудио данные
+        volume_factor: Коэффициент громкости (1.0 = исходная громкость)
+        sample_width: Количество байт на сэмпл
+        
+    Returns:
+        bytes: PCM аудио данные с измененной громкостью
+    """
+    try:
+        # Конвертируем бинарные данные в numpy array
+        if sample_width == 2:  # 16-bit PCM
+            fmt = f"<{len(audio_data)//2}h"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 32767
+        elif sample_width == 1:  # 8-bit PCM
+            fmt = f"<{len(audio_data)}b"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 127
+        elif sample_width == 4:  # 32-bit PCM
+            fmt = f"<{len(audio_data)//4}i"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 2147483647
+        else:
+            raise ValueError(f"Неподдерживаемая ширина сэмпла: {sample_width}")
+        
+        # Применяем коэффициент громкости
+        samples = samples * volume_factor
+        
+        # Клиппинг для предотвращения переполнения
+        samples = np.clip(samples, -max_value, max_value)
+        
+        # Конвертируем обратно в бинарные данные
+        if sample_width == 2:  # 16-bit PCM
+            return struct.pack(f"<{len(samples)}h", *samples.astype(np.int16))
+        elif sample_width == 1:  # 8-bit PCM
+            return struct.pack(f"<{len(samples)}b", *samples.astype(np.int8))
+        elif sample_width == 4:  # 32-bit PCM
+            return struct.pack(f"<{len(samples)}i", *samples.astype(np.int32))
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка при изменении громкости: {e}")
+        # В случае ошибки возвращаем исходные данные
+        return audio_data
 
 def detect_silence(
-    audio_data: np.ndarray,
-    threshold: float = 0.01,
-    min_silence_duration: int = 500,
-    sample_rate: int = 24000
+    audio_data: bytes,
+    sample_width: int = 2,
+    threshold: float = 0.05,
+    min_duration: float = 0.5,
+    sample_rate: int = 16000
 ) -> list:
     """
-    Detect silence in audio data
+    Обнаруживает участки тишины в аудио.
     
     Args:
-        audio_data: Audio data as numpy array (float32 in range [-1.0, 1.0])
-        threshold: Silence threshold (default: 0.01)
-        min_silence_duration: Minimum silence duration in milliseconds (default: 500)
-        sample_rate: Sample rate in Hz (default: 24000)
+        audio_data: PCM аудио данные
+        sample_width: Количество байт на сэмпл
+        threshold: Порог амплитуды для определения тишины (от 0 до 1)
+        min_duration: Минимальная длительность участка тишины в секундах
+        sample_rate: Частота дискретизации
         
     Returns:
-        List of silence intervals as (start_ms, end_ms) tuples
+        list: Список кортежей (начало, конец) с участками тишины в секундах
     """
     try:
-        # Calculate sample threshold for min_silence_duration
-        min_samples = int(min_silence_duration * sample_rate / 1000)
+        # Конвертируем бинарные данные в numpy array
+        if sample_width == 2:  # 16-bit PCM
+            fmt = f"<{len(audio_data)//2}h"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 32767.0
+        elif sample_width == 1:  # 8-bit PCM
+            fmt = f"<{len(audio_data)}b"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 127.0
+        elif sample_width == 4:  # 32-bit PCM
+            fmt = f"<{len(audio_data)//4}i"
+            samples = np.array(struct.unpack(fmt, audio_data))
+            max_value = 2147483647.0
+        else:
+            raise ValueError(f"Неподдерживаемая ширина сэмпла: {sample_width}")
         
-        # Calculate absolute amplitude
-        amplitude = np.abs(audio_data)
+        # Нормализуем значения к диапазону [-1, 1]
+        samples = samples / max_value
         
-        # Find where amplitude is below threshold
+        # Вычисляем абсолютные значения амплитуды
+        amplitude = np.abs(samples)
+        
+        # Находим участки, где амплитуда ниже порога
         is_silence = amplitude < threshold
         
-        # Find silence intervals
-        silence_intervals = []
-        silence_start = None
+        # Преобразуем в непрерывные участки
+        silence_segments = []
+        in_silence = False
+        start = 0
+        
+        min_samples = int(min_duration * sample_rate)
         
         for i, silent in enumerate(is_silence):
-            if silent and silence_start is None:
-                silence_start = i
-            elif not silent and silence_start is not None:
-                if i - silence_start >= min_samples:
-                    # Convert to milliseconds
-                    start_ms = int(silence_start * 1000 / sample_rate)
-                    end_ms = int(i * 1000 / sample_rate)
-                    silence_intervals.append((start_ms, end_ms))
-                silence_start = None
+            if silent and not in_silence:
+                # Начинается участок тишины
+                in_silence = True
+                start = i
+            elif not silent and in_silence:
+                # Заканчивается участок тишины
+                in_silence = False
+                if i - start >= min_samples:
+                    silence_segments.append((start / sample_rate, i / sample_rate))
         
-        # Check if audio ends with silence
-        if silence_start is not None and len(audio_data) - silence_start >= min_samples:
-            start_ms = int(silence_start * 1000 / sample_rate)
-            end_ms = int(len(audio_data) * 1000 / sample_rate)
-            silence_intervals.append((start_ms, end_ms))
+        # Обработка случая, когда тишина в конце
+        if in_silence and len(samples) - start >= min_samples:
+            silence_segments.append((start / sample_rate, len(samples) / sample_rate))
         
-        return silence_intervals
+        return silence_segments
+        
     except Exception as e:
-        logger.error(f"Error detecting silence: {str(e)}")
-        raise
+        logger.error(f"❌ Ошибка при обнаружении тишины: {e}")
+        return []
