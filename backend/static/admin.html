@@ -1,0 +1,1823 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Администрирование | Live VoiceAI</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      
+      /* Дополнительные цвета для статусов */
+      --green-light: #dcfce7;
+      --green: #22c55e;
+      --green-dark: #16a34a;
+      --red-light: #fee2e2;
+      --red: #ef4444;
+      --red-dark: #dc2626;
+      --orange-light: #ffedd5;
+      --orange: #f97316;
+      --orange-dark: #ea580c;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .page-actions {
+      display: flex;
+      gap: 1rem;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Табы */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+    }
+    
+    .tab {
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-weight: 500;
+    }
+    
+    .tab.active {
+      color: var(--primary-blue);
+      border-bottom-color: var(--primary-blue);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    /* Карточки */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    /* Кнопки */
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .btn-success {
+      background-color: var(--green);
+      color: var(--white);
+    }
+    
+    .btn-success:hover {
+      background-color: var(--green-dark);
+    }
+    
+    .btn-danger {
+      background-color: var(--red);
+      color: var(--white);
+    }
+    
+    .btn-danger:hover {
+      background-color: var(--red-dark);
+    }
+    
+    .btn-warning {
+      background-color: var(--orange);
+      color: var(--white);
+    }
+    
+    .btn-warning:hover {
+      background-color: var(--orange-dark);
+    }
+    
+    /* Статусы */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    
+    .status-active {
+      background-color: var(--green-light);
+      color: var(--green-dark);
+    }
+    
+    .status-expired {
+      background-color: var(--red-light);
+      color: var(--red-dark);
+    }
+    
+    .status-trial {
+      background-color: var(--orange-light);
+      color: var(--orange-dark);
+    }
+    
+    /* Таблица пользователей */
+    .table-container {
+      overflow-x: auto;
+    }
+    
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .table th,
+    .table td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .table th {
+      background-color: var(--bg-light);
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .table tr:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .table-action {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.25rem;
+      transition: color 0.2s;
+    }
+    
+    .table-action:hover {
+      color: var(--primary-blue);
+    }
+    
+    /* Поиск и фильтрация */
+    .filters {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    
+    .search-box {
+      position: relative;
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    .search-input {
+      width: 100%;
+      padding: 0.6rem 1rem 0.6rem 2.5rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-gray);
+    }
+    
+    .filter-select {
+      padding: 0.6rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background-color: var(--white);
+      font-size: 0.875rem;
+      min-width: 180px;
+    }
+    
+    /* Пагинация */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 1.5rem;
+    }
+    
+    .pagination-item {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .pagination-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .pagination-item.active {
+      background-color: var(--primary-blue);
+      color: var(--white);
+      border-color: var(--primary-blue);
+    }
+    
+    /* Детали пользователя */
+    .user-profile {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+    
+    .profile-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+    }
+    
+    .section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-dark);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .section-item {
+      margin-bottom: 1rem;
+    }
+    
+    .item-label {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      margin-bottom: 0.25rem;
+    }
+    
+    .item-value {
+      font-weight: 500;
+    }
+    
+    /* Статистика */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    
+    .stat-card {
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+      padding: 1.5rem;
+      border: 1px solid var(--border-color);
+    }
+    
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      background-color: var(--bg-blue-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary-blue);
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    
+    .stat-label {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+    
+    /* Модальное окно */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      visibility: hidden;
+      opacity: 0;
+      transition: visibility 0s linear 0.25s, opacity 0.25s;
+    }
+    
+    .modal-overlay.visible {
+      visibility: visible;
+      opacity: 1;
+      transition: visibility 0s linear, opacity 0.25s;
+    }
+    
+    .modal {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 500px;
+      box-shadow: var(--shadow-lg);
+    }
+    
+    .modal-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.25rem;
+    }
+    
+    .modal-body {
+      padding: 1.5rem;
+    }
+    
+    .modal-footer {
+      padding: 1.5rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+    
+    /* Формы */
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid var(--green);
+    }
+    
+    .notification-error {
+      border-left: 4px solid var(--red);
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: var(--green);
+    }
+    
+    .notification-error .notification-icon {
+      color: var(--red);
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+    
+    /* Состояние загрузки */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Адаптивность */
+    @media (max-width: 768px) {
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s;
+      }
+      
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      
+      .user-profile {
+        grid-template-columns: 1fr;
+      }
+      
+      .filters {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">Live VoiceAI</a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Расширения</div>
+      <a href="/static/integrations.html" class="sidebar-nav-item">
+        <i class="fas fa-plug"></i> Интеграции
+      </a>
+      <a href="#" class="sidebar-nav-item locked-feature">
+        <i class="fas fa-wand-magic-sparkles"></i> Навыки
+      </a>
+      
+      <div class="sidebar-section">Администрирование</div>
+      <a href="/static/admin.html" class="sidebar-nav-item active">
+        <i class="fas fa-user-shield"></i> Управление
+      </a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+      <a href="#" class="sidebar-nav-item" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </nav>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <h1 class="page-title">Панель администратора</h1>
+      
+      <div class="page-actions">
+        <button class="btn btn-success" id="check-subscriptions-btn">
+          <i class="fas fa-sync"></i> Проверить подписки
+        </button>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Табы -->
+      <div class="tabs">
+        <div class="tab active" data-tab="users">Пользователи</div>
+        <div class="tab" data-tab="stats">Статистика</div>
+        <div class="tab" data-tab="user-details" style="display: none;">Детали пользователя</div>
+      </div>
+      
+      <!-- Таб со списком пользователей -->
+      <div class="tab-content active" id="users-tab">
+        <div class="filters">
+          <div class="search-box">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" id="search-users" class="search-input" placeholder="Поиск по имени, email, компании...">
+          </div>
+          
+          <select id="subscription-filter" class="filter-select">
+            <option value="">Все подписки</option>
+            <option value="active">Активные</option>
+            <option value="expired">Истекшие</option>
+            <option value="trial">Пробные</option>
+          </select>
+        </div>
+        
+        <div class="card">
+          <div class="table-container">
+            <table class="table" id="users-table">
+              <thead>
+                <tr>
+                  <th>Пользователь</th>
+                  <th>Email</th>
+                  <th>Подписка</th>
+                  <th>Дней осталось</th>
+                  <th>Ассистентов</th>
+                  <th>Дата регистрации</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="users-list">
+                <!-- Данные будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="pagination" id="pagination">
+          <!-- Пагинация будет добавлена динамически -->
+        </div>
+      </div>
+      
+      <!-- Таб со статистикой -->
+      <div class="tab-content" id="stats-tab">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-users"></i>
+            </div>
+            <div class="stat-value" id="total-users">0</div>
+            <div class="stat-label">Всего пользователей</div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-user-check"></i>
+            </div>
+            <div class="stat-value" id="active-users">0</div>
+            <div class="stat-label">Активных пользователей</div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-crown"></i>
+            </div>
+            <div class="stat-value" id="paid-subscriptions">0</div>
+            <div class="stat-label">Оплаченных подписок</div>
+          </div>
+          
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-robot"></i>
+            </div>
+            <div class="stat-value" id="total-assistants">0</div>
+            <div class="stat-label">Всего ассистентов</div>
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Недавно зарегистрированные пользователи</h2>
+          </div>
+          
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Пользователь</th>
+                  <th>Email</th>
+                  <th>Дата регистрации</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody id="recent-users">
+                <!-- Данные будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Таб с деталями пользователя -->
+      <div class="tab-content" id="user-details-tab">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Информация о пользователе</h2>
+            <button class="btn btn-outline" id="back-to-users">
+              <i class="fas fa-arrow-left"></i> Назад к списку
+            </button>
+          </div>
+          
+          <div class="user-profile" id="user-profile">
+            <!-- Данные будут загружены динамически -->
+          </div>
+          
+          <div class="card-header" style="margin-top: 2rem;">
+            <h2 class="card-title">Управление подпиской</h2>
+            <button class="btn btn-primary" id="edit-subscription-btn">
+              <i class="fas fa-edit"></i> Изменить подписку
+            </button>
+          </div>
+          
+          <div class="section-item subscription-info" id="subscription-info">
+            <!-- Информация о подписке будет загружена динамически -->
+          </div>
+          
+          <div class="card-header" style="margin-top: 2rem;">
+            <h2 class="card-title">Ассистенты пользователя</h2>
+          </div>
+          
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Название</th>
+                  <th>Описание</th>
+                  <th>Дата создания</th>
+                  <th>Кол-во диалогов</th>
+                </tr>
+              </thead>
+              <tbody id="user-assistants">
+                <!-- Данные будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="card-header" style="margin-top: 2rem;">
+            <h2 class="card-title">История подписок</h2>
+          </div>
+          
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Действие</th>
+                  <th>Тариф</th>
+                  <th>Детали</th>
+                </tr>
+              </thead>
+              <tbody id="subscription-logs">
+                <!-- Данные будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Модальное окно изменения подписки -->
+    <div class="modal-overlay" id="subscription-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title">Изменить подписку</h3>
+          <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="subscription-form">
+            <div class="form-group">
+              <label class="form-label" for="plan-code">Тариф</label>
+              <select id="plan-code" class="form-control" required>
+                <option value="free">Бесплатный</option>
+                <option value="start">Старт</option>
+                <option value="pro">Профессиональный</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label" for="duration-days">Длительность (дней)</label>
+              <input type="number" id="duration-days" class="form-control" value="30" min="1" max="365" required>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-checkbox">
+                <input type="checkbox" id="is-trial">
+                <span>Пробный период</span>
+              </label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="modal-cancel">Отмена</button>
+          <button class="btn btn-primary" id="modal-save">Сохранить</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+    
+    <!-- Состояние загрузки -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+    </div>
+  </main>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Переменные состояния
+      let currentPage = 1;
+      let totalPages = 1;
+      let selectedUserId = null;
+      let currentUser = null;
+      let isAdmin = false;
+      
+      // Получаем элементы DOM
+      const tabs = document.querySelectorAll('.tab');
+      const tabContents = document.querySelectorAll('.tab-content');
+      const usersList = document.getElementById('users-list');
+      const pagination = document.getElementById('pagination');
+      const searchInput = document.getElementById('search-users');
+      const subscriptionFilter = document.getElementById('subscription-filter');
+      const backToUsersBtn = document.getElementById('back-to-users');
+      const editSubscriptionBtn = document.getElementById('edit-subscription-btn');
+      const subscriptionModal = document.getElementById('subscription-modal');
+      const modalClose = document.getElementById('modal-close');
+      const modalCancel = document.getElementById('modal-cancel');
+      const modalSave = document.getElementById('modal-save');
+      const subscriptionForm = document.getElementById('subscription-form');
+      const planCodeSelect = document.getElementById('plan-code');
+      const durationDaysInput = document.getElementById('duration-days');
+      const isTrialCheckbox = document.getElementById('is-trial');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const loadingOverlay = document.getElementById('loading-overlay');
+      const logoutButton = document.getElementById('logout-button');
+      const checkSubscriptionsBtn = document.getElementById('check-subscriptions-btn');
+      
+      const totalUsersElement = document.getElementById('total-users');
+      const activeUsersElement = document.getElementById('active-users');
+      const paidSubscriptionsElement = document.getElementById('paid-subscriptions');
+      const totalAssistantsElement = document.getElementById('total-assistants');
+      const recentUsersElement = document.getElementById('recent-users');
+      
+      // API клиент
+      const api = {
+        baseUrl: '/api',
+        
+        // Получение токена авторизации
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        // Проверка авторизации
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        // Базовая функция для запросов к API
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            if (response.status === 401) {
+              localStorage.removeItem('auth_token');
+              window.location.href = '/static/login.html';
+              throw new Error('Требуется авторизация');
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+          }
+        },
+        
+        // Методы для различных типов запросов
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        },
+        
+        // Получение текущего пользователя
+        getCurrentUser() {
+          return this.get('/users/me');
+        },
+        
+        // Методы для админ-панели
+        getAllUsers(skip = 0, limit = 10, search = '', subscription_status = '') {
+          let endpoint = `/admin/users?skip=${skip}&limit=${limit}`;
+          
+          if (search) {
+            endpoint += `&search=${encodeURIComponent(search)}`;
+          }
+          
+          if (subscription_status) {
+            endpoint += `&subscription_status=${subscription_status}`;
+          }
+          
+          return this.get(endpoint);
+        },
+        
+        getUserDetails(userId) {
+          return this.get(`/admin/users/${userId}`);
+        },
+        
+        updateUserSubscription(userId, data) {
+          return this.post(`/admin/users/${userId}/subscription`, data);
+        },
+        
+        getAdminStatistics() {
+          return this.get('/admin/stats');
+        },
+        
+        checkExpiredSubscriptions() {
+          return this.post('/subscriptions/check-expired');
+        }
+      };
+      
+      // Управление UI
+      const ui = {
+        // Показать уведомление
+        showNotification(message, type = 'success') {
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          notification.classList.add(`notification-${type}`);
+          
+          // Изменяем иконку
+          const iconElement = notification.querySelector('.notification-icon i');
+          iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                               type === 'error' ? 'fas fa-exclamation-circle' : 
+                               'fas fa-info-circle';
+          
+          // Устанавливаем сообщение
+          notificationMessage.textContent = message;
+          
+          // Показываем уведомление
+          notification.style.display = 'flex';
+          setTimeout(() => {
+            notification.classList.add('show');
+          }, 10);
+          
+          // Автоматически скрываем через 5 секунд
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        // Скрыть уведомление
+        hideNotification() {
+          notification.classList.remove('show');
+          setTimeout(() => {
+            notification.style.display = 'none';
+          }, 300);
+        },
+        
+        // Переключение вкладок
+        switchTab(tabId) {
+          // Обновляем классы вкладок
+          tabs.forEach(tab => {
+            if (tab.getAttribute('data-tab') === tabId) {
+              tab.classList.add('active');
+              tab.style.display = ''; // Показываем, если скрыта
+            } else {
+              tab.classList.remove('active');
+            }
+          });
+          
+          // Обновляем содержимое вкладок
+          tabContents.forEach(content => {
+            if (content.id === `${tabId}-tab`) {
+              content.classList.add('active');
+            } else {
+              content.classList.remove('active');
+            }
+          });
+        },
+        
+        // Установка состояния загрузки
+        setLoading(loading) {
+          if (loading) {
+            loadingOverlay.style.display = 'flex';
+          } else {
+            loadingOverlay.style.display = 'none';
+          }
+        },
+        
+        // Показать модальное окно
+        showModal() {
+          subscriptionModal.classList.add('visible');
+        },
+        
+        // Скрыть модальное окно
+        hideModal() {
+          subscriptionModal.classList.remove('visible');
+        },
+        
+        // Форматирование даты
+        formatDate(dateString) {
+          const date = new Date(dateString);
+          return date.toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+        },
+        
+        // Отрисовка списка пользователей
+        renderUsersList(users) {
+          usersList.innerHTML = '';
+          
+          if (!users || users.length === 0) {
+            usersList.innerHTML = `
+              <tr>
+                <td colspan="7" style="text-align: center; padding: 2rem;">
+                  Пользователи не найдены
+                </td>
+              </tr>
+            `;
+            return;
+          }
+          
+          users.forEach(user => {
+            // Определяем статус подписки
+            let statusClass = 'status-expired';
+            let statusText = 'Истекла';
+            
+            if (user.subscription_active) {
+              statusClass = user.is_trial ? 'status-trial' : 'status-active';
+              statusText = user.is_trial ? 'Пробный период' : 'Активна';
+            }
+            
+            // Определяем имя пользователя для отображения
+            let displayName = 'Пользователь';
+            if (user.first_name || user.last_name) {
+              displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+            } else if (user.company_name) {
+              displayName = user.company_name;
+            }
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${displayName}</td>
+              <td>${user.email}</td>
+              <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+              <td>${user.days_left || 0}</td>
+              <td>${user.assistant_count || 0}</td>
+              <td>${this.formatDate(user.created_at)}</td>
+              <td>
+                <button class="table-action view-user" data-id="${user.id}" title="Просмотр">
+                  <i class="fas fa-eye"></i>
+                </button>
+                <button class="table-action edit-subscription" data-id="${user.id}" title="Изменить подписку">
+                  <i class="fas fa-edit"></i>
+                </button>
+              </td>
+            `;
+            
+            usersList.appendChild(row);
+          });
+          
+          // Добавляем обработчики для кнопок
+          document.querySelectorAll('.view-user').forEach(button => {
+            button.addEventListener('click', function() {
+              const userId = this.getAttribute('data-id');
+              viewUserDetails(userId);
+            });
+          });
+          
+          document.querySelectorAll('.edit-subscription').forEach(button => {
+            button.addEventListener('click', function() {
+              const userId = this.getAttribute('data-id');
+              openSubscriptionModal(userId);
+            });
+          });
+        },
+        
+        // Отрисовка пагинации
+        renderPagination(currentPage, totalPages) {
+          pagination.innerHTML = '';
+          
+          if (totalPages <= 1) {
+            return;
+          }
+          
+          // Кнопка "Назад"
+          const prevButton = document.createElement('button');
+          prevButton.className = `pagination-item ${currentPage === 1 ? 'disabled' : ''}`;
+          prevButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
+          prevButton.disabled = currentPage === 1;
+          prevButton.addEventListener('click', () => {
+            if (currentPage > 1) {
+              loadUsers(currentPage - 1);
+            }
+          });
+          pagination.appendChild(prevButton);
+          
+          // Страницы
+          const startPage = Math.max(1, currentPage - 2);
+          const endPage = Math.min(totalPages, startPage + 4);
+          
+          for (let i = startPage; i <= endPage; i++) {
+            const pageButton = document.createElement('button');
+            pageButton.className = `pagination-item ${i === currentPage ? 'active' : ''}`;
+            pageButton.textContent = i;
+            pageButton.addEventListener('click', () => {
+              loadUsers(i);
+            });
+            pagination.appendChild(pageButton);
+          }
+          
+          // Кнопка "Вперед"
+          const nextButton = document.createElement('button');
+          nextButton.className = `pagination-item ${currentPage === totalPages ? 'disabled' : ''}`;
+          nextButton.innerHTML = '<i class="fas fa-chevron-right"></i>';
+          nextButton.disabled = currentPage === totalPages;
+          nextButton.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+              loadUsers(currentPage + 1);
+            }
+          });
+          pagination.appendChild(nextButton);
+        },
+        
+        // Отрисовка деталей пользователя
+        renderUserDetails(userData) {
+          const userProfile = document.getElementById('user-profile');
+          const user = userData.user;
+          const subscription = userData.subscription;
+          
+          // Основная информация о пользователе
+          userProfile.innerHTML = `
+            <div class="profile-section">
+              <h3 class="section-title"><i class="fas fa-user"></i> Основная информация</h3>
+              
+              <div class="section-item">
+                <div class="item-label">Email</div>
+                <div class="item-value">${user.email}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Имя</div>
+                <div class="item-value">${user.first_name || 'Не указано'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Фамилия</div>
+                <div class="item-value">${user.last_name || 'Не указана'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Компания</div>
+                <div class="item-value">${user.company_name || 'Не указана'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Дата регистрации</div>
+                <div class="item-value">${this.formatDate(user.created_at)}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Последний вход</div>
+                <div class="item-value">${user.last_login ? this.formatDate(user.last_login) : 'Не входил'}</div>
+              </div>
+            </div>
+            
+            <div class="profile-section">
+              <h3 class="section-title"><i class="fas fa-crown"></i> Информация о подписке</h3>
+              
+              <div class="section-item">
+                <div class="item-label">Текущий тариф</div>
+                <div class="item-value">${subscription.plan || 'Не указан'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Тип</div>
+                <div class="item-value">${user.is_trial ? 'Пробный период' : 'Стандартная'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Дата начала</div>
+                <div class="item-value">${subscription.start_date ? this.formatDate(subscription.start_date) : 'Не указана'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Дата окончания</div>
+                <div class="item-value">${subscription.end_date ? this.formatDate(subscription.end_date) : 'Не указана'}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Статус</div>
+                <div class="item-value">
+                  <span class="status-badge ${subscription.is_active ? (user.is_trial ? 'status-trial' : 'status-active') : 'status-expired'}">
+                    ${subscription.is_active ? (user.is_trial ? 'Пробный период' : 'Активна') : 'Истекла'}
+                  </span>
+                </div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Осталось дней</div>
+                <div class="item-value">${subscription.days_left || 0}</div>
+              </div>
+            </div>
+            
+            <div class="profile-section">
+              <h3 class="section-title"><i class="fas fa-robot"></i> Статистика</h3>
+              
+              <div class="section-item">
+                <div class="item-label">Использовано токенов</div>
+                <div class="item-value">${user.usage_tokens || 0}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Количество ассистентов</div>
+                <div class="item-value">${userData.assistants.count || 0}</div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Лимит ассистентов</div>
+                <div class="item-value">${subscription.max_assistants || 1}</div>
+              </div>
+            </div>
+          `;
+          
+          // Информация о подписке для блока управления
+          const subscriptionInfo = document.getElementById('subscription-info');
+          subscriptionInfo.innerHTML = `
+            <div class="section-item">
+              <div class="item-label">Текущий тариф:</div>
+              <div class="item-value">${subscription.plan || 'Бесплатный'}</div>
+            </div>
+            <div class="section-item">
+              <div class="item-label">Дата окончания:</div>
+              <div class="item-value">${subscription.end_date ? this.formatDate(subscription.end_date) : 'Не указана'}</div>
+            </div>
+            <div class="section-item">
+              <div class="item-label">Статус:</div>
+              <div class="item-value">
+                <span class="status-badge ${subscription.is_active ? (user.is_trial ? 'status-trial' : 'status-active') : 'status-expired'}">
+                  ${subscription.is_active ? (user.is_trial ? 'Пробный период' : 'Активна') : 'Истекла'}
+                </span>
+              </div>
+            </div>
+          `;
+          
+          // Ассистенты пользователя
+          const userAssistants = document.getElementById('user-assistants');
+          userAssistants.innerHTML = '';
+          
+          if (userData.assistants.list && userData.assistants.list.length > 0) {
+            userData.assistants.list.forEach(assistant => {
+              const row = document.createElement('tr');
+              row.innerHTML = `
+                <td>${assistant.name}</td>
+                <td>${assistant.description || 'Нет описания'}</td>
+                <td>${this.formatDate(assistant.created_at)}</td>
+                <td>${assistant.total_conversations || 0}</td>
+              `;
+              userAssistants.appendChild(row);
+            });
+          } else {
+            userAssistants.innerHTML = `
+              <tr>
+                <td colspan="4" style="text-align: center; padding: 1rem;">
+                  У пользователя нет ассистентов
+                </td>
+              </tr>
+            `;
+          }
+          
+          // История подписок
+          const subscriptionLogs = document.getElementById('subscription-logs');
+          subscriptionLogs.innerHTML = '';
+          
+          if (userData.subscription_logs && userData.subscription_logs.length > 0) {
+            userData.subscription_logs.forEach(log => {
+              const row = document.createElement('tr');
+              row.innerHTML = `
+                <td>${this.formatDate(log.created_at)}</td>
+                <td>${this.translateAction(log.action)}</td>
+                <td>${log.plan_code || 'Не указан'}</td>
+                <td>${log.details || '-'}</td>
+              `;
+              subscriptionLogs.appendChild(row);
+            });
+          } else {
+            subscriptionLogs.innerHTML = `
+              <tr>
+                <td colspan="4" style="text-align: center; padding: 1rem;">
+                  История изменений подписки пуста
+                </td>
+              </tr>
+            `;
+          }
+          
+          // Сохраняем ID выбранного пользователя
+          selectedUserId = user.id;
+        },
+        
+        // Перевод действий с подписками
+        translateAction(action) {
+          const translations = {
+            'subscribe': 'Подписка активирована',
+            'cancel': 'Подписка отменена',
+            'expire': 'Подписка истекла',
+            'renew': 'Подписка продлена',
+            'trial_activate': 'Пробный период активирован',
+            'trial_expired': 'Пробный период истек',
+            'admin_update': 'Обновлена администратором'
+          };
+          
+          return translations[action] || action;
+        },
+        
+        // Отображение статистики
+        renderStats(stats) {
+          totalUsersElement.textContent = stats.users.total;
+          activeUsersElement.textContent = stats.users.active;
+          paidSubscriptionsElement.textContent = stats.users.with_subscription - stats.users.trial;
+          totalAssistantsElement.textContent = stats.assistants.total;
+          
+          // Недавние пользователи
+          recentUsersElement.innerHTML = '';
+          
+          if (stats.users.recent && stats.users.recent.length > 0) {
+            stats.users.recent.forEach(user => {
+              const row = document.createElement('tr');
+              row.innerHTML = `
+                <td>${user.first_name || ''} ${user.last_name || ''}</td>
+                <td>${user.email}</td>
+                <td>${this.formatDate(user.created_at)}</td>
+                <td>
+                  <span class="status-badge ${user.is_trial ? 'status-trial' : 'status-active'}">
+                    ${user.is_trial ? 'Пробный период' : 'Активен'}
+                  </span>
+                </td>
+              `;
+              recentUsersElement.appendChild(row);
+            });
+          } else {
+            recentUsersElement.innerHTML = `
+              <tr>
+                <td colspan="4" style="text-align: center; padding: 1rem;">
+                  Нет данных о недавних пользователях
+                </td>
+              </tr>
+            `;
+          }
+        }
+      };
+      
+      // Проверка авторизации и прав администратора
+      async function checkAuth() {
+        if (!api.isAuthenticated()) {
+          window.location.href = '/static/login.html';
+          return false;
+        }
+        
+        try {
+          ui.setLoading(true);
+          currentUser = await api.getCurrentUser();
+          
+          // Проверяем, является ли пользователь администратором
+          isAdmin = currentUser.is_admin || currentUser.email === 'well96well@gmail.com';
+          
+          if (!isAdmin) {
+            // Если пользователь не администратор, перенаправляем на дашборд
+            window.location.href = '/static/dashboard.html';
+            ui.showNotification('У вас нет прав для доступа к панели администратора', 'error');
+            return false;
+          }
+          
+          return true;
+        } catch (error) {
+          console.error('Ошибка при проверке авторизации:', error);
+          window.location.href = '/static/login.html';
+          return false;
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Загрузка списка пользователей
+      async function loadUsers(page = 1, limit = 10) {
+        try {
+          ui.setLoading(true);
+          
+          const skip = (page - 1) * limit;
+          const search = searchInput.value;
+          const subscriptionStatus = subscriptionFilter.value;
+          
+          const usersData = await api.getAllUsers(skip, limit, search, subscriptionStatus);
+          
+          // Предполагаем, что API возвращает массив пользователей
+          // В реальной реализации API может также возвращать информацию о пагинации
+          ui.renderUsersList(usersData);
+          
+          // Для примера считаем, что всего 100 пользователей
+          // В реальной реализации получаем общее количество из API
+          totalPages = Math.ceil(100 / limit);
+          currentPage = page;
+          
+          ui.renderPagination(currentPage, totalPages);
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке пользователей', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Загрузка деталей пользователя
+      async function viewUserDetails(userId) {
+        try {
+          ui.setLoading(true);
+          
+          const userData = await api.getUserDetails(userId);
+          
+          // Показываем вкладку с деталями пользователя
+          document.querySelector('.tab[data-tab="user-details"]').style.display = '';
+          ui.switchTab('user-details');
+          
+          // Отображаем данные пользователя
+          ui.renderUserDetails(userData);
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке данных пользователя', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Загрузка статистики
+      async function loadStats() {
+        try {
+          ui.setLoading(true);
+          
+          const stats = await api.getAdminStatistics();
+          ui.renderStats(stats);
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке статистики', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Открытие модального окна изменения подписки
+      async function openSubscriptionModal(userId) {
+        try {
+          ui.setLoading(true);
+          
+          // Если ID пользователя не передан, используем выбранного пользователя
+          if (!userId && selectedUserId) {
+            userId = selectedUserId;
+          }
+          
+          if (!userId) {
+            throw new Error('ID пользователя не указан');
+          }
+          
+          // Получаем данные пользователя, если не загружены
+          if (!selectedUserId || selectedUserId !== userId) {
+            const userData = await api.getUserDetails(userId);
+            selectedUserId = userId;
+            
+            // Заполняем форму данными текущей подписки
+            const subscription = userData.subscription;
+            planCodeSelect.value = userData.user.subscription_plan || 'free';
+            isTrialCheckbox.checked = userData.user.is_trial || false;
+          }
+          
+          ui.showModal();
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при открытии формы изменения подписки', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Проверка истекших подписок
+      async function checkExpiredSubscriptions() {
+        try {
+          ui.setLoading(true);
+          
+          const result = await api.checkExpiredSubscriptions();
+          
+          if (result.success) {
+            ui.showNotification(`Проверка завершена успешно. Обновлено подписок: ${result.updated_count}`, 'success');
+            
+            // Перезагружаем данные
+            await loadUsers(currentPage);
+            if (selectedUserId) {
+              await viewUserDetails(selectedUserId);
+            }
+          } else {
+            ui.showNotification('Ошибка при проверке подписок', 'error');
+          }
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при проверке подписок', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Обработчики событий
+      
+      // Переключение вкладок
+      tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+          // Пропускаем вкладку с деталями пользователя, если нажали напрямую
+          if (this.getAttribute('data-tab') === 'user-details') {
+            return;
+          }
+          
+          ui.switchTab(this.getAttribute('data-tab'));
+          
+          // Скрываем вкладку с деталями пользователя при переходе на другие вкладки
+          if (this.getAttribute('data-tab') !== 'user-details') {
+            document.querySelector('.tab[data-tab="user-details"]').style.display = 'none';
+          }
+          
+          // Загружаем данные для вкладки
+          if (this.getAttribute('data-tab') === 'users') {
+            loadUsers();
+          } else if (this.getAttribute('data-tab') === 'stats') {
+            loadStats();
+          }
+        });
+      });
+      
+      // Поиск пользователей
+      searchInput.addEventListener('input', function() {
+        // Задержка для предотвращения частых запросов при вводе
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => {
+          loadUsers(1);
+        }, 300);
+      });
+      
+      // Фильтрация по статусу подписки
+      subscriptionFilter.addEventListener('change', function() {
+        loadUsers(1);
+      });
+      
+      // Кнопка "Назад к списку" на странице деталей пользователя
+      backToUsersBtn.addEventListener('click', function() {
+        document.querySelector('.tab[data-tab="user-details"]').style.display = 'none';
+        ui.switchTab('users');
+      });
+      
+      // Редактирование подписки из деталей пользователя
+      editSubscriptionBtn.addEventListener('click', function() {
+        openSubscriptionModal(selectedUserId);
+      });
+      
+      // Проверка истекших подписок
+      checkSubscriptionsBtn.addEventListener('click', checkExpiredSubscriptions);
+      
+      // Закрытие модального окна
+      modalClose.addEventListener('click', ui.hideModal);
+      modalCancel.addEventListener('click', ui.hideModal);
+      
+      // Сохранение изменений подписки
+      modalSave.addEventListener('click', async function() {
+        if (!selectedUserId) {
+          ui.showNotification('ID пользователя не указан', 'error');
+          return;
+        }
+        
+        try {
+          ui.setLoading(true);
+          
+          const subscriptionData = {
+            plan_code: planCodeSelect.value,
+            duration_days: parseInt(durationDaysInput.value, 10),
+            is_trial: isTrialCheckbox.checked
+          };
+          
+          const result = await api.updateUserSubscription(selectedUserId, subscriptionData);
+          
+          ui.showNotification('Подписка успешно изменена', 'success');
+          ui.hideModal();
+          
+          // Обновляем данные пользователя
+          if (document.querySelector('.tab[data-tab="user-details"]').style.display !== 'none') {
+            viewUserDetails(selectedUserId);
+          }
+          
+          // Обновляем список пользователей
+          loadUsers(currentPage);
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при изменении подписки', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      });
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', ui.hideNotification);
+      
+      // Выход из системы
+      logoutButton.addEventListener('click', function() {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/static/login.html';
+      });
+      
+      // Инициализация страницы
+      async function init() {
+        if (await checkAuth()) {
+          // Загружаем список пользователей
+          loadUsers();
+          
+          // Загружаем статистику
+          loadStats();
+        }
+      }
+      
+      init();
+    });
+  </script>
+</body>
+</html>
