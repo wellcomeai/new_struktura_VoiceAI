@@ -1183,6 +1183,62 @@
                 </div>
               </div>
             </div>
+            
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-search_pinecone" id="function-search_pinecone">
+                <span>Поиск в Pinecone</span>
+              </label>
+              
+              <div id="pinecone-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">
+{
+  "name": "search_pinecone",
+  "description": "Ищет похожие документы в Pinecone векторной базе данных",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "namespace": {
+        "type": "string",
+        "description": "Namespace в Pinecone для поиска документов"
+      },
+      "query": {
+        "type": "string",
+        "description": "Поисковый запрос для векторного поиска"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Количество результатов для возврата",
+        "default": 3
+      }
+    },
+    "required": ["namespace", "query"]
+  }
+}
+                </pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты должен использовать функцию search_pinecone для поиска релевантной информации в векторной базе данных.</p>
+                  <p>Pinecone namespace: my_namespace</p>
+                  <p>Когда пользователь запрашивает информацию, используй функцию search_pinecone с этими параметрами:</p>
+                  <ul>
+                    <li>namespace: указанный выше namespace</li>
+                    <li>query: запрос пользователя или его перефразировка для лучшего поиска</li>
+                    <li>top_k: количество результатов (по умолчанию 3)</li>
+                  </ul>
+                  <p>После получения результатов используй их для формирования более информативного ответа.</p>
+                  <p>Пример вызова:</p>
+                  <pre>
+{
+  "namespace": "my_namespace",
+  "query": "Как работает векторный поиск?",
+  "top_k": 5
+}</pre>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1255,6 +1311,16 @@
       if (webhookCheckbox && webhookInfo) {
         webhookCheckbox.addEventListener('change', function() {
           webhookInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // Добавляем обработчик для чекбокса функции Pinecone
+      const pineconeCheckbox = document.getElementById('function-search_pinecone');
+      const pineconeInfo = document.getElementById('pinecone-info');
+
+      if (pineconeCheckbox && pineconeInfo) {
+        pineconeCheckbox.addEventListener('change', function() {
+          pineconeInfo.style.display = this.checked ? 'block' : 'none';
         });
       }
       
@@ -1495,11 +1561,18 @@
           // Загружаем настройки функций
           const functions = agent.functions || [];
           
-          // Установка состояния чекбокса
+          // Установка состояния чекбокса webhook
           if (webhookCheckbox) {
-            const isEnabled = functions.some(func => func.name === 'send_webhook');
-            webhookCheckbox.checked = isEnabled;
-            webhookInfo.style.display = isEnabled ? 'block' : 'none';
+            const isWebhookEnabled = functions.some(func => func.name === 'send_webhook');
+            webhookCheckbox.checked = isWebhookEnabled;
+            webhookInfo.style.display = isWebhookEnabled ? 'block' : 'none';
+          }
+          
+          // Установка состояния чекбокса Pinecone
+          if (pineconeCheckbox) {
+            const isPineconeEnabled = functions.some(func => func.name === 'search_pinecone');
+            pineconeCheckbox.checked = isPineconeEnabled;
+            pineconeInfo.style.display = isPineconeEnabled ? 'block' : 'none';
           }
           
           debugLog('Форма успешно заполнена');
@@ -1523,6 +1596,14 @@
             enabledFunctions.push({
               name: "send_webhook",
               description: "Отправляет данные на внешний вебхук (например, для n8n)"
+            });
+          }
+          
+          // Проверяем состояние функции Pinecone
+          if (pineconeCheckbox && pineconeCheckbox.checked) {
+            enabledFunctions.push({
+              name: "search_pinecone",
+              description: "Ищет похожие документы в Pinecone векторной базе данных"
             });
           }
           
