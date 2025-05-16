@@ -48,7 +48,7 @@ def create_tables(engine):
 
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()
-
+    
     # Для таблицы users добавляем колонки, если их нет
     if "users" in existing_tables:
         cols = {c["name"] for c in inspector.get_columns("users")}
@@ -94,5 +94,27 @@ def create_tables(engine):
                     logger.info("Column api_access_token already exists in assistant_configs table")
                 else:
                     logger.error(f"Error adding column api_access_token: {e}")
+    
+    # Создаем таблицу pinecone_configs, если не существует
+    if "pinecone_configs" not in existing_tables:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS pinecone_configs (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    assistant_id UUID REFERENCES assistant_configs(id) ON DELETE CASCADE,
+                    namespace VARCHAR NOT NULL,
+                    char_count INTEGER DEFAULT 0,
+                    content_preview TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+                """))
+                logger.info("Created pinecone_configs table")
+        except ProgrammingError as e:
+            if "already exists" in str(e):
+                logger.info("Table pinecone_configs already exists")
+            else:
+                logger.error(f"Error creating pinecone_configs table: {e}")
 
     logger.info("Database tables updated successfully")
