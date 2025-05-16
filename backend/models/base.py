@@ -101,15 +101,16 @@ def create_tables(engine):
             with engine.begin() as conn:
                 conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS pinecone_configs (
-                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                    assistant_id UUID REFERENCES assistant_configs(id) ON DELETE CASCADE,
-                    namespace VARCHAR NOT NULL,
-                    char_count INTEGER DEFAULT 0,
-                    content_preview TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                )
-                """))
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+                assistant_id UUID REFERENCES assistant_configs(id) ON DELETE CASCADE,
+                namespace VARCHAR NOT NULL,
+                char_count INTEGER DEFAULT 0,
+                content_preview TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+             """))
                 logger.info("Created pinecone_configs table")
         except ProgrammingError as e:
             if "already exists" in str(e):
