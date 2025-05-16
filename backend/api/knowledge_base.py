@@ -11,12 +11,12 @@ from backend.core.dependencies import get_current_user
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.pinecone_config import PineconeConfig
-
+from sqlalchemy.sql import func
 # Initialize logger
 logger = get_logger(__name__)
 
 # Create router
-router = APIRouter(prefix="/knowledge-base", tags=["Knowledge Base"])
+router = APIRouter(tags=["Knowledge Base"])
 
 @router.get("/", response_model=Dict[str, Any])
 async def get_knowledge_base_status(
