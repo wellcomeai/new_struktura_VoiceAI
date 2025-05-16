@@ -4,19 +4,21 @@ Assistant API endpoints for WellcomeAI application.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+from sqlalchemy.sql import func
 
-from backend.core.logging import get_logger  # Изменен импорт core
+from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user, check_subscription_active, check_assistant_limit
-from backend.db.session import get_db  # Уже корректный
-from backend.models.user import User  # Изменен импорт models
-from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse  # Изменен импорт schemas
-from backend.schemas.conversation import ConversationResponse, ConversationStats  # Изменен импорт schemas
-from backend.services.assistant_service import AssistantService  # Изменен импорт services
-from backend.services.conversation_service import ConversationService  # Изменен импорт services
-from backend.services.user_service import UserService  # Добавлен импорт
-from typing import Dict, Any
-
+from backend.db.session import get_db
+from backend.models.user import User
+from backend.models.assistant import AssistantConfig
+from backend.models.pinecone_config import PineconeConfig
+from backend.schemas.assistant import AssistantCreate, AssistantUpdate, AssistantResponse, EmbedCodeResponse
+from backend.schemas.conversation import ConversationResponse, ConversationStats
+from backend.services.assistant_service import AssistantService
+from backend.services.conversation_service import ConversationService
+from backend.services.user_service import UserService
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -24,7 +26,7 @@ logger = get_logger(__name__)
 # Create router
 router = APIRouter()
 
-# Остальной код остается без изменений
+# Existing endpoints remain unchanged
 
 @router.get("/", response_model=List[AssistantResponse])
 async def get_assistants(
@@ -289,7 +291,6 @@ async def get_conversation_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve conversation statistics"
         )
-# backend/api/assistants.py - добавить новый эндпоинт
 
 @router.post("/{assistant_id}/verify-sheet", response_model=Dict[str, Any])
 async def verify_google_sheet(
@@ -336,4 +337,203 @@ async def verify_google_sheet(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to verify Google Sheet: {str(e)}"
+        )
+
+# New endpoints for knowledge base management
+
+@router.post("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
+async def create_or_update_knowledge_base(
+    content_data: Dict[str, str],
+    assistant_id: str = Path(..., description="Assistant ID"),
+    current_user: User = Depends(check_subscription_active),
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update knowledge base for an assistant
+    
+    Args:
+        content_data: Dictionary with content for knowledge base
+        assistant_id: Assistant ID
+        current_user: Current authenticated user
+        db: Database session dependency
+    
+    Returns:
+        Status information including namespace
+    """
+    try:
+        # Get assistant and verify ownership
+        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        
+        # Check for API key
+        api_key = current_user.openai_api_key
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OpenAI API key is required for knowledge base creation"
+            )
+        
+        content = content_data.get("content", "")
+        
+        # Get existing config if any
+        existing_config = db.query(PineconeConfig).filter(
+            PineconeConfig.assistant_id == assistant.id
+        ).first()
+        
+        existing_namespace = existing_config.namespace if existing_config else None
+        
+        # Create or update knowledge base in Pinecone
+        from backend.services.pinecone_service import PineconeService
+        namespace, char_count = await PineconeService.create_or_update_knowledge_base(
+            content=content, 
+            api_key=api_key,
+            namespace=existing_namespace
+        )
+        
+        # Create or update PineconeConfig
+        if existing_config:
+            existing_config.namespace = namespace
+            existing_config.char_count = char_count
+            existing_config.content_preview = content[:200] + "..." if len(content) > 200 else content
+            existing_config.updated_at = func.now()
+        else:
+            new_config = PineconeConfig(
+                assistant_id=assistant.id,
+                namespace=namespace,
+                char_count=char_count,
+                content_preview=content[:200] + "..." if len(content) > 200 else content
+            )
+            db.add(new_config)
+        
+        # Update system prompt to include knowledge base usage instruction
+        system_prompt = assistant.system_prompt or ""
+        kb_instruction = f"\nYou have access to a knowledge base with relevant information. When responding to questions, please utilize this additional context from the knowledge base (namespace: {namespace})."
+        
+        if "knowledge base" not in system_prompt.lower():
+            system_prompt += kb_instruction
+            assistant.system_prompt = system_prompt
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "namespace": namespace,
+            "char_count": char_count,
+            "message": "Knowledge base created/updated successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating/updating knowledge base: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create/update knowledge base: {str(e)}"
+        )
+
+@router.get("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
+async def get_knowledge_base_status(
+    assistant_id: str = Path(..., description="Assistant ID"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get knowledge base status for an assistant
+    
+    Args:
+        assistant_id: Assistant ID
+        current_user: Current authenticated user
+        db: Database session dependency
+    
+    Returns:
+        Status information about the knowledge base
+    """
+    try:
+        # Get assistant and verify ownership
+        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        
+        # Get knowledge base config
+        config = db.query(PineconeConfig).filter(
+            PineconeConfig.assistant_id == assistant.id
+        ).first()
+        
+        if not config:
+            return {
+                "has_knowledge_base": False,
+                "namespace": None,
+                "char_count": 0,
+                "updated_at": None,
+                "content_preview": None
+            }
+            
+        return {
+            "has_knowledge_base": True,
+            "namespace": config.namespace,
+            "char_count": config.char_count,
+            "updated_at": config.updated_at,
+            "content_preview": config.content_preview
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting knowledge base status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get knowledge base status: {str(e)}"
+        )
+
+@router.delete("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
+async def delete_knowledge_base(
+    assistant_id: str = Path(..., description="Assistant ID"),
+    current_user: User = Depends(check_subscription_active),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete knowledge base for an assistant
+    
+    Args:
+        assistant_id: Assistant ID
+        current_user: Current authenticated user
+        db: Database session dependency
+    
+    Returns:
+        Status information about the deletion
+    """
+    try:
+        # Get assistant and verify ownership
+        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        
+        # Get knowledge base config
+        config = db.query(PineconeConfig).filter(
+            PineconeConfig.assistant_id == assistant.id
+        ).first()
+        
+        if not config:
+            return {
+                "success": True,
+                "message": "No knowledge base found for this assistant"
+            }
+        
+        # Delete from Pinecone
+        from backend.services.pinecone_service import PineconeService
+        await PineconeService.delete_knowledge_base(config.namespace)
+        
+        # Delete config from database
+        db.delete(config)
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Knowledge base deleted successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting knowledge base: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete knowledge base: {str(e)}"
         )
