@@ -3,6 +3,8 @@ import inspect
 import asyncio
 import importlib.util
 import re
+import os
+import requests
 from typing import Dict, Any, Callable, Optional, List
 import sys
 
@@ -34,6 +36,31 @@ FUNCTION_DEFINITIONS = {
                 }
             },
             "required": ["url", "event"]
+        }
+    },
+    
+    # Новое определение для Pinecone
+    "search_pinecone": {
+        "name": "search_pinecone",
+        "description": "Ищет похожие документы в Pinecone векторной базе данных",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "Namespace в Pinecone для поиска документов"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Поисковый запрос для векторного поиска"
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Количество результатов для возврата",
+                    "default": 3
+                }
+            },
+            "required": ["namespace", "query"]
         }
     }
 }
@@ -86,6 +113,8 @@ def get_enabled_functions(assistant_functions: List[Dict[str, Any]]) -> List[Dic
                 enabled_functions.append(FUNCTION_DEFINITIONS["send_webhook"])
             elif function_name.lower() == "webhook" and "send_webhook" in FUNCTION_DEFINITIONS:
                 enabled_functions.append(FUNCTION_DEFINITIONS["send_webhook"])
+            elif function_name.lower() == "searchpinecone" and "search_pinecone" in FUNCTION_DEFINITIONS:
+                enabled_functions.append(FUNCTION_DEFINITIONS["search_pinecone"])
     
     return enabled_functions
 
@@ -118,6 +147,33 @@ def extract_webhook_url_from_prompt(prompt: str) -> Optional[str]:
             
     return None
 
+def extract_namespace_from_prompt(prompt: str) -> Optional[str]:
+    """
+    Извлекает namespace Pinecone из системного промпта ассистента.
+    
+    Args:
+        prompt: Системный промпт ассистента
+        
+    Returns:
+        Найденный namespace или None
+    """
+    if not prompt:
+        return None
+        
+    # Ищем namespace с помощью регулярного выражения
+    # Паттерн 1: "Pinecone namespace: my_namespace"
+    pattern1 = r'Pinecone\s+namespace:\s*([a-zA-Z0-9_-]+)'
+    # Паттерн 2: "namespace: my_namespace"
+    pattern2 = r'namespace:\s*([a-zA-Z0-9_-]+)'
+    
+    # Проверяем шаблоны по убыванию специфичности
+    for pattern in [pattern1, pattern2]:
+        matches = re.findall(pattern, prompt, re.IGNORECASE)
+        if matches:
+            return matches[0]
+            
+    return None
+
 async def execute_function(
     function_name: str, 
     arguments: Dict[str, Any],
@@ -140,6 +196,9 @@ async def execute_function(
     if function_name and function_name.lower() == "sendwebhook":
         function_name = "send_webhook"
         logger.info(f"Нормализовано имя функции: sendWebHook -> send_webhook")
+    elif function_name and function_name.lower() == "searchpinecone":
+        function_name = "search_pinecone"
+        logger.info(f"Нормализовано имя функции: searchPinecone -> search_pinecone")
     
     if function_name not in FUNCTION_REGISTRY:
         logger.error(f"Функция '{function_name}' не найдена в реестре")
@@ -154,6 +213,14 @@ async def execute_function(
             if webhook_url:
                 logger.info(f"Извлечен URL вебхука из промпта: {webhook_url}")
                 arguments["url"] = webhook_url
+    
+    # Если namespace не указан для Pinecone, ищем его в промпте
+    if function_name == "search_pinecone" and "namespace" not in arguments and assistant_config:
+        if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
+            namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
+            if namespace:
+                logger.info(f"Извлечен namespace из промпта: {namespace}")
+                arguments["namespace"] = namespace
     
     # Если event не указан для webhook, используем значение по умолчанию
     if function_name == "send_webhook" and "event" not in arguments:
@@ -355,3 +422,140 @@ async def send_webhook(args, assistant_config=None, client_id=None):
     except Exception as e:
         logger.error(f"Ошибка при отправке вебхука: {e}")
         return {"error": f"Webhook error: {str(e)}"}
+
+@register_function("search_pinecone")
+async def search_pinecone(args, assistant_config=None, client_id=None):
+    """
+    Выполняет векторный поиск в Pinecone.
+    
+    Args:
+        args: Словарь аргументов:
+            - namespace: Namespace в Pinecone для поиска
+            - query: Поисковый запрос
+            - top_k: Количество результатов (опционально, по умолчанию 3)
+            
+    Returns:
+        Результаты поиска из Pinecone
+    """
+    try:
+        namespace = args.get("namespace")
+        query = args.get("query")
+        top_k = args.get("top_k", 3)
+        
+        # Проверка обязательных параметров
+        if not query:
+            return {"error": "Query is required"}
+        
+        # Если нет namespace, попробуем извлечь из промпта
+        if not namespace and assistant_config:
+            if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
+                namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
+                logger.info(f"Извлечен namespace из промпта: {namespace}")
+        
+        # Проверка на наличие namespace
+        if not namespace:
+            return {"error": "Namespace is required"}
+        
+        # Получение ключа Pinecone из переменных окружения
+        pinecone_api_key = os.environ.get("PINECONE_API_KEY")
+        if not pinecone_api_key:
+            logger.error("PINECONE_API_KEY not found in environment variables")
+            return {"error": "Pinecone API key not configured"}
+        
+        # Создаем эмбеддинг через OpenAI API
+        openai_api_key = None
+        if assistant_config and hasattr(assistant_config, "user_id"):
+            # Импортируем здесь, чтобы избежать циклических импортов
+            from backend.models.user import User
+            
+            # Получаем сессию базы данных
+            db_session = None
+            if hasattr(assistant_config, 'db_session'):
+                db_session = assistant_config.db_session
+            else:
+                # Создаем новую сессию если нет в объекте
+                from backend.db.session import get_db
+                db_session = next(get_db())
+                
+            # Получаем пользователя и его API ключ
+            user = db_session.query(User).get(assistant_config.user_id)
+            if user and user.openai_api_key:
+                openai_api_key = user.openai_api_key
+        
+        if not openai_api_key:
+            # Попытка использовать ключ из переменных окружения
+            openai_api_key = os.environ.get("OPENAI_API_KEY")
+            if not openai_api_key:
+                return {"error": "OpenAI API key not available"}
+        
+        # Создаем эмбеддинг через OpenAI API
+        embed_response = requests.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={
+                "Authorization": f"Bearer {openai_api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "input": query,
+                "model": "text-embedding-ada-002"
+            }
+        )
+        
+        if embed_response.status_code != 200:
+            logger.error(f"Error creating embedding: {embed_response.text}")
+            return {"error": f"Failed to create embedding: {embed_response.status_code}"}
+        
+        # Извлекаем эмбеддинг из ответа
+        embedding = embed_response.json().get("data", [{}])[0].get("embedding", [])
+        
+        if not embedding:
+            return {"error": "Failed to generate embedding for query"}
+        
+        # Создаем запрос к Pinecone
+        pinecone_url = "https://voicufi-gpr1sqd.svc.aped-4627-b74a.pinecone.io/query"
+        
+        pinecone_request = {
+            "vector": embedding,
+            "namespace": namespace,
+            "topK": top_k,
+            "includeMetadata": True
+        }
+        
+        # Отправляем запрос к Pinecone
+        pinecone_response = requests.post(
+            pinecone_url,
+            headers={
+                "Api-Key": pinecone_api_key,
+                "Content-Type": "application/json"
+            },
+            json=pinecone_request
+        )
+        
+        if pinecone_response.status_code != 200:
+            logger.error(f"Error from Pinecone: {pinecone_response.text}")
+            return {"error": f"Pinecone query failed: {pinecone_response.status_code}"}
+        
+        # Обрабатываем результаты
+        results = pinecone_response.json()
+        
+        # Форматируем результаты в более читаемый вид
+        formatted_results = []
+        for match in results.get("matches", []):
+            formatted_match = {
+                "id": match.get("id"),
+                "score": match.get("score"),
+                "metadata": match.get("metadata", {})
+            }
+            formatted_results.append(formatted_match)
+        
+        return {
+            "success": True,
+            "query": query,
+            "namespace": namespace,
+            "results": formatted_results,
+            "total": len(formatted_results)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in search_pinecone: {str(e)}")
+        return {"error": f"Search failed: {str(e)}"}
