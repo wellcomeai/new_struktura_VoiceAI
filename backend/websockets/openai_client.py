@@ -147,9 +147,20 @@ class OpenAIRealtimeClient:
         self.conversation_record_id: Optional[str] = None
         self.webhook_url = None  # Сохраняем URL вебхука из промпта
         self.last_function_name = None  # Сохраняем имя последней вызванной функции
+        self.enabled_functions = []  # Список разрешенных функций
         
-        # Извлекаем URL вебхука из промпта при инициализации
-        if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
+        # Извлекаем список разрешенных функций
+        if hasattr(assistant_config, "functions"):
+            functions = assistant_config.functions
+            if isinstance(functions, list):
+                self.enabled_functions = [f.get("name") for f in functions if f.get("name")]
+            elif isinstance(functions, dict) and "enabled_functions" in functions:
+                self.enabled_functions = functions.get("enabled_functions", [])
+            
+            logger.info(f"Извлечены разрешенные функции: {self.enabled_functions}")
+        
+        # Извлекаем URL вебхука из промпта только если функция send_webhook разрешена
+        if "send_webhook" in self.enabled_functions and hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
             self.webhook_url = extract_webhook_url_from_prompt(assistant_config.system_prompt)
             if self.webhook_url:
                 logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
@@ -191,11 +202,21 @@ class OpenAIRealtimeClient:
             voice = self.assistant_config.voice or DEFAULT_VOICE
             system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
             functions = getattr(self.assistant_config, "functions", None)
+            
+            # Обновляем список разрешенных функций
+            if functions:
+                if isinstance(functions, list):
+                    self.enabled_functions = [f.get("name") for f in functions if f.get("name")]
+                elif isinstance(functions, dict) and "enabled_functions" in functions:
+                    self.enabled_functions = functions.get("enabled_functions", [])
+                
+                logger.info(f"Обновлены разрешенные функции: {self.enabled_functions}")
 
-            # Проверяем, есть ли URL вебхука в промпте
-            self.webhook_url = extract_webhook_url_from_prompt(system_message)
-            if self.webhook_url:
-                logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
+            # Проверяем, есть ли URL вебхука в промпте, только если функция send_webhook разрешена
+            if "send_webhook" in self.enabled_functions:
+                self.webhook_url = extract_webhook_url_from_prompt(system_message)
+                if self.webhook_url:
+                    logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
 
             # Send updated session settings with actual system_prompt
             if not await self.update_session(
@@ -282,6 +303,10 @@ class OpenAIRealtimeClient:
                 "parameters": func_def["parameters"]
             })
         
+        # Обновляем список разрешенных функций на основе tools
+        self.enabled_functions = [tool["name"] for tool in tools]
+        logger.info(f"Активированные функции для сессии: {self.enabled_functions}")
+        
         # Устанавливаем tool_choice на основе наличия tools
         tool_choice = "auto" if tools else "none"
         
@@ -359,9 +384,20 @@ class OpenAIRealtimeClient:
             self.last_function_name = function_name
             
             # Если имя функции в camelCase, приводим к snake_case
+            normalized_function_name = function_name
             if function_name and function_name.lower() == "sendwebhook":
-                function_name = "send_webhook"
+                normalized_function_name = "send_webhook"
                 logger.info(f"Нормализовано имя функции: sendWebHook -> send_webhook")
+            
+            # Проверяем, разрешена ли функция
+            if normalized_function_name not in self.enabled_functions:
+                error_msg = f"Попытка вызвать неразрешенную функцию: {normalized_function_name}. Разрешены только: {self.enabled_functions}"
+                logger.warning(error_msg)
+                return {
+                    "error": error_msg,
+                    "status": "error",
+                    "message": f"Функция {normalized_function_name} не активирована для этого ассистента"
+                }
             
             # Если arguments - строка, парсим JSON
             if isinstance(arguments, str):
@@ -371,21 +407,21 @@ class OpenAIRealtimeClient:
                     logger.warning(f"Failed to parse function arguments as JSON: {arguments}")
                     arguments = {}
             
-            # Если это webhook и URL не указан, но есть в промпте
-            if function_name == "send_webhook" and "url" not in arguments and self.webhook_url:
+            # Если это webhook и URL не указан, но есть в промпте, и функция разрешена
+            if normalized_function_name == "send_webhook" and "url" not in arguments and self.webhook_url and "send_webhook" in self.enabled_functions:
                 arguments["url"] = self.webhook_url
                 logger.info(f"Добавлен URL из промпта в аргументы функции: {self.webhook_url}")
             
-            # Если event не указан, используем значение по умолчанию
-            if function_name == "send_webhook" and "event" not in arguments:
+            # Если event не указан, используем значение по умолчанию (только для разрешенной функции)
+            if normalized_function_name == "send_webhook" and "event" not in arguments and "send_webhook" in self.enabled_functions:
                 arguments["event"] = "default_event"
                 logger.info(f"Добавлен параметр event по умолчанию: 'default_event'")
             
-            logger.info(f"Processing function call: {function_name} with arguments: {arguments}")
+            logger.info(f"Processing function call: {normalized_function_name} with arguments: {arguments}")
             
             # Execute the function
             result = await execute_function(
-                function_name=function_name, 
+                function_name=normalized_function_name, 
                 arguments=arguments,
                 assistant_config=self.assistant_config,
                 client_id=self.client_id
