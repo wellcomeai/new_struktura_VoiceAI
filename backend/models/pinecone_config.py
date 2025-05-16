@@ -23,3 +23,6 @@ class PineconeConfig(Base):
     
     # Только связь с ассистентом
     assistant = relationship("AssistantConfig", back_populates="pinecone_config", foreign_keys=[assistant_id])
+    
+    # Удаляем обратную связь с пользователем, так как поле user_id больше не используется
+    # user = relationship("User", foreign_keys=[user_id])
