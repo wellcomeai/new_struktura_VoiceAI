@@ -60,6 +60,16 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
+        # Логирование включенных функций для отладки
+        functions = getattr(assistant, "functions", None)
+        enabled_functions = []
+        if isinstance(functions, list):
+            enabled_functions = [f.get("name") for f in functions if f.get("name")]
+        elif isinstance(functions, dict) and "enabled_functions" in functions:
+            enabled_functions = functions.get("enabled_functions", [])
+            
+        logger.info(f"Ассистент {assistant_id} имеет следующие функции: {enabled_functions}")
+
         # Определяем API-ключ
         api_key = None
         if assistant.user_id:
@@ -275,6 +285,30 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     
                     logger.info(f"[DEBUG] Начало вызова функции: {function_name}, ID: {function_call_id}")
                     
+                    # Проверяем, разрешена ли функция
+                    if function_name not in openai_client.enabled_functions:
+                        logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {function_name}. Разрешены только: {openai_client.enabled_functions}")
+                        
+                        # Отправляем сообщение об ошибке пользователю
+                        error_response = {
+                            "type": "response.content_part.added",
+                            "content": {
+                                "text": f"Ошибка: функция {function_name} не активирована для этого ассистента."
+                            }
+                        }
+                        await websocket.send_json(error_response)
+                        
+                        # Отменяем вызов функции, если система все же пытается её вызвать
+                        if function_call_id:
+                            # Отправляем пустой результат или ошибку
+                            dummy_result = {
+                                "error": f"Функция {function_name} не разрешена",
+                                "status": "error"
+                            }
+                            await openai_client.send_function_result(function_call_id, dummy_result)
+                            
+                        continue
+                    
                     # Инициализируем данные о текущем вызове функции
                     pending_function_call = {
                         "name": function_name,
@@ -298,28 +332,15 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     if not pending_function_call["name"] and "call_id" in response_data:
                         pending_function_call["call_id"] = response_data.get("call_id")
                         
-                        # Попытка извлечь имя функции из начального JSON
-                        if delta.strip().startswith("{") and len(delta) > 5:
-                            # Берем все до первой кавычки и немного от начала JSON
-                            first_part = delta[:100]
-                            logger.info(f"[DEBUG] Извлечение имени функции из delta: {first_part}")
-                            
-                            # Если мы видим в дельте паттерн {"url": или {"event": и это первая дельта,
-                            # предполагаем, что это наша функция send_webhook
-                            if '"url"' in first_part or '"event"' in first_part:
-                                pending_function_call["name"] = "send_webhook"
-                                logger.info(f"[DEBUG] Определена функция из контекста: send_webhook")
-                                
-                                # Уведомляем клиента о начале вызова функции
-                                await websocket.send_json({
-                                    "type": "function_call.started",
-                                    "function": "send_webhook",
-                                    "function_call_id": pending_function_call["call_id"]
-                                })
+                        # Логирум первую часть delta для отладки
+                        first_part = delta[:100]
+                        logger.info(f"[DEBUG] Получена первая часть аргументов функции: '{first_part}'")
+                        
+                        # ВАЖНОЕ ИЗМЕНЕНИЕ: Удаляем автоматическое определение send_webhook
+                        # Не будем автоматически предполагать, что это вызов send_webhook
                     
                     # Добавляем часть аргументов в буфер
                     pending_function_call["arguments_buffer"] += delta
-                    logger.info(f"[DEBUG] Получена часть аргументов функции: '{delta}'")
                 
                 # Завершение получения аргументов и вызов функции
                 elif msg_type == "response.function_call_arguments.done":
@@ -330,30 +351,51 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     function_name = response_data.get("function_name", pending_function_call["name"])
                     function_call_id = response_data.get("call_id", pending_function_call["call_id"])
                     
-                    # Если все еще нет имени функции, используем send_webhook по умолчанию
-                    if not function_name:
-                        function_name = "send_webhook"
-                        logger.info(f"[DEBUG] Используем функцию по умолчанию: send_webhook")
+                    # Проверяем, разрешена ли функция
+                    if function_name and function_name not in openai_client.enabled_functions:
+                        # Если функция не разрешена, логируем это и сообщаем пользователю
+                        logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {function_name}. Разрешены только: {openai_client.enabled_functions}")
+                        
+                        # Отправляем сообщение об ошибке пользователю
+                        error_response = {
+                            "type": "response.content_part.added",
+                            "content": {
+                                "text": f"Ошибка: функция {function_name} не активирована для этого ассистента."
+                            }
+                        }
+                        await websocket.send_json(error_response)
+                        
+                        # Отправляем пустой результат или ошибку, чтобы разблокировать модель
+                        if function_call_id:
+                            dummy_result = {
+                                "error": f"Функция {function_name} не разрешена",
+                                "status": "error"
+                            }
+                            await openai_client.send_function_result(function_call_id, dummy_result)
+                            
+                        # Сбрасываем буфер аргументов для следующего вызова
+                        pending_function_call = {
+                            "name": None,
+                            "call_id": None,
+                            "arguments_buffer": ""
+                        }
+                        continue
                     
-                    # Обрабатываем sendWebHook как send_webhook
-                    if function_name and function_name.lower() == "sendwebhook":
-                        function_name = "send_webhook"
-                        logger.info(f"[DEBUG] Нормализовано имя функции: sendWebHook -> send_webhook")
-                    
-                    if function_call_id:
+                    # Для разрешенных функций продолжаем нормальную обработку
+                    if function_call_id and function_name:
                         logger.info(f"[DEBUG] Получены все аргументы функции {function_name}: {arguments_str}")
                         
                         try:
                             # Парсим аргументы из JSON-строки
                             arguments = json.loads(arguments_str)
                             
-                            # Если это webhook и URL не указан, но есть в клиенте
-                            if function_name == "send_webhook" and "url" not in arguments and openai_client.webhook_url:
+                            # Для разрешенных функций добавляем особые параметры
+                            if function_name == "send_webhook" and "url" not in arguments and openai_client.webhook_url and "send_webhook" in openai_client.enabled_functions:
                                 arguments["url"] = openai_client.webhook_url
                                 logger.info(f"[DEBUG] Добавлен URL из промпта в аргументы функции: {openai_client.webhook_url}")
                             
-                            # Если event не указан, используем значение по умолчанию
-                            if function_name == "send_webhook" and "event" not in arguments:
+                            # Если event не указан, используем значение по умолчанию (только для разрешенной функции)
+                            if function_name == "send_webhook" and "event" not in arguments and "send_webhook" in openai_client.enabled_functions:
                                 arguments["event"] = "default_event"
                                 logger.info(f"[DEBUG] Добавлен параметр event по умолчанию: 'default_event'")
                             
@@ -467,13 +509,38 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Извлекаем данные вызова функции
                     function_call_id = response_data.get("function_call_id")
                     function_data = response_data.get("function", {})
+                    function_name = function_data.get("name")
                     
-                    logger.info(f"[DEBUG] Получен вызов функции (legacy): {function_data.get('name')}, аргументы: {function_data.get('arguments')}")
+                    logger.info(f"[DEBUG] Получен вызов функции (legacy): {function_name}, аргументы: {function_data.get('arguments')}")
                     
+                    # Проверяем, разрешена ли функция
+                    if function_name not in openai_client.enabled_functions:
+                        # Если функция не разрешена, логируем это и сообщаем пользователю
+                        logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {function_name}. Разрешены только: {openai_client.enabled_functions}")
+                        
+                        # Отправляем сообщение об ошибке пользователю
+                        error_response = {
+                            "type": "response.content_part.added",
+                            "content": {
+                                "text": f"Ошибка: функция {function_name} не активирована для этого ассистента."
+                            }
+                        }
+                        await websocket.send_json(error_response)
+                        
+                        # Отправляем пустой результат или ошибку, чтобы разблокировать модель
+                        if function_call_id:
+                            dummy_result = {
+                                "error": f"Функция {function_name} не разрешена",
+                                "status": "error"
+                            }
+                            await openai_client.send_function_result(function_call_id, dummy_result)
+                        continue
+                    
+                    # Если функция разрешена, продолжаем нормальную обработку
                     # Сообщаем клиенту о том, что выполняется функция
                     await websocket.send_json({
                         "type": "function_call.start",
-                        "function": function_data.get("name"),
+                        "function": function_name,
                         "function_call_id": function_call_id
                     })
                     
@@ -490,7 +557,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Сообщаем клиенту о результате
                     await websocket.send_json({
                         "type": "function_call.completed",
-                        "function": function_data.get("name"),
+                        "function": function_name,
                         "function_call_id": function_call_id,
                         "result": result
                     })
