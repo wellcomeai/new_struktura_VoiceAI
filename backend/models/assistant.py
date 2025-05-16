@@ -40,7 +40,7 @@ class AssistantConfig(Base):
     
     # Relationship with Files
     files = relationship("File", back_populates="assistant", cascade="all, delete-orphan")
-    
+    pinecone_config = relationship("PineconeConfig", back_populates="assistant", uselist=False, cascade="all, delete-orphan")
     # Define relationship with integrations
     integrations = relationship(
         "Integration",
