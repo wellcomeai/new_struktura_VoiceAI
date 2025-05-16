@@ -8,7 +8,7 @@ from sqlalchemy import Column, String, Boolean, JSON, DateTime, Integer, Foreign
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
+from .pinecone_config import PineconeConfig
 from .base import Base, BaseModel
 
 class User(Base, BaseModel):
