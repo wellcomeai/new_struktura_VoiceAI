@@ -26,12 +26,14 @@ class PineconeService:
             logger.error("PINECONE_API_KEY environment variable not set")
             raise ValueError("Pinecone API key not configured")
             
-        pinecone.init(
+        # Обновленный синтаксис инициализации Pinecone
+        pc = pinecone.Pinecone(
             api_key=api_key,
             environment=environment
         )
         logger.info("Pinecone initialized successfully")
-        
+        return pc
+    
     @staticmethod
     async def create_embeddings(text: str, api_key: str, model: str = "text-embedding-3-small") -> List[float]:
         """Create embeddings using OpenAI API"""
@@ -58,7 +60,7 @@ class PineconeService:
         """Create a new namespace in Pinecone with embeddings from content or update existing"""
         try:
             # Initialize Pinecone
-            await PineconeService.initialize()
+            pc = await PineconeService.initialize()
             
             # Check content limits
             if len(content) > 500000:
@@ -78,7 +80,7 @@ class PineconeService:
             # Get index
             index_name = "voicufi"  # Используем ваш существующий индекс
             try:
-                index = pinecone.Index(index_name)
+                index = pc.Index(index_name)
             except Exception as e:
                 logger.error(f"Error accessing Pinecone index: {str(e)}")
                 raise HTTPException(
@@ -92,7 +94,7 @@ class PineconeService:
                 namespaces = stats.get("namespaces", {})
                 if namespace in namespaces:
                     logger.info(f"Deleting existing namespace: {namespace}")
-                    index.delete(delete_all=True, namespace=namespace)
+                    index.delete(namespace=namespace, delete_all=True)
             except Exception as e:
                 logger.warning(f"Error checking/deleting namespace: {str(e)}")
             
@@ -171,19 +173,19 @@ class PineconeService:
         """Delete a namespace from Pinecone"""
         try:
             # Initialize Pinecone
-            await PineconeService.initialize()
+            pc = await PineconeService.initialize()
             
             # Get the index
             index_name = "voicufi"
             try:
-                index = pinecone.Index(index_name)
+                index = pc.Index(index_name)
             except Exception as e:
                 logger.error(f"Error accessing Pinecone index: {str(e)}")
                 return False
             
             # Delete all vectors in the namespace
             try:
-                index.delete(delete_all=True, namespace=namespace)
+                index.delete(namespace=namespace, delete_all=True)
                 logger.info(f"Deleted namespace: {namespace}")
                 return True
             except Exception as e:
