@@ -13,7 +13,7 @@ from backend.api import auth, users, assistants, files, websocket, healthcheck, 
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
-
+from backend.api import knowledge_base 
 # Setup logging system
 setup_logging()
 # Get module logger
@@ -46,6 +46,7 @@ app.include_router(healthcheck.router, tags=["Health"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(subscription_logs.router, prefix="/api/subscription-logs", tags=["Subscription Logs"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])  # Убедитесь, что этот роутер подключен
+app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
 
 # Check and create directories for static files
 static_dir = os.path.join(os.getcwd(), "backend/static")
