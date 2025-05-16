@@ -10,8 +10,10 @@ from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user
 from backend.db.session import get_db
 from backend.models.user import User
+from backend.models.assistant import AssistantConfig
 from backend.models.pinecone_config import PineconeConfig
 from sqlalchemy.sql import func
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -34,10 +36,18 @@ async def get_knowledge_base_status(
         Status information about the knowledge base
     """
     try:
-        # Get knowledge base config for the user
-        config = db.query(PineconeConfig).filter(
-            PineconeConfig.user_id == current_user.id
-        ).first()
+        # Получаем все ID ассистентов пользователя
+        assistant_ids = db.query(AssistantConfig.id).filter(
+            AssistantConfig.user_id == current_user.id
+        ).all()
+        assistant_ids = [aid[0] for aid in assistant_ids]
+        
+        # Ищем конфигурацию для любого ассистента пользователя
+        config = None
+        if assistant_ids:
+            config = db.query(PineconeConfig).filter(
+                PineconeConfig.assistant_id.in_(assistant_ids)
+            ).first()
         
         if not config:
             return {
@@ -91,10 +101,25 @@ async def create_or_update_knowledge_base(
         
         content = content_data.get("content", "")
         
-        # Get existing config if any
-        existing_config = db.query(PineconeConfig).filter(
-            PineconeConfig.user_id == current_user.id
-        ).first()
+        # Получаем все ID ассистентов пользователя
+        assistant_ids = db.query(AssistantConfig.id).filter(
+            AssistantConfig.user_id == current_user.id
+        ).all()
+        assistant_ids = [aid[0] for aid in assistant_ids]
+        
+        # Проверяем, есть ли у пользователя ассистенты
+        if not assistant_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Необходимо сначала создать ассистента"
+            )
+        
+        # Ищем существующую конфигурацию
+        existing_config = None
+        if assistant_ids:
+            existing_config = db.query(PineconeConfig).filter(
+                PineconeConfig.assistant_id.in_(assistant_ids)
+            ).first()
         
         existing_namespace = existing_config.namespace if existing_config else None
         
@@ -113,8 +138,11 @@ async def create_or_update_knowledge_base(
             existing_config.content_preview = content[:200] + "..." if len(content) > 200 else content
             existing_config.updated_at = func.now()
         else:
+            # Берем первого ассистента пользователя для привязки
+            assistant_id = assistant_ids[0]
+            
             new_config = PineconeConfig(
-                user_id=current_user.id,
+                assistant_id=assistant_id,
                 namespace=namespace,
                 char_count=char_count,
                 content_preview=content[:200] + "..." if len(content) > 200 else content
@@ -156,10 +184,18 @@ async def delete_knowledge_base(
         Status information about the deletion
     """
     try:
-        # Get knowledge base config
-        config = db.query(PineconeConfig).filter(
-            PineconeConfig.user_id == current_user.id
-        ).first()
+        # Получаем все ID ассистентов пользователя
+        assistant_ids = db.query(AssistantConfig.id).filter(
+            AssistantConfig.user_id == current_user.id
+        ).all()
+        assistant_ids = [aid[0] for aid in assistant_ids]
+        
+        # Ищем конфигурацию для любого ассистента пользователя
+        config = None
+        if assistant_ids:
+            config = db.query(PineconeConfig).filter(
+                PineconeConfig.assistant_id.in_(assistant_ids)
+            ).first()
         
         if not config:
             return {
