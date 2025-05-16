@@ -45,7 +45,8 @@ class User(Base, BaseModel):
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
-
+    # Add this to the User model in backend/models/user.py under relationships
+    knowledge_bases = relationship("PineconeConfig", back_populates="user", foreign_keys=[PineconeConfig.user_id])
     def __repr__(self):
         """Строковое представление пользователя"""
         return f"<User {self.email}>"
