@@ -227,6 +227,8 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
     
     try:
         logger.info(f"[DEBUG] Начало обработки сообщений от OpenAI для клиента {openai_client.client_id}")
+        logger.info(f"[DEBUG-FUNCTION] Текущие разрешенные функции: {openai_client.enabled_functions}")
+        
         while True:
             try:
                 raw = await openai_client.ws.recv()
@@ -336,8 +338,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         first_part = delta[:100]
                         logger.info(f"[DEBUG] Получена первая часть аргументов функции: '{first_part}'")
                         
-                        # ВАЖНОЕ ИЗМЕНЕНИЕ: Удаляем автоматическое определение send_webhook
-                        # Не будем автоматически предполагать, что это вызов send_webhook
+                        # Попытка определить функцию по содержимому аргументов
+                        if "namespace" in delta or "query" in delta:
+                            pending_function_call["name"] = "searchPinecone"
+                            logger.info(f"[DEBUG] Определена функция по аргументам: searchPinecone")
                     
                     # Добавляем часть аргументов в буфер
                     pending_function_call["arguments_buffer"] += delta
@@ -350,6 +354,15 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Если не получили имя функции через started, но есть в done
                     function_name = response_data.get("function_name", pending_function_call["name"])
                     function_call_id = response_data.get("call_id", pending_function_call["call_id"])
+                    
+                    # Добавляем явное логирование имени функции
+                    logger.info(f"[DEBUG-FUNCTION] Завершение получения аргументов для функции: {function_name}")
+                    
+                    # Восстановить имя функции по содержимому аргументов, если она не определена
+                    if not function_name and arguments_str:
+                        if "namespace" in arguments_str and "query" in arguments_str:
+                            function_name = "searchPinecone"
+                            logger.info(f"[DEBUG-FUNCTION] Определена функция по аргументам: searchPinecone")
                     
                     # Проверяем, разрешена ли функция
                     if function_name and function_name not in openai_client.enabled_functions:
