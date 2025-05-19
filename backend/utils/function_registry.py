@@ -192,22 +192,26 @@ async def execute_function(
     Returns:
         Результат выполнения функции
     """
+    # Добавляем подробное логирование
+    logger.info(f"[DEBUG-FUNCTION-EXEC] Начало выполнения функции: {function_name}, аргументы: {json.dumps(arguments, ensure_ascii=False)}")
+    
     # Нормализуем имя функции
+    normalized_function_name = function_name
     if function_name and function_name.lower() == "sendwebhook":
-        function_name = "send_webhook"
-        logger.info(f"Нормализовано имя функции: sendWebHook -> send_webhook")
+        normalized_function_name = "send_webhook"
+        logger.info(f"[DEBUG-FUNCTION-EXEC] Нормализовано имя функции: sendWebHook -> send_webhook")
     elif function_name and function_name.lower() == "searchpinecone":
-        function_name = "search_pinecone"
-        logger.info(f"Нормализовано имя функции: searchPinecone -> search_pinecone")
+        normalized_function_name = "search_pinecone"
+        logger.info(f"[DEBUG-FUNCTION-EXEC] Нормализовано имя функции: searchPinecone -> search_pinecone")
     
-    if function_name not in FUNCTION_REGISTRY:
-        logger.error(f"Функция '{function_name}' не найдена в реестре")
-        return {"error": f"Function '{function_name}' not found"}
+    if normalized_function_name not in FUNCTION_REGISTRY:
+        logger.error(f"Функция '{normalized_function_name}' не найдена в реестре")
+        return {"error": f"Function '{normalized_function_name}' not found"}
     
-    func = FUNCTION_REGISTRY[function_name]
+    func = FUNCTION_REGISTRY[normalized_function_name]
     
     # Если это webhook и URL не указан, ищем его в промпте
-    if function_name == "send_webhook" and "url" not in arguments and assistant_config:
+    if normalized_function_name == "send_webhook" and "url" not in arguments and assistant_config:
         if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
             webhook_url = extract_webhook_url_from_prompt(assistant_config.system_prompt)
             if webhook_url:
@@ -215,7 +219,7 @@ async def execute_function(
                 arguments["url"] = webhook_url
     
     # Если namespace не указан для Pinecone, ищем его в промпте
-    if function_name == "search_pinecone" and "namespace" not in arguments and assistant_config:
+    if normalized_function_name == "search_pinecone" and "namespace" not in arguments and assistant_config:
         if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
             namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
             if namespace:
@@ -223,7 +227,7 @@ async def execute_function(
                 arguments["namespace"] = namespace
     
     # Если event не указан для webhook, используем значение по умолчанию
-    if function_name == "send_webhook" and "event" not in arguments:
+    if normalized_function_name == "send_webhook" and "event" not in arguments:
         arguments["event"] = "default_event"
         logger.info(f"Добавлен параметр event по умолчанию: 'default_event'")
     
@@ -238,9 +242,10 @@ async def execute_function(
                 None, lambda: func(arguments, assistant_config, client_id)
             )
         
+        logger.info(f"[DEBUG-FUNCTION-EXEC] Результат выполнения функции '{normalized_function_name}': {json.dumps(result, ensure_ascii=False)[:200]}...")
         return result
     except Exception as e:
-        logger.error(f"Ошибка выполнения функции '{function_name}': {e}")
+        logger.error(f"Ошибка выполнения функции '{normalized_function_name}': {e}")
         return {"error": str(e)}
 
 # Проверка доступности модулей
