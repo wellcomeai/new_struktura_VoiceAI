@@ -48,6 +48,8 @@ def normalize_functions(assistant_functions):
                 result.append(defs["send_webhook"])
             elif func_name.lower() == "webhook" and "send_webhook" in defs:
                 result.append(defs["send_webhook"])
+            elif func_name.lower() == "searchpinecone" and "search_pinecone" in defs:
+                result.append(defs["search_pinecone"])
     # Обработка списка объектов из UI
     else:
         for func in assistant_functions:
@@ -63,6 +65,8 @@ def normalize_functions(assistant_functions):
                 result.append(defs["send_webhook"])
             elif func_name.lower() == "webhook" and "send_webhook" in defs:
                 result.append(defs["send_webhook"])
+            elif func_name.lower() == "searchpinecone" and "search_pinecone" in defs:
+                result.append(defs["search_pinecone"])
                 
     return result
 
@@ -305,7 +309,7 @@ class OpenAIRealtimeClient:
         
         # Обновляем список разрешенных функций на основе tools
         self.enabled_functions = [tool["name"] for tool in tools]
-        logger.info(f"Активированные функции для сессии: {self.enabled_functions}")
+        logger.info(f"[DEBUG-FUNCTION] Активированные функции для сессии: {self.enabled_functions}")
         
         # Устанавливаем tool_choice на основе наличия tools
         tool_choice = "auto" if tools else "none"
@@ -340,7 +344,7 @@ class OpenAIRealtimeClient:
             # Вывод подробной информации о функциях в лог
             if tools:
                 for tool in tools:
-                    logger.info(f"Enabled function: {tool['name']}, params: {json.dumps(tool['parameters'], ensure_ascii=False)[:100]}...")
+                    logger.info(f"[DEBUG-FUNCTION] Enabled function: {tool['name']}, params: {json.dumps(tool['parameters'], ensure_ascii=False)[:100]}...")
         except Exception as e:
             logger.error(f"Error sending session.update: {e}")
             return False
@@ -388,6 +392,9 @@ class OpenAIRealtimeClient:
             if function_name and function_name.lower() == "sendwebhook":
                 normalized_function_name = "send_webhook"
                 logger.info(f"Нормализовано имя функции: sendWebHook -> send_webhook")
+            elif function_name and function_name.lower() == "searchpinecone":
+                normalized_function_name = "search_pinecone"
+                logger.info(f"Нормализовано имя функции: searchPinecone -> search_pinecone")
             
             # Проверяем, разрешена ли функция
             if normalized_function_name not in self.enabled_functions:
