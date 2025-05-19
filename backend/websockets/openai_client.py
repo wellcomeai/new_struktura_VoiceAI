@@ -70,6 +70,27 @@ def normalize_functions(assistant_functions):
                 
     return result
 
+def normalize_function_name(name):
+    """
+    Нормализует имя функции, преобразуя из camelCase в snake_case при необходимости.
+    
+    Args:
+        name: Имя функции для нормализации
+        
+    Returns:
+        str: Нормализованное имя функции
+    """
+    if not name:
+        return None
+        
+    name_lower = name.lower()
+    if name_lower == "sendwebhook" or name_lower == "webhook":
+        return "send_webhook"
+    elif name_lower == "searchpinecone":
+        return "search_pinecone"
+    
+    return name
+
 def extract_webhook_url_from_prompt(prompt: str) -> Optional[str]:
     """
     Извлекает URL вебхука из системного промпта ассистента.
@@ -157,9 +178,9 @@ class OpenAIRealtimeClient:
         if hasattr(assistant_config, "functions"):
             functions = assistant_config.functions
             if isinstance(functions, list):
-                self.enabled_functions = [f.get("name") for f in functions if f.get("name")]
+                self.enabled_functions = [normalize_function_name(f.get("name")) for f in functions if f.get("name")]
             elif isinstance(functions, dict) and "enabled_functions" in functions:
-                self.enabled_functions = functions.get("enabled_functions", [])
+                self.enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
             
             logger.info(f"Извлечены разрешенные функции: {self.enabled_functions}")
         
@@ -210,9 +231,9 @@ class OpenAIRealtimeClient:
             # Обновляем список разрешенных функций
             if functions:
                 if isinstance(functions, list):
-                    self.enabled_functions = [f.get("name") for f in functions if f.get("name")]
+                    self.enabled_functions = [normalize_function_name(f.get("name")) for f in functions if f.get("name")]
                 elif isinstance(functions, dict) and "enabled_functions" in functions:
-                    self.enabled_functions = functions.get("enabled_functions", [])
+                    self.enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
                 
                 logger.info(f"Обновлены разрешенные функции: {self.enabled_functions}")
 
@@ -308,7 +329,7 @@ class OpenAIRealtimeClient:
             })
         
         # Обновляем список разрешенных функций на основе tools
-        self.enabled_functions = [tool["name"] for tool in tools]
+        self.enabled_functions = [normalize_function_name(tool["name"]) for tool in tools]
         logger.info(f"[DEBUG-FUNCTION] Активированные функции для сессии: {self.enabled_functions}")
         
         # Устанавливаем tool_choice на основе наличия tools
@@ -387,14 +408,9 @@ class OpenAIRealtimeClient:
             # Сохраняем имя функции для последующего использования
             self.last_function_name = function_name
             
-            # Если имя функции в camelCase, приводим к snake_case
-            normalized_function_name = function_name
-            if function_name and function_name.lower() == "sendwebhook":
-                normalized_function_name = "send_webhook"
-                logger.info(f"Нормализовано имя функции: sendWebHook -> send_webhook")
-            elif function_name and function_name.lower() == "searchpinecone":
-                normalized_function_name = "search_pinecone"
-                logger.info(f"Нормализовано имя функции: searchPinecone -> search_pinecone")
+            # Нормализуем имя функции из любого формата
+            normalized_function_name = normalize_function_name(function_name) or function_name
+            logger.info(f"[DEBUG-FUNCTION] Нормализация имени функции: {function_name} -> {normalized_function_name}")
             
             # Проверяем, разрешена ли функция
             if normalized_function_name not in self.enabled_functions:
