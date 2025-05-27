@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<!-- /static/index.html -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live VoiceAI - Говорит. Слушает. Понимает.</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --accent-blue: #4a86e8;
+      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --radius-full: 9999px;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Кнопки */
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 0.95rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--primary-blue);
+      color: var(--primary-blue);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-blue-light);
+    }
+    
+    .btn-large {
+      padding: 1rem 2rem;
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    /* Формы */
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      color: var(--text-dark);
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.875rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 1rem;
+      transition: all 0.2s;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+    
+    /* Главный контейнер */
+    .main-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    
+    /* Левая секция (презентация) */
+    .presentation-section {
+      flex: 1;
+      background-color: var(--white);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    /* Правая секция (форма) */
+    .auth-section {
+      width: 500px;
+      background-color: var(--bg-light);
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    
+    /* Навигация */
+    .navbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 1.5rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+    
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    /* Анимированная сфера */
+    .sphere-container {
+      width: 320px;
+      height: 320px;
+      position: relative;
+      margin-bottom: 3rem;
+    }
+    
+    .sphere {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: var(--gradient-blue);
+      position: relative;
+      box-shadow: 0 10px 30px rgba(74, 134, 232, 0.4);
+      overflow: hidden;
+      animation: pulse 6s infinite alternate;
+    }
+    
+    .sphere::after {
+      content: '';
+      position: absolute;
+      top: -10%;
+      left: -10%;
+      width: 120%;
+      height: 120%;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 70%);
+    }
+    
+    /* Радиоволны */
+    .wave-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transform-style: preserve-3d;
+      perspective: 1000px;
+    }
+    
+    .wave {
+      position: absolute;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      transform: scale(0);
+      animation: wave-animation 4s infinite;
+    }
+    
+    .wave:nth-child(1) {
+      width: 100%;
+      height: 100%;
+      animation-delay: 0s;
+    }
+    
+    .wave:nth-child(2) {
+      width: 100%;
+      height: 100%;
+      animation-delay: 1s;
+    }
+    
+    .wave:nth-child(3) {
+      width: 100%;
+      height: 100%;
+      animation-delay: 2s;
+    }
+    
+    .wave:nth-child(4) {
+      width: 100%;
+      height: 100%;
+      animation-delay: 3s;
+    }
+    
+    @keyframes wave-animation {
+      0% {
+        transform: scale(0);
+        opacity: 0.8;
+      }
+      100% {
+        transform: scale(2);
+        opacity: 0;
+      }
+    }
+    
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 10px 30px rgba(74, 134, 232, 0.4);
+      }
+      50% {
+        transform: scale(1.05);
+        box-shadow: 0 15px 40px rgba(74, 134, 232, 0.6);
+      }
+    }
+    
+    /* Контент презентации */
+    .presentation-content {
+      text-align: center;
+      max-width: 600px;
+      z-index: 1;
+    }
+    
+    .main-title {
+      font-size: 3rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(90deg, #4a86e8, #2563eb, #1d4ed8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.2;
+    }
+    
+    .subtitle {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      color: var(--text-gray);
+    }
+    
+    .description {
+      font-size: 1.125rem;
+      color: var(--text-gray);
+      margin-bottom: 2.5rem;
+      line-height: 1.6;
+    }
+    
+    /* Вкладки авторизации */
+    .auth-tabs {
+      display: flex;
+      margin-bottom: 2rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .auth-tab {
+      padding: 1rem 1.5rem;
+      font-weight: 600;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    
+    .auth-tab.active {
+      color: var(--primary-blue);
+      border-bottom-color: var(--primary-blue);
+    }
+    
+    /* Формы авторизации */
+    .auth-form {
+      display: none;
+    }
+    
+    .auth-form.active {
+      display: block;
+    }
+    
+    .auth-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+    }
+    
+    .auth-footer {
+      margin-top: 1.5rem;
+      text-align: center;
+      color: var(--text-gray);
+    }
+    
+    .auth-footer a {
+      color: var(--primary-blue);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    
+    .auth-footer a:hover {
+      text-decoration: underline;
+    }
+    
+    /* Виджет ассистента */
+    .assistant-widget-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+      transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .assistant-widget-button {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4a86e8, #2b59c3);
+      box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      border: none;
+    }
+    
+    .assistant-widget-button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 20px rgba(74, 134, 232, 0.5);
+    }
+    
+    .assistant-widget-icon {
+      color: white;
+      font-size: 22px;
+      transition: all 0.3s ease;
+    }
+    
+    .pulse-animation {
+      animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+    
+    @keyframes pulse-ring {
+      0% {
+        box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7);
+      }
+      70% {
+        box-shadow: 0 0 0 15px rgba(74, 134, 232, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(74, 134, 232, 0);
+      }
+    }
+    
+    /* Адаптивный дизайн */
+    @media (max-width: 1024px) {
+      .main-container {
+        flex-direction: column;
+      }
+      
+      .auth-section {
+        width: 100%;
+        padding: 2rem;
+      }
+      
+      .presentation-section {
+        padding: 4rem 2rem;
+      }
+      
+      .sphere-container {
+        width: 250px;
+        height: 250px;
+      }
+      
+      .main-title {
+        font-size: 2.5rem;
+      }
+      
+      .subtitle {
+        font-size: 1.5rem;
+      }
+    }
+    
+    @media (max-width: 768px) {
+      .presentation-section {
+        padding: 3rem 1.5rem;
+      }
+      
+      .sphere-container {
+        width: 200px;
+        height: 200px;
+        margin-bottom: 2rem;
+      }
+      
+      .main-title {
+        font-size: 2rem;
+      }
+      
+      .subtitle {
+        font-size: 1.25rem;
+      }
+      
+      .description {
+        font-size: 1rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .presentation-section {
+        padding: 2rem 1rem;
+      }
+      
+      .sphere-container {
+        width: 160px;
+        height: 160px;
+      }
+      
+      .main-title {
+        font-size: 1.75rem;
+      }
+      
+      .auth-tab {
+        padding: 0.75rem 1rem;
+      }
+      
+      .auth-section {
+        padding: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <!-- Презентационная секция -->
+    <div class="presentation-section">
+      <!-- Навигация -->
+      <div class="navbar">
+        <a href="/" class="logo">Live VoiceAI</a>
+      </div>
+      
+      <!-- Анимированная сфера -->
+      <div class="sphere-container">
+        <div class="sphere"></div>
+        <div class="wave-container">
+          <div class="wave"></div>
+          <div class="wave"></div>
+          <div class="wave"></div>
+          <div class="wave"></div>
+        </div>
+      </div>
+      
+      <div class="presentation-content">
+        <h1 class="main-title">Ваш голосовой ИИ.</h1>
+        <h2 class="subtitle">Говорит. Слушает. Понимает.</h2>
+        <p class="description">
+          Создавайте голосовых ассистентов на основе OpenAI за минуты. Загружайте базы знаний, интегрируйте на сайт или в приложение одним кликом.
+        </p>
+        <a href="#register" class="btn btn-primary btn-large" id="cta-button">
+          Создать первого бота
+        </a>
+      </div>
+    </div>
+    
+    <!-- Секция авторизации -->
+    <div class="auth-section">
+      <div class="auth-tabs">
+        <div class="auth-tab" data-tab="login">Вход</div>
+        <div class="auth-tab active" data-tab="register">Регистрация</div>
+      </div>
+      
+      <!-- Форма входа -->
+      <form id="login-form" class="auth-form">
+        <h2 class="auth-title">Вход в аккаунт</h2>
+        
+        <div class="form-group">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" class="form-control" placeholder="your@email.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="login-password">Пароль</label>
+          <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Войти</button>
+        
+        <div class="auth-footer">
+          <p>Еще нет аккаунта? <a href="#register" class="switch-auth" data-tab="register">Зарегистрироваться</a></p>
+        </div>
+      </form>
+      
+      <!-- Форма регистрации -->
+      <form id="register-form" class="auth-form active">
+        <h2 class="auth-title">Создайте аккаунт</h2>
+        
+        <div class="form-group">
+          <label for="register-email">Email</label>
+          <input type="email" id="register-email" class="form-control" placeholder="your@email.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="register-password">Пароль</label>
+          <input type="password" id="register-password" class="form-control" placeholder="Минимум 8 символов" required minlength="8">
+        </div>
+        
+        <div class="form-group">
+          <label for="register-name">Имя</label>
+          <input type="text" id="register-name" class="form-control" placeholder="Введите ваше имя">
+        </div>
+        
+        <div class="form-group">
+          <label for="register-company">Компания (опционально)</label>
+          <input type="text" id="register-company" class="form-control" placeholder="Название вашей компании">
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Зарегистрироваться</button>
+        
+        <div class="auth-footer">
+          <p>Уже есть аккаунт? <a href="#login" class="switch-auth" data-tab="login">Войти</a></p>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Виджет ассистента -->
+  <div class="assistant-widget-container" id="assistant-widget-container">
+    <button class="assistant-widget-button pulse-animation" id="assistant-widget-button">
+      <i class="fas fa-robot assistant-widget-icon"></i>
+    </button>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Переключение форм авторизации
+      const tabs = document.querySelectorAll('.auth-tab');
+      const forms = document.querySelectorAll('.auth-form');
+      const switchLinks = document.querySelectorAll('.switch-auth');
+      const ctaButton = document.getElementById('cta-button');
+      
+      // Функция переключения вкладок
+      function switchTab(tabId) {
+        tabs.forEach(tab => {
+          tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+        });
+        
+        forms.forEach(form => {
+          form.classList.toggle('active', form.id === `${tabId}-form`);
+        });
+      }
+      
+      // Обработчики для переключения вкладок
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabId = tab.getAttribute('data-tab');
+          switchTab(tabId);
+        });
+      });
+      
+      // Переключение по ссылкам
+      switchLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const tabId = link.getAttribute('data-tab');
+          switchTab(tabId);
+        });
+      });
+      
+      // CTA кнопка ведет на регистрацию
+      ctaButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        switchTab('register');
+        document.querySelector('.auth-section').scrollIntoView({ behavior: 'smooth' });
+      });
+      
+      // API клиент
+      const api = {
+        baseUrl: '/api',
+        
+        // Базовая функция для запросов к API
+        async fetch(endpoint, options = {}) {
+          const token = localStorage.getItem('auth_token');
+          
+          if (token) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${token}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string') {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            const data = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+          }
+        },
+        
+        // Регистрация пользователя
+        register(userData) {
+          return this.fetch('/auth/register', {
+            method: 'POST',
+            body: userData
+          });
+        },
+        
+        // Авторизация пользователя
+        login(credentials) {
+          return this.fetch('/auth/login', {
+            method: 'POST',
+            body: credentials
+          });
+        }
+      };
+      
+      // Обработка формы регистрации
+      const registerForm = document.getElementById('register-form');
+      
+      registerForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const email = document.getElementById('register-email').value;
+        const password = document.getElementById('register-password').value;
+        const firstName = document.getElementById('register-name').value;
+        const companyName = document.getElementById('register-company').value;
+        
+        try {
+          const userData = {
+            email: email,
+            password: password,
+            first_name: firstName || null,
+            last_name: null,
+            company_name: companyName || null
+          };
+          
+          const data = await api.register(userData);
+          
+          // Сохраняем токен в localStorage
+          localStorage.setItem('auth_token', data.token);
+          
+          // Перенаправляем на страницу дашборда
+          window.location.href = '/static/dashboard.html';
+        } catch (error) {
+          alert(error.message || 'Ошибка при регистрации');
+        }
+      });
+      
+      // Обработка формы входа
+      const loginForm = document.getElementById('login-form');
+      
+      loginForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        
+        try {
+          const credentials = {
+            email: email,
+            password: password
+          };
+          
+          const data = await api.login(credentials);
+          
+          // Сохраняем токен в localStorage
+          localStorage.setItem('auth_token', data.token);
+          
+          // Перенаправляем на страницу дашборда
+          window.location.href = '/static/dashboard.html';
+        } catch (error) {
+          alert(error.message || 'Ошибка входа. Проверьте email и пароль.');
+        }
+      });
+      
+      // Проверяем, авторизован ли пользователь
+      function checkAuth() {
+        const token = localStorage.getItem('auth_token');
+        
+        if (token) {
+          window.location.href = '/static/dashboard.html';
+        }
+      }
+      
+      // Инициализация виджета ассистента
+      function initAssistantWidget() {
+        const widgetButton = document.getElementById('assistant-widget-button');
+        let widgetActive = false;
+        
+        // Загружаем скрипт виджета
+        function loadWidgetScript() {
+          const script = document.createElement('script');
+          script.src = '/static/widget.js';
+          script.dataset.assistantId = 'demo'; // ID демо-ассистента
+          script.dataset.position = 'bottom-right';
+          document.head.appendChild(script);
+          
+          // Удаляем наш кастомный виджет после загрузки оригинального
+          widgetButton.style.display = 'none';
+        }
+        
+        // Обработчик клика по кнопке виджета
+        widgetButton.addEventListener('click', function() {
+          if (!widgetActive) {
+            widgetActive = true;
+            loadWidgetScript();
+          }
+        });
+      }
+      
+      // Инициализация страницы
+      checkAuth();
+      initAssistantWidget();
+    });
+  </script>
+</body>
+</html>

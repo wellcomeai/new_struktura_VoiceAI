@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<!-- /static/knowledge-base.html -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>База знаний | Live VoiceAI</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    .locked-feature {
+      opacity: 0.6;
+      cursor: not-allowed;
+      position: relative;
+    }
+    
+    .locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Хлебные крошки */
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+    
+    .breadcrumb-item {
+      display: flex;
+      align-items: center;
+    }
+    
+    .breadcrumb-item a {
+      color: var(--text-gray);
+      text-decoration: none;
+    }
+    
+    .breadcrumb-item a:hover {
+      color: var(--primary-blue);
+    }
+    
+    .breadcrumb-separator {
+      margin: 0 0.25rem;
+    }
+    
+    /* Карточки */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+      text-decoration: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-light);
+    }
+    
+    /* Стили для базы знаний */
+    .kb-container {
+      margin-top: 1rem;
+    }
+
+    .kb-textarea {
+      width: 100%;
+      min-height: 300px;
+      padding: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      resize: vertical;
+      font-family: inherit;
+      margin-bottom: 1rem;
+    }
+
+    .kb-actions {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .kb-stats {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .kb-status {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+
+    .kb-status.active {
+      color: #10b981;
+    }
+
+    .char-counter {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    .char-counter.warning {
+      color: #f59e0b;
+    }
+
+    .char-counter.error {
+      color: #ef4444;
+    }
+
+    .kb-namespace-container {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background-color: var(--bg-light);
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .kb-namespace-label {
+      font-weight: 600;
+      color: var(--text-gray);
+    }
+
+    .kb-namespace {
+      font-family: monospace;
+      color: var(--text-dark);
+      background-color: var(--white);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .btn-small {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    /* Добавим стиль для опасных кнопок */
+    .btn.danger {
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+
+    .btn.danger:hover {
+      background-color: #fef2f2;
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+
+    /* New Styles for multiple KB support */
+    .add-kb-container {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 1.5rem;
+    }
+
+    .kb-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .kb-card {
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .kb-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .kb-card .card-header {
+      padding: 1.25rem;
+      margin-bottom: 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .kb-name {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .kb-content {
+      padding: 1.25rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .kb-details {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-gray);
+      font-size: 0.75rem;
+      border-radius: var(--radius-md);
+      padding: 0.5rem;
+      background-color: var(--bg-light);
+    }
+
+    .kb-preview {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      background-color: var(--bg-light);
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      height: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+    }
+
+    .kb-namespace-display {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .kb-namespace-label {
+      color: var(--text-gray);
+      white-space: nowrap;
+    }
+
+    .kb-namespace-value {
+      background-color: var(--bg-light);
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 0.75rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      color: var(--text-gray);
+    }
+
+    .empty-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0, 0, 0, 0.5);
+      transition: all 0.3s;
+      opacity: 0;
+    }
+
+    .modal.show {
+      display: block;
+      opacity: 1;
+    }
+
+    .modal-content {
+      background-color: var(--white);
+      margin: 5% auto;
+      padding: 0;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      width: 90%;
+      max-width: 800px;
+      max-height: 90vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-header {
+      padding: 1.25rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: var(--text-gray);
+    }
+
+    .modal-body {
+      padding: 1.25rem;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .modal-footer {
+      padding: 1.25rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      color: var(--text-dark);
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 1rem;
+      transition: border 0.2s;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary-blue);
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">Live VoiceAI</a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item active">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Расширения</div>
+      <a href="/static/integrations.html" class="sidebar-nav-item">
+        <i class="fas fa-plug"></i> Интеграции
+      </a>
+      <a href="#" class="sidebar-nav-item locked-feature">
+        <i class="fas fa-wand-magic-sparkles"></i> Навыки
+      </a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+      <a href="#" class="sidebar-nav-item" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </nav>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <h1 class="page-title">База знаний</h1>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Хлебные крошки -->
+      <div class="breadcrumbs">
+        <div class="breadcrumb-item">
+          <a href="/static/dashboard.html">Дашборд</a>
+          <span class="breadcrumb-separator">
+            <i class="fas fa-chevron-right"></i>
+          </span>
+        </div>
+        <div class="breadcrumb-item">База знаний</div>
+      </div>
+      
+      <!-- Кнопка добавления новой базы знаний -->
+      <div class="add-kb-container">
+        <button id="add-kb-button" class="btn btn-primary">
+          <i class="fas fa-plus"></i> Создать базу знаний
+        </button>
+      </div>
+      
+      <!-- Список баз знаний -->
+      <div class="kb-list" id="kb-list">
+        <!-- Базы знаний будут добавлены с помощью JavaScript -->
+      </div>
+    </div>
+    
+    <!-- Модальное окно редактора базы знаний -->
+    <div id="kb-editor-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="kb-editor-title">Редактировать базу знаний</h2>
+          <button class="modal-close" id="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="kb-name-input">Название:</label>
+            <input type="text" id="kb-name-input" class="form-input" placeholder="Название базы знаний">
+          </div>
+          <div class="form-group">
+            <label for="kb-editor-textarea">Содержимое:</label>
+            <textarea id="kb-editor-textarea" class="kb-textarea" placeholder="Введите текст для базы знаний (до 500,000 символов)"></textarea>
+            <div class="char-counter" id="kb-editor-char-counter">0/500000 символов</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="kb-editor-cancel" class="btn btn-outline">Отмена</button>
+          <button id="kb-editor-save" class="btn btn-primary">Сохранить</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+  </main>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Получаем элементы
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const logoutButton = document.getElementById('logout-button');
+      const kbList = document.getElementById('kb-list');
+      
+      // Элементы модального окна
+      const kbEditorModal = document.getElementById('kb-editor-modal');
+      const kbEditorTitle = document.getElementById('kb-editor-title');
+      const kbNameInput = document.getElementById('kb-name-input');
+      const kbEditorTextarea = document.getElementById('kb-editor-textarea');
+      const kbEditorCharCounter = document.getElementById('kb-editor-char-counter');
+      const kbEditorSave = document.getElementById('kb-editor-save');
+      const kbEditorCancel = document.getElementById('kb-editor-cancel');
+      const modalClose = document.getElementById('modal-close');
+      const addKbButton = document.getElementById('add-kb-button');
+
+      // Текущая база знаний для редактирования
+      let currentEditingKB = null;
+      // Список всех баз знаний
+      let knowledgeBases = [];
+      
+      // Основные функции для работы с API
+      const api = {
+        baseUrl: '/api',
+        
+        // Получение токена авторизации
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        // Проверка авторизации
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        // Базовая функция для запросов к API
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            if (response.status === 401) {
+              localStorage.removeItem('auth_token');
+              window.location.href = '/static/login.html';
+              throw new Error('Требуется авторизация');
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+          }
+        },
+        
+        // Методы для различных типов запросов
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        }
+      };
+      
+      // Вспомогательные функции для UI
+      const ui = {
+        // Показать уведомление
+        showNotification(message, type = 'success') {
+          const notification = document.getElementById('notification');
+          const notificationMessage = document.getElementById('notification-message');
+          const iconElement = notification.querySelector('.notification-icon i');
+          
+          // Удаляем все классы типов
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          
+          // Изменяем иконку
+          iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                                 type === 'error' ? 'fas fa-exclamation-circle' : 
+                                 'fas fa-info-circle';
+          
+          // Устанавливаем тип и сообщение
+          notification.classList.add(`notification-${type}`);
+          notificationMessage.textContent = message;
+          
+          // Показываем уведомление
+          notification.style.display = 'flex';
+          setTimeout(() => {
+            notification.classList.add('show');
+          }, 10);
+          
+          // Автоматически скрываем через 5 секунд
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        // Скрыть уведомление
+        hideNotification() {
+          const notification = document.getElementById('notification');
+          notification.classList.remove('show');
+          setTimeout(() => {
+            notification.style.display = 'none';
+          }, 300);
+        }
+      };
+      
+      // Загрузка всех баз знаний
+      async function loadAllKnowledgeBases() {
+        try {
+          const response = await api.get('/knowledge-base/all');
+          knowledgeBases = response;
+          renderKnowledgeBases();
+        } catch (error) {
+          ui.showNotification('Ошибка при загрузке баз знаний: ' + error.message, 'error');
+        }
+      }
+      
+      // Отображение всех баз знаний
+      function renderKnowledgeBases() {
+        kbList.innerHTML = '';
+        
+        if (knowledgeBases.length === 0) {
+          const emptyState = document.createElement('div');
+          emptyState.className = 'empty-state';
+          emptyState.innerHTML = `
+            <i class="fas fa-book-open empty-icon"></i>
+            <h3>Нет баз знаний</h3>
+            <p>Создайте свою первую базу знаний, чтобы помочь вашим ассистентам отвечать на вопросы с использованием пользовательских данных.</p>
+          `;
+          kbList.appendChild(emptyState);
+          return;
+        }
+        
+        knowledgeBases.forEach(kb => {
+          const kbCard = document.createElement('div');
+          kbCard.className = 'kb-card card';
+          kbCard.dataset.id = kb.id;
+          kbCard.dataset.namespace = kb.namespace;
+          
+          const updatedDate = new Date(kb.updated_at).toLocaleString();
+          const name = kb.name || `KB-${kb.namespace.slice(-6)}`;
+          
+          kbCard.innerHTML = `
+            <div class="card-header">
+              <h3 class="kb-name">${name}</h3>
+              <div class="kb-actions">
+                <button class="kb-edit-btn btn btn-outline btn-small">
+                  <i class="fas fa-pencil-alt"></i> Редактировать
+                </button>
+                <button class="kb-delete-btn btn btn-outline danger btn-small">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <div class="kb-content">
+              <div class="kb-details">
+                <span class="kb-chars"><i class="fas fa-font"></i> <span class="char-count">${kb.char_count.toLocaleString()}</span> символов</span>
+                <span class="kb-updated"><i class="fas fa-clock"></i> <span class="updated-date">${updatedDate}</span></span>
+              </div>
+              <div class="kb-preview">${kb.content_preview || 'Нет предпросмотра'}</div>
+              <div class="kb-namespace-display">
+                <span class="kb-namespace-label">Namespace:</span>
+                <code class="kb-namespace-value">${kb.namespace}</code>
+                <button class="kb-copy-namespace-btn btn btn-outline btn-small">
+                  <i class="fas fa-copy"></i>
+                </button>
+              </div>
+            </div>
+          `;
+          
+          // Обработчики событий
+          kbCard.querySelector('.kb-edit-btn').addEventListener('click', () => {
+            editKnowledgeBase(kb.id);
+          });
+          
+          kbCard.querySelector('.kb-delete-btn').addEventListener('click', () => {
+            deleteKnowledgeBase(kb.id);
+          });
+          
+          kbCard.querySelector('.kb-copy-namespace-btn').addEventListener('click', () => {
+            copyNamespace(kb.namespace);
+          });
+          
+          kbList.appendChild(kbCard);
+        });
+      }
+      
+      // Редактирование базы знаний
+      async function editKnowledgeBase(kbId) {
+        try {
+          // Устанавливаем режим редактирования
+          kbEditorTitle.textContent = 'Редактировать базу знаний';
+          
+          // Получаем полное содержимое базы знаний
+          const response = await api.get(`/knowledge-base/${kbId}/content`);
+          currentEditingKB = {
+            id: kbId,
+            full_content: response.full_content,
+            name: response.name,
+            namespace: response.namespace
+          };
+          
+          // Заполняем поля формы
+          kbNameInput.value = currentEditingKB.name || '';
+          kbEditorTextarea.value = currentEditingKB.full_content || '';
+          updateEditorCharCounter();
+          
+          // Открываем модальное окно
+          openModal();
+        } catch (error) {
+          ui.showNotification('Ошибка при загрузке базы знаний: ' + error.message, 'error');
+        }
+      }
+      
+      // Создание новой базы знаний
+      function createKnowledgeBase() {
+        // Устанавливаем режим создания
+        kbEditorTitle.textContent = 'Создать базу знаний';
+        currentEditingKB = null;
+        
+        // Очищаем поля формы
+        kbNameInput.value = '';
+        kbEditorTextarea.value = '';
+        updateEditorCharCounter();
+        
+        // Открываем модальное окно
+        openModal();
+      }
+      
+      // Удаление базы знаний
+      async function deleteKnowledgeBase(kbId) {
+        if (!confirm('Вы уверены, что хотите удалить эту базу знаний?')) {
+          return;
+        }
+        
+        try {
+          await api.delete(`/knowledge-base/${kbId}`);
+          ui.showNotification('База знаний успешно удалена', 'success');
+          loadAllKnowledgeBases();
+        } catch (error) {
+          ui.showNotification('Ошибка при удалении базы знаний: ' + error.message, 'error');
+        }
+      }
+      
+      // Сохранение базы знаний
+      async function saveKnowledgeBase() {
+        const content = kbEditorTextarea.value.trim();
+        const name = kbNameInput.value.trim() || 'База знаний';
+        
+        if (!content) {
+          ui.showNotification('Пожалуйста, введите текст для базы знаний', 'info');
+          return;
+        }
+        
+        if (content.length > 500000) {
+          ui.showNotification('Текст превышает максимальный размер 500,000 символов', 'error');
+          return;
+        }
+        
+        try {
+          // Изменяем состояние кнопки
+          kbEditorSave.disabled = true;
+          kbEditorSave.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
+          
+          let result;
+          
+         // Заменить этот фрагмент в функции saveKnowledgeBase()
+if (currentEditingKB) {
+    // Обновляем существующую базу знаний
+    result = await api.put(`/knowledge-base/${currentEditingKB.id}`, {
+        content: content,
+        name: name
+    });
+} else {
+    // Создаем НОВУЮ базу знаний - используем специальный эндпоинт "/new"
+    result = await api.post('/knowledge-base/new', {
+        content: content,
+        name: name
+    });
+}
+          
+          // Закрываем модальное окно
+          closeModal();
+          
+          // Обновляем список баз знаний
+          loadAllKnowledgeBases();
+          
+          ui.showNotification('База знаний успешно сохранена', 'success');
+        } catch (error) {
+          ui.showNotification('Ошибка при сохранении базы знаний: ' + error.message, 'error');
+        } finally {
+          // Восстанавливаем состояние кнопки
+          kbEditorSave.disabled = false;
+          kbEditorSave.innerHTML = 'Сохранить';
+        }
+      }
+      
+      // Копирование namespace в буфер обмена
+      function copyNamespace(namespace) {
+        navigator.clipboard.writeText(namespace)
+          .then(() => {
+            ui.showNotification('Namespace скопирован в буфер обмена', 'success');
+          })
+          .catch(() => {
+            ui.showNotification('Не удалось скопировать namespace', 'error');
+          });
+      }
+      
+      // Обновление счетчика символов в редакторе
+      function updateEditorCharCounter() {
+        const count = kbEditorTextarea.value.length;
+        kbEditorCharCounter.textContent = `${count.toLocaleString()}/500000 символов`;
+        
+        if (count > 450000) {
+          kbEditorCharCounter.classList.add('warning');
+        } else {
+          kbEditorCharCounter.classList.remove('warning');
+        }
+        
+        if (count > 500000) {
+          kbEditorCharCounter.classList.add('error');
+          kbEditorSave.disabled = true;
+        } else {
+          kbEditorCharCounter.classList.remove('error');
+          kbEditorSave.disabled = false;
+        }
+      }
+      
+      // Открытие модального окна
+      function openModal() {
+        kbEditorModal.style.display = 'block';
+        setTimeout(() => {
+          kbEditorModal.classList.add('show');
+        }, 10);
+      }
+      
+      // Закрытие модального окна
+      function closeModal() {
+        kbEditorModal.classList.remove('show');
+        setTimeout(() => {
+          kbEditorModal.style.display = 'none';
+        }, 300);
+      }
+      
+      // Проверка авторизации
+      if (!api.isAuthenticated()) {
+        window.location.href = '/static/login.html';
+        return;
+      }
+      
+      // Установка обработчиков событий
+      kbEditorTextarea.addEventListener('input', updateEditorCharCounter);
+      kbEditorSave.addEventListener('click', saveKnowledgeBase);
+      kbEditorCancel.addEventListener('click', closeModal);
+      modalClose.addEventListener('click', closeModal);
+      addKbButton.addEventListener('click', createKnowledgeBase);
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', ui.hideNotification);
+      
+      // Выход из системы
+      logoutButton.addEventListener('click', function() {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/static/login.html';
+      });
+      
+      // Загрузка баз знаний при загрузке страницы
+      loadAllKnowledgeBases();
+    });
+  </script>
+</body>
+</html>

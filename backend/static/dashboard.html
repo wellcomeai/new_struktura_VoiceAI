@@ -1,0 +1,1621 @@
+<!DOCTYPE html>
+<!-- /static/dashboard.html -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Панель управления | Live VoiceAI</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --accent-blue: #4a86e8;
+      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --radius-full: 9999px;
+      --transition-sm: all 0.2s ease;
+      --transition-md: all 0.3s ease;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+      line-height: 1.5;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      transition: var(--transition-md);
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .sidebar-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-full);
+      background: var(--gradient-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--white);
+      font-size: 0.875rem;
+    }
+    
+    .mobile-toggle {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      font-size: 1.25rem;
+      cursor: pointer;
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: var(--transition-sm);
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+      font-weight: 500;
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      margin-top: 1.5rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .locked-feature {
+      opacity: 0.6;
+      cursor: not-allowed;
+      position: relative;
+    }
+    
+    .locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      transition: var(--transition-md);
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: var(--shadow-sm);
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
+    }
+    
+    .user-button:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Секция приветствия */
+    .welcome-section {
+      margin-bottom: 2rem;
+    }
+    
+    .welcome-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    
+    .welcome-subtitle {
+      color: var(--text-gray);
+    }
+    
+    /* Статусные карточки */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    
+    .stat-card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: 1.5rem;
+      border: 1px solid var(--border-color);
+      transition: var(--transition-sm);
+    }
+    
+    .stat-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    
+    .stat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+    
+    .stat-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-full);
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-size: 1.25rem;
+    }
+    
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+    
+    .stat-title {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+    
+    /* API ключ секция */
+    .api-key-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+    }
+    
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .section-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .api-key-info {
+      color: var(--text-gray);
+      margin-bottom: 1.25rem;
+      font-size: 0.95rem;
+    }
+    
+    .api-key-form {
+      display: flex;
+      gap: 1rem;
+    }
+    
+    .api-key-input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+    
+    .api-key-form input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      padding-right: 2.5rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+    }
+    
+    .api-key-form input:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    .toggle-password {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+    
+    .toggle-password:hover {
+      color: var(--primary-blue);
+    }
+    
+    .api-key-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 1rem;
+    }
+    
+    .api-key-status {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    
+    .status-active {
+      background-color: #10b981;
+    }
+    
+    .status-inactive {
+      background-color: #ef4444;
+    }
+    
+    /* Кнопки */
+    .btn {
+      padding: 0.75rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      border: none;
+      gap: 0.5rem;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+    }
+    
+    /* Секция для уведомления */
+    .info-notice {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 2rem;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 2.5rem;
+    }
+    
+    .notice-icon {
+      font-size: 3rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .notice-icon.success {
+      color: #10b981;
+    }
+    
+    .notice-icon.info {
+      color: var(--primary-blue);
+    }
+    
+    .notice-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    
+    .notice-description {
+      color: var(--text-gray);
+      max-width: 600px;
+      margin: 0 auto 2rem;
+      line-height: 1.6;
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      max-width: 350px;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      color: var(--text-gray);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.125rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Стили для секции подписки */
+    .subscription-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+    }
+
+    .subscription-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 0;
+    }
+
+    .subscription-loader {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(74, 134, 232, 0.3);
+      border-top-color: var(--primary-blue);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .subscription-info {
+      padding: 1rem 0;
+    }
+
+    .subscription-plan {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .subscription-plan h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .subscription-status {
+      display: inline-block;
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .subscription-status.active {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: #10b981;
+    }
+
+    .subscription-status.trial {
+      background-color: rgba(249, 115, 22, 0.1);
+      color: #f97316;
+    }
+
+    .subscription-details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .subscription-detail {
+      background-color: var(--bg-light);
+      padding: 1rem;
+      border-radius: var(--radius-md);
+    }
+
+    .detail-label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--text-gray);
+      margin-bottom: 0.5rem;
+    }
+
+    .detail-value {
+      font-weight: 600;
+      font-size: 1.125rem;
+    }
+
+    .subscription-empty {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-gray);
+    }
+
+    .subscription-upgrade {
+      margin-top: 1.5rem;
+      display: flex;
+      justify-content: flex-end;
+    }
+    
+    /* Новые стили для подписки */
+    .subscription-progress {
+      margin: 1rem 0;
+    }
+
+    .progress-bar {
+      height: 8px;
+      background-color: var(--border-color);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #3b82f6);
+      border-radius: var(--radius-full);
+    }
+
+    .progress-text {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      text-align: right;
+    }
+
+    .subscription-warning {
+      background-color: rgba(249, 115, 22, 0.1);
+      color: #f97316;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 500;
+    }
+
+    .subscription-warning.expired {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+
+    .subscription-warning i {
+      font-size: 1.25rem;
+    }
+
+    .subscription-error {
+      padding: 1rem;
+      color: var(--text-gray);
+      text-align: center;
+    }
+
+    /* Адаптивный дизайн */
+    @media (max-width: 1024px) {
+      .stats-grid {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      }
+    }
+    
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        box-shadow: var(--shadow-lg);
+      }
+      
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .mobile-toggle {
+        display: block;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+      }
+      
+      .content-container {
+        padding: 1.5rem;
+      }
+      
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .api-key-form {
+        flex-direction: column;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .api-key-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon"><i class="fas fa-robot"></i></div>
+        <span>Live VoiceAI</span>
+      </a>
+      <button class="mobile-toggle" id="sidebar-close">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <a href="/static/dashboard.html" class="sidebar-nav-item active">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item locked-feature" id="agents-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item locked-feature" id="knowledge-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Расширения</div>
+<a href="/static/integrations.html" class="sidebar-nav-item">
+  <i class="fas fa-plug"></i> Интеграции
+</a>
+<a href="#" class="sidebar-nav-item locked-feature">
+  <i class="fas fa-wand-magic-sparkles"></i> Навыки
+</a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <button class="btn btn-secondary" style="width: 100%;" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </button>
+    </div>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content" id="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <button class="mobile-toggle" id="sidebar-toggle">
+        <i class="fas fa-bars"></i>
+      </button>
+      
+      <h1 class="page-title">Панель управления</h1>
+      
+      <div class="user-menu">
+        <button class="user-button" id="user-menu-button">
+          <div class="user-avatar" id="user-avatar">АП</div>
+          <span class="user-name" id="user-name">Александр Петров</span>
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        
+        <div class="user-dropdown" id="user-dropdown">
+          <a href="/static/settings.html" class="dropdown-item">
+            <i class="fas fa-user"></i> Профиль
+          </a>
+          <a href="/static/settings.html#api-key" class="dropdown-item">
+            <i class="fas fa-key"></i> API ключи
+          </a>
+          <div class="dropdown-divider"></div>
+          <a href="#" class="dropdown-item" id="dropdown-logout">
+            <i class="fas fa-sign-out-alt"></i> Выйти
+          </a>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Секция приветствия -->
+      <div class="welcome-section">
+        <h2 class="welcome-title" id="welcome-message">Добро пожаловать, Александр!</h2>
+        <p class="welcome-subtitle">Управляйте своими голосовыми ассистентами и создавайте новых.</p>
+      </div>
+      
+      <!-- Статистика -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon">
+              <i class="fas fa-robot"></i>
+            </div>
+          </div>
+          <div class="stat-value" id="bots-count">0</div>
+          <div class="stat-title">Активных ассистентов</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon">
+              <i class="fas fa-comments"></i>
+            </div>
+          </div>
+          <div class="stat-value" id="interactions-count">0</div>
+          <div class="stat-title">Взаимодействий</div>
+        </div>
+        
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon">
+              <i class="fas fa-file-alt"></i>
+            </div>
+          </div>
+          <div class="stat-value" id="files-count">0</div>
+          <div class="stat-title">Файлов в базе знаний</div>
+        </div>
+      </div>
+      
+      <!-- Секция для информации о подписке -->
+      <div class="subscription-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-crown"></i> Ваша подписка
+          </h2>
+        </div>
+        
+        <div class="subscription-details" id="subscription-details">
+          <div class="subscription-loading">
+            <div class="subscription-loader"></div>
+            <p>Загрузка информации о подписке...</p>
+          </div>
+        </div>
+        
+        <div class="subscription-upgrade" id="subscription-upgrade" style="display: none;">
+          <button class="btn btn-primary" id="upgrade-subscription-btn">
+            <i class="fas fa-arrow-up"></i> Улучшить тариф
+          </button>
+        </div>
+      </div>
+      
+      <!-- API ключ секция -->
+      <div class="api-key-section" id="api-key-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-key"></i> API ключ OpenAI
+          </h2>
+        </div>
+        
+        <p class="api-key-info">
+          Для работы голосовых ассистентов необходим ключ OpenAI API. Добавьте свой ключ OpenAI чтобы создавать ботов и использовать все функции платформы.
+        </p>
+        
+        <form class="api-key-form" id="api-key-form">
+          <div class="api-key-input-wrapper">
+            <input type="password" id="api-key-input" placeholder="Введите API ключ OpenAI">
+            <button type="button" class="toggle-password" id="toggle-password" title="Показать/скрыть ключ">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+          <button type="submit" class="btn btn-primary" id="save-api-key-btn">Сохранить</button>
+        </form>
+        
+        <!-- Статус API ключа -->
+        <div class="api-key-actions" id="api-key-status" style="display: none;">
+          <div class="api-key-status">
+            <div class="status-indicator status-active"></div>
+            <span>API ключ активен</span>
+          </div>
+          <button class="btn btn-secondary" id="edit-api-key-btn">
+            <i class="fas fa-edit"></i> Изменить ключ
+          </button>
+        </div>
+      </div>
+      
+      <!-- Уведомление для пользователей без API ключа -->
+      <div class="info-notice" id="no-key-notice">
+        <div class="notice-icon info">
+          <i class="fas fa-key"></i>
+        </div>
+        <h3 class="notice-title">Активируйте возможности платформы</h3>
+        <p class="notice-description">
+          Чтобы создавать голосовых ассистентов и использовать все функции платформы, вам необходимо добавить ключ OpenAI API в настройках выше. После добавления ключа вы сможете создавать ботов, настраивать их и встраивать на свой сайт.
+        </p>
+      </div>
+      
+      <!-- Уведомление для пользователей с API ключом -->
+      <div class="info-notice" id="has-key-notice" style="display: none;">
+        <div class="notice-icon success">
+          <i class="fas fa-check-circle"></i>
+        </div>
+        <h3 class="notice-title">Вы готовы к созданию ассистентов!</h3>
+        <p class="notice-description">
+          Вы успешно добавили API ключ OpenAI. Теперь вы можете создавать голосовых ассистентов в разделе "Мои агенты", настраивать их и встраивать на свой сайт или приложение.
+        </p>
+        <a href="/static/agents.html" class="btn btn-primary">
+          <i class="fas fa-robot"></i> Перейти к созданию ассистентов
+        </a>
+      </div>
+    </div>
+  </main>
+  
+  <!-- Уведомление -->
+  <div class="notification" id="notification">
+    <div class="notification-icon">
+      <i class="fas fa-check-circle"></i>
+    </div>
+    <div class="notification-content">
+      <div id="notification-message"></div>
+    </div>
+    <button class="notification-close" id="notification-close">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Получаем элементы DOM
+      const sidebar = document.getElementById('sidebar');
+      const mainContent = document.getElementById('main-content');
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+      const sidebarClose = document.getElementById('sidebar-close');
+      const userMenuButton = document.getElementById('user-menu-button');
+      const userDropdown = document.getElementById('user-dropdown');
+      const logoutButton = document.getElementById('logout-button');
+      const dropdownLogout = document.getElementById('dropdown-logout');
+      const apiKeyForm = document.getElementById('api-key-form');
+      const apiKeyInput = document.getElementById('api-key-input');
+      const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+      const togglePasswordButton = document.getElementById('toggle-password');
+      const editApiKeyBtn = document.getElementById('edit-api-key-btn');
+      const apiKeyStatus = document.getElementById('api-key-status');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const welcomeMessage = document.getElementById('welcome-message');
+      const userName = document.getElementById('user-name');
+      const userAvatar = document.getElementById('user-avatar');
+      const botsCount = document.getElementById('bots-count');
+      const interactionsCount = document.getElementById('interactions-count');
+      const filesCount = document.getElementById('files-count');
+      const noKeyNotice = document.getElementById('no-key-notice');
+      const hasKeyNotice = document.getElementById('has-key-notice');
+      const agentsNavItem = document.getElementById('agents-nav-item');
+      const knowledgeNavItem = document.getElementById('knowledge-nav-item');
+      const integrationsLink = document.getElementById('integrations-link');
+      const skillsLink = document.getElementById('skills-link');
+      const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
+      
+      // Состояние приложения
+      let hasApiKey = false;
+      let actualApiKey = null;
+      let isEditingKey = false;
+      
+      // API клиент
+      const api = {
+        baseUrl: '/api',
+        
+        // Получение токена авторизации
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        // Проверка авторизации
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        // Базовая функция для запросов к API
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string') {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            if (response.status === 401) {
+              // Если токен недействителен, перенаправляем на страницу входа
+              localStorage.removeItem('auth_token');
+              window.location.href = '/';
+              throw new Error('Требуется авторизация');
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+          }
+        },
+        
+        // Методы для различных типов запросов
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        },
+        
+        // Получение текущего пользователя
+        getCurrentUser() {
+          return this.get('/users/me');
+        },
+        
+        // Сохранение API ключа
+        saveApiKey(apiKey) {
+          return this.put('/users/me', { openai_api_key: apiKey });
+        },
+        
+        // Получение списка ботов
+        getAssistants() {
+          return this.get('/assistants');
+        }
+      };
+      
+      // Управление UI
+      const ui = {
+        // Показать уведомление
+        showNotification(message, type = 'success') {
+          notificationMessage.textContent = message;
+          
+          // Удаляем все классы типов
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          
+          // Добавляем нужный класс
+          notification.classList.add(`notification-${type}`);
+          
+          // Обновляем иконку
+          const icon = notification.querySelector('.notification-icon i');
+          if (type === 'success') {
+            icon.className = 'fas fa-check-circle';
+          } else if (type === 'error') {
+            icon.className = 'fas fa-exclamation-circle';
+          } else {
+            icon.className = 'fas fa-info-circle';
+          }
+          
+          // Показываем уведомление
+          notification.classList.add('show');
+          
+          // Скрываем через 5 секунд
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        // Скрыть уведомление
+        hideNotification() {
+          notification.classList.remove('show');
+        },
+        
+        // Разблокировка функций после добавления API ключа
+        unlockFeatures() {
+          hasApiKey = true;
+          
+          // Показываем уведомление для пользователей с ключом
+          noKeyNotice.style.display = 'none';
+          hasKeyNotice.style.display = 'flex';
+          
+          // Показываем статус API ключа
+          apiKeyStatus.style.display = 'flex';
+          
+          // Скрываем форму ввода
+          apiKeyForm.style.display = 'none';
+          
+          // Разблокируем пункты меню
+          const lockedFeatures = [
+            agentsNavItem,
+            knowledgeNavItem
+          ];
+          
+          lockedFeatures.forEach(element => {
+            if (element) element.classList.remove('locked-feature');
+          });
+        },
+        
+        // Блокировка функций (если API ключ не добавлен или удален)
+        lockFeatures() {
+          hasApiKey = false;
+          
+          // Показываем уведомление для пользователей без ключа
+          noKeyNotice.style.display = 'flex';
+          hasKeyNotice.style.display = 'none';
+          
+          // Скрываем статус API ключа
+          apiKeyStatus.style.display = 'none';
+          
+          // Показываем форму ввода
+          apiKeyForm.style.display = 'flex';
+          
+          // Блокируем пункты меню
+          agentsNavItem.classList.add('locked-feature');
+          knowledgeNavItem.classList.add('locked-feature');
+          integrationsLink.classList.add('locked-feature');
+          skillsLink.classList.add('locked-feature');
+        },
+        
+        // Режим просмотра API ключа
+        viewKeyMode() {
+          isEditingKey = false;
+          
+          // Если ключ пустой, показываем форму добавления
+          if (!actualApiKey) {
+            apiKeyForm.style.display = 'flex';
+            apiKeyStatus.style.display = 'none';
+            return;
+          }
+          
+          // Если ключ есть, показываем статус
+          apiKeyForm.style.display = 'none';
+          apiKeyStatus.style.display = 'flex';
+        },
+        
+        // Режим редактирования API ключа
+        editKeyMode() {
+          isEditingKey = true;
+          apiKeyStatus.style.display = 'none';
+          apiKeyForm.style.display = 'flex';
+          
+          // Если есть ключ, показываем его в поле ввода
+          if (actualApiKey) {
+            apiKeyInput.value = actualApiKey;
+            apiKeyInput.type = 'text';
+            togglePasswordButton.querySelector('i').className = 'fas fa-eye-slash';
+          } else {
+            apiKeyInput.value = '';
+            apiKeyInput.placeholder = 'Введите API ключ OpenAI';
+          }
+        }
+      };
+      
+      // Проверка авторизации
+      function checkAuth() {
+        if (!api.isAuthenticated()) {
+          window.location.href = '/';
+          return false;
+        }
+        return true;
+      }
+      
+      // Загрузка данных пользователя
+      async function loadUserData() {
+  try {
+    const userData = await api.getCurrentUser();
+    
+    // Обновляем имя пользователя и аватар
+    const firstName = userData.first_name || '';
+    const lastName = userData.last_name || '';
+    
+    if (firstName || lastName) {
+      welcomeMessage.textContent = `Добро пожаловать, ${firstName}!`;
+      userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
+      
+      // Инициалы для аватара
+      let initials = '';
+      if (firstName) initials += firstName[0];
+      if (lastName) initials += lastName[0];
+      userAvatar.textContent = initials.toUpperCase();
+    } else if (userData.company_name) {
+      welcomeMessage.textContent = `Добро пожаловать, ${userData.company_name}!`;
+      userName.textContent = userData.company_name;
+      userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
+    } else {
+      welcomeMessage.textContent = 'Добро пожаловать!';
+      userName.textContent = userData.email;
+      userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
+    }
+    
+    // Если у пользователя есть API ключ
+    if (userData.openai_api_key) {
+      // Сохраняем ключ в памяти (для возможности показа)
+      actualApiKey = userData.openai_api_key;
+      
+      // Включаем режим просмотра ключа
+      ui.viewKeyMode();
+      
+      // Разблокируем дополнительные функции
+      ui.unlockFeatures();
+      
+      // Загружаем статистику
+      loadStats();
+    } else {
+      // Если ключа нет, блокируем функции
+      ui.lockFeatures();
+    }
+    
+    // Добавляем раздел администрирования для админа или специального email
+    if (userData.is_admin || userData.email === "well96well@gmail.com") {
+      // Проверяем, нет ли уже раздела администрирования
+      if (!document.querySelector('.sidebar-section:contains("Администрирование")')) {
+        // Создаем новый раздел
+        const adminSection = document.createElement('div');
+        adminSection.className = 'sidebar-section';
+        adminSection.textContent = 'Администрирование';
+        
+        // Создаем пункт меню для админ-панели
+        const adminNavItem = document.createElement('a');
+        adminNavItem.href = '/static/admin.html';
+        adminNavItem.className = 'sidebar-nav-item';
+        adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
+        
+        // Находим место для вставки (перед разделом "Аккаунт")
+        const sidebarNav = document.querySelector('.sidebar-nav');
+        const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
+          section => section.textContent.trim() === 'Аккаунт'
+        );
+        
+        if (accountSection && sidebarNav) {
+          sidebarNav.insertBefore(adminSection, accountSection);
+          sidebarNav.insertBefore(adminNavItem, accountSection);
+        } else {
+          // Если структура не найдена, добавляем в конец навигации
+          sidebarNav.appendChild(adminSection);
+          sidebarNav.appendChild(adminNavItem);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Ошибка при загрузке данных пользователя:', error);
+    ui.showNotification('Не удалось загрузить данные пользователя', 'error');
+  }
+}
+      
+      // Загрузка статистики
+      async function loadStats() {
+        if (!hasApiKey) return;
+        
+        try {
+          // Получаем список ботов для подсчета
+          const bots = await api.getAssistants();
+          botsCount.textContent = bots.length;
+          
+          // Здесь можно добавить загрузку других статистических данных
+          // из API, когда они будут доступны
+          
+          // Пока используем заглушки
+          interactionsCount.textContent = '0';
+          filesCount.textContent = '0';
+        } catch (error) {
+          console.error('Ошибка при загрузке статистики:', error);
+        }
+      }
+      
+      // Функция для склонения дней
+      function getDayWord(days) {
+        if (days % 10 === 1 && days % 100 !== 11) {
+          return 'день';
+        } else if ([2, 3, 4].includes(days % 10) && ![12, 13, 14].includes(days % 100)) {
+          return 'дня';
+        } else {
+          return 'дней';
+        }
+      }
+      
+      // Форматирование размера файла
+      function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' Б';
+        else if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
+        else return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+      }
+      
+      // Загрузка информации о подписке
+      // dashboard.html - обновляем функцию loadSubscriptionInfo
+async function loadSubscriptionInfo() {
+    try {
+        const subscriptionInfo = await api.get('/subscriptions/my-subscription');
+        
+        const subscriptionDetails = document.getElementById('subscription-details');
+        const upgradeSection = document.getElementById('subscription-upgrade');
+        
+        // Проверяем наличие подписки и корректность данных
+        if (subscriptionInfo.subscription_plan) {
+            // Форматируем дату - проверка, что дата существует
+            let endDateDisplay = 'Не указана';
+            if (subscriptionInfo.subscription_end_date) {
+                try {
+                    // Проверяем, что дата - валидная дата
+                    const endDate = new Date(subscriptionInfo.subscription_end_date);
+                    if (!isNaN(endDate.getTime())) {
+                        endDateDisplay = endDate.toLocaleDateString('ru-RU');
+                    }
+                } catch (e) {
+                    console.error('Ошибка форматирования даты:', e);
+                }
+            }
+            
+            // Показываем информацию о подписке
+            let statusClass = 'active';
+            let statusText = 'Активна';
+            
+            if (subscriptionInfo.is_trial) {
+                statusClass = 'trial';
+                statusText = 'Пробный период';
+            }
+            
+            subscriptionDetails.innerHTML = `
+                <div class="subscription-info">
+                    <div class="subscription-plan">
+                        <h3>${subscriptionInfo.subscription_plan.name}</h3>
+                        <span class="subscription-status ${statusClass}">${statusText}</span>
+                    </div>
+                    
+                    <div class="subscription-details-grid">
+                        <div class="subscription-detail">
+                            <span class="detail-label">Дата окончания:</span>
+                            <span class="detail-value">${endDateDisplay}</span>
+                        </div>
+                        
+                        <div class="subscription-detail">
+                            <span class="detail-label">Осталось дней:</span>
+                            <span class="detail-value">${subscriptionInfo.days_left || 0}</span>
+                        </div>
+                        
+                        <div class="subscription-detail">
+                            <span class="detail-label">Макс. ассистентов:</span>
+                            <span class="detail-value">${subscriptionInfo.subscription_plan.max_assistants}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Показываем кнопку апгрейда для всех, кроме максимального тарифа
+            if (subscriptionInfo.subscription_plan.code !== 'pro') {
+                upgradeSection.style.display = 'flex';
+            } else {
+                upgradeSection.style.display = 'none';
+            }
+        } else {
+            // Нет активной подписки или данные некорректны
+            subscriptionDetails.innerHTML = `
+                <div class="subscription-empty">
+                    <p>В настоящий момент у вас активирован базовый план. 
+                       Приобретите тариф "Старт" для доступа ко всем функциям.</p>
+                </div>
+            `;
+            upgradeSection.style.display = 'flex';
+        }
+        
+        // Если была ошибка и мы показали это - скрыть индикатор загрузки
+        const loadingIndicator = document.querySelector('.subscription-loading');
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Ошибка при загрузке информации о подписке:', error);
+        
+        // Более дружественное сообщение с кнопкой повтора
+        document.getElementById('subscription-details').innerHTML = `
+            <div class="subscription-error">
+                <p>Не удалось загрузить информацию о подписке.</p>
+                <button class="btn btn-secondary retry-button" onclick="loadSubscriptionInfo()">
+                    <i class="fas fa-sync-alt"></i> Повторить
+                </button>
+            </div>
+        `;
+        
+        // Логируем в консоль больше информации для отладки
+        if (error.response) {
+            console.error('Статус ответа:', error.response.status);
+            console.error('Данные ответа:', error.response.data);
+        }
+    }
+}
+      
+      // Мобильное меню
+      sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.add('open');
+      });
+      
+      sidebarClose.addEventListener('click', function() {
+        sidebar.classList.remove('open');
+      });
+      
+      // Выпадающее меню пользователя
+      userMenuButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        userDropdown.classList.toggle('show');
+      });
+      
+      // Закрытие выпадающего меню при клике в другом месте
+      document.addEventListener('click', function(e) {
+        if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+          userDropdown.classList.remove('show');
+        }
+      });
+      
+      // Обработчик для кнопки показать/скрыть пароль
+      togglePasswordButton.addEventListener('click', function() {
+        const icon = this.querySelector('i');
+        
+        // Переключаем тип поля
+        if (apiKeyInput.type === 'password') {
+          apiKeyInput.type = 'text';
+          icon.className = 'fas fa-eye-slash';
+          this.title = 'Скрыть ключ';
+        } else {
+          apiKeyInput.type = 'password';
+          icon.className = 'fas fa-eye';
+          this.title = 'Показать ключ';
+        }
+      });
+      
+      // Кнопка редактирования API ключа
+      editApiKeyBtn.addEventListener('click', function() {
+        ui.editKeyMode();
+      });
+      
+      // Выход из системы
+      logoutButton.addEventListener('click', function() {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/'; // Перенаправление на главную страницу
+      });
+      
+      dropdownLogout.addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.removeItem('auth_token');
+        window.location.href = '/'; // Перенаправление на главную страницу
+      });
+      
+      // Сохранение API ключа
+      apiKeyForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const apiKey = apiKeyInput.value.trim();
+        
+        // ИСПРАВЛЕНО: Удалена проверка на пустой ключ
+        // Теперь пустой ключ будет сохраняться без ошибки
+        
+        // Если ключ не изменился, просто переключаем режим
+        if (isEditingKey && apiKey === actualApiKey) {
+          ui.viewKeyMode();
+          return;
+        }
+        
+        try {
+          await api.saveApiKey(apiKey);
+          
+          // Сохраняем ключ в памяти (может быть пустой строкой)
+          actualApiKey = apiKey;
+          
+          // Переключаем режим
+          ui.viewKeyMode();
+          
+          // Уведомление
+          if (apiKey) {
+            ui.showNotification('API ключ успешно сохранен');
+            
+            // Разблокируем дополнительные функции
+            ui.unlockFeatures();
+            
+            // Загружаем статистику
+            loadStats();
+          } else {
+            ui.showNotification('API ключ успешно удален');
+            
+            // Блокируем функции, если ключ был удален
+            ui.lockFeatures();
+          }
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
+        }
+      });
+      
+      // Обработчик для кнопки улучшения тарифа
+      upgradeSubscriptionBtn.addEventListener('click', function() {
+        // Перенаправляем на страницу с тарифами или открываем модальное окно
+        // window.location.href = '/static/pricing.html';
+        alert('Функция оплаты в разработке. Свяжитесь с администратором для активации тарифа "Старт".');
+      });
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', ui.hideNotification);
+      
+      // Блокировка переходов на заблокированные страницы
+      document.querySelectorAll('.locked-feature').forEach(link => {
+        link.addEventListener('click', function(e) {
+          if (this.classList.contains('locked-feature')) {
+            e.preventDefault();
+            ui.showNotification('Добавьте API ключ OpenAI для разблокировки этой функции', 'info');
+          }
+        });
+      });
+      
+      // Инициализация страницы
+      if (checkAuth()) {
+        loadUserData();
+        loadSubscriptionInfo();
+      }
+    });
+  </script>
+</body>
+</html>
