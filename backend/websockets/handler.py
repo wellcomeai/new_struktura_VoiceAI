@@ -4,7 +4,7 @@ import logging
 import time
 from typing import Dict, Any, Optional
 from fastapi import WebSocket, WebSocketDisconnect
-from backend.openai_client import OpenAIRealtimeClient
+from .openai_client import OpenAIRealtimeClient
 from backend.database import get_assistant_config, get_openai_api_key
 
 logger = logging.getLogger(__name__)
