@@ -15,6 +15,52 @@ from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
 from backend.functions import get_function_definitions, get_enabled_functions, normalize_function_name, execute_function
 
+# Импорты для функций прерывания
+try:
+    from backend.utils.interruption_utils import (
+        InterruptionStatus,
+        InterruptionConfig, 
+        validate_interruption_payload,
+        create_cancel_payload,
+        create_truncate_payload,
+        create_clear_output_payload,
+        create_emergency_stop_payload,
+        enrich_cancel_ack,
+        log_interruption_event,
+        InterruptionSequencer,
+        create_interruption_sequence
+    )
+    INTERRUPTION_UTILS_AVAILABLE = True
+except ImportError:
+    INTERRUPTION_UTILS_AVAILABLE = False
+    
+    # Fallback классы и функции
+    class InterruptionStatus:
+        NONE = "none"
+        PENDING = "pending"
+        IN_PROGRESS = "in_progress"
+        COMPLETED = "completed"
+        FAILED = "failed"
+    
+    class InterruptionSequencer:
+        def __init__(self):
+            self.pending_commands = []
+        
+        def add_command(self, command_type, payload, delay_ms=0):
+            pass
+        
+        def get_ready_commands(self):
+            return []
+        
+        def clear_pending(self):
+            pass
+    
+    def validate_interruption_payload(payload):
+        return True, None
+    
+    def log_interruption_event(event_type, details, client_id=None):
+        pass
+
 logger = get_logger(__name__)
 
 DEFAULT_VOICE = "alloy"
@@ -129,8 +175,19 @@ class OpenAIRealtimeClient:
         self.last_function_name = None  # Сохраняем имя последней вызванной функции
         self.enabled_functions = []  # Список разрешенных функций
         
-        # НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ОБОГАЩЕНИЯ response.cancel.ack
+        # ПЕРЕМЕННЫЕ ДЛЯ ОБОГАЩЕНИЯ response.cancel.ack
         self.last_sent_cancel_payload = None  # Сохраняем последний отправленный cancel payload
+        
+        # НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ПРЕРЫВАНИЯ (если утилиты доступны)
+        if INTERRUPTION_UTILS_AVAILABLE:
+            self.interruption_status = InterruptionStatus.NONE
+            self.interruption_sequencer = InterruptionSequencer()
+            self.interruption_metrics = {
+                "total_interruptions": 0,
+                "successful_cancels": 0,
+                "failed_cancels": 0,
+                "avg_response_time_ms": 0
+            }
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -244,7 +301,96 @@ class OpenAIRealtimeClient:
             logger.error(f"Ошибка при переподключении к OpenAI: {e}")
             return False
 
-    # ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА с сохранением payload
+    # УЛУЧШЕННАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА с utilities
+    async def cancel_response_with_utils(
+        self, 
+        item_id: str = None, 
+        sample_count: int = 0, 
+        was_playing_audio: bool = False
+    ) -> bool:
+        """
+        Отменяет текущий ответ ассистента с использованием utilities
+        
+        Args:
+            item_id: ID элемента для отмены
+            sample_count: Количество воспроизведенных семплов  
+            was_playing_audio: Флаг воспроизведения аудио
+            
+        Returns:
+            bool: True если успешно отправлено
+        """
+        if not self.is_connected or not self.ws:
+            if INTERRUPTION_UTILS_AVAILABLE:
+                log_interruption_event(
+                    "cancel_failed", 
+                    {"reason": "not_connected"}, 
+                    self.client_id
+                )
+            return False
+            
+        try:
+            # Обновляем статус
+            if INTERRUPTION_UTILS_AVAILABLE:
+                self.interruption_status = InterruptionStatus.IN_PROGRESS
+            
+            # Создаем payload через utility
+            if INTERRUPTION_UTILS_AVAILABLE:
+                payload = create_cancel_payload(item_id, sample_count)
+                
+                # Валидируем payload
+                is_valid, error = validate_interruption_payload(payload)
+                if not is_valid:
+                    logger.error(f"Invalid cancel payload: {error}")
+                    self.interruption_status = InterruptionStatus.FAILED
+                    return False
+            else:
+                # Fallback
+                payload = {
+                    "type": "response.cancel",
+                    "event_id": f"cancel_{int(time.time() * 1000)}"
+                }
+                if item_id:
+                    payload["item_id"] = item_id
+                if sample_count > 0:
+                    payload["sample_count"] = sample_count
+            
+            # Сохраняем для обогащения ACK
+            self.last_sent_cancel_payload = {
+                "original_item_id": item_id,
+                "original_sample_count": sample_count,
+                "original_was_playing": was_playing_audio,
+                "timestamp": time.time()
+            }
+            
+            # Отправляем команду
+            await self.ws.send(json.dumps(payload))
+            
+            # Логируем событие
+            if INTERRUPTION_UTILS_AVAILABLE:
+                log_interruption_event(
+                    "cancel_sent",
+                    {
+                        "item_id": item_id,
+                        "sample_count": sample_count,
+                        "was_playing": was_playing_audio
+                    },
+                    self.client_id
+                )
+                
+                # Обновляем метрики
+                self.interruption_metrics["total_interruptions"] += 1
+            
+            logger.info(f"[INTERRUPTION] Response cancel sent: item_id={item_id}, sample_count={sample_count}, was_playing={was_playing_audio}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in cancel_response_with_utils: {e}")
+            if INTERRUPTION_UTILS_AVAILABLE:
+                self.interruption_status = InterruptionStatus.FAILED
+                self.interruption_metrics["failed_cancels"] += 1
+            return False
+
+    # ОРИГИНАЛЬНАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА (для обратной совместимости)
     async def cancel_response(self, item_id: str = None, sample_count: int = 0, was_playing_audio: bool = False) -> bool:
         """
         Отменяет текущий ответ ассистента с сохранением данных для обогащения ACK
@@ -257,6 +403,11 @@ class OpenAIRealtimeClient:
         Returns:
             bool: True если успешно отправлено
         """
+        # Если утилиты доступны, используем улучшенный метод
+        if INTERRUPTION_UTILS_AVAILABLE:
+            return await self.cancel_response_with_utils(item_id, sample_count, was_playing_audio)
+        
+        # Fallback к оригинальной реализации
         if not self.is_connected or not self.ws:
             logger.warning("Cannot send response.cancel: not connected")
             return False
@@ -295,6 +446,40 @@ class OpenAIRealtimeClient:
             self.last_sent_cancel_payload = None
             return False
 
+    def enrich_cancel_ack_with_utils(self, ack_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Обогащает ACK с использованием utility функции
+        
+        Args:
+            ack_data: Исходные данные ACK
+            
+        Returns:
+            Dict: Обогащенные данные ACK
+        """
+        if INTERRUPTION_UTILS_AVAILABLE:
+            enriched_ack = enrich_cancel_ack(ack_data, self.last_sent_cancel_payload)
+            
+            # Обновляем статус и метрики
+            if "error" not in enriched_ack:
+                self.interruption_status = InterruptionStatus.COMPLETED
+                self.interruption_metrics["successful_cancels"] += 1
+                
+                log_interruption_event(
+                    "cancel_ack_success",
+                    {"enriched_fields": len(enriched_ack) - len(ack_data)},
+                    self.client_id
+                )
+            else:
+                self.interruption_status = InterruptionStatus.FAILED
+            
+            # Очищаем сохраненные данные
+            self.last_sent_cancel_payload = None
+            
+            return enriched_ack
+        else:
+            # Fallback к обычному методу
+            return self.enrich_cancel_ack(ack_data)
+
     def enrich_cancel_ack(self, ack_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Обогащает response.cancel.ack данными из сохраненного payload
@@ -324,6 +509,171 @@ class OpenAIRealtimeClient:
         
         return enriched_ack
 
+    async def execute_interruption_sequence(
+        self,
+        item_id: str = None,
+        sample_count: int = 0,
+        was_playing_audio: bool = False,
+        sample_rate: int = None
+    ) -> bool:
+        """
+        Выполняет полную последовательность команд прерывания
+        
+        Args:
+            item_id: ID прерываемого элемента
+            sample_count: Количество воспроизведенных семплов
+            was_playing_audio: Было ли воспроизведение
+            sample_rate: Частота дискретизации
+            
+        Returns:
+            bool: True если все команды выполнены успешно
+        """
+        if not INTERRUPTION_UTILS_AVAILABLE:
+            # Fallback к простой отмене
+            return await self.cancel_response(item_id, sample_count, was_playing_audio)
+        
+        if not self.is_connected or not self.ws:
+            return False
+        
+        try:
+            # Создаем последовательность команд
+            commands = create_interruption_sequence(
+                item_id, sample_count, was_playing_audio, sample_rate
+            )
+            
+            if not commands:
+                logger.warning("No interruption commands generated")
+                return False
+            
+            # Добавляем команды в sequencer
+            for cmd in commands:
+                self.interruption_sequencer.add_command(
+                    cmd["type"],
+                    cmd["payload"], 
+                    cmd["delay_ms"]
+                )
+            
+            # Выполняем команды с учетом задержек
+            success_count = 0
+            
+            while True:
+                ready_commands = self.interruption_sequencer.get_ready_commands()
+                
+                if not ready_commands:
+                    # Проверяем, есть ли еще ожидающие команды
+                    if not self.interruption_sequencer.pending_commands:
+                        break
+                    # Ждем короткое время
+                    await asyncio.sleep(0.01)
+                    continue
+                
+                # Выполняем готовые команды
+                for cmd in ready_commands:
+                    try:
+                        # Валидируем перед отправкой
+                        is_valid, error = validate_interruption_payload(cmd["payload"])
+                        if not is_valid:
+                            logger.error(f"Invalid payload for {cmd['type']}: {error}")
+                            continue
+                        
+                        await self.ws.send(json.dumps(cmd["payload"]))
+                        success_count += 1
+                        
+                        log_interruption_event(
+                            cmd["type"].replace(".", "_"),
+                            {"success": True},
+                            self.client_id
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"Error executing command {cmd['type']}: {e}")
+                        log_interruption_event(
+                            cmd["type"].replace(".", "_"),
+                            {"success": False, "error": str(e)},
+                            self.client_id
+                        )
+            
+            # Очищаем sequencer
+            self.interruption_sequencer.clear_pending()
+            
+            return success_count == len(commands)
+            
+        except Exception as e:
+            logger.error(f"Error in execute_interruption_sequence: {e}")
+            return False
+
+    async def emergency_stop_with_sequence(self) -> bool:
+        """
+        Экстренная остановка с использованием sequencer
+        
+        Returns:
+            bool: True если успешно
+        """
+        if not INTERRUPTION_UTILS_AVAILABLE:
+            return await self.emergency_stop_all()
+        
+        if not self.is_connected or not self.ws:
+            return False
+        
+        try:
+            # Очищаем все ожидающие команды
+            self.interruption_sequencer.clear_pending()
+            
+            # Создаем payload для экстренной остановки
+            emergency_payload = create_emergency_stop_payload()
+            
+            # Валидируем
+            is_valid, error = validate_interruption_payload(emergency_payload)
+            if not is_valid:
+                logger.error(f"Invalid emergency stop payload: {error}")
+                return False
+            
+            # Отправляем
+            await self.ws.send(json.dumps(emergency_payload))
+            
+            # Также выполняем стандартную последовательность
+            await self.execute_interruption_sequence(
+                item_id=None,
+                sample_count=0,
+                was_playing_audio=True
+            )
+            
+            log_interruption_event(
+                "emergency_stop",
+                {"success": True},
+                self.client_id
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in emergency_stop_with_sequence: {e}")
+            log_interruption_event(
+                "emergency_stop",
+                {"success": False, "error": str(e)},
+                self.client_id
+            )
+            return False
+
+    def get_interruption_metrics(self) -> Dict[str, Any]:
+        """
+        Возвращает метрики прерывания
+        
+        Returns:
+            Dict: Метрики производительности
+        """
+        if not INTERRUPTION_UTILS_AVAILABLE:
+            return {
+                "status": "utilities_not_available",
+                "message": "Interruption utilities not loaded"
+            }
+        
+        return {
+            **self.interruption_metrics,
+            "current_status": self.interruption_status.value if hasattr(self.interruption_status, 'value') else self.interruption_status,
+            "pending_commands": len(self.interruption_sequencer.pending_commands) if self.interruption_sequencer else 0
+        }
+
     async def clear_output_audio_buffer(self) -> bool:
         """
         Очищает буфер вывода аудио
@@ -336,10 +686,13 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            payload = {
-                "type": "output_audio_buffer.clear",
-                "event_id": f"clear_output_{int(time.time() * 1000)}"
-            }
+            if INTERRUPTION_UTILS_AVAILABLE:
+                payload = create_clear_output_payload()
+            else:
+                payload = {
+                    "type": "output_audio_buffer.clear",
+                    "event_id": f"clear_output_{int(time.time() * 1000)}"
+                }
             
             await self.ws.send(json.dumps(payload))
             logger.info("[INTERRUPTION] Output audio buffer clear sent")
@@ -366,13 +719,29 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            payload = {
-                "type": "conversation.item.truncate",
-                "event_id": f"truncate_{int(time.time() * 1000)}",
-                "item_id": item_id,
-                "content_index": content_index,
-                "audio_end_ms": audio_end_ms
-            }
+            if INTERRUPTION_UTILS_AVAILABLE:
+                # Если не передан audio_end_ms, вычисляем по стандартной формуле
+                if audio_end_ms == 0 and hasattr(self, 'last_sent_cancel_payload') and self.last_sent_cancel_payload:
+                    sample_count = self.last_sent_cancel_payload.get("original_sample_count", 0)
+                    if sample_count > 0:
+                        from backend.utils.interruption_utils import calculate_audio_end_ms
+                        audio_end_ms = calculate_audio_end_ms(sample_count)
+                
+                payload = create_truncate_payload(
+                    item_id, sample_count if 'sample_count' in locals() else 0, 
+                    content_index=content_index, event_id=None
+                )
+                # Перезаписываем audio_end_ms если он был передан
+                if audio_end_ms > 0:
+                    payload["audio_end_ms"] = audio_end_ms
+            else:
+                payload = {
+                    "type": "conversation.item.truncate",
+                    "event_id": f"truncate_{int(time.time() * 1000)}",
+                    "item_id": item_id,
+                    "content_index": content_index,
+                    "audio_end_ms": audio_end_ms
+                }
             
             await self.ws.send(json.dumps(payload))
             logger.info(f"[INTERRUPTION] Conversation item truncate sent: item_id={item_id}, audio_end_ms={audio_end_ms}")
