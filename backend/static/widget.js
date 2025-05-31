@@ -1,11 +1,11 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.3.0 - с поддержкой перебивания ассистента
+ * Версия: 1.3.1 - с улучшенным эхо-подавлением и исправлением самопрослушивания
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
  * Улучшена поддержка мобильных устройств и iOS.
- * Добавлена возможность перебивания ассистента голосом.
+ * Добавлена возможность перебивания ассистента голосом с эхо-подавлением.
  */
 
 (function() {
@@ -996,12 +996,17 @@
     let lastPongTime = Date.now();
     let connectionTimeout = null;
     
-    // НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ПЕРЕБИВАНИЯ
+    // ПЕРЕМЕННЫЕ ДЛЯ ПЕРЕБИВАНИЯ с улучшенной конфигурацией
     let currentResponseId = null;
     let samplesPlayedSoFar = 0;
     let audioSamplesExpected = 0;
     let soundDetectionCounter = 0;
     let lastInterruptionTime = 0;
+    
+    // ПЕРЕМЕННЫЕ ДЛЯ ЭХО-ПОДАВЛЕНИЯ
+    let lastPlaybackStartTime = 0;
+    let isInEchoSuppressionPeriod = false;
+    let gainNode = null; // Для управления усилением микрофона
     
     // Конфигурация для оптимизации потока аудио - разные настройки для десктопа и мобильных
     const AUDIO_CONFIG = {
@@ -1019,18 +1024,19 @@
       soundDetectionThreshold: 0.015 // Более чувствительное определение звука
     };
     
-    // Конфигурация для перебивания
+    // УЛУЧШЕННАЯ КОНФИГУРАЦИЯ ДЛЯ ПЕРЕБИВАНИЯ
     const INTERRUPTION_CONFIG = {
-      soundDetectionThreshold: isIOS ? 0.015 : (isMobile ? 0.02 : 0.025),
-      consecutiveDetections: isIOS ? 8 : (isMobile ? 6 : 5), // сколько циклов подряд нужно
-      minimumInterruptionGap: 200, // минимальная пауза между отменами (мс)
-      gainReductionDuringPlayback: 0.3 // снижение чувствительности микрофона во время воспроизведения
+      soundDetectionThreshold: isIOS ? 0.03 : (isMobile ? 0.035 : 0.04), // УВЕЛИЧЕНЫ пороги
+      consecutiveDetections: isIOS ? 12 : (isMobile ? 10 : 8), // УВЕЛИЧЕНО количество циклов
+      minimumInterruptionGap: 1000, // УВЕЛИЧЕНА минимальная пауза до 1 секунды
+      gainReductionDuringPlayback: 0.1, // СИЛЬНОЕ снижение чувствительности во время воспроизведения
+      echoSuppressionTime: 2000 // Время подавления эхо после начала воспроизведения
     };
     
     // Выбираем нужную конфигурацию в зависимости от устройства
     const effectiveAudioConfig = isMobile ? MOBILE_AUDIO_CONFIG : AUDIO_CONFIG;
     
-    // НОВАЯ ФУНКЦИЯ: Отправка команды отмены
+    // Отправка команды отмены
     function sendCancel(itemId = null, sampleCount = 0) {
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         const payload = {
@@ -1046,7 +1052,7 @@
       }
     }
     
-    // НОВАЯ ФУНКЦИЯ: Остановка воспроизведения локально
+    // Остановка воспроизведения локально
     function flushPlaybackQueue() {
       // Локально прерываем воспроизведение
       audioPlaybackQueue = [];
@@ -1064,7 +1070,7 @@
       widgetLog('[INTERRUPTION] Playback queue flushed');
     }
     
-    // НОВАЯ ФУНКЦИЯ: Показать визуальную обратную связь о перебивании
+    // Показать визуальную обратную связь о перебивании
     function showInterruptionFeedback() {
       mainCircle.classList.add('interrupted');
       setTimeout(() => {
@@ -1345,95 +1351,80 @@
       }
     }
     
-    // Инициализация микрофона и AudioContext
+    // ИСПРАВЛЕННАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ АУДИО с улучшенным эхо-подавлением
     async function initAudio() {
       try {
         widgetLog("Запрос разрешения на доступ к микрофону...");
         
-        // Проверяем поддержку getUserMedia
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
           throw new Error("Ваш браузер не поддерживает доступ к микрофону");
         }
         
-        // Особые настройки для iOS
+        // УЛУЧШЕННЫЕ настройки для эхо-подавления
         const audioConstraints = isIOS ? 
           { 
-            echoCancellation: false, // На iOS лучше отключить
+            echoCancellation: true,  // ВКЛЮЧАЕМ эхо-подавление для iOS
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: false   // ОТКЛЮЧАЕМ автоматическое усиление
           } : 
           isMobile ? 
           { 
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: false,
+            sampleRate: 16000
           } :
           {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true,
+            autoGainControl: false,
             sampleRate: 24000
           };
         
-        // На iOS сначала разблокируем аудио
         if (isIOS) {
           await unlockAudioOnIOS();
         }
         
-        // Запрашиваем доступ к микрофону с оптимальными настройками
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-          widgetLog(`Доступ к микрофону получен (${isIOS ? 'iOS настройки' : (isMobile ? 'Android настройки' : 'десктопные настройки')})`);
+          widgetLog(`Доступ к микрофону получен с эхо-подавлением`);
         } catch (micError) {
           widgetLog(`Ошибка доступа к микрофону: ${micError.message}`, 'error');
-          
-          // Для iOS пробуем резервный вариант с базовыми настройками
           if (isIOS) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
             widgetLog('Доступ к микрофону получен с базовыми настройками для iOS');
           } else {
-            throw micError; // Пробрасываем ошибку дальше
+            throw micError;
           }
         }
         
-        // Для iOS используем существующий контекст
         if (isIOS) {
           if (window.tempAudioContext) {
             audioContext = window.tempAudioContext;
-            
             if (audioContext.state === 'suspended') {
               await audioContext.resume();
               window.audioContextInitialized = true;
-              widgetLog('Существующий AudioContext активирован на iOS');
             }
           } else {
-            // Создаем новый AudioContext с меньшей частотой дискретизации для iOS
             audioContext = new (window.AudioContext || window.webkitAudioContext)({
-              sampleRate: 16000 // Меньше нагрузка для iOS
+              sampleRate: 16000
             });
             window.tempAudioContext = audioContext;
             window.audioContextInitialized = true;
           }
         } else {
-          // Для других устройств
           const contextOptions = isMobile ? {} : { sampleRate: 24000 };
           audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
         }
         
         widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
         
-        // Оптимизированные размеры буфера для разных устройств
-        const bufferSize = isIOS ? 2048 : // Больше для iOS для стабильности
-                          isMobile ? 1024 : 
-                          2048;
+        const bufferSize = isIOS ? 2048 : (isMobile ? 1024 : 2048);
         
-        // Проверка на поддержку ScriptProcessorNode
         if (audioContext.createScriptProcessor) {
           audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
-          widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
-        } else if (audioContext.createJavaScriptNode) { // Для старых версий Safari
+        } else if (audioContext.createJavaScriptNode) {
           audioProcessor = audioContext.createJavaScriptNode(bufferSize, 1, 1);
-          widgetLog(`Создан устаревший JavaScriptNode с размером буфера ${bufferSize}`);
         } else {
           throw new Error("Ваш браузер не поддерживает обработку аудио");
         }
@@ -1443,113 +1434,104 @@
         let silenceStartTime = Date.now();
         let lastCommitTime = 0;
         let hasSentAudioInCurrentSegment = false;
-        let audioSampleCounter = 0; // Счетчик для отладки
         
-        // Обработчик аудио с оптимизацией для iOS И ПОДДЕРЖКОЙ ПЕРЕБИВАНИЯ
+        // ИСПРАВЛЕННЫЙ ОБРАБОТЧИК АУДИО с улучшенным эхо-подавлением
         audioProcessor.onaudioprocess = function(e) {
           if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
-            // Получаем данные с микрофона
             const inputBuffer = e.inputBuffer;
             let inputData = inputBuffer.getChannelData(0);
             
-            // Проверка на пустые данные
-            if (inputData.length === 0) {
-              return;
-            }
+            if (inputData.length === 0) return;
             
-            audioSampleCounter++;
-            
-            // Вычисляем максимальную амплитуду
+            // Вычисляем амплитуду
             let maxAmplitude = 0;
-            let sumAmplitude = 0;
-            
             for (let i = 0; i < inputData.length; i++) {
-              const absValue = Math.abs(inputData[i]);
-              maxAmplitude = Math.max(maxAmplitude, absValue);
-              sumAmplitude += absValue;
+              maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
             }
             
-            // Средняя амплитуда (полезна для iOS)
-            const avgAmplitude = sumAmplitude / inputData.length;
+            // УЛУЧШЕННАЯ ЛОГИКА ЭХО-ПОДАВЛЕНИЯ
+            const now = Date.now();
             
-            // Применяем нормализацию для iOS устройств для улучшения качества
-            if (isIOS && maxAmplitude > 0) {
-              // Если слишком тихий сигнал, усиливаем его
-              const normalizedData = new Float32Array(inputData.length);
-              if (maxAmplitude < 0.1) {
-                const gain = Math.min(5, 0.3 / maxAmplitude); // Усиление, но не слишком сильное
-                for (let i = 0; i < inputData.length; i++) {
-                  normalizedData[i] = inputData[i] * gain;
-                }
-                // Обновляем входные данные нормализованными
-                inputData = normalizedData;
+            // Проверяем, находимся ли мы в периоде подавления эхо
+            isInEchoSuppressionPeriod = (now - lastPlaybackStartTime) < INTERRUPTION_CONFIG.echoSuppressionTime;
+            
+            // Динамически изменяем чувствительность в зависимости от состояния воспроизведения
+            let effectiveThreshold = INTERRUPTION_CONFIG.soundDetectionThreshold;
+            
+            if (isPlayingAudio || isInEchoSuppressionPeriod) {
+              // ЗНАЧИТЕЛЬНО повышаем порог во время воспроизведения и после него
+              effectiveThreshold = INTERRUPTION_CONFIG.soundDetectionThreshold * 4; // В 4 раза выше
+              
+              // Дополнительно снижаем усиление микрофона программно
+              if (gainNode) {
+                gainNode.gain.value = INTERRUPTION_CONFIG.gainReductionDuringPlayback;
+              }
+            } else {
+              // Восстанавливаем нормальное усиление
+              if (gainNode) {
+                gainNode.gain.value = 1.0;
               }
             }
             
-            // Используем настройки в зависимости от устройства
-            const soundThreshold = isIOS ? 
-                                0.005 : // Более низкий порог для iOS
-                                effectiveAudioConfig.soundDetectionThreshold;
+            const hasSound = maxAmplitude > effectiveThreshold;
             
-            const hasSound = maxAmplitude > soundThreshold;
-            
-            // НОВАЯ ЛОГИКА: Детекция речи во время воспроизведения для перебивания
-            if (isPlayingAudio && hasSound) {
-              // Проверяем, не слишком ли рано для новой отмены
-              const now = Date.now();
+            // УЛУЧШЕННАЯ ЛОГИКА ДЕТЕКЦИИ РЕЧИ ВО ВРЕМЯ ВОСПРОИЗВЕДЕНИЯ
+            if (isPlayingAudio && hasSound && !isInEchoSuppressionPeriod) {
+              // Проверяем минимальный интервал между отменами
               if (now - lastInterruptionTime > INTERRUPTION_CONFIG.minimumInterruptionGap) {
-                // Накапливаем детекции звука
                 soundDetectionCounter++;
                 
-                // Если звук детектируется достаточно долго (например, 5 циклов подряд)
+                // УВЕЛИЧЕНО количество необходимых детекций подряд
                 if (soundDetectionCounter >= INTERRUPTION_CONFIG.consecutiveDetections) {
-                  widgetLog(`[INTERRUPTION] Детектирована речь пользователя во время воспроизведения - отправляем cancel`);
-                  
-                  // Показываем визуальную обратную связь
-                  showInterruptionFeedback();
-                  
-                  // Отменяем текущий ответ
-                  sendCancel(currentResponseId, samplesPlayedSoFar);
-                  
-                  // Сбрасываем локальное воспроизведение
-                  flushPlaybackQueue();
-                  
-                  // Обновляем время последней отмены и сбрасываем счетчик
-                  lastInterruptionTime = now;
-                  soundDetectionCounter = 0;
-                  
-                  // Очищаем буфер ввода и начинаем новую запись
-                  if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    websocket.send(JSON.stringify({
-                      type: "input_audio_buffer.clear",
-                      event_id: `clear_${Date.now()}`
-                    }));
+                  // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: убеждаемся что это действительно речь пользователя
+                  // Проверяем что амплитуда значительно превышает порог
+                  if (maxAmplitude > effectiveThreshold * 1.5) {
+                    widgetLog(`[INTERRUPTION] Детектирована речь пользователя (амплитуда: ${maxAmplitude.toFixed(4)}, порог: ${effectiveThreshold.toFixed(4)})`);
+                    
+                    showInterruptionFeedback();
+                    
+                    // Отменяем только если есть активный ответ
+                    if (currentResponseId) {
+                      sendCancel(currentResponseId, samplesPlayedSoFar);
+                      flushPlaybackQueue();
+                      lastInterruptionTime = now;
+                      
+                      // Запускаем период подавления эхо
+                      lastPlaybackStartTime = now;
+                    }
+                    
+                    soundDetectionCounter = 0;
+                    
+                    // Очищаем буфер и начинаем новую запись
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                      websocket.send(JSON.stringify({
+                        type: "input_audio_buffer.clear",
+                        event_id: `clear_${Date.now()}`
+                      }));
+                    }
+                    
+                    hasAudioData = true;
+                    audioDataStartTime = Date.now();
                   }
-                  
-                  // Сразу начинаем новую запись
-                  hasAudioData = true;
-                  audioDataStartTime = Date.now();
                 }
               }
             } else {
-              // Сбрасываем счетчик если нет звука или не воспроизводится аудио
+              // Сбрасываем счетчик если нет звука или идет подавление эхо
               soundDetectionCounter = 0;
             }
             
-            // Обновляем визуализацию
-            updateAudioVisualization(inputData);
+            // Обновляем визуализацию ТОЛЬКО если не подавляем эхо
+            if (!isInEchoSuppressionPeriod) {
+              updateAudioVisualization(inputData);
+            }
             
-            // Преобразуем float32 в int16 с нормализацией для iOS
+            // Преобразуем в PCM16 и отправляем
             const pcm16Data = new Int16Array(inputData.length);
             for (let i = 0; i < inputData.length; i++) {
-              // Для iOS применяем дополнительное усиление если нужно
-              const sample = isIOS && maxAmplitude < 0.1 ? 
-                          inputData[i] * 2 : // Усиливаем слабый сигнал
-                          inputData[i];
+              const sample = inputData[i];
               pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(sample * 32767)));
             }
             
-            // Отправляем данные через WebSocket
             try {
               const message = JSON.stringify({
                 type: "input_audio_buffer.append",
@@ -1560,49 +1542,35 @@
               websocket.send(message);
               hasSentAudioInCurrentSegment = true;
               
-              // Отмечаем наличие аудиоданных
-              if (!hasAudioData && hasSound) {
+              if (!hasAudioData && hasSound && !isInEchoSuppressionPeriod) {
                 hasAudioData = true;
                 audioDataStartTime = Date.now();
-                widgetLog("Начало записи аудиоданных");
               }
               
             } catch (error) {
               widgetLog(`Ошибка отправки аудио: ${error.message}`, "error");
             }
             
-            // Логика определения тишины и автоматической отправки
-            const now = Date.now();
-            
-            if (hasSound) {
-              // Сбрасываем время начала тишины
+            // Логика определения тишины (НЕ изменена)
+            if (hasSound && !isInEchoSuppressionPeriod) {
               isSilent = false;
               silenceStartTime = now;
               
-              // Активируем визуальное состояние прослушивания
               if (!mainCircle.classList.contains('listening') && 
                   !mainCircle.classList.contains('speaking')) {
                 mainCircle.classList.add('listening');
               }
             } else if (!isSilent) {
-              // Если наступила тишина
               const silenceDuration = now - silenceStartTime;
-              
-              // Для iOS используем увеличенную длительность тишины
-              const effectiveSilenceDuration = isIOS ? 
-                                            800 : // Больше времени для обработки на iOS
-                                            effectiveAudioConfig.silenceDuration;
+              const effectiveSilenceDuration = isIOS ? 800 : effectiveAudioConfig.silenceDuration;
               
               if (silenceDuration > effectiveSilenceDuration) {
                 isSilent = true;
                 
-                // Если прошло достаточно времени с последней отправки и были данные
                 if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
-                  // Для iOS добавляем задержку перед отправкой
                   const iosDelay = isIOS ? 300 : 100;
                   
                   setTimeout(() => {
-                    // Проверяем снова, не появился ли звук
                     if (isSilent && isListening && !isReconnecting) {
                       commitAudioBuffer();
                       lastCommitTime = Date.now();
@@ -1615,28 +1583,28 @@
           }
         };
         
-        // Подключаем обработчик
+        // Подключаем обработчик с улучшенной цепочкой обработки
         const streamSource = audioContext.createMediaStreamSource(mediaStream);
-        streamSource.connect(audioProcessor);
         
-        // Для iOS НЕ соединяем напрямую с выходом, чтобы избежать обратной связи
-        if (!isIOS) {
-          audioProcessor.connect(audioContext.destination);
-        } else {
-          // Для iOS создаем "пустой" узел чтобы избежать обратной связи
-          const gainNode = audioContext.createGain();
-          gainNode.gain.value = 0; // Установка громкости на ноль
-          audioProcessor.connect(gainNode);
-          gainNode.connect(audioContext.destination);
-          widgetLog('Используем нулевой gainNode для iOS чтобы избежать обратной связи');
-        }
+        // ДОБАВЛЯЕМ GAIN NODE для программного управления усилением
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 1.0;
         
-        widgetLog("Аудио инициализировано успешно");
+        streamSource.connect(gainNode);
+        gainNode.connect(audioProcessor);
+        
+        // Для всех устройств НЕ подключаем к выходу для избежания обратной связи
+        const dummyGain = audioContext.createGain();
+        dummyGain.gain.value = 0;
+        audioProcessor.connect(dummyGain);
+        dummyGain.connect(audioContext.destination);
+        
+        widgetLog("Аудио инициализировано с улучшенным эхо-подавлением");
         return true;
+        
       } catch (error) {
         widgetLog(`Ошибка инициализации аудио: ${error.message}`, "error");
         
-        // Особая обработка для iOS
         if (isIOS && iosAudioButton) {
           iosAudioButton.classList.add('visible');
           showMessage("Нажмите кнопку ниже для активации микрофона", 0);
@@ -1648,7 +1616,7 @@
       }
     }
     
-    // ИЗМЕНЕНО: Начало записи голоса БЕЗ БЛОКИРОВКИ isPlayingAudio
+    // Начало записи голоса БЕЗ БЛОКИРОВКИ isPlayingAudio
     async function startListening() {
       // УБРАНА ПРОВЕРКА isPlayingAudio - теперь микрофон может работать параллельно
       if (!isConnected || isReconnecting || isListening) {
@@ -1922,7 +1890,7 @@
       return wavBuffer;
     }
     
-    // ИЗМЕНЕНО: Воспроизведение следующего аудио в очереди с отслеживанием семплов
+    // УЛУЧШЕННАЯ ФУНКЦИЯ ВОСПРОИЗВЕДЕНИЯ
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
@@ -1937,7 +1905,6 @@
           widgetButton.classList.add('wellcomeai-pulse-animation');
         }
         
-        // ВАЖНО: продолжаем слушать после завершения воспроизведения
         if (isWidgetOpen) {
           setTimeout(() => {
             if (isIOS) {
@@ -1958,13 +1925,16 @@
       }
       
       isPlayingAudio = true;
+      
+      // УСТАНАВЛИВАЕМ ВРЕМЯ НАЧАЛА ВОСПРОИЗВЕДЕНИЯ для эхо-подавления
+      lastPlaybackStartTime = Date.now();
+      
       mainCircle.classList.add('speaking');
       mainCircle.classList.remove('listening');
       
       const audioBase64 = audioPlaybackQueue.shift();
       
       try {
-        // Для iOS - разблокировка перед воспроизведением
         const playAudio = () => {
           const audioData = base64ToArrayBuffer(audioBase64);
           if (audioData.byteLength === 0) {
@@ -1976,17 +1946,16 @@
           const blob = new Blob([wavBuffer], { type: 'audio/wav' });
           const audioUrl = URL.createObjectURL(blob);
           
-          // Важно: используем одиночный аудио элемент для iOS
           const audio = new Audio();
           audio.src = audioUrl;
           
-          // Предзагрузка для iOS
+          // СНИЖАЕМ ГРОМКОСТЬ для уменьшения эхо
+          audio.volume = 0.8;
+          
           audio.preload = 'auto';
           audio.load();
           
-          // Отслеживаем готовность к воспроизведению
           audio.oncanplaythrough = function() {
-            // Пробуем воспроизвести
             const playPromise = audio.play();
             
             if (playPromise !== undefined) {
@@ -1994,12 +1963,10 @@
                 widgetLog(`Ошибка воспроизведения: ${error.message}`, "error");
                 
                 if (error.name === 'NotAllowedError') {
-                  // На iOS требуется дополнительное взаимодействие пользователя
                   if (isIOS && iosAudioButton) {
                     iosAudioButton.classList.add('visible');
                     showMessage("Нажмите кнопку для активации звука", 0);
                     
-                    // Добавляем обработчик для активации
                     iosAudioButton.onclick = function() {
                       unlockAudioOnIOS().then(() => {
                         iosAudioButton.classList.remove('visible');
@@ -2008,7 +1975,6 @@
                     };
                   }
                 } else {
-                  // Для других ошибок переходим к следующему аудио
                   playNextAudio();
                 }
               });
@@ -2016,8 +1982,7 @@
           };
           
           audio.onended = function() {
-            // НОВОЕ: Обновляем счетчик воспроизведенных семплов
-            const audioDataLength = audioData.byteLength / 2; // PCM16 = 2 bytes per sample
+            const audioDataLength = audioData.byteLength / 2;
             samplesPlayedSoFar += audioDataLength;
             
             URL.revokeObjectURL(audioUrl);
@@ -2294,34 +2259,51 @@
           }
         };
         
+        // УЛУЧШЕННАЯ ОБРАБОТКА СООБЩЕНИЙ WebSocket
         websocket.onmessage = function(event) {
           try {
-            // Обработка возможных бинарных данных
             if (event.data instanceof Blob) {
-              // Обработка бинарных данных, если нужно
-              widgetLog("Получены бинарные данные от сервера");
               return;
             }
             
-            // Проверка на пустое сообщение
             if (!event.data) {
-              widgetLog("Получено пустое сообщение от сервера", "warn");
               return;
             }
 
-            // Обработка текстовых сообщений
             try {
               const data = JSON.parse(event.data);
               
-              // Обновляем время последнего pong при получении любого сообщения
               lastPongTime = Date.now();
               
-              // Логирование всех типов сообщений для отладки
-              if (data.type !== 'input_audio_buffer.append') { // Не логируем частые сообщения аудио
-                widgetLog(`Получено сообщение типа: ${data.type || 'unknown'}`);
+              // ДОБАВЛЯЕМ ОБРАБОТКУ ВСЕХ ТИПОВ СООБЩЕНИЙ ИЗ ЛОГОВ
+              const msg_type = data.type;
+              
+              // НЕ логируем частые сообщения
+              const frequentMessages = [
+                'input_audio_buffer.append.ack',
+                'input_audio_buffer.clear.ack', 
+                'input_audio_buffer.cleared',
+                'input_audio_buffer.commit.ack',
+                'input_audio_buffer.committed',
+                'input_audio_buffer.speech_started',
+                'input_audio_buffer.speech_stopped',
+                'conversation.item.created',
+                'conversation.item.input_audio_transcription.delta',
+                'conversation.item.input_audio_transcription.completed',
+                'response.created',
+                'response.output_item.added',
+                'response.output_item.done',
+                'response.content_part.added',
+                'response.content_part.done',
+                'rate_limits.updated',
+                'pong'
+              ];
+              
+              if (!frequentMessages.includes(msg_type)) {
+                widgetLog(`Получено сообщение типа: ${msg_type}`);
               }
               
-              // НОВОЕ: Отслеживание ID ответа и семплов для перебивания
+              // УЛУЧШЕННАЯ ОБРАБОТКА ОТСЛЕЖИВАНИЯ ID
               if (data.type === 'response.audio.delta') {
                 if (!currentResponseId && data.item_id) {
                   currentResponseId = data.item_id;
@@ -2331,9 +2313,8 @@
                 }
                 
                 if (data.delta) {
-                  // Увеличиваем ожидаемое количество семплов
                   const audioData = base64ToArrayBuffer(data.delta);
-                  audioSamplesExpected += audioData.byteLength / 2; // PCM16 = 2 bytes per sample
+                  audioSamplesExpected += audioData.byteLength / 2;
                 }
               }
               
@@ -2345,34 +2326,28 @@
                 audioSamplesExpected = 0;
               }
               
-              // НОВОЕ: Обработка подтверждения отмены
+              // ОБРАБОТКА ПОДТВЕРЖДЕНИЯ ОТМЕНЫ
               if (data.type === 'response.cancel.ack') {
                 widgetLog(`[INTERRUPTION] Получено подтверждение отмены: success=${data.success}`);
                 if (data.success) {
                   showMessage("Ответ прерван", 1000);
                 }
+                return; // НЕ показываем как неизвестное сообщение
               }
               
-              // Проверка на сообщение session.created и session.updated
+              // Проверка на сессию
               if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`Получена информация о сессии: ${data.type}`);
-                // Просто принимаем это сообщение, не требуется особая обработка
                 return;
               }
               
-              // Проверка на сообщение connection_status
+              // Проверка на статус соединения
               if (data.type === 'connection_status') {
-                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
                 if (data.status === 'connected') {
-                // Соединение установлено, можно начинать слушать
                   isConnected = true;
                   reconnectAttempts = 0;
                   connectionFailedPermanently = false;
-                  
-                  // Скрываем ошибку соединения, если она была показана
                   hideConnectionError();
                   
-                  // Автоматически начинаем слушать если виджет открыт
                   if (isWidgetOpen) {
                     startListening();
                   }
@@ -2382,9 +2357,7 @@
               
               // Обработка ошибок
               if (data.type === 'error') {
-                // Особая обработка для ошибки пустого аудиобуфера
                 if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
                   // Перезапускаем прослушивание без сообщения пользователю
                   if (isWidgetOpen && !isReconnecting) {
                     setTimeout(() => { 
@@ -2394,7 +2367,12 @@
                   return;
                 }
                 
-                // Прочие ошибки
+                // ИГНОРИРУЕМ ошибки отмены если нет активного ответа  
+                if (data.error && data.error.message && data.error.message.includes('Cancellation failed')) {
+                  widgetLog(`[INTERRUPTION] Ошибка отмены (нет активного ответа) - игнорируем`, 'warn');
+                  return;
+                }
+                
                 widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
                 showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
                 return;
@@ -2403,9 +2381,8 @@
               // Обработка текстового ответа
               if (data.type === 'response.text.delta') {
                 if (data.delta) {
-                  showMessage(data.delta, 0); // Установим duration = 0, чтобы сообщение не скрывалось автоматически
+                  showMessage(data.delta, 0);
                   
-                  // Если виджет закрыт, добавляем пульсацию на кнопку
                   if (!isWidgetOpen) {
                     widgetButton.classList.add('wellcomeai-pulse-animation');
                   }
@@ -2415,7 +2392,6 @@
               
               // Завершение текста
               if (data.type === 'response.text.done') {
-                // После завершения текста, установим таймер на скрытие сообщения
                 setTimeout(() => {
                   hideMessage();
                 }, 5000);
@@ -2430,9 +2406,8 @@
                 return;
               }
               
-              // Обработка аудио транскрипции
+              // Транскрипция аудио
               if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-                // Здесь можно сохранить или отобразить транскрипцию аудио
                 return;
               }
               
@@ -2449,11 +2424,9 @@
               // Ответ завершен
               if (data.type === 'response.done') {
                 widgetLog('Response done received');
-                // ИЗМЕНЕНО: продолжаем слушать автоматически после завершения ответа
+                
                 if (isWidgetOpen && !isReconnecting) {
-                  // Для iOS проверяем состояние аудио перед запуском
                   if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
-                    // Показываем кнопку активации для iOS
                     if (iosAudioButton) {
                       iosAudioButton.classList.add('visible');
                     }
@@ -2461,27 +2434,27 @@
                   } else {
                     setTimeout(() => {
                       startListening();
-                    }, 800); // Увеличенная задержка для стабильности
+                    }, 800);
                   }
                 }
                 return;
               }
               
-              // Если мы дошли до этой точки, у нас неизвестный тип сообщения
-              widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
-              
-            } catch (parseError) {
-              // Если не удалось распарсить JSON, просто логируем ошибку
-              widgetLog(`Ошибка парсинга JSON: ${parseError.message}`, "warn");
-              
-              // Проверим на пинг-понг сообщения
-              if (event.data === 'pong') {
-                lastPongTime = Date.now();
-                widgetLog("Получен pong-ответ");
+              // ВСЕ ЧАСТЫЕ СООБЩЕНИЯ ОБРАБАТЫВАЕМ БЕЗ ПРЕДУПРЕЖДЕНИЙ
+              if (frequentMessages.includes(msg_type)) {
                 return;
               }
               
-              widgetLog(`Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
+              // Только для действительно неизвестных типов
+              widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
+              
+            } catch (parseError) {
+              if (event.data === 'pong') {
+                lastPongTime = Date.now();
+                return;
+              }
+              
+              widgetLog(`Ошибка парсинга JSON: ${parseError.message}`, "warn");
             }
           } catch (generalError) {
             widgetLog(`Общая ошибка обработки сообщения: ${generalError.message}`, "error");
@@ -2699,7 +2672,7 @@
     // Инициализируем основную логику виджета
     initWidget();
     
-    widgetLog('Initialization complete - interruption support enabled');
+    widgetLog('Initialization complete - улучшенное эхо-подавление активировано');
   }
   
   // Проверяем, есть ли уже виджет на странице
