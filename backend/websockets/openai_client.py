@@ -1,3 +1,5 @@
+--- START OF FILE openai_client (7).py ---
+
 import asyncio
 import json
 import uuid
@@ -241,10 +243,11 @@ class OpenAIRealtimeClient:
             logger.error(f"Ошибка при переподключении к OpenAI: {e}")
             return False
 
-    # НОВАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА
+    # ИСПРАВЛЕНИЕ 4: Расширенные методы отмены в OpenAIRealtimeClient
+    # ЗАМЕНЕННЫЙ/УЛУЧШЕННЫЙ МЕТОД
     async def cancel_response(self, item_id: str = None, sample_count: int = 0) -> bool:
         """
-        Отменяет текущий ответ ассистента
+        Отменяет текущий ответ ассистента с улучшенной обработкой
         
         Args:
             item_id: ID элемента для отмены (опционально)
@@ -263,19 +266,122 @@ class OpenAIRealtimeClient:
                 "event_id": f"cancel_{int(time.time() * 1000)}"
             }
             
-            # Добавляем item_id и sample_count если указаны
+            # Добавляем параметры если указаны
             if item_id:
                 payload["item_id"] = item_id
             if sample_count > 0:
                 payload["sample_count"] = sample_count
                 
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Response cancel sent: item_id={item_id}, sample_count={sample_count}")
+            logger.info(f"[INTERRUPTION] Response cancel sent: item_id={item_id}, sample_count={sample_count}")
+            
+            # Ждем короткое время для обработки отмены
+            await asyncio.sleep(0.1)
+            
             return True
             
         except Exception as e:
             logger.error(f"Error sending response.cancel: {e}")
             return False
+
+    # НОВЫЕ МЕТОДЫ
+    async def clear_output_audio_buffer(self) -> bool:
+        """
+        Очищает буфер вывода аудио
+        
+        Returns:
+            bool: True если успешно отправлено
+        """
+        if not self.is_connected or not self.ws:
+            logger.warning("Cannot clear output audio buffer: not connected")
+            return False
+            
+        try:
+            payload = {
+                "type": "output_audio_buffer.clear",
+                "event_id": f"clear_output_{int(time.time() * 1000)}"
+            }
+            
+            await self.ws.send(json.dumps(payload))
+            logger.info("[INTERRUPTION] Output audio buffer clear sent")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing output audio buffer: {e}")
+            return False
+
+    async def truncate_conversation_item(self, item_id: str, content_index: int = 0, audio_end_ms: int = 0) -> bool:
+        """
+        Обрезает элемент диалога для синхронизации транскрипта
+        
+        Args:
+            item_id: ID элемента для обрезки
+            content_index: Индекс контента
+            audio_end_ms: Время окончания аудио в миллисекундах
+            
+        Returns:
+            bool: True если успешно отправлено
+        """
+        if not self.is_connected or not self.ws:
+            logger.warning("Cannot truncate conversation item: not connected")
+            return False
+            
+        try:
+            payload = {
+                "type": "conversation.item.truncate",
+                "event_id": f"truncate_{int(time.time() * 1000)}",
+                "item_id": item_id,
+                "content_index": content_index,
+                "audio_end_ms": audio_end_ms
+            }
+            
+            await self.ws.send(json.dumps(payload))
+            logger.info(f"[INTERRUPTION] Conversation item truncate sent: item_id={item_id}, audio_end_ms={audio_end_ms}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error truncating conversation item: {e}")
+            return False
+
+    async def emergency_stop_all(self) -> bool:
+        """
+        Экстренная остановка всех активных процессов OpenAI
+        
+        Returns:
+            bool: True если все команды отправлены успешно
+        """
+        if not self.is_connected or not self.ws:
+            logger.warning("Cannot perform emergency stop: not connected") # Добавлено предупреждение
+            return False
+            
+        all_sent = True
+        try:
+            logger.info("[INTERRUPTION] Initiating emergency stop sequence...")
+            # 1. Отменяем ответ
+            if not await self.cancel_response():
+                all_sent = False
+                logger.warning("[INTERRUPTION] Failed to send cancel_response during emergency stop.")
+            
+            # 2. Очищаем буфер вывода аудио
+            if not await self.clear_output_audio_buffer():
+                all_sent = False
+                logger.warning("[INTERRUPTION] Failed to send clear_output_audio_buffer during emergency stop.")
+            
+            # 3. Очищаем входной буфер аудио
+            if not await self.clear_audio_buffer(): # Убедимся, что clear_audio_buffer существует
+                all_sent = False
+                logger.warning("[INTERRUPTION] Failed to send clear_audio_buffer during emergency stop.")
+            
+            if all_sent:
+                logger.info("[INTERRUPTION] Emergency stop - все команды успешно отправлены")
+            else:
+                logger.warning("[INTERRUPTION] Emergency stop - не все команды были успешно отправлены")
+            return all_sent
+            
+        except Exception as e:
+            logger.error(f"Error during emergency_stop_all: {e}")
+            return False
+    # КОНЕЦ ИСПРАВЛЕНИЯ 4
 
     async def update_session(
         self,
@@ -613,12 +719,14 @@ class OpenAIRealtimeClient:
             bool: True if successful, False otherwise
         """
         if not self.is_connected or not self.ws:
+            logger.warning("Cannot clear input audio buffer: not connected") # Добавлено предупреждение
             return False
         try:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.clear",
                 "event_id": f"clear_{time.time()}"
             }))
+            logger.info("[INTERRUPTION] Input audio buffer clear sent") # Добавлено логирование
             return True
         except ConnectionClosed:
             logger.error("Connection closed while clearing audio buffer")
