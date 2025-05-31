@@ -164,13 +164,25 @@ async def handle_websocket_connection(
                         await websocket.send_json({"type": "input_audio_buffer.clear.ack", "event_id": data.get("event_id")})
                         continue
 
+                    # НОВАЯ ОБРАБОТКА: response.cancel для перебивания
                     if msg_type == "response.cancel":
+                        item_id = data.get("item_id")
+                        sample_count = data.get("sample_count", 0)
+                        
+                        logger.info(f"[INTERRUPTION] Получен запрос на отмену ответа: item_id={item_id}, sample_count={sample_count}")
+                        
+                        success = False
                         if openai_client.is_connected:
-                            await openai_client.ws.send(json.dumps({
-                                "type": "response.cancel",
-                                "event_id": data.get("event_id")
-                            }))
-                        await websocket.send_json({"type": "response.cancel.ack", "event_id": data.get("event_id")})
+                            success = await openai_client.cancel_response(item_id, sample_count)
+                            logger.info(f"[INTERRUPTION] Результат отмены: success={success}")
+                        else:
+                            logger.warning("[INTERRUPTION] OpenAI клиент не подключен, отмена невозможна")
+                            
+                        await websocket.send_json({
+                            "type": "response.cancel.ack",
+                            "event_id": data.get("event_id"),
+                            "success": success
+                        })
                         continue
 
                     # Любые остальные типы
