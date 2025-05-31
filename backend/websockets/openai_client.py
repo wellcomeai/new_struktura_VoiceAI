@@ -241,6 +241,42 @@ class OpenAIRealtimeClient:
             logger.error(f"Ошибка при переподключении к OpenAI: {e}")
             return False
 
+    # НОВАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА
+    async def cancel_response(self, item_id: str = None, sample_count: int = 0) -> bool:
+        """
+        Отменяет текущий ответ ассистента
+        
+        Args:
+            item_id: ID элемента для отмены (опционально)
+            sample_count: Количество воспроизведенных семплов
+        
+        Returns:
+            bool: True если успешно отправлено
+        """
+        if not self.is_connected or not self.ws:
+            logger.warning("Cannot send response.cancel: not connected")
+            return False
+            
+        try:
+            payload = {
+                "type": "response.cancel",
+                "event_id": f"cancel_{int(time.time() * 1000)}"
+            }
+            
+            # Добавляем item_id и sample_count если указаны
+            if item_id:
+                payload["item_id"] = item_id
+            if sample_count > 0:
+                payload["sample_count"] = sample_count
+                
+            await self.ws.send(json.dumps(payload))
+            logger.info(f"Response cancel sent: item_id={item_id}, sample_count={sample_count}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending response.cancel: {e}")
+            return False
+
     async def update_session(
         self,
         voice: str = DEFAULT_VOICE,
