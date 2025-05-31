@@ -97,7 +97,7 @@ def generate_short_id(prefix: str = "") -> str:
 class OpenAIRealtimeClient:
     """
     Client for interacting with OpenAI's Realtime API through WebSockets.
-    Handles voice interactions, function calling, and conversation tracking.
+    Handles voice interactions, function calling, conversation tracking, and interruptions.
     """
     
     def __init__(
@@ -128,6 +128,9 @@ class OpenAIRealtimeClient:
         self.webhook_url = None  # Сохраняем URL вебхука из промпта
         self.last_function_name = None  # Сохраняем имя последней вызванной функции
         self.enabled_functions = []  # Список разрешенных функций
+        
+        # НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ОБОГАЩЕНИЯ response.cancel.ack
+        self.last_sent_cancel_payload = None  # Сохраняем последний отправленный cancel payload
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -241,15 +244,15 @@ class OpenAIRealtimeClient:
             logger.error(f"Ошибка при переподключении к OpenAI: {e}")
             return False
 
-    async def cancel_response(self, item_id: str = None, sample_count: int = 0) -> bool:
+    # ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ ОТМЕНЫ ОТВЕТА с сохранением payload
+    async def cancel_response(self, item_id: str = None, sample_count: int = 0, was_playing_audio: bool = False) -> bool:
         """
-        Отменяет текущий ответ ассистента.
-        OpenAI API Reference: https://platform.openai.com/docs/api-reference/realtime-client-events/response/cancel
+        Отменяет текущий ответ ассистента с сохранением данных для обогащения ACK
         
         Args:
-            item_id: ID элемента (ответа), который нужно отменить.
-            sample_count: Количество аудио семплов, которые уже были воспроизведены клиентом 
-                          из этого item_id перед отправкой запроса на отмену.
+            item_id: ID элемента для отмены (опционально)
+            sample_count: Количество воспроизведенных семплов
+            was_playing_audio: Флаг того, что аудио воспроизводилось
         
         Returns:
             bool: True если успешно отправлено
@@ -259,36 +262,71 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            event_id = f"cancel_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
             payload = {
                 "type": "response.cancel",
-                "event_id": event_id
+                "event_id": f"cancel_{int(time.time() * 1000)}"
             }
             
-            # item_id и sample_count являются опциональными согласно документации
+            # Добавляем параметры если указаны
             if item_id:
                 payload["item_id"] = item_id
             if sample_count > 0:
                 payload["sample_count"] = sample_count
-            # Если item_id и sample_count не предоставлены, OpenAI отменит самый последний активный ответ.
                 
-            await self.ws.send(json.dumps(payload))
-            logger.info(f"[INTERRUPTION] Sent 'response.cancel' to OpenAI: {payload}")
+            # СОХРАНЯЕМ PAYLOAD ДЛЯ ОБОГАЩЕНИЯ ACK
+            self.last_sent_cancel_payload = {
+                "original_item_id": item_id,
+                "original_sample_count": sample_count,
+                "original_was_playing": was_playing_audio,
+                "timestamp": time.time()
+            }
             
-            # Небольшая задержка может быть полезна, но не всегда обязательна.
-            # Зависит от того, как быстро сервер обрабатывает и как быстро мы хотим получить ACK.
-            await asyncio.sleep(0.05) # Уменьшена до 50мс
+            await self.ws.send(json.dumps(payload))
+            logger.info(f"[INTERRUPTION] Response cancel sent: item_id={item_id}, sample_count={sample_count}, was_playing={was_playing_audio}")
+            
+            # Ждем короткое время для обработки отмены
+            await asyncio.sleep(0.1)
             
             return True
             
         except Exception as e:
             logger.error(f"Error sending response.cancel: {e}")
+            # Очищаем payload при ошибке
+            self.last_sent_cancel_payload = None
             return False
+
+    def enrich_cancel_ack(self, ack_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Обогащает response.cancel.ack данными из сохраненного payload
+        
+        Args:
+            ack_data: Исходные данные ACK от OpenAI
+            
+        Returns:
+            Dict: Обогащенные данные ACK
+        """
+        enriched_ack = ack_data.copy()
+        
+        if self.last_sent_cancel_payload:
+            # Добавляем сохраненные данные в ACK
+            enriched_ack.update({
+                "original_item_id": self.last_sent_cancel_payload["original_item_id"],
+                "original_sample_count": self.last_sent_cancel_payload["original_sample_count"], 
+                "original_was_playing": self.last_sent_cancel_payload["original_was_playing"]
+            })
+            
+            logger.info(f"[INTERRUPTION] Обогащен cancel.ack: {enriched_ack}")
+            
+            # Очищаем сохраненный payload
+            self.last_sent_cancel_payload = None
+        else:
+            logger.warning("[INTERRUPTION] Нет сохраненного payload для обогащения cancel.ack")
+        
+        return enriched_ack
 
     async def clear_output_audio_buffer(self) -> bool:
         """
-        Очищает буфер вывода аудио на стороне OpenAI.
-        OpenAI API Reference: https://platform.openai.com/docs/api-reference/realtime-client-events/output-audio-buffer/clear
+        Очищает буфер вывода аудио
         
         Returns:
             bool: True если успешно отправлено
@@ -298,14 +336,13 @@ class OpenAIRealtimeClient:
             return False
             
         try:
-            event_id = f"clear_output_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
             payload = {
                 "type": "output_audio_buffer.clear",
-                "event_id": event_id
+                "event_id": f"clear_output_{int(time.time() * 1000)}"
             }
             
             await self.ws.send(json.dumps(payload))
-            logger.info(f"[INTERRUPTION] Sent 'output_audio_buffer.clear': {payload}")
+            logger.info("[INTERRUPTION] Output audio buffer clear sent")
             return True
             
         except Exception as e:
@@ -314,13 +351,12 @@ class OpenAIRealtimeClient:
 
     async def truncate_conversation_item(self, item_id: str, content_index: int = 0, audio_end_ms: int = 0) -> bool:
         """
-        Обрезает элемент диалога (обычно ответ ассистента) для синхронизации транскрипта и аудио.
-        OpenAI API Reference: https://platform.openai.com/docs/api-reference/realtime-client-events/conversation-item/truncate
-
+        Обрезает элемент диалога для синхронизации транскрипта
+        
         Args:
-            item_id: ID элемента диалога (item), который нужно обрезать.
-            content_index: Индекс контентного блока внутри item (обычно 0 для основного текста/аудио).
-            audio_end_ms: Время в миллисекундах, до которого должно быть обрезано аудио этого item.
+            item_id: ID элемента для обрезки
+            content_index: Индекс контента
+            audio_end_ms: Время окончания аудио в миллисекундах
             
         Returns:
             bool: True если успешно отправлено
@@ -328,23 +364,18 @@ class OpenAIRealtimeClient:
         if not self.is_connected or not self.ws:
             logger.warning("Cannot truncate conversation item: not connected")
             return False
-        
-        if not item_id or audio_end_ms <= 0: # Проверка валидности параметров
-             logger.warning(f"[INTERRUPTION] Skipped conversation.item.truncate: invalid params (item_id: {item_id}, audio_end_ms: {audio_end_ms})")
-             return False
             
         try:
-            event_id = f"truncate_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
             payload = {
                 "type": "conversation.item.truncate",
-                "event_id": event_id,
+                "event_id": f"truncate_{int(time.time() * 1000)}",
                 "item_id": item_id,
                 "content_index": content_index,
                 "audio_end_ms": audio_end_ms
             }
             
             await self.ws.send(json.dumps(payload))
-            logger.info(f"[INTERRUPTION] Sent 'conversation.item.truncate': {payload}")
+            logger.info(f"[INTERRUPTION] Conversation item truncate sent: item_id={item_id}, audio_end_ms={audio_end_ms}")
             return True
             
         except Exception as e:
@@ -353,48 +384,29 @@ class OpenAIRealtimeClient:
 
     async def emergency_stop_all(self) -> bool:
         """
-        Экстренная остановка всех активных процессов OpenAI.
-        Последовательно отправляет команды:
-        1. response.cancel (без item_id, чтобы отменить любой текущий ответ)
-        2. output_audio_buffer.clear
-        3. input_audio_buffer.clear
+        Экстренная остановка всех активных процессов OpenAI
         
         Returns:
             bool: True если все команды отправлены успешно
         """
         if not self.is_connected or not self.ws:
-            logger.warning("Cannot perform emergency stop: not connected")
             return False
             
-        all_sent_successfully = True
         try:
-            logger.info("[INTERRUPTION] Initiating emergency stop sequence...")
+            # 1. Отменяем ответ
+            await self.cancel_response()
             
-            # 1. Отменяем любой текущий ответ (без item_id и sample_count)
-            if not await self.cancel_response(): 
-                all_sent_successfully = False
-                logger.warning("[INTERRUPTION] Failed to send cancel_response during emergency stop.")
-            await asyncio.sleep(0.05) # Небольшая пауза между командами
-
             # 2. Очищаем буфер вывода аудио
-            if not await self.clear_output_audio_buffer():
-                all_sent_successfully = False
-                logger.warning("[INTERRUPTION] Failed to send clear_output_audio_buffer during emergency stop.")
-            await asyncio.sleep(0.05)
-
-            # 3. Очищаем входной буфер аудио
-            if not await self.clear_audio_buffer(): 
-                all_sent_successfully = False
-                logger.warning("[INTERRUPTION] Failed to send clear_audio_buffer during emergency stop.")
+            await self.clear_output_audio_buffer()
             
-            if all_sent_successfully:
-                logger.info("[INTERRUPTION] Emergency stop sequence completed successfully.")
-            else:
-                logger.warning("[INTERRUPTION] Emergency stop sequence completed with some failures.")
-            return all_sent_successfully
+            # 3. Очищаем входной буфер аудио
+            await self.clear_audio_buffer()
+            
+            logger.info("[INTERRUPTION] Emergency stop - все команды отправлены")
+            return True
             
         except Exception as e:
-            logger.error(f"Error during emergency_stop_all: {e}")
+            logger.error(f"Error in emergency stop: {e}")
             return False
 
     async def update_session(
@@ -403,6 +415,17 @@ class OpenAIRealtimeClient:
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
         functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
     ) -> bool:
+        """
+        Update session settings on the OpenAI Realtime API side.
+        
+        Args:
+            voice: Voice ID to use for speech synthesis
+            system_message: System instructions for the assistant
+            functions: List of functions or dictionary with enabled_functions key
+            
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
         if not self.is_connected or not self.ws:
             logger.error("Cannot update session: not connected")
             return False
@@ -415,7 +438,10 @@ class OpenAIRealtimeClient:
             "create_response": True,
         }
         
+        # Получаем нормализованные определения функций
         normalized_functions = normalize_functions(functions)
+        
+        # Формируем tools для API
         tools = []
         for func_def in normalized_functions:
             tools.append({
@@ -425,13 +451,19 @@ class OpenAIRealtimeClient:
                 "parameters": func_def["parameters"]
             })
         
+        # Обновляем список разрешенных функций на основе tools
         self.enabled_functions = [normalize_function_name(tool["name"]) for tool in tools]
         logger.info(f"[DEBUG-FUNCTION] Активированные функции для сессии: {self.enabled_functions}")
         
+        # Устанавливаем tool_choice на основе наличия tools
         tool_choice = "auto" if tools else "none"
+        
         logger.info(f"Setting up session with {len(tools)} tools, tool_choice={tool_choice}")
         
-        input_audio_transcription = { "model": "whisper-1" }
+        # Включение транскрипции аудио в соответствии с документацией OpenAI
+        input_audio_transcription = {
+            "model": "whisper-1"
+        }
             
         payload = {
             "type": "session.update",
@@ -452,6 +484,8 @@ class OpenAIRealtimeClient:
         try:
             await self.ws.send(json.dumps(payload))
             logger.info(f"Session settings sent (voice={voice}, tools={len(tools)}, tool_choice={tool_choice})")
+            
+            # Вывод подробной информации о функциях в лог
             if tools:
                 for tool in tools:
                     logger.info(f"[DEBUG-FUNCTION] Enabled function: {tool['name']}, params: {json.dumps(tool['parameters'], ensure_ascii=False)[:100]}...")
@@ -459,6 +493,7 @@ class OpenAIRealtimeClient:
             logger.error(f"Error sending session.update: {e}")
             return False
 
+        # Create a conversation record in the database if available
         if self.db_session:
             try:
                 conv = Conversation(
@@ -474,17 +509,31 @@ class OpenAIRealtimeClient:
                 logger.info(f"Created conversation record: {self.conversation_record_id}")
             except Exception as e:
                 logger.error(f"Error creating Conversation in DB: {e}")
+
         return True
 
     async def handle_function_call(self, function_call_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a function call from OpenAI.
+        
+        Args:
+            function_call_data: Function call data from OpenAI
+            
+        Returns:
+            Dict: Result of the function execution
+        """
         try:
             function_name = function_call_data.get("function", {}).get("name")
             arguments = function_call_data.get("function", {}).get("arguments", {})
             
+            # Сохраняем имя функции для последующего использования
             self.last_function_name = function_name
+            
+            # Нормализуем имя функции из любого формата
             normalized_function_name = normalize_function_name(function_name) or function_name
             logger.info(f"[DEBUG-FUNCTION] Нормализация имени функции: {function_name} -> {normalized_function_name}")
             
+            # Проверяем, разрешена ли функция
             if normalized_function_name not in self.enabled_functions:
                 error_msg = f"Попытка вызвать неразрешенную функцию: {normalized_function_name}. Разрешены только: {self.enabled_functions}"
                 logger.warning(error_msg)
@@ -494,6 +543,7 @@ class OpenAIRealtimeClient:
                     "message": f"Функция {normalized_function_name} не активирована для этого ассистента"
                 }
             
+            # Если arguments - строка, парсим JSON
             if isinstance(arguments, str):
                 try:
                     arguments = json.loads(arguments)
@@ -501,62 +551,118 @@ class OpenAIRealtimeClient:
                     logger.warning(f"Failed to parse function arguments as JSON: {arguments}")
                     arguments = {}
             
+            # Подготавливаем контекст выполнения
             context = {
                 "assistant_config": self.assistant_config,
                 "client_id": self.client_id,
                 "db_session": self.db_session
             }
             
+            # Выполняем функцию через новую систему
             result = await execute_function(
                 name=normalized_function_name,
                 arguments=arguments,
                 context=context
             )
+            
             return result
         except Exception as e:
             logger.error(f"Error processing function call: {e}")
             return {"error": str(e)}
 
     async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Send the result of a function execution back to OpenAI as a conversation.item.create event.
+        
+        Args:
+            function_call_id: ID of the function call
+            result: Result of the function execution
+            
+        Returns:
+            Dict: Status information about the result delivery
+                {
+                    "success": bool,
+                    "error": str or None,
+                    "payload": dict - payload that was sent 
+                }
+        """
         if not self.is_connected or not self.ws:
             error_msg = "Cannot send function result: not connected"
             logger.error(error_msg)
-            return { "success": False, "error": error_msg, "payload": None }
+            return {
+                "success": False,
+                "error": error_msg,
+                "payload": None
+            }
         
         try:
             logger.info(f"[DEBUG-FUNCTION] Начало отправки результата функции: {function_call_id}")
+            
+            # Генерируем короткий ID длиной до 32 символов
             short_item_id = generate_short_id("func_")
+            
+            # Преобразуем результат в строку JSON
+            # OpenAI ожидает, что поле output будет строкой, а не объектом
             result_json = json.dumps(result)
+            
+            # Исправленная структура для отправки результата функции
             payload = {
                 "type": "conversation.item.create",
                 "event_id": f"funcres_{time.time()}",
                 "item": {
-                    "id": short_item_id, 
+                    "id": short_item_id,  # Максимум 32 символа
                     "type": "function_call_output",
                     "call_id": function_call_id,
-                    "output": result_json 
+                    "output": result_json  # Строка вместо объекта
                 }
             }
+            
             logger.info(f"Отправка результата функции: {function_call_id}")
             logger.info(f"Payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
+            
             await self.ws.send(json.dumps(payload))
             logger.info(f"Результат функции отправлен как item.create: {function_call_id}")
+            
+            # Добавляем небольшую задержку перед запросом нового ответа
             logger.info(f"[DEBUG-FUNCTION] Ожидание перед созданием нового ответа (500мс)")
-            await asyncio.sleep(0.5) 
+            await asyncio.sleep(0.5)  # 500 мс должно быть достаточно
+            
+            # После отправки результата, явно запрашиваем новый ответ от модели
             await self.create_response_after_function()
+            
             logger.info(f"[DEBUG-FUNCTION] Результат функции отправлен и запрос на новый ответ выполнен")
-            return { "success": True, "error": None, "payload": payload }
+            
+            return {
+                "success": True,
+                "error": None,
+                "payload": payload
+            }
+            
         except Exception as e:
             error_msg = f"Error sending function result: {e}"
             logger.error(error_msg)
-            return { "success": False, "error": error_msg, "payload": None }
+            return {
+                "success": False,
+                "error": error_msg,
+                "payload": None
+            }
 
     async def create_response_after_function(self) -> bool:
+        """
+        Явно запрашивает новый ответ от модели после выполнения функции.
+        Это обеспечит генерацию аудио-ответа.
+        
+        Returns:
+            bool: True если успешно, False иначе
+        """
         if not self.is_connected or not self.ws:
             logger.error("Cannot create response: not connected")
             return False
+            
         try:
             logger.info(f"[DEBUG-FUNCTION] Создание нового ответа после выполнения функции")
+            
+            # Запрашиваем новый ответ от модели с более полным набором параметров
             response_payload = {
                 "type": "response.create",
                 "event_id": f"resp_after_func_{time.time()}",
@@ -568,15 +674,28 @@ class OpenAIRealtimeClient:
                     "max_output_tokens": 200
                 }
             }
+            
             await self.ws.send(json.dumps(response_payload))
             logger.info("Запрошен новый ответ после выполнения функции")
+            
             logger.info(f"[DEBUG-FUNCTION] Запрос на создание нового ответа отправлен успешно")
+            
             return True
+            
         except Exception as e:
             logger.error(f"Error creating response after function: {e}")
             return False
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
+        """
+        Process and send audio data to the OpenAI API.
+        
+        Args:
+            audio_buffer: Binary audio data in PCM16 format
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         if not self.is_connected or not self.ws or not audio_buffer:
             return False
         try:
@@ -596,6 +715,12 @@ class OpenAIRealtimeClient:
             return False
 
     async def commit_audio(self) -> bool:
+        """
+        Commit the audio buffer, indicating that the user has finished speaking.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
         if not self.is_connected or not self.ws:
             return False
         try:
@@ -613,15 +738,19 @@ class OpenAIRealtimeClient:
             return False
 
     async def clear_audio_buffer(self) -> bool:
+        """
+        Clear the audio buffer, removing any pending audio data.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
         if not self.is_connected or not self.ws:
-            logger.warning("Cannot clear input audio buffer: not connected") 
             return False
         try:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.clear",
                 "event_id": f"clear_{time.time()}"
             }))
-            logger.info("[INTERRUPTION] Input audio buffer clear sent") 
             return True
         except ConnectionClosed:
             logger.error("Connection closed while clearing audio buffer")
@@ -632,6 +761,9 @@ class OpenAIRealtimeClient:
             return False
 
     async def close(self) -> None:
+        """
+        Close the WebSocket connection.
+        """
         if self.ws:
             try:
                 await self.ws.close()
@@ -641,8 +773,15 @@ class OpenAIRealtimeClient:
         self.is_connected = False
 
     async def receive_messages(self) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Receive and yield messages from the OpenAI WebSocket.
+        
+        Yields:
+            Dict: Message received from the OpenAI WebSocket
+        """
         if not self.is_connected or not self.ws:
             return
+            
         try:
             async for message in self.ws:
                 try:
