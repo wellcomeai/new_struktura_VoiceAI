@@ -1,5 +1,3 @@
---- START OF FILE openai_client (7).py ---
-
 import asyncio
 import json
 import uuid
