@@ -163,8 +163,8 @@ async def handle_websocket_connection(
                             await openai_client.clear_audio_buffer()
                         await websocket.send_json({"type": "input_audio_buffer.clear.ack", "event_id": data.get("event_id")})
                         continue
-
-                    # НОВАЯ ОБРАБОТКА: response.cancel для перебивания
+                    
+                    # ИСПРАВЛЕНИЕ 6: Полная поддержка прерывания в handler.py
                     if msg_type == "response.cancel":
                         item_id = data.get("item_id")
                         sample_count = data.get("sample_count", 0)
@@ -173,10 +173,9 @@ async def handle_websocket_connection(
                         
                         success = False
                         if openai_client.is_connected:
+                            # Отправляем отмену в OpenAI
                             success = await openai_client.cancel_response(item_id, sample_count)
-                            logger.info(f"[INTERRUPTION] Результат отмены: success={success}")
-                        else:
-                            logger.warning("[INTERRUPTION] OpenAI клиент не подключен, отмена невозможна")
+                            logger.info(f"[INTERRUPTION] Результат отмены в OpenAI: success={success}")
                             
                         await websocket.send_json({
                             "type": "response.cancel.ack",
@@ -184,6 +183,57 @@ async def handle_websocket_connection(
                             "success": success
                         })
                         continue
+
+                    if msg_type == "output_audio_buffer.clear":
+                        logger.info("[INTERRUPTION] Получен запрос на очистку буфера вывода аудио")
+                        
+                        success = False
+                        if openai_client.is_connected:
+                            success = await openai_client.clear_output_audio_buffer()
+                            logger.info(f"[INTERRUPTION] Результат очистки буфера вывода: success={success}")
+                        
+                        await websocket.send_json({
+                            "type": "output_audio_buffer.clear.ack", 
+                            "event_id": data.get("event_id"),
+                            "success": success
+                        })
+                        continue
+
+                    if msg_type == "conversation.item.truncate":
+                        item_id = data.get("item_id")
+                        content_index = data.get("content_index", 0)
+                        audio_end_ms = data.get("audio_end_ms", 0)
+                        
+                        logger.info(f"[INTERRUPTION] Получен запрос на обрезку элемента диалога: item_id={item_id}, audio_end_ms={audio_end_ms}")
+                        
+                        success = False
+                        if openai_client.is_connected:
+                            success = await openai_client.truncate_conversation_item(item_id, content_index, audio_end_ms)
+                            logger.info(f"[INTERRUPTION] Результат обрезки элемента: success={success}")
+                        
+                        await websocket.send_json({
+                            "type": "conversation.item.truncate.ack",
+                            "event_id": data.get("event_id"), 
+                            "success": success
+                        })
+                        continue
+
+                    # ДОБАВЛЯЕМ ЭКСТРЕННУЮ ОСТАНОВКУ
+                    if msg_type == "emergency_stop":
+                        logger.info("[INTERRUPTION] Получен запрос на экстренную остановку")
+                        
+                        success = False
+                        if openai_client.is_connected:
+                            success = await openai_client.emergency_stop_all()
+                            logger.info(f"[INTERRUPTION] Результат экстренной остановки: success={success}")
+                        
+                        await websocket.send_json({
+                            "type": "emergency_stop.ack",
+                            "event_id": data.get("event_id"),
+                            "success": success
+                        })
+                        continue
+                    # КОНЕЦ ИСПРАВЛЕНИЯ 6
 
                     # Любые остальные типы
                     await websocket.send_json({
