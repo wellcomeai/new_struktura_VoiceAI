@@ -1,12 +1,13 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.4.1 - Advanced Interruptions, Diagnostics & Full Code Integration
+ * Версия: 1.4.2 - Enhanced Interruptions, Diagnostics, Full Code Integration & Log-Based Fixes
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
  * Улучшена поддержка мобильных устройств и iOS.
  * Исправлена возможность мгновенного перебивания ассистента голосом.
  * Добавлены расширенные механизмы прерывания и диагностика.
+ * Внесены исправления на основе анализа логов.
  */
 
 (function() {
@@ -21,7 +22,7 @@
 
   // Глобальное хранение состояния
   let reconnectAttempts = 0;
-  let pingIntervalId = null; // Переменная для ID интервала ping'а (в connectWebSocket используется локальная 'pingInterval')
+  let globalPingIntervalId = null; // Изменено имя для ясности
   let lastPongTime = Date.now();
   let isReconnecting = false;
   let debugQueue = [];
@@ -109,7 +110,7 @@
       widgetLog(`Added protocol to server URL: ${serverUrl}`);
     }
     if (!serverUrl) {
-      serverUrl = 'https://realtime-saas.onrender.com';
+      serverUrl = 'https://realtime-saas.onrender.com'; // Fallback
       widgetLog(`Using fallback server URL: ${serverUrl}`);
     }
     return serverUrl.replace(/\/$/, '');
@@ -185,180 +186,67 @@
   widgetLog(`WebSocket URL: ${WS_URL}`);
   widgetLog(`Device: ${isIOS ? 'iOS' : (isMobile ? 'Android/Mobile' : 'Desktop')}`);
 
-  // ДИАГНОСТИЧЕСКИЙ ИНСТРУМЕНТ ДЛЯ ОТЛАДКИ ПРЕРЫВАНИЙ
   class InterruptionDiagnostics {
     constructor() {
       this.events = [];
       this.maxEvents = 100;
-      this.isEnabled = DEBUG_MODE; // Использовать DEBUG_MODE
+      this.isEnabled = DEBUG_MODE;
     }
-    
     log(event, data = {}) {
       if (!this.isEnabled) return;
-      
       const timestamp = Date.now();
-      const entry = {
-        timestamp,
-        time: new Date(timestamp).toISOString(),
-        event,
-        data: { ...data } // Клонируем данные
-      };
-      
+      const entry = { timestamp, time: new Date(timestamp).toISOString(), event, data: JSON.parse(JSON.stringify(data)) };
       this.events.push(entry);
-      if (this.events.length > this.maxEvents) {
-        this.events.shift();
-      }
-      
-      // Вывод в консоль для немедленной отладки
-      console.log(`[DIAG] ${entry.time.slice(11,23)} | ${event}:`, JSON.parse(JSON.stringify(data))); // Глубокое копирование для лога
+      if (this.events.length > this.maxEvents) this.events.shift();
+      console.log(`[DIAG] ${entry.time.slice(11,23)} | ${event}:`, entry.data);
     }
-    
-    getReport() {
-      return {
-        totalEvents: this.events.length,
-        events: this.events.slice(-20), // Последние 20 событий для краткости
-        summary: this.generateSummary()
-      };
-    }
-    
+    getReport() { return { totalEvents: this.events.length, events: this.events.slice(-20), summary: this.generateSummary() }; }
     generateSummary() {
-      const eventTypes = {};
-      this.events.forEach(e => {
-        eventTypes[e.event] = (eventTypes[e.event] || 0) + 1;
-      });
-      
-      return {
-        eventCounts: eventTypes,
-        timespan: this.events.length > 0 ? 
-          this.events[this.events.length - 1].timestamp - this.events[0].timestamp : 0
-      };
+      const eventTypes = {}; this.events.forEach(e => { eventTypes[e.event] = (eventTypes[e.event] || 0) + 1; });
+      return { eventCounts: eventTypes, timespan: this.events.length > 0 ? this.events[this.events.length - 1].timestamp - this.events[0].timestamp : 0 };
     }
-    
-    exportLog() {
-      return JSON.stringify(this.getReport(), null, 2);
-    }
+    exportLog() { return JSON.stringify(this.getReport(), null, 2); }
   }
-
   const interruptionDiag = new InterruptionDiagnostics();
-
-  // Глобальные функции для вызова из консоли
-  window.getInterruptionDiagnostics = function() {
-    return interruptionDiag.getReport();
-  };
-
-  window.exportInterruptionLog = function() {
-    const log = interruptionDiag.exportLog();
-    const blob = new Blob([log], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `interruption-log-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    document.body.appendChild(a); // Необходимо для Firefox
-    a.click();
-    document.body.removeChild(a); // Очистка
-    URL.revokeObjectURL(url);
+  window.getInterruptionDiagnostics = () => interruptionDiag.getReport();
+  window.exportInterruptionLog = () => {
+    const log = interruptionDiag.exportLog(); const blob = new Blob([log], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = `interruption-log-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     widgetLog("Interruption log exported.");
   };
-  // КОНЕЦ ДИАГНОСТИЧЕСКОГО ИНСТРУМЕНТА
 
   function createStyles() {
     const styleEl = document.createElement('style');
     styleEl.id = 'wellcomeai-widget-styles';
     styleEl.textContent = `
-      .wellcomeai-widget-container {
-        position: fixed;
-        ${WIDGET_POSITION.vertical}: ${WIDGET_POSITION.distance};
-        ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance};
-        z-index: 2147483647;
-        transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        font-family: 'Segoe UI', 'Roboto', sans-serif;
-      }
-      .wellcomeai-widget-button {
-        width: 60px; height: 60px; border-radius: 50%;
-        background: linear-gradient(135deg, #4a86e8, #2b59c3);
-        box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4);
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: all 0.3s ease; position: relative;
-        overflow: hidden; z-index: 2147483647; border: none; outline: none;
-      }
+      .wellcomeai-widget-container { position: fixed; ${WIDGET_POSITION.vertical}: ${WIDGET_POSITION.distance}; ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance}; z-index: 2147483647; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); font-family: 'Segoe UI', 'Roboto', sans-serif; }
+      .wellcomeai-widget-button { width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #4a86e8, #2b59c3); box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden; z-index: 2147483647; border: none; outline: none; }
       .wellcomeai-widget-button:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(74, 134, 232, 0.5); }
-      .wellcomeai-widget-button::before {
-        content: ''; position: absolute; width: 150%; height: 150%;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2));
-        transform: rotate(45deg); top: -30%; left: -30%; transition: all 0.6s ease;
-      }
+      .wellcomeai-widget-button::before { content: ''; position: absolute; width: 150%; height: 150%; background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.2)); transform: rotate(45deg); top: -30%; left: -30%; transition: all 0.6s ease; }
       .wellcomeai-widget-button:hover::before { transform: rotate(90deg); }
       .wellcomeai-widget-icon { color: white; font-size: 22px; z-index: 2; transition: all 0.3s ease; }
-      .wellcomeai-widget-expanded {
-        position: absolute; ${WIDGET_POSITION.vertical}: 0; ${WIDGET_POSITION.horizontal}: 0;
-        width: 320px; height: 0; opacity: 0; pointer-events: none;
-        background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-        overflow: hidden; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        display: flex; flex-direction: column; z-index: 2147483646;
-      }
+      .wellcomeai-widget-expanded { position: absolute; ${WIDGET_POSITION.vertical}: 0; ${WIDGET_POSITION.horizontal}: 0; width: 320px; height: 0; opacity: 0; pointer-events: none; background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15); overflow: hidden; transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); display: flex; flex-direction: column; z-index: 2147483646; }
       .wellcomeai-widget-container.active .wellcomeai-widget-expanded { height: 400px; opacity: 1; pointer-events: all; }
       .wellcomeai-widget-container.active .wellcomeai-widget-button { transform: scale(0.9); box-shadow: 0 2px 10px rgba(74, 134, 232, 0.3); }
-      .wellcomeai-widget-header {
-        padding: 15px 20px; background: linear-gradient(135deg, #4a86e8, #2b59c3);
-        color: white; display: flex; justify-content: space-between; align-items: center;
-        border-radius: 20px 20px 0 0; position: relative; /* For diagnostic button */
-      }
+      .wellcomeai-widget-header { padding: 15px 20px; background: linear-gradient(135deg, #4a86e8, #2b59c3); color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 20px 20px 0 0; position: relative; }
       .wellcomeai-widget-title { font-weight: 600; font-size: 16px; letter-spacing: 0.3px; }
-      .wellcomeai-widget-close {
-        background: none; border: none; color: white; font-size: 18px;
-        cursor: pointer; opacity: 0.8; transition: all 0.2s;
-      }
+      .wellcomeai-widget-close { background: none; border: none; color: white; font-size: 18px; cursor: pointer; opacity: 0.8; transition: all 0.2s; }
       .wellcomeai-widget-close:hover { opacity: 1; transform: scale(1.1); }
-      .wellcomeai-widget-content {
-        flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-        background: #f9fafc; position: relative; padding: 20px;
-      }
-      .wellcomeai-main-circle {
-        width: 180px; height: 180px; border-radius: 50%;
-        background: linear-gradient(135deg, #ffffff, #e1f5fe, #4a86e8);
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-        position: relative; overflow: hidden; transition: all 0.3s ease;
-        display: flex; align-items: center; justify-content: center;
-      }
-      .wellcomeai-main-circle::before {
-        content: ''; position: absolute; width: 140%; height: 140%;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(74, 134, 232, 0.2));
-        animation: wellcomeai-wave 8s linear infinite; border-radius: 40%;
-      }
+      .wellcomeai-widget-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #f9fafc; position: relative; padding: 20px; }
+      .wellcomeai-main-circle { width: 180px; height: 180px; border-radius: 50%; background: linear-gradient(135deg, #ffffff, #e1f5fe, #4a86e8); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); position: relative; overflow: hidden; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; }
+      .wellcomeai-main-circle::before { content: ''; position: absolute; width: 140%; height: 140%; background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(74, 134, 232, 0.2)); animation: wellcomeai-wave 8s linear infinite; border-radius: 40%; }
       @keyframes wellcomeai-wave { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      .wellcomeai-main-circle.listening {
-        background: linear-gradient(135deg, #ffffff, #e3f2fd, #2196f3);
-        box-shadow: 0 0 30px rgba(33, 150, 243, 0.6);
-      }
-      .wellcomeai-main-circle.listening::before {
-        animation: wellcomeai-wave 4s linear infinite;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(33, 150, 243, 0.3));
-      }
-      .wellcomeai-main-circle.listening::after {
-        content: ''; position: absolute; width: 100%; height: 100%;
-        border-radius: 50%; border: 3px solid rgba(33, 150, 243, 0.5);
-        animation: wellcomeai-pulse 1.5s ease-out infinite;
-      }
+      .wellcomeai-main-circle.listening { background: linear-gradient(135deg, #ffffff, #e3f2fd, #2196f3); box-shadow: 0 0 30px rgba(33, 150, 243, 0.6); }
+      .wellcomeai-main-circle.listening::before { animation: wellcomeai-wave 4s linear infinite; background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(33, 150, 243, 0.3)); }
+      .wellcomeai-main-circle.listening::after { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 3px solid rgba(33, 150, 243, 0.5); animation: wellcomeai-pulse 1.5s ease-out infinite; }
       @keyframes wellcomeai-pulse { 0% { transform: scale(0.95); opacity: 0.7; } 50% { transform: scale(1.05); opacity: 0.3; } 100% { transform: scale(0.95); opacity: 0.7; } }
-      .wellcomeai-main-circle.speaking {
-        background: linear-gradient(135deg, #ffffff, #e8f5e9, #4caf50);
-        box-shadow: 0 0 30px rgba(76, 175, 80, 0.6);
-      }
-      .wellcomeai-main-circle.speaking::before {
-        animation: wellcomeai-wave 3s linear infinite;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(76, 175, 80, 0.3));
-      }
-      .wellcomeai-main-circle.speaking::after {
-        content: ''; position: absolute; width: 100%; height: 100%;
-        background: radial-gradient(circle, transparent 50%, rgba(76, 175, 80, 0.1) 100%);
-        border-radius: 50%; animation: wellcomeai-ripple 2s ease-out infinite;
-      }
+      .wellcomeai-main-circle.speaking { background: linear-gradient(135deg, #ffffff, #e8f5e9, #4caf50); box-shadow: 0 0 30px rgba(76, 175, 80, 0.6); }
+      .wellcomeai-main-circle.speaking::before { animation: wellcomeai-wave 3s linear infinite; background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(76, 175, 80, 0.3)); }
+      .wellcomeai-main-circle.speaking::after { content: ''; position: absolute; width: 100%; height: 100%; background: radial-gradient(circle, transparent 50%, rgba(76, 175, 80, 0.1) 100%); border-radius: 50%; animation: wellcomeai-ripple 2s ease-out infinite; }
       @keyframes wellcomeai-ripple { 0% { transform: scale(0.8); opacity: 0;} 50% { opacity: 0.5; } 100% { transform: scale(1.2); opacity: 0; } }
-      .wellcomeai-main-circle.interrupted {
-        background: linear-gradient(135deg, #ffffff, #ffebee, #f44336);
-        box-shadow: 0 0 30px rgba(244, 67, 54, 0.6);
-        animation: wellcomeai-interrupt-flash 0.2s ease;
-      }
+      .wellcomeai-main-circle.interrupted { background: linear-gradient(135deg, #ffffff, #ffebee, #f44336); box-shadow: 0 0 30px rgba(244, 67, 54, 0.6); animation: wellcomeai-interrupt-flash 0.2s ease; }
       @keyframes wellcomeai-interrupt-flash { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
       .wellcomeai-mic-icon { color: #4a86e8; font-size: 32px; z-index: 10; }
       .wellcomeai-main-circle.listening .wellcomeai-mic-icon { color: #2196f3; }
@@ -367,59 +255,24 @@
       .wellcomeai-audio-visualization { position: absolute; width: 100%; max-width: 160px; height: 30px; bottom: -5px; opacity: 0.8; pointer-events: none; }
       .wellcomeai-audio-bars { display: flex; align-items: flex-end; height: 30px; gap: 2px; width: 100%; justify-content: center; }
       .wellcomeai-audio-bar { width: 3px; height: 2px; background-color: #4a86e8; border-radius: 1px; transition: height 0.1s ease; }
-      .wellcomeai-loader-modal {
-        position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(255, 255, 255, 0.7);
-        display: flex; align-items: center; justify-content: center;
-        z-index: 2147483646; opacity: 0; visibility: hidden; transition: all 0.3s;
-        border-radius: 20px;
-      }
+      .wellcomeai-loader-modal { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.7); display: flex; align-items: center; justify-content: center; z-index: 2147483646; opacity: 0; visibility: hidden; transition: all 0.3s; border-radius: 20px; }
       .wellcomeai-loader-modal.active { opacity: 1; visibility: visible; }
-      .wellcomeai-loader {
-        width: 40px; height: 40px; border: 3px solid rgba(74, 134, 232, 0.3);
-        border-radius: 50%; border-top-color: #4a86e8;
-        animation: wellcomeai-spin 1s linear infinite;
-      }
+      .wellcomeai-loader { width: 40px; height: 40px; border: 3px solid rgba(74, 134, 232, 0.3); border-radius: 50%; border-top-color: #4a86e8; animation: wellcomeai-spin 1s linear infinite; }
       @keyframes wellcomeai-spin { to { transform: rotate(360deg); } }
-      .wellcomeai-message-display {
-        position: absolute; width: 90%; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: white; padding: 12px 15px; border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; font-size: 14px;
-        line-height: 1.4; opacity: 0; transition: all 0.3s; max-height: 100px;
-        overflow-y: auto; z-index: 10;
-      }
+      .wellcomeai-message-display { position: absolute; width: 90%; bottom: 20px; left: 50%; transform: translateX(-50%); background: white; padding: 12px 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; font-size: 14px; line-height: 1.4; opacity: 0; transition: all 0.3s; max-height: 100px; overflow-y: auto; z-index: 10; }
       .wellcomeai-message-display.show { opacity: 1; }
       @keyframes wellcomeai-button-pulse { 0% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(74, 134, 232, 0); } 100% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0); } }
       .wellcomeai-pulse-animation { animation: wellcomeai-button-pulse 2s infinite; }
-      .wellcomeai-connection-error {
-        color: #ef4444; background-color: rgba(254, 226, 226, 0.8);
-        border: 1px solid #ef4444; padding: 8px 12px; border-radius: 8px;
-        font-size: 13px; font-weight: 500; margin-top: 10px; text-align: center;
-        display: none;
-      }
+      .wellcomeai-connection-error { color: #ef4444; background-color: rgba(254, 226, 226, 0.8); border: 1px solid #ef4444; padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; margin-top: 10px; text-align: center; display: none; }
       .wellcomeai-connection-error.visible { display: block; }
-      .wellcomeai-retry-button {
-        background-color: #ef4444; color: white; border: none; border-radius: 4px;
-        padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 8px;
-        transition: all 0.2s;
-      }
+      .wellcomeai-retry-button { background-color: #ef4444; color: white; border: none; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 8px; transition: all 0.2s; }
       .wellcomeai-retry-button:hover { background-color: #dc2626; }
-      .wellcomeai-status-indicator {
-        position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
-        font-size: 11px; color: #64748b; padding: 4px 8px; border-radius: 10px;
-        background-color: rgba(255, 255, 255, 0.7); display: flex; align-items: center;
-        gap: 5px; opacity: 0; transition: opacity 0.3s;
-      }
+      .wellcomeai-status-indicator { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #64748b; padding: 4px 8px; border-radius: 10px; background-color: rgba(255, 255, 255, 0.7); display: flex; align-items: center; gap: 5px; opacity: 0; transition: opacity 0.3s; }
       .wellcomeai-status-indicator.show { opacity: 0.8; }
       .wellcomeai-status-dot { width: 6px; height: 6px; border-radius: 50%; background-color: #10b981; }
       .wellcomeai-status-dot.disconnected { background-color: #ef4444; }
       .wellcomeai-status-dot.connecting { background-color: #f59e0b; }
-      .wellcomeai-ios-audio-button {
-        position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
-        background-color: #4a86e8; color: white; border: none; border-radius: 15px;
-        padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
-        display: none; z-index: 100;
-      }
+      .wellcomeai-ios-audio-button { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background-color: #4a86e8; color: white; border: none; border-radius: 15px; padding: 6px 12px; font-size: 12px; font-weight: 500; cursor: pointer; display: none; z-index: 100; }
       .wellcomeai-ios-audio-button.visible { display: block; }
     `;
     document.head.appendChild(styleEl);
@@ -442,7 +295,6 @@
     widgetContainer.className = 'wellcomeai-widget-container';
     widgetContainer.id = 'wellcomeai-widget-container';
     widgetContainer.style.zIndex = "2147483647";
-
     widgetContainer.innerHTML = `
       <div class="wellcomeai-widget-button" id="wellcomeai-widget-button"><i class="fas fa-robot wellcomeai-widget-icon"></i></div>
       <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
@@ -456,10 +308,7 @@
             <div class="wellcomeai-audio-visualization" id="wellcomeai-audio-visualization"><div class="wellcomeai-audio-bars" id="wellcomeai-audio-bars"></div></div>
           </div>
           <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
-          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
-            Ошибка соединения с сервером
-            <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">Повторить подключение</button>
-          </div>
+          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error"></div>
           <button class="wellcomeai-ios-audio-button" id="wellcomeai-ios-audio-button">Нажмите для активации аудио</button>
           <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
             <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div>
@@ -490,84 +339,35 @@
       if (playPromise !== undefined) {
         playPromise.then(() => {
           widgetLog('Успешно разблокировано аудио через элемент audio');
-          if (!window.tempAudioContext) {
-            window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
+          if (!window.tempAudioContext) window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
           if (window.tempAudioContext.state === 'suspended') {
-            window.tempAudioContext.resume().then(() => {
-              window.audioContextInitialized = true;
-              widgetLog('AudioContext успешно активирован');
-              resolve(true);
-            }).catch(err => {
-              widgetLog(`Не удалось активировать AudioContext: ${err.message}`, 'error');
-              resolve(false);
-            });
-          } else {
-            window.audioContextInitialized = true;
-            resolve(true);
-          }
-        }).catch(err => {
-          widgetLog(`Ошибка при разблокировке аудио: ${err.message}`, 'error');
-          resolve(false);
-        });
-      } else {
-        widgetLog('Используем метод разблокировки для устаревших устройств');
-        setTimeout(() => {
-          playSilence(); 
-          resolve(true);
-        }, 100);
-      }
+            window.tempAudioContext.resume().then(() => { window.audioContextInitialized = true; widgetLog('AudioContext успешно активирован'); resolve(true); })
+            .catch(err => { widgetLog(`Не удалось активировать AudioContext: ${err.message}`, 'error'); resolve(false); });
+          } else { window.audioContextInitialized = true; resolve(true); }
+        }).catch(err => { widgetLog(`Ошибка при разблокировке аудио: ${err.message}`, 'error'); resolve(false); });
+      } else { widgetLog('Используем метод разблокировки для устаревших устройств'); setTimeout(() => { playSilence(); resolve(true); }, 100); }
     });
   }
   
   function forceIOSAudioUnlock() {
     if (!isIOS) return Promise.resolve(true);
     return new Promise((resolve) => {
-      const frequencies = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-      let index = 0;
+      const frequencies = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]; let index = 0;
       function playNextTone() {
-        if (index >= frequencies.length) {
-          window.hasPlayedSilence = true;
-          window.audioContextInitialized = true;
-          widgetLog('Завершено многократное разблокирование аудио на iOS');
-          resolve(true);
-          return;
-        }
+        if (index >= frequencies.length) { window.hasPlayedSilence = true; window.audioContextInitialized = true; widgetLog('Завершено многократное разблокирование аудио на iOS'); resolve(true); return; }
         try {
-          if (!window.tempAudioContext) {
-            window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
+          if (!window.tempAudioContext) window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
           const ctx = window.tempAudioContext;
-          if (ctx.state === 'suspended') {
-            ctx.resume().then(() => {
-              const oscillator = ctx.createOscillator();
-              const gainNode = ctx.createGain();
-              gainNode.gain.value = 0.01; 
-              oscillator.type = 'sine';
-              oscillator.frequency.value = frequencies[index];
-              oscillator.connect(gainNode);
-              gainNode.connect(ctx.destination);
-              oscillator.start(0);
-              oscillator.stop(0.1);
-              setTimeout(() => { index++; playNextTone(); }, 200);
-            });
-          } else {
-            const oscillator = ctx.createOscillator();
-            const gainNode = ctx.createGain();
-            gainNode.gain.value = 0.01;
-            oscillator.type = 'sine';
-            oscillator.frequency.value = frequencies[index];
-            oscillator.connect(gainNode);
-            gainNode.connect(ctx.destination);
-            oscillator.start(0);
-            oscillator.stop(0.1);
+          const playToneAction = () => {
+            const oscillator = ctx.createOscillator(); const gainNode = ctx.createGain();
+            gainNode.gain.value = 0.01; oscillator.type = 'sine'; oscillator.frequency.value = frequencies[index];
+            oscillator.connect(gainNode); gainNode.connect(ctx.destination);
+            oscillator.start(0); oscillator.stop(ctx.currentTime + 0.1); // Убедимся, что останавливаем относительно текущего времени контекста
             setTimeout(() => { index++; playNextTone(); }, 200);
-          }
-        } catch (e) {
-          widgetLog(`Ошибка при разблокировке тонов: ${e.message}`, 'warn');
-          index++;
-          setTimeout(playNextTone, 200);
-        }
+          };
+          if (ctx.state === 'suspended') ctx.resume().then(playToneAction).catch(e => { widgetLog(`Ошибка возобновления контекста при форсировании: ${e.message}`, 'warn'); index++; setTimeout(playNextTone, 200);});
+          else playToneAction();
+        } catch (e) { widgetLog(`Ошибка при разблокировке тонов: ${e.message}`, 'warn'); index++; setTimeout(playNextTone, 200); }
       }
       playNextTone();
     });
@@ -575,35 +375,19 @@
 
   function playSilence() {
     try {
-      if (!window.tempAudioContext) {
-        window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      const silentBuffer = window.tempAudioContext.createBuffer(1, 1, 22050);
-      const source = window.tempAudioContext.createBufferSource();
-      source.buffer = silentBuffer;
-      source.connect(window.tempAudioContext.destination);
-      source.start(0);
-      window.hasPlayedSilence = true;
-      widgetLog("Played silence to unlock audio on iOS");
+      if (!window.tempAudioContext) window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const silentBuffer = window.tempAudioContext.createBuffer(1, 1, 22050); const source = window.tempAudioContext.createBufferSource();
+      source.buffer = silentBuffer; source.connect(window.tempAudioContext.destination); source.start(0);
+      window.hasPlayedSilence = true; widgetLog("Played silence to unlock audio on iOS");
       if (window.tempAudioContext.state === 'suspended') {
-        window.tempAudioContext.resume().then(() => {
-          window.audioContextInitialized = true;
-          widgetLog("Audio context successfully resumed on iOS");
-        }).catch(err => {
-          widgetLog(`Failed to resume audio context: ${err.message}`, 'error');
-        });
+        window.tempAudioContext.resume().then(() => { window.audioContextInitialized = true; widgetLog("Audio context successfully resumed on iOS"); })
+        .catch(err => widgetLog(`Failed to resume audio context: ${err.message}`, 'error'));
       }
-    } catch (e) {
-      widgetLog(`Error playing silence: ${e.message}`, 'error');
-    }
+    } catch (e) { widgetLog(`Error playing silence: ${e.message}`, 'error'); }
   }
 
   function initWidget() {
-    if (!ASSISTANT_ID) {
-      widgetLog("Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
-      alert('WellcomeAI Widget Error: Assistant ID not found. Please check console for details.');
-      return;
-    }
+    if (!ASSISTANT_ID) { widgetLog("Assistant ID not found.", 'error'); alert('WellcomeAI: Assistant ID not found.'); return; }
 
     const widgetContainer = document.getElementById('wellcomeai-widget-container');
     const widgetButton = document.getElementById('wellcomeai-widget-button');
@@ -612,153 +396,100 @@
     const audioBars = document.getElementById('wellcomeai-audio-bars');
     const loaderModal = document.getElementById('wellcomeai-loader-modal');
     const messageDisplay = document.getElementById('wellcomeai-message-display');
-    const connectionError = document.getElementById('wellcomeai-connection-error');
-    const retryButton = document.getElementById('wellcomeai-retry-button'); // Уже определен, но для полноты
+    const connectionErrorEl = document.getElementById('wellcomeai-connection-error'); // Переименовано для ясности
+    // retryButton уже будет внутри connectionErrorEl, нет необходимости искать его отдельно здесь
     const statusIndicator = document.getElementById('wellcomeai-status-indicator');
     const statusDot = document.getElementById('wellcomeai-status-dot');
     const statusText = document.getElementById('wellcomeai-status-text');
     const iosAudioButton = document.getElementById('wellcomeai-ios-audio-button');
     
-    if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay) {
-      widgetLog("Some UI elements were not found!", 'error');
-      return;
+    if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay || !connectionErrorEl) {
+      widgetLog("Some UI elements were not found!", 'error'); return;
     }
     
-    widgetButton.style.opacity = '1';
-    widgetButton.style.visibility = 'visible';
-    widgetButton.style.pointerEvents = 'auto';
+    widgetButton.style.opacity = '1'; widgetButton.style.visibility = 'visible'; widgetButton.style.pointerEvents = 'auto';
     
-    let audioChunksBuffer = [];
-    let audioPlaybackQueue = [];
-    let isPlayingAudio = false;
-    let hasAudioData = false;
-    let audioDataStartTime = 0;
-    let minimumAudioLength = 300;
-    let isListening = false;
-    let websocket = null;
-    let audioContext = null;
-    let mediaStream = null;
-    let audioProcessor = null;
-    let isConnected = false;
-    let isWidgetOpen = false;
-    let connectionFailedPermanently = false;
-    // Переименованные переменные для избежания конфликтов
-    let currentPingInterval = null; 
-    let lastPingTime = Date.now();
-    // lastPongTime уже глобальная
+    let audioChunksBuffer = []; let audioPlaybackQueue = []; let isPlayingAudio = false;
+    let hasAudioData = false; let audioDataStartTime = 0; let minimumAudioLength = 300;
+    let isListening = false; let websocket = null; let audioContext = null;
+    let mediaStream = null; let audioProcessor = null; let isConnected = false;
+    let isWidgetOpen = false; let connectionFailedPermanently = false;
+    let currentPingInterval = null; let lastPingTime = Date.now(); 
+    // lastPongTime глобальная
     let connectionTimeoutTimer = null; 
     
-    let currentResponseId = null;
-    let samplesPlayedSoFar = 0;
-    let audioSamplesExpected = 0;
-    let soundDetectionCounter = 0;
-    let lastInterruptionTime = 0;
+    let currentResponseId = null; let samplesPlayedSoFar = 0; let audioSamplesExpected = 0;
+    let soundDetectionCounter = 0; let lastInterruptionTime = 0;
     
-    let lastPlaybackStartTime = 0;
-    let isInEchoSuppressionPeriod = false;
-    let gainNode = null;
-    let debugDetectionCounter = 0;
-    let lastDetectionLog = 0;
+    let lastPlaybackStartTime = 0; let isInEchoSuppressionPeriod = false;
+    let gainNode = null; let debugDetectionCounter = 0; let lastDetectionLog = 0;
     
     const AUDIO_CONFIG = { silenceThreshold: 0.01, silenceDuration: 300, bufferCheckInterval: 50, soundDetectionThreshold: 0.02 };
     const MOBILE_AUDIO_CONFIG = { silenceThreshold: 0.015, silenceDuration: 500, bufferCheckInterval: 100, soundDetectionThreshold: 0.015 };
     const INTERRUPTION_CONFIG = { soundDetectionThreshold: isIOS ? 0.01 : (isMobile ? 0.015 : 0.02), consecutiveDetections: isIOS ? 3 : (isMobile ? 3 : 2), minimumInterruptionGap: 500, gainReductionDuringPlayback: 0.3, echoSuppressionTime: 300, forceStopThreshold: 0.05 };
     const effectiveAudioConfig = isMobile ? MOBILE_AUDIO_CONFIG : AUDIO_CONFIG;
     
-    // ИСПРАВЛЕНИЕ 5: Полный поток прерывания с conversation.item.truncate
+    const ACTUAL_AUDIO_SAMPLE_RATE = 24000; // Фиксируем для WAV и подсчета семплов
+
     function sendCancel(itemId = null, sampleCount = 0) {
-      interruptionDiag.log('send_cancel_start', {
-        itemId,
-        sampleCount,
-        wsState: websocket ? websocket.readyState : 'no_websocket'
-      });
+      interruptionDiag.log('send_cancel_start', { itemId, sampleCount, wsState: websocket ? websocket.readyState : 'no_websocket' });
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         const timestamp = Date.now();
-        
-        const cancelPayload = {
-          type: "response.cancel",
-          event_id: `cancel_${timestamp}`
-        };
+        const cancelPayload = { type: "response.cancel", event_id: `cancel_${timestamp}` };
         if (itemId) cancelPayload.item_id = itemId;
         if (sampleCount > 0) cancelPayload.sample_count = sampleCount;
-        
         websocket.send(JSON.stringify(cancelPayload));
         widgetLog(`[INTERRUPTION] Sent response.cancel: itemId=${itemId || 'null'}, sampleCount=${sampleCount}`);
         interruptionDiag.log('command_sent_response.cancel', { payload: cancelPayload });
         
         setTimeout(() => {
           if (websocket && websocket.readyState === WebSocket.OPEN) {
-            const clearOutputPayload = { type: "output_audio_buffer.clear", event_id: `clear_output_${timestamp}`};
+            const clearOutputPayload = { type: "output_audio_buffer.clear", event_id: `clear_output_${timestamp}_${Math.random().toString(36).substring(2,7)}`};
             websocket.send(JSON.stringify(clearOutputPayload));
             widgetLog(`[INTERRUPTION] Sent output_audio_buffer.clear`);
             interruptionDiag.log('command_sent_output_audio_buffer.clear', { payload: clearOutputPayload });
           }
-        }, 50);
+        }, 100); 
         
         if (itemId && sampleCount > 0) {
           setTimeout(() => {
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-              const audioEndMs = Math.floor((sampleCount / 24000) * 1000); // Предполагаем 24kHz
-              const truncatePayload = {
-                type: "conversation.item.truncate",
-                event_id: `truncate_${timestamp}`,
-                item_id: itemId,
-                content_index: 0, 
-                audio_end_ms: audioEndMs
-              };
+              const audioEndMs = Math.floor((sampleCount / ACTUAL_AUDIO_SAMPLE_RATE) * 1000);
+              const truncatePayload = { type: "conversation.item.truncate", event_id: `truncate_${timestamp}_${Math.random().toString(36).substring(2,7)}`, item_id: itemId, content_index: 0, audio_end_ms: audioEndMs };
               websocket.send(JSON.stringify(truncatePayload));
-              widgetLog(`[INTERRUPTION] Sent conversation.item.truncate: audio_end_ms=${audioEndMs}`);
+              widgetLog(`[INTERRUPTION] Sent conversation.item.truncate: itemId=${itemId}, audio_end_ms=${audioEndMs}`);
               interruptionDiag.log('command_sent_conversation.item.truncate', { payload: truncatePayload });
             }
-          }, 100);
-        }
+          }, 200);
+        } else if (itemId && sampleCount === 0) { widgetLog(`[INTERRUPTION] Skipped truncate (sampleCount 0), itemId: ${itemId}`); interruptionDiag.log('skipped_truncate_sample_count_zero', {itemId}); }
+          else if (!itemId) { widgetLog(`[INTERRUPTION] Skipped truncate (no itemId)`); interruptionDiag.log('skipped_truncate_no_item_id', {sampleCount}); }
         interruptionDiag.log('send_cancel_complete', { itemId, sampleCount });
-      } else {
-        interruptionDiag.log('send_cancel_failed_not_connected', { itemId, sampleCount, wsState: websocket ? websocket.readyState : 'no_websocket' });
-      }
+      } else { interruptionDiag.log('send_cancel_failed_not_connected', { itemId, sampleCount, wsState: websocket ? websocket.readyState : 'no_websocket' }); }
     }
     
     function immediateStopAllPlayback() {
       widgetLog('[INTERRUPTION] Мгновенная остановка всего воспроизведения');
       interruptionDiag.log('immediate_stop_all_playback_called');
-      document.querySelectorAll('audio[data-wellcome-audio="true"]').forEach(audio => { // Ищем только наши аудио
+      document.querySelectorAll('audio[data-wellcome-audio="true"]').forEach(audio => {
         try {
-          audio.pause();
-          audio.currentTime = 0;
-          if (audio.src && audio.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audio.src); 
-          }
-          audio.src = ''; 
-          audio.load(); 
-          audio.remove();
-        } catch (e) {
-          widgetLog(`Error stopping audio element: ${e.message}`, 'warn');
-        }
+          audio.pause(); audio.currentTime = 0;
+          if (audio.src && audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src); 
+          audio.src = ''; audio.load(); audio.remove();
+        } catch (e) { widgetLog(`Error stopping audio element: ${e.message}`, 'warn'); }
       });
-      audioPlaybackQueue = [];
-      audioChunksBuffer = [];
-      isPlayingAudio = false;
+      audioPlaybackQueue = []; audioChunksBuffer = []; isPlayingAudio = false;
       mainCircle.classList.remove('speaking');
     }
     
     function forceResetState() {
       widgetLog('[INTERRUPTION] Принудительный сброс состояния');
-      interruptionDiag.log('force_reset_state_called');
-      currentResponseId = null;
-      samplesPlayedSoFar = 0;
-      audioSamplesExpected = 0;
-      soundDetectionCounter = 0;
-      lastPlaybackStartTime = 0;
-      isInEchoSuppressionPeriod = false;
+      interruptionDiag.log('force_reset_state_called', { oldResponseId: currentResponseId, oldSamplesPlayed: samplesPlayedSoFar, oldSamplesExpected: audioSamplesExpected });
+      currentResponseId = null; samplesPlayedSoFar = 0; audioSamplesExpected = 0;
+      soundDetectionCounter = 0; lastPlaybackStartTime = 0; isInEchoSuppressionPeriod = false;
       mainCircle.classList.remove('speaking', 'interrupted');
     }
     
-    function showInterruptionFeedback() {
-      mainCircle.classList.add('interrupted');
-      setTimeout(() => {
-        mainCircle.classList.remove('interrupted');
-      }, 200); 
-    }
+    function showInterruptionFeedback() { mainCircle.classList.add('interrupted'); setTimeout(() => mainCircle.classList.remove('interrupted'), 200); }
     
     function updateConnectionStatus(status, message) {
       if (!statusIndicator || !statusDot || !statusText) return;
@@ -771,129 +502,65 @@
       setTimeout(() => statusIndicator.classList.remove('show'), 3000);
     }
     
-    function createAudioBars(count = 20) {
-      audioBars.innerHTML = '';
-      for (let i = 0; i < count; i++) {
-        const bar = document.createElement('div');
-        bar.className = 'wellcomeai-audio-bar';
-        audioBars.appendChild(bar);
-      }
-    }
+    function createAudioBars(count = 20) { audioBars.innerHTML = ''; for (let i = 0; i < count; i++) { const bar = document.createElement('div'); bar.className = 'wellcomeai-audio-bar'; audioBars.appendChild(bar); } }
     createAudioBars();
     
     function stopAllAudioProcessing() {
-      isListening = false;
-      immediateStopAllPlayback();
-      hasAudioData = false;
-      audioDataStartTime = 0;
-      forceResetState();
+      isListening = false; immediateStopAllPlayback(); hasAudioData = false; audioDataStartTime = 0;
+      // forceResetState(); // Вызывается из immediateStopAllPlayback indirectly or playNextAudio
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_${Date.now()}`}));
-        // Отправляем полный набор команд отмены через sendCancel
         sendCancel(currentResponseId, samplesPlayedSoFar); 
       }
       resetAudioVisualization();
     }
     
-    function showMessage(message, duration = 5000) {
-      messageDisplay.textContent = message;
-      messageDisplay.classList.add('show');
-      if (duration > 0) setTimeout(() => messageDisplay.classList.remove('show'), duration);
-    }
-
+    function showMessage(message, duration = 5000) { messageDisplay.textContent = message; messageDisplay.classList.add('show'); if (duration > 0) setTimeout(() => messageDisplay.classList.remove('show'), duration); }
     function hideMessage() { messageDisplay.classList.remove('show'); }
-    
     function showConnectionError(message) {
-      if (connectionError) {
-        connectionError.innerHTML = `${message || 'Ошибка соединения с сервером'}<button class="wellcomeai-retry-button" id="wellcomeai-retry-button">Повторить подключение</button>`;
-        connectionError.classList.add('visible');
-        const newRetryButton = connectionError.querySelector('#wellcomeai-retry-button');
+      if (connectionErrorEl) {
+        connectionErrorEl.innerHTML = `${message || 'Ошибка соединения с сервером'}<button class="wellcomeai-retry-button" id="wellcomeai-retry-button-inner">Повторить</button>`;
+        connectionErrorEl.classList.add('visible');
+        const newRetryButton = connectionErrorEl.querySelector('#wellcomeai-retry-button-inner'); // Use unique ID
         if (newRetryButton) newRetryButton.addEventListener('click', () => resetConnection());
       }
     }
-    
-    function hideConnectionError() { if (connectionError) connectionError.classList.remove('visible'); }
-    
-    function resetConnection() {
-      reconnectAttempts = 0;
-      connectionFailedPermanently = false;
-      hideConnectionError();
-      showMessage("Попытка подключения...");
-      updateConnectionStatus('connecting', 'Подключение...');
-      connectWebSocket();
-    }
+    function hideConnectionError() { if (connectionErrorEl) connectionErrorEl.classList.remove('visible'); }
+    function resetConnection() { reconnectAttempts = 0; connectionFailedPermanently = false; hideConnectionError(); showMessage("Попытка подключения..."); updateConnectionStatus('connecting', 'Подключение...'); connectWebSocket(); }
     
     function openWidget() {
-      widgetLog("Opening widget");
-      widgetContainer.style.zIndex = "2147483647";
-      widgetButton.style.zIndex = "2147483647";
-      widgetContainer.classList.add('active');
-      isWidgetOpen = true;
+      widgetLog("Opening widget"); widgetContainer.style.zIndex = "2147483647"; widgetButton.style.zIndex = "2147483647";
+      widgetContainer.classList.add('active'); isWidgetOpen = true;
       const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
-      if (expandedWidget) {
-        expandedWidget.style.opacity = "1";
-        expandedWidget.style.height = "400px";
-        expandedWidget.style.pointerEvents = "all";
-        expandedWidget.style.zIndex = "2147483647";
-      }
+      if (expandedWidget) { expandedWidget.style.opacity = "1"; expandedWidget.style.height = "400px"; expandedWidget.style.pointerEvents = "all"; expandedWidget.style.zIndex = "2147483647"; }
       if (isIOS) {
         if (iosAudioButton && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
           iosAudioButton.classList.add('visible');
-          iosAudioButton.addEventListener('click', function() {
-            unlockAudioOnIOS().then(success => {
-              if (success) {
-                iosAudioButton.classList.remove('visible');
-                setTimeout(() => { if (isConnected && !isListening && !isPlayingAudio) startListening(); }, 500);
-              }
-            });
-          });
+          iosAudioButton.onclick = () => { // Используем onclick для простоты, т.к. кнопка может пересоздаваться
+            unlockAudioOnIOS().then(success => { if (success) { iosAudioButton.classList.remove('visible'); setTimeout(() => { if (isConnected && !isListening && !isPlayingAudio) startListening(); }, 500);}});
+          };
         }
         if (!window.hasPlayedSilence) unlockAudioOnIOS();
       } else if (isMobile && !window.audioContextInitialized) {
-        try {
-          if (!window.tempAudioContext) window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-          window.audioContextInitialized = true;
-          widgetLog("Mobile audio context initialized");
-        } catch (e) {
-          widgetLog(`Failed to initialize audio context: ${e.message}`, "error");
-        }
+        try { if (!window.tempAudioContext) window.tempAudioContext = new (window.AudioContext || window.webkitAudioContext)(); window.audioContextInitialized = true; widgetLog("Mobile audio context initialized"); }
+        catch (e) { widgetLog(`Failed to initialize audio context: ${e.message}`, "error"); }
       }
-      if (connectionFailedPermanently) {
-        showConnectionError('Не удалось подключиться к серверу. Нажмите кнопку "Повторить подключение".');
-        return;
-      }
+      if (connectionFailedPermanently) { showConnectionError('Не удалось подключиться. Нажмите "Повторить".'); return; }
       if (isConnected && !isReconnecting) {
-        if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
-          showMessage("Нажмите кнопку ниже для активации голосового помощника", 0);
-        } else {
-          isListening = false;
-          startListening();
-        }
+        if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) showMessage("Нажмите кнопку ниже для активации голосового помощника", 0);
+        else { isListening = false; startListening(); }
         updateConnectionStatus('connected', 'Подключено');
-      } else if (!isConnected && !isReconnecting) {
-        connectWebSocket();
-      } else {
-        widgetLog(`Cannot start listening yet: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
-        if (isReconnecting) updateConnectionStatus('connecting', 'Переподключение...');
-      }
+      } else if (!isConnected && !isReconnecting) connectWebSocket();
+      else { widgetLog(`Cannot start listening: connected=${isConnected}, listening=${isListening}, playing=${isPlayingAudio}, reconnecting=${isReconnecting}`); if (isReconnecting) updateConnectionStatus('connecting', 'Переподключение...'); }
       widgetButton.classList.remove('wellcomeai-pulse-animation');
     }
     
     function closeWidget() {
-      widgetLog("Closing widget");
-      stopAllAudioProcessing();
-      widgetContainer.classList.remove('active');
-      isWidgetOpen = false;
-      hideMessage();
-      hideConnectionError();
-      if (statusIndicator) statusIndicator.classList.remove('show');
+      widgetLog("Closing widget"); stopAllAudioProcessing(); widgetContainer.classList.remove('active'); isWidgetOpen = false;
+      hideMessage(); hideConnectionError(); if (statusIndicator) statusIndicator.classList.remove('show');
       if (iosAudioButton) iosAudioButton.classList.remove('visible');
       const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
-      if (expandedWidget) {
-        expandedWidget.style.opacity = "0";
-        expandedWidget.style.height = "0";
-        expandedWidget.style.pointerEvents = "none";
-      }
+      if (expandedWidget) { expandedWidget.style.opacity = "0"; expandedWidget.style.height = "0"; expandedWidget.style.pointerEvents = "none"; }
     }
     
     async function initAudio() {
@@ -902,102 +569,75 @@
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("Ваш браузер не поддерживает доступ к микрофону");
         const audioConstraints = isIOS ? { echoCancellation: true, noiseSuppression: true, autoGainControl: false } : 
                                  isMobile ? { echoCancellation: true, noiseSuppression: true, autoGainControl: false, sampleRate: 16000 } :
-                                 { echoCancellation: true, noiseSuppression: true, autoGainControl: false, sampleRate: 24000 };
+                                 { echoCancellation: true, noiseSuppression: true, autoGainControl: false, sampleRate: ACTUAL_AUDIO_SAMPLE_RATE };
         if (isIOS) await unlockAudioOnIOS();
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-          widgetLog(`Доступ к микрофону получен с эхо-подавлением`);
-        } catch (micError) {
-          widgetLog(`Ошибка доступа к микрофону: ${micError.message}`, 'error');
-          if (isIOS) {
-            mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } }); // Базовые для iOS
-            widgetLog('Доступ к микрофону получен с базовыми настройками для iOS');
-          } else throw micError;
+        try { mediaStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints }); widgetLog(`Доступ к микрофону получен.`); }
+        catch (micError) {
+          widgetLog(`Ошибка доступа к микрофону: ${micError.name} - ${micError.message}`, 'error');
+          if (isIOS) { mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } }); widgetLog('Доступ к микрофону iOS (fallback).'); }
+          else throw micError;
         }
+        
+        let contextSampleRate = ACTUAL_AUDIO_SAMPLE_RATE;
+        if (isIOS || isMobile) contextSampleRate = 16000; // Предпочитаем 16kHz для мобильных/iOS если возможно
+
         if (isIOS) {
-          if (window.tempAudioContext) {
-            audioContext = window.tempAudioContext;
-            if (audioContext.state === 'suspended') { await audioContext.resume(); window.audioContextInitialized = true; }
-          } else {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 }); // Для iOS используем 16000, если возможно
-            window.tempAudioContext = audioContext; window.audioContextInitialized = true;
+          if (window.tempAudioContext && window.tempAudioContext.sampleRate === contextSampleRate) audioContext = window.tempAudioContext;
+          else {
+            if(window.tempAudioContext) try { await window.tempAudioContext.close(); } catch(e){}
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: contextSampleRate });
+            window.tempAudioContext = audioContext;
           }
+          if (audioContext.state === 'suspended') { await audioContext.resume(); }
+          window.audioContextInitialized = true;
         } else {
-          const contextOptions = isMobile ? { sampleRate: 16000 } : { sampleRate: 24000 }; // Устанавливаем sampleRate
-          audioContext = new (window.AudioContext || window.webkitAudioContext)(contextOptions);
+          audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: contextSampleRate });
         }
-        widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц`);
-        const bufferSize = isIOS ? 2048 : (isMobile ? 1024 : 2048);
+        widgetLog(`AudioContext создан с частотой ${audioContext.sampleRate} Гц (запрошено ${contextSampleRate}Hz)`);
+        
+        const bufferSize = isIOS ? 2048 : (isMobile ? 1024 : (audioContext.sampleRate === 16000 ? 1024 : 2048) ); // Адаптивный bufferSize
         if (audioContext.createScriptProcessor) audioProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
         else if (audioContext.createJavaScriptNode) audioProcessor = audioContext.createJavaScriptNode(bufferSize, 1, 1);
-        else throw new Error("Ваш браузер не поддерживает обработку аудио");
+        else throw new Error("Ваш браузер не поддерживает ScriptProcessorNode/JavaScriptNode");
         
-        let isSilent = true;
-        let silenceStartTime = Date.now();
-        let lastCommitTime = 0;
-        let hasSentAudioInCurrentSegment = false;
+        let isSilent = true; let silenceStartTime = Date.now(); let lastCommitTime = 0; let hasSentAudioInCurrentSegment = false;
         
-        audioProcessor.onaudioprocess = function(e) { // ИСПРАВЛЕНИЕ 2: Улучшенная логика отмены
+        audioProcessor.onaudioprocess = function(e) {
           if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
-            const inputBuffer = e.inputBuffer;
-            let inputData = inputBuffer.getChannelData(0);
+            const inputBuffer = e.inputBuffer; let inputData = inputBuffer.getChannelData(0);
             if (inputData.length === 0) return;
-            let maxAmplitude = 0;
-            for (let i = 0; i < inputData.length; i++) maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+            let maxAmplitude = 0; for (let i = 0; i < inputData.length; i++) maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
             const now = Date.now();
-            
             isInEchoSuppressionPeriod = (now - lastPlaybackStartTime) < INTERRUPTION_CONFIG.echoSuppressionTime;
             let effectiveThreshold = INTERRUPTION_CONFIG.soundDetectionThreshold;
             if (isPlayingAudio || isInEchoSuppressionPeriod) {
               effectiveThreshold = INTERRUPTION_CONFIG.soundDetectionThreshold * 2;
               if (gainNode) gainNode.gain.value = INTERRUPTION_CONFIG.gainReductionDuringPlayback;
-            } else {
-              if (gainNode) gainNode.gain.value = 1.0;
-            }
+            } else { if (gainNode) gainNode.gain.value = 1.0; }
             const hasSound = maxAmplitude > effectiveThreshold;
             
             debugDetectionCounter++;
-            if (debugDetectionCounter % 20 === 0 && now - lastDetectionLog > 500) {
-              widgetLog(`[DEBUG] isPlayingAudio=${isPlayingAudio}, maxAmp=${maxAmplitude.toFixed(4)}, threshold=${effectiveThreshold.toFixed(4)}, hasSound=${hasSound}, echoSuppression=${isInEchoSuppressionPeriod}`);
+            if (DEBUG_MODE && debugDetectionCounter % 20 === 0 && now - lastDetectionLog > 500) { // Логируем реже
+              widgetLog(`[AUD PROC DEBUG] isPlaying:${isPlayingAudio}, maxAmp:${maxAmplitude.toFixed(4)}, thr:${effectiveThreshold.toFixed(4)}, hasSound:${hasSound}, echoSupp:${isInEchoSuppressionPeriod}, listen:${isListening}`);
               lastDetectionLog = now;
             }
 
             if (isPlayingAudio && hasSound) {
-              interruptionDiag.log('sound_detected_during_playback', {
-                  amplitude: maxAmplitude.toFixed(4),
-                  threshold: effectiveThreshold.toFixed(4),
-                  soundCounter: soundDetectionCounter,
-                  currentResponseId,
-                  samplesPlayed: samplesPlayedSoFar,
-                  isInEchoSuppression: isInEchoSuppressionPeriod
-              });
+              interruptionDiag.log('sound_detected_during_playback', { amplitude: maxAmplitude.toFixed(4), threshold: effectiveThreshold.toFixed(4), soundCounter: soundDetectionCounter, currentResponseId, samplesPlayed: samplesPlayedSoFar, isInEchoSuppression: isInEchoSuppressionPeriod });
               if (now - lastInterruptionTime > INTERRUPTION_CONFIG.minimumInterruptionGap) {
                 soundDetectionCounter++;
                 widgetLog(`[INTERRUPTION] Звук детектирован! Counter: ${soundDetectionCounter}/${INTERRUPTION_CONFIG.consecutiveDetections}, амплитуда: ${maxAmplitude.toFixed(4)}`);
                 if (soundDetectionCounter >= INTERRUPTION_CONFIG.consecutiveDetections) {
-                  widgetLog(`[INTERRUPTION] ДЕТЕКТИРОВАНА РЕЧЬ ПОЛЬЗОВАТЕЛЯ! Мгновенная остановка!`);
-                  interruptionDiag.log('interruption_triggered', {
-                    responseId: currentResponseId,
-                    samplesPlayed: samplesPlayedSoFar,
-                    timeSinceLastInterruption: now - lastInterruptionTime,
-                    amplitude: maxAmplitude.toFixed(4)
-                  });
-                  immediateStopAllPlayback();
-                  showInterruptionFeedback();
+                  widgetLog(`[INTERRUPTION] ДЕТЕКТИРОВАНА РЕЧЬ ПОЛЬЗОВАТЕЛЯ!`);
+                  interruptionDiag.log('interruption_triggered', { responseId: currentResponseId, samplesPlayed: samplesPlayedSoFar, timeSinceLastInterruption: now - lastInterruptionTime, amplitude: maxAmplitude.toFixed(4) });
+                  immediateStopAllPlayback(); showInterruptionFeedback();
                   sendCancel(currentResponseId, samplesPlayedSoFar); 
-                  lastInterruptionTime = now;
-                  forceResetState();
-                  soundDetectionCounter = 0;
-                  if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_${Date.now()}` }));
-                  }
-                  hasAudioData = true;
-                  audioDataStartTime = Date.now();
+                  lastInterruptionTime = now; forceResetState(); soundDetectionCounter = 0;
+                  if (websocket && websocket.readyState === WebSocket.OPEN) websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_interrupt_${Date.now()}` }));
+                  hasAudioData = true; audioDataStartTime = Date.now(); // Начинаем новую запись сразу
                 }
               }
-            } else {
-              if (soundDetectionCounter > 0) soundDetectionCounter = 0;
-            }
+            } else if (soundDetectionCounter > 0) soundDetectionCounter = 0;
             
             updateAudioVisualization(inputData);
             const pcm16Data = new Int16Array(inputData.length);
@@ -1012,8 +652,7 @@
               isSilent = false; silenceStartTime = now;
               if (!mainCircle.classList.contains('listening') && !mainCircle.classList.contains('speaking')) mainCircle.classList.add('listening');
             } else if (!isSilent) {
-              const silenceDuration = now - silenceStartTime;
-              const effectiveSilenceDuration = isIOS ? 800 : effectiveAudioConfig.silenceDuration;
+              const silenceDuration = now - silenceStartTime; const effectiveSilenceDuration = isIOS ? 800 : effectiveAudioConfig.silenceDuration;
               if (silenceDuration > effectiveSilenceDuration) {
                 isSilent = true;
                 if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
@@ -1026,57 +665,36 @@
         };
         
         const streamSource = audioContext.createMediaStreamSource(mediaStream);
-        gainNode = audioContext.createGain();
-        gainNode.gain.value = 1.0;
-        streamSource.connect(gainNode);
-        gainNode.connect(audioProcessor);
-        const dummyGain = audioContext.createGain();
-        dummyGain.gain.value = 0;
-        audioProcessor.connect(dummyGain);
-        dummyGain.connect(audioContext.destination);
-        widgetLog("Аудио инициализировано с агрессивной детекцией перебивания");
+        gainNode = audioContext.createGain(); gainNode.gain.value = 1.0;
+        streamSource.connect(gainNode); gainNode.connect(audioProcessor);
+        const dummyGain = audioContext.createGain(); dummyGain.gain.value = 0;
+        audioProcessor.connect(dummyGain); dummyGain.connect(audioContext.destination);
+        widgetLog("Аудио инициализировано.");
         return true;
       } catch (error) {
-        widgetLog(`Ошибка инициализации аудио: ${error.message}`, "error");
-        if (isIOS && iosAudioButton) { iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку ниже для активации микрофона", 0); } 
-        else showMessage("Ошибка доступа к микрофону. Проверьте настройки браузера.");
+        widgetLog(`Ошибка инициализации аудио: ${error.name} - ${error.message}`, "error");
+        if (isIOS && iosAudioButton) { iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку для активации микрофона", 0); } 
+        else showMessage("Ошибка доступа к микрофону. Проверьте настройки.");
         return false;
       }
     }
     
     async function startListening() {
-      if (!isConnected || isReconnecting) {
-        widgetLog(`Не удается начать прослушивание: isConnected=${isConnected}, isReconnecting=${isReconnecting}`);
-        return;
-      }
-      if (isListening) {
-        widgetLog('[INTERRUPTION] isListening был true, принудительно сбрасываем');
-        isListening = false;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      if (!isConnected || isReconnecting) { widgetLog(`Не удается начать прослушивание: connected=${isConnected}, reconnecting=${isReconnecting}`); return; }
+      if (isListening) { widgetLog('[INTERRUPTION] isListening был true, сбрасываем'); isListening = false; await new Promise(resolve => setTimeout(resolve, 100)); }
       if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) await forceIOSAudioUnlock();
-      isListening = true;
-      widgetLog('[INTERRUPTION] Начинаем прослушивание с агрессивной детекцией');
-      if (websocket && websocket.readyState === WebSocket.OPEN) websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_${Date.now()}` }));
+      
+      isListening = true; widgetLog('[INTERRUPTION] Начинаем прослушивание.');
+      if (websocket && websocket.readyState === WebSocket.OPEN) websocket.send(JSON.stringify({ type: "input_audio_buffer.clear", event_id: `clear_start_${Date.now()}` }));
+      
       if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
         await unlockAudioOnIOS();
-        if (!window.audioContextInitialized) {
-          if (iosAudioButton) iosAudioButton.classList.add('visible');
-          showMessage("Нажмите кнопку ниже для активации микрофона", 0);
-          isListening = false; return;
-        }
+        if (!window.audioContextInitialized) { if (iosAudioButton) iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку для активации микрофона", 0); isListening = false; return; }
       }
-      if (!audioContext) {
-        const success = await initAudio();
-        if (!success) { widgetLog('Не удалось инициализировать аудио', 'error'); isListening = false; return; }
-      } else if (audioContext.state === 'suspended') {
-        try {
-          await audioContext.resume(); widgetLog('AudioContext возобновлен');
-        } catch (error) {
-          widgetLog(`Не удалось возобновить AudioContext: ${error}`, 'error'); isListening = false;
-          if (isIOS && iosAudioButton) { iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку ниже для активации микрофона", 0); }
-          return;
-        }
+      if (!audioContext) { const success = await initAudio(); if (!success) { widgetLog('Не удалось инициализировать аудио', 'error'); isListening = false; return; } }
+      else if (audioContext.state === 'suspended') {
+        try { await audioContext.resume(); widgetLog('AudioContext возобновлен'); }
+        catch (error) { widgetLog(`Не удалось возобновить AudioContext: ${error}`, 'error'); isListening = false; if (isIOS && iosAudioButton) { iosAudioButton.classList.add('visible'); showMessage("Нажмите кнопку для активации микрофона", 0); } return; }
       }
       hasAudioData = false; audioDataStartTime = 0;
       if (!isPlayingAudio) { mainCircle.classList.add('listening'); mainCircle.classList.remove('speaking'); }
@@ -1089,7 +707,7 @@
       if (audioLength < minimumAudioLength) {
         widgetLog(`Аудиобуфер слишком короткий (${audioLength}мс), ожидаем больше данных`, "warn");
         const extraDelay = isMobile ? 200 : 50;
-        setTimeout(() => { if (isListening && hasAudioData && !isReconnecting) { widgetLog(`Отправка аудиобуфера после дополнительной записи (${Date.now() - audioDataStartTime}мс)`); sendCommitBuffer(); } }, minimumAudioLength - audioLength + extraDelay);
+        setTimeout(() => { if (isListening && hasAudioData && !isReconnecting) { widgetLog(`Отправка аудиобуфера после доп. записи (${Date.now() - audioDataStartTime}мс)`); sendCommitBuffer(); } }, minimumAudioLength - audioLength + extraDelay);
         return;
       }
       sendCommitBuffer();
@@ -1098,45 +716,18 @@
     function sendCommitBuffer() {
       widgetLog("Отправка аудиобуфера");
       const audioLength = Date.now() - audioDataStartTime;
-      if (audioLength < 100) {
-        widgetLog(`Аудиобуфер слишком короткий для OpenAI (${audioLength}мс < 100мс), не отправляем`, "warn");
-        hasAudioData = false; audioDataStartTime = 0; return;
-      }
-      if (isMobile) setTimeout(() => mainCircle.classList.remove('listening'), 100);
-      else mainCircle.classList.remove('listening');
+      if (audioLength < 100) { widgetLog(`Аудиобуфер < 100мс, не отправляем`, "warn"); hasAudioData = false; audioDataStartTime = 0; return; }
+      if (isMobile) setTimeout(() => mainCircle.classList.remove('listening'), 100); else mainCircle.classList.remove('listening');
       websocket.send(JSON.stringify({ type: "input_audio_buffer.commit", event_id: `commit_${Date.now()}` }));
       if (isMobile && loaderModal) { loaderModal.classList.add('active'); setTimeout(() => loaderModal.classList.remove('active'), 1000); }
       hasAudioData = false; audioDataStartTime = 0;
     }
     
-    function arrayBufferToBase64(buffer) {
-      const bytes = new Uint8Array(buffer); let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      return btoa(binary);
-    }
-    
-    function base64ToArrayBuffer(base64) {
-      try {
-        const binaryString = atob(base64); const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-        return bytes.buffer;
-      } catch (e) { widgetLog(`Ошибка при декодировании base64: ${e.message}`, "error"); return new ArrayBuffer(0); }
-    }
-    
-    function updateAudioVisualization(audioData) {
-      const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar'); const step = Math.floor(audioData.length / bars.length);
-      for (let i = 0; i < bars.length; i++) {
-        let sum = 0;
-        for (let j = 0; j < step; j++) { const index = i * step + j; if (index < audioData.length) sum += Math.abs(audioData[index]); }
-        const average = sum / step; const multiplier = isMobile ? 150 : 100;
-        const height = 2 + Math.min(28, Math.floor(average * multiplier));
-        bars[i].style.height = `${height}px`;
-      }
-    }
-    
+    function arrayBufferToBase64(buffer) { const bytes = new Uint8Array(buffer); let binary = ''; for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]); return btoa(binary); }
+    function base64ToArrayBuffer(base64) { try { const bs = atob(base64); const b = new Uint8Array(bs.length); for (let i = 0; i < bs.length; i++) b[i] = bs.charCodeAt(i); return b.buffer; } catch (e) { widgetLog(`Ошибка base64->ArrayBuffer: ${e.message}`, "error"); return new ArrayBuffer(0); } }
+    function updateAudioVisualization(audioData) { const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar'); const step = Math.floor(audioData.length / bars.length); for (let i = 0; i < bars.length; i++) { let sum = 0; for (let j = 0; j < step; j++) { const index = i * step + j; if (index < audioData.length) sum += Math.abs(audioData[index]); } const average = sum / step; const multiplier = isMobile ? 150 : 100; const height = 2 + Math.min(28, Math.floor(average * multiplier)); bars[i].style.height = `${height}px`; } }
     function resetAudioVisualization() { const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar'); bars.forEach(bar => bar.style.height = '2px'); }
-    
-    function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
+    function createWavFromPcm(pcmBuffer, sampleRate = ACTUAL_AUDIO_SAMPLE_RATE) {
       const wavHeader = new ArrayBuffer(44); const view = new DataView(wavHeader);
       view.setUint8(0, 'R'.charCodeAt(0)); view.setUint8(1, 'I'.charCodeAt(0)); view.setUint8(2, 'F'.charCodeAt(0)); view.setUint8(3, 'F'.charCodeAt(0));
       view.setUint32(4, 36 + pcmBuffer.byteLength, true);
@@ -1147,174 +738,66 @@
       view.setUint16(32, 2, true); view.setUint16(34, 16, true);
       view.setUint8(36, 'd'.charCodeAt(0)); view.setUint8(37, 'a'.charCodeAt(0)); view.setUint8(38, 't'.charCodeAt(0)); view.setUint8(39, 'a'.charCodeAt(0));
       view.setUint32(40, pcmBuffer.byteLength, true);
-      const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
-      const wavBytes = new Uint8Array(wavBuffer);
-      wavBytes.set(new Uint8Array(wavHeader), 0);
-      wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
+      const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength); const wavBytes = new Uint8Array(wavBuffer);
+      wavBytes.set(new Uint8Array(wavHeader), 0); wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
       return wavBuffer;
     }
     
-    // ИСПРАВЛЕНИЕ 5: Улучшенное отслеживание воспроизведенных семплов
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
-        isPlayingAudio = false;
-        mainCircle.classList.remove('speaking');
-        forceResetState(); // Сбрасываем состояние, включая currentResponseId
-        
-        if (!isWidgetOpen) { // Добавлено, чтобы не срабатывало при закрытом виджете
-          widgetButton.classList.add('wellcomeai-pulse-animation');
-        }
-        
-        if (isWidgetOpen) {
-          setTimeout(() => {
-            isListening = false;
-            startListening();
-          }, 300); 
-        }
+        isPlayingAudio = false; mainCircle.classList.remove('speaking');
+        const oldResponseIdForLog = currentResponseId;
+        forceResetState(); 
+        interruptionDiag.log('audio_queue_empty_state_reset', { afterResponseId: oldResponseIdForLog });
+        if (!isWidgetOpen) widgetButton.classList.add('wellcomeai-pulse-animation');
+        if (isWidgetOpen && isConnected && !isReconnecting) { widgetLog('[INTERRUPTION] Audio queue empty, restarting listening.'); setTimeout(() => { isListening = false; startListening(); }, 300); }
         return;
       }
-      
-      isPlayingAudio = true;
-      lastPlaybackStartTime = Date.now();
-      mainCircle.classList.add('speaking');
-      mainCircle.classList.remove('listening');
-      
+      isPlayingAudio = true; lastPlaybackStartTime = Date.now();
+      mainCircle.classList.add('speaking'); mainCircle.classList.remove('listening');
       const audioBase64 = audioPlaybackQueue.shift();
-      
       try {
-        const audioData = base64ToArrayBuffer(audioBase64);
-        if (audioData.byteLength === 0) {
-          playNextAudio();
-          return;
-        }
-        
-        const sampleRate = 24000; // Константа для WAV и отслеживания
-        const wavBuffer = createWavFromPcm(audioData, sampleRate); 
-        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-        
-        const audio = new Audio();
-        audio.setAttribute('data-wellcome-audio', 'true');
-        audio.src = audioUrl;
-        audio.volume = 0.7; 
-        audio.preload = 'auto';
-         // audio.load(); // Не всегда нужен, браузеры делают это с src
-        
-        let startTime = null;
-        const totalSamplesInChunk = audioData.byteLength / 2; 
-        let samplesPlayedInThisChunk = 0;
+        const audioData = base64ToArrayBuffer(audioBase64); if (audioData.byteLength === 0) { playNextAudio(); return; }
+        const wavBuffer = createWavFromPcm(audioData, ACTUAL_AUDIO_SAMPLE_RATE); 
+        const blob = new Blob([wavBuffer], { type: 'audio/wav' }); const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(); audio.setAttribute('data-wellcome-audio', 'true');
+        audio.src = audioUrl; audio.volume = 0.7; audio.preload = 'auto';
+        let startTime = null; const sampleRate = ACTUAL_AUDIO_SAMPLE_RATE;
+        const totalSamplesInChunk = audioData.byteLength / 2; let samplesPlayedInThisChunk = 0;
         const initialSamplesPlayedSoFar = samplesPlayedSoFar;
-
         audio.ontimeupdate = function() {
           if (startTime && currentResponseId) {
-            const currentTime = audio.currentTime;
-            const currentPlayedInChunk = Math.floor(currentTime * sampleRate);
-            
-            samplesPlayedSoFar = initialSamplesPlayedSoFar + currentPlayedInChunk;
-            samplesPlayedInThisChunk = currentPlayedInChunk;
-
-            if (Math.floor(currentTime * 2) % 1 === 0) { // Логируем каждые ~0.5 сек
-              widgetLog(`[INTERRUPTION] Воспроизведено: ${samplesPlayedSoFar} семплов (chunk: ${samplesPlayedInThisChunk}/${totalSamplesInChunk}) из ${audioSamplesExpected || 'N/A'}`);
-              interruptionDiag.log('audio_playback_progress', {
-                  responseId: currentResponseId,
-                  samplesPlayedSoFar: samplesPlayedSoFar,
-                  samplesInChunk: samplesPlayedInThisChunk,
-                  totalSamplesInChunk: totalSamplesInChunk,
-                  expectedTotal: audioSamplesExpected,
-                  currentTime: currentTime.toFixed(2)
-              });
-            }
+            const currentTime = audio.currentTime; const currentPlayedInChunk = Math.floor(currentTime * sampleRate);
+            samplesPlayedSoFar = initialSamplesPlayedSoFar + currentPlayedInChunk; samplesPlayedInThisChunk = currentPlayedInChunk;
+            if (DEBUG_MODE && Math.floor(currentTime * 2) % 1 === 0) { widgetLog(`[PLAYBACK] ${currentResponseId}: ${samplesPlayedSoFar} s (chunk: ${samplesPlayedInThisChunk}/${totalSamplesInChunk}) of ${audioSamplesExpected || '?'}`); interruptionDiag.log('audio_playback_progress', { responseId: currentResponseId, samplesPlayedSoFar, samplesInChunk: samplesPlayedInThisChunk, totalSamplesInChunk, expectedTotal: audioSamplesExpected, currentTime: currentTime.toFixed(2) }); }
           }
         };
-        
-        audio.onplay = function() { // 'onplay' более надежен чем 'oncanplaythrough' для начала отсчета
-          startTime = Date.now();
-          widgetLog(`[INTERRUPTION] Начало воспроизведения аудио чанка: ${totalSamplesInChunk} семплов. Response ID: ${currentResponseId || 'N/A'}`);
-          interruptionDiag.log('audio_chunk_play_started', {
-            responseId: currentResponseId,
-            totalSamplesInChunk,
-            samplesPlayedSoFar_before_chunk: initialSamplesPlayedSoFar
-          });
-        };
-        
+        audio.onplay = function() { startTime = Date.now(); widgetLog(`[PLAYBACK] Start chunk: ${totalSamplesInChunk}s. RespID: ${currentResponseId || 'N/A'}`); interruptionDiag.log('audio_chunk_play_started', { responseId: currentResponseId, totalSamplesInChunk, samplesPlayedSoFar_before_chunk: initialSamplesPlayedSoFar }); };
         audio.onended = function() {
-          widgetLog(`[INTERRUPTION] Завершение воспроизведения аудио чанка. Response ID: ${currentResponseId || 'N/A'}`);
-          if (currentResponseId) {
-             samplesPlayedSoFar = initialSamplesPlayedSoFar + totalSamplesInChunk;
-          }
-          interruptionDiag.log('audio_chunk_play_ended', {
-            responseId: currentResponseId,
-            samplesPlayedSoFar_after_chunk: samplesPlayedSoFar,
-            totalSamplesInChunk
-          });
-          URL.revokeObjectURL(audioUrl);
-          playNextAudio();
+          widgetLog(`[PLAYBACK] End chunk. RespID: ${currentResponseId || 'N/A'}`);
+          if (currentResponseId) samplesPlayedSoFar = initialSamplesPlayedSoFar + totalSamplesInChunk;
+          interruptionDiag.log('audio_chunk_play_ended', { responseId: currentResponseId, samplesPlayedSoFar_after_chunk: samplesPlayedSoFar, totalSamplesInChunk });
+          URL.revokeObjectURL(audioUrl); playNextAudio();
         };
-        
-        audio.onerror = function(e) {
-          widgetLog(`Ошибка воспроизведения аудио: ${e.target.error ? e.target.error.message : 'Unknown error'}`, 'error');
-          interruptionDiag.log('audio_playback_error', { responseId: currentResponseId, error: e.target.error ? e.target.error.message : 'Unknown error' });
-          URL.revokeObjectURL(audioUrl);
-          playNextAudio();
-        };
-        
+        audio.onerror = function(e) { widgetLog(`Audio playback error: ${e.target.error?.message || 'Unknown'}`, 'error'); interruptionDiag.log('audio_playback_error', { responseId: currentResponseId, error: e.target.error?.message || 'Unknown' }); URL.revokeObjectURL(audioUrl); playNextAudio(); };
         const playPromise = audio.play();
-        if (playPromise) {
-          playPromise.catch(error => {
-            widgetLog(`Ошибка запуска воспроизведения: ${error.message}`, "error");
-            interruptionDiag.log('audio_play_promise_error', { responseId: currentResponseId, error: error.message });
-            if (audioUrl) URL.revokeObjectURL(audioUrl);
-            playNextAudio();
-          });
-        } else {
-            // Если play() не возвращает Promise (старые браузеры), пытаемся продолжить
-            widgetLog('audio.play() did not return a Promise.', 'warn');
-            // playNextAudio(); // Может быть слишком агрессивно, оставляем как есть
-        }
-        
-      } catch (error) {
-        widgetLog(`Общая ошибка в playNextAudio: ${error.message}`, "error");
-        interruptionDiag.log('playNextAudio_general_error', { responseId: currentResponseId, error: error.message });
-        playNextAudio();
-      }
+        if (playPromise) playPromise.catch(error => { widgetLog(`Audio play() error: ${error.message}`, "error"); interruptionDiag.log('audio_play_promise_error', { responseId: currentResponseId, error: error.message }); if (audioUrl) URL.revokeObjectURL(audioUrl); playNextAudio(); });
+      } catch (error) { widgetLog(`General playNextAudio error: ${error.message}`, "error"); interruptionDiag.log('playNextAudio_general_error', { responseId: currentResponseId, error: error.message }); playNextAudio(); }
     }
     
-    function addAudioToPlaybackQueue(audioBase64) {
-      if (!audioBase64 || typeof audioBase64 !== 'string') return;
-      audioPlaybackQueue.push(audioBase64);
-      if (!isPlayingAudio) playNextAudio();
-    }
+    function addAudioToPlaybackQueue(audioBase64) { if (!audioBase64 || typeof audioBase64 !== 'string') return; audioPlaybackQueue.push(audioBase64); if (!isPlayingAudio) playNextAudio(); }
     
     function reconnectWithDelay(initialDelay = 0) {
       const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-      if (reconnectAttempts >= maxAttempts) {
-        widgetLog('Maximum reconnection attempts reached'); isReconnecting = false; connectionFailedPermanently = true;
-        if (isWidgetOpen) { showConnectionError("Не удалось восстановить соединение. Попробуйте перезагрузить страницу."); updateConnectionStatus('disconnected', 'Отключено'); } 
-        else widgetButton.classList.add('wellcomeai-pulse-animation');
-        return;
-      }
-      isReconnecting = true;
-      if (isWidgetOpen) { showMessage("Соединение прервано. Переподключение...", 0); updateConnectionStatus('connecting', 'Переподключение...'); }
+      if (reconnectAttempts >= maxAttempts) { widgetLog('Max reconnect attempts.'); isReconnecting = false; connectionFailedPermanently = true; if (isWidgetOpen) { showConnectionError("Не удалось восстановить. Попробуйте перезагрузить."); updateConnectionStatus('disconnected', 'Отключено'); } else widgetButton.classList.add('wellcomeai-pulse-animation'); return; }
+      isReconnecting = true; if (isWidgetOpen) { showMessage("Соединение прервано. Переподключение...", 0); updateConnectionStatus('connecting', 'Переподключение...'); }
       const delay = initialDelay > 0 ? initialDelay : isMobile ? Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) : Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-      reconnectAttempts++;
-      widgetLog(`Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
+      reconnectAttempts++; widgetLog(`Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${maxAttempts})`);
       setTimeout(() => {
         if (isReconnecting) {
           connectWebSocket().then(success => {
-            if (success) {
-              reconnectAttempts = 0; isReconnecting = false;
-              if (isWidgetOpen) {
-                showMessage("Соединение восстановлено", 3000); updateConnectionStatus('connected', 'Подключено');
-                setTimeout(() => {
-                  if (isWidgetOpen && !isListening) {
-                    if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
-                      if (iosAudioButton) iosAudioButton.classList.add('visible');
-                      showMessage("Нажмите кнопку ниже для активации микрофона", 0);
-                    } else startListening();
-                  }
-                }, 1000);
-              }
-            } else isReconnecting = false;
+            if (success) { reconnectAttempts = 0; isReconnecting = false; if (isWidgetOpen) { showMessage("Соединение восстановлено", 3000); updateConnectionStatus('connected', 'Подключено'); setTimeout(() => { if (isWidgetOpen && !isListening) { if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) { if (iosAudioButton) iosAudioButton.classList.add('visible'); showMessage("Нажмите для активации микрофона", 0); } else startListening(); } }, 1000);}}
+            else isReconnecting = false;
           }).catch(() => isReconnecting = false);
         }
       }, delay);
@@ -1322,203 +805,89 @@
     
     async function connectWebSocket() {
       try {
-        loaderModal.classList.add('active'); widgetLog("Подключение...");
-        isReconnecting = true; hideConnectionError();
-        if (!ASSISTANT_ID) {
-          widgetLog('Assistant ID not found!', 'error'); showMessage("Ошибка: ID ассистента не указан. Проверьте код встраивания.");
-          loaderModal.classList.remove('active'); return false;
-        }
-        widgetLog(`Connecting to WebSocket at: ${WS_URL}`);
+        loaderModal.classList.add('active'); widgetLog("Подключение..."); isReconnecting = true; hideConnectionError();
+        if (!ASSISTANT_ID) { widgetLog('Assistant ID not found!', 'error'); showMessage("Ошибка: ID ассистента не найден."); loaderModal.classList.remove('active'); return false; }
+        widgetLog(`Connecting to: ${WS_URL}`);
         if (websocket) try { websocket.close(); } catch (e) {}
         if (currentPingInterval) { clearInterval(currentPingInterval); currentPingInterval = null; }
         if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
         
-        websocket = new WebSocket(WS_URL);
-        websocket.binaryType = 'arraybuffer';
-        
+        websocket = new WebSocket(WS_URL); websocket.binaryType = 'arraybuffer';
         connectionTimeoutTimer = setTimeout(() => {
-          widgetLog("Превышено время ожидания соединения", "error");
-          if (websocket) websocket.close();
-          isReconnecting = false; loaderModal.classList.remove('active');
-          reconnectAttempts++;
-          const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-          if (reconnectAttempts >= maxAttempts) {
-            connectionFailedPermanently = true;
-            if (isWidgetOpen) { showConnectionError("Не удалось подключиться к серверу. Пожалуйста, попробуйте позже."); updateConnectionStatus('disconnected', 'Отключено'); } 
-            else widgetButton.classList.add('wellcomeai-pulse-animation');
-          } else {
-            const delay = isMobile ? Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) : Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-            widgetLog(`Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
-            if (isWidgetOpen) { showMessage(`Превышено время ожидания. Повторная попытка через ${Math.round(delay/1000)} сек...`); updateConnectionStatus('connecting', 'Переподключение...'); }
-            setTimeout(() => connectWebSocket(), delay);
-          }
+          widgetLog("Таймаут соединения", "error"); if (websocket) websocket.close(); isReconnecting = false; loaderModal.classList.remove('active');
+          reconnectAttempts++; const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+          if (reconnectAttempts >= maxAttempts) { connectionFailedPermanently = true; if (isWidgetOpen) { showConnectionError("Не удалось подключиться. Попробуйте позже."); updateConnectionStatus('disconnected', 'Отключено'); } else widgetButton.classList.add('wellcomeai-pulse-animation'); }
+          else { const delay = isMobile ? Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) : Math.min(30000, Math.pow(2, reconnectAttempts) * 1000); widgetLog(`Переподключение через ${delay/1000}с (${reconnectAttempts}/${maxAttempts})`); if (isWidgetOpen) { showMessage(`Таймаут. Повтор через ${Math.round(delay/1000)}с...`); updateConnectionStatus('connecting', 'Переподключение...'); } setTimeout(() => connectWebSocket(), delay); }
         }, CONNECTION_TIMEOUT);
         
         websocket.onopen = function() {
-          clearTimeout(connectionTimeoutTimer);
-          widgetLog('WebSocket connection established'); isConnected = true; isReconnecting = false;
+          clearTimeout(connectionTimeoutTimer); widgetLog('WebSocket подключен'); isConnected = true; isReconnecting = false;
           reconnectAttempts = 0; connectionFailedPermanently = false; loaderModal.classList.remove('active');
           lastPingTime = Date.now(); lastPongTime = Date.now();
           const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
           currentPingInterval = setInterval(() => {
             if (websocket && websocket.readyState === WebSocket.OPEN) {
-              try {
-                websocket.send(JSON.stringify({ type: "ping" })); lastPingTime = Date.now();
-                if (Date.now() - lastPongTime > pingIntervalTime * 3) {
-                  widgetLog("Ping timeout, no pong received", "warn");
-                  clearInterval(currentPingInterval); websocket.close(); reconnectWithDelay(1000);
-                }
-              } catch (e) { widgetLog(`Error sending ping: ${e.message}`, "error"); }
+              try { websocket.send(JSON.stringify({ type: "ping" })); lastPingTime = Date.now(); if (Date.now() - lastPongTime > pingIntervalTime * 3) { widgetLog("Ping timeout", "warn"); clearInterval(currentPingInterval); websocket.close(); reconnectWithDelay(1000); } }
+              catch (e) { widgetLog(`Ping error: ${e.message}`, "error"); }
             }
           }, pingIntervalTime);
-          hideConnectionError();
-          if (isWidgetOpen) updateConnectionStatus('connected', 'Подключено');
-          if (isWidgetOpen) {
-            if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
-              if (iosAudioButton) iosAudioButton.classList.add('visible');
-              showMessage("Нажмите кнопку ниже для активации микрофона", 0);
-            } else { isListening = false; startListening(); }
-          }
+          hideConnectionError(); if (isWidgetOpen) updateConnectionStatus('connected', 'Подключено');
+          if (isWidgetOpen) { if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) { if (iosAudioButton) iosAudioButton.classList.add('visible'); showMessage("Нажмите для активации микрофона", 0); } else { isListening = false; startListening(); } }
         };
         
-        // ИСПРАВЛЕНИЕ 1: Отслеживание ID ответа с самого начала + ДИАГНОСТИКА
         websocket.onmessage = function(event) {
           try {
-            if (event.data instanceof Blob) return; // Игнорируем Blob данные, если такие придут
-            if (!event.data) return;
-
-            const data = JSON.parse(event.data);
-            lastPongTime = Date.now(); // Обновляем время последнего pong при любом сообщении
+            if (event.data instanceof Blob) return; if (!event.data) return;
+            const data = JSON.parse(event.data); lastPongTime = Date.now();
             const msg_type = data.type;
-
-            // Диагностика для всех сообщений, кроме самых частых (типа ack, pong)
             const veryFrequentMessagesForDiag = ['input_audio_buffer.append.ack', 'pong', 'response.audio_transcript.delta', 'conversation.item.input_audio_transcription.delta'];
-            if (!veryFrequentMessagesForDiag.includes(msg_type)) {
-                 interruptionDiag.log('websocket_message_received', { type: msg_type, data: (msg_type === 'audio' || msg_type === 'response.audio.delta') ? {type:msg_type, len: data.delta?.length || data.data?.length, item_id: data.item_id} : data });
-            }
+            if (!veryFrequentMessagesForDiag.includes(msg_type)) interruptionDiag.log('websocket_message_received', { type: msg_type, data: (msg_type === 'audio' || msg_type === 'response.audio.delta') ? {type:msg_type, len: data.delta?.length || data.data?.length, item_id: data.item_id} : data });
             
-            // Отслеживание ID и ожидаемых семплов
-            if (msg_type === 'response.created') {
-              currentResponseId = data.response?.id;
-              samplesPlayedSoFar = 0;
-              audioSamplesExpected = 0; // Сброс ожидаемых семплов
-              widgetLog(`[INTERRUPTION] Начало нового ответа (created): ${currentResponseId}`);
-              // interruptionDiag.log('response_created', { responseId: currentResponseId }); // Уже логируется выше
-            }
+            if (msg_type === 'response.created') { if (currentResponseId) interruptionDiag.log('response_created_while_active', { oldId: currentResponseId, newId: data.response?.id }); currentResponseId = data.response?.id; samplesPlayedSoFar = 0; audioSamplesExpected = 0; widgetLog(`[INTERRUPTION] New response (created): ${currentResponseId}`); }
+            if (msg_type === 'response.output_item.added') { if (!currentResponseId && data.item?.id) { currentResponseId = data.item.id; samplesPlayedSoFar = 0; audioSamplesExpected = 0; widgetLog(`[INTERRUPTION] New response (item_added): ${currentResponseId}`); } }
+            if (msg_type === 'response.audio.delta') { if (data.delta && currentResponseId && (data.item_id === currentResponseId || !data.item_id /* fallback */) ) { try { const chunk = base64ToArrayBuffer(data.delta); audioSamplesExpected += chunk.byteLength / 2; } catch (e) { widgetLog(`Err calc expected samples: ${e.message}`, 'warn'); interruptionDiag.log('error_calculating_expected_samples', { error: e.message, deltaLength: data.delta?.length }); } } }
+            if (msg_type === 'response.done') { widgetLog(`[INTERRUPTION] Response done: ${currentResponseId || 'N/A'}`); /* ID сбрасывается в playNextAudio/forceReset */ }
             
-            if (msg_type === 'response.output_item.added') {
-              if (!currentResponseId && data.item?.id) { 
-                currentResponseId = data.item.id;
-                samplesPlayedSoFar = 0;
-                audioSamplesExpected = 0; 
-                widgetLog(`[INTERRUPTION] Начало нового ответа (item_added): ${currentResponseId}`);
-                // interruptionDiag.log('response_item_added_set_id', { responseId: currentResponseId }); // Уже логируется выше
-              }
-            }
-            
-            if (msg_type === 'response.audio.delta') {
-              if (data.delta) {
-                try {
-                    const audioDataChunk = base64ToArrayBuffer(data.delta);
-                    // Добавляем к ожидаемому количеству, если есть currentResponseId (т.е. ответ начат)
-                    if(currentResponseId) audioSamplesExpected += audioDataChunk.byteLength / 2; 
-                } catch (e) {
-                    widgetLog(`Error calculating audioSamplesExpected from delta: ${e.message}`, 'warn');
-                }
-              }
-            }
-            
-            if (msg_type === 'response.done') {
-              widgetLog(`[INTERRUPTION] Завершение ответа: ${currentResponseId || 'N/A'}`);
-              // interruptionDiag.log('response_done_received', { responseId: currentResponseId }); // Уже логируется выше
-              currentResponseId = null;
-              samplesPlayedSoFar = 0;
-              audioSamplesExpected = 0;
-            }
-            // КОНЕЦ ИСПРАВЛЕНИЯ 1
-
-            // Обработка остальных сообщений (ваша существующая логика)
             const frequentMessages = ['input_audio_buffer.append.ack', 'input_audio_buffer.clear.ack', 'input_audio_buffer.cleared', 'input_audio_buffer.commit.ack', 'input_audio_buffer.committed', 'input_audio_buffer.speech_started', 'input_audio_buffer.speech_stopped', 'conversation.item.created', 'conversation.item.input_audio_transcription.delta', 'conversation.item.input_audio_transcription.completed', 'response.created', 'response.output_item.added', 'response.output_item.done', 'response.content_part.added', 'response.content_part.done', 'rate_limits.updated', 'pong'];
-            if (!frequentMessages.includes(msg_type) && !veryFrequentMessagesForDiag.includes(msg_type) /* чтобы не дублировать лог */) {
-                widgetLog(`Получено (нечастое) сообщение типа: ${msg_type}`);
-            }
+            if (!frequentMessages.includes(msg_type) && !veryFrequentMessagesForDiag.includes(msg_type)) widgetLog(`Received (uncommon): ${msg_type}`);
             
-            if (data.type === 'response.cancel.ack') {
-              widgetLog(`[INTERRUPTION] Получено подтверждение отмены: success=${data.success}`);
-              // interruptionDiag.log('cancel_ack_received', { success: data.success, eventId: data.event_id }); // Уже логируется выше
-              if (data.success) showMessage("Ответ прерван", 1000);
-              return; 
-            }
+            if (data.type === 'response.cancel.ack') { widgetLog(`[INTERRUPTION] Cancel ACK: success=${data.success}`); if (data.success) showMessage("Ответ прерван", 1000); return; }
+            if (data.type === 'output_audio_buffer.clear.ack') { widgetLog(`[INTERRUPTION] Output buffer clear ACK: success=${data.success}`); interruptionDiag.log('output_audio_buffer_clear_ack_received', { success: data.success, eventId: data.event_id }); return; }
             if (data.type === 'session.created' || data.type === 'session.updated') return;
-            if (data.type === 'connection_status') {
-              if (data.status === 'connected') {
-                isConnected = true; reconnectAttempts = 0; connectionFailedPermanently = false; hideConnectionError();
-                if (isWidgetOpen) { isListening = false; startListening(); }
-              } return;
-            }
+            if (data.type === 'connection_status') { if (data.status === 'connected') { isConnected = true; reconnectAttempts = 0; connectionFailedPermanently = false; hideConnectionError(); if (isWidgetOpen) { isListening = false; startListening(); } } return; }
             if (data.type === 'error') {
-              if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                if (isWidgetOpen && !isReconnecting) setTimeout(() => { isListening = false; startListening(); }, 500);
-                return;
-              }
-              if (data.error && data.error.message && data.error.message.includes('Cancellation failed')) {
-                widgetLog(`[INTERRUPTION] Ошибка отмены (возможно, нет активного ответа) - игнорируем`, 'warn'); return;
-              }
-              widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
-              showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000); return;
+              if (data.error?.code === 'input_audio_buffer_commit_empty') { if (isWidgetOpen && !isReconnecting) setTimeout(() => { isListening = false; startListening(); }, 500); return; }
+              if (data.error?.message?.includes('Cancellation failed')) { widgetLog(`[INTERRUPTION] Warn: Cancellation failed (no active resp?)`, 'warn'); return; }
+              widgetLog(`Server error: ${data.error?.message || 'Unknown'}`, "error"); showMessage(data.error?.message || 'Ошибка на сервере', 5000); return;
             } 
-            if (data.type === 'response.text.delta') {
-              if (data.delta) { showMessage(data.delta, 0); if (!isWidgetOpen) widgetButton.classList.add('wellcomeai-pulse-animation'); } return;
-            }
+            if (data.type === 'response.text.delta') { if (data.delta) { showMessage(data.delta, 0); if (!isWidgetOpen) widgetButton.classList.add('wellcomeai-pulse-animation'); } return; }
             if (data.type === 'response.text.done') { setTimeout(() => hideMessage(), 5000); return; }
-            if (data.type === 'response.audio.delta') { if (data.delta) audioChunksBuffer.push(data.delta); return; } // Логика audioSamplesExpected уже выше
+            if (data.type === 'response.audio.delta') { if (data.delta) audioChunksBuffer.push(data.delta); return; }
             if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') return;
-            if (data.type === 'response.audio.done') {
-              if (audioChunksBuffer.length > 0) { const fullAudio = audioChunksBuffer.join(''); addAudioToPlaybackQueue(fullAudio); audioChunksBuffer = []; } return;
-            }
-            if (data.type === 'response.done') { // Логика сброса ID уже выше, здесь только перезапуск слушания
-              if (isWidgetOpen && !isReconnecting) {
-                if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) {
-                  if (iosAudioButton) iosAudioButton.classList.add('visible');
-                  showMessage("Нажмите кнопку ниже для активации микрофона", 0);
-                } else setTimeout(() => { isListening = false; startListening(); }, 800); // Задержка для завершения предыдущих операций
-              } return;
-            }
-            // Если это известное, но не обработанное выше частое сообщение, просто выходим
+            if (data.type === 'response.audio.done') { if (audioChunksBuffer.length > 0) { const fullAudio = audioChunksBuffer.join(''); addAudioToPlaybackQueue(fullAudio); audioChunksBuffer = []; } return; }
+            if (data.type === 'response.done') { if (isWidgetOpen && !isReconnecting) { if (isIOS && (!window.audioContextInitialized || !window.hasPlayedSilence)) { if (iosAudioButton) iosAudioButton.classList.add('visible'); showMessage("Нажмите для активации микрофона", 0); } else setTimeout(() => { if(isConnected && !isReconnecting) { isListening = false; startListening(); }}, 800); } return; }
             if (frequentMessages.includes(msg_type) || veryFrequentMessagesForDiag.includes(msg_type)) return;
-            
-            // Только для действительно неизвестных типов выводим предупреждение
             widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
-            
           } catch (parseError) {
-            if (event.data === 'pong') { lastPongTime = Date.now(); return; } // Обработка pong как текстового сообщения
+            if (event.data === 'pong') { lastPongTime = Date.now(); return; }
             widgetLog(`Ошибка парсинга JSON: ${parseError.message}`, "warn");
             interruptionDiag.log('websocket_message_error', { error: parseError.message, data: event.data?.substring(0, 100) });
           }
         };
         
         websocket.onclose = function(event) {
-          widgetLog(`WebSocket connection closed: ${event.code}, ${event.reason}`);
-          isConnected = false; isListening = false;
+          widgetLog(`WebSocket закрыт: ${event.code}, ${event.reason}`); isConnected = false; isListening = false;
           if (currentPingInterval) { clearInterval(currentPingInterval); currentPingInterval = null; }
-          if (event.code === 1000 || event.code === 1001) { isReconnecting = false; widgetLog('Clean WebSocket close, not reconnecting'); return; }
+          if (event.code === 1000 || event.code === 1001) { isReconnecting = false; widgetLog('Чистое закрытие WebSocket, не переподключаемся'); return; }
           reconnectWithDelay();
         };
-        
-        websocket.onerror = function(errorEvent) { 
-          widgetLog(`WebSocket error: ${errorEvent.message || 'Unknown WebSocket error'}`, 'error');
-          if (isWidgetOpen) { showMessage("Ошибка соединения с сервером"); updateConnectionStatus('disconnected', 'Ошибка соединения'); }
-        };
+        websocket.onerror = function(errorEvent) { widgetLog(`WebSocket ошибка: ${errorEvent.message || 'Unknown'}`, 'error'); if (isWidgetOpen) { showMessage("Ошибка соединения"); updateConnectionStatus('disconnected', 'Ошибка'); } };
         return true;
       } catch (error) {
-        widgetLog(`Error connecting to WebSocket: ${error}`, 'error');
-        isReconnecting = false; loaderModal.classList.remove('active');
-        reconnectAttempts++;
-        const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-        if (reconnectAttempts >= maxAttempts) {
-          connectionFailedPermanently = true;
-          if (isWidgetOpen) { showConnectionError("Не удалось подключиться к серверу. Пожалуйста, попробуйте позже."); updateConnectionStatus('disconnected', 'Отключено'); }
-        } else reconnectWithDelay();
+        widgetLog(`Ошибка подключения WebSocket: ${error}`, 'error'); isReconnecting = false; loaderModal.classList.remove('active');
+        reconnectAttempts++; const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+        if (reconnectAttempts >= maxAttempts) { connectionFailedPermanently = true; if (isWidgetOpen) { showConnectionError("Не удалось подключиться. Попробуйте позже."); updateConnectionStatus('disconnected', 'Отключено'); } }
+        else reconnectWithDelay();
         return false;
       }
     }
@@ -1526,99 +895,57 @@
     widgetButton.addEventListener('click', (e) => { widgetLog('Button clicked'); e.preventDefault(); e.stopPropagation(); openWidget(); });
     widgetClose.addEventListener('click', (e) => { widgetLog('Close button clicked'); e.preventDefault(); e.stopPropagation(); closeWidget(); });
     mainCircle.addEventListener('click', () => {
-      widgetLog(`Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
+      widgetLog(`Circle clicked: open=${isWidgetOpen}, listen=${isListening}, playing=${isPlayingAudio}, reconnect=${isReconnecting}`);
       if (isIOS) {
-        unlockAudioOnIOS().then(unlocked => {
-          if (unlocked) {
-            widgetLog('Audio context successfully unlocked via circle click'); if (iosAudioButton) iosAudioButton.classList.remove('visible');
-            if (isWidgetOpen && !isReconnecting) {
-              if (isConnected) { isListening = false; startListening(); } 
-              else if (connectionFailedPermanently) showConnectionError("Соединение с сервером отсутствует. Нажмите кнопку 'Повторить подключение'.");
-              else connectWebSocket();
-            }
-          }
-        });
-      } else {
-        if (isWidgetOpen && !isReconnecting) {
-          if (isConnected) { isListening = false; startListening(); } 
-          else if (connectionFailedPermanently) showConnectionError("Соединение с сервером отсутствует. Нажмите кнопку 'Повторить подключение'.");
-          else connectWebSocket();
-        }
-      }
+        unlockAudioOnIOS().then(unlocked => { if (unlocked) { widgetLog('iOS audio unlocked by circle click'); if (iosAudioButton) iosAudioButton.classList.remove('visible'); if (isWidgetOpen && !isReconnecting) { if (isConnected) { isListening = false; startListening(); } else if (connectionFailedPermanently) showConnectionError("Нет соединения. Нажмите 'Повторить'."); else connectWebSocket(); } } });
+      } else { if (isWidgetOpen && !isReconnecting) { if (isConnected) { isListening = false; startListening(); } else if (connectionFailedPermanently) showConnectionError("Нет соединения. Нажмите 'Повторить'."); else connectWebSocket(); } }
     });
     if (isIOS && iosAudioButton) {
       iosAudioButton.addEventListener('click', () => {
-        unlockAudioOnIOS().then(success => {
-          if (success) {
-            iosAudioButton.classList.remove('visible');
-            setTimeout(() => { if (isConnected && !isReconnecting) { isListening = false; startListening(); } }, 500);
-          } else {
-            forceIOSAudioUnlock().then(() => {
-              iosAudioButton.classList.remove('visible');
-              setTimeout(() => { if (isConnected && !isReconnecting) { isListening = false; startListening(); } }, 500);
-            });
-          }
-        });
+        unlockAudioOnIOS().then(success => { if (success) { iosAudioButton.classList.remove('visible'); setTimeout(() => { if (isConnected && !isReconnecting) { isListening = false; startListening(); } }, 500); } else { forceIOSAudioUnlock().then(() => { iosAudioButton.classList.remove('visible'); setTimeout(() => { if (isConnected && !isReconnecting) { isListening = false; startListening(); } }, 500); }); } });
       });
     }
-    if (retryButton) retryButton.addEventListener('click', () => { widgetLog('Retry button clicked'); resetConnection(); });
+    // Обработчик для кнопки retry уже добавляется в showConnectionError
     connectWebSocket();
     
-    setTimeout(() => { // DOM check
-      widgetLog('DOM check after initialization');
-      const wc = document.getElementById('wellcomeai-widget-container'), wb = document.getElementById('wellcomeai-widget-button'), we = document.getElementById('wellcomeai-widget-expanded');
-      if (!wc) widgetLog('Widget container not found!', 'error'); else widgetLog(`Container z-index = ${getComputedStyle(wc).zIndex}`);
-      if (!wb) widgetLog('Button not found!', 'error'); else widgetLog(`Button visible = ${getComputedStyle(wb).display !== 'none'}`);
-      if (!we) widgetLog('Expanded widget not found!', 'error');
-      widgetLog(`Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
-      widgetLog(`Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
-      if (isMobile) {
-        widgetLog(`Mobile audio state: initialized=${window.audioContextInitialized}, hasPlayedSilence=${window.hasPlayedSilence}`);
-        if (audioContext) widgetLog(`AudioContext state=${audioContext.state}, sampleRate=${audioContext.sampleRate}`);
-      }
-      widgetLog(`[INTERRUPTION] Vars: currentResponseId=${currentResponseId}, samplesPlayedSoFar=${samplesPlayedSoFar}, audioSamplesExpected=${audioSamplesExpected}, soundDetectionCounter=${soundDetectionCounter}`);
+    setTimeout(() => {
+      widgetLog('DOM check post-init');
+      const wc=document.getElementById('wellcomeai-widget-container'), wb=document.getElementById('wellcomeai-widget-button');
+      if(wc) widgetLog(`Container zIndex: ${getComputedStyle(wc).zIndex}`); else widgetLog('Container NOT FOUND!','error');
+      if(wb) widgetLog(`Button visible: ${getComputedStyle(wb).display !== 'none'}`); else widgetLog('Button NOT FOUND!','error');
+      widgetLog(`WS state: ${websocket?.readyState ?? 'No WS'}. Flags: conn=${isConnected}, listen=${isListening}, play=${isPlayingAudio}, reconn=${isReconnecting}, open=${isWidgetOpen}`);
+      if (isMobile) { widgetLog(`Mobile audio: init=${window.audioContextInitialized}, playedSilence=${window.hasPlayedSilence}, ctxState=${audioContext?.state}, ctxRate=${audioContext?.sampleRate}`);}
+      interruptionDiag.log('post_init_check', { isConnected, isListening, isPlayingAudio, currentResponseId, samplesPlayedSoFar, audioSamplesExpected });
     }, 2000);
 
     if (DEBUG_MODE) {
       function addDiagnosticButton() {
-        const diagButton = document.createElement('button');
-        diagButton.textContent = 'Export Diag';
-        diagButton.style.cssText = `
-          position: absolute;
-          top: 5px;
-          right: 40px; 
-          background: #ffc107; 
-          color: black;
-          border: none;
-          border-radius: 3px;
-          padding: 3px 7px;
-          font-size: 10px;
-          font-weight: bold;
-          cursor: pointer;
-          z-index: 10000; 
-        `;
-        diagButton.onclick = window.exportInterruptionLog; // Используем глобальную функцию
-        
+        const diagButton = document.createElement('button'); diagButton.textContent = 'Diag'; // Shorter name
+        diagButton.style.cssText = `position:absolute;top:5px;right:35px;background:#ffc107;color:black;border:none;border-radius:3px;padding:2px 5px;font-size:9px;font-weight:bold;cursor:pointer;z-index:10000;`;
+        diagButton.onclick = window.exportInterruptionLog;
         const widgetHeader = document.querySelector('.wellcomeai-widget-header');
-        if (widgetHeader) {
-          widgetHeader.appendChild(diagButton);
-          widgetLog("Diagnostic button added to widget header.");
-        } else {
-          widgetLog("Widget header not found for diagnostic button.", 'warn');
-        }
+        if (widgetHeader) { widgetHeader.appendChild(diagButton); widgetLog("Diag button added."); }
+        else widgetLog("Header not found for Diag button.", 'warn');
       }
       setTimeout(addDiagnosticButton, 1500); 
     }
   }
 
   function initializeWidget() {
+    // Проверяем, чтобы избежать двойной инициализации, если скрипт вставлен несколько раз
+    if (window.wellcomeAIWidgetInitialized) {
+        widgetLog('Widget script already initialized. Skipping further execution.');
+        return;
+    }
+    window.wellcomeAIWidgetInitialized = true;
+
     widgetLog('Initializing...');
     widgetLog(`Device type: ${isIOS ? 'iOS' : (isMobile ? 'Android/Mobile' : 'Desktop')}`);
     loadFontAwesome();
     createStyles();
     createWidgetHTML();
     initWidget();
-    widgetLog('Initialization complete - advanced interruptions & diagnostics activated');
+    widgetLog('Initialization complete - v1.4.2');
   }
   
   if (!document.getElementById('wellcomeai-widget-container')) {
@@ -1631,6 +958,12 @@
       initializeWidget();
     }
   } else {
-    widgetLog('Widget already exists on the page, skipping initialization');
+    // Если контейнер уже есть, но скрипт не был инициализирован (например, при SPA-навигации)
+    if (!window.wellcomeAIWidgetInitialized) {
+        widgetLog('Container exists, but script not initialized. Initializing now.');
+        initializeWidget();
+    } else {
+        widgetLog('Widget container and script already exist/initialized. Skipping.');
+    }
   }
 })();
