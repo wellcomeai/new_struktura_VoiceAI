@@ -163,20 +163,23 @@ async def handle_websocket_connection(
                             await openai_client.clear_audio_buffer()
                         await websocket.send_json({"type": "input_audio_buffer.clear.ack", "event_id": data.get("event_id")})
                         continue
-                    
-                    # ИСПРАВЛЕНИЕ 6: Полная поддержка прерывания в handler.py
+
+                    # ОБРАБОТКА КОМАНД ПРЕРЫВАНИЯ
                     if msg_type == "response.cancel":
                         item_id = data.get("item_id")
                         sample_count = data.get("sample_count", 0)
+                        was_playing_audio = data.get("was_playing_audio", False)
                         
-                        logger.info(f"[INTERRUPTION] Получен запрос на отмену ответа: item_id={item_id}, sample_count={sample_count}")
+                        logger.info(f"[INTERRUPTION] Получен запрос на отмену ответа: item_id={item_id}, sample_count={sample_count}, was_playing={was_playing_audio}")
                         
                         success = False
                         if openai_client.is_connected:
-                            # Отправляем отмену в OpenAI
-                            success = await openai_client.cancel_response(item_id, sample_count)
-                            logger.info(f"[INTERRUPTION] Результат отмены в OpenAI: success={success}")
+                            success = await openai_client.cancel_response(item_id, sample_count, was_playing_audio)
+                            logger.info(f"[INTERRUPTION] Результат отмены: success={success}")
+                        else:
+                            logger.warning("[INTERRUPTION] OpenAI клиент не подключен, отмена невозможна")
                             
+                        # Отправляем подтверждение клиенту (будет обогащено в openai_client)
                         await websocket.send_json({
                             "type": "response.cancel.ack",
                             "event_id": data.get("event_id"),
@@ -218,7 +221,7 @@ async def handle_websocket_connection(
                         })
                         continue
 
-                    # ДОБАВЛЯЕМ ЭКСТРЕННУЮ ОСТАНОВКУ
+                    # ЭКСТРЕННАЯ ОСТАНОВКА
                     if msg_type == "emergency_stop":
                         logger.info("[INTERRUPTION] Получен запрос на экстренную остановку")
                         
@@ -233,7 +236,6 @@ async def handle_websocket_connection(
                             "success": success
                         })
                         continue
-                    # КОНЕЦ ИСПРАВЛЕНИЯ 6
 
                     # Любые остальные типы
                     await websocket.send_json({
@@ -341,6 +343,18 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события: {json.dumps(response_data, ensure_ascii=False)}")
                     except:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события (не JSON): {response_data}")
+                
+                # ОБРАБОТКА response.cancel.ack - КЛЮЧЕВОЕ ИЗМЕНЕНИЕ
+                if msg_type == "response.cancel.ack":
+                    logger.info(f"[INTERRUPTION] Получен response.cancel.ack от OpenAI: {response_data}")
+                    
+                    # Обогащаем ACK данными из сохраненного payload
+                    enriched_ack = openai_client.enrich_cancel_ack(response_data)
+                    
+                    # Отправляем обогащенный ACK клиенту
+                    await websocket.send_json(enriched_ack)
+                    logger.info(f"[INTERRUPTION] Отправлен обогащенный cancel.ack клиенту")
+                    continue
                 
                 # Обработка вызова функции
                 if msg_type == "response.function_call.started":
