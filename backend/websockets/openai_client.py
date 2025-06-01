@@ -94,10 +94,46 @@ def generate_short_id(prefix: str = "") -> str:
     # Возвращаем ID с префиксом, общей длиной не более 32 символов
     return f"{prefix}{raw_id[:max_id_len]}"
 
+def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
+    """
+    Возвращает оптимальные настройки VAD в зависимости от устройства.
+    
+    Args:
+        user_agent: User-Agent строка для определения устройства
+        
+    Returns:
+        Dict: Настройки VAD для конкретного устройства
+    """
+    user_agent_lower = user_agent.lower()
+    
+    # Настройки для iOS - более консервативные из-за особенностей микрофона
+    if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
+        return {
+            "threshold": 0.4,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 400
+        }
+    
+    # Настройки для Android - средние значения
+    elif "android" in user_agent_lower:
+        return {
+            "threshold": 0.35,
+            "prefix_padding_ms": 250,
+            "silence_duration_ms": 300
+        }
+    
+    # Настройки для десктопа - более чувствительные
+    else:
+        return {
+            "threshold": 0.25,  # Более низкий порог для быстрого перебивания
+            "prefix_padding_ms": 200,
+            "silence_duration_ms": 200  # Короткая пауза для отзывчивости
+        }
+
 class OpenAIRealtimeClient:
     """
     Client for interacting with OpenAI's Realtime API through WebSockets.
-    Handles voice interactions, function calling, and conversation tracking.
+    Handles voice interactions, function calling, conversation tracking, and interruptions.
     """
     
     def __init__(
@@ -105,7 +141,8 @@ class OpenAIRealtimeClient:
         api_key: str,
         assistant_config: AssistantConfig,
         client_id: str,
-        db_session: Any = None
+        db_session: Any = None,
+        user_agent: str = ""
     ):
         """
         Initialize the OpenAI Realtime client.
@@ -115,11 +152,13 @@ class OpenAIRealtimeClient:
             assistant_config: Configuration for the assistant
             client_id: Unique identifier for the client
             db_session: Database session for persistence (optional)
+            user_agent: User-Agent для определения типа устройства
         """
         self.api_key = api_key
         self.assistant_config = assistant_config
         self.client_id = client_id
         self.db_session = db_session
+        self.user_agent = user_agent
         self.ws = None
         self.is_connected = False
         self.openai_url = settings.REALTIME_WS_URL
@@ -128,6 +167,17 @@ class OpenAIRealtimeClient:
         self.webhook_url = None  # Сохраняем URL вебхука из промпта
         self.last_function_name = None  # Сохраняем имя последней вызванной функции
         self.enabled_functions = []  # Список разрешенных функций
+        
+        # Состояния для обработки перебивания
+        self.is_assistant_speaking = False
+        self.current_response_id: Optional[str] = None
+        self.current_audio_samples = 0
+        self.interruption_occurred = False
+        self.last_interruption_time = 0
+        
+        # Получаем настройки VAD для конкретного устройства
+        self.vad_settings = get_device_vad_settings(user_agent)
+        logger.info(f"VAD settings for device: {self.vad_settings}")
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -235,6 +285,12 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             self.ws = None
             
+            # Сбрасываем состояния перебивания
+            self.is_assistant_speaking = False
+            self.current_response_id = None
+            self.current_audio_samples = 0
+            self.interruption_occurred = False
+            
             # Подключаемся заново
             return await self.connect()
         except Exception as e:
@@ -262,13 +318,16 @@ class OpenAIRealtimeClient:
             logger.error("Cannot update session: not connected")
             return False
             
+        # Настройки VAD с оптимизацией для перебивания
         turn_detection = {
             "type": "server_vad",
-            "threshold": 0.25,
-            "prefix_padding_ms": 200,
-            "silence_duration_ms": 300,
+            "threshold": self.vad_settings["threshold"],
+            "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
+            "silence_duration_ms": self.vad_settings["silence_duration_ms"],
             "create_response": True,
         }
+        
+        logger.info(f"[INTERRUPTION] Настройки VAD: {turn_detection}")
         
         # Получаем нормализованные определения функций
         normalized_functions = normalize_functions(functions)
@@ -343,6 +402,129 @@ class OpenAIRealtimeClient:
                 logger.error(f"Error creating Conversation in DB: {e}")
 
         return True
+
+    async def handle_interruption(self) -> bool:
+        """
+        Обрабатывает событие перебивания пользователем.
+        
+        Returns:
+            bool: True если перебивание обработано успешно
+        """
+        try:
+            current_time = time.time()
+            
+            # Избегаем повторной обработки перебивания в течение короткого времени
+            if current_time - self.last_interruption_time < 0.5:
+                logger.info("[INTERRUPTION] Игнорируем повторное перебивание")
+                return True
+                
+            self.last_interruption_time = current_time
+            self.interruption_occurred = True
+            
+            logger.info(f"[INTERRUPTION] Обработка перебивания для клиента {self.client_id}")
+            
+            # Если ассистент говорит, отменяем текущий ответ
+            if self.is_assistant_speaking and self.current_response_id:
+                await self.cancel_current_response(self.current_response_id, self.current_audio_samples)
+            
+            # Сбрасываем состояние
+            self.is_assistant_speaking = False
+            self.current_response_id = None
+            self.current_audio_samples = 0
+            
+            logger.info("[INTERRUPTION] Перебивание обработано успешно")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[INTERRUPTION] Ошибка при обработке перебивания: {e}")
+            return False
+
+    async def cancel_current_response(self, item_id: str = None, sample_count: int = 0) -> bool:
+        """
+        Отменяет текущий ответ ассистента при перебивании.
+        
+        Args:
+            item_id: ID элемента для отмены
+            sample_count: Количество аудио-семплов для точной отмены
+            
+        Returns:
+            bool: True если отмена успешна
+        """
+        if not self.is_connected or not self.ws:
+            logger.error("[INTERRUPTION] Нельзя отменить ответ: нет соединения")
+            return False
+            
+        try:
+            logger.info(f"[INTERRUPTION] Отмена текущего ответа: item_id={item_id}, samples={sample_count}")
+            
+            # Отправляем команду отмены
+            cancel_payload = {
+                "type": "response.cancel",
+                "event_id": f"cancel_{time.time()}"
+            }
+            
+            # Добавляем дополнительные параметры, если они есть
+            if item_id:
+                cancel_payload["item_id"] = item_id
+            if sample_count > 0:
+                cancel_payload["sample_count"] = sample_count
+                
+            await self.ws.send(json.dumps(cancel_payload))
+            logger.info("[INTERRUPTION] Команда отмены отправлена")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[INTERRUPTION] Ошибка при отмене ответа: {e}")
+            return False
+
+    async def clear_audio_buffer_on_interruption(self) -> bool:
+        """
+        Очищает буфер аудио при перебивании.
+        
+        Returns:
+            bool: True если очистка успешна
+        """
+        if not self.is_connected or not self.ws:
+            return False
+            
+        try:
+            await self.ws.send(json.dumps({
+                "type": "input_audio_buffer.clear",
+                "event_id": f"clear_interrupt_{time.time()}"
+            }))
+            logger.info("[INTERRUPTION] Буфер аудио очищен после перебивания")
+            return True
+        except Exception as e:
+            logger.error(f"[INTERRUPTION] Ошибка очистки буфера: {e}")
+            return False
+
+    def set_assistant_speaking(self, speaking: bool, response_id: str = None) -> None:
+        """
+        Устанавливает состояние говорения ассистента.
+        
+        Args:
+            speaking: True если ассистент говорит
+            response_id: ID текущего ответа
+        """
+        self.is_assistant_speaking = speaking
+        if speaking:
+            self.current_response_id = response_id
+            self.current_audio_samples = 0
+            logger.info(f"[INTERRUPTION] Ассистент начал говорить: response_id={response_id}")
+        else:
+            self.current_response_id = None
+            self.current_audio_samples = 0
+            logger.info("[INTERRUPTION] Ассистент закончил говорить")
+
+    def increment_audio_samples(self, sample_count: int) -> None:
+        """
+        Увеличивает счетчик аудио-семплов для точной отмены.
+        
+        Args:
+            sample_count: Количество новых семплов
+        """
+        self.current_audio_samples += sample_count
 
     async def handle_function_call(self, function_call_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -603,6 +785,12 @@ class OpenAIRealtimeClient:
             except Exception as e:
                 logger.error(f"Error closing OpenAI WebSocket: {e}")
         self.is_connected = False
+        
+        # Сбрасываем состояния перебивания
+        self.is_assistant_speaking = False
+        self.current_response_id = None
+        self.current_audio_samples = 0
+        self.interruption_occurred = False
 
     async def receive_messages(self) -> AsyncGenerator[Dict[str, Any], None]:
         """
