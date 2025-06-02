@@ -1,28 +1,16 @@
-/**
- * WellcomeAI Widget Loader Script
- * Версия: 2.0.1 - Унифицированная версия с исправлением воспроизведения аудио на мобильных
- * 
- * Исправления:
- * - Единая инициализация аудио при клике на виджет
- * - Постоянно активный микрофон для возможности перебивания (как в десктопе)
- * - Исправление воспроизведения аудио на мобильных устройствах
- * - Убраны дополнительные кнопки активации
- * - Упрощена логика состояний
- */
-
-(function() {
+ (function() {
   // Настройки виджета
-  const DEBUG_MODE = true;
+  const DEBUG_MODE = true; // Установите false для продакшена
   const MAX_RECONNECT_ATTEMPTS = 5;
   const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
-  const PING_INTERVAL = 15000;
-  const MOBILE_PING_INTERVAL = 10000;
-  const CONNECTION_TIMEOUT = 20000;
-  const MAX_DEBUG_ITEMS = 10;
+  const PING_INTERVAL = 15000; // 15 секунд
+  const MOBILE_PING_INTERVAL = 10000; // 10 секунд для мобильных
+  const CONNECTION_TIMEOUT = 20000; // 20 секунд
+  const MAX_DEBUG_ITEMS = 20; // Увеличено для лучшей отладки
 
   // Глобальное хранение состояния
   let reconnectAttempts = 0;
-  let pingIntervalId = null;
+  let pingIntervalId = null; // Переименовано для ясности, будет использоваться для setInterval ID
   let lastPongTime = Date.now();
   let isReconnecting = false;
   let debugQueue = [];
@@ -40,26 +28,30 @@
 
   // Функция для логирования
   const widgetLog = (message, type = 'info') => {
+    const logPrefix = '[WellcomeAI Widget]';
     if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('render.com')) {
-      const logPrefix = '[WellcomeAI Widget]';
       const timestamp = new Date().toISOString().slice(11, 23);
       const formattedMessage = `${timestamp} | ${type.toUpperCase()} | ${message}`;
       console.log(`${logPrefix} ${formattedMessage}`);
-    } else if (DEBUG_MODE || type === 'error') {
-      const prefix = '[WellcomeAI Widget]';
+    } else if (DEBUG_MODE || type === 'error' || type === 'warn') { // Всегда логируем ошибки и предупреждения
       if (type === 'error') {
-        console.error(`${prefix} ERROR:`, message);
+        console.error(`${logPrefix} ERROR:`, message);
       } else if (type === 'warn') {
-        console.warn(`${prefix} WARNING:`, message);
+        console.warn(`${logPrefix} WARNING:`, message);
       } else if (DEBUG_MODE) {
-        console.log(`${prefix}`, message);
+        console.log(`${logPrefix}`, message);
       }
+    }
+    // Добавляем в отладочную очередь, если DEBUG_MODE включен
+    if (DEBUG_MODE) {
+        addToDebugQueue(String(message), type);
     }
   };
 
   // Функция для отслеживания ошибок
   const addToDebugQueue = (message, type = 'info') => {
-    if (!DEBUG_MODE) return;
+    // Не добавляем если DEBUG_MODE выключен, кроме ошибок
+    if (!DEBUG_MODE && type !== 'error') return;
     
     const timestamp = new Date().toISOString();
     debugQueue.push({ timestamp, message, type });
@@ -67,17 +59,23 @@
     if (debugQueue.length > MAX_DEBUG_ITEMS) {
       debugQueue.shift();
     }
+    updateDebugPanel(); // Обновляем панель при добавлении
   };
 
   // Получить отладочную информацию
   const getDebugInfo = () => {
     if (!DEBUG_MODE) return "";
-    return debugQueue.map(item => `[${item.timestamp}] ${item.type.toUpperCase()}: ${item.message}`).join('\n');
+    return debugQueue.map(item => `[${item.timestamp.slice(11,23)}] ${item.type.toUpperCase()}: ${item.message}`).join('\n');
   };
 
-  // Обновление отладочной панели (заглушка)
+  // Обновление отладочной панели (если она есть)
   const updateDebugPanel = () => {
     if (!DEBUG_MODE) return;
+    const debugPanel = document.getElementById('wellcomeai-debug-panel-content');
+    if (debugPanel) {
+      debugPanel.textContent = getDebugInfo();
+      debugPanel.scrollTop = debugPanel.scrollHeight; // Автопрокрутка вниз
+    }
   };
 
   // Функция для определения URL сервера
@@ -99,7 +97,7 @@
       }
       
       const src = scriptTags[i].getAttribute('src');
-      if (src && (src.includes('widget.js') || src.includes('wellcomeai-widget.min.js'))) {
+      if (src && (src.includes('widget.js') || src.includes('wellcomeai-widget.min.js') || src.includes('wellcomeai-loader.js'))) {
         try {
           const url = new URL(src, window.location.href);
           serverUrl = url.origin;
@@ -118,32 +116,40 @@
     }
     
     if (serverUrl && !serverUrl.match(/^https?:\/\//)) {
-      serverUrl = window.location.protocol + '//' + serverUrl;
-      widgetLog(`Added protocol to server URL: ${serverUrl}`);
+      // Если URL не содержит протокол, но не начинается с // (чтобы не ломать //domain.com)
+      if (!serverUrl.startsWith('//')) {
+        serverUrl = window.location.protocol + '//' + serverUrl;
+        widgetLog(`Added protocol to server URL: ${serverUrl}`);
+      } else {
+         serverUrl = window.location.protocol + serverUrl; // для //domain.com
+         widgetLog(`Added protocol to server URL: ${serverUrl}`);
+      }
     }
     
     if (!serverUrl) {
-      serverUrl = 'https://realtime-saas.onrender.com';
+      serverUrl = 'https://realtime-saas.onrender.com'; // Запасной URL
       widgetLog(`Using fallback server URL: ${serverUrl}`);
     }
     
-    return serverUrl.replace(/\/$/, '');
+    return serverUrl.replace(/\/$/, ''); // Удаляем слэш в конце, если есть
   };
 
   // Функция для получения ID ассистента
   const getAssistantId = () => {
     const scriptTags = document.querySelectorAll('script');
     for (let i = 0; i < scriptTags.length; i++) {
-      if (scriptTags[i].hasAttribute('data-assistantId') || scriptTags[i].hasAttribute('data-assistantid')) {
-        const id = scriptTags[i].getAttribute('data-assistantId') || scriptTags[i].getAttribute('data-assistantid');
-        widgetLog(`Found assistant ID from attribute: ${id}`);
-        return id;
+      const idAttr = scriptTags[i].getAttribute('data-assistantId') || scriptTags[i].getAttribute('data-assistantid');
+      if (idAttr) {
+        widgetLog(`Found assistant ID from attribute: ${idAttr}`);
+        return idAttr;
       }
       
-      if (scriptTags[i].dataset && (scriptTags[i].dataset.assistantId || scriptTags[i].dataset.assistantid)) {
-        const id = scriptTags[i].dataset.assistantId || scriptTags[i].dataset.assistantid;
-        widgetLog(`Found assistant ID from dataset: ${id}`);
-        return id;
+      if (scriptTags[i].dataset) {
+        const idDataset = scriptTags[i].dataset.assistantId || scriptTags[i].dataset.assistantid;
+        if (idDataset) {
+            widgetLog(`Found assistant ID from dataset: ${idDataset}`);
+            return idDataset;
+        }
       }
     }
     
@@ -159,12 +165,13 @@
       return window.wellcomeAIAssistantId;
     }
     
+    // Пример для демо-страницы, можно убрать или изменить
     if (window.location.hostname.includes('demo') || window.location.pathname.includes('demo')) {
       widgetLog(`Using demo ID on demo page`);
-      return 'demo';
+      return 'demo'; // Замените на реальный ID для демо или удалите
     }
     
-    widgetLog('No assistant ID found in script tags, URL params or global variables!', 'error');
+    widgetLog('No assistant ID found. Widget may not function correctly.', 'error');
     return null;
   };
 
@@ -178,8 +185,9 @@
 
     const scriptTags = document.querySelectorAll('script');
     for (let i = 0; i < scriptTags.length; i++) {
-      if (scriptTags[i].hasAttribute('data-position')) {
-        return parsePosition(scriptTags[i].getAttribute('data-position'));
+      const posAttr = scriptTags[i].getAttribute('data-position');
+      if (posAttr) {
+        return parsePosition(posAttr);
       }
       
       if (scriptTags[i].dataset && scriptTags[i].dataset.position) {
@@ -191,20 +199,25 @@
 
     function parsePosition(positionString) {
       const position = { ...defaultPosition };
-      
-      if (!positionString) return position;
+      if (!positionString || typeof positionString !== 'string') return position;
       
       const parts = positionString.toLowerCase().split('-');
       if (parts.length === 2) {
-        if (parts[0] === 'top' || parts[0] === 'bottom') {
-          position.vertical = parts[0];
-          position.horizontal = parts[1];
-        } else if (parts[1] === 'top' || parts[1] === 'bottom') {
-          position.vertical = parts[1];
-          position.horizontal = parts[0];
+        const p1 = parts[0].trim();
+        const p2 = parts[1].trim();
+
+        if ((p1 === 'top' || p1 === 'bottom') && (p2 === 'left' || p2 === 'right')) {
+          position.vertical = p1;
+          position.horizontal = p2;
+        } else if ((p2 === 'top' || p2 === 'bottom') && (p1 === 'left' || p1 === 'right')) {
+          position.vertical = p2;
+          position.horizontal = p1;
+        } else {
+            widgetLog(`Invalid position string: ${positionString}. Using default.`, 'warn');
         }
+      } else {
+         widgetLog(`Invalid position string format: ${positionString}. Using default.`, 'warn');
       }
-      
       return position;
     }
   };
@@ -215,7 +228,7 @@
   const WIDGET_POSITION = getWidgetPosition();
   
   // Формируем WebSocket URL с указанием ID ассистента
-  const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+  const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + (ASSISTANT_ID || 'default'); // Используем 'default' если ID не найден
   
   widgetLog(`Configuration: Server URL: ${SERVER_URL}, Assistant ID: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
   widgetLog(`WebSocket URL: ${WS_URL}`);
@@ -232,7 +245,7 @@
         ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance};
         z-index: 2147483647;
         transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        font-family: 'Segoe UI', 'Roboto', sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
       }
       
       .wellcomeai-widget-button {
@@ -248,9 +261,12 @@
         transition: all 0.3s ease;
         position: relative;
         overflow: hidden;
-        z-index: 2147483647;
+        z-index: 1; /* Относительно .wellcomeai-widget-container */
         border: none;
         outline: none;
+        opacity: 0; /* Начальная непрозрачность, чтобы избежать мерцания */
+        visibility: hidden;
+        pointer-events: none;
       }
       
       .wellcomeai-widget-button:hover {
@@ -283,8 +299,8 @@
       
       .wellcomeai-widget-expanded {
         position: absolute;
-        ${WIDGET_POSITION.vertical}: 0;
-        ${WIDGET_POSITION.horizontal}: 0;
+        ${WIDGET_POSITION.vertical === 'bottom' ? 'bottom: 0;' : 'top: 0;'}
+        ${WIDGET_POSITION.horizontal === 'right' ? 'right: 0;' : 'left: 0;'}
         width: 320px;
         height: 0;
         opacity: 0;
@@ -296,13 +312,20 @@
         transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         display: flex;
         flex-direction: column;
-        z-index: 2147483646;
+        z-index: 0; /* Ниже кнопки, когда свернут */
       }
       
       .wellcomeai-widget-container.active .wellcomeai-widget-expanded {
-        height: 400px;
+        height: 400px; /* Или calc(100vh - 40px - ${WIDGET_POSITION.distance} * 2) для адаптивной высоты */
         opacity: 1;
         pointer-events: all;
+        z-index: 2; /* Выше кнопки, когда развернут */
+      }
+
+      @media (max-height: 450px) {
+        .wellcomeai-widget-container.active .wellcomeai-widget-expanded {
+          height: calc(100vh - ${WIDGET_POSITION.distance} - 80px); /* 80px - примерная высота кнопки + отступы */
+        }
       }
       
       .wellcomeai-widget-container.active .wellcomeai-widget-button {
@@ -318,6 +341,7 @@
         justify-content: space-between;
         align-items: center;
         border-radius: 20px 20px 0 0;
+        flex-shrink: 0; /* Предотвращает сжатие хедера */
       }
       
       .wellcomeai-widget-title {
@@ -334,6 +358,7 @@
         cursor: pointer;
         opacity: 0.8;
         transition: all 0.2s;
+        padding: 5px; /* Увеличиваем область клика */
       }
       
       .wellcomeai-widget-close:hover {
@@ -350,6 +375,7 @@
         background: #f9fafc;
         position: relative;
         padding: 20px;
+        overflow-y: auto; /* Для случаев, когда контент не помещается */
       }
       
       .wellcomeai-main-circle {
@@ -364,6 +390,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        cursor: pointer; /* Делаем круг кликабельным */
+        flex-shrink: 0; /* Предотвращает сжатие круга */
       }
       
       .wellcomeai-main-circle::before {
@@ -463,7 +491,7 @@
       .wellcomeai-mic-icon {
         color: #4a86e8;
         font-size: 32px;
-        z-index: 10;
+        z-index: 10; /* Выше анимаций */
       }
       
       .wellcomeai-main-circle.listening .wellcomeai-mic-icon {
@@ -483,7 +511,7 @@
         width: 100%;
         max-width: 160px;
         height: 30px;
-        bottom: -5px;
+        bottom: -5px; /* Чуть ниже центра круга */
         opacity: 0.8;
         pointer-events: none;
       }
@@ -511,15 +539,19 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background-color: rgba(255, 255, 255, 0.7);
+        background-color: rgba(255, 255, 255, 0.85); /* Немного плотнее */
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 2147483646;
+        z-index: 3; /* Выше контента, но ниже хедера если нужно перекрыть всё */
         opacity: 0;
         visibility: hidden;
-        transition: all 0.3s;
-        border-radius: 20px;
+        transition: opacity 0.3s, visibility 0.3s;
+        border-radius: 0 0 20px 20px; /* Только нижние углы если внутри expanded */
+      }
+      
+      .wellcomeai-widget-expanded .wellcomeai-loader-modal { /* Если лоадер внутри expanded */
+        border-radius: 0 0 20px 20px;
       }
       
       .wellcomeai-loader-modal.active {
@@ -542,7 +574,7 @@
       
       .wellcomeai-message-display {
         position: absolute;
-        width: 90%;
+        width: calc(100% - 40px); /* Адаптивная ширина */
         bottom: 20px;
         left: 50%;
         transform: translateX(-50%);
@@ -554,14 +586,20 @@
         font-size: 14px;
         line-height: 1.4;
         opacity: 0;
-        transition: all 0.3s;
+        visibility: hidden; /* Для корректной анимации */
+        transition: opacity 0.3s, visibility 0.3s, transform 0.3s;
         max-height: 100px;
         overflow-y: auto;
-        z-index: 10;
+        z-index: 10; /* Выше круга */
       }
       
       .wellcomeai-message-display.show {
         opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+      }
+       .wellcomeai-message-display:not(.show) {
+        transform: translateX(-50%) translateY(10px); /* Начальное смещение для анимации */
       }
       
       @keyframes wellcomeai-button-pulse {
@@ -575,16 +613,18 @@
       }
 
       .wellcomeai-connection-error {
-        color: #ef4444;
-        background-color: rgba(254, 226, 226, 0.8);
-        border: 1px solid #ef4444;
-        padding: 8px 12px;
+        color: #ef4444; /* Tailwind red-500 */
+        background-color: rgba(254, 226, 226, 0.9); /* Tailwind red-100 with opacity */
+        border: 1px solid #f87171; /* Tailwind red-400 */
+        padding: 10px 15px; /* Увеличиваем паддинги */
         border-radius: 8px;
         font-size: 13px;
         font-weight: 500;
-        margin-top: 10px;
+        margin-top: 15px; /* Больше отступ */
         text-align: center;
-        display: none;
+        display: none; /* Начальное состояние */
+        width: calc(100% - 40px); /* Адаптивная ширина */
+        box-sizing: border-box;
       }
       
       .wellcomeai-connection-error.visible {
@@ -592,19 +632,23 @@
       }
 
       .wellcomeai-retry-button {
-        background-color: #ef4444;
+        background-color: #ef4444; /* Tailwind red-500 */
         color: white;
         border: none;
-        border-radius: 4px;
-        padding: 5px 10px;
-        font-size: 12px;
+        border-radius: 6px; /* Более скругленные углы */
+        padding: 6px 12px; /* Увеличиваем паддинги */
+        font-size: 13px; /* Немного больше */
+        font-weight: 500; /* Полужирный */
         cursor: pointer;
-        margin-top: 8px;
-        transition: all 0.2s;
+        margin-top: 10px; /* Больше отступ */
+        transition: background-color 0.2s, transform 0.1s;
       }
       
       .wellcomeai-retry-button:hover {
-        background-color: #dc2626;
+        background-color: #dc2626; /* Tailwind red-600 */
+      }
+      .wellcomeai-retry-button:active {
+        transform: scale(0.98);
       }
       
       .wellcomeai-status-indicator {
@@ -613,57 +657,66 @@
         left: 50%;
         transform: translateX(-50%);
         font-size: 11px;
-        color: #64748b;
-        padding: 4px 8px;
-        border-radius: 10px;
-        background-color: rgba(255, 255, 255, 0.7);
+        color: #64748b; /* Tailwind slate-500 */
+        padding: 4px 10px; /* Немного шире */
+        border-radius: 12px; /* Более скругленный */
+        background-color: rgba(226, 232, 240, 0.8); /* Tailwind slate-200 с прозрачностью */
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 6px; /* Больше расстояние */
         opacity: 0;
         transition: opacity 0.3s;
+        z-index: 5; /* Выше контента, но ниже сообщений */
       }
       
       .wellcomeai-status-indicator.show {
-        opacity: 0.8;
+        opacity: 0.9; /* Немного прозрачнее для лучшего вида */
       }
       
       .wellcomeai-status-dot {
-        width: 6px;
-        height: 6px;
+        width: 8px; /* Больше точка */
+        height: 8px;
         border-radius: 50%;
-        background-color: #10b981;
+        background-color: #10b981; /* Tailwind green-500 */
+        transition: background-color 0.3s;
       }
       
       .wellcomeai-status-dot.disconnected {
-        background-color: #ef4444;
+        background-color: #ef4444; /* Tailwind red-500 */
       }
       
       .wellcomeai-status-dot.connecting {
-        background-color: #f59e0b;
+        background-color: #f59e0b; /* Tailwind amber-500 */
+        animation: wellcomeai-connecting-pulse 1.5s infinite ease-in-out;
+      }
+
+      @keyframes wellcomeai-connecting-pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
       }
       
       .wellcomeai-status-dot.interrupted {
-        background-color: #ff9800;
+        background-color: #ff9800; /* Яркий оранжевый, как в .interrupted круге */
       }
       
       .wellcomeai-mobile-audio-button {
         position: absolute;
-        bottom: 60px;
+        bottom: 70px; /* Выше, чтобы не перекрывать статус или сообщения */
         left: 50%;
         transform: translateX(-50%);
         background-color: #4a86e8;
         color: white;
         border: none;
         border-radius: 15px;
-        padding: 10px 20px;
+        padding: 12px 24px; /* Больше кнопка */
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        display: none;
-        z-index: 100;
+        display: none; /* Начальное состояние */
+        z-index: 100; /* Очень высокий z-index */
         box-shadow: 0 4px 15px rgba(74, 134, 232, 0.3);
-        transition: all 0.2s ease;
+        transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
       }
 
       .wellcomeai-mobile-audio-button.visible {
@@ -678,6 +731,39 @@
         background-color: #3d71c7;
         box-shadow: 0 6px 20px rgba(74, 134, 232, 0.4);
       }
+
+      /* Стили для отладочной панели */
+      .wellcomeai-debug-panel {
+        position: fixed;
+        bottom: ${parseInt(WIDGET_POSITION.distance, 10) + 70}px; /* Над кнопкой виджета */
+        ${WIDGET_POSITION.horizontal}: ${WIDGET_POSITION.distance};
+        width: 300px;
+        max-height: 200px;
+        background-color: rgba(0,0,0,0.7);
+        color: #0f0;
+        font-family: monospace;
+        font-size: 10px;
+        border-radius: 5px;
+        padding: 5px;
+        z-index: 2147483640; /* Чуть ниже виджета */
+        overflow: hidden; /* Чтобы скрыть скроллбар, если текст не влезает */
+        display: flex;
+        flex-direction: column;
+        border: 1px solid #333;
+      }
+      .wellcomeai-debug-panel-header {
+        padding-bottom: 3px;
+        border-bottom: 1px solid #555;
+        margin-bottom: 3px;
+        color: #fff;
+        font-weight: bold;
+      }
+      .wellcomeai-debug-panel-content {
+        flex-grow: 1;
+        overflow-y: auto; /* Скролл для контента */
+        white-space: pre-wrap; /* Перенос строк */
+        word-break: break-all; /* Перенос длинных слов */
+      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("Styles created and added to head");
@@ -689,7 +775,10 @@
       const link = document.createElement('link');
       link.id = 'font-awesome-css';
       link.rel = 'stylesheet';
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css'; // Обновленная версия
+      link.integrity = 'sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=='; // SRI для безопасности
+      link.crossOrigin = 'anonymous';
+      link.referrerPolicy = 'no-referrer';
       document.head.appendChild(link);
       widgetLog("Font Awesome loaded");
     }
@@ -700,25 +789,25 @@
     const widgetContainer = document.createElement('div');
     widgetContainer.className = 'wellcomeai-widget-container';
     widgetContainer.id = 'wellcomeai-widget-container';
-    widgetContainer.style.zIndex = "2147483647";
+    // z-index уже в CSS
 
     let widgetHTML = `
       <!-- Кнопка (минимизированное состояние) -->
       <div class="wellcomeai-widget-button" id="wellcomeai-widget-button">
-        <i class="fas fa-robot wellcomeai-widget-icon"></i>
+        <i class="fas fa-headset wellcomeai-widget-icon"></i> <!-- Изменена иконка на наушники -->
       </div>
       
       <!-- Развернутый виджет -->
       <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
         <div class="wellcomeai-widget-header">
-          <div class="wellcomeai-widget-title">WellcomeAI</div>
-          <button class="wellcomeai-widget-close" id="wellcomeai-widget-close">
+          <div class="wellcomeai-widget-title">WellcomeAI Ассистент</div> <!-- Изменен заголовок -->
+          <button class="wellcomeai-widget-close" id="wellcomeai-widget-close" aria-label="Закрыть виджет">
             <i class="fas fa-times"></i>
           </button>
         </div>
         <div class="wellcomeai-widget-content">
           <!-- Основной элемент - круг с иконкой микрофона -->
-          <div class="wellcomeai-main-circle" id="wellcomeai-main-circle">
+          <div class="wellcomeai-main-circle" id="wellcomeai-main-circle" role="button" aria-label="Активировать микрофон">
             <i class="fas fa-microphone wellcomeai-mic-icon"></i>
             
             <!-- Аудио визуализация -->
@@ -728,213 +817,261 @@
           </div>
           
           <!-- Сообщение -->
-          <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
+          <div class="wellcomeai-message-display" id="wellcomeai-message-display" aria-live="polite"></div>
           
           <!-- Универсальная кнопка для активации аудио на мобильных -->
           <button class="wellcomeai-mobile-audio-button" id="wellcomeai-mobile-audio-button" style="display: none;">
-            🎤 Активировать микрофон
+            🎤 Включить микрофон и звук
           </button>
           
           <!-- Сообщение об ошибке соединения -->
-          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
+          <div class="wellcomeai-connection-error" id="wellcomeai-connection-error" role="alert">
             Ошибка соединения с сервером
             <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
-              Повторить подключение
+              Повторить
             </button>
           </div>
           
           <!-- Индикатор статуса -->
-          <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
+          <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator" aria-live="polite">
             <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div>
             <span id="wellcomeai-status-text">Подключено</span>
           </div>
         </div>
-      </div>
-      
-      <!-- Модальное окно загрузки -->
-      <div id="wellcomeai-loader-modal" class="wellcomeai-loader-modal active">
-        <div class="wellcomeai-loader"></div>
+        <!-- Модальное окно загрузки (теперь внутри expanded, чтобы быть под хедером) -->
+        <div id="wellcomeai-loader-modal" class="wellcomeai-loader-modal">
+          <div class="wellcomeai-loader"></div>
+        </div>
       </div>
     `;
 
     widgetContainer.innerHTML = widgetHTML;
     document.body.appendChild(widgetContainer);
+
+    // Создание отладочной панели, если DEBUG_MODE включен
+    if (DEBUG_MODE) {
+      const debugPanelEl = document.createElement('div');
+      debugPanelEl.className = 'wellcomeai-debug-panel';
+      debugPanelEl.id = 'wellcomeai-debug-panel';
+      debugPanelEl.innerHTML = `
+        <div class="wellcomeai-debug-panel-header">DEBUG LOG</div>
+        <div class="wellcomeai-debug-panel-content" id="wellcomeai-debug-panel-content"></div>
+      `;
+      document.body.appendChild(debugPanelEl);
+      updateDebugPanel(); // Обновить сразу после создания
+    }
+
+
     widgetLog("HTML structure created and appended to body");
     
-    // Делаем кнопку виджета видимой
+    // Делаем кнопку виджета видимой после создания HTML
     const widgetButton = document.getElementById('wellcomeai-widget-button');
     if (widgetButton) {
-      widgetButton.style.opacity = '1';
-      widgetButton.style.visibility = 'visible';
-      widgetButton.style.pointerEvents = 'auto';
+      // Небольшая задержка для CSS transition
+      setTimeout(() => {
+        widgetButton.style.opacity = '1';
+        widgetButton.style.visibility = 'visible';
+        widgetButton.style.pointerEvents = 'auto';
+      }, 100);
     }
   }
 
   // НОВАЯ функция для тестирования HTML5 Audio воспроизведения
   async function testAudioPlayback() {
     return new Promise((resolve) => {
+      if (!window.globalAudioContext) {
+        widgetLog('[AUDIO TEST] AudioContext не инициализирован, тест невозможен', 'warn');
+        resolve(false);
+        return;
+      }
       try {
         // Создаем короткий тестовый аудио файл (тишина)
         const audioContext = window.globalAudioContext;
-        const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.1, audioContext.sampleRate); // 100ms тишины
+        const buffer = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.02), audioContext.sampleRate); // 20ms тишины
         
-        // Конвертируем в WAV
         const wavBuffer = createWavFromPcm(buffer.getChannelData(0).buffer, audioContext.sampleRate);
         const blob = new Blob([wavBuffer], { type: 'audio/wav' });
         const testUrl = URL.createObjectURL(blob);
         
         const testAudio = new Audio();
         testAudio.src = testUrl;
-        testAudio.volume = 0.01; // Очень тихо
+        testAudio.volume = 0.01; 
         testAudio.preload = 'auto';
+        testAudio.playsInline = true; 
         
-        // Таймаут на случай если событие не сработает
         const timeout = setTimeout(() => {
           URL.revokeObjectURL(testUrl);
+          widgetLog('[AUDIO TEST] Тест воспроизведения: таймаут', 'warn');
           resolve(false);
-        }, 2000);
+        }, 1000); // Уменьшен таймаут
         
-        testAudio.oncanplaythrough = () => {
-          const playPromise = testAudio.play();
-          
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => {
-                clearTimeout(timeout);
-                URL.revokeObjectURL(testUrl);
-                widgetLog('[AUDIO] Тест воспроизведения успешен');
-                resolve(true);
-              })
-              .catch((error) => {
-                clearTimeout(timeout);
-                URL.revokeObjectURL(testUrl);
-                widgetLog(`[AUDIO] Тест воспроизведения неудачен: ${error.message}`, 'warn');
-                resolve(false);
-              });
-          } else {
+        const playHandler = () => {
             clearTimeout(timeout);
             URL.revokeObjectURL(testUrl);
-            resolve(true); // Старые браузеры без промисов
+            // Удаляем обработчики, чтобы избежать утечек
+            testAudio.removeEventListener('canplaythrough', canPlayThroughHandler);
+            testAudio.removeEventListener('error', errorHandler);
+            widgetLog('[AUDIO TEST] Тест воспроизведения успешен');
+            resolve(true);
+        };
+
+        const errorHandler = (error) => {
+            clearTimeout(timeout);
+            URL.revokeObjectURL(testUrl);
+            testAudio.removeEventListener('canplaythrough', canPlayThroughHandler);
+            testAudio.removeEventListener('error', errorHandler);
+            widgetLog(`[AUDIO TEST] Тест воспроизведения неудачен: ${error.type || error.message || 'Unknown error'}`, 'warn');
+            resolve(false);
+        };
+        
+        const canPlayThroughHandler = () => {
+          const playPromise = testAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.then(playHandler).catch(errorHandler);
+          } else {
+            // Для старых браузеров без Promise, считаем, что play() синхронный
+            // Но это очень редкий случай для современных браузеров
+             playHandler();
           }
         };
         
-        testAudio.onerror = () => {
-          clearTimeout(timeout);
-          URL.revokeObjectURL(testUrl);
-          resolve(false);
-        };
+        testAudio.addEventListener('canplaythrough', canPlayThroughHandler, { once: true });
+        testAudio.addEventListener('error', errorHandler, { once: true });
         
-        testAudio.load();
+        testAudio.load(); // Начинаем загрузку
         
       } catch (error) {
-        widgetLog(`[AUDIO] Ошибка теста воспроизведения: ${error.message}`, 'warn');
+        widgetLog(`[AUDIO TEST] Ошибка теста воспроизведения: ${error.message}`, 'warn');
         resolve(false);
       }
     });
   }
 
-  // НОВАЯ функция для разблокировки воспроизведения
-  async function unlockAudioPlayback() {
-    widgetLog('[AUDIO] Попытка разблокировки воспроизведения аудио');
-    
-    try {
-      // Создаем тестовый аудио и пытаемся воспроизвести
-      const audio = new Audio();
-      audio.src = 'data:audio/wav;base64,UklGRnoAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAABBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzqU3vLEeSsFJYXO9tiDNgYZaLvs559NEAxNm+PyvmchBjuL2vLOeywE';
-      audio.volume = 0.01;
-      audio.load();
-      
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        await playPromise;
-      }
-      
-      window.audioPlaybackUnlocked = true;
-      widgetLog('[AUDIO] Воспроизведение аудио разблокировано');
-      return true;
-      
-    } catch (error) {
-      widgetLog(`[AUDIO] Не удалось разблокировать воспроизведение: ${error.message}`, 'error');
-      return false;
-    }
-  }
 
   // УНИФИЦИРОВАННАЯ ИНИЦИАЛИЗАЦИЯ АУДИО - одинаково для всех устройств
   async function initializeAudio() {
     widgetLog(`[AUDIO] Начало единой инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
+    // Если уже инициализировано, выходим
+    if (window.audioInitialized && window.globalAudioContext && window.globalMicStream) {
+        widgetLog('[AUDIO] Аудио уже инициализировано.', 'info');
+        if (window.globalAudioContext.state === 'suspended') {
+            try {
+                await window.globalAudioContext.resume();
+                widgetLog('[AUDIO] AudioContext успешно возобновлен.');
+            } catch (e) {
+                widgetLog(`[AUDIO] Ошибка возобновления AudioContext: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        return true;
+    }
+
     try {
-      // 1. Проверяем поддержку getUserMedia
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Браузер не поддерживает доступ к микрофону");
-      }
-
-      // 2. Создаем ЕДИНЫЙ AudioContext для всех устройств
-      if (!window.globalAudioContext) {
+      // 1. Создаем ЕДИНЫЙ AudioContext для всех устройств
+      if (!window.globalAudioContext || window.globalAudioContext.state === 'closed') {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        window.globalAudioContext = new AudioContextClass({
-          sampleRate: 24000, // Единая частота для всех устройств
-          latencyHint: 'interactive'
-        });
-        widgetLog(`[AUDIO] AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
+        if (!AudioContextClass) {
+            throw new Error("AudioContext не поддерживается браузером");
+        }
+        
+        const contextOptions = {
+          sampleRate: 24000, // Стандартная частота для большинства задач
+          latencyHint: isMobile ? 'interactive' : 'balanced' // Разная подсказка задержки
+        };
+        
+        window.globalAudioContext = new AudioContextClass(contextOptions);
+        widgetLog(`[AUDIO] AudioContext создан/пересоздан с частотой ${window.globalAudioContext.sampleRate} Гц, latencyHint: ${contextOptions.latencyHint}`);
+
+        // Обработчик изменения состояния AudioContext (например, если он был приостановлен системой)
+        window.globalAudioContext.onstatechange = () => {
+            widgetLog(`[AUDIO] AudioContext state changed to: ${window.globalAudioContext.state}`);
+            if (window.globalAudioContext.state === 'interrupted' || window.globalAudioContext.state === 'suspended') {
+                // Попытка возобновить, если виджет открыт
+                if (document.getElementById('wellcomeai-widget-container')?.classList.contains('active')) {
+                    window.globalAudioContext.resume().then(() => {
+                        widgetLog('[AUDIO] AudioContext возобновлен после прерывания/приостановки.');
+                    }).catch(e => widgetLog(`[AUDIO] Не удалось возобновить AudioContext: ${e.message}`, 'warn'));
+                }
+            }
+        };
       }
 
-      // 3. Активируем AudioContext если приостановлен
+      // 2. Активируем AudioContext если приостановлен (часто на мобильных до взаимодействия)
       if (window.globalAudioContext.state === 'suspended') {
         await window.globalAudioContext.resume();
-        widgetLog('[AUDIO] AudioContext активирован');
+        widgetLog('[AUDIO] AudioContext активирован из состояния suspended');
       }
 
+      // 3. Проверяем поддержку getUserMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Браузер не поддерживает доступ к микрофону (getUserMedia)");
+      }
+      
       // 4. Получаем доступ к микрофону с едиными настройками
-      if (!window.globalMicStream) {
+      // Пересоздаем поток только если его нет или он неактивен
+      if (!window.globalMicStream || !window.globalMicStream.active) {
+        if (window.globalMicStream && !window.globalMicStream.active) {
+            widgetLog('[AUDIO] Существующий поток микрофона неактивен, запрашиваем новый.');
+        }
         const constraints = {
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
-            sampleRate: 24000,
+            sampleRate: { ideal: 24000 }, // Предпочтительная частота
             channelCount: 1
           }
         };
 
+        if (isIOS) {
+          // Для iOS может потребоваться более низкая задержка, но это может повлиять на качество
+          // constraints.audio.latency = 0.02; // Пример, требует тестирования
+        }
+
         window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-        widgetLog(`[AUDIO] Микрофон активирован`);
+        widgetLog(`[AUDIO] Микрофон активирован. Треки: ${window.globalMicStream.getAudioTracks().length}`);
 
         // Обработчик закрытия потока
         window.globalMicStream.getAudioTracks().forEach(track => {
+          widgetLog(`[AUDIO] Аудио трек: ${track.label}, настройки: ${JSON.stringify(track.getSettings())}`);
           track.onended = () => {
-            widgetLog('[AUDIO] Поток микрофона завершен');
-            window.globalMicStream = null;
+            widgetLog('[AUDIO] Поток микрофона завершен (трек ended)');
+            // Не обнуляем globalMicStream здесь, чтобы можно было проверить его состояние
+            // Очистка произойдет при следующем запросе, если !active
           };
+          track.onmute = () => widgetLog('[AUDIO] Трек микрофона заглушен (mute)');
+          track.onunmute = () => widgetLog('[AUDIO] Трек микрофона разглушен (unmute)');
         });
       }
 
-      // 5. Для мобильных устройств - воспроизводим тишину для полной разблокировки AudioContext
-      if (isMobile) {
+
+      // 5. Для мобильных устройств - дополнительная разблокировка AudioContext воспроизведением тишины.
+      // Это может помочь на некоторых устройствах, особенно если воспроизведение идет через Audio API, а не HTML5 Audio.
+      if (isMobile && window.globalAudioContext.state !== 'running') {
         const buffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
         const source = window.globalAudioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(window.globalAudioContext.destination);
         source.start(0);
-        widgetLog('[AUDIO] Тишина воспроизведена для разблокировки AudioContext');
+        // Дожидаемся окончания воспроизведения тишины
+        await new Promise(resolve => source.onended = resolve);
+        widgetLog('[AUDIO] Тишина воспроизведена для попытки разблокировки AudioContext на мобильном.');
       }
 
-      // 6. НОВОЕ: Тестируем HTML5 Audio воспроизведение для мобильных
-      if (isMobile && !window.audioPlaybackUnlocked) {
-        widgetLog('[AUDIO] Тестируем HTML5 Audio воспроизведение...');
-        
-        const testSuccess = await testAudioPlayback();
-        if (testSuccess) {
-          window.audioPlaybackUnlocked = true;
-          widgetLog('[AUDIO] HTML5 Audio воспроизведение разблокировано');
+      // 6. Тестируем HTML5 Audio воспроизведение, если еще не разблокировано
+      if (!window.audioPlaybackUnlocked) {
+        widgetLog('[AUDIO] Тестируем HTML5 Audio воспроизведение для разблокировки...');
+        const unlocked = await testAudioPlayback();
+        if (unlocked) {
+            window.audioPlaybackUnlocked = true;
+            widgetLog('[AUDIO] HTML5 Audio разблокировано успешно через тест.');
         } else {
-          widgetLog('[AUDIO] HTML5 Audio заблокировано, потребуется дополнительное взаимодействие', 'warn');
-          // НЕ показываем кнопку сразу, покажем только при первой попытке воспроизведения
+            widgetLog('[AUDIO] HTML5 Audio НЕ разблокировано через тест. Может потребоваться взаимодействие.', 'warn');
+            // Не ошибка, просто информирование. Кнопка разблокировки появится при необходимости.
         }
-      } else if (!isMobile) {
-        // На десктопе считаем что воспроизведение доступно
-        window.audioPlaybackUnlocked = true;
       }
+
 
       // 7. Устанавливаем флаг успешной инициализации
       window.audioInitialized = true;
@@ -943,130 +1080,356 @@
       return true;
 
     } catch (error) {
-      widgetLog(`[AUDIO] Ошибка инициализации: ${error.message}`, 'error');
+      widgetLog(`[AUDIO] Ошибка инициализации: ${error.message || error}`, 'error');
+      // Попытка очистить ресурсы в случае ошибки
+      if (window.globalAudioContext && window.globalAudioContext.state !== 'closed') {
+        window.globalAudioContext.close().catch(e => widgetLog(`[AUDIO] Ошибка закрытия AudioContext при ошибке инициализации: ${e.message}`, 'warn'));
+        window.globalAudioContext = null;
+      }
+      if (window.globalMicStream) {
+        window.globalMicStream.getTracks().forEach(track => track.stop());
+        window.globalMicStream = null;
+      }
+      window.audioInitialized = false; // Сбрасываем флаг
       return false;
     }
   }
 
-  // НОВАЯ вспомогательная функция для очистки аудио ресурсов
-  function cleanupAudio(audioUrl, audio) {
-    URL.revokeObjectURL(audioUrl);
-    const index = interruptionState.current_audio_elements.indexOf(audio);
-    if (index > -1) {
-      interruptionState.current_audio_elements.splice(index, 1);
-    }
+
+  // ФАБРИЧНАЯ функция для создания cleanupAudio с правильным контекстом
+  function createCleanupAudio(interruptionStateRef) { // Принимаем ссылку на объект состояния
+    return function cleanupAudio(audioUrl, audio) {
+      if (audioUrl && audioUrl.startsWith('blob:')) { // Проверяем, что это blob URL
+        URL.revokeObjectURL(audioUrl);
+        // widgetLog(`[AUDIO] Отозван Object URL: ${audioUrl}`);
+      }
+      
+      // Используем переданную ссылку на interruptionState
+      if (audio && interruptionStateRef && interruptionStateRef.current_audio_elements) {
+        const index = interruptionStateRef.current_audio_elements.indexOf(audio);
+        if (index > -1) {
+          interruptionStateRef.current_audio_elements.splice(index, 1);
+        }
+      }
+    };
   }
 
+
   // НОВАЯ функция для показа кнопки разблокировки воспроизведения
-  function showAudioUnlockButton(audioUrl, audio) {
+  function showAudioUnlockButton(audioUrl, audio, cleanupCurrentAudioFn, playNextAudioFn, interruptionStateRef) {
     const mobileAudioButton = document.getElementById('wellcomeai-mobile-audio-button');
+    const messageDisplay = document.getElementById('wellcomeai-message-display');
+    
     if (mobileAudioButton) {
       mobileAudioButton.textContent = '🔊 Включить звук';
       mobileAudioButton.classList.add('visible');
       
-      // Показываем сообщение
-      showMessage("Нажмите кнопку для включения звука ответов", 0);
+      if (messageDisplay) {
+        messageDisplay.textContent = "Нажмите, чтобы ассистент мог говорить";
+        messageDisplay.classList.add('show');
+      }
       
-      // Обработчик клика для разблокировки
-      mobileAudioButton.onclick = async function() {
-        widgetLog('[AUDIO] Попытка разблокировки через кнопку');
-        
+      // Удаляем предыдущие обработчики, чтобы избежать многократных вызовов
+      const newButton = mobileAudioButton.cloneNode(true);
+      mobileAudioButton.parentNode.replaceChild(newButton, mobileAudioButton);
+      
+      newButton.onclick = async function() {
+        widgetLog('[AUDIO] Попытка разблокировки воспроизведения через кнопку');
+        newButton.disabled = true; // Предотвращаем двойные клики
+        newButton.textContent = '🔊 Включаем...';
+
         try {
-          // Пробуем воспроизвести текущее аудио
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            await playPromise;
+          // 1. Убедимся, что AudioContext активен
+          if (window.globalAudioContext && window.globalAudioContext.state === 'suspended') {
+            await window.globalAudioContext.resume();
+            widgetLog('[AUDIO] AudioContext возобновлен по клику на кнопку.');
           }
-          
-          // Если успешно - скрываем кнопку и отмечаем как разблокированное
+
+          // 2. Пробуем воспроизвести тестовое короткое аудио для полной разблокировки
+          // Используем очень короткий звук, чтобы было незаметно
+          const unlockAudio = new Audio('data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAAA'); // 1ms тишины 44.1kHz
+          unlockAudio.volume = 0.01;
+          unlockAudio.playsInline = true;
+          await unlockAudio.play(); // Ждем завершения промиса
+          widgetLog('[AUDIO] Тестовое аудио для разблокировки воспроизведено.');
+
+          // 3. Отмечаем, что воспроизведение разблокировано
           window.audioPlaybackUnlocked = true;
-          mobileAudioButton.classList.remove('visible');
-          hideMessage();
-          widgetLog('[AUDIO] Воспроизведение успешно разблокировано через кнопку');
           
-        } catch (error) {
-          widgetLog(`[AUDIO] Не удалось разблокировать через кнопку: ${error.message}`, 'error');
-          
-          // Пробуем альтернативный способ разблокировки
-          const unlocked = await unlockAudioPlayback();
-          if (unlocked) {
-            mobileAudioButton.classList.remove('visible');
-            hideMessage();
-            
-            // Пробуем снова воспроизвести оригинальное аудио
-            try {
-              await audio.play();
-              widgetLog('[AUDIO] Аудио воспроизведено после альтернативной разблокировки');
-            } catch (e) {
-              widgetLog(`[AUDIO] Все еще не удается воспроизвести: ${e.message}`, 'error');
-              cleanupAudio(audioUrl, audio);
-              playNextAudio();
-            }
-          } else {
-            showMessage("Не удалось включить звук. Попробуйте еще раз.", 3000);
+          // 4. Скрываем кнопку и сообщение
+          newButton.classList.remove('visible');
+          if (messageDisplay) {
+            messageDisplay.classList.remove('show');
           }
+          
+          widgetLog('[AUDIO] Воспроизведение успешно разблокировано.');
+
+          // 5. Теперь пытаемся воспроизвести оригинальное аудио, которое не удалось
+          // Если оригинальное аудио еще существует и его URL валиден
+          if (audio && audio.src && audio.src === audioUrl) {
+             widgetLog('[AUDIO] Повторная попытка воспроизведения оригинального аудио.');
+             await audio.play(); // audio уже должен быть загружен и иметь onended/onerror
+          } else {
+             // Если оригинальное аудио уже очищено или URL не совпадает, просто запускаем следующее
+             widgetLog('[AUDIO] Оригинальное аудио недействительно, запускаем следующее из очереди.');
+             cleanupCurrentAudioFn(audioUrl, audio); // Очищаем старое, если нужно
+             playNextAudioFn(); // Запускаем следующее
+          }
+
+        } catch (error) {
+          widgetLog(`[AUDIO] Не удалось разблокировать/воспроизвести: ${error.message}`, 'error');
+          if (messageDisplay) {
+            messageDisplay.textContent = "Не удалось включить звук. Проверьте настройки.";
+            setTimeout(() => {
+              if (messageDisplay.textContent === "Не удалось включить звук. Проверьте настройки.") {
+                 messageDisplay.classList.remove('show');
+              }
+            }, 3000);
+          }
+          // Очищаем текущее аудио и переходим к следующему, если не удалось
+          cleanupCurrentAudioFn(audioUrl, audio);
+          playNextAudioFn();
+        } finally {
+            newButton.disabled = false; // Возвращаем кликабельность кнопке
+            // Текст кнопки может быть восстановлен или скрыт в зависимости от успеха
+             if(!newButton.classList.contains('visible')) {
+                newButton.textContent = '🔊 Включить звук'; // Восстанавливаем текст, если кнопка осталась видимой (маловероятно)
+            }
         }
       };
+    } else {
+        widgetLog('[AUDIO] Кнопка разблокировки звука не найдена', 'warn');
+        // Если кнопки нет, просто очищаем и идем дальше
+        cleanupCurrentAudioFn(audioUrl, audio);
+        playNextAudioFn();
     }
   }
 
-  // Создаём простой WAV из PCM данных
-  function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
+
+  // Создаём простой WAV из PCM данных (float32)
+  function createWavFromPcm(float32PcmData, sampleRate = 24000) {
+    const numSamples = float32PcmData.length;
+    const pcm16Data = new Int16Array(numSamples);
+    for (let i = 0; i < numSamples; i++) {
+      pcm16Data[i] = Math.max(-32768, Math.min(32767, float32PcmData[i] * 32767));
+    }
+    const pcmBuffer = pcm16Data.buffer;
+
     const wavHeader = new ArrayBuffer(44);
     const view = new DataView(wavHeader);
+    const numChannels = 1;
+    const bytesPerSample = 2; // 16-bit
     
-    // "RIFF" chunk descriptor
-    view.setUint8(0, 'R'.charCodeAt(0));
-    view.setUint8(1, 'I'.charCodeAt(0));
-    view.setUint8(2, 'F'.charCodeAt(0));
-    view.setUint8(3, 'F'.charCodeAt(0));
+    // RIFF chunk descriptor
+    view.setUint8(0, 'R'.charCodeAt(0)); view.setUint8(1, 'I'.charCodeAt(0));
+    view.setUint8(2, 'F'.charCodeAt(0)); view.setUint8(3, 'F'.charCodeAt(0));
+    view.setUint32(4, 36 + pcmBuffer.byteLength, true); // ChunkSize
+    // WAVE format
+    view.setUint8(8, 'W'.charCodeAt(0)); view.setUint8(9, 'A'.charCodeAt(0));
+    view.setUint8(10, 'V'.charCodeAt(0)); view.setUint8(11, 'E'.charCodeAt(0));
+    // fmt sub-chunk
+    view.setUint8(12, 'f'.charCodeAt(0)); view.setUint8(13, 'm'.charCodeAt(0));
+    view.setUint8(14, 't'.charCodeAt(0)); view.setUint8(15, ' '.charCodeAt(0)); // Subchunk1ID
+    view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+    view.setUint16(20, 1, true);  // AudioFormat (1 for PCM)
+    view.setUint16(22, numChannels, true); // NumChannels
+    view.setUint32(24, sampleRate, true); // SampleRate
+    view.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // ByteRate
+    view.setUint16(32, numChannels * bytesPerSample, true); // BlockAlign
+    view.setUint16(34, 16, true); // BitsPerSample
+    // data sub-chunk
+    view.setUint8(36, 'd'.charCodeAt(0)); view.setUint8(37, 'a'.charCodeAt(0));
+    view.setUint8(38, 't'.charCodeAt(0)); view.setUint8(39, 'a'.charCodeAt(0)); // Subchunk2ID
+    view.setUint32(40, pcmBuffer.byteLength, true); // Subchunk2Size
     
-    view.setUint32(4, 36 + pcmBuffer.byteLength, true);
-    
-    // "WAVE" формат
-    view.setUint8(8, 'W'.charCodeAt(0));
-    view.setUint8(9, 'A'.charCodeAt(0));
-    view.setUint8(10, 'V'.charCodeAt(0));
-    view.setUint8(11, 'E'.charCodeAt(0));
-    
-    // "fmt " субчанк
-    view.setUint8(12, 'f'.charCodeAt(0));
-    view.setUint8(13, 'm'.charCodeAt(0));
-    view.setUint8(14, 't'.charCodeAt(0));
-    view.setUint8(15, ' '.charCodeAt(0));
-    
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    
-    // "data" субчанк
-    view.setUint8(36, 'd'.charCodeAt(0));
-    view.setUint8(37, 'a'.charCodeAt(0));
-    view.setUint8(38, 't'.charCodeAt(0));
-    view.setUint8(39, 'a'.charCodeAt(0));
-    
-    view.setUint32(40, pcmBuffer.byteLength, true);
-    
-    const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
-    const wavBytes = new Uint8Array(wavBuffer);
-    
+    const wavBytes = new Uint8Array(wavHeader.byteLength + pcmBuffer.byteLength);
     wavBytes.set(new Uint8Array(wavHeader), 0);
     wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
     
-    return wavBuffer;
+    return wavBytes.buffer;
   }
+
+
+  // ФАБРИЧНАЯ функция для создания playNextAudio с правильным контекстом
+  // Принимает ссылки на переменные, которые могут изменяться (объекты или функции, возвращающие значения)
+  function createPlayNextAudio(
+      interruptionStateRef, // Ссылка на объект interruptionState
+      audioPlaybackQueueRef, // Ссылка на массив очереди
+      uiElements, // Объект с UI элементами
+      getIsWidgetOpenFn, // Функция, возвращающая актуальное isWidgetOpen
+      startListeningFn // Функция для начала прослушивания
+    ) {
+    
+    // Внутренняя переменная для отслеживания текущего активного аудио элемента
+    // чтобы избежать многократных вызовов playNextAudio при ошибках или быстрой смене состояний
+    let currentlyPlayingAudio = null; 
+
+    return function playNextAudio() {
+      // Если уже есть активное аудио, которое пытается воспроизвестись, не запускаем новое
+      if (currentlyPlayingAudio && !currentlyPlayingAudio.ended && !currentlyPlayingAudio.error && !currentlyPlayingAudio.paused) {
+          // widgetLog('[AUDIO PLAY] Попытка запустить новое аудио, пока предыдущее еще обрабатывается. Игнорируется.', 'debug');
+          return;
+      }
+      currentlyPlayingAudio = null; // Сбрасываем, если предыдущее завершилось или было ошибкой
+
+      if (audioPlaybackQueueRef.length === 0) {
+        window.isPlayingAudio = false;
+        interruptionStateRef.is_assistant_speaking = false;
+        uiElements.mainCircle.classList.remove('speaking');
+        
+        if (!getIsWidgetOpenFn()) {
+          uiElements.widgetButton.classList.add('wellcomeai-pulse-animation');
+        } else {
+          uiElements.widgetButton.classList.remove('wellcomeai-pulse-animation');
+        }
+        
+        // После воспроизведения, если виджет открыт, возобновляем прослушивание
+        if (getIsWidgetOpenFn() && document.getElementById('wellcomeai-widget-container').classList.contains('active')) {
+          // widgetLog('[AUDIO PLAY] Очередь пуста, виджет открыт, возобновляем прослушивание.');
+          // Небольшая задержка перед стартом прослушивания, чтобы избежать наложений
+          setTimeout(() => {
+            if (getIsWidgetOpenFn() && !window.isPlayingAudio) { // Дополнительная проверка
+                startListeningFn();
+            }
+          }, 300); 
+        } else {
+            // widgetLog('[AUDIO PLAY] Очередь пуста, виджет закрыт или неактивен, прослушивание не возобновляется.');
+        }
+        return;
+      }
+      
+      window.isPlayingAudio = true;
+      interruptionStateRef.is_assistant_speaking = true;
+      uiElements.mainCircle.classList.remove('listening', 'interrupted');
+      uiElements.mainCircle.classList.add('speaking');
+      uiElements.widgetButton.classList.remove('wellcomeai-pulse-animation'); // Убираем пульсацию, когда ассистент говорит
+      
+      const audioBase64 = audioPlaybackQueueRef.shift();
+      let audioUrl = null; // Объявляем здесь для доступа в блоке catch
+      let audio = null;    // Объявляем здесь для доступа в блоке catch
+
+      // Создаем cleanup функцию с правильным контекстом для текущего аудио
+      const cleanupCurrentAudio = createCleanupAudio(interruptionStateRef);
+      
+      try {
+        const audioDataArrayBuffer = base64ToArrayBuffer(audioBase64);
+        if (audioDataArrayBuffer.byteLength === 0) {
+          widgetLog('[AUDIO PLAY] Пустой аудиобуфер получен, пропускаем.', 'warn');
+          playNextAudio(); // Рекурсивный вызов для следующего элемента
+          return;
+        }
+
+        // Преобразуем Float32 PCM (если это он) в WAV
+        // Предполагаем, что с сервера приходит Float32 PCM
+        const float32PcmData = new Float32Array(audioDataArrayBuffer);
+        const wavBuffer = createWavFromPcm(float32PcmData, window.globalAudioContext ? window.globalAudioContext.sampleRate : 24000);
+        
+        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+        audioUrl = URL.createObjectURL(blob);
+        
+        audio = new Audio();
+        audio.src = audioUrl;
+        currentlyPlayingAudio = audio; // Устанавливаем текущее аудио
+        
+        interruptionStateRef.current_audio_elements.push(audio);
+        
+        audio.preload = 'auto';
+        audio.volume = 1.0;
+        audio.playsInline = true;
+        audio.muted = false; // Убедимся, что не заглушено
+        
+        const playAttempt = () => {
+            if (!interruptionStateRef.is_assistant_speaking || !window.isPlayingAudio) {
+                widgetLog('[AUDIO PLAY] Воспроизведение отменено до начала (is_assistant_speaking=false или isPlayingAudio=false).', 'info');
+                cleanupCurrentAudio(audioUrl, audio);
+                currentlyPlayingAudio = null;
+                playNextAudio();
+                return;
+            }
+
+            widgetLog(`[AUDIO PLAY] Попытка воспроизведения аудио: ${audioUrl.substring(audioUrl.length - 10)}`);
+            const playPromise = audio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise
+                .then(() => {
+                    widgetLog(`[AUDIO PLAY] Аудио (${audioUrl.substring(audioUrl.length - 10)}) воспроизводится успешно.`);
+                    if (isMobile && !window.audioPlaybackUnlocked) {
+                        window.audioPlaybackUnlocked = true;
+                        widgetLog('[AUDIO PLAY] Воспроизведение разблокировано через успешный play().');
+                        const mobileAudioBtn = document.getElementById('wellcomeai-mobile-audio-button');
+                        if (mobileAudioBtn) mobileAudioBtn.classList.remove('visible');
+                        const msgDisplay = document.getElementById('wellcomeai-message-display');
+                        if (msgDisplay && msgDisplay.textContent.includes("Нажмите, чтобы ассистент мог говорить")) {
+                            msgDisplay.classList.remove('show');
+                        }
+                    }
+                })
+                .catch(error => {
+                    widgetLog(`[AUDIO PLAY] Ошибка воспроизведения (${audioUrl.substring(audioUrl.length - 10)}): ${error.name} - ${error.message}`, "error");
+                    
+                    if (isMobile && (error.name === 'NotAllowedError' || error.name === 'AbortError' || error.message.toLowerCase().includes('user gesture'))) {
+                        widgetLog('[AUDIO PLAY] Требуется разблокировка воспроизведения для мобильного устройства.');
+                        showAudioUnlockButton(audioUrl, audio, cleanupCurrentAudio, playNextAudio, interruptionStateRef);
+                        // Не вызываем playNextAudio здесь, т.к. showAudioUnlockButton обработает это
+                    } else {
+                        // Для других ошибок или не мобильных устройств
+                        cleanupCurrentAudio(audioUrl, audio);
+                        currentlyPlayingAudio = null;
+                        playNextAudio();
+                    }
+                });
+            } else {
+                widgetLog('[AUDIO PLAY] Воспроизведение запущено (старый браузер без Promise).');
+                // Для старых браузеров, которые не возвращают Promise
+                // onended и onerror все еще должны работать
+            }
+        };
+
+        // Используем oncanplaythrough или loadeddata, чтобы убедиться, что аудио готово
+        audio.onloadeddata = () => { // oncanplaythrough может быть слишком долгим на мобильных
+            widgetLog(`[AUDIO PLAY] Аудио (${audioUrl.substring(audioUrl.length - 10)}) готово (loadeddata).`);
+            playAttempt();
+        };
+        
+        audio.onended = function() {
+          widgetLog(`[AUDIO PLAY] Воспроизведение аудио (${audioUrl.substring(audioUrl.length - 10)}) завершено.`);
+          cleanupCurrentAudio(audioUrl, audio);
+          currentlyPlayingAudio = null;
+          playNextAudio();
+        };
+        
+        audio.onerror = function(e) {
+          const errorMsg = audio.error ? `${audio.error.code} - ${audio.error.message}` : (e.message || 'Unknown audio element error');
+          widgetLog(`[AUDIO PLAY] Ошибка аудио элемента (${audioUrl.substring(audioUrl.length - 10)}): ${errorMsg}`, 'error');
+          cleanupCurrentAudio(audioUrl, audio);
+          currentlyPlayingAudio = null;
+          playNextAudio();
+        };
+        
+        audio.load(); // Начинаем загрузку
+        
+      } catch (error) {
+        widgetLog(`[AUDIO PLAY] Критическая ошибка при подготовке аудио: ${error.message}`, "error");
+        if (audioUrl) cleanupCurrentAudio(audioUrl, audio); // Очищаем, если URL был создан
+        currentlyPlayingAudio = null;
+        playNextAudio(); // Переходим к следующему аудио в очереди
+      }
+    };
+  }
+
 
   // Основная логика виджета
   function initWidget() {
     // Проверяем, что ID ассистента существует
     if (!ASSISTANT_ID) {
-      widgetLog("Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
-      alert('WellcomeAI Widget Error: Assistant ID not found. Please check console for details.');
-      return;
+      widgetLog("Assistant ID not found. Please add data-assistantId attribute to the script tag or define window.wellcomeAIAssistantId.", 'error');
+      // Можно показать сообщение пользователю прямо на странице, если виджет критически важен
+      const errorDiv = document.createElement('div');
+      errorDiv.style.cssText = "position:fixed; top:10px; left:10px; padding:10px; background:red; color:white; z-index:2147483647;";
+      errorDiv.textContent = "WellcomeAI Widget Error: Assistant ID not configured. Widget disabled.";
+      document.body.appendChild(errorDiv);
+      return; // Прерываем инициализацию
     }
 
     // Элементы UI
@@ -1074,638 +1437,799 @@
     const widgetButton = document.getElementById('wellcomeai-widget-button');
     const widgetClose = document.getElementById('wellcomeai-widget-close');
     const mainCircle = document.getElementById('wellcomeai-main-circle');
-    const audioBars = document.getElementById('wellcomeai-audio-bars');
+    const audioBarsContainer = document.getElementById('wellcomeai-audio-bars'); // Изменено имя переменной
     const loaderModal = document.getElementById('wellcomeai-loader-modal');
     const messageDisplay = document.getElementById('wellcomeai-message-display');
-    const connectionError = document.getElementById('wellcomeai-connection-error');
+    const connectionErrorDisplay = document.getElementById('wellcomeai-connection-error'); // Изменено имя переменной
     const retryButton = document.getElementById('wellcomeai-retry-button');
     const statusIndicator = document.getElementById('wellcomeai-status-indicator');
     const statusDot = document.getElementById('wellcomeai-status-dot');
     const statusText = document.getElementById('wellcomeai-status-text');
     
-    // Проверка элементов
-    if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay) {
-      widgetLog("Some UI elements were not found!", 'error');
-      return;
+    // Проверка существования ключевых элементов
+    if (!widgetContainer || !widgetButton || !widgetClose || !mainCircle || !audioBarsContainer || !loaderModal || !messageDisplay || !connectionErrorDisplay || !retryButton || !statusIndicator || !statusDot || !statusText) {
+      widgetLog("One or more critical UI elements were not found! Widget may not function correctly.", 'error');
+      // Можно предпринять действия, например, скрыть виджет или показать сообщение об ошибке
+      if (widgetContainer) widgetContainer.style.display = 'none'; // Скрыть виджет, если он есть, но его части отсутствуют
+      return; // Прерываем инициализацию
     }
     
-    // Делаем виджет видимым
-    widgetButton.style.opacity = '1';
-    widgetButton.style.visibility = 'visible';
-    widgetButton.style.pointerEvents = 'auto';
-    
     // Переменные для обработки аудио
-    let audioChunksBuffer = [];
-    let audioPlaybackQueue = [];
-    let isPlayingAudio = false;
-    let hasAudioData = false;
-    let audioDataStartTime = 0;
-    let minimumAudioLength = 300;
-    let isListening = false;
-    let websocket = null;
-    let audioProcessor = null;
-    let isConnected = false;
-    let isWidgetOpen = false;
-    let connectionFailedPermanently = false;
-    let pingInterval = null;
-    let lastPingTime = Date.now();
-    let lastPongTime = Date.now();
-    let connectionTimeout = null;
+    // audioChunksBuffer - больше не используется напрямую, данные сразу идут в WebSocket
+    let audioPlaybackQueue = []; // Массив для хранения base64 аудио для воспроизведения
+    let hasAudioData = false;    // Флаг, указывающий, были ли записаны значащие аудиоданные
+    let audioDataStartTime = 0;  // Время начала записи значащих аудиоданных
+    let minimumAudioLength = 200; // Минимальная длина аудио в мс для отправки (OpenAI требует >= 100ms)
+    let isListening = false;     // Флаг, активен ли процесс прослушивания микрофона
+    let websocket = null;        // Объект WebSocket соединения
+    let audioProcessorNode = null; // ScriptProcessorNode для обработки аудио (переименовано с audioProcessor)
+    let mediaStreamSourceNode = null; // MediaStreamSourceNode для подключения потока микрофона
+    
+    let isConnected = false;     // Флаг статуса WebSocket соединения
+    let isWidgetOpen = false;    // Флаг, открыт ли виджет (развернут)
+    let connectionFailedPermanently = false; // Флаг, если все попытки переподключения исчерпаны
+    // pingIntervalId уже объявлен глобально
+    let lastPingTime = Date.now(); // Время последней отправки ping (уже объявлен глобально lastPongTime)
+    let connectionTimeoutId = null; // ID для таймаута соединения (переименовано с connectionTimeout)
+    
+    window.isPlayingAudio = false; // Глобальный флаг, воспроизводится ли аудио ассистентом
     
     // Состояния для обработки перебивания
+    // Используем объект, чтобы передавать его по ссылке
     let interruptionState = {
       is_assistant_speaking: false,
-      is_user_speaking: false,
-      last_interruption: 0,
+      is_user_speaking: false, // Пока не используется активно, но может пригодиться
+      last_interruption_time: 0, // Время последнего события перебивания (переименовано)
       interruption_count: 0,
-      current_audio_elements: [],
-      pending_audio_stop: false
+      current_audio_elements: [], // Массив активных HTMLAudioElement для управления
+      // pending_audio_stop - больше не нужен, логика упрощена
     };
     
-    // Единая конфигурация аудио для всех устройств
-    const AUDIO_CONFIG = {
-      silenceThreshold: 0.01,
-      silenceDuration: 300,
-      bufferCheckInterval: 50,
-      soundDetectionThreshold: 0.02,
-      amplificationFactor: isMobile ? 2.0 : 1.0 // Небольшое усиление только для мобильных
+    // Создаем playNextAudio через фабрику с правильным контекстом
+    const playNextAudioInstance = createPlayNextAudio( // Переименовано для ясности
+      interruptionState, // Передаем сам объект
+      audioPlaybackQueue,  // Передаем сам массив (ссылочный тип)
+      { mainCircle, widgetButton }, // Объект с UI элементами
+      () => isWidgetOpen, // Функция для получения актуального isWidgetOpen
+      () => startListening() // Функция для старта прослушивания
+    );
+    
+    const AUDIO_PROCESSING_CONFIG = { // Переименовано для ясности
+      silenceThreshold: 0.005, // Более чувствительный порог тишины
+      silenceDurationMs: 350,  // Длительность тишины в мс для автоматической отправки
+      bufferCheckIntervalMs: 50, // Интервал проверки буфера (не используется напрямую в новой логике)
+      soundDetectionThreshold: 0.01, // Порог для определения начала звука (более чувствительный)
+      amplificationFactor: isMobile ? 1.5 : 1.0, // Усиление для мобильных, если нужно
+      scriptProcessorBufferSize: isIOS ? 4096 : 2048 // Размер буфера ScriptProcessor, для iOS может быть больше
     };
     
-    // Обработка событий перебивания
+    // Обработка событий перебивания от сервера
     function handleInterruptionEvent(eventData) {
       const now = Date.now();
+      widgetLog(`[INTERRUPTION] Получено серверное событие перебивания: ${JSON.stringify(eventData)}`, 'info');
       
-      widgetLog(`[INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
+      interruptionState.interruption_count = (eventData && eventData.interruption_count !== undefined) ? eventData.interruption_count : (interruptionState.interruption_count + 1);
+      interruptionState.last_interruption_time = (eventData && eventData.timestamp) ? eventData.timestamp : now;
       
-      interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
-      interruptionState.last_interruption = eventData.timestamp || now;
-      
-      stopAllAudioPlayback();
-      switchToListeningMode();
+      stopAllAudioPlayback(); // Останавливаем текущее воспроизведение ассистента
+      // Не нужно переключать в режим прослушивания здесь, это должно произойти естественно
+      // или по действию пользователя / окончанию обработки серверного запроса.
       
       mainCircle.classList.remove('speaking');
       mainCircle.classList.add('interrupted');
       
+      // Сообщение пользователю о перебивании
+      showMessage(`Вы перебили ассистента.`, 2000);
+      updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
+      
       setTimeout(() => {
         mainCircle.classList.remove('interrupted');
-        if (!interruptionState.is_assistant_speaking) {
-          mainCircle.classList.add('listening');
+        // Если виджет открыт и нет активного воспроизведения, и не слушаем - начать слушать
+        if (isWidgetOpen && !window.isPlayingAudio && !isListening && isConnected) {
+          mainCircle.classList.add('listening'); // Визуально показываем готовность
+          startListening();
+        } else if (!window.isPlayingAudio && !isListening) {
+            // Если не играем и не слушаем, просто убираем индикацию
         }
-      }, 1000);
-      
-      updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
+      }, 1200); // Увеличено время для индикации перебивания
       
       widgetLog(`[INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
     }
     
-    // Остановка всех аудио воспроизведений
+    // Остановка всех аудио воспроизведений ассистента
     function stopAllAudioPlayback() {
-      widgetLog('[INTERRUPTION] Остановка всех аудио воспроизведений');
+      widgetLog('[AUDIO CTRL] Остановка всех аудио воспроизведений ассистента');
       
-      isPlayingAudio = false;
-      interruptionState.is_assistant_speaking = false;
+      window.isPlayingAudio = false;
+      interruptionState.is_assistant_speaking = false; // Важно сбросить этот флаг
       
+      // Очищаем очередь воспроизведения
+      audioPlaybackQueue.length = 0; // Быстрый способ очистить массив
+      
+      // Останавливаем и очищаем текущие HTMLAudioElement
+      const cleanupCurrentAudio = createCleanupAudio(interruptionState); // Получаем функцию очистки
       interruptionState.current_audio_elements.forEach(audio => {
         try {
-          audio.pause();
-          audio.currentTime = 0;
+          if (!audio.paused) audio.pause();
+          audio.currentTime = 0; // Сброс времени
+          // Отзываем URL, если он был создан для этого аудио
+          // Предполагаем, что src хранит URL, который нужно отозвать
           if (audio.src && audio.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audio.src);
+            cleanupCurrentAudio(audio.src, audio); // Используем audio.src как audioUrl
           }
         } catch (e) {
-          widgetLog(`[INTERRUPTION] Ошибка при остановке аудио: ${e.message}`, 'warn');
+          widgetLog(`[AUDIO CTRL] Ошибка при остановке аудио элемента: ${e.message}`, 'warn');
         }
       });
+      interruptionState.current_audio_elements = []; // Очищаем массив после обработки
       
-      interruptionState.current_audio_elements = [];
-      audioPlaybackQueue = [];
+      mainCircle.classList.remove('speaking'); // Убираем визуализацию говорения
       
+      // Отправляем серверу сообщение, что воспроизведение остановлено клиентом
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         try {
           websocket.send(JSON.stringify({
-            type: "audio_playback.stopped",
+            type: "audio_playback.stopped_by_client", // Более точный тип события
             timestamp: Date.now()
           }));
+          widgetLog('[AUDIO CTRL] Отправлено событие audio_playback.stopped_by_client');
         } catch (e) {
-          widgetLog(`[INTERRUPTION] Ошибка отправки события остановки: ${e.message}`, 'warn');
+          widgetLog(`[AUDIO CTRL] Ошибка отправки события остановки воспроизведения: ${e.message}`, 'warn');
         }
       }
-      
-      widgetLog('[INTERRUPTION] Все аудио воспроизведения остановлены');
+      widgetLog('[AUDIO CTRL] Все аудио воспроизведения ассистента остановлены и очередь очищена.');
     }
     
-    // Переключение в режим прослушивания
-    function switchToListeningMode() {
-      widgetLog('[INTERRUPTION] Переключение в режим прослушивания');
-      
-      if (isListening) {
-        widgetLog('[INTERRUPTION] Уже в режиме прослушивания');
-        return;
-      }
-      
-      interruptionState.is_user_speaking = true;
-      
-      mainCircle.classList.remove('speaking', 'interrupted');
-      mainCircle.classList.add('listening');
-      
-      if (isConnected && !isReconnecting) {
-        setTimeout(() => {
-          if (!isListening && !isPlayingAudio) {
-            startListening();
-          }
-        }, 100);
-      }
-      
-      widgetLog('[INTERRUPTION] Переключение в режим прослушивания завершено');
-    }
+    // Переключение в режим прослушивания (визуально и логически)
+    // Эта функция больше не нужна в таком виде, startListening делает все необходимое
+    // function switchToListeningMode() { ... }
     
-    // Обработка начала речи пользователя
+    // Обработка начала речи пользователя (событие от сервера)
     function handleSpeechStarted(eventData) {
-      widgetLog(`[INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[EVENT] Сервер: пользователь начал говорить. Данные: ${JSON.stringify(eventData)}`);
+      interruptionState.is_user_speaking = true; // Флаг, что пользователь говорит (по мнению сервера)
       
-      interruptionState.is_user_speaking = true;
-      
+      // Если ассистент говорил в этот момент, это считается перебиванием со стороны пользователя
       if (interruptionState.is_assistant_speaking) {
-        stopAllAudioPlayback();
-        mainCircle.classList.add('interrupted');
-        updateConnectionStatus('interrupted', 'Перебивание');
+        widgetLog('[EVENT] Пользователь начал говорить во время речи ассистента - ИНТЕРПРЕТИРУЕМ КАК ПЕРЕБИВАНИЕ.');
+        stopAllAudioPlayback(); // Останавливаем ассистента
+        mainCircle.classList.add('interrupted'); // Показываем состояние перебивания
+        updateConnectionStatus('interrupted', 'Вы говорите...');
+        setTimeout(() => { // Убираем interrupted через некоторое время
+            mainCircle.classList.remove('interrupted');
+            if (isListening) mainCircle.classList.add('listening'); // Если слушаем, восстанавливаем listening
+        }, 1000);
+      } else {
+        // Если ассистент не говорил, просто показываем, что слушаем
+        mainCircle.classList.remove('speaking'); // Убираем speaking, если был
+        mainCircle.classList.add('listening');   // Показываем listening
+        updateConnectionStatus('connected', 'Вы говорите...');
       }
-      
-      mainCircle.classList.remove('speaking');
-      mainCircle.classList.add('listening');
     }
     
-    // Обработка окончания речи пользователя
+    // Обработка окончания речи пользователя (событие от сервера)
     function handleSpeechStopped(eventData) {
-      widgetLog(`[INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
-      
+      widgetLog(`[EVENT] Сервер: пользователь закончил говорить. Данные: ${JSON.stringify(eventData)}`);
       interruptionState.is_user_speaking = false;
       
-      setTimeout(() => {
-        mainCircle.classList.remove('interrupted');
-        if (!interruptionState.is_assistant_speaking) {
-          mainCircle.classList.remove('listening');
-        }
-      }, 500);
+      // Если виджет открыт, сервер определил конец речи, и мы не воспроизводим аудио,
+      // то можно остановить прослушивание на клиенте, если оно еще активно.
+      // Однако, commitAudioBuffer уже должен был это сделать.
+      // Здесь в основном обновляем UI.
+      mainCircle.classList.remove('listening', 'interrupted'); // Убираем listening и interrupted
+      // Сервер теперь будет обрабатывать и присылать ответ.
+      updateConnectionStatus('connected', 'Обработка...');
+      // showMessage("Анализирую ваш запрос...", 3000); // Можно добавить сообщение
     }
     
-    // Обработка начала речи ассистента
+    // Обработка начала речи ассистента (событие от сервера)
     function handleAssistantSpeechStarted(eventData) {
-      widgetLog(`[INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[EVENT] Сервер: ассистент начал говорить. Данные: ${JSON.stringify(eventData)}`);
+      interruptionState.is_assistant_speaking = true; // Устанавливаем флаг
+      window.isPlayingAudio = true; // Устанавливаем глобальный флаг
       
-      interruptionState.is_assistant_speaking = true;
+      // Останавливаем прослушивание на клиенте, если оно активно
+      if (isListening) {
+        isListening = false; // Логически останавливаем
+        resetAudioVisualization();
+        // audioProcessorNode и mediaStreamSourceNode отключаются в stopListening, если она будет вызвана
+        // или при следующем startListening будут пересозданы/переподключены.
+      }
       
       mainCircle.classList.remove('listening', 'interrupted');
       mainCircle.classList.add('speaking');
-      
       updateConnectionStatus('connected', 'Ассистент говорит');
+      hideMessage(); // Скрываем предыдущие сообщения типа "Обработка..."
     }
     
-    // Обработка окончания речи ассистента
+    // Обработка окончания речи ассистента (событие от сервера)
     function handleAssistantSpeechEnded(eventData) {
-      widgetLog(`[INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
-      
-      interruptionState.is_assistant_speaking = false;
+      widgetLog(`[EVENT] Сервер: ассистент закончил говорить. Данные: ${JSON.stringify(eventData)}`);
+      // Флаги is_assistant_speaking и isPlayingAudio сбрасываются в playNextAudioInstance, когда очередь пуста.
+      // Здесь мы просто обновляем UI и, возможно, готовимся к следующему вводу.
       
       mainCircle.classList.remove('speaking');
+      updateConnectionStatus('connected', 'Готов к ответу');
       
-      // ВАЖНО: НЕ отключаем микрофон, он должен быть постоянно активен как в десктопе
-      // Автоматически начинаем слушать как в десктопной версии
-      if (isWidgetOpen && isConnected && !isReconnecting) {
+      // Если виджет открыт и нет других аудио в очереди, автоматически начинаем слушать
+      // Это поведение по умолчанию, как в десктопных ассистентах
+      if (isWidgetOpen && audioPlaybackQueue.length === 0 && isConnected && !isReconnecting) {
+        // widgetLog('[EVENT] Ассистент закончил, виджет открыт, очередь пуста. Начинаем слушать.');
+        // Небольшая задержка, чтобы пользователь успел среагировать
         setTimeout(() => {
-          if (!isListening && !isPlayingAudio) {
+          if (isWidgetOpen && !window.isPlayingAudio && !isListening) { // Доп. проверка состояния
             startListening();
           }
-        }, 500);
+        }, 500); 
       }
-      
-      updateConnectionStatus('connected', 'Готов к разговору');
     }
     
     // Обновление индикатора статуса соединения
-    function updateConnectionStatus(status, message) {
-      if (!statusIndicator || !statusDot || !statusText) return;
-      
-      statusText.textContent = message || status;
-      
-      statusDot.classList.remove('connected', 'disconnected', 'connecting', 'interrupted');
-      
-      if (status === 'connected') {
-        statusDot.classList.add('connected');
-      } else if (status === 'disconnected') {
-        statusDot.classList.add('disconnected');
-      } else if (status === 'interrupted') {
-        statusDot.classList.add('interrupted');
-      } else {
-        statusDot.classList.add('connecting');
+    function updateConnectionStatus(statusKey, messageText) {
+      // Проверка существования элементов (на всякий случай, если вызывается до их полной инициализации)
+      if (!statusIndicator || !statusDot || !statusText) {
+        widgetLog(`[UI STATUS] Элементы индикатора статуса не найдены. Статус: ${statusKey}, Сообщение: ${messageText}`, 'warn');
+        return;
       }
       
-      statusIndicator.classList.add('show');
+      statusText.textContent = messageText || statusKey; // Отображаем текст сообщения или ключ статуса
       
-      setTimeout(() => {
-        statusIndicator.classList.remove('show');
-      }, 3000);
+      // Убираем все предыдущие классы статусов с точки
+      statusDot.classList.remove('connected', 'disconnected', 'connecting', 'interrupted');
+      // Убираем анимацию подключения, если она была
+      statusDot.style.animation = '';
+      
+      switch (statusKey) {
+        case 'connected':
+          statusDot.classList.add('connected');
+          break;
+        case 'disconnected':
+          statusDot.classList.add('disconnected');
+          break;
+        case 'interrupted':
+          statusDot.classList.add('interrupted');
+          break;
+        case 'connecting': // Или 'reconnecting'
+        default: // По умолчанию считаем, что это 'connecting'
+          statusDot.classList.add('connecting');
+          // Можно добавить анимацию для connecting, если есть в CSS
+          // statusDot.style.animation = 'wellcomeai-connecting-pulse 1.5s infinite ease-in-out';
+          break;
+      }
+      
+      statusIndicator.classList.add('show'); // Показываем индикатор
+      
+      // Автоматически скрывать индикатор через некоторое время, если это не постоянный статус (типа disconnected)
+      // Для 'disconnected' и 'connecting' лучше оставлять видимым дольше или до смены статуса.
+      if (statusKey === 'connected' || statusKey === 'interrupted') {
+        setTimeout(() => {
+          // Скрываем, только если статус не изменился за это время
+          if (statusText.textContent === messageText) { 
+            statusIndicator.classList.remove('show');
+          }
+        }, 4000); // Увеличено время отображения
+      }
     }
     
     // Создаем аудио-бары для визуализации
     function createAudioBars(count = 20) {
-      audioBars.innerHTML = '';
+      audioBarsContainer.innerHTML = ''; // Очищаем предыдущие бары, если есть
       for (let i = 0; i < count; i++) {
         const bar = document.createElement('div');
         bar.className = 'wellcomeai-audio-bar';
-        audioBars.appendChild(bar);
+        // Начальная высота может быть задана в CSS, но для единообразия можно и здесь
+        bar.style.height = '2px'; 
+        audioBarsContainer.appendChild(bar);
       }
     }
-    createAudioBars();
+    createAudioBars(); // Вызываем один раз при инициализации
     
-    // Функция для полной остановки всех аудио процессов
+    // Функция для полной остановки всех аудио процессов (прослушивание и воспроизведение)
     function stopAllAudioProcessing() {
-      isListening = false;
+      widgetLog('[AUDIO CTRL] Полная остановка всех аудио процессов.');
       
-      stopAllAudioPlayback();
+      // Останавливаем прослушивание
+      if (isListening) {
+        isListening = false; // Сначала флаг, чтобы onaudioprocess перестал работать
+        if (audioProcessorNode) {
+            audioProcessorNode.disconnect(); // Отключаем ScriptProcessor
+            // audioProcessorNode.onaudioprocess = null; // Удаляем обработчик (хотя disconnect должен это сделать)
+        }
+        if (mediaStreamSourceNode) {
+            mediaStreamSourceNode.disconnect(); // Отключаем источник от ScriptProcessor
+        }
+        // Не нужно останавливать globalMicStream здесь, он может быть переиспользован.
+        // Остановка треков микрофона должна происходить при закрытии виджета или выгрузке страницы.
+        resetAudioVisualization();
+        mainCircle.classList.remove('listening');
+        widgetLog('[AUDIO CTRL] Прослушивание остановлено.');
+      }
       
-      audioChunksBuffer = [];
-      audioPlaybackQueue = [];
+      // Останавливаем воспроизведение
+      stopAllAudioPlayback(); 
       
+      // Сброс состояния, связанного с аудио данными (на всякий случай)
       hasAudioData = false;
       audioDataStartTime = 0;
       
+      // Отправка команды на сервер для отмены текущего запроса и очистки буфера, если необходимо
       if (websocket && websocket.readyState === WebSocket.OPEN) {
-        websocket.send(JSON.stringify({
-          type: "input_audio_buffer.clear",
-          event_id: `clear_${Date.now()}`
-        }));
-        
+        // Отмена текущего активного ответа (если есть)
         websocket.send(JSON.stringify({
           type: "response.cancel",
           event_id: `cancel_${Date.now()}`
         }));
-      }
-      
-      mainCircle.classList.remove('listening', 'speaking', 'interrupted');
-      
-      resetAudioVisualization();
-      
-      interruptionState.is_assistant_speaking = false;
-      interruptionState.is_user_speaking = false;
-    }
-    
-    // Показать сообщение
-    function showMessage(message, duration = 5000) {
-      messageDisplay.textContent = message;
-      messageDisplay.classList.add('show');
-      
-      if (duration > 0) {
-        setTimeout(() => {
-          messageDisplay.classList.remove('show');
-        }, duration);
-      }
-    }
-
-    // Скрыть сообщение
-    function hideMessage() {
-      messageDisplay.classList.remove('show');
-    }
-    
-    // Показать ошибку соединения
-    function showConnectionError(message) {
-      if (connectionError) {
-        connectionError.innerHTML = `
-          ${message || 'Ошибка соединения с сервером'}
-          <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
-            Повторить подключение
-          </button>
-        `;
-        connectionError.classList.add('visible');
-        
-        const newRetryButton = connectionError.querySelector('#wellcomeai-retry-button');
-        if (newRetryButton) {
-          newRetryButton.addEventListener('click', function() {
-            resetConnection();
-          });
-        }
-      }
-    }
-    
-    // Скрыть ошибку соединения
-    function hideConnectionError() {
-      if (connectionError) {
-        connectionError.classList.remove('visible');
-      }
-    }
-    
-    // Сброс состояния соединения
-    function resetConnection() {
-      reconnectAttempts = 0;
-      connectionFailedPermanently = false;
-      
-      hideConnectionError();
-      
-      showMessage("Попытка подключения...");
-      updateConnectionStatus('connecting', 'Подключение...');
-      
-      connectWebSocket();
-    }
-    
-    // Открыть виджет
-    async function openWidget() {
-      widgetLog("Opening widget");
-      
-      widgetContainer.style.zIndex = "2147483647";
-      widgetButton.style.zIndex = "2147483647";
-      
-      widgetContainer.classList.add('active');
-      isWidgetOpen = true;
-      
-      const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
-      if (expandedWidget) {
-        expandedWidget.style.opacity = "1";
-        expandedWidget.style.height = "400px";
-        expandedWidget.style.pointerEvents = "all";
-        expandedWidget.style.zIndex = "2147483647";
-      }
-      
-      // ЕДИНАЯ ИНИЦИАЛИЗАЦИЯ для всех устройств при открытии виджета
-      if (!window.audioInitialized) {
-        widgetLog('[AUDIO] Начинаем инициализацию аудио при открытии виджета');
-        
-        const success = await initializeAudio();
-        
-        if (!success) {
-          showMessage("Ошибка доступа к микрофону. Проверьте настройки браузера.", 5000);
-          return;
-        }
-      }
-      
-      if (connectionFailedPermanently) {
-        showConnectionError('Не удалось подключиться к серверу. Нажмите кнопку "Повторить подключение".');
-        return;
-      }
-      
-      // Запускаем прослушивание при открытии, если соединение активно
-      if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
-        startListening();
-        updateConnectionStatus('connected', 'Подключено');
-      } else if (!isConnected && !isReconnecting) {
-        connectWebSocket();
-      } else {
-        widgetLog(`Cannot start listening yet: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
-        
-        if (isReconnecting) {
-          updateConnectionStatus('connecting', 'Переподключение...');
-        }
-      }
-      
-      widgetButton.classList.remove('wellcomeai-pulse-animation');
-    }
-    
-    // Закрыть виджет
-    function closeWidget() {
-      widgetLog("Closing widget");
-      
-      stopAllAudioProcessing();
-      
-      widgetContainer.classList.remove('active');
-      isWidgetOpen = false;
-      
-      hideMessage();
-      hideConnectionError();
-      
-      if (statusIndicator) {
-        statusIndicator.classList.remove('show');
-      }
-      
-      const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
-      if (expandedWidget) {
-        expandedWidget.style.opacity = "0";
-        expandedWidget.style.height = "0";
-        expandedWidget.style.pointerEvents = "none";
-      }
-    }
-    
-    // Начало записи голоса - УНИФИЦИРОВАННОЕ для всех устройств
-    async function startListening() {
-      if (!isConnected || isPlayingAudio || isReconnecting || isListening) {
-        widgetLog(`Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
-        return;
-      }
-      
-      // Проверяем инициализацию аудио
-      if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
-        widgetLog('Аудио не инициализировано, пытаемся инициализировать', 'warn');
-        const success = await initializeAudio();
-        if (!success) {
-          widgetLog('Не удалось инициализировать аудио', 'error');
-          showMessage("Ошибка доступа к микрофону");
-          return;
-        }
-      }
-      
-      isListening = true;
-      widgetLog('Начинаем прослушивание');
-      
-      // Отправляем команду для очистки буфера ввода
-      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        // Очистка буфера ввода на сервере (если там что-то накопилось)
         websocket.send(JSON.stringify({
           type: "input_audio_buffer.clear",
           event_id: `clear_${Date.now()}`
         }));
+        widgetLog('[AUDIO CTRL] Отправлены команды response.cancel и input_audio_buffer.clear на сервер.');
       }
       
-      // Проверяем и возобновляем AudioContext если нужно
-      if (window.globalAudioContext.state === 'suspended') {
+      // Убираем все активные классы с круга
+      mainCircle.classList.remove('listening', 'speaking', 'interrupted');
+      
+      // Сброс состояния перебивания, связанного с активностью
+      interruptionState.is_assistant_speaking = false;
+      interruptionState.is_user_speaking = false;
+      widgetLog('[AUDIO CTRL] Все аудио процессы полностью остановлены.');
+    }
+    
+    // Показать сообщение в UI
+    function showMessage(text, durationMs = 5000) {
+      if (!messageDisplay) return;
+      
+      messageDisplay.textContent = text;
+      messageDisplay.classList.add('show');
+      
+      // Если уже есть таймер на скрытие, очищаем его
+      if (messageDisplay.hideTimeoutId) {
+        clearTimeout(messageDisplay.hideTimeoutId);
+      }
+      
+      if (durationMs > 0) {
+        messageDisplay.hideTimeoutId = setTimeout(() => {
+          // Проверяем, что текст не изменился, прежде чем скрывать
+          // Это предотвращает скрытие нового сообщения старым таймером
+          if (messageDisplay.textContent === text) {
+             hideMessage();
+          }
+        }, durationMs);
+      }
+    }
+
+    // Скрыть сообщение в UI
+    function hideMessage() {
+      if (!messageDisplay) return;
+      messageDisplay.classList.remove('show');
+      if (messageDisplay.hideTimeoutId) {
+        clearTimeout(messageDisplay.hideTimeoutId);
+        messageDisplay.hideTimeoutId = null;
+      }
+    }
+    
+    // Показать ошибку соединения в UI
+    function showConnectionError(message) {
+      if (!connectionErrorDisplay) return;
+
+      // Обновляем текст ошибки и кнопку (если нужно)
+      // Первый дочерний элемент - текстовый узел, затем кнопка
+      if (connectionErrorDisplay.firstChild && connectionErrorDisplay.firstChild.nodeType === Node.TEXT_NODE) {
+        connectionErrorDisplay.firstChild.textContent = message || 'Ошибка соединения. ';
+      } else {
+        // Если текстового узла нет, создаем его
+        connectionErrorDisplay.insertBefore(document.createTextNode(message || 'Ошибка соединения. '), connectionErrorDisplay.firstChild);
+      }
+      
+      connectionErrorDisplay.classList.add('visible');
+      
+      // Кнопка "Повторить" уже должна быть в HTML, здесь можно просто убедиться, что она видима
+      // и обработчик на ней актуален (он вешается один раз в initWidget)
+    }
+    
+    // Скрыть ошибку соединения в UI
+    function hideConnectionError() {
+      if (!connectionErrorDisplay) return;
+      connectionErrorDisplay.classList.remove('visible');
+    }
+    
+    // Сброс состояния соединения и попытка переподключения
+    function resetConnection() {
+      widgetLog('[CONNECTION] Сброс состояния соединения и попытка переподключения.');
+      reconnectAttempts = 0; // Сбрасываем счетчик попыток
+      connectionFailedPermanently = false; // Сбрасываем флаг окончательной неудачи
+      
+      hideConnectionError(); // Скрываем сообщение об ошибке, если было
+      
+      // Показываем статус подключения
+      if (isWidgetOpen) { // Только если виджет открыт, чтобы не показывать сообщения "вникуда"
+        showMessage("Попытка подключения...", 0); // 0 - не скрывать автоматически
+        updateConnectionStatus('connecting', 'Подключение...');
+      }
+      
+      // Закрываем текущий WebSocket, если он есть и не закрыт
+      if (websocket && websocket.readyState !== WebSocket.CLOSED) {
+        widgetLog('[CONNECTION] Закрытие существующего WebSocket перед сбросом.');
+        websocket.onclose = null; // Убираем обработчик onclose, чтобы не вызвать рекурсию reconnectWithDelay
+        websocket.close(1000, "Connection reset by client");
+      }
+      websocket = null; // Обнуляем ссылку
+
+      // Очищаем интервал ping, если он был
+      if (pingIntervalId) {
+        clearInterval(pingIntervalId);
+        pingIntervalId = null;
+      }
+      
+      // Небольшая задержка перед новой попыткой подключения, чтобы дать время на закрытие старого сокета
+      setTimeout(() => {
+        connectWebSocket();
+      }, 200);
+    }
+    
+    // Открыть виджет
+    async function openWidget() {
+      widgetLog("Открытие виджета...");
+      
+      // Управляем z-index через CSS классы, но можно и здесь для гарантии
+      // widgetContainer.style.zIndex = "2147483647";
+      
+      widgetContainer.classList.add('active');
+      isWidgetOpen = true;
+      
+      // Анимация появления развернутого виджета уже обрабатывается CSS
+      // const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
+      // if (expandedWidget) { ... } 
+      
+      // Инициализация аудио, если еще не было или произошла ошибка
+      if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream || !window.globalMicStream.active) {
+        widgetLog('[WIDGET OPEN] Аудио не инициализировано или поток неактивен. Попытка инициализации.');
+        loaderModal.classList.add('active'); // Показываем лоадер на время инициализации аудио
+        const audioInitSuccess = await initializeAudio();
+        loaderModal.classList.remove('active'); // Скрываем лоадер
+        
+        if (!audioInitSuccess) {
+          showMessage("Ошибка доступа к микрофону. Проверьте разрешения браузера.", 5000);
+          updateConnectionStatus('disconnected', 'Ошибка аудио'); // Показываем статус ошибки
+          // Можно не закрывать виджет, а дать пользователю шанс исправить разрешения и попробовать снова
+          return; // Не продолжаем, если аудио не готово
+        }
+      } else if (window.globalAudioContext.state === 'suspended') {
+        // Если аудио было инициализировано, но контекст "уснул"
+        widgetLog('[WIDGET OPEN] AudioContext в состоянии suspended. Попытка возобновления.');
         try {
-          await window.globalAudioContext.resume();
-          widgetLog('AudioContext возобновлен');
-        } catch (error) {
-          widgetLog(`Не удалось возобновить AudioContext: ${error}`, 'error');
-          isListening = false;
+            await window.globalAudioContext.resume();
+            widgetLog('[WIDGET OPEN] AudioContext успешно возобновлен.');
+        } catch (e) {
+            widgetLog(`[WIDGET OPEN] Ошибка возобновления AudioContext: ${e.message}`, 'error');
+            showMessage("Не удалось активировать аудио. Попробуйте еще раз.", 3000);
+            return;
+        }
+      }
+
+      // Проверка состояния WebSocket соединения
+      if (connectionFailedPermanently) {
+        showConnectionError('Не удалось подключиться к серверу. Попробуйте позже или перезагрузите страницу.');
+        updateConnectionStatus('disconnected', 'Нет соединения');
+        return;
+      }
+      
+      if (isConnected && !isListening && !window.isPlayingAudio && !isReconnecting) {
+        // Если уже подключены и ничего не делаем, начинаем слушать
+        widgetLog('[WIDGET OPEN] Подключено. Начинаем прослушивание.');
+        startListening();
+        updateConnectionStatus('connected', 'Готов к ответу'); // Обновляем статус
+      } else if (!isConnected && !isReconnecting) {
+        // Если не подключены и не в процессе переподключения, инициируем подключение
+        widgetLog('[WIDGET OPEN] Нет соединения. Инициируем подключение WebSocket.');
+        connectWebSocket(); // connectWebSocket покажет лоадер и обновит статус
+      } else if (isReconnecting) {
+        widgetLog('[WIDGET OPEN] В процессе переподключения.');
+        if (loaderModal) loaderModal.classList.add('active'); // Показываем лоадер, если переподключаемся
+        updateConnectionStatus('connecting', 'Переподключение...');
+      } else {
+        // Другие состояния (например, isListening или isPlayingAudio)
+        widgetLog(`[WIDGET OPEN] Состояние не позволяет начать новое действие: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${window.isPlayingAudio}, isReconnecting=${isReconnecting}`);
+        // Статус должен быть уже актуальным от предыдущих действий
+      }
+      
+      widgetButton.classList.remove('wellcomeai-pulse-animation'); // Убираем пульсацию кнопки
+    }
+    
+    // Закрыть виджет
+    function closeWidget() {
+      widgetLog("Закрытие виджета...");
+      
+      stopAllAudioProcessing(); // Останавливаем все аудио процессы (прослушивание, воспроизведение)
+      
+      widgetContainer.classList.remove('active');
+      isWidgetOpen = false;
+      
+      hideMessage(); // Скрываем любые активные сообщения
+      hideConnectionError(); // Скрываем сообщение об ошибке соединения, если было
+      
+      // Скрываем индикатор статуса, если он не показывает ошибку или переподключение
+      if (statusIndicator && !statusDot.classList.contains('disconnected') && !statusDot.classList.contains('connecting')) {
+        statusIndicator.classList.remove('show');
+      }
+      
+      // Анимация скрытия развернутого виджета уже обрабатывается CSS
+      // const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
+      // if (expandedWidget) { ... }
+
+      // Если соединение активно, кнопка не должна пульсировать
+      // Если соединения нет, добавляем пульсацию
+      if (!isConnected && !connectionFailedPermanently) {
+          widgetButton.classList.add('wellcomeai-pulse-animation');
+      } else {
+          widgetButton.classList.remove('wellcomeai-pulse-animation');
+      }
+
+      // Важно! Не закрываем WebSocket соединение при закрытии виджета,
+      // чтобы при следующем открытии не ждать переподключения.
+      // Также не останавливаем микрофонный поток (globalMicStream.getTracks().forEach(t=>t.stop()))
+      // и не закрываем AudioContext (globalAudioContext.close()),
+      // так как это может потребовать повторного запроса разрешений у пользователя.
+      // Ресурсы будут освобождены при выгрузке страницы (см. 'beforeunload').
+    }
+    
+    // Начало записи голоса
+    async function startListening() {
+      // Проверки перед началом прослушивания
+      if (!isWidgetOpen) {
+        widgetLog('[LISTEN] Попытка начать прослушивание при закрытом виджете. Отменено.', 'warn');
+        return;
+      }
+      if (!isConnected) {
+        widgetLog('[LISTEN] Нет WebSocket соединения. Прослушивание невозможно.', 'warn');
+        showMessage("Нет соединения с сервером.", 3000);
+        updateConnectionStatus('disconnected', 'Нет соединения');
+        return;
+      }
+      if (window.isPlayingAudio) {
+        widgetLog('[LISTEN] Ассистент говорит. Прослушивание пока невозможно.', 'info');
+        // showMessage("Ассистент говорит...", 2000); // Можно раскомментировать, если нужно явное сообщение
+        return;
+      }
+      if (isReconnecting) {
+        widgetLog('[LISTEN] Идет переподключение. Прослушивание невозможно.', 'warn');
+        showMessage("Идет переподключение...", 3000);
+        return;
+      }
+      if (isListening) {
+        widgetLog('[LISTEN] Прослушивание уже активно.', 'info');
+        return;
+      }
+
+      // Проверяем и инициализируем аудио, если это не сделано или ресурсы неактивны
+      if (!window.audioInitialized || !window.globalAudioContext || window.globalAudioContext.state !== 'running' || !window.globalMicStream || !window.globalMicStream.active) {
+        widgetLog('[LISTEN] Аудио не готово (не инициализировано, контекст неактивен или поток микрофона неактивен). Попытка инициализации/возобновления.', 'warn');
+        loaderModal.classList.add('active');
+        const audioReady = await initializeAudio(); // initializeAudio теперь также возобновляет контекст
+        loaderModal.classList.remove('active');
+        if (!audioReady) {
+          widgetLog('[LISTEN] Не удалось подготовить аудио для прослушивания.', 'error');
+          showMessage("Ошибка микрофона. Проверьте разрешения.", 5000);
+          updateConnectionStatus('disconnected', 'Ошибка аудио');
           return;
         }
       }
       
-      // Создаем аудио процессор если его нет
-      if (!audioProcessor) {
-        const bufferSize = 2048; // Единый размер буфера для всех устройств
-        
-        audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
-        widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
-        
-        // Переменные для отслеживания звука
-        let isSilent = true;
-        let silenceStartTime = Date.now();
-        let lastCommitTime = 0;
-        let hasSentAudioInCurrentSegment = false;
-        
-        // Обработчик аудио - ЕДИНЫЙ для всех устройств
-        audioProcessor.onaudioprocess = function(e) {
-          if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
-            const inputBuffer = e.inputBuffer;
-            let inputData = inputBuffer.getChannelData(0);
-            
-            if (inputData.length === 0) {
-              return;
-            }
-            
-            // Вычисляем максимальную амплитуду
-            let maxAmplitude = 0;
-            for (let i = 0; i < inputData.length; i++) {
-              maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
-            }
-            
-            // Применяем усиление только для мобильных устройств если нужно
-            if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
-              const amplifiedData = new Float32Array(inputData.length);
-              const gainFactor = AUDIO_CONFIG.amplificationFactor;
-              
-              for (let i = 0; i < inputData.length; i++) {
-                amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gainFactor));
-              }
-              
-              inputData = amplifiedData;
-              
-              // Пересчитываем максимальную амплитуду после усиления
-              maxAmplitude = 0;
-              for (let i = 0; i < inputData.length; i++) {
-                maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
-              }
-            }
-            
-            // Определяем наличие звука
-            const hasSound = maxAmplitude > AUDIO_CONFIG.soundDetectionThreshold;
-            
-            // Обновляем визуализацию
-            updateAudioVisualization(inputData);
-            
-            // Преобразуем float32 в int16
-            const pcm16Data = new Int16Array(inputData.length);
-            for (let i = 0; i < inputData.length; i++) {
-              pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
-            }
-            
-            // Отправляем данные через WebSocket
-            try {
-              const message = JSON.stringify({
-                type: "input_audio_buffer.append",
-                event_id: `audio_${Date.now()}`,
-                audio: arrayBufferToBase64(pcm16Data.buffer)
-              });
-              
-              websocket.send(message);
-              hasSentAudioInCurrentSegment = true;
-              
-              if (!hasAudioData && hasSound) {
-                hasAudioData = true;
-                audioDataStartTime = Date.now();
-                widgetLog("Начало записи аудиоданных");
-              }
-              
-            } catch (error) {
-              widgetLog(`Ошибка отправки аудио: ${error.message}`, "error");
-            }
-            
-            // Логика определения тишины и автоматической отправки
-            const now = Date.now();
-            
-            if (hasSound) {
-              isSilent = false;
-              silenceStartTime = now;
-              
-              if (!mainCircle.classList.contains('listening') && 
-                  !mainCircle.classList.contains('speaking')) {
-                mainCircle.classList.add('listening');
-              }
-            } else if (!isSilent) {
-              const silenceDuration = now - silenceStartTime;
-              
-              if (silenceDuration > AUDIO_CONFIG.silenceDuration) {
-                isSilent = true;
-                
-                if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
-                  setTimeout(() => {
-                    if (isSilent && isListening && !isReconnecting) {
-                      commitAudioBuffer();
-                      lastCommitTime = Date.now();
-                      hasSentAudioInCurrentSegment = false;
-                    }
-                  }, 100);
-                }
-              }
-            }
-          }
-        };
-        
-        // Подключаем обработчик
-        const streamSource = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
-        streamSource.connect(audioProcessor);
-        
-        // Создаем пустой gain node для избежания обратной связи
-        const gainNode = window.globalAudioContext.createGain();
-        gainNode.gain.value = 0;
-        audioProcessor.connect(gainNode);
-        gainNode.connect(window.globalAudioContext.destination);
+      isListening = true; // Устанавливаем флаг прослушивания
+      widgetLog('[LISTEN] Начинаем прослушивание...');
+      
+      // Отправляем команду для очистки буфера ввода на сервере перед началом новой сессии
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: "input_audio_buffer.clear",
+          event_id: `clear_on_listen_start_${Date.now()}`
+        }));
+        widgetLog('[LISTEN] Отправлена команда input_audio_buffer.clear.');
       }
       
-      // Сбрасываем флаги аудио данных
+      // Убедимся, что ScriptProcessorNode и MediaStreamSourceNode существуют и подключены
+      // Пересоздаем или переподключаем, если необходимо
+      if (!audioProcessorNode || !mediaStreamSourceNode) {
+        // Отключаем старые узлы, если они есть, перед созданием новых
+        if (audioProcessorNode) audioProcessorNode.disconnect();
+        if (mediaStreamSourceNode) mediaStreamSourceNode.disconnect();
+
+        const bufferSize = AUDIO_PROCESSING_CONFIG.scriptProcessorBufferSize;
+        audioProcessorNode = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
+        widgetLog(`[LISTEN] Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
+        
+        mediaStreamSourceNode = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
+        widgetLog('[LISTEN] Создан MediaStreamSourceNode из globalMicStream.');
+
+        // Подключаем узлы: StreamSource -> ScriptProcessor -> (никуда, или к GainNode с 0 усилением)
+        mediaStreamSourceNode.connect(audioProcessorNode);
+        
+        // Важно! ScriptProcessorNode должен быть подключен к destination, даже если через Gain(0),
+        // чтобы обработчик onaudioprocess срабатывал.
+        const gainNode = window.globalAudioContext.createGain();
+        gainNode.gain.value = 0; // Усиление 0, чтобы не было слышно свой голос
+        audioProcessorNode.connect(gainNode);
+        gainNode.connect(window.globalAudioContext.destination);
+        widgetLog('[LISTEN] Узлы ScriptProcessor и MediaStreamSource подключены.');
+      } else {
+        // Если узлы уже существуют, просто убедимся, что ScriptProcessor подключен
+        // (на случай, если его отключали ранее)
+        // Это может быть избыточно, если логика отключения всегда корректна
+        try {
+            // Попытка переподключить, если ранее были отсоединены.
+            // Это более сложная логика, проще пересоздавать, как выше.
+            // Для простоты оставим пересоздание.
+        } catch (e) {
+            widgetLog(`[LISTEN] Ошибка при проверке подключения существующих аудио узлов: ${e.message}. Пересоздаем.`, 'warn');
+            // Сбрасываем узлы, чтобы они были пересозданы на следующей итерации проверки
+            if (audioProcessorNode) audioProcessorNode.disconnect();
+            if (mediaStreamSourceNode) mediaStreamSourceNode.disconnect();
+            audioProcessorNode = null;
+            mediaStreamSourceNode = null;
+            // Рекурсивный вызов для повторной попытки с пересозданием (осторожно, может привести к циклу)
+            // Лучше просто пересоздавать, как в блоке if (!audioProcessorNode || !mediaStreamSourceNode)
+            // Для безопасности, просто выходим, если что-то пошло не так с узлами.
+            // isListening = false; // Сбрасываем флаг, т.к. не удалось настроить
+            // return;
+        }
+      }
+
+      // Переменные для логики определения тишины внутри onaudioprocess
+      let silenceStartTimestamp = 0;
+      let hasDetectedSoundInSegment = false; // Был ли звук в текущем сегменте отправки
+      
+      audioProcessorNode.onaudioprocess = function(audioProcessingEvent) {
+        if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) {
+          // Если прослушивание остановлено или нет соединения, ничего не делаем
+          // Это может произойти, если isListening изменился между проверкой и вызовом onaudioprocess
+          return;
+        }
+        
+        const inputBuffer = audioProcessingEvent.inputBuffer;
+        let inputData = inputBuffer.getChannelData(0); // Получаем Float32Array
+        
+        if (inputData.length === 0) return; // Пустой буфер, ничего не делаем
+        
+        // Усиление, если настроено (особенно для мобильных)
+        if (AUDIO_PROCESSING_CONFIG.amplificationFactor !== 1.0) {
+          const gain = AUDIO_PROCESSING_CONFIG.amplificationFactor;
+          // Создаем новый массив, чтобы не модифицировать оригинальный буфер напрямую
+          const amplifiedData = new Float32Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gain)); // Усиление с ограничением
+          }
+          inputData = amplifiedData; // Используем усиленные данные
+        }
+            
+        // Вычисляем максимальную амплитуду для определения звука и для визуализации
+        let maxAmplitude = 0;
+        for (let i = 0; i < inputData.length; i++) {
+          const absValue = Math.abs(inputData[i]);
+          if (absValue > maxAmplitude) {
+            maxAmplitude = absValue;
+          }
+        }
+        
+        updateAudioVisualization(inputData); // Обновляем визуализацию на основе обработанных данных
+        
+        // Преобразуем Float32 PCM в Int16 PCM ArrayBuffer для отправки
+        const pcm16Data = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
+        }
+        const pcm16ArrayBuffer = pcm16Data.buffer;
+
+        // Отправляем аудиоданные на сервер
+        try {
+          websocket.send(JSON.stringify({
+            type: "input_audio_buffer.append",
+            event_id: `audio_chunk_${Date.now()}`,
+            audio_format: "pcm_s16le_24000hz", // Указываем формат
+            audio: arrayBufferToBase64(pcm16ArrayBuffer)
+          }));
+          // widgetLog(`Отправлен аудио чанк: ${pcm16ArrayBuffer.byteLength} байт`);
+        } catch (error) {
+          widgetLog(`[LISTEN] Ошибка отправки аудио чанка: ${error.message}`, "error");
+          // Можно обработать ошибку, например, остановить прослушивание или попытаться переподключиться
+          // Для простоты, пока только логируем.
+        }
+
+        // Логика определения начала звука и тишины для автоматической отправки (commit)
+        const soundDetected = maxAmplitude > AUDIO_PROCESSING_CONFIG.soundDetectionThreshold;
+
+        if (soundDetected) {
+          if (!hasAudioData) { // Если это первый звук после тишины или начала записи
+            hasAudioData = true;
+            audioDataStartTime = Date.now(); // Запоминаем время начала значащих данных
+            widgetLog("[LISTEN] Обнаружено начало звука.");
+          }
+          hasDetectedSoundInSegment = true; // Отмечаем, что в этом сегменте был звук
+          silenceStartTimestamp = 0; // Сбрасываем таймер тишины
+        } else if (hasAudioData) { // Если звук уже был, но сейчас тишина
+          if (silenceStartTimestamp === 0) {
+            silenceStartTimestamp = Date.now(); // Начинаем отсчет тишины
+          } else {
+            const silenceDuration = Date.now() - silenceStartTimestamp;
+            if (silenceDuration >= AUDIO_PROCESSING_CONFIG.silenceDurationMs) {
+              widgetLog(`[LISTEN] Обнаружена тишина (${silenceDuration}мс) после звука. Отправляем буфер.`);
+              commitAudioBuffer(); // Отправляем накопленный буфер
+              // После commitAudioBuffer, hasAudioData и audioDataStartTime сбрасываются
+              silenceStartTimestamp = 0; // Сбрасываем таймер тишины
+              hasDetectedSoundInSegment = false; // Сбрасываем флаг звука в сегменте
+            }
+          }
+        }
+      }; // Конец audioProcessorNode.onaudioprocess
+      
+      // Сбрасываем флаги аудио данных перед началом нового прослушивания
       hasAudioData = false;
       audioDataStartTime = 0;
       
-      // Активируем визуальное состояние прослушивания если не воспроизводится аудио
-      if (!isPlayingAudio) {
-        mainCircle.classList.add('listening');
-        mainCircle.classList.remove('speaking');
-      }
-      
-      widgetLog("Прослушивание начато успешно");
+      // Активируем визуальное состояние прослушивания
+      mainCircle.classList.add('listening');
+      mainCircle.classList.remove('speaking', 'interrupted'); // Убираем другие состояния
+      updateConnectionStatus('connected', 'Слушаю...'); // Обновляем статус
+      widgetLog("[LISTEN] Прослушивание успешно начато.");
     }
     
-    // Функция для отправки аудиобуфера
+    // Функция для отправки команды commit на сервер
     function commitAudioBuffer() {
-      if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
+      if (!isListening) { // Если прослушивание было остановлено до вызова commit
+        widgetLog("[COMMIT] Прослушивание остановлено, commit не отправляется.", "info");
+        // Сбрасываем флаги, если они не были сброшены
+        hasAudioData = false;
+        audioDataStartTime = 0;
+        return;
+      }
+
+      if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+        widgetLog("[COMMIT] Нет WebSocket соединения, commit не отправляется.", "warn");
+        hasAudioData = false; audioDataStartTime = 0;
+        return;
+      }
       
       if (!hasAudioData) {
-        widgetLog("Не отправляем пустой аудиобуфер", "warn");
-        return;
+        widgetLog("[COMMIT] Нет аудиоданных для отправки (hasAudioData=false). Commit не требуется.", "info");
+        return; // Нечего отправлять
       }
       
       const audioLength = Date.now() - audioDataStartTime;
       if (audioLength < minimumAudioLength) {
-        widgetLog(`Аудиобуфер слишком короткий (${audioLength}мс), ожидаем больше данных`, "warn");
-        
-        setTimeout(() => {
-          if (isListening && hasAudioData && !isReconnecting) {
-            widgetLog(`Отправка аудиобуфера после дополнительной записи (${Date.now() - audioDataStartTime}мс)`);
-            sendCommitBuffer();
-          }
-        }, minimumAudioLength - audioLength + 50);
-        
-        return;
-      }
-      
-      sendCommitBuffer();
-    }
-    
-    // Функция для фактической отправки буфера
-    function sendCommitBuffer() {
-      widgetLog("Отправка аудиобуфера");
-      
-      const audioLength = Date.now() - audioDataStartTime;
-      if (audioLength < 100) {
-        widgetLog(`Аудиобуфер слишком короткий для OpenAI (${audioLength}мс < 100мс), не отправляем`, "warn");
-        
+        widgetLog(`[COMMIT] Аудиобуфер слишком короткий (${audioLength}мс < ${minimumAudioLength}мс). Commit не отправляется.`, "warn");
+        // Можно решить, нужно ли его все равно отправить или просто сбросить.
+        // Пока сбрасываем, чтобы избежать отправки очень коротких фрагментов.
         hasAudioData = false;
         audioDataStartTime = 0;
-        
+        // Можно показать сообщение пользователю, что нужно говорить дольше
+        // showMessage("Пожалуйста, говорите немного дольше.", 2000);
+        // И снова начать слушать, если нужно
+        // startListening(); // Осторожно с рекурсией, если это происходит часто
         return;
       }
       
-      mainCircle.classList.remove('listening');
+      widgetLog(`[COMMIT] Отправка команды commit. Длина записанного аудио: ${audioLength}мс.`);
       
-      websocket.send(JSON.stringify({
-        type: "input_audio_buffer.commit",
-        event_id: `commit_${Date.now()}`
-      }));
+      try {
+        websocket.send(JSON.stringify({
+          type: "input_audio_buffer.commit",
+          event_id: `commit_${Date.now()}`
+        }));
+      } catch (error) {
+          widgetLog(`[COMMIT] Ошибка при отправке commit: ${error.message}`, 'error');
+      }
       
+      // После отправки commit, останавливаем текущее прослушивание на клиенте,
+      // так как сервер теперь будет обрабатывать запрос.
+      // isListening = false; // Логически останавливаем
+      // resetAudioVisualization();
+      // mainCircle.classList.remove('listening');
+      // updateConnectionStatus('connected', 'Обработка...'); // Меняем статус на "Обработка"
+      // Важно: вышеуказанный блок закомментирован, т.к. серверное событие speech_stopped_event
+      // должно управлять этим состоянием для лучшей синхронизации.
+      // Клиент просто отправляет commit и ждет ответа/событий от сервера.
+
+      // Сбрасываем флаги аудио данных для следующей сессии записи
       hasAudioData = false;
       audioDataStartTime = 0;
     }
@@ -1714,696 +2238,737 @@
     function arrayBufferToBase64(buffer) {
       const bytes = new Uint8Array(buffer);
       let binary = '';
-      for (let i = 0; i < bytes.byteLength; i++) {
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
         binary += String.fromCharCode(bytes[i]);
       }
-      return btoa(binary);
+      try {
+        return btoa(binary);
+      } catch (e) {
+        widgetLog(`Ошибка btoa: ${e.message}. Длина бинарной строки: ${binary.length}`, 'error');
+        // Возвращаем пустую строку или обрабатываем ошибку иначе
+        return ''; 
+      }
     }
     
     // Преобразование Base64 в ArrayBuffer
     function base64ToArrayBuffer(base64) {
       try {
         const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
           bytes[i] = binaryString.charCodeAt(i);
         }
         return bytes.buffer;
       } catch (e) {
-        widgetLog(`Ошибка при декодировании base64: ${e.message}`, "error");
-        return new ArrayBuffer(0);
+        widgetLog(`Ошибка при декодировании base64 (atob): ${e.message}. Длина base64: ${base64.length}`, "error");
+        return new ArrayBuffer(0); // Возвращаем пустой буфер в случае ошибки
       }
     }
     
-    // Обновление визуализации аудио
-    function updateAudioVisualization(audioData) {
-      const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar');
-      const step = Math.floor(audioData.length / bars.length);
+    // Обновление визуализации аудио (принимает Float32Array)
+    function updateAudioVisualization(float32AudioData) {
+      const bars = audioBarsContainer.querySelectorAll('.wellcomeai-audio-bar');
+      if (bars.length === 0) return; // Если баров нет, выходим
+
+      const numBars = bars.length;
+      const dataLength = float32AudioData.length;
+      const step = Math.max(1, Math.floor(dataLength / numBars)); // Шаг не может быть меньше 1
       
-      for (let i = 0; i < bars.length; i++) {
+      for (let i = 0; i < numBars; i++) {
         let sum = 0;
+        let count = 0;
+        // Усредняем значения для каждого бара
         for (let j = 0; j < step; j++) {
           const index = i * step + j;
-          if (index < audioData.length) {
-            sum += Math.abs(audioData[index]);
+          if (index < dataLength) {
+            sum += Math.abs(float32AudioData[index]);
+            count++;
           }
         }
-        const average = sum / step;
+        const averageAmplitude = count > 0 ? sum / count : 0;
         
-        const multiplier = isMobile ? 200 : 100;
+        // Масштабируем амплитуду в высоту бара
+        // Множитель подбирается экспериментально для хорошей визуализации
+        const maxBarHeight = 28; // Максимальная высота бара (30px общая высота - 2px минимальная)
+        const minBarHeight = 2;  // Минимальная высота бара
+        const visualMultiplier = isMobile ? 250 : 150; // Разный множитель для мобильных/десктопа
         
-        const height = 2 + Math.min(28, Math.floor(average * multiplier));
-        bars[i].style.height = `${height}px`;
+        let height = minBarHeight + Math.min(maxBarHeight, averageAmplitude * visualMultiplier);
+        height = Math.max(minBarHeight, Math.floor(height)); // Округляем и ограничиваем снизу
+
+        if (bars[i]) { // Дополнительная проверка на существование бара
+            bars[i].style.height = `${height}px`;
+        }
       }
     }
     
-    // Сброс визуализации аудио
+    // Сброс визуализации аудио (все бары к минимальной высоте)
     function resetAudioVisualization() {
-      const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar');
+      const bars = audioBarsContainer.querySelectorAll('.wellcomeai-audio-bar');
       bars.forEach(bar => {
-        bar.style.height = '2px';
+        bar.style.height = '2px'; // Минимальная высота
       });
     }
     
-    // Воспроизведение аудио - ОБНОВЛЕННОЕ с поддержкой разблокировки на мобильных
-    function playNextAudio() {
-      if (audioPlaybackQueue.length === 0) {
-        isPlayingAudio = false;
-        interruptionState.is_assistant_speaking = false;
-        mainCircle.classList.remove('speaking');
-        
-        if (!isWidgetOpen) {
-          widgetButton.classList.add('wellcomeai-pulse-animation');
-        }
-        
-        // ВАЖНО: После воспроизведения автоматически возобновляем прослушивание
-        // как в десктопной версии - микрофон остается активным
-        if (isWidgetOpen) {
-          setTimeout(() => {
-            startListening();
-          }, 400);
-        }
-        return;
-      }
-      
-      isPlayingAudio = true;
-      interruptionState.is_assistant_speaking = true;
-      mainCircle.classList.remove('listening');
-      mainCircle.classList.add('speaking');
-      
-      const audioBase64 = audioPlaybackQueue.shift();
-      
-      try {
-        const audioData = base64ToArrayBuffer(audioBase64);
-        if (audioData.byteLength === 0) {
-          playNextAudio();
-          return;
-        }
-        
-        const wavBuffer = createWavFromPcm(audioData);
-        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-        
-        const audio = new Audio();
-        audio.src = audioUrl;
-        
-        // Добавляем к списку активных аудио элементов
-        interruptionState.current_audio_elements.push(audio);
-        
-        // Настройки для всех устройств
-        audio.preload = 'auto';
-        audio.volume = 1.0; // Полная громкость
-        audio.load();
-        
-        // НОВАЯ логика обработки воспроизведения с проверкой разблокировки
-        audio.oncanplaythrough = function() {
-          if (!interruptionState.is_assistant_speaking) {
-            URL.revokeObjectURL(audioUrl);
-            const index = interruptionState.current_audio_elements.indexOf(audio);
-            if (index > -1) {
-              interruptionState.current_audio_elements.splice(index, 1);
-            }
-            playNextAudio();
-            return;
-          }
-          
-          const playPromise = audio.play();
-          
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => {
-                widgetLog('[AUDIO] Аудио воспроизводится успешно');
-                // Если это первое успешное воспроизведение на мобильном, отмечаем что разблокировано
-                if (isMobile && !window.audioPlaybackUnlocked) {
-                  window.audioPlaybackUnlocked = true;
-                  widgetLog('[AUDIO] Воспроизведение разблокировано через успешный play()');
-                }
-              })
-              .catch(error => {
-                widgetLog(`[AUDIO] Ошибка воспроизведения: ${error.message}`, "error");
-                
-                // Если ошибка связана с autoplay policy на мобильных
-                if (isMobile && (error.name === 'NotAllowedError' || error.name === 'AbortError')) {
-                  widgetLog('[AUDIO] Требуется разблокировка воспроизведения для мобильного устройства');
-                  
-                  // Показываем кнопку для разблокировки воспроизведения
-                  showAudioUnlockButton(audioUrl, audio);
-                } else {
-                  // Для других ошибок переходим к следующему аудио
-                  cleanupAudio(audioUrl, audio);
-                  playNextAudio();
-                }
-              });
-          } else {
-            // Старые браузеры без промисов
-            widgetLog('[AUDIO] Воспроизведение запущено (старый браузер)');
-          }
-        };
-        
-        audio.onended = function() {
-          cleanupAudio(audioUrl, audio);
-          playNextAudio();
-        };
-        
-        audio.onerror = function() {
-          widgetLog('[AUDIO] Ошибка воспроизведения аудио', 'error');
-          cleanupAudio(audioUrl, audio);
-          playNextAudio();
-        };
-        
-      } catch (error) {
-        widgetLog(`[AUDIO] Ошибка воспроизведения аудио: ${error.message}`, "error");
-        playNextAudio();
-      }
-    }
-    
-    // Добавить аудио в очередь воспроизведения
+    // Добавить аудио (base64) в очередь воспроизведения
     function addAudioToPlaybackQueue(audioBase64) {
-      if (!audioBase64 || typeof audioBase64 !== 'string') return;
+      if (!audioBase64 || typeof audioBase64 !== 'string' || audioBase64.length < 100) { // Проверка на валидность
+          widgetLog('[QUEUE] Попытка добавить невалидные аудиоданные в очередь. Пропущено.', 'warn');
+          return;
+      }
       
       audioPlaybackQueue.push(audioBase64);
+      widgetLog(`[QUEUE] Аудио добавлено в очередь. Текущий размер очереди: ${audioPlaybackQueue.length}`);
       
-      if (!isPlayingAudio) {
-        playNextAudio();
+      // Если сейчас ничего не играет, запускаем воспроизведение из очереди
+      if (!window.isPlayingAudio) {
+        playNextAudioInstance(); // Используем инстанс, созданный фабрикой
       }
     }
     
     // Функция для переподключения с задержкой
-    function reconnectWithDelay(initialDelay = 0) {
+    function reconnectWithDelay(initialDelayMs = 0) {
       const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
       
       if (reconnectAttempts >= maxAttempts) {
-        widgetLog('Maximum reconnection attempts reached');
+        widgetLog(`[RECONNECT] Достигнуто максимальное количество попыток переподключения (${maxAttempts}). Остановка.`, 'error');
         isReconnecting = false;
-        connectionFailedPermanently = true;
+        connectionFailedPermanently = true; // Устанавливаем флаг окончательной неудачи
         
         if (isWidgetOpen) {
-          showConnectionError("Не удалось восстановить соединение. Попробуйте перезагрузить страницу.");
-          updateConnectionStatus('disconnected', 'Отключено');
+          showConnectionError("Не удалось восстановить соединение. Попробуйте перезагрузить страницу или проверьте интернет.");
+          updateConnectionStatus('disconnected', 'Отключено (лимит попыток)');
         } else {
+          // Если виджет закрыт, можно добавить пульсацию кнопке как индикатор проблемы
           widgetButton.classList.add('wellcomeai-pulse-animation');
         }
-        return;
+        return; // Выходим, больше не пытаемся
       }
       
-      isReconnecting = true;
+      isReconnecting = true; // Устанавливаем флаг, что идет процесс переподключения
       
       if (isWidgetOpen) {
-        showMessage("Соединение прервано. Переподключение...", 0);
-        updateConnectionStatus('connecting', 'Переподключение...');
+        // Показываем сообщение и статус только если виджет открыт
+        showMessage("Соединение прервано. Переподключение...", 0); // 0 - не скрывать автоматически
+        updateConnectionStatus('connecting', `Переподключение (попытка ${reconnectAttempts + 1}/${maxAttempts})...`);
+        if (loaderModal) loaderModal.classList.add('active'); // Показываем лоадер
       }
       
-      const delay = initialDelay > 0 ? 
-                initialDelay : 
-                isMobile ? 
-                    Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
-                    Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
+      // Расчет задержки с экспоненциальным ростом + небольшой случайный фактор
+      const baseDelay = isMobile ? 1500 : 2000; // Базовая задержка
+      const exponentialFactor = isMobile ? 1.6 : 2.0; // Фактор роста
+      let delayMs = initialDelayMs > 0 ? 
+                initialDelayMs : 
+                Math.min(isMobile ? 20000 : 30000, baseDelay * Math.pow(exponentialFactor, reconnectAttempts)); // Ограничение максимальной задержки
+      delayMs += Math.random() * 1000; // Добавляем немного случайности (jitter)
       
-      reconnectAttempts++;
+      reconnectAttempts++; // Увеличиваем счетчик попыток
       
-      widgetLog(`Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
+      widgetLog(`[RECONNECT] Попытка переподключения #${reconnectAttempts}/${maxAttempts} через ${Math.round(delayMs/1000)} сек.`);
       
-      setTimeout(() => {
-        if (isReconnecting) {
+      // Очищаем предыдущий таймаут, если он был (на всякий случай)
+      if (window.reconnectTimeoutId) {
+        clearTimeout(window.reconnectTimeoutId);
+      }
+
+      window.reconnectTimeoutId = setTimeout(() => {
+        if (isReconnecting) { // Проверяем, не отменили ли переподключение (например, успешным ручным)
           connectWebSocket().then(success => {
+            // Логика успеха/неуспеха уже внутри connectWebSocket и его обработчиков onopen/onerror/onclose
+            // Здесь важно, что isReconnecting будет сброшен в onopen или если попытки исчерпаны
             if (success) {
-              reconnectAttempts = 0;
-              isReconnecting = false;
-              
-              if (isWidgetOpen) {
-                showMessage("Соединение восстановлено", 3000);
-                updateConnectionStatus('connected', 'Подключено');
-                
-                setTimeout(() => {
-                  if (isWidgetOpen && !isListening && !isPlayingAudio) {
-                    startListening();
-                  }
-                }, 1000);
-              }
+                // Успешное инициирование подключения. Дальнейшее в onopen.
+                // reconnectAttempts сбрасывается в onopen.
             } else {
-              isReconnecting = false;
+                // Если connectWebSocket сам вернул false (редко, обычно через onclose/onerror)
+                isReconnecting = false; // Сбрасываем флаг, если попытка не удалась сразу
+                // Повторный вызов reconnectWithDelay будет сделан из onerror/onclose, если необходимо
             }
           }).catch(() => {
-            isReconnecting = false;
+            isReconnecting = false; // Сбрасываем флаг при ошибке инициации
+            // Повторный вызов reconnectWithDelay будет сделан из onerror/onclose
           });
+        } else {
+            widgetLog('[RECONNECT] Переподключение было отменено до истечения таймаута.', 'info');
         }
-      }, delay);
+      }, delayMs);
     }
     
     // Подключение к WebSocket серверу
     async function connectWebSocket() {
-      try {
+      // Проверяем, нет ли уже активного или подключающегося сокета
+      if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
+        widgetLog('[WS CONNECT] Попытка подключения при уже существующем активном/подключающемся сокете. Игнорируется.', 'warn');
+        return Promise.resolve(true); // Считаем, что "успешно", так как сокет уже есть
+      }
+
+      // Если это не первая попытка и виджет открыт, показываем лоадер
+      if (reconnectAttempts > 0 && isWidgetOpen && loaderModal) {
         loaderModal.classList.add('active');
-        widgetLog("Подключение...");
-        
-        isReconnecting = true;
-        
-        hideConnectionError();
-        
-        if (!ASSISTANT_ID) {
-          widgetLog('Assistant ID not found!', 'error');
-          showMessage("Ошибка: ID ассистента не указан. Проверьте код встраивания.");
-          loaderModal.classList.remove('active');
-          return false;
+      } else if (reconnectAttempts === 0 && loaderModal) { // Первая попытка подключения
+        loaderModal.classList.add('active');
+      }
+      
+      widgetLog(`[WS CONNECT] Попытка подключения к WebSocket: ${WS_URL}`);
+      isReconnecting = true; // Устанавливаем флаг, что идет процесс подключения/переподключения
+      
+      hideConnectionError(); // Скрываем предыдущие ошибки соединения
+      
+      if (!ASSISTANT_ID) { // Двойная проверка, хотя уже есть в initWidget
+        widgetLog('[WS CONNECT] ID ассистента не найден! Подключение невозможно.', 'error');
+        if (loaderModal) loaderModal.classList.remove('active');
+        isReconnecting = false;
+        connectionFailedPermanently = true; // Считаем это окончательной ошибкой конфигурации
+        if (isWidgetOpen) showConnectionError("Ошибка конфигурации: ID ассистента не указан.");
+        return Promise.resolve(false); // Возвращаем Promise<false> для индикации неудачи
+      }
+      
+      // Очищаем старый интервал ping и таймаут соединения, если они есть
+      if (pingIntervalId) { clearInterval(pingIntervalId); pingIntervalId = null; }
+      if (connectionTimeoutId) { clearTimeout(connectionTimeoutId); connectionTimeoutId = null; }
+      
+      // Закрываем предыдущий сокет, если он существует и не закрыт
+      if (websocket) {
+        widgetLog('[WS CONNECT] Закрытие предыдущего экземпляра WebSocket.');
+        websocket.onopen = websocket.onmessage = websocket.onclose = websocket.onerror = null; // Убираем все обработчики
+        if (websocket.readyState !== WebSocket.CLOSED) {
+            websocket.close(1000, "Creating new connection");
         }
-        
-        widgetLog(`Connecting to WebSocket at: ${WS_URL}`);
-        
-        if (websocket) {
-          try {
-            websocket.close();
-          } catch (e) {
-            // Игнорируем ошибки при закрытии
-          }
-        }
-        
-        if (pingInterval) {
-          clearInterval(pingInterval);
-          pingInterval = null;
-        }
-        
-        if (connectionTimeout) {
-          clearTimeout(connectionTimeout);
-        }
-        
+      }
+      
+      try {
         websocket = new WebSocket(WS_URL);
-        
-        websocket.binaryType = 'arraybuffer';
-        
-        connectionTimeout = setTimeout(() => {
-          widgetLog("Превышено время ожидания соединения", "error");
-          
-          if (websocket) {
-            websocket.close();
+        websocket.binaryType = 'arraybuffer'; // Ожидаем бинарные данные (аудио) как ArrayBuffer
+      } catch (error) {
+        widgetLog(`[WS CONNECT] Ошибка при создании объекта WebSocket: ${error.message}`, "error");
+        if (loaderModal) loaderModal.classList.remove('active');
+        isReconnecting = false;
+        // Немедленно пытаемся переподключиться, т.к. это ошибка на уровне new WebSocket()
+        // onclose/onerror не сработают для этого случая
+        reconnectWithDelay(500); // Небольшая задержка перед следующей попыткой
+        return Promise.resolve(false);
+      }
+
+      // Таймаут на установку соединения
+      connectionTimeoutId = setTimeout(() => {
+        widgetLog(`[WS CONNECT] Превышено время ожидания соединения (${CONNECTION_TIMEOUT/1000} сек).`, "error");
+        if (websocket) {
+          // Важно: сначала убираем обработчики, потом закрываем,
+          // чтобы onclose не вызвал стандартный reconnectWithDelay, а мы управляли им здесь
+          websocket.onopen = websocket.onmessage = websocket.onclose = websocket.onerror = null;
+          if (websocket.readyState !== WebSocket.CLOSED) {
+            websocket.close(1006, "Connection timeout"); // 1006 - Abnormal Closure
           }
-          
-          isReconnecting = false;
-          loaderModal.classList.remove('active');
-          
-          reconnectAttempts++;
-          
-          const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-          
-          if (reconnectAttempts >= maxAttempts) {
+        }
+        // isReconnecting остается true, reconnectWithDelay будет вызван ниже
+        if (loaderModal) loaderModal.classList.remove('active');
+        
+        // Вместо прямого вызова reconnectWithDelay, имитируем "закрытие" соединения,
+        // чтобы обработать это в одном месте (в onclose, который мы вызовем "искусственно" или он сработает сам)
+        // Если onclose не сработает сам по себе быстро, вызываем логику переподключения
+        // Это более сложный сценарий, проще прямо вызвать reconnectWithDelay
+        // Но сначала проверим, не исчерпаны ли попытки
+        if (reconnectAttempts < (isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS)) {
+            widgetLog('[WS CONNECT] Таймаут соединения, инициируем переподключение.');
+            reconnectWithDelay(200); // Небольшая задержка после таймаута
+        } else {
+            widgetLog('[WS CONNECT] Таймаут соединения, лимит попыток исчерпан.', 'error');
+            isReconnecting = false;
             connectionFailedPermanently = true;
-            
             if (isWidgetOpen) {
-              showConnectionError("Не удалось подключиться к серверу. Пожалуйста, попробуйте позже.");
-              updateConnectionStatus('disconnected', 'Отключено');
-            } else {
-              widgetButton.classList.add('wellcomeai-pulse-animation');
+                showConnectionError("Не удалось подключиться (таймаут). Проверьте интернет.");
+                updateConnectionStatus('disconnected', 'Таймаут');
+            }
+        }
+      }, CONNECTION_TIMEOUT);
+      
+      websocket.onopen = function() {
+        clearTimeout(connectionTimeoutId); // Отменяем таймаут соединения
+        connectionTimeoutId = null;
+        widgetLog('[WS OPEN] WebSocket соединение установлено успешно.');
+        isConnected = true;
+        isReconnecting = false; // Успешно (пере)подключились
+        reconnectAttempts = 0;  // Сбрасываем счетчик попыток
+        connectionFailedPermanently = false; // Сбрасываем флаг окончательной неудачи
+        
+        if (loaderModal) loaderModal.classList.remove('active'); // Скрываем лоадер
+        hideConnectionError(); // Скрываем сообщение об ошибке, если было
+        
+        lastPingTime = Date.now(); // Инициализируем время последнего пинга
+        lastPongTime = Date.now(); // Инициализируем время последнего понга
+        
+        const currentPingIntervalMs = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
+        
+        // Запускаем интервал для отправки ping'ов
+        if (pingIntervalId) clearInterval(pingIntervalId); // Очищаем старый, если был
+        pingIntervalId = setInterval(() => {
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            try {
+              websocket.send(JSON.stringify({ type: "ping" }));
+              lastPingTime = Date.now();
+              // widgetLog('Ping sent'); // Слишком частый лог, можно убрать
+              
+              // Проверяем, не было ли ответа (pong) слишком долго
+              // Увеличиваем множитель для большей устойчивости к кратковременным задержкам сети
+              if (Date.now() - lastPongTime > currentPingIntervalMs * 3.5) { 
+                widgetLog(`[PING TIMEOUT] Не получен pong более ${currentPingIntervalMs * 3.5 / 1000} сек. Закрываем соединение.`, "warn");
+                // Закрываем сокет. Обработчик onclose должен будет вызвать reconnectWithDelay.
+                // Убираем обработчики, чтобы избежать двойного вызова reconnectWithDelay, если onclose сработает медленно
+                if (websocket) {
+                    websocket.onclose = null; // Временно отключаем onclose
+                    websocket.onerror = null;
+                    websocket.close(1006, "Ping timeout"); // 1006 - Abnormal Closure
+                }
+                // Искусственно вызываем логику закрытия, если onclose не сработает
+                handleWebSocketClosure({ code: 1006, reason: "Ping timeout", wasClean: false });
+              }
+            } catch (e) {
+              widgetLog(`[PING] Ошибка отправки ping: ${e.message}`, "error");
+              // Если отправка ping не удалась, это может означать проблемы с соединением
+              if (websocket) {
+                websocket.onclose = null;
+                websocket.onerror = null;
+                websocket.close(1006, "Ping send error");
+              }
+              handleWebSocketClosure({ code: 1006, reason: "Ping send error", wasClean: false });
             }
           } else {
-            const delay = isMobile ?
-                    Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
-                    Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-                    
-            widgetLog(`Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
-            
-            if (isWidgetOpen) {
-              showMessage(`Превышено время ожидания. Повторная попытка через ${Math.round(delay/1000)} сек...`);
-              updateConnectionStatus('connecting', 'Переподключение...');
+            // Если WebSocket уже не OPEN, но интервал еще работает (маловероятно, но возможно)
+            widgetLog("[PING] WebSocket не в состоянии OPEN. Очистка ping интервала.", "warn");
+            if (pingIntervalId) clearInterval(pingIntervalId);
+            pingIntervalId = null;
+            // Если соединение было, но оборвалось без onclose, пытаемся переподключиться
+            if (isConnected && !isReconnecting) { // isConnected еще может быть true
+                isConnected = false; // Обновляем состояние
+                reconnectWithDelay(200); // Инициируем переподключение
             }
-            
-            setTimeout(() => {
-              connectWebSocket();
-            }, delay);
           }
-        }, CONNECTION_TIMEOUT);
-        
-        websocket.onopen = function() {
-          clearTimeout(connectionTimeout);
-          widgetLog('WebSocket connection established');
-          isConnected = true;
-          isReconnecting = false;
-          reconnectAttempts = 0;
-          connectionFailedPermanently = false;
-          loaderModal.classList.remove('active');
-          
-          lastPingTime = Date.now();
-          lastPongTime = Date.now();
-          
-          const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
-          
-          pingInterval = setInterval(() => {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-              try {
-                websocket.send(JSON.stringify({ type: "ping" }));
-                lastPingTime = Date.now();
-                
-                if (Date.now() - lastPongTime > pingIntervalTime * 3) {
-                  widgetLog("Ping timeout, no pong received", "warn");
-                  
-                  clearInterval(pingInterval);
-                  websocket.close();
-                  reconnectWithDelay(1000);
-                }
-              } catch (e) {
-                widgetLog(`Error sending ping: ${e.message}`, "error");
-              }
-            }
-          }, pingIntervalTime);
-          
-          hideConnectionError();
-          
-          if (isWidgetOpen) {
-            updateConnectionStatus('connected', 'Подключено');
-            startListening();
-          }
-        };
-        
-        websocket.onmessage = function(event) {
-          try {
-            if (event.data instanceof Blob) {
-              widgetLog("Получены бинарные данные от сервера");
-              return;
-            }
-            
-            if (!event.data) {
-              widgetLog("Получено пустое сообщение от сервера", "warn");
-              return;
-            }
+        }, currentPingIntervalMs);
 
-            try {
-              const data = JSON.parse(event.data);
-              
-              lastPongTime = Date.now();
-              
-              if (data.type !== 'input_audio_buffer.append') {
-                widgetLog(`Получено сообщение типа: ${data.type || 'unknown'}`);
-              }
-              
-              // Обработка событий перебивания
-              if (data.type === 'conversation.interrupted') {
-                handleInterruptionEvent(data);
-                return;
-              }
-              
-              if (data.type === 'speech.started') {
-                handleSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'speech.stopped') {
-                handleSpeechStopped(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.started') {
-                handleAssistantSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.ended') {
-                handleAssistantSpeechEnded(data);
-                return;
-              }
-              
-              if (data.type === 'response.cancelled') {
-                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
-                
-                stopAllAudioPlayback();
-                
-                mainCircle.classList.remove('speaking');
-                mainCircle.classList.add('interrupted');
-                
-                setTimeout(() => {
-                  mainCircle.classList.remove('interrupted');
-                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
-                    switchToListeningMode();
-                  }
-                }, 500);
-                
-                return;
-              }
-              
-              if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`Получена информация о сессии: ${data.type}`);
-                return;
-              }
-              
-              if (data.type === 'connection_status') {
-                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
-                if (data.status === 'connected') {
-                  isConnected = true;
-                  reconnectAttempts = 0;
-                  connectionFailedPermanently = false;
-                  
-                  hideConnectionError();
-                  
-                  if (isWidgetOpen) {
-                    startListening();
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'error') {
-                if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
-                  if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
-                    setTimeout(() => { 
-                      startListening(); 
-                    }, 500);
-                  }
-                  return;
-                }
-                
-                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
-                showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
-                return;
-              } 
-              
-              if (data.type === 'response.text.delta') {
-                if (data.delta) {
-                  showMessage(data.delta, 0);
-                  
-                  if (!isWidgetOpen) {
-                    widgetButton.classList.add('wellcomeai-pulse-animation');
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'response.text.done') {
-                setTimeout(() => {
-                  hideMessage();
-                }, 5000);
-                return;
-              }
-              
-              if (data.type === 'response.audio.delta') {
-                if (data.delta) {
-                  audioChunksBuffer.push(data.delta);
-                }
-                return;
-              }
-              
-              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-                return;
-              }
-              
-              if (data.type === 'response.audio.done') {
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
-                }
-                return;
-              }
-              
-              if (data.type === 'response.done') {
-                widgetLog('Response done received');
-                if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
-                  setTimeout(() => {
-                    startListening();
-                  }, 400);
-                }
-                return;
-              }
-              
-              widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
-              
-            } catch (parseError) {
-              widgetLog(`Ошибка парсинга JSON: ${parseError.message}`, "warn");
-              
-              if (event.data === 'pong') {
-                lastPongTime = Date.now();
-                widgetLog("Получен pong-ответ");
-                return;
-              }
-              
-              widgetLog(`Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
+        if (isWidgetOpen) {
+          showMessage("Соединение установлено!", 3000);
+          updateConnectionStatus('connected', 'Подключено');
+          // Если виджет открыт, пытаемся начать слушать
+          setTimeout(() => { // Небольшая задержка для стабилизации
+            if (isWidgetOpen && !isListening && !window.isPlayingAudio && window.audioInitialized) {
+              startListening();
+            } else if (isWidgetOpen && !window.audioInitialized) {
+                widgetLog('[WS OPEN] Соединение есть, но аудио не инициализировано. Ожидание открытия виджета/инициализации аудио.', 'info');
             }
-          } catch (generalError) {
-            widgetLog(`Общая ошибка обработки сообщения: ${generalError.message}`, "error");
-          }
-        };
-        
-        websocket.onclose = function(event) {
-          widgetLog(`WebSocket connection closed: ${event.code}, ${event.reason}`);
+          }, 500);
+        }
+        // Возвращаем true в Promise, если connectWebSocket вызывался как async
+        // Для совместимости с .then() если он используется
+      }; // Конец websocket.onopen
+      
+      websocket.onmessage = function(event) {
+        lastPongTime = Date.now(); // Любое сообщение от сервера сбрасывает таймер pong
+        let messageData;
+        try {
+          messageData = JSON.parse(event.data);
+        } catch (e) {
+          widgetLog(`[WS MSG] Ошибка парсинга JSON сообщения: ${e.message}. Данные: ${event.data}`, "error");
+          return; // Прерываем обработку этого сообщения
+        }
+
+        // widgetLog(`[WS MSG] Получено сообщение типа: ${messageData.type}`); // Частый лог
+        // if (DEBUG_MODE && messageData.type !== "pong") { // Не логируем pong в деталях
+        //   console.log('[WellcomeAI Widget] Full message:', messageData);
+        // }
+
+        switch (messageData.type) {
+          case "pong":
+            // Уже обработано обновлением lastPongTime выше
+            // widgetLog("Pong received"); // Слишком частый лог
+            break;
+          case "audio_chunk.response": // Ответ с аудио чанком и/или текстом
+            if (messageData.audio_base64) {
+              addAudioToPlaybackQueue(messageData.audio_base64);
+            }
+            if (messageData.text && messageData.text.trim() !== "") {
+               // Показываем промежуточный текст без автоскрытия, если ассистент еще говорит
+               // или если это единственный текст.
+               const duration = (messageData.is_final_text || !interruptionState.is_assistant_speaking) ? 4000 : 0;
+               showMessage(messageData.text, duration); 
+            }
+            break;
+          case "text_response.final": // Финальный текстовый ответ (может быть без аудио)
+            if (messageData.text && messageData.text.trim() !== "") {
+              showMessage(messageData.text, 5000); // Показываем на 5 секунд
+            }
+            // Если это финальный текст, и ассистент не говорит, возможно, нужно обновить статус
+            if (!interruptionState.is_assistant_speaking) {
+                updateConnectionStatus('connected', 'Готов к ответу');
+            }
+            break;
+          case "interruption_event": // Сервер сообщает о перебивании
+            handleInterruptionEvent(messageData.data || {});
+            break;
+          case "speech_started_event": // Сервер определил начало речи пользователя
+            handleSpeechStarted(messageData.data || {});
+            break;
+          case "speech_stopped_event": // Сервер определил конец речи пользователя
+            handleSpeechStopped(messageData.data || {});
+            break;
+          case "assistant_speech_started_event": // Сервер сообщает, что ассистент начал говорить
+            handleAssistantSpeechStarted(messageData.data || {});
+            break;
+          case "assistant_speech_ended_event": // Сервер сообщает, что ассистент закончил говорить
+            handleAssistantSpeechEnded(messageData.data || {});
+            break;
+          case "status_update": // Общее обновление статуса от сервера
+              if (messageData.status_key && messageData.message_text) {
+                  updateConnectionStatus(messageData.status_key, messageData.message_text);
+              } else if (messageData.message_text) {
+                  showMessage(messageData.message_text, 3000);
+              }
+              break;
+          case "error": // Сообщение об ошибке от сервера
+            widgetLog(`[WS MSG] Ошибка от сервера: ${messageData.message || 'Нет деталей'}`, "error");
+            showMessage(`Ошибка сервера: ${messageData.message || 'Попробуйте еще раз.'}`, 5000);
+            // Можно также обновить статус UI
+            updateConnectionStatus('disconnected', `Ошибка (${messageData.code || 'сервер'})`);
+            // В зависимости от типа ошибки, можно решить, нужно ли закрывать соединение
+            // if (messageData.is_fatal) { websocket.close(); }
+            break;
+          case "input_audio_buffer.cleared": // Подтверждение очистки буфера на сервере
+            widgetLog("[WS MSG] Сервер подтвердил очистку буфера ввода.");
+            // Клиентская логика очистки буфера уже должна быть выполнена при отправке команды
+            hasAudioData = false; // Убедимся, что флаги сброшены
+            audioDataStartTime = 0;
+            break;
+          case "response.cancelled": // Подтверждение отмены ответа на сервере
+            widgetLog("[WS MSG] Сервер подтвердил отмену текущего ответа.");
+            // Клиентская логика остановки воспроизведения и т.д. уже должна быть выполнена
+            // stopAllAudioPlayback(); // Можно вызвать повторно для гарантии
+            break;
+          default:
+            widgetLog(`[WS MSG] Получен неизвестный тип сообщения: ${messageData.type}`, "warn");
+        }
+        updateDebugPanel(); // Обновляем отладочную панель после каждого сообщения
+      }; // Конец websocket.onmessage
+      
+      const handleWebSocketClosure = (event) => {
+          clearTimeout(connectionTimeoutId); // Отменяем таймаут соединения, если он был активен
+          connectionTimeoutId = null;
+          widgetLog(`[WS CLOSE] WebSocket соединение закрыто. Код: ${event.code}, Причина: "${event.reason || 'Нет причины'}", Чисто: ${event.wasClean}`, event.wasClean ? "info" : "warn");
+          
           isConnected = false;
-          isListening = false;
+          isReconnecting = false; // Сбрасываем флаг переподключения перед вызовом reconnectWithDelay
           
-          interruptionState.is_assistant_speaking = false;
-          interruptionState.is_user_speaking = false;
-          
-          if (pingInterval) {
-            clearInterval(pingInterval);
-            pingInterval = null;
+          if (loaderModal) loaderModal.classList.remove('active'); // Скрываем лоадер
+
+          if (pingIntervalId) { // Очищаем интервал ping
+            clearInterval(pingIntervalId);
+            pingIntervalId = null;
           }
-          
-          if (event.code === 1000 || event.code === 1001) {
-            isReconnecting = false;
-            widgetLog('Clean WebSocket close, not reconnecting');
-            return;
+
+          // Останавливаем прослушивание и воспроизведение, если соединение потеряно
+          if (isListening) {
+            isListening = false;
+            resetAudioVisualization();
+            mainCircle.classList.remove('listening');
           }
-          
-          reconnectWithDelay();
-        };
+          stopAllAudioPlayback(); // Остановка воспроизведения ассистента
+
+          // Попытка переподключения, если закрытие было нечистым или по определенным кодам
+          // 1000 - Normal Closure (обычно не требует переподключения, если инициировано клиентом)
+          // 1001 - Going Away (например, закрытие вкладки, тоже не требует)
+          // 1005 - No Status Rcvd (часто означает обрыв)
+          // 1006 - Abnormal Closure (обрыв)
+          // Другие коды могут требовать анализа
+          if (event.code === 1000 && event.reason === "Client navigating away") {
+            widgetLog("[WS CLOSE] Закрытие по причине навигации клиента. Переподключение не требуется.");
+          } else if (event.code === 1000 && event.reason === "Connection reset by client") {
+            widgetLog("[WS CLOSE] Закрытие по причине сброса клиентом. Переподключение не требуется (управляется resetConnection).");
+          } else if (event.code !== 1000 && event.code !== 1001) { // Все, что не нормальное закрытие или уход
+            widgetLog("[WS CLOSE] Нечистое или ненормальное закрытие. Попытка переподключения.");
+            if (isWidgetOpen) { // Показываем статус только если виджет открыт
+                updateConnectionStatus('disconnected', 'Соединение потеряно');
+            }
+            reconnectWithDelay(isMobile ? 700 : 500); // Начинаем переподключение с небольшой начальной задержкой
+          } else {
+            widgetLog("[WS CLOSE] Чистое закрытие WebSocket. Автоматическое переподключение не требуется.");
+            if (isWidgetOpen) {
+                updateConnectionStatus('disconnected', 'Отключено');
+            }
+            // Если это было чистое закрытие, но не по нашей инициативе (например, сервер закрыл),
+            // возможно, все же стоит попытаться переподключиться, если виджет должен работать постоянно.
+            // Это зависит от требований. Пока оставляем так.
+          }
+          updateDebugPanel();
+      };
+
+      websocket.onclose = handleWebSocketClosure;
+      
+      websocket.onerror = function(errorEvent) {
+        // onerror часто предшествует onclose. Важно не дублировать логику переподключения.
+        // Таймаут соединения уже должен быть очищен в onclose, если он сработает.
+        // clearTimeout(connectionTimeoutId); connectionTimeoutId = null; // На всякий случай
         
-        websocket.onerror = function(error) {
-          widgetLog(`WebSocket error: ${error}`, 'error');
-          
-          if (isWidgetOpen) {
-            showMessage("Ошибка соединения с сервером");
-            updateConnectionStatus('disconnected', 'Ошибка соединения');
-          }
-        };
+        // Тип errorEvent может быть разным в браузерах, пытаемся получить сообщение
+        const errorMessage = (errorEvent && errorEvent.message) ? errorEvent.message : 
+                             (errorEvent && errorEvent.type === 'error' && websocket.readyState === WebSocket.CLOSED) ? 'WebSocket connection failed' : 
+                             'Неизвестная ошибка WebSocket';
+        widgetLog(`[WS ERROR] Ошибка WebSocket: ${errorMessage}`, "error");
         
-        return true;
-      } catch (error) {
-        widgetLog(`Error connecting to WebSocket: ${error}`, 'error');
-        isReconnecting = false;
+        // isConnected и isReconnecting будут обновлены в onclose, который обычно следует за onerror.
+        // Если onclose не сработает, то здесь нужно обновить состояние и попытаться переподключиться.
+        // Однако, современнные браузеры почти всегда вызывают onclose после onerror.
+        
+        if (loaderModal) loaderModal.classList.remove('active');
+        
+        // Если WebSocket еще не закрыт, onclose обработает переподключение.
+        // Если он уже закрыт, и onclose по какой-то причине не сработал или сработал некорректно,
+        // то можно инициировать переподключение отсюда как крайнюю меру.
+        if (websocket && websocket.readyState === WebSocket.CLOSED) {
+            widgetLog('[WS ERROR] WebSocket уже закрыт при ошибке. Логика onclose должна была сработать.', 'warn');
+            // Вызываем handleWebSocketClosure "искусственно", если onclose не сработал
+            // Это рискованно, если onclose все же сработает позже.
+            // Лучше положиться на то, что onclose будет вызван.
+            // Если все же нужно, то:
+            // handleWebSocketClosure({ code: 1006, reason: "Error then closed", wasClean: false });
+        } else if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+            // Если сокет не открыт и не закрыт (например, еще CONNECTING, но произошла ошибка)
+            // Это может быть случай, когда onclose не вызовется.
+            // Пробуем закрыть его, чтобы инициировать onclose.
+            if (websocket) {
+                websocket.close(1006, "Error during connection");
+            } else {
+                // Если объекта websocket нет, но была ошибка (например, при new WebSocket)
+                // Это должно было быть обработано в блоке try-catch вокруг new WebSocket.
+                // Но для подстраховки:
+                isConnected = false;
+                isReconnecting = false;
+                reconnectWithDelay(1000); // Попытка переподключения
+            }
+        }
+        
+        addToDebugQueue(`WebSocket error: ${errorMessage}`, 'error');
+        updateDebugPanel();
+      }; // Конец websocket.onerror
+
+      return Promise.resolve(true); // Возвращаем Promise<true> для индикации успешного начала попытки подключения
+    } // Конец connectWebSocket
+
+    // Event Listeners для UI
+    widgetButton.addEventListener('click', () => {
+      if (widgetContainer.classList.contains('active')) {
+        closeWidget();
+      } else {
+        openWidget();
+      }
+    });
+
+    widgetClose.addEventListener('click', closeWidget);
+
+    mainCircle.addEventListener('click', async () => {
+      widgetLog(`[UI] Клик по главному кругу. isListening: ${isListening}, isPlayingAudio: ${window.isPlayingAudio}, isConnected: ${isConnected}`);
+      
+      // 1. Проверка и установка соединения, если его нет
+      if (!isConnected && !isReconnecting) {
+        showMessage("Подключение к серверу...", 0);
+        updateConnectionStatus('connecting', 'Подключение...');
+        await connectWebSocket(); // connectWebSocket обновит статус и покажет лоадер
+        // Дальнейшие действия (startListening) произойдут в onopen, если виджет открыт
+        return;
+      }
+      if (isReconnecting) {
+        showMessage("Пожалуйста, подождите, идет переподключение...", 3000);
+        return;
+      }
+      if (connectionFailedPermanently) {
+          showConnectionError('Не удалось подключиться. Проверьте интернет или попробуйте позже.');
+          // Кнопка retry уже должна быть с обработчиком
+          return;
+      }
+
+      // 2. Инициализация аудио, если это необходимо
+      if (!window.audioInitialized || !window.globalAudioContext || window.globalAudioContext.state !== 'running' || !window.globalMicStream || !window.globalMicStream.active) {
+        widgetLog("[UI] Аудио не готово. Попытка инициализации по клику на круг.");
+        loaderModal.classList.add('active');
+        const audioInitSuccess = await initializeAudio();
         loaderModal.classList.remove('active');
+        if (!audioInitSuccess) {
+          showMessage("Ошибка инициализации аудио. Проверьте разрешения микрофона в браузере.", 5000);
+          return;
+        }
+        // Если аудио успешно инициализировано, продолжаем логику клика ниже
+      }
+      
+      // 3. Логика перебивания ассистента
+      if (interruptionState.is_assistant_speaking || window.isPlayingAudio) {
+        widgetLog("[UI] Пользователь кликнул во время речи ассистента - ИНТЕРПРЕТИРУЕМ КАК ПЕРЕБИВАНИЕ.");
+        stopAllAudioPlayback(); // Останавливаем ассистента
         
-        reconnectAttempts++;
+        // Отправляем событие перебивания на сервер
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+          websocket.send(JSON.stringify({
+            type: "interruption.client_initiated", // Тип события перебивания по инициативе клиента
+            timestamp: Date.now(),
+            reason: "User clicked while assistant was speaking"
+          }));
+          widgetLog("[UI] Отправлено событие interruption.client_initiated на сервер.");
+        }
         
-        const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+        mainCircle.classList.add('interrupted'); // Показываем визуальное состояние перебивания
+        showMessage("Вы перебили ассистента.", 2000);
+        updateConnectionStatus('interrupted', 'Перебивание...');
         
-        if (reconnectAttempts >= maxAttempts) {
-          connectionFailedPermanently = true;
-          if (isWidgetOpen) {
-            showConnectionError("Не удалось подключиться к серверу. Пожалуйста, попробуйте позже.");
-            updateConnectionStatus('disconnected', 'Отключено');
+        // Через некоторое время убираем 'interrupted' и, если все условия позволяют, начинаем слушать
+        setTimeout(() => {
+          mainCircle.classList.remove('interrupted');
+          // Если виджет все еще открыт, соединение есть, и мы не играем аудио и не слушаем
+          if (isWidgetOpen && isConnected && !window.isPlayingAudio && !isListening && !isReconnecting) {
+            startListening();
+          } else if (isWidgetOpen && isConnected && !window.isPlayingAudio && isListening) {
+            // Если уже слушаем (маловероятно после перебивания, но для полноты)
+            mainCircle.classList.add('listening');
           }
-        } else {
-          reconnectWithDelay();
+        }, 1000); // Время отображения "перебивания"
+        return; // Завершаем обработку клика здесь
+      }
+
+      // 4. Переключение состояния прослушивания (старт/стоп)
+      if (isListening) {
+        widgetLog("[UI] Пользователь кликнул - ОСТАНОВКА прослушивания.");
+        isListening = false; // Важно установить флаг до commitAudioBuffer
+        resetAudioVisualization();
+        mainCircle.classList.remove('listening');
+        // Немедленно отправляем накопленный буфер, если есть что отправлять
+        if (hasAudioData) { // hasAudioData проверяется внутри commitAudioBuffer
+          commitAudioBuffer(); 
         }
+        // Статус изменится на "Обработка..." после успешного commit или по событию от сервера
+      } else if (isConnected && !window.isPlayingAudio && !isReconnecting) {
+        // Если не слушаем, не играет аудио, есть соединение и не идет переподключение - НАЧИНАЕМ слушать
+        widgetLog("[UI] Пользователь кликнул - НАЧАЛО прослушивания.");
+        startListening();
+      } else {
+        // Логируем, почему не можем начать слушать (для отладки)
+        widgetLog(`[UI] Клик по кругу, но не можем начать слушать: isConnected=${isConnected}, isPlayingAudio=${window.isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
+        if (isReconnecting) showMessage("Переподключение, пожалуйста подождите...", 3000);
+        // Сообщение "Ассистент говорит" уже должно быть обработано выше (перебивание)
+        else if (!isConnected) showMessage("Нет соединения с сервером.", 3000);
+      }
+    });
+
+    // Обработчик для кнопки "Повторить" в сообщении об ошибке соединения
+    retryButton.addEventListener('click', () => {
+        widgetLog('[UI] Нажата кнопка "Повторить подключение".');
+        resetConnection(); // Вызываем функцию сброса и повторного подключения
+        // resetConnection сама покажет нужные сообщения и статусы
+    });
+
+    // --- Начальная инициализация при загрузке скрипта ---
+    
+    // Проверка ID ассистента еще раз перед первой попыткой подключения (хотя уже есть выше)
+    if (!ASSISTANT_ID) {
+      widgetLog("CRITICAL: Assistant ID is null. Widget cannot function. (Final check in initWidget)", 'error');
+      if (loaderModal) loaderModal.classList.remove('active'); // Убираем лоадер, если был
+      // Можно дополнительно уведомить пользователя, если это еще не сделано
+      return; // Полностью прекращаем работу виджета
+    }
+    
+    // Первая попытка подключения к WebSocket
+    // connectWebSocket сама управляет лоадером и статусами
+    connectWebSocket().then(success => {
+        if (success) { // success здесь означает, что попытка подключения была инициирована
+            widgetLog("[INIT] Первая попытка подключения к WebSocket инициирована.");
+            // Дальнейшее состояние (подключено/ошибка) будет обработано в onopen/onerror/onclose
+        } else {
+            // Это может произойти, если new WebSocket() выбросил исключение или ASSISTANT_ID был null
+            widgetLog("[INIT] Первая попытка подключения к WebSocket не удалась на этапе инициации.", "error");
+            // Логика переподключения должна была запуститься из connectWebSocket, если ошибка была там
+            // Если виджет открыт по умолчанию, здесь можно показать ошибку.
+        }
+    }).catch(error => {
+        // Сюда мы не должны попадать, если connectWebSocket правильно обрабатывает свои ошибки
+        widgetLog(`[INIT] Непредвиденная ошибка при первой попытке подключения: ${error.message}`, "error");
+        if (isWidgetOpen) showConnectionError("Ошибка при начальном подключении.");
+        // Попытка переподключения, если это не было сделано
+        if (!isReconnecting && !connectionFailedPermanently) {
+            reconnectWithDelay(1000);
+        }
+    });
+
+    // Начальное состояние кнопки виджета (пульсация, если нет соединения и виджет закрыт)
+    // Проверяем через небольшую задержку, чтобы дать время на первую попытку подключения
+    setTimeout(() => {
+        if (!isConnected && !isWidgetOpen && !connectionFailedPermanently) {
+            widgetButton.classList.add('wellcomeai-pulse-animation');
+        }
+    }, 1500); // Задержка, чтобы connectWebSocket успел отработать
+
+    // Обработчик выгрузки страницы для корректного закрытия ресурсов
+    window.addEventListener('beforeunload', () => {
+        widgetLog("[SYSTEM] Событие beforeunload. Закрытие WebSocket и аудио ресурсов.");
         
-        return false;
-      }
-    }
+        // Закрываем WebSocket соединение чисто
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.onclose = null; // Убираем обработчик, чтобы не было попыток переподключения
+            websocket.close(1000, "Client navigating away"); // 1000 - нормальное закрытие
+        }
+        websocket = null; // Обнуляем ссылку
+        
+        // Останавливаем и отключаем аудио узлы
+        if (audioProcessorNode) {
+            audioProcessorNode.disconnect();
+            audioProcessorNode.onaudioprocess = null;
+            audioProcessorNode = null;
+        }
+        if (mediaStreamSourceNode) {
+            mediaStreamSourceNode.disconnect();
+            mediaStreamSourceNode = null;
+        }
 
-    // Добавляем обработчики событий для интерфейса
-    widgetButton.addEventListener('click', function(e) {
-      widgetLog('Button clicked');
-      e.preventDefault();
-      e.stopPropagation();
-      openWidget(); // ЕДИНАЯ точка входа для всех устройств
+        // Останавливаем треки микрофона
+        if (window.globalMicStream && window.globalMicStream.active) {
+            window.globalMicStream.getTracks().forEach(track => track.stop());
+            widgetLog("[SYSTEM] Треки микрофона остановлены.");
+        }
+        window.globalMicStream = null;
+        
+        // Закрываем AudioContext
+        if (window.globalAudioContext && window.globalAudioContext.state !== 'closed') {
+            window.globalAudioContext.close().then(() => {
+                widgetLog("[SYSTEM] AudioContext успешно закрыт.");
+            }).catch(e => widgetLog(`[SYSTEM] Ошибка при закрытии AudioContext: ${e.message}`, 'warn'));
+        }
+        window.globalAudioContext = null;
+        window.audioInitialized = false; // Сбрасываем флаг инициализации аудио
+
+        // Очищаем интервалы и таймауты
+        if (pingIntervalId) clearInterval(pingIntervalId);
+        if (connectionTimeoutId) clearTimeout(connectionTimeoutId);
+        if (window.reconnectTimeoutId) clearTimeout(window.reconnectTimeoutId);
     });
 
-    widgetClose.addEventListener('click', function(e) {
-      widgetLog('Close button clicked');
-      e.preventDefault();
-      e.stopPropagation();
-      closeWidget();
-    });
-    
-    // Обработчик для основного круга - для дополнительного запуска распознавания
-    mainCircle.addEventListener('click', function() {
-      widgetLog(`Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
-      
-      if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
-        if (isConnected) {
-          startListening();
-        } else if (connectionFailedPermanently) {
-          showConnectionError("Соединение с сервером отсутствует. Нажмите кнопку 'Повторить подключение'.");
-        } else {
-          connectWebSocket();
-        }
-      }
-    });
-    
-    // Обработчик для кнопки повторного подключения
-    if (retryButton) {
-      retryButton.addEventListener('click', function() {
-        widgetLog('Retry button clicked');
-        resetConnection();
-      });
-    }
-    
-    // Создаем WebSocket соединение
-    connectWebSocket();
-    
-    // Проверка DOM и состояния после инициализации
-    setTimeout(function() {
-      widgetLog('DOM check after initialization');
-      
-      const widgetContainer = document.getElementById('wellcomeai-widget-container');
-      const widgetButton = document.getElementById('wellcomeai-widget-button');
-      const widgetExpanded = document.getElementById('wellcomeai-widget-expanded');
-      
-      if (!widgetContainer) {
-        widgetLog('Widget container not found in DOM!', 'error');
-      } else {
-        widgetLog(`Container z-index = ${getComputedStyle(widgetContainer).zIndex}`);
-      }
-      
-      if (!widgetButton) {
-        widgetLog('Button not found in DOM!', 'error');
-      } else {
-        widgetLog(`Button is visible = ${getComputedStyle(widgetButton).display !== 'none'}`);
-      }
-      
-      if (!widgetExpanded) {
-        widgetLog('Expanded widget not found in DOM!', 'error');
-      }
-      
-      widgetLog(`Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
-      widgetLog(`Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
-      
-      if (window.audioInitialized) {
-        widgetLog(`[AUDIO] Audio state: initialized=${window.audioInitialized}`);
-        if (window.globalAudioContext) {
-          widgetLog(`[AUDIO] AudioContext state=${window.globalAudioContext.state}, sampleRate=${window.globalAudioContext.sampleRate}`);
-        }
-        if (window.globalMicStream) {
-          widgetLog(`[AUDIO] MediaStream active=${window.globalMicStream.active}, tracks=${window.globalMicStream.getAudioTracks().length}`);
-        }
-      }
-      
-      widgetLog(`Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
-    }, 2000);
-  }
+    // Обновляем отладочную панель в самом конце инициализации
+    updateDebugPanel();
 
-  // Инициализируем виджет
-  function initializeWidget() {
-    widgetLog('Initializing unified widget...');
-    
-    widgetLog(`Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
-    
-    loadFontAwesome();
-    createStyles();
-    
-    createWidgetHTML();
-    
-    initWidget();
-    
-    widgetLog('Unified widget initialization complete - same behavior for all devices');
-  }
-  
-  // Проверяем, есть ли уже виджет на странице
-  if (!document.getElementById('wellcomeai-widget-container')) {
-    widgetLog('Starting unified initialization process');
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initializeWidget);
-      widgetLog('Will initialize on DOMContentLoaded');
-    } else {
-      widgetLog('DOM already loaded, initializing immediately');
-      initializeWidget();
-    }
+  } // --- Конец initWidget ---
+
+  // --- Точка входа в скрипт ---
+  // Ожидаем полной загрузки DOM перед инициализацией виджета,
+  // чтобы все элементы были доступны.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      widgetLog("DOM полностью загружен. Инициализация виджета...");
+      createStyles();       // 1. Создаем стили
+      loadFontAwesome();    // 2. Загружаем иконки
+      createWidgetHTML();   // 3. Создаем HTML структуру
+      initWidget();         // 4. Инициализируем логику виджета
+    });
   } else {
-    widgetLog('Widget already exists on the page, skipping initialization');
+    // DOM уже загружен
+    widgetLog("DOM уже загружен. Немедленная инициализация виджета...");
+    createStyles();
+    loadFontAwesome();
+    createWidgetHTML();
+    initWidget();
   }
-})();
+
+})(); 
