@@ -135,6 +135,18 @@ async def handle_websocket_connection(
                         await websocket.send_json({"type": "pong"})
                         continue
 
+                    # ИСПРАВЛЕНИЕ: Обрабатываем session.update от клиента
+                    if msg_type == "session.update":
+                        logger.info(f"[SESSION] Получен запрос session.update от клиента {client_id}")
+                        # НЕ обрабатываем его - сервер сам управляет сессией
+                        # Просто отправляем подтверждение
+                        await websocket.send_json({
+                            "type": "session.update.ack", 
+                            "event_id": data.get("event_id", f"ack_{int(time.time() * 1000)}")
+                        })
+                        logger.info(f"[SESSION] Клиенту отправлено подтверждение session.update.ack")
+                        continue
+
                     # УПРОЩЕННАЯ обработка аудио - просто пропускаем через OpenAI
                     if msg_type == "input_audio_buffer.append":
                         audio_chunk = base64_to_audio_buffer(data["audio"])
@@ -233,11 +245,11 @@ async def handle_websocket_connection(
                         interruption_state["last_speech_stop"] = time.time()
                         continue
 
-                    # Любые остальные типы
-                    await websocket.send_json({
-                        "type": "error",
-                        "error": {"code": "unknown_message_type", "message": f"Unknown message type: {msg_type}"}
-                    })
+                    # ИСПРАВЛЕНИЕ: Логируем неизвестные типы сообщений но не отправляем ошибку
+                    if msg_type not in ['session.update']:  # Исключаем известные типы которые мы не обрабатываем
+                        logger.warning(f"[MESSAGE] Неизвестный тип сообщения от клиента {client_id}: {msg_type}")
+                        # НЕ отправляем ошибку клиенту, просто игнорируем
+                        continue
 
                 elif "bytes" in message:
                     # raw-байты от клиента
@@ -248,6 +260,7 @@ async def handle_websocket_connection(
                 break
             except Exception as e:
                 logger.error(f"Error in WebSocket loop: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 break
 
         # завершение
@@ -255,6 +268,18 @@ async def handle_websocket_connection(
             openai_task.cancel()
             await asyncio.sleep(0)
 
+    except Exception as outer_e:
+        logger.error(f"Outer exception in handle_websocket_connection: {outer_e}")
+        logger.error(f"Outer traceback: {traceback.format_exc()}")
+        
+        # Попытаемся отправить ошибку клиенту если соединение еще активно
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "error": {"code": "server_error", "message": "Внутренняя ошибка сервера"}
+            })
+        except:
+            pass  # Игнорируем ошибки при отправке
     finally:
         if openai_client:
             await openai_client.close()
