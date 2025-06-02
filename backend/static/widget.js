@@ -1070,6 +1070,69 @@
     return wavBuffer;
   }
 
+  // Простая функция для показа кнопки разблокировки
+  function showAudioUnlockButtonSimple(audioUrl, audio, cleanupAudio, playNextAudio) {
+    const mobileAudioButton = document.getElementById('wellcomeai-mobile-audio-button');
+    const messageDisplay = document.getElementById('wellcomeai-message-display');
+    
+    if (mobileAudioButton) {
+      mobileAudioButton.textContent = '🔊 Включить звук';
+      mobileAudioButton.classList.add('visible');
+      
+      // Показываем сообщение
+      if (messageDisplay) {
+        messageDisplay.textContent = "Нажмите кнопку для включения звука ответов";
+        messageDisplay.classList.add('show');
+      }
+      
+      // Удаляем предыдущие обработчики
+      mobileAudioButton.onclick = null;
+      
+      // Обработчик клика для разблокировки
+      mobileAudioButton.onclick = async function() {
+        widgetLog('[AUDIO] Попытка разблокировки через кнопку на iOS');
+        
+        try {
+          // Пробуем воспроизвести тестовое аудио для разблокировки
+          const testAudio = new Audio();
+          testAudio.src = 'data:audio/wav;base64,UklGRnoAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAABBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzqU3vLEeSsFJYXO9tiDNgYZaLvs559NEAxNm+PyvmchBjuL2vLOeywE';
+          testAudio.volume = 0.01;
+          testAudio.playsInline = true;
+          
+          await testAudio.play();
+          
+          // Если тестовое аудио прошло, пробуем оригинальное
+          await audio.play();
+          
+          // Успешно разблокировано
+          window.audioPlaybackUnlocked = true;
+          mobileAudioButton.classList.remove('visible');
+          
+          if (messageDisplay) {
+            messageDisplay.classList.remove('show');
+          }
+          
+          widgetLog('[AUDIO] Воспроизведение успешно разблокировано на iOS');
+          
+        } catch (error) {
+          widgetLog(`[AUDIO] Не удалось разблокировать на iOS: ${error.message}`, 'error');
+          
+          // Показываем сообщение об ошибке
+          if (messageDisplay) {
+            messageDisplay.textContent = "Не удалось включить звук. Попробуйте еще раз.";
+            setTimeout(() => {
+              messageDisplay.classList.remove('show');
+            }, 3000);
+          }
+          
+          // Очищаем текущее аудио и переходим к следующему
+          cleanupAudio(audioUrl, audio);
+          playNextAudio();
+        }
+      };
+    }
+  }
+
   // ФАБРИЧНАЯ функция для создания playNextAudio с правильным контекстом
   function createPlayNextAudio(interruptionState, audioPlaybackQueue, mainCircle, isWidgetOpen, widgetButton, startListening, base64ToArrayBuffer, createWavFromPcm) {
     // Создаем showAudioUnlockButton с правильными зависимостями
