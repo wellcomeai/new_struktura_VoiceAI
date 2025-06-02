@@ -1,10 +1,10 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 1.2.1
+ * Версия: 1.3.0 - с поддержкой голосового перебивания
  * 
  * Этот скрипт динамически создает и встраивает виджет голосового ассистента
  * на любой сайт, в том числе на Tilda и другие конструкторы сайтов.
- * Улучшена поддержка мобильных устройств и iOS.
+ * Улучшена поддержка мобильных устройств, iOS и голосового перебивания.
  */
 
 (function() {
@@ -473,6 +473,16 @@
         }
       }
       
+      .wellcomeai-main-circle.interrupted {
+        background: linear-gradient(135deg, #ffffff, #fff3e0, #ff9800);
+        box-shadow: 0 0 30px rgba(255, 152, 0, 0.6);
+      }
+      
+      .wellcomeai-main-circle.interrupted::before {
+        animation: wellcomeai-wave 2s linear infinite;
+        background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(255, 152, 0, 0.3));
+      }
+      
       .wellcomeai-mic-icon {
         color: #4a86e8;
         font-size: 32px;
@@ -485,6 +495,10 @@
       
       .wellcomeai-main-circle.speaking .wellcomeai-mic-icon {
         color: #4caf50;
+      }
+      
+      .wellcomeai-main-circle.interrupted .wellcomeai-mic-icon {
+        color: #ff9800;
       }
       
       .wellcomeai-audio-visualization {
@@ -650,6 +664,10 @@
       
       .wellcomeai-status-dot.connecting {
         background-color: #f59e0b;
+      }
+      
+      .wellcomeai-status-dot.interrupted {
+        background-color: #ff9800;
       }
       
       /* Кнопка принудительной активации аудио для iOS */
@@ -979,6 +997,16 @@
     let lastPongTime = Date.now();
     let connectionTimeout = null;
     
+    // Состояния для обработки перебивания
+    let interruptionState = {
+      is_assistant_speaking: false,
+      is_user_speaking: false,
+      last_interruption: 0,
+      interruption_count: 0,
+      current_audio_elements: [], // Массив для хранения активных аудио элементов
+      pending_audio_stop: false
+    };
+    
     // Конфигурация для оптимизации потока аудио - разные настройки для десктопа и мобильных
     const AUDIO_CONFIG = {
       silenceThreshold: 0.01,      // Порог для определения тишины
@@ -998,6 +1026,178 @@
     // Выбираем нужную конфигурацию в зависимости от устройства
     const effectiveAudioConfig = isMobile ? MOBILE_AUDIO_CONFIG : AUDIO_CONFIG;
     
+    // Обработка событий перебивания
+    function handleInterruptionEvent(eventData) {
+      const now = Date.now();
+      
+      widgetLog(`[INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
+      
+      // Обновляем счетчик и время последнего перебивания
+      interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
+      interruptionState.last_interruption = eventData.timestamp || now;
+      
+      // Останавливаем воспроизведение аудио
+      stopAllAudioPlayback();
+      
+      // Переключаем в режим прослушивания
+      switchToListeningMode();
+      
+      // Обновляем визуальное состояние
+      mainCircle.classList.remove('speaking');
+      mainCircle.classList.add('interrupted');
+      
+      // Убираем состояние перебивания через короткое время
+      setTimeout(() => {
+        mainCircle.classList.remove('interrupted');
+        if (!interruptionState.is_assistant_speaking) {
+          mainCircle.classList.add('listening');
+        }
+      }, 1000);
+      
+      // Обновляем статус
+      updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
+      
+      widgetLog(`[INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
+    }
+    
+    // Остановка всех аудио воспроизведений
+    function stopAllAudioPlayback() {
+      widgetLog('[INTERRUPTION] Остановка всех аудио воспроизведений');
+      
+      // Останавливаем воспроизведение
+      isPlayingAudio = false;
+      interruptionState.is_assistant_speaking = false;
+      
+      // Останавливаем все активные аудио элементы
+      interruptionState.current_audio_elements.forEach(audio => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          if (audio.src && audio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audio.src);
+          }
+        } catch (e) {
+          widgetLog(`[INTERRUPTION] Ошибка при остановке аудио: ${e.message}`, 'warn');
+        }
+      });
+      
+      // Очищаем массив активных аудио элементов
+      interruptionState.current_audio_elements = [];
+      
+      // Очищаем очередь воспроизведения
+      audioPlaybackQueue = [];
+      
+      // Отправляем событие серверу о том, что остановили воспроизведение
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        try {
+          websocket.send(JSON.stringify({
+            type: "audio_playback.stopped",
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          widgetLog(`[INTERRUPTION] Ошибка отправки события остановки: ${e.message}`, 'warn');
+        }
+      }
+      
+      widgetLog('[INTERRUPTION] Все аудио воспроизведения остановлены');
+    }
+    
+    // Переключение в режим прослушивания
+    function switchToListeningMode() {
+      widgetLog('[INTERRUPTION] Переключение в режим прослушивания');
+      
+      // Если уже слушаем, не делаем ничего
+      if (isListening) {
+        widgetLog('[INTERRUPTION] Уже в режиме прослушивания');
+        return;
+      }
+      
+      // Обновляем флаги состояния
+      interruptionState.is_user_speaking = true;
+      
+      // Обновляем визуальное состояние
+      mainCircle.classList.remove('speaking', 'interrupted');
+      mainCircle.classList.add('listening');
+      
+      // Начинаем прослушивание если еще не начали
+      if (isConnected && !isReconnecting) {
+        setTimeout(() => {
+          if (!isListening && !isPlayingAudio) {
+            startListening();
+          }
+        }, 100);
+      }
+      
+      widgetLog('[INTERRUPTION] Переключение в режим прослушивания завершено');
+    }
+    
+    // Обработка начала речи пользователя
+    function handleSpeechStarted(eventData) {
+      widgetLog(`[INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
+      
+      interruptionState.is_user_speaking = true;
+      
+      // Если ассистент говорил, это считается перебиванием
+      if (interruptionState.is_assistant_speaking) {
+        stopAllAudioPlayback();
+        mainCircle.classList.add('interrupted');
+        updateConnectionStatus('interrupted', 'Перебивание');
+      }
+      
+      // Переключаемся в режим прослушивания
+      mainCircle.classList.remove('speaking');
+      mainCircle.classList.add('listening');
+    }
+    
+    // Обработка окончания речи пользователя
+    function handleSpeechStopped(eventData) {
+      widgetLog(`[INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
+      
+      interruptionState.is_user_speaking = false;
+      
+      // Убираем визуальные эффекты перебивания
+      setTimeout(() => {
+        mainCircle.classList.remove('interrupted');
+        if (!interruptionState.is_assistant_speaking) {
+          mainCircle.classList.remove('listening');
+        }
+      }, 500);
+    }
+    
+    // Обработка начала речи ассистента
+    function handleAssistantSpeechStarted(eventData) {
+      widgetLog(`[INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
+      
+      interruptionState.is_assistant_speaking = true;
+      
+      // Обновляем визуальное состояние
+      mainCircle.classList.remove('listening', 'interrupted');
+      mainCircle.classList.add('speaking');
+      
+      updateConnectionStatus('connected', 'Ассистент говорит');
+    }
+    
+    // Обработка окончания речи ассистента
+    function handleAssistantSpeechEnded(eventData) {
+      widgetLog(`[INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
+      
+      interruptionState.is_assistant_speaking = false;
+      
+      // Обновляем визуальное состояние
+      mainCircle.classList.remove('speaking');
+      
+      // Если виджет открыт, автоматически начинаем слушать
+      if (isWidgetOpen && isConnected && !isReconnecting) {
+        setTimeout(() => {
+          if (!isListening && !isPlayingAudio) {
+            startListening();
+          }
+        }, 800);
+      }
+      
+      updateConnectionStatus('connected', 'Готов к разговору');
+    }
+    
     // Обновление индикатора статуса соединения
     function updateConnectionStatus(status, message) {
       if (!statusIndicator || !statusDot || !statusText) return;
@@ -1005,13 +1205,15 @@
       statusText.textContent = message || status;
       
       // Удаляем все классы состояния
-      statusDot.classList.remove('connected', 'disconnected', 'connecting');
+      statusDot.classList.remove('connected', 'disconnected', 'connecting', 'interrupted');
       
       // Добавляем нужный класс
       if (status === 'connected') {
         statusDot.classList.add('connected');
       } else if (status === 'disconnected') {
         statusDot.classList.add('disconnected');
+      } else if (status === 'interrupted') {
+        statusDot.classList.add('interrupted');
       } else {
         statusDot.classList.add('connecting');
       }
@@ -1042,7 +1244,7 @@
       isListening = false;
       
       // Останавливаем воспроизведение
-      isPlayingAudio = false;
+      stopAllAudioPlayback();
       
       // Очищаем буферы и очереди
       audioChunksBuffer = [];
@@ -1068,11 +1270,14 @@
       }
       
       // Сбрасываем состояние UI
-      mainCircle.classList.remove('listening');
-      mainCircle.classList.remove('speaking');
+      mainCircle.classList.remove('listening', 'speaking', 'interrupted');
       
       // Сбрасываем визуализацию
       resetAudioVisualization();
+      
+      // Сбрасываем состояния перебивания
+      interruptionState.is_assistant_speaking = false;
+      interruptionState.is_user_speaking = false;
     }
     
     // Показать сообщение
@@ -1801,6 +2006,7 @@
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
+        interruptionState.is_assistant_speaking = false;
         mainCircle.classList.remove('speaking');
         
         if (!isWidgetOpen) {
@@ -1827,6 +2033,7 @@
       }
       
       isPlayingAudio = true;
+      interruptionState.is_assistant_speaking = true;
       mainCircle.classList.add('speaking');
       mainCircle.classList.remove('listening');
       
@@ -1849,12 +2056,27 @@
           const audio = new Audio();
           audio.src = audioUrl;
           
+          // Добавляем к списку активных аудио элементов для возможности остановки при перебивании
+          interruptionState.current_audio_elements.push(audio);
+          
           // Предзагрузка для iOS
           audio.preload = 'auto';
           audio.load();
           
           // Отслеживаем готовность к воспроизведению
           audio.oncanplaythrough = function() {
+            // Проверяем, не было ли перебивания пока загружалось аудио
+            if (!interruptionState.is_assistant_speaking) {
+              // Если было перебивание, не начинаем воспроизведение
+              URL.revokeObjectURL(audioUrl);
+              const index = interruptionState.current_audio_elements.indexOf(audio);
+              if (index > -1) {
+                interruptionState.current_audio_elements.splice(index, 1);
+              }
+              playNextAudio();
+              return;
+            }
+            
             // Пробуем воспроизвести
             const playPromise = audio.play();
             
@@ -1886,12 +2108,22 @@
           
           audio.onended = function() {
             URL.revokeObjectURL(audioUrl);
+            // Удаляем из списка активных элементов
+            const index = interruptionState.current_audio_elements.indexOf(audio);
+            if (index > -1) {
+              interruptionState.current_audio_elements.splice(index, 1);
+            }
             playNextAudio();
           };
           
           audio.onerror = function() {
             widgetLog('Ошибка воспроизведения аудио', 'error');
             URL.revokeObjectURL(audioUrl);
+            // Удаляем из списка активных элементов
+            const index = interruptionState.current_audio_elements.indexOf(audio);
+            if (index > -1) {
+              interruptionState.current_audio_elements.splice(index, 1);
+            }
             playNextAudio();
           };
         };
@@ -2186,6 +2418,53 @@
                 widgetLog(`Получено сообщение типа: ${data.type || 'unknown'}`);
               }
               
+              // Обработка событий перебивания
+              if (data.type === 'conversation.interrupted') {
+                handleInterruptionEvent(data);
+                return;
+              }
+              
+              if (data.type === 'speech.started') {
+                handleSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'speech.stopped') {
+                handleSpeechStopped(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.started') {
+                handleAssistantSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.ended') {
+                handleAssistantSpeechEnded(data);
+                return;
+              }
+              
+              if (data.type === 'response.cancelled') {
+                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
+                
+                // Останавливаем воспроизведение
+                stopAllAudioPlayback();
+                
+                // Обновляем визуальное состояние
+                mainCircle.classList.remove('speaking');
+                mainCircle.classList.add('interrupted');
+                
+                // Убираем состояние перебивания через короткое время
+                setTimeout(() => {
+                  mainCircle.classList.remove('interrupted');
+                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
+                    switchToListeningMode();
+                  }
+                }, 500);
+                
+                return;
+              }
+              
               // Проверка на сообщение session.created и session.updated
               if (data.type === 'session.created' || data.type === 'session.updated') {
                 widgetLog(`Получена информация о сессии: ${data.type}`);
@@ -2325,6 +2604,10 @@
           widgetLog(`WebSocket connection closed: ${event.code}, ${event.reason}`);
           isConnected = false;
           isListening = false;
+          
+          // Сбрасываем состояния перебивания
+          interruptionState.is_assistant_speaking = false;
+          interruptionState.is_user_speaking = false;
           
           // Очищаем интервал ping
           if (pingInterval) {
@@ -2509,6 +2792,9 @@
           widgetLog(`AudioContext state=${audioContext.state}, sampleRate=${audioContext.sampleRate}`);
         }
       }
+      
+      // Проверка состояний перебивания
+      widgetLog(`Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
     }, 2000);
   }
 
@@ -2529,7 +2815,7 @@
     // Инициализируем основную логику виджета
     initWidget();
     
-    widgetLog('Initialization complete');
+    widgetLog('Initialization complete with voice interruption support');
   }
   
   // Проверяем, есть ли уже виджет на странице
