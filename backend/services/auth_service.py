@@ -77,10 +77,9 @@ class AuthService:
             db.refresh(new_user)
             
             # Activate trial for non-admin users
-            # Это установит связь с таблицей планов подписки
+            # Это НЕ перезапишет даты, а только установит plan_id
             if not new_user.is_admin:
                 try:
-                    # Подключаем сервис подписок для активации пробного периода
                     from backend.services.subscription_service import SubscriptionService
                     await SubscriptionService.activate_trial(db, str(new_user.id), trial_days=3)
                     logger.info(f"Trial period activated for user {new_user.email}")
@@ -167,11 +166,24 @@ class AuthService:
                     detail="Account is disabled"
                 )
             
-            # Проверяем, есть ли у пользователя даты подписки
-            # Если нет, устанавливаем триальный период
+            # ✅ ИСПРАВЛЕННАЯ ЛОГИКА: НЕ ТРОГАЕМ существующие даты подписки!
             now = datetime.now(timezone.utc)
-            if not user.subscription_start_date or not user.subscription_end_date:
-                logger.warning(f"User {user.id} logged in without subscription dates, setting trial period")
+            
+            # АКТИВИРУЕМ триал только для совершенно новых пользователей:
+            # - Нет ни одной даты подписки
+            # - Не находится в триале  
+            # - Не имеет план подписки
+            # - Базовый план "free"
+            should_activate_trial = (
+                not user.subscription_start_date and 
+                not user.subscription_end_date and 
+                not user.is_trial and 
+                not user.subscription_plan_id and
+                user.subscription_plan == "free"
+            )
+            
+            if should_activate_trial:
+                logger.info(f"User {user.id} is completely new without any subscription data, setting trial period")
                 
                 user.subscription_start_date = now
                 user.subscription_end_date = now + timedelta(days=3)
@@ -183,7 +195,9 @@ class AuthService:
                     await SubscriptionService.activate_trial(db, str(user.id), trial_days=3)
                 except Exception as e:
                     logger.error(f"Error activating trial during login (continuing): {str(e)}")
-                    # Продолжаем вход без активации
+            else:
+                # НЕ ТРОГАЕМ даты, если они уже есть!
+                logger.debug(f"User {user.id} already has subscription data, not modifying")
             
             # Update last login timestamp
             user.last_login = now
