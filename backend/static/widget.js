@@ -1010,6 +1010,56 @@
     }
   }
 
+  // Создаём простой WAV из PCM данных
+  function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
+    const wavHeader = new ArrayBuffer(44);
+    const view = new DataView(wavHeader);
+    
+    // "RIFF" chunk descriptor
+    view.setUint8(0, 'R'.charCodeAt(0));
+    view.setUint8(1, 'I'.charCodeAt(0));
+    view.setUint8(2, 'F'.charCodeAt(0));
+    view.setUint8(3, 'F'.charCodeAt(0));
+    
+    view.setUint32(4, 36 + pcmBuffer.byteLength, true);
+    
+    // "WAVE" формат
+    view.setUint8(8, 'W'.charCodeAt(0));
+    view.setUint8(9, 'A'.charCodeAt(0));
+    view.setUint8(10, 'V'.charCodeAt(0));
+    view.setUint8(11, 'E'.charCodeAt(0));
+    
+    // "fmt " субчанк
+    view.setUint8(12, 'f'.charCodeAt(0));
+    view.setUint8(13, 'm'.charCodeAt(0));
+    view.setUint8(14, 't'.charCodeAt(0));
+    view.setUint8(15, ' '.charCodeAt(0));
+    
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    
+    // "data" субчанк
+    view.setUint8(36, 'd'.charCodeAt(0));
+    view.setUint8(37, 'a'.charCodeAt(0));
+    view.setUint8(38, 't'.charCodeAt(0));
+    view.setUint8(39, 'a'.charCodeAt(0));
+    
+    view.setUint32(40, pcmBuffer.byteLength, true);
+    
+    const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
+    const wavBytes = new Uint8Array(wavBuffer);
+    
+    wavBytes.set(new Uint8Array(wavHeader), 0);
+    wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
+    
+    return wavBuffer;
+  }
+
   // Основная логика виджета
   function initWidget() {
     // Проверяем, что ID ассистента существует
@@ -1715,56 +1765,6 @@
       });
     }
     
-    // Создаём простой WAV из PCM данных
-    function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
-      const wavHeader = new ArrayBuffer(44);
-      const view = new DataView(wavHeader);
-      
-      // "RIFF" chunk descriptor
-      view.setUint8(0, 'R'.charCodeAt(0));
-      view.setUint8(1, 'I'.charCodeAt(0));
-      view.setUint8(2, 'F'.charCodeAt(0));
-      view.setUint8(3, 'F'.charCodeAt(0));
-      
-      view.setUint32(4, 36 + pcmBuffer.byteLength, true);
-      
-      // "WAVE" формат
-      view.setUint8(8, 'W'.charCodeAt(0));
-      view.setUint8(9, 'A'.charCodeAt(0));
-      view.setUint8(10, 'V'.charCodeAt(0));
-      view.setUint8(11, 'E'.charCodeAt(0));
-      
-      // "fmt " субчанк
-      view.setUint8(12, 'f'.charCodeAt(0));
-      view.setUint8(13, 'm'.charCodeAt(0));
-      view.setUint8(14, 't'.charCodeAt(0));
-      view.setUint8(15, ' '.charCodeAt(0));
-      
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, 1, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true);
-      view.setUint16(32, 2, true);
-      view.setUint16(34, 16, true);
-      
-      // "data" субчанк
-      view.setUint8(36, 'd'.charCodeAt(0));
-      view.setUint8(37, 'a'.charCodeAt(0));
-      view.setUint8(38, 't'.charCodeAt(0));
-      view.setUint8(39, 'a'.charCodeAt(0));
-      
-      view.setUint32(40, pcmBuffer.byteLength, true);
-      
-      const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
-      const wavBytes = new Uint8Array(wavBuffer);
-      
-      wavBytes.set(new Uint8Array(wavHeader), 0);
-      wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
-      
-      return wavBuffer;
-    }
-    
     // Воспроизведение аудио - ОБНОВЛЕННОЕ с поддержкой разблокировки на мобильных
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
@@ -2094,6 +2094,124 @@
               }
               
               // Обработка событий перебивания
+              if (data.type === 'conversation.interrupted') {
+                handleInterruptionEvent(data);
+                return;
+              }
+              
+              if (data.type === 'speech.started') {
+                handleSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'speech.stopped') {
+                handleSpeechStopped(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.started') {
+                handleAssistantSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.ended') {
+                handleAssistantSpeechEnded(data);
+                return;
+              }
+              
+              if (data.type === 'response.cancelled') {
+                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
+                
+                stopAllAudioPlayback();
+                
+                mainCircle.classList.remove('speaking');
+                mainCircle.classList.add('interrupted');
+                
+                setTimeout(() => {
+                  mainCircle.classList.remove('interrupted');
+                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
+                    switchToListeningMode();
+                  }
+                }, 500);
+                
+                return;
+              }
+              
+              if (data.type === 'session.created' || data.type === 'session.updated') {
+                widgetLog(`Получена информация о сессии: ${data.type}`);
+                return;
+              }
+              
+              if (data.type === 'connection_status') {
+                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
+                if (data.status === 'connected') {
+                  isConnected = true;
+                  reconnectAttempts = 0;
+                  connectionFailedPermanently = false;
+                  
+                  hideConnectionError();
+                  
+                  if (isWidgetOpen) {
+                    startListening();
+                  }
+                }
+                return;
+              }
+              
+              if (data.type === 'error') {
+                if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
+                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
+                  if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
+                    setTimeout(() => { 
+                      startListening(); 
+                    }, 500);
+                  }
+                  return;
+                }
+                
+                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
+                showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
+                return;
+              } 
+              
+              if (data.type === 'response.text.delta') {
+                if (data.delta) {
+                  showMessage(data.delta, 0);
+                  
+                  if (!isWidgetOpen) {
+                    widgetButton.classList.add('wellcomeai-pulse-animation');
+                  }
+                }
+                return;
+              }
+              
+              if (data.type === 'response.text.done') {
+                setTimeout(() => {
+                  hideMessage();
+                }, 5000);
+                return;
+              }
+              
+              if (data.type === 'response.audio.delta') {
+                if (data.delta) {
+                  audioChunksBuffer.push(data.delta);
+                }
+                return;
+              }
+              
+              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
+                return;
+              }
+              
+              if (data.type === 'response.audio.done') {
+                if (audioChunksBuffer.length > 0) {
+                  const fullAudio = audioChunksBuffer.join('');
+                  addAudioToPlaybackQueue(fullAudio);
+                  audioChunksBuffer = [];
+                }
+                return;
+              }
+              
               if (data.type === 'response.done') {
                 widgetLog('Response done received');
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
@@ -2288,122 +2406,4 @@
   } else {
     widgetLog('Widget already exists on the page, skipping initialization');
   }
-})(); 'conversation.interrupted') {
-                handleInterruptionEvent(data);
-                return;
-              }
-              
-              if (data.type === 'speech.started') {
-                handleSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'speech.stopped') {
-                handleSpeechStopped(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.started') {
-                handleAssistantSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.ended') {
-                handleAssistantSpeechEnded(data);
-                return;
-              }
-              
-              if (data.type === 'response.cancelled') {
-                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
-                
-                stopAllAudioPlayback();
-                
-                mainCircle.classList.remove('speaking');
-                mainCircle.classList.add('interrupted');
-                
-                setTimeout(() => {
-                  mainCircle.classList.remove('interrupted');
-                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
-                    switchToListeningMode();
-                  }
-                }, 500);
-                
-                return;
-              }
-              
-              if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`Получена информация о сессии: ${data.type}`);
-                return;
-              }
-              
-              if (data.type === 'connection_status') {
-                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
-                if (data.status === 'connected') {
-                  isConnected = true;
-                  reconnectAttempts = 0;
-                  connectionFailedPermanently = false;
-                  
-                  hideConnectionError();
-                  
-                  if (isWidgetOpen) {
-                    startListening();
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'error') {
-                if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
-                  if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
-                    setTimeout(() => { 
-                      startListening(); 
-                    }, 500);
-                  }
-                  return;
-                }
-                
-                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
-                showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
-                return;
-              } 
-              
-              if (data.type === 'response.text.delta') {
-                if (data.delta) {
-                  showMessage(data.delta, 0);
-                  
-                  if (!isWidgetOpen) {
-                    widgetButton.classList.add('wellcomeai-pulse-animation');
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'response.text.done') {
-                setTimeout(() => {
-                  hideMessage();
-                }, 5000);
-                return;
-              }
-              
-              if (data.type === 'response.audio.delta') {
-                if (data.delta) {
-                  audioChunksBuffer.push(data.delta);
-                }
-                return;
-              }
-              
-              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-                return;
-              }
-              
-              if (data.type === 'response.audio.done') {
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
-                }
-                return;
-              }
-              
-              if (data.type ===
+})();
