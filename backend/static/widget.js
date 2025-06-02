@@ -1,10 +1,11 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 2.0.0 - Унифицированная версия для десктопа и мобильных устройств
+ * Версия: 2.0.1 - Унифицированная версия с исправлением воспроизведения аудио на мобильных
  * 
  * Исправления:
  * - Единая инициализация аудио при клике на виджет
  * - Постоянно активный микрофон для возможности перебивания (как в десктопе)
+ * - Исправление воспроизведения аудио на мобильных устройствах
  * - Убраны дополнительные кнопки активации
  * - Упрощена логика состояний
  */
@@ -32,9 +33,10 @@
   const isAndroid = /Android/i.test(navigator.userAgent);
   
   // Упрощенные глобальные флаги - только необходимые
-  window.audioInitialized = false;  // Единый флаг инициализации
-  window.globalAudioContext = null; // Глобальный AudioContext
-  window.globalMicStream = null;    // Глобальный поток микрофона
+  window.audioInitialized = false;     // Единый флаг инициализации
+  window.globalAudioContext = null;    // Глобальный AudioContext
+  window.globalMicStream = null;       // Глобальный поток микрофона
+  window.audioPlaybackUnlocked = false; // Флаг разблокировки воспроизведения
 
   // Функция для логирования
   const widgetLog = (message, type = 'info') => {
@@ -644,6 +646,38 @@
       .wellcomeai-status-dot.interrupted {
         background-color: #ff9800;
       }
+      
+      .wellcomeai-mobile-audio-button {
+        position: absolute;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: #4a86e8;
+        color: white;
+        border: none;
+        border-radius: 15px;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        display: none;
+        z-index: 100;
+        box-shadow: 0 4px 15px rgba(74, 134, 232, 0.3);
+        transition: all 0.2s ease;
+      }
+
+      .wellcomeai-mobile-audio-button.visible {
+        display: block;
+      }
+
+      .wellcomeai-mobile-audio-button:active {
+        transform: translateX(-50%) scale(0.95);
+      }
+
+      .wellcomeai-mobile-audio-button:hover {
+        background-color: #3d71c7;
+        box-shadow: 0 6px 20px rgba(74, 134, 232, 0.4);
+      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("Styles created and added to head");
@@ -696,6 +730,11 @@
           <!-- Сообщение -->
           <div class="wellcomeai-message-display" id="wellcomeai-message-display"></div>
           
+          <!-- Универсальная кнопка для активации аудио на мобильных -->
+          <button class="wellcomeai-mobile-audio-button" id="wellcomeai-mobile-audio-button" style="display: none;">
+            🎤 Активировать микрофон
+          </button>
+          
           <!-- Сообщение об ошибке соединения -->
           <div class="wellcomeai-connection-error" id="wellcomeai-connection-error">
             Ошибка соединения с сервером
@@ -728,6 +767,95 @@
       widgetButton.style.opacity = '1';
       widgetButton.style.visibility = 'visible';
       widgetButton.style.pointerEvents = 'auto';
+    }
+  }
+
+  // НОВАЯ функция для тестирования HTML5 Audio воспроизведения
+  async function testAudioPlayback() {
+    return new Promise((resolve) => {
+      try {
+        // Создаем короткий тестовый аудио файл (тишина)
+        const audioContext = window.globalAudioContext;
+        const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.1, audioContext.sampleRate); // 100ms тишины
+        
+        // Конвертируем в WAV
+        const wavBuffer = createWavFromPcm(buffer.getChannelData(0).buffer, audioContext.sampleRate);
+        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+        const testUrl = URL.createObjectURL(blob);
+        
+        const testAudio = new Audio();
+        testAudio.src = testUrl;
+        testAudio.volume = 0.01; // Очень тихо
+        testAudio.preload = 'auto';
+        
+        // Таймаут на случай если событие не сработает
+        const timeout = setTimeout(() => {
+          URL.revokeObjectURL(testUrl);
+          resolve(false);
+        }, 2000);
+        
+        testAudio.oncanplaythrough = () => {
+          const playPromise = testAudio.play();
+          
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                clearTimeout(timeout);
+                URL.revokeObjectURL(testUrl);
+                widgetLog('[AUDIO] Тест воспроизведения успешен');
+                resolve(true);
+              })
+              .catch((error) => {
+                clearTimeout(timeout);
+                URL.revokeObjectURL(testUrl);
+                widgetLog(`[AUDIO] Тест воспроизведения неудачен: ${error.message}`, 'warn');
+                resolve(false);
+              });
+          } else {
+            clearTimeout(timeout);
+            URL.revokeObjectURL(testUrl);
+            resolve(true); // Старые браузеры без промисов
+          }
+        };
+        
+        testAudio.onerror = () => {
+          clearTimeout(timeout);
+          URL.revokeObjectURL(testUrl);
+          resolve(false);
+        };
+        
+        testAudio.load();
+        
+      } catch (error) {
+        widgetLog(`[AUDIO] Ошибка теста воспроизведения: ${error.message}`, 'warn');
+        resolve(false);
+      }
+    });
+  }
+
+  // НОВАЯ функция для разблокировки воспроизведения
+  async function unlockAudioPlayback() {
+    widgetLog('[AUDIO] Попытка разблокировки воспроизведения аудио');
+    
+    try {
+      // Создаем тестовый аудио и пытаемся воспроизвести
+      const audio = new Audio();
+      audio.src = 'data:audio/wav;base64,UklGRnoAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAABBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzqU3vLEeSsFJYXO9tiDNgYZaLvs559NEAxNm+PyvmchBjuL2vLOeywE';
+      audio.volume = 0.01;
+      audio.load();
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        await playPromise;
+      }
+      
+      window.audioPlaybackUnlocked = true;
+      widgetLog('[AUDIO] Воспроизведение аудио разблокировано');
+      return true;
+      
+    } catch (error) {
+      widgetLog(`[AUDIO] Не удалось разблокировать воспроизведение: ${error.message}`, 'error');
+      return false;
     }
   }
 
@@ -781,17 +909,34 @@
         });
       }
 
-      // 5. Для мобильных устройств - воспроизводим тишину для полной разблокировки
+      // 5. Для мобильных устройств - воспроизводим тишину для полной разблокировки AudioContext
       if (isMobile) {
         const buffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
         const source = window.globalAudioContext.createBufferSource();
         source.buffer = buffer;
         source.connect(window.globalAudioContext.destination);
         source.start(0);
-        widgetLog('[AUDIO] Тишина воспроизведена для разблокировки');
+        widgetLog('[AUDIO] Тишина воспроизведена для разблокировки AudioContext');
       }
 
-      // 6. Устанавливаем флаг успешной инициализации
+      // 6. НОВОЕ: Тестируем HTML5 Audio воспроизведение для мобильных
+      if (isMobile && !window.audioPlaybackUnlocked) {
+        widgetLog('[AUDIO] Тестируем HTML5 Audio воспроизведение...');
+        
+        const testSuccess = await testAudioPlayback();
+        if (testSuccess) {
+          window.audioPlaybackUnlocked = true;
+          widgetLog('[AUDIO] HTML5 Audio воспроизведение разблокировано');
+        } else {
+          widgetLog('[AUDIO] HTML5 Audio заблокировано, потребуется дополнительное взаимодействие', 'warn');
+          // НЕ показываем кнопку сразу, покажем только при первой попытке воспроизведения
+        }
+      } else if (!isMobile) {
+        // На десктопе считаем что воспроизведение доступно
+        window.audioPlaybackUnlocked = true;
+      }
+
+      // 7. Устанавливаем флаг успешной инициализации
       window.audioInitialized = true;
       widgetLog('[AUDIO] Единая инициализация завершена успешно');
       
@@ -800,6 +945,68 @@
     } catch (error) {
       widgetLog(`[AUDIO] Ошибка инициализации: ${error.message}`, 'error');
       return false;
+    }
+  }
+
+  // НОВАЯ вспомогательная функция для очистки аудио ресурсов
+  function cleanupAudio(audioUrl, audio) {
+    URL.revokeObjectURL(audioUrl);
+    const index = interruptionState.current_audio_elements.indexOf(audio);
+    if (index > -1) {
+      interruptionState.current_audio_elements.splice(index, 1);
+    }
+  }
+
+  // НОВАЯ функция для показа кнопки разблокировки воспроизведения
+  function showAudioUnlockButton(audioUrl, audio) {
+    const mobileAudioButton = document.getElementById('wellcomeai-mobile-audio-button');
+    if (mobileAudioButton) {
+      mobileAudioButton.textContent = '🔊 Включить звук';
+      mobileAudioButton.classList.add('visible');
+      
+      // Показываем сообщение
+      showMessage("Нажмите кнопку для включения звука ответов", 0);
+      
+      // Обработчик клика для разблокировки
+      mobileAudioButton.onclick = async function() {
+        widgetLog('[AUDIO] Попытка разблокировки через кнопку');
+        
+        try {
+          // Пробуем воспроизвести текущее аудио
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            await playPromise;
+          }
+          
+          // Если успешно - скрываем кнопку и отмечаем как разблокированное
+          window.audioPlaybackUnlocked = true;
+          mobileAudioButton.classList.remove('visible');
+          hideMessage();
+          widgetLog('[AUDIO] Воспроизведение успешно разблокировано через кнопку');
+          
+        } catch (error) {
+          widgetLog(`[AUDIO] Не удалось разблокировать через кнопку: ${error.message}`, 'error');
+          
+          // Пробуем альтернативный способ разблокировки
+          const unlocked = await unlockAudioPlayback();
+          if (unlocked) {
+            mobileAudioButton.classList.remove('visible');
+            hideMessage();
+            
+            // Пробуем снова воспроизвести оригинальное аудио
+            try {
+              await audio.play();
+              widgetLog('[AUDIO] Аудио воспроизведено после альтернативной разблокировки');
+            } catch (e) {
+              widgetLog(`[AUDIO] Все еще не удается воспроизвести: ${e.message}`, 'error');
+              cleanupAudio(audioUrl, audio);
+              playNextAudio();
+            }
+          } else {
+            showMessage("Не удалось включить звук. Попробуйте еще раз.", 3000);
+          }
+        }
+      };
     }
   }
 
@@ -1558,7 +1765,7 @@
       return wavBuffer;
     }
     
-    // Воспроизведение аудио - УНИФИЦИРОВАННОЕ для всех устройств
+    // Воспроизведение аудио - ОБНОВЛЕННОЕ с поддержкой разблокировки на мобильных
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
@@ -1581,8 +1788,8 @@
       
       isPlayingAudio = true;
       interruptionState.is_assistant_speaking = true;
-      mainCircle.classList.add('speaking');
       mainCircle.classList.remove('listening');
+      mainCircle.classList.add('speaking');
       
       const audioBase64 = audioPlaybackQueue.shift();
       
@@ -1600,13 +1807,15 @@
         const audio = new Audio();
         audio.src = audioUrl;
         
-        // Добавляем к списку активных аудио элементов для возможности остановки при перебивании
+        // Добавляем к списку активных аудио элементов
         interruptionState.current_audio_elements.push(audio);
         
-        // Единые настройки для всех устройств
+        // Настройки для всех устройств
         audio.preload = 'auto';
+        audio.volume = 1.0; // Полная громкость
         audio.load();
         
+        // НОВАЯ логика обработки воспроизведения с проверкой разблокировки
         audio.oncanplaythrough = function() {
           if (!interruptionState.is_assistant_speaking) {
             URL.revokeObjectURL(audioUrl);
@@ -1621,34 +1830,49 @@
           const playPromise = audio.play();
           
           if (playPromise !== undefined) {
-            playPromise.catch(error => {
-              widgetLog(`Ошибка воспроизведения: ${error.message}`, "error");
-              playNextAudio();
-            });
+            playPromise
+              .then(() => {
+                widgetLog('[AUDIO] Аудио воспроизводится успешно');
+                // Если это первое успешное воспроизведение на мобильном, отмечаем что разблокировано
+                if (isMobile && !window.audioPlaybackUnlocked) {
+                  window.audioPlaybackUnlocked = true;
+                  widgetLog('[AUDIO] Воспроизведение разблокировано через успешный play()');
+                }
+              })
+              .catch(error => {
+                widgetLog(`[AUDIO] Ошибка воспроизведения: ${error.message}`, "error");
+                
+                // Если ошибка связана с autoplay policy на мобильных
+                if (isMobile && (error.name === 'NotAllowedError' || error.name === 'AbortError')) {
+                  widgetLog('[AUDIO] Требуется разблокировка воспроизведения для мобильного устройства');
+                  
+                  // Показываем кнопку для разблокировки воспроизведения
+                  showAudioUnlockButton(audioUrl, audio);
+                } else {
+                  // Для других ошибок переходим к следующему аудио
+                  cleanupAudio(audioUrl, audio);
+                  playNextAudio();
+                }
+              });
+          } else {
+            // Старые браузеры без промисов
+            widgetLog('[AUDIO] Воспроизведение запущено (старый браузер)');
           }
         };
         
         audio.onended = function() {
-          URL.revokeObjectURL(audioUrl);
-          const index = interruptionState.current_audio_elements.indexOf(audio);
-          if (index > -1) {
-            interruptionState.current_audio_elements.splice(index, 1);
-          }
+          cleanupAudio(audioUrl, audio);
           playNextAudio();
         };
         
         audio.onerror = function() {
-          widgetLog('Ошибка воспроизведения аудио', 'error');
-          URL.revokeObjectURL(audioUrl);
-          const index = interruptionState.current_audio_elements.indexOf(audio);
-          if (index > -1) {
-            interruptionState.current_audio_elements.splice(index, 1);
-          }
+          widgetLog('[AUDIO] Ошибка воспроизведения аудио', 'error');
+          cleanupAudio(audioUrl, audio);
           playNextAudio();
         };
         
       } catch (error) {
-        widgetLog(`Ошибка воспроизведения аудио: ${error.message}`, "error");
+        widgetLog(`[AUDIO] Ошибка воспроизведения аудио: ${error.message}`, "error");
         playNextAudio();
       }
     }
@@ -1870,124 +2094,6 @@
               }
               
               // Обработка событий перебивания
-              if (data.type === 'conversation.interrupted') {
-                handleInterruptionEvent(data);
-                return;
-              }
-              
-              if (data.type === 'speech.started') {
-                handleSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'speech.stopped') {
-                handleSpeechStopped(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.started') {
-                handleAssistantSpeechStarted(data);
-                return;
-              }
-              
-              if (data.type === 'assistant.speech.ended') {
-                handleAssistantSpeechEnded(data);
-                return;
-              }
-              
-              if (data.type === 'response.cancelled') {
-                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
-                
-                stopAllAudioPlayback();
-                
-                mainCircle.classList.remove('speaking');
-                mainCircle.classList.add('interrupted');
-                
-                setTimeout(() => {
-                  mainCircle.classList.remove('interrupted');
-                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
-                    switchToListeningMode();
-                  }
-                }, 500);
-                
-                return;
-              }
-              
-              if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`Получена информация о сессии: ${data.type}`);
-                return;
-              }
-              
-              if (data.type === 'connection_status') {
-                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
-                if (data.status === 'connected') {
-                  isConnected = true;
-                  reconnectAttempts = 0;
-                  connectionFailedPermanently = false;
-                  
-                  hideConnectionError();
-                  
-                  if (isWidgetOpen) {
-                    startListening();
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'error') {
-                if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
-                  if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
-                    setTimeout(() => { 
-                      startListening(); 
-                    }, 500);
-                  }
-                  return;
-                }
-                
-                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
-                showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
-                return;
-              } 
-              
-              if (data.type === 'response.text.delta') {
-                if (data.delta) {
-                  showMessage(data.delta, 0);
-                  
-                  if (!isWidgetOpen) {
-                    widgetButton.classList.add('wellcomeai-pulse-animation');
-                  }
-                }
-                return;
-              }
-              
-              if (data.type === 'response.text.done') {
-                setTimeout(() => {
-                  hideMessage();
-                }, 5000);
-                return;
-              }
-              
-              if (data.type === 'response.audio.delta') {
-                if (data.delta) {
-                  audioChunksBuffer.push(data.delta);
-                }
-                return;
-              }
-              
-              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-                return;
-              }
-              
-              if (data.type === 'response.audio.done') {
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
-                }
-                return;
-              }
-              
               if (data.type === 'response.done') {
                 widgetLog('Response done received');
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
@@ -2182,4 +2288,122 @@
   } else {
     widgetLog('Widget already exists on the page, skipping initialization');
   }
-})();
+})(); 'conversation.interrupted') {
+                handleInterruptionEvent(data);
+                return;
+              }
+              
+              if (data.type === 'speech.started') {
+                handleSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'speech.stopped') {
+                handleSpeechStopped(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.started') {
+                handleAssistantSpeechStarted(data);
+                return;
+              }
+              
+              if (data.type === 'assistant.speech.ended') {
+                handleAssistantSpeechEnded(data);
+                return;
+              }
+              
+              if (data.type === 'response.cancelled') {
+                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
+                
+                stopAllAudioPlayback();
+                
+                mainCircle.classList.remove('speaking');
+                mainCircle.classList.add('interrupted');
+                
+                setTimeout(() => {
+                  mainCircle.classList.remove('interrupted');
+                  if (isWidgetOpen && !interruptionState.is_assistant_speaking) {
+                    switchToListeningMode();
+                  }
+                }, 500);
+                
+                return;
+              }
+              
+              if (data.type === 'session.created' || data.type === 'session.updated') {
+                widgetLog(`Получена информация о сессии: ${data.type}`);
+                return;
+              }
+              
+              if (data.type === 'connection_status') {
+                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
+                if (data.status === 'connected') {
+                  isConnected = true;
+                  reconnectAttempts = 0;
+                  connectionFailedPermanently = false;
+                  
+                  hideConnectionError();
+                  
+                  if (isWidgetOpen) {
+                    startListening();
+                  }
+                }
+                return;
+              }
+              
+              if (data.type === 'error') {
+                if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
+                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
+                  if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
+                    setTimeout(() => { 
+                      startListening(); 
+                    }, 500);
+                  }
+                  return;
+                }
+                
+                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
+                showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
+                return;
+              } 
+              
+              if (data.type === 'response.text.delta') {
+                if (data.delta) {
+                  showMessage(data.delta, 0);
+                  
+                  if (!isWidgetOpen) {
+                    widgetButton.classList.add('wellcomeai-pulse-animation');
+                  }
+                }
+                return;
+              }
+              
+              if (data.type === 'response.text.done') {
+                setTimeout(() => {
+                  hideMessage();
+                }, 5000);
+                return;
+              }
+              
+              if (data.type === 'response.audio.delta') {
+                if (data.delta) {
+                  audioChunksBuffer.push(data.delta);
+                }
+                return;
+              }
+              
+              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
+                return;
+              }
+              
+              if (data.type === 'response.audio.done') {
+                if (audioChunksBuffer.length > 0) {
+                  const fullAudio = audioChunksBuffer.join('');
+                  addAudioToPlaybackQueue(fullAudio);
+                  audioChunksBuffer = [];
+                }
+                return;
+              }
+              
+              if (data.type ===
