@@ -254,42 +254,46 @@ class UserService:
             user = await UserService.get_user_by_id(db, user_id)
             
             # Администраторы всегда имеют активную подписку
-            # Проверка на админа через email
             if user.is_admin or user.email == "well96well@gmail.com":
                 return {
                     "active": True,
                     "is_trial": False,
                     "days_left": None,
-                    "max_assistants": 10,  # Фиксированное количество для админа
-                    "current_assistants": 0,  # Для корректного отображения в UI
-                    "features": ["all"]      # Все функции
+                    "max_assistants": 10,
+                    "current_assistants": 0,
+                    "features": ["all"]
                 }
                 
-            # Проверяем, есть ли активная подписка
-            now = datetime.now(timezone.utc)  # Используем UTC для согласованности
+            # ✅ ИСПРАВЛЕННАЯ ЛОГИКА: проверяем активность подписки
+            now = datetime.now(timezone.utc)
             
             # Нормализуем дату окончания подписки
             subscription_end_date = user.subscription_end_date
             if subscription_end_date and subscription_end_date.tzinfo is None:
                 subscription_end_date = subscription_end_date.replace(tzinfo=timezone.utc)
                 
+            # ✅ ВАЖНО: подписка активна если:
+            # 1. Есть дата окончания И она больше текущего времени
+            # 2. И пользователь находится в триале ИЛИ имеет план подписки
             has_active_subscription = (
-                user.subscription_plan_id is not None and
                 subscription_end_date is not None and
-                subscription_end_date > now
+                subscription_end_date > now and
+                (user.is_trial or user.subscription_plan_id is not None)
             )
             
             # Получаем максимальное количество ассистентов из плана подписки
-            max_assistants = 1  # Default для тестового периода
+            max_assistants = 1  # Default для неактивной подписки
 
-            if user.subscription_plan_id:
+            if has_active_subscription and user.subscription_plan_id:
                 plan = db.query(SubscriptionPlan).get(user.subscription_plan_id)
                 if plan:
-                    # Устанавливаем лимиты в зависимости от кода плана
                     if plan.code == "free":
                         max_assistants = 1  # Тестовый период
                     else:
-                        max_assistants = 3  # Оплаченный период (любой, кроме free)
+                        max_assistants = 3  # Оплаченный период
+            elif has_active_subscription:
+                # Если подписка активна, но план не найден - даем базовый лимит
+                max_assistants = 1
             
             # Вычисляем, сколько дней осталось
             days_left = None
@@ -304,9 +308,9 @@ class UserService:
             
             return {
                 "active": has_active_subscription,
-                "is_trial": user.is_trial if has_active_subscription else False,
+                "is_trial": user.is_trial and has_active_subscription,
                 "days_left": days_left,
-                "max_assistants": max_assistants if has_active_subscription else 1,
+                "max_assistants": max_assistants,
                 "current_assistants": current_assistants,
                 "features": ["basic"]
             }
