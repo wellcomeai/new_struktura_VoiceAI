@@ -12,7 +12,8 @@ from .files import router as files_router
 from .websocket import router as websocket_router
 from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
-from .knowledge_base import router as knowledge_base_router  # New import
+from .knowledge_base import router as knowledge_base_router
+from .payments import router as payments_router  # Новый импорт
 
 # Create a main API router
 api_router = APIRouter()
@@ -25,7 +26,8 @@ api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
 api_router.include_router(subscriptions_router, tags=["Subscriptions"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
-api_router.include_router(knowledge_base_router)  # Added new router
+api_router.include_router(knowledge_base_router)
+api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])  # Новый роутер
 
 # Export all routers for use in app.py
 __all__ = [
@@ -37,5 +39,6 @@ __all__ = [
     "websocket_router",
     "subscriptions_router",
     "admin_router",
-    "knowledge_base_router"  # Added to exports
+    "knowledge_base_router",
+    "payments_router"  # Добавлен новый роутер
 ]
