@@ -83,7 +83,7 @@ async def handle_websocket_connection(
             user = db.query(User).get(assistant.user_id)
             if user and user.openai_api_key:
                 api_key = user.openai_api_key
-        # Удаляем использование глобального ключа и сразу выдаем ошибку
+        
         if not api_key:
             await websocket.send_json({
                 "type": "error",
@@ -105,15 +105,18 @@ async def handle_websocket_connection(
         # Сообщаем клиенту об успешном подключении
         await websocket.send_json({"type": "connection_status", "status": "connected", "message": "Connection established"})
 
+        # УПРОЩЕННАЯ обработка аудио - микрофон постоянно активен
         audio_buffer = bytearray()
         is_processing = False
         
-        # Состояния для обработки перебивания
+        # Упрощенные состояния для обработки перебивания
         interruption_state = {
             "is_user_speaking": False,
+            "is_assistant_speaking": False,
             "last_speech_start": 0,
             "last_speech_stop": 0,
-            "interruption_count": 0
+            "interruption_count": 0,
+            "last_interruption_time": 0
         }
 
         # Запускаем приём сообщений от OpenAI
@@ -132,27 +135,24 @@ async def handle_websocket_connection(
                         await websocket.send_json({"type": "pong"})
                         continue
 
+                    # УПРОЩЕННАЯ обработка аудио - просто пропускаем через OpenAI
                     if msg_type == "input_audio_buffer.append":
                         audio_chunk = base64_to_audio_buffer(data["audio"])
                         audio_buffer.extend(audio_chunk)
+                        
+                        # Отправляем аудио напрямую в OpenAI без дополнительной обработки
                         if openai_client.is_connected:
                             await openai_client.process_audio(audio_chunk)
+                        
                         await websocket.send_json({"type": "input_audio_buffer.append.ack", "event_id": data.get("event_id")})
                         continue
 
                     if msg_type == "input_audio_buffer.commit" and not is_processing:
                         is_processing = True
                         
-                        # Добавляем проверку минимального размера буфера (примерно 100мс аудио при 16kHz/16bit/mono)
-                        if not audio_buffer or len(audio_buffer) < 3200:  
-                            await websocket.send_json({
-                                "type": "warning",
-                                "warning": {"code": "audio_buffer_too_small", "message": "Аудио слишком короткое, попробуйте говорить дольше"}
-                            })
-                            audio_buffer.clear()
-                            is_processing = False
-                            continue
-
+                        # Убираем проверку минимального размера - доверяем клиенту
+                        # Клиент теперь сам решает когда отправлять буфер
+                        
                         if openai_client.is_connected:
                             await openai_client.commit_audio()
                             await websocket.send_json({"type": "input_audio_buffer.commit.ack", "event_id": data.get("event_id")})
@@ -187,9 +187,8 @@ async def handle_websocket_connection(
                         await websocket.send_json({"type": "response.cancel.ack", "event_id": data.get("event_id")})
                         continue
                     
-                    # Новые типы сообщений для управления перебиванием
+                    # Обработка событий перебивания и управления микрофоном
                     if msg_type == "interruption.manual":
-                        # Ручное перебивание (если понадобится)
                         logger.info(f"[INTERRUPTION] Ручное перебивание от клиента {client_id}")
                         await openai_client.handle_interruption()
                         await websocket.send_json({
@@ -202,6 +201,36 @@ async def handle_websocket_connection(
                         # Клиент сообщает о том, что остановил воспроизведение
                         logger.info(f"[INTERRUPTION] Клиент остановил воспроизведение: {client_id}")
                         openai_client.set_assistant_speaking(False)
+                        interruption_state["is_assistant_speaking"] = False
+                        continue
+                    
+                    # НОВЫЕ типы сообщений для синхронизации состояний
+                    if msg_type == "microphone.state":
+                        # Клиент сообщает о состоянии микрофона (включен/выключен)
+                        mic_enabled = data.get("enabled", True)
+                        logger.info(f"[MIC] Состояние микрофона от клиента {client_id}: {'включен' if mic_enabled else 'выключен'}")
+                        # В нашем случае микрофон всегда должен быть включен, но можем логировать
+                        continue
+                    
+                    if msg_type == "speech.user_started":
+                        # Клиент сообщает о начале речи пользователя
+                        logger.info(f"[SPEECH] Пользователь начал говорить: {client_id}")
+                        interruption_state["is_user_speaking"] = True
+                        interruption_state["last_speech_start"] = time.time()
+                        
+                        # Если ассистент говорил, это перебивание
+                        if interruption_state["is_assistant_speaking"]:
+                            logger.info(f"[INTERRUPTION] Перебивание ассистента пользователем: {client_id}")
+                            await openai_client.handle_interruption()
+                            interruption_state["interruption_count"] += 1
+                            interruption_state["last_interruption_time"] = time.time()
+                        continue
+                    
+                    if msg_type == "speech.user_stopped":
+                        # Клиент сообщает об окончании речи пользователя
+                        logger.info(f"[SPEECH] Пользователь закончил говорить: {client_id}")
+                        interruption_state["is_user_speaking"] = False
+                        interruption_state["last_speech_stop"] = time.time()
                         continue
 
                     # Любые остальные типы
@@ -224,7 +253,7 @@ async def handle_websocket_connection(
         # завершение
         if not openai_task.done():
             openai_task.cancel()
-            await asyncio.sleep(0)  # даём задаче отмениться
+            await asyncio.sleep(0)
 
     finally:
         if openai_client:
@@ -248,9 +277,9 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
     
     # Буфер для накопления аргументов функции
     pending_function_call = {
-        "name": None,          # Имя функции (устанавливается при .started или извлекается из первого delta)
-        "call_id": None,       # ID вызова функции
-        "arguments_buffer": "" # Накопленные аргументы
+        "name": None,
+        "call_id": None,
+        "arguments_buffer": ""
     }
     
     # Флаг ожидания ответа после вызова функции
@@ -271,12 +300,11 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     logger.error(f"[DEBUG] Ошибка декодирования JSON: {raw[:200]}")
                     continue
                     
-                # Логирование каждого полученного сообщения
                 msg_type = response_data.get("type", "unknown")
                 
-                # Обработка событий перебивания
+                # УПРОЩЕННАЯ обработка событий перебивания
                 if msg_type == "input_audio_buffer.speech_started":
-                    logger.info(f"[INTERRUPTION] Пользователь начал говорить: {openai_client.client_id}")
+                    logger.info(f"[INTERRUPTION] Пользователь начал говорить (server VAD): {openai_client.client_id}")
                     interruption_state["is_user_speaking"] = True
                     interruption_state["last_speech_start"] = time.time()
                     
@@ -288,7 +316,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     continue
                 
                 if msg_type == "input_audio_buffer.speech_stopped":
-                    logger.info(f"[INTERRUPTION] Пользователь закончил говорить: {openai_client.client_id}")
+                    logger.info(f"[INTERRUPTION] Пользователь закончил говорить (server VAD): {openai_client.client_id}")
                     interruption_state["is_user_speaking"] = False
                     interruption_state["last_speech_stop"] = time.time()
                     
@@ -302,20 +330,26 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                 if msg_type == "conversation.interrupted":
                     logger.info(f"[INTERRUPTION] Получено событие перебивания для клиента {openai_client.client_id}")
                     interruption_state["interruption_count"] += 1
+                    interruption_state["last_interruption_time"] = time.time()
                     
                     # Обрабатываем перебивание в OpenAI клиенте
                     await openai_client.handle_interruption()
                     
+                    # Останавливаем воспроизведение ассистента
+                    interruption_state["is_assistant_speaking"] = False
+                    openai_client.set_assistant_speaking(False)
+                    
                     # Отправляем событие перебивания клиенту
                     await websocket.send_json({
                         "type": "conversation.interrupted",
-                        "timestamp": time.time(),
+                        "timestamp": interruption_state["last_interruption_time"],
                         "interruption_count": interruption_state["interruption_count"]
                     })
                     continue
                 
                 if msg_type == "response.cancelled":
                     logger.info(f"[INTERRUPTION] Ответ отменен для клиента {openai_client.client_id}")
+                    interruption_state["is_assistant_speaking"] = False
                     openai_client.set_assistant_speaking(False)
                     
                     # Отправляем событие клиенту
@@ -329,12 +363,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                 if msg_type == "error":
                     logger.error(f"[DEBUG] ОШИБКА API: {json.dumps(response_data, ensure_ascii=False)}")
                     
-                    # Если ошибка связана с отправкой результата функции, обрабатываем особым образом
                     if waiting_for_function_response and "item" in str(response_data.get("error", {})):
                         error_message = response_data.get("error", {}).get("message", "Ошибка отправки результата функции")
                         logger.error(f"[DEBUG] Ошибка при отправке результата функции: {error_message}")
                         
-                        # Создаем свое сообщение пользователю об ошибке
                         error_response = {
                             "type": "response.content_part.added",
                             "content": {
@@ -343,30 +375,27 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         }
                         await websocket.send_json(error_response)
                         
-                        # После сообщения об ошибке явно запрашиваем новый ответ для генерации аудио
                         await openai_client.create_response_after_function()
                         
-                        # Сбрасываем флаг ожидания
                         waiting_for_function_response = False
                     else:
-                        # Отправляем остальные ошибки клиенту
                         await websocket.send_json(response_data)
                     continue
                 
                 logger.info(f"[DEBUG] Получено сообщение от OpenAI: тип={msg_type}")
                 
-                # Дополнительное логирование для транскрипции
                 if "transcript" in msg_type or "transcription" in msg_type:
                     try:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события: {json.dumps(response_data, ensure_ascii=False)}")
                     except:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события (не JSON): {response_data}")
                 
-                # Отслеживание начала аудио ответа ассистента
+                # ИСПРАВЛЕННАЯ обработка начала аудио ответа ассистента
                 if msg_type == "response.audio.delta":
-                    if not openai_client.is_assistant_speaking:
+                    if not interruption_state["is_assistant_speaking"]:
                         # Ассистент начал генерировать аудио
                         response_id = response_data.get("response_id", f"resp_{time.time()}")
+                        interruption_state["is_assistant_speaking"] = True
                         openai_client.set_assistant_speaking(True, response_id)
                         
                         # Отправляем событие клиенту
@@ -379,13 +408,13 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Подсчитываем аудио семплы для точной отмены
                     delta_audio = response_data.get("delta", "")
                     if delta_audio:
-                        # Примерная оценка количества семплов (зависит от кодировки)
-                        sample_count = len(base64.b64decode(delta_audio)) // 2  # PCM16 = 2 байта на семпл
+                        sample_count = len(base64.b64decode(delta_audio)) // 2
                         openai_client.increment_audio_samples(sample_count)
                 
-                # Завершение аудио ответа ассистента
+                # ИСПРАВЛЕННОЕ завершение аудио ответа ассистента
                 if msg_type == "response.audio.done":
-                    if openai_client.is_assistant_speaking:
+                    if interruption_state["is_assistant_speaking"]:
+                        interruption_state["is_assistant_speaking"] = False
                         openai_client.set_assistant_speaking(False)
                         
                         # Отправляем событие клиенту
@@ -394,22 +423,18 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             "timestamp": time.time()
                         })
                 
-                # Обработка вызова функции
+                # Остальная обработка функций остается без изменений
                 if msg_type == "response.function_call.started":
-                    # Получаем данные о функции из события
                     function_name = response_data.get("function_name")
                     function_call_id = response_data.get("call_id")
                     
                     logger.info(f"[DEBUG] Начало вызова функции: {function_name}, ID: {function_call_id}")
                     
-                    # Нормализуем имя функции
                     normalized_name = normalize_function_name(function_name) or function_name
                     
-                    # Проверяем, разрешена ли функция
                     if normalized_name not in openai_client.enabled_functions:
                         logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {normalized_name}. Разрешены только: {openai_client.enabled_functions}")
                         
-                        # Отправляем сообщение об ошибке пользователю
                         error_response = {
                             "type": "response.content_part.added",
                             "content": {
@@ -418,9 +443,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         }
                         await websocket.send_json(error_response)
                         
-                        # Отменяем вызов функции, если система все же пытается её вызвать
                         if function_call_id:
-                            # Отправляем пустой результат или ошибку
                             dummy_result = {
                                 "error": f"Функция {normalized_name} не разрешена",
                                 "status": "error"
@@ -429,34 +452,27 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             
                         continue
                     
-                    # Инициализируем данные о текущем вызове функции
                     pending_function_call = {
                         "name": normalized_name,
                         "call_id": function_call_id,
                         "arguments_buffer": ""
                     }
                     
-                    # Уведомляем клиента о начале вызова функции
                     await websocket.send_json({
                         "type": "function_call.started",
                         "function": normalized_name,
                         "function_call_id": function_call_id
                     })
                 
-                # Обработка аргументов функции (начало, если нет response.function_call.started)
                 elif msg_type == "response.function_call_arguments.delta":
-                    # Добавляем аргументы в буфер
                     delta = response_data.get("delta", "")
                     
-                    # Извлекаем имя функции и ID из первого delta, если их еще нет
                     if not pending_function_call["name"] and "call_id" in response_data:
                         pending_function_call["call_id"] = response_data.get("call_id")
                         
-                        # Логирум первую часть delta для отладки
                         first_part = delta[:100]
                         logger.info(f"[DEBUG] Получена первая часть аргументов функции: '{first_part}'")
                         
-                        # Определение функции по содержимому аргументов
                         if "url" in delta or "event" in delta:
                             pending_function_call["name"] = "send_webhook"
                             logger.info(f"[DEBUG] Определена функция по аргументам: send_webhook")
@@ -464,22 +480,16 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             pending_function_call["name"] = "search_pinecone"
                             logger.info(f"[DEBUG] Определена функция по аргументам: search_pinecone")
                     
-                    # Добавляем часть аргументов в буфер
                     pending_function_call["arguments_buffer"] += delta
                 
-                # Завершение получения аргументов и вызов функции
                 elif msg_type == "response.function_call_arguments.done":
-                    # Получаем окончательные аргументы
                     arguments_str = response_data.get("arguments", pending_function_call["arguments_buffer"])
                     
-                    # Если не получили имя функции через started, но есть в done
                     function_name = response_data.get("function_name", pending_function_call["name"])
                     function_call_id = response_data.get("call_id", pending_function_call["call_id"])
                     
-                    # Добавляем явное логирование имени функции
                     logger.info(f"[DEBUG-FUNCTION] Завершение получения аргументов для функции: {function_name}")
                     
-                    # Восстановить имя функции по содержимому аргументов, если она не определена
                     if not function_name and arguments_str:
                         if "url" in arguments_str:
                             function_name = "send_webhook"
@@ -488,16 +498,12 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             function_name = "search_pinecone"
                             logger.info(f"[DEBUG-FUNCTION] Определена функция по аргументам: search_pinecone")
                     
-                    # Нормализация имени функции
                     normalized_name = normalize_function_name(function_name) or function_name
                     logger.info(f"[DEBUG-FUNCTION] Нормализация окончательного имени: {function_name} -> {normalized_name}")
                     
-                    # Проверяем, разрешена ли функция
                     if normalized_name and normalized_name not in openai_client.enabled_functions:
-                        # Если функция не разрешена, логируем это и сообщаем пользователю
                         logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {normalized_name}. Разрешены только: {openai_client.enabled_functions}")
                         
-                        # Отправляем сообщение об ошибке пользователю
                         error_response = {
                             "type": "response.content_part.added",
                             "content": {
@@ -506,7 +512,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         }
                         await websocket.send_json(error_response)
                         
-                        # Отправляем пустой результат или ошибку, чтобы разблокировать модель
                         if function_call_id:
                             dummy_result = {
                                 "error": f"Функция {normalized_name} не разрешена",
@@ -514,7 +519,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             }
                             await openai_client.send_function_result(function_call_id, dummy_result)
                             
-                        # Сбрасываем буфер аргументов для следующего вызова
                         pending_function_call = {
                             "name": None,
                             "call_id": None,
@@ -522,22 +526,18 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         }
                         continue
                     
-                    # Для разрешенных функций продолжаем нормальную обработку
                     if function_call_id and normalized_name:
                         logger.info(f"[DEBUG] Получены все аргументы функции {normalized_name}: {arguments_str}")
                         
                         try:
-                            # Парсим аргументы из JSON-строки
                             arguments = json.loads(arguments_str)
                             
-                            # Сообщаем клиенту о процессе выполнения функции
                             await websocket.send_json({
                                 "type": "function_call.start",
                                 "function": normalized_name,
                                 "function_call_id": function_call_id
                             })
                             
-                            # Выполняем функцию через новую систему
                             result = await execute_function(
                                 name=normalized_name,
                                 arguments=arguments,
@@ -548,21 +548,16 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 }
                             )
                             
-                            # Сохраняем результат для логирования
                             function_result = result
                             
-                            # Устанавливаем флаг ожидания ответа после вызова функции
                             waiting_for_function_response = True
                             
-                            # Отправляем результат обратно в OpenAI и получаем статус отправки
                             delivery_status = await openai_client.send_function_result(function_call_id, result)
                             last_function_delivery_status = delivery_status
                             
-                            # Если произошла ошибка отправки результата
                             if not delivery_status["success"]:
                                 logger.error(f"[DEBUG] Ошибка отправки результата функции: {delivery_status['error']}")
                                 
-                                # Генерируем сообщение для пользователя о проблеме
                                 error_message = {
                                     "type": "response.content_part.added",
                                     "content": {
@@ -571,13 +566,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 }
                                 await websocket.send_json(error_message)
                                 
-                                # После сообщения об ошибке явно запрашиваем новый ответ для генерации аудио
                                 await openai_client.create_response_after_function()
                                 
-                                # Сбрасываем флаг ожидания
                                 waiting_for_function_response = False
                             
-                            # Информируем клиента о результате в любом случае
                             await websocket.send_json({
                                 "type": "function_call.completed",
                                 "function": normalized_name,
@@ -585,13 +577,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 "result": result
                             })
                             
-                            # Анализируем результат вебхука для формирования понятного ответа пользователю
                             if normalized_name == "send_webhook" and waiting_for_function_response:
                                 status_code = result.get("status", 0)
                                 
-                                # Если был сбой доставки, но не из-за статус кода HTTP
                                 if status_code == 404:
-                                    # Webhook не найден, формируем информативное сообщение
                                     webhook_error_message = {
                                         "type": "response.content_part.added",
                                         "content": {
@@ -600,7 +589,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                     }
                                     await websocket.send_json(webhook_error_message)
                                     
-                                    # Сбрасываем флаг ожидания, т.к. мы уже предоставили пользователю ответ
                                     waiting_for_function_response = False
                             
                         except json.JSONDecodeError as e:
@@ -618,44 +606,34 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 "error": {"code": "function_execution_error", "message": error_msg}
                             })
                     
-                    # Сбрасываем буфер аргументов для следующего вызова
                     pending_function_call = {
                         "name": None,
                         "call_id": None,
                         "arguments_buffer": ""
                     }
 
-                # Обработка ответа с содержимым (может быть ответ после вызова функции)
                 elif msg_type == "response.content_part.added":
-                    # Если был вызов функции, и мы ждем ответа - отслеживаем это
                     if waiting_for_function_response:
                         logger.info(f"[DEBUG] Получен ответ после выполнения функции")
                         waiting_for_function_response = False
                     
-                    # Обрабатываем текст ответа
                     if "text" in response_data.get("content", {}):
                         new_text = response_data.get("content", {}).get("text", "")
                         assistant_transcript = new_text
                         logger.info(f"[DEBUG] Из response.content_part.added получен текст ассистента: '{new_text}'")
                 
-                # Старая логика для обратной совместимости с function_call
                 elif msg_type == "function_call":
-                    # Извлекаем данные вызова функции
                     function_call_id = response_data.get("function_call_id")
                     function_data = response_data.get("function", {})
                     function_name = function_data.get("name")
                     
                     logger.info(f"[DEBUG] Получен вызов функции (legacy): {function_name}, аргументы: {function_data.get('arguments')}")
                     
-                    # Нормализация имени функции
                     normalized_name = normalize_function_name(function_name) or function_name
                     
-                    # Проверяем, разрешена ли функция
                     if normalized_name not in openai_client.enabled_functions:
-                        # Если функция не разрешена, логируем это и сообщаем пользователю
                         logger.warning(f"[DEBUG] Попытка вызвать неразрешенную функцию: {normalized_name}. Разрешены только: {openai_client.enabled_functions}")
                         
-                        # Отправляем сообщение об ошибке пользователю
                         error_response = {
                             "type": "response.content_part.added",
                             "content": {
@@ -664,7 +642,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         }
                         await websocket.send_json(error_response)
                         
-                        # Отправляем пустой результат или ошибку, чтобы разблокировать модель
                         if function_call_id:
                             dummy_result = {
                                 "error": f"Функция {normalized_name} не разрешена",
@@ -673,15 +650,12 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             await openai_client.send_function_result(function_call_id, dummy_result)
                         continue
                     
-                    # Если функция разрешена, продолжаем нормальную обработку
-                    # Сообщаем клиенту о том, что выполняется функция
                     await websocket.send_json({
                         "type": "function_call.start",
                         "function": normalized_name,
                         "function_call_id": function_call_id
                     })
                     
-                    # Выполняем функцию через новую систему
                     result = await execute_function(
                         name=normalized_name,
                         arguments=function_data.get("arguments", {}),
@@ -694,13 +668,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     
                     logger.info(f"[DEBUG] Результат выполнения функции: {result}")
                     
-                    # Сохраняем результат для логирования
                     function_result = result
                     
-                    # Отправляем результат в OpenAI
                     delivery_status = await openai_client.send_function_result(function_call_id, result)
                     
-                    # Сообщаем клиенту о результате
                     await websocket.send_json({
                         "type": "function_call.completed",
                         "function": normalized_name,
@@ -716,7 +687,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         user_transcript = response_data.get("transcript", "")
                         logger.info(f"[DEBUG] Получена транскрипция пользователя: '{user_transcript}'")
                         
-                        # Сохраняем сообщение пользователя в БД
                         if openai_client.db_session and openai_client.conversation_record_id:
                             try:
                                 conv = openai_client.db_session.query(Conversation).get(
@@ -729,32 +699,27 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             except Exception as e:
                                 logger.error(f"[DEBUG] Ошибка сохранения в БД: {str(e)}")
                 
-                # Обработка частей транскрипции для обоих типов сообщений
                 if msg_type == "response.audio_transcript.delta":
                     delta_text = response_data.get("delta", "")
                     assistant_transcript += delta_text
                     logger.info(f"[DEBUG] Получен фрагмент транскрипции ассистента: '{delta_text}'")
                 
-                # Обработка событий транскрипции для обработки ввода пользователя
                 if msg_type == "conversation.item.input_audio_transcription.delta":
                     delta_text = response_data.get("delta", "")
                     user_transcript += delta_text
                     logger.info(f"[DEBUG] Получен фрагмент транскрипции пользователя: '{delta_text}'")
                 
-                # Обработка полной транскрипции аудио ответа
                 if msg_type == "response.audio_transcript.done":
                     transcript = response_data.get("transcript", "")
                     if transcript:
                         assistant_transcript = transcript
                         logger.info(f"[DEBUG] Получена полная транскрипция ассистента: '{assistant_transcript}'")
                 
-                # Извлекаем текст из элементов диалога
                 if msg_type == "conversation.item.created":
                     item = response_data.get("item", {})
                     role = item.get("role", "")
                     content = item.get("content", [])
                     
-                    # Если это сообщение пользователя, пытаемся извлечь транскрипцию
                     if role == "user":
                         for part in content:
                             if part.get("type") == "input_audio" and "transcript" in part:
@@ -768,22 +733,17 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                     user_transcript = part_text
                                     logger.info(f"[DEBUG] Из conversation.item.created получен текст пользователя: '{user_transcript}'")
 
-                # если это аудио-чанк — отдаём как bytes
                 if msg_type == "audio":
                     b64 = response_data.get("data", "")
                     chunk = base64.b64decode(b64)
                     await websocket.send_bytes(chunk)
                     continue
                 
-                # Завершение ответа - если функция не обработана должным образом, вставляем информацию
                 if msg_type == "response.output_item.done":
-                    # Если мы все еще ждем ответа функции и не получили контента
                     if waiting_for_function_response and last_function_delivery_status:
-                        # Ассистент не обработал результат функции должным образом
                         if openai_client.last_function_name == "send_webhook" and function_result:
                             status_code = function_result.get("status", 0)
                             
-                            # Генерируем информативный ответ в зависимости от статуса вебхука
                             message_text = ""
                             if status_code == 404:
                                 message_text = "Вебхук не найден (ошибка 404). Возможно, он не зарегистрирован или не активирован."
@@ -792,7 +752,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             else:
                                 message_text = f"Вебхук вернул статус {status_code}."
                             
-                            # Отправляем информацию клиенту
                             await websocket.send_json({
                                 "type": "response.content_part.added",
                                 "content": {
@@ -800,11 +759,8 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 }
                             })
                             
-                            # Явно запрашиваем новый ответ для генерации аудио,
-                            # так как текущий ответ не содержит аудио
                             await openai_client.create_response_after_function()
                         
-                        # Сбрасываем флаг ожидания
                         waiting_for_function_response = False
 
                 # все остальные — JSON
@@ -814,8 +770,9 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                 if msg_type == "response.done":
                     logger.info(f"[DEBUG] Получен сигнал завершения ответа: response.done")
                     
-                    # Устанавливаем, что ассистент больше не говорит
-                    if openai_client.is_assistant_speaking:
+                    # ИСПРАВЛЕННОЕ - устанавливаем что ассистент больше не говорит
+                    if interruption_state["is_assistant_speaking"]:
+                        interruption_state["is_assistant_speaking"] = False
                         openai_client.set_assistant_speaking(False)
                         
                         # Отправляем событие клиенту
@@ -824,7 +781,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             "timestamp": time.time()
                         })
                     
-                    # Выводим финальные собранные тексты для анализа
                     logger.info(f"[DEBUG] Завершен диалог. Пользователь: '{user_transcript}'")
                     logger.info(f"[DEBUG] Завершен диалог. Ассистент: '{assistant_transcript}'")
                     
@@ -837,24 +793,19 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             )
                             if conv:
                                 conv.assistant_message = assistant_transcript
-                                # Также обновляем пользовательское сообщение, если оно есть
                                 if user_transcript and not conv.user_message:
                                     conv.user_message = user_transcript
                                 openai_client.db_session.commit()
                         except Exception as e:
                             logger.error(f"[DEBUG] Ошибка при сохранении ответа ассистента: {str(e)}")
                     
-                    # Если у ассистента есть google_sheet_id, логируем разговор
+                    # Google Sheets логирование
                     if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
                         sheet_id = openai_client.assistant_config.google_sheet_id
                         logger.info(f"[DEBUG] Запись диалога в Google Sheet {sheet_id}")
-                        logger.info(f"[DEBUG] Пользователь: '{user_transcript}'")
-                        logger.info(f"[DEBUG] Ассистент: '{assistant_transcript}'")
                         
-                        # Проверяем наличие текста перед отправкой
                         if not user_transcript and not assistant_transcript:
                             logger.warning(f"[DEBUG] Пустые тексты диалога, попробуем использовать данные из БД")
-                            # Пробуем получить данные из БД
                             if openai_client.db_session and openai_client.conversation_record_id:
                                 try:
                                     conv = openai_client.db_session.query(Conversation).get(
@@ -867,7 +818,6 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 except Exception as e:
                                     logger.error(f"[DEBUG] Ошибка при получении данных из БД: {str(e)}")
                         
-                        # Используем сохраненные значения для записи в Google Sheets
                         if user_transcript or assistant_transcript:
                             try:
                                 sheets_result = await GoogleSheetsService.log_conversation(
@@ -886,16 +836,14 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         else:
                             logger.warning(f"[DEBUG] Нет данных для записи в Google Sheet")
                         
-                        # Сбрасываем результат функции после логирования
                         function_result = None
                     else:
                         logger.info(f"[DEBUG] Запись в Google Sheet пропущена - sheet_id не настроен")
                         
-                    # Сбрасываем флаг ожидания функции, если он остался активным
                     waiting_for_function_response = False
+                    
             except ConnectionClosed as e:
                 logger.warning(f"[DEBUG] Соединение с OpenAI закрыто: {e}")
-                # Пробуем переподключиться
                 if await openai_client.reconnect():
                     logger.info("[DEBUG] Соединение с OpenAI успешно восстановлено")
                     continue
