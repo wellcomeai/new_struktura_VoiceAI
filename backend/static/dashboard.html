@@ -1617,5 +1617,492 @@ async function loadSubscriptionInfo() {
       }
     });
   </script>
+  <!-- Модальное окно для оплаты - добавить в dashboard.html перед закрывающим тегом </body> -->
+
+<!-- Модальное окно оплаты -->
+<div class="payment-modal" id="payment-modal">
+  <div class="payment-modal-overlay" id="payment-modal-overlay"></div>
+  <div class="payment-modal-content">
+    <div class="payment-modal-header">
+      <h2 class="payment-modal-title">
+        <i class="fas fa-crown"></i> Тариф "Старт"
+      </h2>
+      <button class="payment-modal-close" id="payment-modal-close">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <div class="payment-modal-body">
+      <!-- Основная информация о тарифе -->
+      <div class="payment-plan-info">
+        <div class="payment-plan-price">
+          <span class="price-amount">1 490</span>
+          <span class="price-currency">₽</span>
+          <span class="price-period">/месяц</span>
+        </div>
+        
+        <div class="payment-plan-duration">
+          <i class="fas fa-calendar-alt"></i>
+          <span>30 календарных дней</span>
+        </div>
+      </div>
+      
+      <!-- Список преимуществ -->
+      <div class="payment-plan-features">
+        <h3>Что входит в тариф:</h3>
+        <ul class="features-list">
+          <li>
+            <i class="fas fa-robot"></i>
+            <span>До 3 голосовых ассистентов</span>
+          </li>
+          <li>
+            <i class="fas fa-infinity"></i>
+            <span>Безлимитные диалоги</span>
+          </li>
+          <li>
+            <i class="fas fa-book"></i>
+            <span>База знаний без ограничений</span>
+          </li>
+          <li>
+            <i class="fas fa-plug"></i>
+            <span>Все интеграции и навыки</span>
+          </li>
+          <li>
+            <i class="fas fa-headset"></i>
+            <span>Приоритетная поддержка</span>
+          </li>
+          <li>
+            <i class="fas fa-code"></i>
+            <span>API доступ для разработчиков</span>
+          </li>
+        </ul>
+      </div>
+      
+      <!-- Сравнение с бесплатным планом -->
+      <div class="payment-comparison">
+        <div class="comparison-item">
+          <div class="comparison-free">
+            <span class="comparison-label">Бесплатно</span>
+            <span class="comparison-value">1 ассистент</span>
+          </div>
+          <div class="comparison-arrow">→</div>
+          <div class="comparison-paid">
+            <span class="comparison-label">Тариф "Старт"</span>
+            <span class="comparison-value">3 ассистента</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="payment-modal-footer">
+      <button class="btn btn-secondary payment-cancel-btn" id="payment-cancel-btn">
+        Отмена
+      </button>
+      <button class="btn btn-primary payment-pay-btn" id="payment-pay-btn">
+        <i class="fas fa-credit-card"></i>
+        Оплатить 1 490 ₽
+      </button>
+    </div>
+    
+    <!-- Индикатор загрузки -->
+    <div class="payment-loading" id="payment-loading" style="display: none;">
+      <div class="payment-spinner"></div>
+      <p>Создание платежа...</p>
+    </div>
+  </div>
+</div>
+
+<style>
+/* Стили для модального окна оплаты */
+.payment-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.payment-modal.show {
+  display: flex;
+  animation: modal-fade-in 0.3s ease-in-out;
+}
+
+.payment-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.payment-modal-content {
+  position: relative;
+  background-color: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: modal-slide-up 0.3s ease-out;
+}
+
+.payment-modal-header {
+  padding: 2rem 2rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.payment-modal-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-dark);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.payment-modal-title i {
+  color: var(--primary-blue);
+}
+
+.payment-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-gray);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: var(--radius-md);
+  transition: var(--transition-sm);
+}
+
+.payment-modal-close:hover {
+  background-color: var(--bg-light);
+  color: var(--text-dark);
+}
+
+.payment-modal-body {
+  padding: 1.5rem 2rem;
+}
+
+.payment-plan-info {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.payment-plan-price {
+  margin-bottom: 1rem;
+}
+
+.price-amount {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.price-currency {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-gray);
+  margin-left: 0.25rem;
+}
+
+.price-period {
+  color: var(--text-gray);
+  font-size: 1rem;
+}
+
+.payment-plan-duration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--text-gray);
+  font-size: 0.95rem;
+}
+
+.payment-plan-duration i {
+  color: var(--primary-blue);
+}
+
+.payment-plan-features {
+  margin-bottom: 2rem;
+}
+
+.payment-plan-features h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-dark);
+}
+
+.features-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.features-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.features-list li:last-child {
+  border-bottom: none;
+}
+
+.features-list li i {
+  color: var(--primary-blue);
+  width: 20px;
+  text-align: center;
+}
+
+.features-list li span {
+  color: var(--text-dark);
+  font-size: 0.95rem;
+}
+
+.payment-comparison {
+  background-color: var(--bg-blue-light);
+  border-radius: var(--radius-md);
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.comparison-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.comparison-free,
+.comparison-paid {
+  flex: 1;
+  text-align: center;
+}
+
+.comparison-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-gray);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.comparison-value {
+  display: block;
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.comparison-arrow {
+  color: var(--primary-blue);
+  font-weight: 600;
+  font-size: 1.25rem;
+}
+
+.payment-modal-footer {
+  padding: 1.5rem 2rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.payment-cancel-btn {
+  flex: 0 0 auto;
+}
+
+.payment-pay-btn {
+  flex: 1;
+  font-weight: 600;
+}
+
+.payment-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+}
+
+.payment-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(74, 134, 232, 0.3);
+  border-top-color: var(--primary-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+
+.payment-loading p {
+  color: var(--text-gray);
+  font-size: 0.95rem;
+}
+
+/* Анимации */
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-slide-up {
+  from { 
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Адаптивный дизайн */
+@media (max-width: 768px) {
+  .payment-modal {
+    padding: 10px;
+  }
+  
+  .payment-modal-content {
+    max-height: 95vh;
+  }
+  
+  .payment-modal-header,
+  .payment-modal-body,
+  .payment-modal-footer {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  
+  .payment-modal-footer {
+    flex-direction: column;
+  }
+  
+  .comparison-item {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .comparison-arrow {
+    transform: rotate(90deg);
+  }
+}
+</style>
+
+<script>
+// JavaScript для модального окна оплаты
+document.addEventListener('DOMContentLoaded', function() {
+  const paymentModal = document.getElementById('payment-modal');
+  const paymentModalOverlay = document.getElementById('payment-modal-overlay');
+  const paymentModalClose = document.getElementById('payment-modal-close');
+  const paymentCancelBtn = document.getElementById('payment-cancel-btn');
+  const paymentPayBtn = document.getElementById('payment-pay-btn');
+  const paymentLoading = document.getElementById('payment-loading');
+  const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
+  
+  // Показать модальное окно
+  function showPaymentModal() {
+    paymentModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  
+  // Скрыть модальное окно
+  function hidePaymentModal() {
+    paymentModal.classList.remove('show');
+    document.body.style.overflow = '';
+    paymentLoading.style.display = 'none';
+  }
+  
+  // Показать индикатор загрузки
+  function showPaymentLoading() {
+    paymentLoading.style.display = 'flex';
+  }
+  
+  // Обработчики событий
+  if (upgradeSubscriptionBtn) {
+    upgradeSubscriptionBtn.addEventListener('click', showPaymentModal);
+  }
+  
+  paymentModalClose.addEventListener('click', hidePaymentModal);
+  paymentCancelBtn.addEventListener('click', hidePaymentModal);
+  paymentModalOverlay.addEventListener('click', hidePaymentModal);
+  
+  // Обработчик оплаты
+  paymentPayBtn.addEventListener('click', async function() {
+    try {
+      showPaymentLoading();
+      
+      // Создаем платеж
+      const response = await api.post('/payments/create-payment', {
+        plan_code: 'start'
+      });
+      
+      if (response.payment_url && response.form_params) {
+        // Создаем форму для отправки на Robokassa
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = response.payment_url;
+        form.style.display = 'none';
+        
+        // Добавляем параметры формы
+        Object.keys(response.form_params).forEach(key => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = key;
+          input.value = response.form_params[key];
+          form.appendChild(input);
+        });
+        
+        // Добавляем форму на страницу и отправляем
+        document.body.appendChild(form);
+        form.submit();
+        
+        // Форма отправлена, скрываем модальное окно
+        hidePaymentModal();
+        
+      } else {
+        throw new Error('Некорректный ответ сервера');
+      }
+      
+    } catch (error) {
+      console.error('Ошибка создания платежа:', error);
+      ui.showNotification(
+        error.message || 'Ошибка при создании платежа. Попробуйте позже.',
+        'error'
+      );
+      hidePaymentModal();
+    }
+  });
+  
+  // Закрытие по клавише Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && paymentModal.classList.contains('show')) {
+      hidePaymentModal();
+    }
+  });
+});
+</script>
 </body>
 </html>
