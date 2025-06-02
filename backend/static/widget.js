@@ -1020,69 +1020,6 @@
     };
   }
 
-  // НОВАЯ функция для показа кнопки разблокировки воспроизведения
-  function showAudioUnlockButton(audioUrl, audio, cleanupAudio, playNextAudio) {
-    const mobileAudioButton = document.getElementById('wellcomeai-mobile-audio-button');
-    const messageDisplay = document.getElementById('wellcomeai-message-display');
-    
-    if (mobileAudioButton) {
-      mobileAudioButton.textContent = '🔊 Включить звук';
-      mobileAudioButton.classList.add('visible');
-      
-      // Показываем сообщение
-      if (messageDisplay) {
-        messageDisplay.textContent = "Нажмите кнопку для включения звука ответов";
-        messageDisplay.classList.add('show');
-      }
-      
-      // Удаляем предыдущие обработчики
-      mobileAudioButton.onclick = null;
-      
-      // Обработчик клика для разблокировки
-      mobileAudioButton.onclick = async function() {
-        widgetLog('[AUDIO] Попытка разблокировки через кнопку на iOS');
-        
-        try {
-          // Пробуем воспроизвести тестовое аудио для разблокировки
-          const testAudio = new Audio();
-          testAudio.src = 'data:audio/wav;base64,UklGRnoAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoAAABBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBzqU3vLEeSsFJYXO9tiDNgYZaLvs559NEAxNm+PyvmchBjuL2vLOeywE';
-          testAudio.volume = 0.01;
-          testAudio.playsInline = true;
-          
-          await testAudio.play();
-          
-          // Если тестовое аудио прошло, пробуем оригинальное
-          await audio.play();
-          
-          // Успешно разблокировано
-          window.audioPlaybackUnlocked = true;
-          mobileAudioButton.classList.remove('visible');
-          
-          if (messageDisplay) {
-            messageDisplay.classList.remove('show');
-          }
-          
-          widgetLog('[AUDIO] Воспроизведение успешно разблокировано на iOS');
-          
-        } catch (error) {
-          widgetLog(`[AUDIO] Не удалось разблокировать на iOS: ${error.message}`, 'error');
-          
-          // Показываем сообщение об ошибке
-          if (messageDisplay) {
-            messageDisplay.textContent = "Не удалось включить звук. Попробуйте еще раз.";
-            setTimeout(() => {
-              messageDisplay.classList.remove('show');
-            }, 3000);
-          }
-          
-          // Очищаем текущее аудио и переходим к следующему
-          cleanupAudio(audioUrl, audio);
-          playNextAudio();
-        }
-      };
-    }
-  }
-
   // Создаём простой WAV из PCM данных
   function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
     const wavHeader = new ArrayBuffer(44);
@@ -1134,7 +1071,15 @@
   }
 
   // ФАБРИЧНАЯ функция для создания playNextAudio с правильным контекстом
-  function createPlayNextAudio(interruptionState, audioPlaybackQueue, mainCircle, isWidgetOpen, widgetButton, startListening) {
+  function createPlayNextAudio(interruptionState, audioPlaybackQueue, mainCircle, isWidgetOpen, widgetButton, startListening, base64ToArrayBuffer, createWavFromPcm) {
+    // Создаем showAudioUnlockButton с правильными зависимостями
+    const showAudioUnlockButton = createShowAudioUnlockButton(
+      function playNextAudio() { 
+        return createPlayNextAudio(interruptionState, audioPlaybackQueue, mainCircle, isWidgetOpen, widgetButton, startListening, base64ToArrayBuffer, createWavFromPcm)(); 
+      }, 
+      createCleanupAudio
+    );
+    
     return function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         // Обновляем переменные через замыкание
@@ -1324,16 +1269,6 @@
       pending_audio_stop: false
     };
     
-    // Создаем playNextAudio через фабрику с правильным контекстом
-    const playNextAudio = createPlayNextAudio(
-      interruptionState,
-      audioPlaybackQueue,
-      mainCircle,
-      () => isWidgetOpen, // Передаем функцию для получения актуального значения
-      widgetButton,
-      () => startListening() // Передаем функцию
-    );
-    
     // Единая конфигурация аудио для всех устройств
     const AUDIO_CONFIG = {
       silenceThreshold: 0.01,
@@ -1342,6 +1277,43 @@
       soundDetectionThreshold: 0.02,
       amplificationFactor: isMobile ? 2.0 : 1.0 // Небольшое усиление только для мобильных
     };
+    
+    // Преобразование ArrayBuffer в Base64
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+    
+    // Преобразование Base64 в ArrayBuffer
+    function base64ToArrayBuffer(base64) {
+      try {
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      } catch (e) {
+        widgetLog(`Ошибка при декодировании base64: ${e.message}`, "error");
+        return new ArrayBuffer(0);
+      }
+    }
+
+    // Создаем playNextAudio через фабрику с правильным контекстом
+    const playNextAudio = createPlayNextAudio(
+      interruptionState,
+      audioPlaybackQueue,
+      mainCircle,
+      () => isWidgetOpen, // Передаем функцию для получения актуального значения
+      widgetButton,
+      () => startListening(), // Передаем функцию
+      base64ToArrayBuffer, // Передаем функцию base64ToArrayBuffer
+      createWavFromPcm // Передаем функцию createWavFromPcm
+    );
     
     // Обработка событий перебивания
     function handleInterruptionEvent(eventData) {
