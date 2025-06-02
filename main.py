@@ -16,12 +16,11 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-# Database schema initialization - только создание таблиц
-from backend.db.session import engine
-from backend.models.base import Base
-
-# Создаем таблицы только если они не существуют
-Base.metadata.create_all(bind=engine)
+# ❌ УБИРАЕМ ДУБЛИРОВАНИЕ: не создаем таблицы здесь - это делается в app.py
+# ❌ УБРАНО:
+# from backend.db.session import engine
+# from backend.models.base import Base
+# Base.metadata.create_all(bind=engine)
 
 # Meta import configuration
 class BackendImportFinder(importlib.abc.MetaPathFinder):
@@ -102,7 +101,7 @@ application = app
 logger = logging.getLogger("wellcome-ai")
 
 if __name__ == "__main__":
-    logger.info(f"Starting server on port {PORT}, debug={DEBUG}")
+    logger.info(f"🚀 Starting server on port {PORT}, debug={DEBUG}")
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
