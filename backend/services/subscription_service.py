@@ -15,7 +15,6 @@ from backend.models.user import User
 from backend.models.subscription import SubscriptionPlan
 from backend.models.subscription_log import SubscriptionLog
 
-
 logger = get_logger(__name__)
 
 class SubscriptionService:
@@ -45,7 +44,6 @@ class SubscriptionService:
                     user_id = user_uuid
             except ValueError:
                 logger.error(f"Invalid user_id format: {user_id}")
-                # Продолжаем с оригинальным user_id
                 
             # Пытаемся получить пользователя
             user = None
@@ -53,12 +51,28 @@ class SubscriptionService:
                 user = await UserService.get_user_by_id(db, user_id)
             except HTTPException as he:
                 logger.error(f"Error getting user: {str(he)}")
-                # Пытаемся получить напрямую из БД, если сервис не сработал
                 user = db.query(User).get(user_id)
                 
             if not user:
                 logger.error(f"User not found: {user_id}")
                 return None
+            
+            # ✅ ГЛАВНОЕ ИСПРАВЛЕНИЕ: НЕ ПЕРЕЗАПИСЫВАЕМ даты, если они уже есть!
+            if user.subscription_start_date and user.subscription_end_date:
+                logger.info(f"User {user_id} already has subscription dates (start={user.subscription_start_date}, end={user.subscription_end_date}), not overwriting")
+                
+                # Только убеждаемся, что план подписки установлен
+                if not user.subscription_plan_id:
+                    trial_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "free").first()
+                    if trial_plan:
+                        user.subscription_plan_id = trial_plan.id
+                        db.commit()
+                        logger.info(f"Set trial plan for user {user_id} without changing dates")
+                
+                return user
+            
+            # Продолжаем только если дат действительно нет
+            logger.info(f"Setting up trial for user {user_id} - no existing subscription dates found")
             
             # Get trial plan
             trial_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "free").first()
@@ -77,8 +91,8 @@ class SubscriptionService:
                 db.add(trial_plan)
                 db.flush()  # Получаем ID без коммита
             
-            # Set trial period
-            now = datetime.now(timezone.utc)  # Используем UTC для согласованности
+            # Set trial period ТОЛЬКО если дат нет
+            now = datetime.now(timezone.utc)
             user.is_trial = True
             user.subscription_start_date = now
             user.subscription_end_date = now + timedelta(days=trial_days)
@@ -136,10 +150,9 @@ class SubscriptionService:
             Количество обновленных подписок
         """
         try:
-            now = datetime.now(timezone.utc)  # Используем UTC для согласованности
+            now = datetime.now(timezone.utc)
             
             # Находим пользователей с истекшими подписками
-            # Получаем всех пользователей с подписками и фильтруем вручную из-за проблем с таймзонами
             potential_expired = db.query(User).filter(
                 User.subscription_end_date.isnot(None),
                 User.is_trial.is_(True)  # Пока работаем только с триальными подписками
@@ -158,9 +171,9 @@ class SubscriptionService:
             updated_count = 0
             
             for user in expired_users:
-                # Сбрасываем подписку
+                # Сбрасываем только флаг активности, НЕ ТРОГАЕМ даты!
                 user.is_trial = False
-                # Оставляем дату окончания для истории
+                # НЕ ОБНУЛЯЕМ subscription_end_date - оставляем для истории!
                 
                 # Логируем событие
                 await SubscriptionService.log_subscription_event(
@@ -214,7 +227,7 @@ class SubscriptionService:
                 plan_id=plan_id,
                 plan_code=plan_code,
                 details=details,
-                created_at=datetime.now(timezone.utc)  # Используем UTC для согласованности
+                created_at=datetime.now(timezone.utc)
             )
             
             db.add(log_entry)
