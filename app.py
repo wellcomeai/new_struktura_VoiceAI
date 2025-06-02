@@ -4,6 +4,8 @@ This file configures all application components: routes, middleware, logging, et
 """
 import os
 import asyncio
+import fcntl
+import time
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -87,16 +89,58 @@ def run_migrations():
 # При старте приложения
 @app.on_event("startup")
 async def startup_event():
-    # Сначала — миграции
-    run_migrations()
-
-    # Затем — создать таблицы (на всякий случай, но миграции — приоритет)
-    create_tables(engine)
-
-    # Запустить подписочный фоновый процесс
-    asyncio.create_task(start_subscription_checker())
-    logger.info("Subscription checker started")
-    logger.info("Application started successfully")
+    # 🔒 Используем файловую блокировку чтобы только один воркер выполнил миграции
+    lock_file_path = "/tmp/wellcome_migrations.lock"
+    
+    try:
+        # Создаем файл блокировки
+        with open(lock_file_path, 'w') as lock_file:
+            # Пытаемся получить эксклюзивную блокировку (неблокирующая)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            
+            logger.info("🔒 Got migration lock, running migrations...")
+            
+            # Только этот воркер выполнит миграции
+            run_migrations()
+            create_tables(engine)
+            
+            logger.info("✅ Migrations completed by this worker")
+            
+    except BlockingIOError:
+        # Другой воркер уже выполняет миграции
+        logger.info("⏳ Another worker is handling migrations, waiting...")
+        
+        # Ждем завершения миграций (максимум 30 секунд)
+        max_wait = 30
+        waited = 0
+        while os.path.exists(lock_file_path) and waited < max_wait:
+            time.sleep(1)
+            waited += 1
+            
+        if waited >= max_wait:
+            logger.warning("⚠️ Waited too long for migrations to complete")
+        else:
+            logger.info("✅ Migrations completed by another worker")
+            
+    except Exception as e:
+        logger.error(f"❌ Error during startup: {str(e)}")
+        raise
+    finally:
+        # Удаляем файл блокировки
+        try:
+            if os.path.exists(lock_file_path):
+                os.remove(lock_file_path)
+        except:
+            pass
+    
+    # Запустить подписочный фоновый процесс (только один раз)
+    try:
+        asyncio.create_task(start_subscription_checker())
+        logger.info("🔄 Subscription checker started")
+    except Exception as e:
+        logger.error(f"❌ Error starting subscription checker: {str(e)}")
+    
+    logger.info("🚀 Application started successfully")
 
 # Главная страница (редирект на frontend)
 @app.get("/")
@@ -107,4 +151,4 @@ async def root():
 # При выключении приложения
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Application stopped")
+    logger.info("🛑 Application stopped")
