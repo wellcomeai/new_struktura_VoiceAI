@@ -39,7 +39,8 @@ async def check_expired_subscriptions():
                 if end_date.tzinfo is None:
                     end_date = end_date.replace(tzinfo=timezone.utc)
                 
-                if end_date <= now:
+                # ПРОВЕРЯЕМ ТОЛЬКО истекших пользователей, которые ЕЩЕ активны
+                if end_date <= now and (user.is_trial or user.subscription_plan_id):
                     actual_expired.append(user)
         
         for user in actual_expired:
@@ -53,22 +54,31 @@ async def check_expired_subscriptions():
                 details=f"Subscription expired on {now.strftime('%Y-%m-%d %H:%M:%S')}"
             )
             
-            # Reset subscription status
+            # ❌ УБИРАЕМ: user.subscription_end_date = None
+            # ✅ ТОЛЬКО сбрасываем флаги активности, но СОХРАНЯЕМ даты для истории
             user.is_trial = False
-            user.subscription_end_date = None
+            # НЕ ТРОГАЕМ subscription_end_date - оставляем для истории!
+            # НЕ ТРОГАЕМ subscription_start_date - оставляем для истории!
             
             # Send notification about expiration
-            from backend.services.notification_service import NotificationService
-            await NotificationService.send_subscription_expired_notice(user)
+            try:
+                from backend.services.notification_service import NotificationService
+                await NotificationService.send_subscription_expired_notice(user)
+            except Exception as notif_error:
+                logger.error(f"Error sending expiration notification: {notif_error}")
             
             logger.info(f"Subscription expired for user {user.id}, email: {user.email}")
             
-        db.commit()
-        logger.info(f"Updated {len(actual_expired)} expired subscriptions")
+        if actual_expired:
+            db.commit()
+            logger.info(f"Updated {len(actual_expired)} expired subscriptions")
         
         # Check for subscriptions that are about to expire and send notifications
-        from backend.services.notification_service import NotificationService
-        await NotificationService.check_subscription_expirations(db)
+        try:
+            from backend.services.notification_service import NotificationService
+            await NotificationService.check_subscription_expirations(db)
+        except Exception as notif_error:
+            logger.error(f"Error checking subscription expirations: {notif_error}")
         
     except Exception as e:
         db.rollback()
@@ -80,6 +90,8 @@ async def start_subscription_checker():
     """
     Start the subscription checker background task
     """
+    logger.info("Starting subscription checker background task")
+    
     while True:
         try:
             await check_expired_subscriptions()
