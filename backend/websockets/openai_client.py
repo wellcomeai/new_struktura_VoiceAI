@@ -23,51 +23,30 @@ DEFAULT_SYSTEM_MESSAGE = "You are a helpful voice assistant."
 def normalize_functions(assistant_functions):
     """
     Преобразует список функций из UI в полные определения с параметрами.
-    
-    Args:
-        assistant_functions: Список функций ассистента в любом формате
-            
-    Returns:
-        List: Список полных определений функций с параметрами
     """
     if not assistant_functions:
         return []
     
-    # Извлекаем имена функций
     enabled_names = []
     
-    # Обработка формата {"enabled_functions": [...]}
     if isinstance(assistant_functions, dict) and "enabled_functions" in assistant_functions:
         enabled_names = [normalize_function_name(name) for name in assistant_functions.get("enabled_functions", [])]
-    # Обработка списка объектов из UI
     else:
         enabled_names = [normalize_function_name(func.get("name")) for func in assistant_functions if func.get("name")]
         
-    # Получаем определения для включенных функций
     return get_enabled_functions(enabled_names)
 
 def extract_webhook_url_from_prompt(prompt: str) -> Optional[str]:
     """
     Извлекает URL вебхука из системного промпта ассистента.
-    
-    Args:
-        prompt: Системный промпт ассистента
-        
-    Returns:
-        Найденный URL или None
     """
     if not prompt:
         return None
         
-    # Ищем URL с помощью регулярного выражения
-    # Паттерн 1: "URL вебхука: https://example.com"
     pattern1 = r'URL\s+(?:вебхука|webhook):\s*(https?://[^\s"\'<>]+)'
-    # Паттерн 2: "webhook URL: https://example.com"
     pattern2 = r'(?:вебхука|webhook)\s+URL:\s*(https?://[^\s"\'<>]+)'
-    # Паттерн 3: просто URL в тексте (менее точный)
     pattern3 = r'https?://[^\s"\'<>]+'
     
-    # Проверяем шаблоны по убыванию специфичности
     for pattern in [pattern1, pattern2, pattern3]:
         matches = re.findall(pattern, prompt, re.IGNORECASE)
         if matches:
@@ -78,62 +57,46 @@ def extract_webhook_url_from_prompt(prompt: str) -> Optional[str]:
 def generate_short_id(prefix: str = "") -> str:
     """
     Генерирует короткий уникальный идентификатор длиной до 32 символов.
-    
-    Args:
-        prefix: Опциональный префикс для ID
-        
-    Returns:
-        str: Короткий уникальный ID
     """
-    # Создаем UUID без дефисов и обрезаем до нужной длины
     raw_id = str(uuid.uuid4()).replace("-", "")
-    
-    # Если есть префикс, учитываем его в общей длине
     max_id_len = 32 - len(prefix)
-    
-    # Возвращаем ID с префиксом, общей длиной не более 32 символов
     return f"{prefix}{raw_id[:max_id_len]}"
 
 def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
     """
     Возвращает оптимальные настройки VAD в зависимости от устройства.
-    
-    Args:
-        user_agent: User-Agent строка для определения устройства
-        
-    Returns:
-        Dict: Настройки VAD для конкретного устройства
+    УЛУЧШЕННЫЕ настройки для поддержки перебивания на всех устройствах.
     """
     user_agent_lower = user_agent.lower()
     
-    # Настройки для iOS - более консервативные из-за особенностей микрофона
+    # Настройки для iOS - оптимизированы для перебивания
     if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
         return {
-            "threshold": 0.4,
-            "prefix_padding_ms": 300,
-            "silence_duration_ms": 400
+            "threshold": 0.3,        # Снижен для лучшего обнаружения речи
+            "prefix_padding_ms": 200, # Уменьшен для быстрого реагирования  
+            "silence_duration_ms": 300 # Короткая пауза для быстрого перебивания
         }
     
-    # Настройки для Android - средние значения
+    # Настройки для Android - оптимизированы для перебивания
     elif "android" in user_agent_lower:
         return {
-            "threshold": 0.35,
-            "prefix_padding_ms": 250,
-            "silence_duration_ms": 300
+            "threshold": 0.25,       # Более чувствительный
+            "prefix_padding_ms": 150, # Быстрое реагирование
+            "silence_duration_ms": 250 # Короткая пауза
         }
     
-    # Настройки для десктопа - более чувствительные
+    # Настройки для десктопа - максимально быстрое перебивание
     else:
         return {
-            "threshold": 0.25,  # Более низкий порог для быстрого перебивания
-            "prefix_padding_ms": 200,
-            "silence_duration_ms": 200  # Короткая пауза для отзывчивости
+            "threshold": 0.2,        # Очень чувствительный
+            "prefix_padding_ms": 100, # Минимальная задержка
+            "silence_duration_ms": 200 # Быстрое перебивание
         }
 
 class OpenAIRealtimeClient:
     """
     Client for interacting with OpenAI's Realtime API through WebSockets.
-    Handles voice interactions, function calling, conversation tracking, and interruptions.
+    ОБНОВЛЕН для поддержки постоянно активного микрофона и быстрого перебивания.
     """
     
     def __init__(
@@ -146,13 +109,6 @@ class OpenAIRealtimeClient:
     ):
         """
         Initialize the OpenAI Realtime client.
-        
-        Args:
-            api_key: OpenAI API key
-            assistant_config: Configuration for the assistant
-            client_id: Unique identifier for the client
-            db_session: Database session for persistence (optional)
-            user_agent: User-Agent для определения типа устройства
         """
         self.api_key = api_key
         self.assistant_config = assistant_config
@@ -164,20 +120,20 @@ class OpenAIRealtimeClient:
         self.openai_url = settings.REALTIME_WS_URL
         self.session_id = str(uuid.uuid4())
         self.conversation_record_id: Optional[str] = None
-        self.webhook_url = None  # Сохраняем URL вебхука из промпта
-        self.last_function_name = None  # Сохраняем имя последней вызванной функции
-        self.enabled_functions = []  # Список разрешенных функций
+        self.webhook_url = None
+        self.last_function_name = None
+        self.enabled_functions = []
         
-        # Состояния для обработки перебивания
+        # УПРОЩЕННЫЕ состояния для обработки перебивания
         self.is_assistant_speaking = False
         self.current_response_id: Optional[str] = None
         self.current_audio_samples = 0
         self.interruption_occurred = False
         self.last_interruption_time = 0
         
-        # Получаем настройки VAD для конкретного устройства
+        # Получаем УЛУЧШЕННЫЕ настройки VAD для быстрого перебивания
         self.vad_settings = get_device_vad_settings(user_agent)
-        logger.info(f"VAD settings for device: {self.vad_settings}")
+        logger.info(f"[VAD] Настройки для устройства ({user_agent[:50]}): {self.vad_settings}")
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -197,12 +153,8 @@ class OpenAIRealtimeClient:
 
     async def connect(self) -> bool:
         """
-        Establish WebSocket connection to OpenAI Realtime API
-        and immediately send up-to-date session settings,
-        including the system_prompt from the database.
-        
-        Returns:
-            bool: True if connection was successful, False otherwise
+        Establish WebSocket connection to OpenAI Realtime API.
+        ОБНОВЛЕН с улучшенными настройками VAD для перебивания.
         """
         if not self.api_key:
             logger.error("OpenAI API key not provided")
@@ -211,14 +163,14 @@ class OpenAIRealtimeClient:
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
             ("OpenAI-Beta", "realtime=v1"),
-            ("User-Agent", "WellcomeAI/1.0")
+            ("User-Agent", "WellcomeAI/2.0-Unified")
         ]
         try:
             self.ws = await asyncio.wait_for(
                 websockets.connect(
                     self.openai_url,
                     extra_headers=headers,
-                    max_size=15*1024*1024,  # 15 MB max message size
+                    max_size=15*1024*1024,
                     ping_interval=30,
                     ping_timeout=120,
                     close_timeout=15
@@ -228,7 +180,7 @@ class OpenAIRealtimeClient:
             self.is_connected = True
             logger.info(f"Connected to OpenAI for client {self.client_id}")
 
-            # Fetch fresh settings from assistant_config
+            # Получаем свежие настройки
             voice = self.assistant_config.voice or DEFAULT_VOICE
             system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
             functions = getattr(self.assistant_config, "functions", None)
@@ -242,13 +194,13 @@ class OpenAIRealtimeClient:
                 
                 logger.info(f"Обновлены разрешенные функции: {self.enabled_functions}")
 
-            # Проверяем, есть ли URL вебхука в промпте, только если функция send_webhook разрешена
+            # Проверяем URL вебхука в промпте
             if "send_webhook" in self.enabled_functions:
                 self.webhook_url = extract_webhook_url_from_prompt(system_message)
                 if self.webhook_url:
                     logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
 
-            # Send updated session settings with actual system_prompt
+            # Отправляем обновленные настройки сессии
             if not await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -269,13 +221,9 @@ class OpenAIRealtimeClient:
     async def reconnect(self) -> bool:
         """
         Пытается переподключиться к OpenAI Realtime API после потери соединения.
-        
-        Returns:
-            bool: True если переподключение успешно, False иначе
         """
         logger.info(f"Попытка переподключения к OpenAI для клиента {self.client_id}")
         try:
-            # Закрываем старое соединение, если оно ещё существует
             if self.ws:
                 try:
                     await self.ws.close()
@@ -285,13 +233,12 @@ class OpenAIRealtimeClient:
             self.is_connected = False
             self.ws = None
             
-            # Сбрасываем состояния перебивания
+            # Сбрасываем состояния
             self.is_assistant_speaking = False
             self.current_response_id = None
             self.current_audio_samples = 0
             self.interruption_occurred = False
             
-            # Подключаемся заново
             return await self.connect()
         except Exception as e:
             logger.error(f"Ошибка при переподключении к OpenAI: {e}")
@@ -305,20 +252,13 @@ class OpenAIRealtimeClient:
     ) -> bool:
         """
         Update session settings on the OpenAI Realtime API side.
-        
-        Args:
-            voice: Voice ID to use for speech synthesis
-            system_message: System instructions for the assistant
-            functions: List of functions or dictionary with enabled_functions key
-            
-        Returns:
-            bool: True if update was successful, False otherwise
+        ОБНОВЛЕН с улучшенными настройками VAD для быстрого перебивания на всех устройствах.
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot update session: not connected")
             return False
             
-        # Настройки VAD с оптимизацией для перебивания
+        # УЛУЧШЕННЫЕ настройки VAD для максимально быстрого перебивания
         turn_detection = {
             "type": "server_vad",
             "threshold": self.vad_settings["threshold"],
@@ -327,7 +267,7 @@ class OpenAIRealtimeClient:
             "create_response": True,
         }
         
-        logger.info(f"[INTERRUPTION] Настройки VAD: {turn_detection}")
+        logger.info(f"[VAD] Настройки для быстрого перебивания: {turn_detection}")
         
         # Получаем нормализованные определения функций
         normalized_functions = normalize_functions(functions)
@@ -342,16 +282,15 @@ class OpenAIRealtimeClient:
                 "parameters": func_def["parameters"]
             })
         
-        # Обновляем список разрешенных функций на основе tools
+        # Обновляем список разрешенных функций
         self.enabled_functions = [normalize_function_name(tool["name"]) for tool in tools]
-        logger.info(f"[DEBUG-FUNCTION] Активированные функции для сессии: {self.enabled_functions}")
+        logger.info(f"[FUNCTION] Активированные функции для сессии: {self.enabled_functions}")
         
-        # Устанавливаем tool_choice на основе наличия tools
         tool_choice = "auto" if tools else "none"
         
         logger.info(f"Setting up session with {len(tools)} tools, tool_choice={tool_choice}")
         
-        # Включение транскрипции аудио в соответствии с документацией OpenAI
+        # Включение транскрипции аудио
         input_audio_transcription = {
             "model": "whisper-1"
         }
@@ -374,17 +313,16 @@ class OpenAIRealtimeClient:
         }
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Session settings sent (voice={voice}, tools={len(tools)}, tool_choice={tool_choice})")
+            logger.info(f"Session settings sent (voice={voice}, tools={len(tools)}, VAD optimized for interruption)")
             
-            # Вывод подробной информации о функциях в лог
             if tools:
                 for tool in tools:
-                    logger.info(f"[DEBUG-FUNCTION] Enabled function: {tool['name']}, params: {json.dumps(tool['parameters'], ensure_ascii=False)[:100]}...")
+                    logger.info(f"[FUNCTION] Enabled function: {tool['name']}")
         except Exception as e:
             logger.error(f"Error sending session.update: {e}")
             return False
 
-        # Create a conversation record in the database if available
+        # Создаем запись в БД
         if self.db_session:
             try:
                 conv = Conversation(
@@ -405,34 +343,31 @@ class OpenAIRealtimeClient:
 
     async def handle_interruption(self) -> bool:
         """
-        Обрабатывает событие перебивания пользователем.
-        
-        Returns:
-            bool: True если перебивание обработано успешно
+        УЛУЧШЕННАЯ обработка событий перебивания для быстрого реагирования.
         """
         try:
             current_time = time.time()
             
-            # Избегаем повторной обработки перебивания в течение короткого времени
-            if current_time - self.last_interruption_time < 0.5:
-                logger.info("[INTERRUPTION] Игнорируем повторное перебивание")
+            # Сокращаем время защиты от повторных перебиваний
+            if current_time - self.last_interruption_time < 0.2:  # Было 0.5
+                logger.info("[INTERRUPTION] Игнорируем повторное перебивание (защита от дребезга)")
                 return True
                 
             self.last_interruption_time = current_time
             self.interruption_occurred = True
             
-            logger.info(f"[INTERRUPTION] Обработка перебивания для клиента {self.client_id}")
+            logger.info(f"[INTERRUPTION] БЫСТРАЯ обработка перебивания для клиента {self.client_id}")
             
-            # Если ассистент говорит, отменяем текущий ответ
+            # Мгновенно отменяем текущий ответ если ассистент говорит
             if self.is_assistant_speaking and self.current_response_id:
                 await self.cancel_current_response(self.current_response_id, self.current_audio_samples)
             
-            # Сбрасываем состояние
+            # Мгновенно сбрасываем состояние
             self.is_assistant_speaking = False
             self.current_response_id = None
             self.current_audio_samples = 0
             
-            logger.info("[INTERRUPTION] Перебивание обработано успешно")
+            logger.info("[INTERRUPTION] Быстрое перебивание обработано успешно")
             return True
             
         except Exception as e:
@@ -441,36 +376,28 @@ class OpenAIRealtimeClient:
 
     async def cancel_current_response(self, item_id: str = None, sample_count: int = 0) -> bool:
         """
-        Отменяет текущий ответ ассистента при перебивании.
-        
-        Args:
-            item_id: ID элемента для отмены
-            sample_count: Количество аудио-семплов для точной отмены
-            
-        Returns:
-            bool: True если отмена успешна
+        УЛУЧШЕННАЯ отмена текущего ответа ассистента при перебивании.
         """
         if not self.is_connected or not self.ws:
             logger.error("[INTERRUPTION] Нельзя отменить ответ: нет соединения")
             return False
             
         try:
-            logger.info(f"[INTERRUPTION] Отмена текущего ответа: item_id={item_id}, samples={sample_count}")
+            logger.info(f"[INTERRUPTION] МГНОВЕННАЯ отмена ответа: item_id={item_id}, samples={sample_count}")
             
-            # Отправляем команду отмены
+            # Отправляем команду отмены БЕЗ задержек
             cancel_payload = {
                 "type": "response.cancel",
-                "event_id": f"cancel_{time.time()}"
+                "event_id": f"cancel_{int(time.time() * 1000)}"  # Более точный timestamp
             }
             
-            # Добавляем дополнительные параметры, если они есть
             if item_id:
                 cancel_payload["item_id"] = item_id
             if sample_count > 0:
                 cancel_payload["sample_count"] = sample_count
                 
             await self.ws.send(json.dumps(cancel_payload))
-            logger.info("[INTERRUPTION] Команда отмены отправлена")
+            logger.info("[INTERRUPTION] Команда мгновенной отмены отправлена")
             
             return True
             
@@ -481,9 +408,6 @@ class OpenAIRealtimeClient:
     async def clear_audio_buffer_on_interruption(self) -> bool:
         """
         Очищает буфер аудио при перебивании.
-        
-        Returns:
-            bool: True если очистка успешна
         """
         if not self.is_connected or not self.ws:
             return False
@@ -491,7 +415,7 @@ class OpenAIRealtimeClient:
         try:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.clear",
-                "event_id": f"clear_interrupt_{time.time()}"
+                "event_id": f"clear_interrupt_{int(time.time() * 1000)}"
             }))
             logger.info("[INTERRUPTION] Буфер аудио очищен после перебивания")
             return True
@@ -502,52 +426,37 @@ class OpenAIRealtimeClient:
     def set_assistant_speaking(self, speaking: bool, response_id: str = None) -> None:
         """
         Устанавливает состояние говорения ассистента.
-        
-        Args:
-            speaking: True если ассистент говорит
-            response_id: ID текущего ответа
+        УПРОЩЕН для лучшей синхронизации.
         """
         self.is_assistant_speaking = speaking
         if speaking:
             self.current_response_id = response_id
             self.current_audio_samples = 0
-            logger.info(f"[INTERRUPTION] Ассистент начал говорить: response_id={response_id}")
+            logger.info(f"[SPEECH] Ассистент начал говорить: response_id={response_id}")
         else:
             self.current_response_id = None
             self.current_audio_samples = 0
-            logger.info("[INTERRUPTION] Ассистент закончил говорить")
+            logger.info("[SPEECH] Ассистент закончил говорить")
 
     def increment_audio_samples(self, sample_count: int) -> None:
         """
         Увеличивает счетчик аудио-семплов для точной отмены.
-        
-        Args:
-            sample_count: Количество новых семплов
         """
         self.current_audio_samples += sample_count
 
     async def handle_function_call(self, function_call_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a function call from OpenAI.
-        
-        Args:
-            function_call_data: Function call data from OpenAI
-            
-        Returns:
-            Dict: Result of the function execution
         """
         try:
             function_name = function_call_data.get("function", {}).get("name")
             arguments = function_call_data.get("function", {}).get("arguments", {})
             
-            # Сохраняем имя функции для последующего использования
             self.last_function_name = function_name
             
-            # Нормализуем имя функции из любого формата
             normalized_function_name = normalize_function_name(function_name) or function_name
-            logger.info(f"[DEBUG-FUNCTION] Нормализация имени функции: {function_name} -> {normalized_function_name}")
+            logger.info(f"[FUNCTION] Нормализация имени функции: {function_name} -> {normalized_function_name}")
             
-            # Проверяем, разрешена ли функция
             if normalized_function_name not in self.enabled_functions:
                 error_msg = f"Попытка вызвать неразрешенную функцию: {normalized_function_name}. Разрешены только: {self.enabled_functions}"
                 logger.warning(error_msg)
@@ -557,7 +466,6 @@ class OpenAIRealtimeClient:
                     "message": f"Функция {normalized_function_name} не активирована для этого ассистента"
                 }
             
-            # Если arguments - строка, парсим JSON
             if isinstance(arguments, str):
                 try:
                     arguments = json.loads(arguments)
@@ -565,14 +473,12 @@ class OpenAIRealtimeClient:
                     logger.warning(f"Failed to parse function arguments as JSON: {arguments}")
                     arguments = {}
             
-            # Подготавливаем контекст выполнения
             context = {
                 "assistant_config": self.assistant_config,
                 "client_id": self.client_id,
                 "db_session": self.db_session
             }
             
-            # Выполняем функцию через новую систему
             result = await execute_function(
                 name=normalized_function_name,
                 arguments=arguments,
@@ -586,19 +492,7 @@ class OpenAIRealtimeClient:
 
     async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Send the result of a function execution back to OpenAI as a conversation.item.create event.
-        
-        Args:
-            function_call_id: ID of the function call
-            result: Result of the function execution
-            
-        Returns:
-            Dict: Status information about the result delivery
-                {
-                    "success": bool,
-                    "error": str or None,
-                    "payload": dict - payload that was sent 
-                }
+        Send the result of a function execution back to OpenAI.
         """
         if not self.is_connected or not self.ws:
             error_msg = "Cannot send function result: not connected"
@@ -610,41 +504,35 @@ class OpenAIRealtimeClient:
             }
         
         try:
-            logger.info(f"[DEBUG-FUNCTION] Начало отправки результата функции: {function_call_id}")
+            logger.info(f"[FUNCTION] Начало отправки результата функции: {function_call_id}")
             
-            # Генерируем короткий ID длиной до 32 символов
             short_item_id = generate_short_id("func_")
             
-            # Преобразуем результат в строку JSON
-            # OpenAI ожидает, что поле output будет строкой, а не объектом
             result_json = json.dumps(result)
             
-            # Исправленная структура для отправки результата функции
             payload = {
                 "type": "conversation.item.create",
-                "event_id": f"funcres_{time.time()}",
+                "event_id": f"funcres_{int(time.time() * 1000)}",
                 "item": {
-                    "id": short_item_id,  # Максимум 32 символа
+                    "id": short_item_id,
                     "type": "function_call_output",
                     "call_id": function_call_id,
-                    "output": result_json  # Строка вместо объекта
+                    "output": result_json
                 }
             }
             
             logger.info(f"Отправка результата функции: {function_call_id}")
-            logger.info(f"Payload: {json.dumps(payload, ensure_ascii=False)[:200]}...")
             
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Результат функции отправлен как item.create: {function_call_id}")
+            logger.info(f"Результат функции отправлен: {function_call_id}")
             
-            # Добавляем небольшую задержку перед запросом нового ответа
-            logger.info(f"[DEBUG-FUNCTION] Ожидание перед созданием нового ответа (500мс)")
-            await asyncio.sleep(0.5)  # 500 мс должно быть достаточно
+            # Небольшая задержка перед запросом нового ответа
+            await asyncio.sleep(0.3)  # Уменьшено с 0.5 для быстрой реакции
             
-            # После отправки результата, явно запрашиваем новый ответ от модели
+            # Запрашиваем новый ответ от модели
             await self.create_response_after_function()
             
-            logger.info(f"[DEBUG-FUNCTION] Результат функции отправлен и запрос на новый ответ выполнен")
+            logger.info(f"[FUNCTION] Результат функции отправлен и запрос на новый ответ выполнен")
             
             return {
                 "success": True,
@@ -664,22 +552,17 @@ class OpenAIRealtimeClient:
     async def create_response_after_function(self) -> bool:
         """
         Явно запрашивает новый ответ от модели после выполнения функции.
-        Это обеспечит генерацию аудио-ответа.
-        
-        Returns:
-            bool: True если успешно, False иначе
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot create response: not connected")
             return False
             
         try:
-            logger.info(f"[DEBUG-FUNCTION] Создание нового ответа после выполнения функции")
+            logger.info(f"[FUNCTION] Создание нового ответа после выполнения функции")
             
-            # Запрашиваем новый ответ от модели с более полным набором параметров
             response_payload = {
                 "type": "response.create",
-                "event_id": f"resp_after_func_{time.time()}",
+                "event_id": f"resp_after_func_{int(time.time() * 1000)}",
                 "response": {
                     "modalities": ["text", "audio"],
                     "voice": self.assistant_config.voice or DEFAULT_VOICE,
@@ -692,8 +575,6 @@ class OpenAIRealtimeClient:
             await self.ws.send(json.dumps(response_payload))
             logger.info("Запрошен новый ответ после выполнения функции")
             
-            logger.info(f"[DEBUG-FUNCTION] Запрос на создание нового ответа отправлен успешно")
-            
             return True
             
         except Exception as e:
@@ -703,12 +584,7 @@ class OpenAIRealtimeClient:
     async def process_audio(self, audio_buffer: bytes) -> bool:
         """
         Process and send audio data to the OpenAI API.
-        
-        Args:
-            audio_buffer: Binary audio data in PCM16 format
-            
-        Returns:
-            bool: True if successful, False otherwise
+        УПРОЩЕН для лучшей производительности.
         """
         if not self.is_connected or not self.ws or not audio_buffer:
             return False
@@ -717,7 +593,7 @@ class OpenAIRealtimeClient:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.append",
                 "audio": data_b64,
-                "event_id": f"audio_{time.time()}"
+                "event_id": f"audio_{int(time.time() * 1000)}"
             }))
             return True
         except ConnectionClosed:
@@ -731,16 +607,13 @@ class OpenAIRealtimeClient:
     async def commit_audio(self) -> bool:
         """
         Commit the audio buffer, indicating that the user has finished speaking.
-        
-        Returns:
-            bool: True if successful, False otherwise
         """
         if not self.is_connected or not self.ws:
             return False
         try:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.commit",
-                "event_id": f"commit_{time.time()}"
+                "event_id": f"commit_{int(time.time() * 1000)}"
             }))
             return True
         except ConnectionClosed:
@@ -754,16 +627,13 @@ class OpenAIRealtimeClient:
     async def clear_audio_buffer(self) -> bool:
         """
         Clear the audio buffer, removing any pending audio data.
-        
-        Returns:
-            bool: True if successful, False otherwise
         """
         if not self.is_connected or not self.ws:
             return False
         try:
             await self.ws.send(json.dumps({
                 "type": "input_audio_buffer.clear",
-                "event_id": f"clear_{time.time()}"
+                "event_id": f"clear_{int(time.time() * 1000)}"
             }))
             return True
         except ConnectionClosed:
@@ -786,7 +656,7 @@ class OpenAIRealtimeClient:
                 logger.error(f"Error closing OpenAI WebSocket: {e}")
         self.is_connected = False
         
-        # Сбрасываем состояния перебивания
+        # Сбрасываем состояния
         self.is_assistant_speaking = False
         self.current_response_id = None
         self.current_audio_samples = 0
@@ -795,9 +665,6 @@ class OpenAIRealtimeClient:
     async def receive_messages(self) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Receive and yield messages from the OpenAI WebSocket.
-        
-        Yields:
-            Dict: Message received from the OpenAI WebSocket
         """
         if not self.is_connected or not self.ws:
             return
