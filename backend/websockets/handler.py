@@ -6,6 +6,7 @@ import asyncio
 import uuid
 import base64
 import traceback
+import time
 from typing import Dict, List
 from websockets.exceptions import ConnectionClosed
 
@@ -32,6 +33,11 @@ async def handle_websocket_connection(
 ) -> None:
     client_id = str(uuid.uuid4())
     openai_client = None
+    
+    # Получаем User-Agent для определения типа устройства
+    user_agent = ""
+    if hasattr(websocket, 'headers'):
+        user_agent = websocket.headers.get('user-agent', '')
 
     try:
         await websocket.accept()
@@ -86,8 +92,8 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
-        # Подключаемся к OpenAI
-        openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db)
+        # Подключаемся к OpenAI с передачей user_agent
+        openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db, user_agent)
         if not await openai_client.connect():
             await websocket.send_json({
                 "type": "error",
@@ -101,9 +107,17 @@ async def handle_websocket_connection(
 
         audio_buffer = bytearray()
         is_processing = False
+        
+        # Состояния для обработки перебивания
+        interruption_state = {
+            "is_user_speaking": False,
+            "last_speech_start": 0,
+            "last_speech_stop": 0,
+            "interruption_count": 0
+        }
 
         # Запускаем приём сообщений от OpenAI
-        openai_task = asyncio.create_task(handle_openai_messages(openai_client, websocket))
+        openai_task = asyncio.create_task(handle_openai_messages(openai_client, websocket, interruption_state))
 
         # Основной цикл приёма от клиента
         while True:
@@ -172,6 +186,23 @@ async def handle_websocket_connection(
                             }))
                         await websocket.send_json({"type": "response.cancel.ack", "event_id": data.get("event_id")})
                         continue
+                    
+                    # Новые типы сообщений для управления перебиванием
+                    if msg_type == "interruption.manual":
+                        # Ручное перебивание (если понадобится)
+                        logger.info(f"[INTERRUPTION] Ручное перебивание от клиента {client_id}")
+                        await openai_client.handle_interruption()
+                        await websocket.send_json({
+                            "type": "interruption.manual.ack", 
+                            "event_id": data.get("event_id")
+                        })
+                        continue
+                    
+                    if msg_type == "audio_playback.stopped":
+                        # Клиент сообщает о том, что остановил воспроизведение
+                        logger.info(f"[INTERRUPTION] Клиент остановил воспроизведение: {client_id}")
+                        openai_client.set_assistant_speaking(False)
+                        continue
 
                     # Любые остальные типы
                     await websocket.send_json({
@@ -205,7 +236,7 @@ async def handle_websocket_connection(
         logger.info(f"Removed WebSocket connection: client_id={client_id}")
 
 
-async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket: WebSocket):
+async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket: WebSocket, interruption_state: Dict):
     if not openai_client.is_connected or not openai_client.ws:
         logger.error("OpenAI клиент не подключен.")
         return
@@ -243,6 +274,57 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                 # Логирование каждого полученного сообщения
                 msg_type = response_data.get("type", "unknown")
                 
+                # Обработка событий перебивания
+                if msg_type == "input_audio_buffer.speech_started":
+                    logger.info(f"[INTERRUPTION] Пользователь начал говорить: {openai_client.client_id}")
+                    interruption_state["is_user_speaking"] = True
+                    interruption_state["last_speech_start"] = time.time()
+                    
+                    # Отправляем событие клиенту
+                    await websocket.send_json({
+                        "type": "speech.started",
+                        "timestamp": interruption_state["last_speech_start"]
+                    })
+                    continue
+                
+                if msg_type == "input_audio_buffer.speech_stopped":
+                    logger.info(f"[INTERRUPTION] Пользователь закончил говорить: {openai_client.client_id}")
+                    interruption_state["is_user_speaking"] = False
+                    interruption_state["last_speech_stop"] = time.time()
+                    
+                    # Отправляем событие клиенту
+                    await websocket.send_json({
+                        "type": "speech.stopped",
+                        "timestamp": interruption_state["last_speech_stop"]
+                    })
+                    continue
+                
+                if msg_type == "conversation.interrupted":
+                    logger.info(f"[INTERRUPTION] Получено событие перебивания для клиента {openai_client.client_id}")
+                    interruption_state["interruption_count"] += 1
+                    
+                    # Обрабатываем перебивание в OpenAI клиенте
+                    await openai_client.handle_interruption()
+                    
+                    # Отправляем событие перебивания клиенту
+                    await websocket.send_json({
+                        "type": "conversation.interrupted",
+                        "timestamp": time.time(),
+                        "interruption_count": interruption_state["interruption_count"]
+                    })
+                    continue
+                
+                if msg_type == "response.cancelled":
+                    logger.info(f"[INTERRUPTION] Ответ отменен для клиента {openai_client.client_id}")
+                    openai_client.set_assistant_speaking(False)
+                    
+                    # Отправляем событие клиенту
+                    await websocket.send_json({
+                        "type": "response.cancelled",
+                        "timestamp": time.time()
+                    })
+                    continue
+                
                 # Подробное логирование для ошибок
                 if msg_type == "error":
                     logger.error(f"[DEBUG] ОШИБКА API: {json.dumps(response_data, ensure_ascii=False)}")
@@ -279,6 +361,38 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события: {json.dumps(response_data, ensure_ascii=False)}")
                     except:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события (не JSON): {response_data}")
+                
+                # Отслеживание начала аудио ответа ассистента
+                if msg_type == "response.audio.delta":
+                    if not openai_client.is_assistant_speaking:
+                        # Ассистент начал генерировать аудио
+                        response_id = response_data.get("response_id", f"resp_{time.time()}")
+                        openai_client.set_assistant_speaking(True, response_id)
+                        
+                        # Отправляем событие клиенту
+                        await websocket.send_json({
+                            "type": "assistant.speech.started",
+                            "response_id": response_id,
+                            "timestamp": time.time()
+                        })
+                    
+                    # Подсчитываем аудио семплы для точной отмены
+                    delta_audio = response_data.get("delta", "")
+                    if delta_audio:
+                        # Примерная оценка количества семплов (зависит от кодировки)
+                        sample_count = len(base64.b64decode(delta_audio)) // 2  # PCM16 = 2 байта на семпл
+                        openai_client.increment_audio_samples(sample_count)
+                
+                # Завершение аудио ответа ассистента
+                if msg_type == "response.audio.done":
+                    if openai_client.is_assistant_speaking:
+                        openai_client.set_assistant_speaking(False)
+                        
+                        # Отправляем событие клиенту
+                        await websocket.send_json({
+                            "type": "assistant.speech.ended",
+                            "timestamp": time.time()
+                        })
                 
                 # Обработка вызова функции
                 if msg_type == "response.function_call.started":
@@ -699,6 +813,16 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                 # Завершение диалога - записываем данные в БД и Google Sheets
                 if msg_type == "response.done":
                     logger.info(f"[DEBUG] Получен сигнал завершения ответа: response.done")
+                    
+                    # Устанавливаем, что ассистент больше не говорит
+                    if openai_client.is_assistant_speaking:
+                        openai_client.set_assistant_speaking(False)
+                        
+                        # Отправляем событие клиенту
+                        await websocket.send_json({
+                            "type": "assistant.speech.ended",
+                            "timestamp": time.time()
+                        })
                     
                     # Выводим финальные собранные тексты для анализа
                     logger.info(f"[DEBUG] Завершен диалог. Пользователь: '{user_transcript}'")
