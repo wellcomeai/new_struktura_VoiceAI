@@ -57,7 +57,15 @@ class Settings(BaseSettings):
     
     # CORS Settings
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
+    # Robokassa settings (добавить в конец класса Settings)
+    ROBOKASSA_MERCHANT_LOGIN: str = os.getenv("ROBOKASSA_MERCHANT_LOGIN", "demo")
+    ROBOKASSA_PASSWORD_1: str = os.getenv("ROBOKASSA_PASSWORD_1", "password_1")  
+    ROBOKASSA_PASSWORD_2: str = os.getenv("ROBOKASSA_PASSWORD_2", "password_2")
+    ROBOKASSA_TEST_MODE: bool = os.getenv("ROBOKASSA_TEST_MODE", "True") == "True"
     
+    # Payment settings
+    SUBSCRIPTION_PRICE: float = 1490.0  # Цена подписки в рублях
+    SUBSCRIPTION_DURATION_DAYS: int = 30  # Длительность подписки в днях
     # Validators
     @validator("DATABASE_URL")
     def validate_database_url(cls, v):
