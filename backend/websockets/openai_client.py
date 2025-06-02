@@ -65,16 +65,16 @@ def generate_short_id(prefix: str = "") -> str:
 def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
     """
     Возвращает оптимальные настройки VAD в зависимости от устройства.
-    УЛУЧШЕННЫЕ настройки для поддержки перебивания на всех устройствах.
+    ОБНОВЛЕНЫ настройки с учетом проблем iOS аудио воспроизведения.
     """
     user_agent_lower = user_agent.lower()
     
-    # Настройки для iOS - оптимизированы для перебивания
+    # Настройки для iOS - специально настроены для работы с iOS Audio API
     if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
         return {
-            "threshold": 0.3,        # Снижен для лучшего обнаружения речи
-            "prefix_padding_ms": 200, # Уменьшен для быстрого реагирования  
-            "silence_duration_ms": 300 # Короткая пауза для быстрого перебивания
+            "threshold": 0.35,        # Немного повышен для стабильности iOS
+            "prefix_padding_ms": 250, # Увеличен для лучшей синхронизации с iOS аудио
+            "silence_duration_ms": 400 # Увеличен для избежания обрывов на iOS
         }
     
     # Настройки для Android - оптимизированы для перебивания
@@ -93,10 +93,40 @@ def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
             "silence_duration_ms": 200 # Быстрое перебивание
         }
 
+def get_ios_optimized_session_config(base_config: Dict[str, Any], user_agent: str = "") -> Dict[str, Any]:
+    """
+    Возвращает оптимизированную конфигурацию сессии для iOS устройств.
+    """
+    user_agent_lower = user_agent.lower()
+    
+    if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
+        # Специальные настройки для iOS
+        ios_config = base_config.copy()
+        
+        # Более консервативные настройки VAD для iOS
+        ios_config["turn_detection"]["threshold"] = 0.4
+        ios_config["turn_detection"]["prefix_padding_ms"] = 300
+        ios_config["turn_detection"]["silence_duration_ms"] = 500
+        
+        # Настройки аудио оптимизированные для iOS
+        ios_config["input_audio_format"] = "pcm16"
+        ios_config["output_audio_format"] = "pcm16"
+        
+        # Ограничиваем длину ответа для лучшей производительности на iOS
+        ios_config["max_response_output_tokens"] = 300
+        
+        # Немного снижаем температуру для более предсказуемого поведения на iOS
+        ios_config["temperature"] = 0.6
+        
+        logger.info(f"[iOS] Применены оптимизированные настройки для iOS устройства")
+        return ios_config
+    
+    return base_config
+
 class OpenAIRealtimeClient:
     """
     Client for interacting with OpenAI's Realtime API through WebSockets.
-    ОБНОВЛЕН для поддержки постоянно активного микрофона и быстрого перебивания.
+    ОБНОВЛЕН для поддержки постоянно активного микрофона, быстрого перебивания и оптимизации для iOS.
     """
     
     def __init__(
@@ -131,9 +161,17 @@ class OpenAIRealtimeClient:
         self.interruption_occurred = False
         self.last_interruption_time = 0
         
-        # Получаем УЛУЧШЕННЫЕ настройки VAD для быстрого перебивания
+        # Получаем УЛУЧШЕННЫЕ настройки VAD с учетом iOS
         self.vad_settings = get_device_vad_settings(user_agent)
         logger.info(f"[VAD] Настройки для устройства ({user_agent[:50]}): {self.vad_settings}")
+        
+        # Определяем тип устройства для специальной обработки
+        self.is_ios = "iphone" in user_agent.lower() or "ipad" in user_agent.lower()
+        self.is_android = "android" in user_agent.lower()
+        self.is_mobile = self.is_ios or self.is_android
+        
+        if self.is_ios:
+            logger.info(f"[iOS] Обнаружено iOS устройство, будут применены специальные оптимизации")
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -154,7 +192,7 @@ class OpenAIRealtimeClient:
     async def connect(self) -> bool:
         """
         Establish WebSocket connection to OpenAI Realtime API.
-        ОБНОВЛЕН с улучшенными настройками VAD для перебивания.
+        ОБНОВЛЕН с улучшенными настройками VAD для перебивания и поддержкой iOS.
         """
         if not self.api_key:
             logger.error("OpenAI API key not provided")
@@ -163,7 +201,7 @@ class OpenAIRealtimeClient:
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
             ("OpenAI-Beta", "realtime=v1"),
-            ("User-Agent", "WellcomeAI/2.0-Unified")
+            ("User-Agent", "WellcomeAI/2.1-iOS-Optimized")
         ]
         try:
             self.ws = await asyncio.wait_for(
@@ -178,7 +216,7 @@ class OpenAIRealtimeClient:
                 timeout=30
             )
             self.is_connected = True
-            logger.info(f"Connected to OpenAI for client {self.client_id}")
+            logger.info(f"Connected to OpenAI for client {self.client_id} (iOS: {self.is_ios})")
 
             # Получаем свежие настройки
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -200,7 +238,7 @@ class OpenAIRealtimeClient:
                 if self.webhook_url:
                     logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
 
-            # Отправляем обновленные настройки сессии
+            # Отправляем обновленные настройки сессии с поддержкой iOS
             if not await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -252,7 +290,7 @@ class OpenAIRealtimeClient:
     ) -> bool:
         """
         Update session settings on the OpenAI Realtime API side.
-        ОБНОВЛЕН с улучшенными настройками VAD для быстрого перебивания на всех устройствах.
+        ОБНОВЛЕН с улучшенными настройками VAD для быстрого перебивания и поддержкой iOS.
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot update session: not connected")
@@ -311,9 +349,14 @@ class OpenAIRealtimeClient:
                 "input_audio_transcription": input_audio_transcription
             }
         }
+        
+        # НОВОЕ: Применяем iOS-специфичные настройки если это iOS устройство
+        payload["session"] = get_ios_optimized_session_config(payload["session"], self.user_agent)
+        
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Session settings sent (voice={voice}, tools={len(tools)}, VAD optimized for interruption)")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"Session settings sent for {device_info} (voice={voice}, tools={len(tools)}, VAD optimized for interruption)")
             
             if tools:
                 for tool in tools:
@@ -348,15 +391,17 @@ class OpenAIRealtimeClient:
         try:
             current_time = time.time()
             
-            # Сокращаем время защиты от повторных перебиваний
-            if current_time - self.last_interruption_time < 0.2:  # Было 0.5
-                logger.info("[INTERRUPTION] Игнорируем повторное перебивание (защита от дребезга)")
+            # Сокращаем время защиты от повторных перебиваний для iOS
+            protection_time = 0.15 if self.is_ios else 0.2
+            
+            if current_time - self.last_interruption_time < protection_time:
+                logger.info(f"[INTERRUPTION] Игнорируем повторное перебивание (защита от дребезга: {protection_time}s)")
                 return True
                 
             self.last_interruption_time = current_time
             self.interruption_occurred = True
             
-            logger.info(f"[INTERRUPTION] БЫСТРАЯ обработка перебивания для клиента {self.client_id}")
+            logger.info(f"[INTERRUPTION] БЫСТРАЯ обработка перебивания для клиента {self.client_id} ({'iOS' if self.is_ios else 'другое устройство'})")
             
             # Мгновенно отменяем текущий ответ если ассистент говорит
             if self.is_assistant_speaking and self.current_response_id:
@@ -432,11 +477,13 @@ class OpenAIRealtimeClient:
         if speaking:
             self.current_response_id = response_id
             self.current_audio_samples = 0
-            logger.info(f"[SPEECH] Ассистент начал говорить: response_id={response_id}")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"[SPEECH {device_info}] Ассистент начал говорить: response_id={response_id}")
         else:
             self.current_response_id = None
             self.current_audio_samples = 0
-            logger.info("[SPEECH] Ассистент закончил говорить")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"[SPEECH {device_info}] Ассистент закончил говорить")
 
     def increment_audio_samples(self, sample_count: int) -> None:
         """
@@ -527,7 +574,8 @@ class OpenAIRealtimeClient:
             logger.info(f"Результат функции отправлен: {function_call_id}")
             
             # Небольшая задержка перед запросом нового ответа
-            await asyncio.sleep(0.3)  # Уменьшено с 0.5 для быстрой реакции
+            delay = 0.2 if self.is_ios else 0.3  # Меньше для iOS
+            await asyncio.sleep(delay)
             
             # Запрашиваем новый ответ от модели
             await self.create_response_after_function()
@@ -560,6 +608,10 @@ class OpenAIRealtimeClient:
         try:
             logger.info(f"[FUNCTION] Создание нового ответа после выполнения функции")
             
+            # iOS-оптимизированные настройки ответа
+            max_tokens = 200 if self.is_ios else 300
+            temperature = 0.6 if self.is_ios else 0.7
+            
             response_payload = {
                 "type": "response.create",
                 "event_id": f"resp_after_func_{int(time.time() * 1000)}",
@@ -567,13 +619,14 @@ class OpenAIRealtimeClient:
                     "modalities": ["text", "audio"],
                     "voice": self.assistant_config.voice or DEFAULT_VOICE,
                     "instructions": getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE,
-                    "temperature": 0.7,
-                    "max_output_tokens": 200
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens
                 }
             }
             
             await self.ws.send(json.dumps(response_payload))
-            logger.info("Запрошен новый ответ после выполнения функции")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"Запрошен новый ответ после выполнения функции ({device_info})")
             
             return True
             
@@ -651,7 +704,8 @@ class OpenAIRealtimeClient:
         if self.ws:
             try:
                 await self.ws.close()
-                logger.info(f"WebSocket connection closed for client {self.client_id}")
+                device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+                logger.info(f"WebSocket connection closed for client {self.client_id} ({device_info})")
             except Exception as e:
                 logger.error(f"Error closing OpenAI WebSocket: {e}")
         self.is_connected = False
@@ -677,7 +731,8 @@ class OpenAIRealtimeClient:
                 except json.JSONDecodeError:
                     logger.error(f"Failed to decode message: {message[:100]}...")
         except ConnectionClosed:
-            logger.info(f"WebSocket connection closed for client {self.client_id}")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"WebSocket connection closed for client {self.client_id} ({device_info})")
             self.is_connected = False
         except Exception as e:
             logger.error(f"Error receiving messages: {e}")
