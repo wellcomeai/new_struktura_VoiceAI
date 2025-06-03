@@ -5,6 +5,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Voicyfy - Говорит. Слушает. Понимает.</title>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     /* Основные стили */
@@ -155,10 +164,24 @@
     }
     
     .logo {
+      display: flex;
+      align-items: center;
       font-size: 1.5rem;
       font-weight: 700;
       color: var(--text-dark);
       text-decoration: none;
+    }
+
+    .logo img {
+      height: 40px;
+      width: auto;
+      margin-right: 0.5rem;
+    }
+
+    .logo-text {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-dark);
     }
     
     /* Анимированная сфера */
@@ -413,9 +436,17 @@
     }
 
     .footer-logo {
+      display: flex;
+      align-items: center;
       font-size: 1.25rem;
       font-weight: 700;
       color: var(--text-dark);
+    }
+
+    .footer-logo img {
+      height: 32px;
+      width: auto;
+      margin-right: 0.5rem;
     }
 
     .footer-links {
@@ -543,6 +574,14 @@
       .footer-links {
         gap: 1rem;
       }
+
+      .logo img, .footer-logo img {
+        height: 28px;
+      }
+
+      .logo-text {
+        font-size: 1.25rem;
+      }
     }
   </style>
 </head>
@@ -554,7 +593,10 @@
         <div class="presentation-section">
           <!-- Навигация -->
           <div class="navbar">
-            <a href="/" class="logo">Voicyfy</a>
+            <a href="/" class="logo">
+              <img src="/static/images/logo.png" alt="Voicyfy">
+              <span class="logo-text">Voicyfy</span>
+            </a>
           </div>
           
           <!-- Анимированная сфера -->
@@ -643,26 +685,21 @@
     </div>
 
     <!-- Футер -->
-<footer class="footer">
-  <div class="footer-content">
-    <div class="footer-logo">Voicyfy</div>
-    
-    <div class="footer-links">
-      <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
-      <a href="/static/terms-of-service.html" class="footer-link">Пользовательское соглашение</a>
-      <a href="/static/public-offer.html" class="footer-link">Публичная оферта</a>
-    </div>
-    
-    <div class="footer-copy">© 2025 Voicyfy. Все права защищены.</div>
-    
-    <div class="footer-legal">
-      ИП Шишкин Валерий Сергеевич<br>
-      ОГРН/ОГРНИП 324385000037120<br>
-      ИНН 385101159652
-    </div>
+    <footer class="footer">
+      <div class="footer-content">
+        <div class="footer-logo">
+          <img src="/static/images/logo.png" alt="Voicyfy">
+          Voicyfy
+        </div>
+        <div class="footer-links">
+          <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
+          <a href="/static/terms-of-service.html" class="footer-link">Пользовательское соглашение</a>
+          <a href="/static/public-offer.html" class="footer-link">Публичная оферта</a>
+        </div>
+        <div class="footer-copy">© 2025 Voicyfy. Все права защищены.</div>
+      </div>
+    </footer>
   </div>
-</footer>
-
   
   <!-- Виджет ассистента -->
   <div class="assistant-widget-container" id="assistant-widget-container">
