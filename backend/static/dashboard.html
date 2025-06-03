@@ -58,7 +58,7 @@
       display: flex;
       flex-direction: column;
       z-index: 50;
-      transition: var(--transition-md);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
       transform: translateX(0);
     }
     
@@ -75,26 +75,32 @@
     }
     
     .sidebar-logo {
-      font-size: 1.25rem;
+      font-size: 1.3rem;
       font-weight: 700;
       color: var(--text-dark);
       text-decoration: none;
       display: flex;
       align-items: center;
       gap: 0.75rem;
+      transition: var(--transition-sm);
+    }
+    
+    .sidebar-logo:hover {
+      transform: translateY(-1px);
     }
     
     .logo-icon {
-      width: 36px;
-      height: 36px;
+      width: 40px;
+      height: 40px;
       border-radius: var(--radius-full);
       background: var(--gradient-blue);
       display: flex;
       align-items: center;
       justify-content: center;
       color: var(--white);
-      font-size: 1rem;
-      font-weight: 600;
+      font-size: 1.1rem;
+      font-weight: 700;
+      box-shadow: 0 2px 8px rgba(74, 134, 232, 0.3);
     }
     
     .mobile-close {
@@ -171,7 +177,7 @@
       display: flex;
       flex-direction: column;
       min-height: 100vh;
-      transition: var(--transition-md);
+      transition: margin-left 0.3s ease;
     }
     
     .main-content.full-width {
@@ -790,6 +796,11 @@
       .sidebar {
         box-shadow: var(--shadow-lg);
         z-index: 60;
+        transform: translateX(-100%);
+      }
+      
+      .sidebar.mobile-open {
+        transform: translateX(0);
       }
       
       .main-content {
@@ -802,6 +813,20 @@
       
       .mobile-close {
         display: block;
+      }
+      
+      .sidebar-header {
+        padding: 1.25rem 1.5rem;
+      }
+      
+      .sidebar-logo {
+        font-size: 1.2rem;
+      }
+      
+      .logo-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
       }
       
       .top-nav {
@@ -911,6 +936,20 @@
         align-items: flex-start;
         gap: 1rem;
       }
+      
+      .sidebar {
+        width: 280px;
+      }
+      
+      .sidebar-nav-item {
+        padding: 1rem 1.5rem;
+        font-size: 0.95rem;
+      }
+      
+      .sidebar-nav-item i {
+        font-size: 1.1rem;
+        margin-right: 1rem;
+      }
     }
     
     /* Оверлей для мобильного меню */
@@ -955,7 +994,7 @@
   <div class="mobile-overlay" id="mobile-overlay"></div>
   
   <!-- Боковая панель -->
-  <aside class="sidebar mobile-hidden" id="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <a href="/" class="sidebar-logo">
         <div class="logo-icon">V</div>
@@ -1316,14 +1355,14 @@
         
         // Показать мобильное меню
         showMobileMenu() {
-          sidebar.classList.remove('mobile-hidden');
+          sidebar.classList.add('mobile-open');
           mobileOverlay.classList.add('show');
           document.body.style.overflow = 'hidden';
         },
         
         // Скрыть мобильное меню
         hideMobileMenu() {
-          sidebar.classList.add('mobile-hidden');
+          sidebar.classList.remove('mobile-open');
           mobileOverlay.classList.remove('show');
           document.body.style.overflow = '';
         },
@@ -1716,6 +1755,15 @@
         if (window.innerWidth > 768) {
           ui.hideMobileMenu();
         }
+      });
+      
+      // Обработка смены ориентации на мобильных устройствах
+      window.addEventListener('orientationchange', function() {
+        setTimeout(function() {
+          if (window.innerWidth > 768) {
+            ui.hideMobileMenu();
+          }
+        }, 100);
       });
       
       // Закрытие мобильного меню при нажатии Escape
