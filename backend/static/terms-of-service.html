@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+<!-- Modern Font -->
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -87,14 +88,23 @@
         .logo {
             display: flex;
             align-items: center;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-dark);
         }
 
         .logo img {
             height: 32px;
             width: auto;
+            margin-right: 12px;
+        }
+
+        .logo-text {
+            font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #1d4ed8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.025em;
         }
 
         .content {
@@ -192,6 +202,7 @@
             </a>
             <div class="logo">
                 <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
+                <span class="logo-text">Voicyfy</span>
             </div>
         </div>
     </div>
