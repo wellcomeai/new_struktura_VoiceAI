@@ -166,15 +166,30 @@
     .logo {
       display: flex;
       align-items: center;
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: var(--text-dark);
       text-decoration: none;
+      transition: all 0.3s ease;
+    }
+
+    .logo:hover {
+      transform: translateY(-1px);
     }
 
     .logo img {
       height: 40px;
       width: auto;
+      margin-right: 12px;
+    }
+
+    .logo-text {
+      font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 1.75rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #1d4ed8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.025em;
+      text-shadow: 0 2px 4px rgba(37, 99, 235, 0.1);
     }
     
     /* Анимированная сфера */
@@ -431,14 +446,23 @@
     .footer-logo {
       display: flex;
       align-items: center;
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--text-dark);
     }
 
     .footer-logo img {
       height: 32px;
       width: auto;
+      margin-right: 10px;
+    }
+
+    .footer-logo-text {
+      font-family: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+      background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.025em;
     }
 
     .footer-links {
@@ -570,6 +594,14 @@
       .logo img, .footer-logo img {
         height: 28px;
       }
+
+      .logo-text {
+        font-size: 1.5rem;
+      }
+
+      .footer-logo-text {
+        font-size: 1.1rem;
+      }
     }
   </style>
 </head>
@@ -583,6 +615,7 @@
           <div class="navbar">
             <a href="/" class="logo">
               <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
+              <span class="logo-text">Voicyfy</span>
             </a>
           </div>
           
@@ -676,6 +709,7 @@
       <div class="footer-content">
         <div class="footer-logo">
           <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
+          <span class="footer-logo-text">Voicyfy</span>
         </div>
         <div class="footer-links">
           <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
