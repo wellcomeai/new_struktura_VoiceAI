@@ -1811,9 +1811,18 @@
           }
           
           // Добавляем раздел администрирования строго только для конкретной почты
+          console.log('Проверка email для админ панели:', userData.email);
           if (userData.email === "well96well@gmail.com") {
+            console.log('Email подтвержден, добавляем админ панель');
             // Проверяем, нет ли уже раздела администрирования
-            if (!document.querySelector('.sidebar-section:contains("Администрирование")')) {
+            const existingAdminSection = document.querySelector('.sidebar-section');
+            const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
+              section => section.textContent.trim() === 'Администрирование'
+            );
+            console.log('Существующие админ разделы:', adminSections.length);
+            
+            if (adminSections.length === 0) {
+              console.log('Создаем новый раздел администрирования');
               // Создаем новый раздел
               const adminSection = document.createElement('div');
               adminSection.className = 'sidebar-section';
@@ -1821,7 +1830,7 @@
               
               // Создаем пункт меню для админ-панели
               const adminNavItem = document.createElement('a');
-              adminNavItem.href = '/static/admin.html';
+              adminNavItem.href = '/backend/static/admin.html';
               adminNavItem.className = 'sidebar-nav-item';
               adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
               
@@ -1832,14 +1841,21 @@
               );
               
               if (accountSection && sidebarNav) {
+                console.log('Вставляем перед разделом Аккаунт');
                 sidebarNav.insertBefore(adminSection, accountSection);
                 sidebarNav.insertBefore(adminNavItem, accountSection);
               } else {
+                console.log('Добавляем в конец навигации');
                 // Если структура не найдена, добавляем в конец навигации
                 sidebarNav.appendChild(adminSection);
                 sidebarNav.appendChild(adminNavItem);
               }
+              console.log('Админ панель добавлена успешно');
+            } else {
+              console.log('Админ раздел уже существует');
             }
+          } else {
+            console.log('Email не подходит для админ панели');
           }
         } catch (error) {
           console.error('Ошибка при загрузке данных пользователя:', error);
