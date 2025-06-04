@@ -1810,8 +1810,8 @@
             ui.lockFeatures();
           }
           
-          // Добавляем раздел администрирования для админа или специального email
-          if (userData.is_admin || userData.email === "well96well@gmail.com") {
+          // Добавляем раздел администрирования строго только для конкретной почты
+          if (userData.email === "well96well@gmail.com") {
             // Проверяем, нет ли уже раздела администрирования
             if (!document.querySelector('.sidebar-section:contains("Администрирование")')) {
               // Создаем новый раздел
