@@ -371,6 +371,175 @@
     .auth-footer a:hover {
       text-decoration: underline;
     }
+
+    /* Секция тарифов */
+    .pricing-section {
+      background: linear-gradient(135deg, var(--bg-light) 0%, #e2e8f0 100%);
+      padding: 4rem 0;
+      margin-top: auto;
+    }
+
+    .pricing-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .pricing-header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    .pricing-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(90deg, #4a86e8, #2563eb, #1d4ed8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.2;
+    }
+
+    .pricing-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .pricing-plans {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .pricing-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem;
+      box-shadow: var(--shadow-lg);
+      transition: all 0.3s ease;
+      position: relative;
+      border: 2px solid transparent;
+    }
+
+    .pricing-card.featured {
+      border-color: var(--primary-blue);
+      transform: scale(1.02);
+      background: linear-gradient(135deg, var(--white) 0%, #f8fafc 100%);
+    }
+
+    .pricing-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .pricing-card.featured:hover {
+      transform: scale(1.02) translateY(-8px);
+    }
+
+    .pricing-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.5rem 1.25rem;
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      box-shadow: var(--shadow-md);
+    }
+
+    .pricing-badge.free {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+    }
+
+    .pricing-badge.popular {
+      background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
+      color: white;
+    }
+
+    .pricing-badge.enterprise {
+      background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+      color: white;
+    }
+
+    .pricing-card-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .pricing-card h3 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      margin-bottom: 0.5rem;
+    }
+
+    .pricing-card-description {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+
+    .pricing-price {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .price-amount {
+      font-size: 3.5rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary-blue), var(--accent-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1;
+    }
+
+    .price-period {
+      font-size: 1rem;
+      color: var(--text-gray);
+      margin-left: 0.5rem;
+      font-weight: 500;
+    }
+
+    .price-note {
+      font-size: 0.875rem;
+      color: var(--text-light);
+      margin-top: 0.5rem;
+    }
+
+    .pricing-features {
+      margin-bottom: 2rem;
+    }
+
+    .pricing-features ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .pricing-features li {
+      display: flex;
+      align-items: center;
+      margin-bottom: 1rem;
+      color: var(--text-gray);
+      font-size: 0.95rem;
+    }
+
+    .pricing-features i {
+      color: #10b981;
+      margin-right: 1rem;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .pricing-features .highlight {
+      font-weight: 600;
+      color: var(--text-dark);
+    }
     
     /* Виджет ассистента */
     .assistant-widget-container {
@@ -428,8 +597,7 @@
     .footer {
       background-color: var(--white);
       border-top: 1px solid var(--border-color);
-      padding: 2rem 0;
-      margin-top: auto;
+      padding: 3rem 0 2rem 0;
     }
 
     .footer-content {
@@ -437,8 +605,14 @@
       margin: 0 auto;
       padding: 0 2rem;
       display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .footer-main {
+      display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       flex-wrap: wrap;
       gap: 2rem;
     }
@@ -482,8 +656,61 @@
       color: var(--primary-blue);
     }
 
+    .footer-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 1rem 0;
+    }
+
+    .footer-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
     .footer-copy {
       color: var(--text-light);
+      font-size: 0.875rem;
+    }
+
+    .footer-terms {
+      background-color: var(--bg-light);
+      padding: 1.5rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+    }
+
+    .footer-terms h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 1rem;
+    }
+
+    .footer-terms ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .footer-terms li {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+    }
+
+    .footer-terms i {
+      color: var(--primary-blue);
+      margin-right: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .footer-contact {
+      color: var(--text-gray);
       font-size: 0.875rem;
     }
 
@@ -496,6 +723,8 @@
 
     .content-wrapper {
       flex: 1;
+      display: flex;
+      flex-direction: column;
     }
     
     /* Адаптивный дизайн */
@@ -525,6 +754,14 @@
       .subtitle {
         font-size: 1.5rem;
       }
+
+      .pricing-card.featured {
+        transform: none;
+      }
+
+      .pricing-card.featured:hover {
+        transform: translateY(-8px);
+      }
     }
     
     @media (max-width: 768px) {
@@ -550,7 +787,33 @@
         font-size: 1rem;
       }
 
-      .footer-content {
+      .pricing-section {
+        padding: 3rem 0;
+      }
+
+      .pricing-container {
+        padding: 0 1rem;
+      }
+
+      .pricing-title {
+        font-size: 2rem;
+      }
+
+      .pricing-plans {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+      }
+
+      .price-amount {
+        font-size: 3rem;
+      }
+
+      .footer-main {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .footer-bottom {
         flex-direction: column;
         text-align: center;
         gap: 1rem;
@@ -601,6 +864,14 @@
 
       .footer-logo-text {
         font-size: 1.1rem;
+      }
+
+      .pricing-card {
+        padding: 2rem;
+      }
+
+      .price-amount {
+        font-size: 2.5rem;
       }
     }
   </style>
@@ -702,21 +973,129 @@
           </form>
         </div>
       </div>
+
+      <!-- Секция тарифов -->
+      <section class="pricing-section">
+        <div class="pricing-container">
+          <div class="pricing-header">
+            <h2 class="pricing-title">Тарифы и стоимость</h2>
+            <p class="pricing-subtitle">
+              Выберите подходящий план для создания голосовых ИИ-ассистентов
+            </p>
+          </div>
+          
+          <div class="pricing-plans">
+            <!-- Пробный период -->
+            <div class="pricing-card">
+              <div class="pricing-badge free">Бесплатно</div>
+              <div class="pricing-card-header">
+                <h3>Пробный период</h3>
+                <p class="pricing-card-description">Протестируйте возможности платформы</p>
+              </div>
+              <div class="pricing-price">
+                <span class="price-amount">0 ₽</span>
+                <span class="price-period">3 дня</span>
+                <div class="price-note">Без обязательств</div>
+              </div>
+              <div class="pricing-features">
+                <ul>
+                  <li><i class="fas fa-check"></i> <span class="highlight">1 голосовой ИИ-агент</span></li>
+                  <li><i class="fas fa-check"></i> Базовые функции платформы</li>
+                  <li><i class="fas fa-check"></i> Загрузка файлов до 10 МБ</li>
+                  <li><i class="fas fa-check"></i> Тестирование возможностей</li>
+                  <li><i class="fas fa-check"></i> Техническая поддержка</li>
+                </ul>
+              </div>
+            </div>
+            
+            <!-- Стандартный план -->
+            <div class="pricing-card featured">
+              <div class="pricing-badge popular">Популярный</div>
+              <div class="pricing-card-header">
+                <h3>Стандартный</h3>
+                <p class="pricing-card-description">Полный доступ ко всем функциям</p>
+              </div>
+              <div class="pricing-price">
+                <span class="price-amount">1 490 ₽</span>
+                <span class="price-period">30 дней</span>
+                <div class="price-note">Разовая оплата</div>
+              </div>
+              <div class="pricing-features">
+                <ul>
+                  <li><i class="fas fa-check"></i> <span class="highlight">3 голосовых ИИ-агента</span></li>
+                  <li><i class="fas fa-check"></i> Интеграция на веб-сайт</li>
+                  <li><i class="fas fa-check"></i> Все функции платформы</li>
+                  <li><i class="fas fa-check"></i> Загрузка файлов до 100 МБ</li>
+                  <li><i class="fas fa-check"></i> Настройка голоса и поведения</li>
+                  <li><i class="fas fa-check"></i> Аналитика и статистика</li>
+                  <li><i class="fas fa-check"></i> Приоритетная поддержка</li>
+                  <li><i class="fas fa-check"></i> API доступ</li>
+                </ul>
+              </div>
+            </div>
+            
+            <!-- Корпоративный план -->
+            <div class="pricing-card">
+              <div class="pricing-badge enterprise">Enterprise</div>
+              <div class="pricing-card-header">
+                <h3>Корпоративный</h3>
+                <p class="pricing-card-description">Решения для больших команд</p>
+              </div>
+              <div class="pricing-price">
+                <span class="price-amount">Договорная</span>
+                <div class="price-note">Индивидуальные условия</div>
+              </div>
+              <div class="pricing-features">
+                <ul>
+                  <li><i class="fas fa-check"></i> <span class="highlight">Неограниченное количество агентов</span></li>
+                  <li><i class="fas fa-check"></i> Индивидуальная настройка</li>
+                  <li><i class="fas fa-check"></i> Выделенные ресурсы</li>
+                  <li><i class="fas fa-check"></i> Расширенный API</li>
+                  <li><i class="fas fa-check"></i> Персональный менеджер</li>
+                  <li><i class="fas fa-check"></i> SLA соглашение</li>
+                  <li><i class="fas fa-check"></i> Телефонная поддержка 24/7</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- Футер -->
     <footer class="footer">
       <div class="footer-content">
-        <div class="footer-logo">
-          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
-          <span class="footer-logo-text">Voicyfy</span>
+        <div class="footer-main">
+          <div class="footer-logo">
+            <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
+            <span class="footer-logo-text">Voicyfy</span>
+          </div>
+          <div class="footer-links">
+            <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
+            <a href="/static/terms-of-service.html" class="footer-link">Пользовательское соглашение</a>
+            <a href="/static/public-offer.html" class="footer-link">Публичная оферта</a>
+          </div>
         </div>
-        <div class="footer-links">
-          <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
-          <a href="/static/terms-of-service.html" class="footer-link">Пользовательское соглашение</a>
-          <a href="/static/public-offer.html" class="footer-link">Публичная оферта</a>
+
+        <div class="footer-divider"></div>
+
+        <div class="footer-terms">
+          <h4>Условия оплаты и использования</h4>
+          <ul>
+            <li><i class="fas fa-credit-card"></i> Оплата принимается только банковскими картами</li>
+            <li><i class="fas fa-times-circle"></i> Автоматическое продление подписки отсутствует</li>
+            <li><i class="fas fa-receipt"></i> Все цены указаны без НДС</li>
+            <li><i class="fas fa-calendar-alt"></i> Доступ предоставляется на весь оплаченный период</li>
+            <li><i class="fas fa-shield-alt"></i> Безопасная обработка платежей через Robokassa</li>
+          </ul>
         </div>
-        <div class="footer-copy">© 2025 Voicyfy. Все права защищены.</div>
+
+        <div class="footer-bottom">
+          <div class="footer-copy">© 2025 Voicyfy. Все права защищены.</div>
+          <div class="footer-contact">
+            ИП Шишкин Валерий Сергеевич | ИНН: 385101159652 | well96well@gmail.com
+          </div>
+        </div>
       </div>
     </footer>
   </div>
