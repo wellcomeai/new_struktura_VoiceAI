@@ -410,8 +410,11 @@
     .pricing-plans {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 2rem;
+      gap: 3rem;
       margin-bottom: 3rem;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .pricing-card {
@@ -460,11 +463,6 @@
 
     .pricing-badge.popular {
       background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
-      color: white;
-    }
-
-    .pricing-badge.enterprise {
-      background: linear-gradient(135deg, #8b5cf6, #7c3aed);
       color: white;
     }
 
@@ -673,40 +671,6 @@
     .footer-copy {
       color: var(--text-light);
       font-size: 0.875rem;
-    }
-
-    .footer-terms {
-      background-color: var(--bg-light);
-      padding: 1.5rem;
-      border-radius: var(--radius-md);
-      margin-bottom: 1rem;
-    }
-
-    .footer-terms h4 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--text-dark);
-      margin-bottom: 1rem;
-    }
-
-    .footer-terms ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    .footer-terms li {
-      color: var(--text-gray);
-      font-size: 0.875rem;
-      margin-bottom: 0.5rem;
-      display: flex;
-      align-items: center;
-    }
-
-    .footer-terms i {
-      color: var(--primary-blue);
-      margin-right: 0.5rem;
-      font-size: 0.75rem;
     }
 
     .footer-contact {
@@ -1001,7 +965,7 @@
                 <ul>
                   <li><i class="fas fa-check"></i> <span class="highlight">1 голосовой ИИ-агент</span></li>
                   <li><i class="fas fa-check"></i> Базовые функции платформы</li>
-                  <li><i class="fas fa-check"></i> Загрузка файлов до 10 МБ</li>
+                  <li><i class="fas fa-check"></i> База знаний для ИИ-агента</li>
                   <li><i class="fas fa-check"></i> Тестирование возможностей</li>
                   <li><i class="fas fa-check"></i> Техническая поддержка</li>
                 </ul>
@@ -1023,40 +987,17 @@
               <div class="pricing-features">
                 <ul>
                   <li><i class="fas fa-check"></i> <span class="highlight">3 голосовых ИИ-агента</span></li>
-                  <li><i class="fas fa-check"></i> Интеграция на веб-сайт</li>
-                  <li><i class="fas fa-check"></i> Все функции платформы</li>
-                  <li><i class="fas fa-check"></i> Загрузка файлов до 100 МБ</li>
-                  <li><i class="fas fa-check"></i> Настройка голоса и поведения</li>
+                  <li><i class="fas fa-check"></i> Базовые функции платформы</li>
+                  <li><i class="fas fa-check"></i> База знаний для ИИ-агента</li>
+                  <li><i class="fas fa-check"></i> Тестирование возможностей</li>
+                  <li><i class="fas fa-check"></i> Техническая поддержка</li>
                   <li><i class="fas fa-check"></i> Аналитика и статистика</li>
                   <li><i class="fas fa-check"></i> Приоритетная поддержка</li>
-                  <li><i class="fas fa-check"></i> API доступ</li>
                 </ul>
               </div>
             </div>
             
-            <!-- Корпоративный план -->
-            <div class="pricing-card">
-              <div class="pricing-badge enterprise">Enterprise</div>
-              <div class="pricing-card-header">
-                <h3>Корпоративный</h3>
-                <p class="pricing-card-description">Решения для больших команд</p>
-              </div>
-              <div class="pricing-price">
-                <span class="price-amount">Договорная</span>
-                <div class="price-note">Индивидуальные условия</div>
-              </div>
-              <div class="pricing-features">
-                <ul>
-                  <li><i class="fas fa-check"></i> <span class="highlight">Неограниченное количество агентов</span></li>
-                  <li><i class="fas fa-check"></i> Индивидуальная настройка</li>
-                  <li><i class="fas fa-check"></i> Выделенные ресурсы</li>
-                  <li><i class="fas fa-check"></i> Расширенный API</li>
-                  <li><i class="fas fa-check"></i> Персональный менеджер</li>
-                  <li><i class="fas fa-check"></i> SLA соглашение</li>
-                  <li><i class="fas fa-check"></i> Телефонная поддержка 24/7</li>
-                </ul>
-              </div>
-            </div>
+
           </div>
         </div>
       </section>
@@ -1074,21 +1015,11 @@
             <a href="/static/privacy-policy.html" class="footer-link">Политика конфиденциальности</a>
             <a href="/static/terms-of-service.html" class="footer-link">Пользовательское соглашение</a>
             <a href="/static/public-offer.html" class="footer-link">Публичная оферта</a>
+            <a href="/static/payment-terms.html" class="footer-link">Условия оплаты и использования</a>
           </div>
         </div>
 
         <div class="footer-divider"></div>
-
-        <div class="footer-terms">
-          <h4>Условия оплаты и использования</h4>
-          <ul>
-            <li><i class="fas fa-credit-card"></i> Оплата принимается только банковскими картами</li>
-            <li><i class="fas fa-times-circle"></i> Автоматическое продление подписки отсутствует</li>
-            <li><i class="fas fa-receipt"></i> Все цены указаны без НДС</li>
-            <li><i class="fas fa-calendar-alt"></i> Доступ предоставляется на весь оплаченный период</li>
-            <li><i class="fas fa-shield-alt"></i> Безопасная обработка платежей через Robokassa</li>
-          </ul>
-        </div>
 
         <div class="footer-bottom">
           <div class="footer-copy">© 2025 Voicyfy. Все права защищены.</div>
