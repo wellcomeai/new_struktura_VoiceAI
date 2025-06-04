@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Панель управления | Live VoiceAI</title>
+  <title>Панель управления | Voicyfy</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     /* Основные стили */
@@ -83,13 +83,17 @@
     .logo-icon {
       width: 30px;
       height: 30px;
-      border-radius: var(--radius-full);
-      background: var(--gradient-blue);
+      border-radius: var(--radius-md);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--white);
-      font-size: 0.875rem;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
     }
     
     .mobile-toggle {
@@ -463,6 +467,7 @@
       align-items: center;
       border: none;
       gap: 0.5rem;
+      text-decoration: none;
     }
     
     .btn-primary {
@@ -751,10 +756,280 @@
       text-align: center;
     }
 
-    /* Адаптивный дизайн */
+    /* Стили для модального окна оплаты */
+    .payment-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .payment-modal.show {
+      display: flex;
+      animation: modal-fade-in 0.3s ease-in-out;
+    }
+
+    .payment-modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+
+    .payment-modal-content {
+      position: relative;
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      max-width: 500px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      animation: modal-slide-up 0.3s ease-out;
+    }
+
+    .payment-modal-header {
+      padding: 2rem 2rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .payment-modal-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .payment-modal-title i {
+      color: var(--primary-blue);
+    }
+
+    .payment-modal-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0.5rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
+    }
+
+    .payment-modal-close:hover {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+    }
+
+    .payment-modal-body {
+      padding: 1.5rem 2rem;
+    }
+
+    .payment-plan-info {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .payment-plan-price {
+      margin-bottom: 1rem;
+    }
+
+    .price-amount {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--text-dark);
+    }
+
+    .price-currency {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text-gray);
+      margin-left: 0.25rem;
+    }
+
+    .price-period {
+      color: var(--text-gray);
+      font-size: 1rem;
+    }
+
+    .payment-plan-duration {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      color: var(--text-gray);
+      font-size: 0.95rem;
+    }
+
+    .payment-plan-duration i {
+      color: var(--primary-blue);
+    }
+
+    .payment-plan-features {
+      margin-bottom: 2rem;
+    }
+
+    .payment-plan-features h3 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-dark);
+    }
+
+    .features-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .features-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .features-list li:last-child {
+      border-bottom: none;
+    }
+
+    .features-list li i {
+      color: var(--primary-blue);
+      width: 20px;
+      text-align: center;
+    }
+
+    .features-list li span {
+      color: var(--text-dark);
+      font-size: 0.95rem;
+    }
+
+    .payment-comparison {
+      background-color: var(--bg-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .comparison-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .comparison-free,
+    .comparison-paid {
+      flex: 1;
+      text-align: center;
+    }
+
+    .comparison-label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--text-gray);
+      margin-bottom: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .comparison-value {
+      display: block;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+
+    .comparison-arrow {
+      color: var(--primary-blue);
+      font-weight: 600;
+      font-size: 1.25rem;
+    }
+
+    .payment-modal-footer {
+      padding: 1.5rem 2rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+    }
+
+    .payment-cancel-btn {
+      flex: 0 0 auto;
+    }
+
+    .payment-pay-btn {
+      flex: 1;
+      font-weight: 600;
+    }
+
+    .payment-loading {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.95);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-lg);
+    }
+
+    .payment-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(74, 134, 232, 0.3);
+      border-top-color: var(--primary-blue);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+
+    .payment-loading p {
+      color: var(--text-gray);
+      font-size: 0.95rem;
+    }
+
+    /* Анимации */
+    @keyframes modal-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes modal-slide-up {
+      from { 
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    /* Адаптивный дизайн - улучшенная мобильная версия */
     @media (max-width: 1024px) {
       .stats-grid {
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      }
+      
+      .subscription-details-grid {
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
       }
     }
     
@@ -778,26 +1053,187 @@
       
       .top-nav {
         padding: 1rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      
+      .page-title {
+        font-size: 1.125rem;
+        order: 2;
+        width: 100%;
+      }
+      
+      .user-menu {
+        order: 1;
+      }
+      
+      .content-container {
+        padding: 1.5rem 1rem;
+      }
+      
+      .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+      
+      .api-key-form {
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      
+      .api-key-input-wrapper {
+        width: 100%;
+      }
+      
+      .payment-modal {
+        padding: 10px;
+      }
+      
+      .payment-modal-content {
+        max-height: 95vh;
+      }
+      
+      .payment-modal-header,
+      .payment-modal-body,
+      .payment-modal-footer {
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+      }
+      
+      .payment-modal-footer {
+        flex-direction: column;
+      }
+      
+      .comparison-item {
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      
+      .comparison-arrow {
+        transform: rotate(90deg);
+      }
+      
+      .subscription-details-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .welcome-title {
+        font-size: 1.25rem;
+      }
+      
+      .welcome-subtitle {
+        font-size: 0.9rem;
+      }
+      
+      .notice-title {
+        font-size: 1.25rem;
+      }
+      
+      .notice-description {
+        font-size: 0.9rem;
+        padding: 0 1rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .content-container {
+        padding: 1rem 0.75rem;
+      }
+      
+      .api-key-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      
+      .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      
+      .subscription-upgrade {
+        justify-content: stretch;
+      }
+      
+      .subscription-upgrade .btn {
+        width: 100%;
+        justify-content: center;
+      }
+      
+      .user-button {
+        padding: 0.5rem;
+        gap: 0.5rem;
+      }
+      
+      .user-name {
+        display: none;
+      }
+      
+      .notification {
+        max-width: calc(100vw - 40px);
+        bottom: 10px;
+        right: 10px;
+        left: 10px;
+      }
+      
+      .info-notice {
+        padding: 1.5rem 1rem;
+      }
+      
+      .notice-icon {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+      }
+    }
+    
+    /* Улучшенный responsive дизайн для планшетов */
+    @media (max-width: 1024px) and (min-width: 769px) {
+      .sidebar {
+        width: 220px;
+      }
+      
+      .main-content {
+        margin-left: 220px;
+      }
+      
+      .top-nav {
+        padding: 1rem 1.5rem;
       }
       
       .content-container {
         padding: 1.5rem;
       }
-      
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .api-key-form {
-        flex-direction: column;
-      }
     }
     
-    @media (max-width: 480px) {
-      .api-key-actions {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
+    /* Landscape режим для мобильных устройств */
+    @media (max-height: 500px) and (orientation: landscape) {
+      .sidebar {
+        width: 200px;
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      
+      .top-nav {
+        padding: 0.75rem 1rem;
+      }
+      
+      .content-container {
+        padding: 1rem;
+      }
+      
+      .welcome-section {
+        margin-bottom: 1rem;
+      }
+      
+      .stats-grid {
+        margin-bottom: 1.5rem;
       }
     }
   </style>
@@ -807,8 +1243,13 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <a href="/" class="sidebar-logo">
-        <div class="logo-icon"><i class="fas fa-robot"></i></div>
-        <span>Live VoiceAI</span>
+        <div class="logo-icon">
+          <img src="/static/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
       </a>
       <button class="mobile-toggle" id="sidebar-close">
         <i class="fas fa-times"></i>
@@ -826,14 +1267,6 @@
         <i class="fas fa-book"></i> База знаний
       </a>
       
-      <div class="sidebar-section">Расширения</div>
-<a href="/static/integrations.html" class="sidebar-nav-item">
-  <i class="fas fa-plug"></i> Интеграции
-</a>
-<a href="#" class="sidebar-nav-item locked-feature">
-  <i class="fas fa-wand-magic-sparkles"></i> Навыки
-</a>
-      
       <div class="sidebar-section">Аккаунт</div>
       <a href="/static/settings.html" class="sidebar-nav-item">
         <i class="fas fa-gear"></i> Настройки
@@ -841,9 +1274,9 @@
     </nav>
     
     <div class="sidebar-footer">
-      <button class="btn btn-secondary" style="width: 100%;" id="logout-button">
+      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
         <i class="fas fa-sign-out-alt"></i> Выйти
-      </button>
+      </a>
     </div>
   </aside>
   
@@ -868,11 +1301,8 @@
           <a href="/static/settings.html" class="dropdown-item">
             <i class="fas fa-user"></i> Профиль
           </a>
-          <a href="/static/settings.html#api-key" class="dropdown-item">
-            <i class="fas fa-key"></i> API ключи
-          </a>
           <div class="dropdown-divider"></div>
-          <a href="#" class="dropdown-item" id="dropdown-logout">
+          <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
             <i class="fas fa-sign-out-alt"></i> Выйти
           </a>
         </div>
@@ -897,26 +1327,6 @@
           </div>
           <div class="stat-value" id="bots-count">0</div>
           <div class="stat-title">Активных ассистентов</div>
-        </div>
-        
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon">
-              <i class="fas fa-comments"></i>
-            </div>
-          </div>
-          <div class="stat-value" id="interactions-count">0</div>
-          <div class="stat-title">Взаимодействий</div>
-        </div>
-        
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon">
-              <i class="fas fa-file-alt"></i>
-            </div>
-          </div>
-          <div class="stat-value" id="files-count">0</div>
-          <div class="stat-title">Файлов в базе знаний</div>
         </div>
       </div>
       
@@ -1015,6 +1425,99 @@
       <i class="fas fa-times"></i>
     </button>
   </div>
+
+  <!-- Модальное окно оплаты -->
+  <div class="payment-modal" id="payment-modal">
+    <div class="payment-modal-overlay" id="payment-modal-overlay"></div>
+    <div class="payment-modal-content">
+      <div class="payment-modal-header">
+        <h2 class="payment-modal-title">
+          <i class="fas fa-crown"></i> Тариф "Старт"
+        </h2>
+        <button class="payment-modal-close" id="payment-modal-close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      
+      <div class="payment-modal-body">
+        <!-- Основная информация о тарифе -->
+        <div class="payment-plan-info">
+          <div class="payment-plan-price">
+            <span class="price-amount">1 490</span>
+            <span class="price-currency">₽</span>
+            <span class="price-period">/месяц</span>
+          </div>
+          
+          <div class="payment-plan-duration">
+            <i class="fas fa-calendar-alt"></i>
+            <span>30 календарных дней</span>
+          </div>
+        </div>
+        
+        <!-- Список преимуществ -->
+        <div class="payment-plan-features">
+          <h3>Что входит в тариф:</h3>
+          <ul class="features-list">
+            <li>
+              <i class="fas fa-robot"></i>
+              <span>До 3 голосовых ассистентов</span>
+            </li>
+            <li>
+              <i class="fas fa-infinity"></i>
+              <span>Безлимитные диалоги</span>
+            </li>
+            <li>
+              <i class="fas fa-book"></i>
+              <span>База знаний без ограничений</span>
+            </li>
+            <li>
+              <i class="fas fa-plug"></i>
+              <span>Все интеграции и навыки</span>
+            </li>
+            <li>
+              <i class="fas fa-headset"></i>
+              <span>Приоритетная поддержка</span>
+            </li>
+            <li>
+              <i class="fas fa-code"></i>
+              <span>API доступ для разработчиков</span>
+            </li>
+          </ul>
+        </div>
+        
+        <!-- Сравнение с бесплатным планом -->
+        <div class="payment-comparison">
+          <div class="comparison-item">
+            <div class="comparison-free">
+              <span class="comparison-label">Бесплатно</span>
+              <span class="comparison-value">1 ассистент</span>
+            </div>
+            <div class="comparison-arrow">→</div>
+            <div class="comparison-paid">
+              <span class="comparison-label">Тариф "Старт"</span>
+              <span class="comparison-value">3 ассистента</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="payment-modal-footer">
+        <button class="btn btn-secondary payment-cancel-btn" id="payment-cancel-btn">
+          Отмена
+        </button>
+        <button class="btn btn-primary payment-pay-btn" id="payment-pay-btn">
+          <i class="fas fa-credit-card"></i>
+          Оплатить 1 490 ₽
+        </button>
+      </div>
+      
+      <!-- Индикатор загрузки -->
+      <div class="payment-loading" id="payment-loading" style="display: none;">
+        <div class="payment-spinner"></div>
+        <p>Создание платежа...</p>
+      </div>
+    </div>
+  </div>
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -1040,14 +1543,10 @@
       const userName = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
       const botsCount = document.getElementById('bots-count');
-      const interactionsCount = document.getElementById('interactions-count');
-      const filesCount = document.getElementById('files-count');
       const noKeyNotice = document.getElementById('no-key-notice');
       const hasKeyNotice = document.getElementById('has-key-notice');
       const agentsNavItem = document.getElementById('agents-nav-item');
       const knowledgeNavItem = document.getElementById('knowledge-nav-item');
-      const integrationsLink = document.getElementById('integrations-link');
-      const skillsLink = document.getElementById('skills-link');
       const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
       
       // Состояние приложения
@@ -1220,8 +1719,6 @@
           // Блокируем пункты меню
           agentsNavItem.classList.add('locked-feature');
           knowledgeNavItem.classList.add('locked-feature');
-          integrationsLink.classList.add('locked-feature');
-          skillsLink.classList.add('locked-feature');
         },
         
         // Режим просмотра API ключа
@@ -1269,86 +1766,86 @@
       
       // Загрузка данных пользователя
       async function loadUserData() {
-  try {
-    const userData = await api.getCurrentUser();
-    
-    // Обновляем имя пользователя и аватар
-    const firstName = userData.first_name || '';
-    const lastName = userData.last_name || '';
-    
-    if (firstName || lastName) {
-      welcomeMessage.textContent = `Добро пожаловать, ${firstName}!`;
-      userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
-      
-      // Инициалы для аватара
-      let initials = '';
-      if (firstName) initials += firstName[0];
-      if (lastName) initials += lastName[0];
-      userAvatar.textContent = initials.toUpperCase();
-    } else if (userData.company_name) {
-      welcomeMessage.textContent = `Добро пожаловать, ${userData.company_name}!`;
-      userName.textContent = userData.company_name;
-      userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
-    } else {
-      welcomeMessage.textContent = 'Добро пожаловать!';
-      userName.textContent = userData.email;
-      userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
-    }
-    
-    // Если у пользователя есть API ключ
-    if (userData.openai_api_key) {
-      // Сохраняем ключ в памяти (для возможности показа)
-      actualApiKey = userData.openai_api_key;
-      
-      // Включаем режим просмотра ключа
-      ui.viewKeyMode();
-      
-      // Разблокируем дополнительные функции
-      ui.unlockFeatures();
-      
-      // Загружаем статистику
-      loadStats();
-    } else {
-      // Если ключа нет, блокируем функции
-      ui.lockFeatures();
-    }
-    
-    // Добавляем раздел администрирования для админа или специального email
-    if (userData.is_admin || userData.email === "well96well@gmail.com") {
-      // Проверяем, нет ли уже раздела администрирования
-      if (!document.querySelector('.sidebar-section:contains("Администрирование")')) {
-        // Создаем новый раздел
-        const adminSection = document.createElement('div');
-        adminSection.className = 'sidebar-section';
-        adminSection.textContent = 'Администрирование';
-        
-        // Создаем пункт меню для админ-панели
-        const adminNavItem = document.createElement('a');
-        adminNavItem.href = '/static/admin.html';
-        adminNavItem.className = 'sidebar-nav-item';
-        adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
-        
-        // Находим место для вставки (перед разделом "Аккаунт")
-        const sidebarNav = document.querySelector('.sidebar-nav');
-        const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
-          section => section.textContent.trim() === 'Аккаунт'
-        );
-        
-        if (accountSection && sidebarNav) {
-          sidebarNav.insertBefore(adminSection, accountSection);
-          sidebarNav.insertBefore(adminNavItem, accountSection);
-        } else {
-          // Если структура не найдена, добавляем в конец навигации
-          sidebarNav.appendChild(adminSection);
-          sidebarNav.appendChild(adminNavItem);
+        try {
+          const userData = await api.getCurrentUser();
+          
+          // Обновляем имя пользователя и аватар
+          const firstName = userData.first_name || '';
+          const lastName = userData.last_name || '';
+          
+          if (firstName || lastName) {
+            welcomeMessage.textContent = `Добро пожаловать, ${firstName}!`;
+            userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
+            
+            // Инициалы для аватара
+            let initials = '';
+            if (firstName) initials += firstName[0];
+            if (lastName) initials += lastName[0];
+            userAvatar.textContent = initials.toUpperCase();
+          } else if (userData.company_name) {
+            welcomeMessage.textContent = `Добро пожаловать, ${userData.company_name}!`;
+            userName.textContent = userData.company_name;
+            userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
+          } else {
+            welcomeMessage.textContent = 'Добро пожаловать!';
+            userName.textContent = userData.email;
+            userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
+          }
+          
+          // Если у пользователя есть API ключ
+          if (userData.openai_api_key) {
+            // Сохраняем ключ в памяти (для возможности показа)
+            actualApiKey = userData.openai_api_key;
+            
+            // Включаем режим просмотра ключа
+            ui.viewKeyMode();
+            
+            // Разблокируем дополнительные функции
+            ui.unlockFeatures();
+            
+            // Загружаем статистику
+            loadStats();
+          } else {
+            // Если ключа нет, блокируем функции
+            ui.lockFeatures();
+          }
+          
+          // Добавляем раздел администрирования для админа или специального email
+          if (userData.is_admin || userData.email === "well96well@gmail.com") {
+            // Проверяем, нет ли уже раздела администрирования
+            if (!document.querySelector('.sidebar-section:contains("Администрирование")')) {
+              // Создаем новый раздел
+              const adminSection = document.createElement('div');
+              adminSection.className = 'sidebar-section';
+              adminSection.textContent = 'Администрирование';
+              
+              // Создаем пункт меню для админ-панели
+              const adminNavItem = document.createElement('a');
+              adminNavItem.href = '/static/admin.html';
+              adminNavItem.className = 'sidebar-nav-item';
+              adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
+              
+              // Находим место для вставки (перед разделом "Аккаунт")
+              const sidebarNav = document.querySelector('.sidebar-nav');
+              const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
+                section => section.textContent.trim() === 'Аккаунт'
+              );
+              
+              if (accountSection && sidebarNav) {
+                sidebarNav.insertBefore(adminSection, accountSection);
+                sidebarNav.insertBefore(adminNavItem, accountSection);
+              } else {
+                // Если структура не найдена, добавляем в конец навигации
+                sidebarNav.appendChild(adminSection);
+                sidebarNav.appendChild(adminNavItem);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Ошибка при загрузке данных пользователя:', error);
+          ui.showNotification('Не удалось загрузить данные пользователя', 'error');
         }
       }
-    }
-  } catch (error) {
-    console.error('Ошибка при загрузке данных пользователя:', error);
-    ui.showNotification('Не удалось загрузить данные пользователя', 'error');
-  }
-}
       
       // Загрузка статистики
       async function loadStats() {
@@ -1358,59 +1855,33 @@
           // Получаем список ботов для подсчета
           const bots = await api.getAssistants();
           botsCount.textContent = bots.length;
-          
-          // Здесь можно добавить загрузку других статистических данных
-          // из API, когда они будут доступны
-          
-          // Пока используем заглушки
-          interactionsCount.textContent = '0';
-          filesCount.textContent = '0';
         } catch (error) {
           console.error('Ошибка при загрузке статистики:', error);
         }
       }
       
-      // Функция для склонения дней
-      function getDayWord(days) {
-        if (days % 10 === 1 && days % 100 !== 11) {
-          return 'день';
-        } else if ([2, 3, 4].includes(days % 10) && ![12, 13, 14].includes(days % 100)) {
-          return 'дня';
-        } else {
-          return 'дней';
-        }
-      }
-      
-      // Форматирование размера файла
-      function formatFileSize(bytes) {
-        if (bytes < 1024) return bytes + ' Б';
-        else if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ';
-        else return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
-      }
-      
       // Загрузка информации о подписке
-      // dashboard.html - обновляем функцию loadSubscriptionInfo
-async function loadSubscriptionInfo() {
-    try {
-        const subscriptionInfo = await api.get('/subscriptions/my-subscription');
-        
-        const subscriptionDetails = document.getElementById('subscription-details');
-        const upgradeSection = document.getElementById('subscription-upgrade');
-        
-        // Проверяем наличие подписки и корректность данных
-        if (subscriptionInfo.subscription_plan) {
+      async function loadSubscriptionInfo() {
+        try {
+          const subscriptionInfo = await api.get('/subscriptions/my-subscription');
+          
+          const subscriptionDetails = document.getElementById('subscription-details');
+          const upgradeSection = document.getElementById('subscription-upgrade');
+          
+          // Проверяем наличие подписки и корректность данных
+          if (subscriptionInfo.subscription_plan) {
             // Форматируем дату - проверка, что дата существует
             let endDateDisplay = 'Не указана';
             if (subscriptionInfo.subscription_end_date) {
-                try {
-                    // Проверяем, что дата - валидная дата
-                    const endDate = new Date(subscriptionInfo.subscription_end_date);
-                    if (!isNaN(endDate.getTime())) {
-                        endDateDisplay = endDate.toLocaleDateString('ru-RU');
-                    }
-                } catch (e) {
-                    console.error('Ошибка форматирования даты:', e);
+              try {
+                // Проверяем, что дата - валидная дата
+                const endDate = new Date(subscriptionInfo.subscription_end_date);
+                if (!isNaN(endDate.getTime())) {
+                  endDateDisplay = endDate.toLocaleDateString('ru-RU');
                 }
+              } catch (e) {
+                console.error('Ошибка форматирования даты:', e);
+              }
             }
             
             // Показываем информацию о подписке
@@ -1418,78 +1889,78 @@ async function loadSubscriptionInfo() {
             let statusText = 'Активна';
             
             if (subscriptionInfo.is_trial) {
-                statusClass = 'trial';
-                statusText = 'Пробный период';
+              statusClass = 'trial';
+              statusText = 'Пробный период';
             }
             
             subscriptionDetails.innerHTML = `
-                <div class="subscription-info">
-                    <div class="subscription-plan">
-                        <h3>${subscriptionInfo.subscription_plan.name}</h3>
-                        <span class="subscription-status ${statusClass}">${statusText}</span>
-                    </div>
-                    
-                    <div class="subscription-details-grid">
-                        <div class="subscription-detail">
-                            <span class="detail-label">Дата окончания:</span>
-                            <span class="detail-value">${endDateDisplay}</span>
-                        </div>
-                        
-                        <div class="subscription-detail">
-                            <span class="detail-label">Осталось дней:</span>
-                            <span class="detail-value">${subscriptionInfo.days_left || 0}</span>
-                        </div>
-                        
-                        <div class="subscription-detail">
-                            <span class="detail-label">Макс. ассистентов:</span>
-                            <span class="detail-value">${subscriptionInfo.subscription_plan.max_assistants}</span>
-                        </div>
-                    </div>
+              <div class="subscription-info">
+                <div class="subscription-plan">
+                  <h3>${subscriptionInfo.subscription_plan.name}</h3>
+                  <span class="subscription-status ${statusClass}">${statusText}</span>
                 </div>
+                
+                <div class="subscription-details-grid">
+                  <div class="subscription-detail">
+                    <span class="detail-label">Дата окончания:</span>
+                    <span class="detail-value">${endDateDisplay}</span>
+                  </div>
+                  
+                  <div class="subscription-detail">
+                    <span class="detail-label">Осталось дней:</span>
+                    <span class="detail-value">${subscriptionInfo.days_left || 0}</span>
+                  </div>
+                  
+                  <div class="subscription-detail">
+                    <span class="detail-label">Макс. ассистентов:</span>
+                    <span class="detail-value">${subscriptionInfo.subscription_plan.max_assistants}</span>
+                  </div>
+                </div>
+              </div>
             `;
             
             // Показываем кнопку апгрейда для всех, кроме максимального тарифа
             if (subscriptionInfo.subscription_plan.code !== 'pro') {
-                upgradeSection.style.display = 'flex';
+              upgradeSection.style.display = 'flex';
             } else {
-                upgradeSection.style.display = 'none';
+              upgradeSection.style.display = 'none';
             }
-        } else {
+          } else {
             // Нет активной подписки или данные некорректны
             subscriptionDetails.innerHTML = `
-                <div class="subscription-empty">
-                    <p>В настоящий момент у вас активирован базовый план. 
-                       Приобретите тариф "Старт" для доступа ко всем функциям.</p>
-                </div>
+              <div class="subscription-empty">
+                <p>В настоящий момент у вас активирован базовый план. 
+                   Приобретите тариф "Старт" для доступа ко всем функциям.</p>
+              </div>
             `;
             upgradeSection.style.display = 'flex';
-        }
-        
-        // Если была ошибка и мы показали это - скрыть индикатор загрузки
-        const loadingIndicator = document.querySelector('.subscription-loading');
-        if (loadingIndicator) {
+          }
+          
+          // Если была ошибка и мы показали это - скрыть индикатор загрузки
+          const loadingIndicator = document.querySelector('.subscription-loading');
+          if (loadingIndicator) {
             loadingIndicator.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('Ошибка при загрузке информации о подписке:', error);
-        
-        // Более дружественное сообщение с кнопкой повтора
-        document.getElementById('subscription-details').innerHTML = `
+          }
+        } catch (error) {
+          console.error('Ошибка при загрузке информации о подписке:', error);
+          
+          // Более дружественное сообщение с кнопкой повтора
+          document.getElementById('subscription-details').innerHTML = `
             <div class="subscription-error">
-                <p>Не удалось загрузить информацию о подписке.</p>
-                <button class="btn btn-secondary retry-button" onclick="loadSubscriptionInfo()">
-                    <i class="fas fa-sync-alt"></i> Повторить
-                </button>
+              <p>Не удалось загрузить информацию о подписке.</p>
+              <button class="btn btn-secondary retry-button" onclick="loadSubscriptionInfo()">
+                <i class="fas fa-sync-alt"></i> Повторить
+              </button>
             </div>
-        `;
-        
-        // Логируем в консоль больше информации для отладки
-        if (error.response) {
+          `;
+          
+          // Логируем в консоль больше информации для отладки
+          if (error.response) {
             console.error('Статус ответа:', error.response.status);
             console.error('Данные ответа:', error.response.data);
+          }
         }
-    }
-}
+      }
       
       // Мобильное меню
       sidebarToggle.addEventListener('click', function() {
@@ -1498,6 +1969,15 @@ async function loadSubscriptionInfo() {
       
       sidebarClose.addEventListener('click', function() {
         sidebar.classList.remove('open');
+      });
+      
+      // Закрытие мобильного меню при клике вне области
+      document.addEventListener('click', function(e) {
+        if (sidebar.classList.contains('open') && 
+            !sidebar.contains(e.target) && 
+            !sidebarToggle.contains(e.target)) {
+          sidebar.classList.remove('open');
+        }
       });
       
       // Выпадающее меню пользователя
@@ -1534,16 +2014,17 @@ async function loadSubscriptionInfo() {
         ui.editKeyMode();
       });
       
-      // Выход из системы
-      logoutButton.addEventListener('click', function() {
+      // Выход из системы - обновленные обработчики
+      logoutButton.addEventListener('click', function(e) {
+        e.preventDefault();
         localStorage.removeItem('auth_token');
-        window.location.href = '/'; // Перенаправление на главную страницу
+        window.location.href = 'https://voicyfy.ru/static/index.html';
       });
       
       dropdownLogout.addEventListener('click', function(e) {
         e.preventDefault();
         localStorage.removeItem('auth_token');
-        window.location.href = '/'; // Перенаправление на главную страницу
+        window.location.href = 'https://voicyfy.ru/static/index.html';
       });
       
       // Сохранение API ключа
@@ -1551,9 +2032,6 @@ async function loadSubscriptionInfo() {
         e.preventDefault();
         
         const apiKey = apiKeyInput.value.trim();
-        
-        // ИСПРАВЛЕНО: Удалена проверка на пустой ключ
-        // Теперь пустой ключ будет сохраняться без ошибки
         
         // Если ключ не изменился, просто переключаем режим
         if (isEditingKey && apiKey === actualApiKey) {
@@ -1590,13 +2068,6 @@ async function loadSubscriptionInfo() {
         }
       });
       
-      // Обработчик для кнопки улучшения тарифа
-      upgradeSubscriptionBtn.addEventListener('click', function() {
-        // Перенаправляем на страницу с тарифами или открываем модальное окно
-        // window.location.href = '/static/pricing.html';
-        alert('Функция оплаты в разработке. Свяжитесь с администратором для активации тарифа "Старт".');
-      });
-      
       // Закрытие уведомления
       notificationClose.addEventListener('click', ui.hideNotification);
       
@@ -1610,6 +2081,103 @@ async function loadSubscriptionInfo() {
         });
       });
       
+      // Модальное окно оплаты
+      const paymentModal = document.getElementById('payment-modal');
+      const paymentModalOverlay = document.getElementById('payment-modal-overlay');
+      const paymentModalClose = document.getElementById('payment-modal-close');
+      const paymentCancelBtn = document.getElementById('payment-cancel-btn');
+      const paymentPayBtn = document.getElementById('payment-pay-btn');
+      const paymentLoading = document.getElementById('payment-loading');
+      
+      // Показать модальное окно
+      function showPaymentModal() {
+        paymentModal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+      }
+      
+      // Скрыть модальное окно
+      function hidePaymentModal() {
+        paymentModal.classList.remove('show');
+        document.body.style.overflow = '';
+        paymentLoading.style.display = 'none';
+      }
+      
+      // Показать индикатор загрузки
+      function showPaymentLoading() {
+        paymentLoading.style.display = 'flex';
+      }
+      
+      // Обработчик для кнопки улучшения тарифа - убираем alert
+      if (upgradeSubscriptionBtn) {
+        upgradeSubscriptionBtn.addEventListener('click', showPaymentModal);
+      }
+      
+      paymentModalClose.addEventListener('click', hidePaymentModal);
+      paymentCancelBtn.addEventListener('click', hidePaymentModal);
+      paymentModalOverlay.addEventListener('click', hidePaymentModal);
+      
+      // Обработчик оплаты
+      paymentPayBtn.addEventListener('click', async function() {
+        try {
+          showPaymentLoading();
+          
+          // Создаем платеж
+          const response = await api.post('/payments/create-payment', {
+            plan_code: 'start'
+          });
+          
+          if (response.payment_url && response.form_params) {
+            // Создаем форму для отправки на Robokassa
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = response.payment_url;
+            form.style.display = 'none';
+            
+            // Добавляем параметры формы
+            Object.keys(response.form_params).forEach(key => {
+              const input = document.createElement('input');
+              input.type = 'hidden';
+              input.name = key;
+              input.value = response.form_params[key];
+              form.appendChild(input);
+            });
+            
+            // Добавляем форму на страницу и отправляем
+            document.body.appendChild(form);
+            form.submit();
+            
+            // Форма отправлена, скрываем модальное окно
+            hidePaymentModal();
+            
+          } else {
+            throw new Error('Некорректный ответ сервера');
+          }
+          
+        } catch (error) {
+          console.error('Ошибка создания платежа:', error);
+          ui.showNotification(
+            error.message || 'Ошибка при создании платежа. Попробуйте позже.',
+            'error'
+          );
+          hidePaymentModal();
+        }
+      });
+      
+      // Закрытие по клавише Escape
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          if (paymentModal.classList.contains('show')) {
+            hidePaymentModal();
+          }
+          if (sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+          }
+          if (userDropdown.classList.contains('show')) {
+            userDropdown.classList.remove('show');
+          }
+        }
+      });
+      
       // Инициализация страницы
       if (checkAuth()) {
         loadUserData();
@@ -1617,492 +2185,5 @@ async function loadSubscriptionInfo() {
       }
     });
   </script>
-  <!-- Модальное окно для оплаты - добавить в dashboard.html перед закрывающим тегом </body> -->
-
-<!-- Модальное окно оплаты -->
-<div class="payment-modal" id="payment-modal">
-  <div class="payment-modal-overlay" id="payment-modal-overlay"></div>
-  <div class="payment-modal-content">
-    <div class="payment-modal-header">
-      <h2 class="payment-modal-title">
-        <i class="fas fa-crown"></i> Тариф "Старт"
-      </h2>
-      <button class="payment-modal-close" id="payment-modal-close">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-    
-    <div class="payment-modal-body">
-      <!-- Основная информация о тарифе -->
-      <div class="payment-plan-info">
-        <div class="payment-plan-price">
-          <span class="price-amount">1 490</span>
-          <span class="price-currency">₽</span>
-          <span class="price-period">/месяц</span>
-        </div>
-        
-        <div class="payment-plan-duration">
-          <i class="fas fa-calendar-alt"></i>
-          <span>30 календарных дней</span>
-        </div>
-      </div>
-      
-      <!-- Список преимуществ -->
-      <div class="payment-plan-features">
-        <h3>Что входит в тариф:</h3>
-        <ul class="features-list">
-          <li>
-            <i class="fas fa-robot"></i>
-            <span>До 3 голосовых ассистентов</span>
-          </li>
-          <li>
-            <i class="fas fa-infinity"></i>
-            <span>Безлимитные диалоги</span>
-          </li>
-          <li>
-            <i class="fas fa-book"></i>
-            <span>База знаний без ограничений</span>
-          </li>
-          <li>
-            <i class="fas fa-plug"></i>
-            <span>Все интеграции и навыки</span>
-          </li>
-          <li>
-            <i class="fas fa-headset"></i>
-            <span>Приоритетная поддержка</span>
-          </li>
-          <li>
-            <i class="fas fa-code"></i>
-            <span>API доступ для разработчиков</span>
-          </li>
-        </ul>
-      </div>
-      
-      <!-- Сравнение с бесплатным планом -->
-      <div class="payment-comparison">
-        <div class="comparison-item">
-          <div class="comparison-free">
-            <span class="comparison-label">Бесплатно</span>
-            <span class="comparison-value">1 ассистент</span>
-          </div>
-          <div class="comparison-arrow">→</div>
-          <div class="comparison-paid">
-            <span class="comparison-label">Тариф "Старт"</span>
-            <span class="comparison-value">3 ассистента</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    
-    <div class="payment-modal-footer">
-      <button class="btn btn-secondary payment-cancel-btn" id="payment-cancel-btn">
-        Отмена
-      </button>
-      <button class="btn btn-primary payment-pay-btn" id="payment-pay-btn">
-        <i class="fas fa-credit-card"></i>
-        Оплатить 1 490 ₽
-      </button>
-    </div>
-    
-    <!-- Индикатор загрузки -->
-    <div class="payment-loading" id="payment-loading" style="display: none;">
-      <div class="payment-spinner"></div>
-      <p>Создание платежа...</p>
-    </div>
-  </div>
-</div>
-
-<style>
-/* Стили для модального окна оплаты */
-.payment-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 9999;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-
-.payment-modal.show {
-  display: flex;
-  animation: modal-fade-in 0.3s ease-in-out;
-}
-
-.payment-modal-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
-
-.payment-modal-content {
-  position: relative;
-  background-color: var(--white);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  max-width: 500px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: modal-slide-up 0.3s ease-out;
-}
-
-.payment-modal-header {
-  padding: 2rem 2rem 1rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.payment-modal-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--text-dark);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.payment-modal-title i {
-  color: var(--primary-blue);
-}
-
-.payment-modal-close {
-  background: none;
-  border: none;
-  color: var(--text-gray);
-  font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: var(--radius-md);
-  transition: var(--transition-sm);
-}
-
-.payment-modal-close:hover {
-  background-color: var(--bg-light);
-  color: var(--text-dark);
-}
-
-.payment-modal-body {
-  padding: 1.5rem 2rem;
-}
-
-.payment-plan-info {
-  text-align: center;
-  margin-bottom: 2rem;
-}
-
-.payment-plan-price {
-  margin-bottom: 1rem;
-}
-
-.price-amount {
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: var(--text-dark);
-}
-
-.price-currency {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--text-gray);
-  margin-left: 0.25rem;
-}
-
-.price-period {
-  color: var(--text-gray);
-  font-size: 1rem;
-}
-
-.payment-plan-duration {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  color: var(--text-gray);
-  font-size: 0.95rem;
-}
-
-.payment-plan-duration i {
-  color: var(--primary-blue);
-}
-
-.payment-plan-features {
-  margin-bottom: 2rem;
-}
-
-.payment-plan-features h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
-  color: var(--text-dark);
-}
-
-.features-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.features-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.features-list li:last-child {
-  border-bottom: none;
-}
-
-.features-list li i {
-  color: var(--primary-blue);
-  width: 20px;
-  text-align: center;
-}
-
-.features-list li span {
-  color: var(--text-dark);
-  font-size: 0.95rem;
-}
-
-.payment-comparison {
-  background-color: var(--bg-blue-light);
-  border-radius: var(--radius-md);
-  padding: 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.comparison-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.comparison-free,
-.comparison-paid {
-  flex: 1;
-  text-align: center;
-}
-
-.comparison-label {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--text-gray);
-  margin-bottom: 0.25rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.comparison-value {
-  display: block;
-  font-weight: 600;
-  color: var(--text-dark);
-}
-
-.comparison-arrow {
-  color: var(--primary-blue);
-  font-weight: 600;
-  font-size: 1.25rem;
-}
-
-.payment-modal-footer {
-  padding: 1.5rem 2rem;
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-}
-
-.payment-cancel-btn {
-  flex: 0 0 auto;
-}
-
-.payment-pay-btn {
-  flex: 1;
-  font-weight: 600;
-}
-
-.payment-loading {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(255, 255, 255, 0.95);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-lg);
-}
-
-.payment-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(74, 134, 232, 0.3);
-  border-top-color: var(--primary-blue);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 1rem;
-}
-
-.payment-loading p {
-  color: var(--text-gray);
-  font-size: 0.95rem;
-}
-
-/* Анимации */
-@keyframes modal-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes modal-slide-up {
-  from { 
-    opacity: 0;
-    transform: translateY(30px) scale(0.95);
-  }
-  to { 
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-/* Адаптивный дизайн */
-@media (max-width: 768px) {
-  .payment-modal {
-    padding: 10px;
-  }
-  
-  .payment-modal-content {
-    max-height: 95vh;
-  }
-  
-  .payment-modal-header,
-  .payment-modal-body,
-  .payment-modal-footer {
-    padding-left: 1.5rem;
-    padding-right: 1.5rem;
-  }
-  
-  .payment-modal-footer {
-    flex-direction: column;
-  }
-  
-  .comparison-item {
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  
-  .comparison-arrow {
-    transform: rotate(90deg);
-  }
-}
-</style>
-
-<script>
-// JavaScript для модального окна оплаты
-document.addEventListener('DOMContentLoaded', function() {
-  const paymentModal = document.getElementById('payment-modal');
-  const paymentModalOverlay = document.getElementById('payment-modal-overlay');
-  const paymentModalClose = document.getElementById('payment-modal-close');
-  const paymentCancelBtn = document.getElementById('payment-cancel-btn');
-  const paymentPayBtn = document.getElementById('payment-pay-btn');
-  const paymentLoading = document.getElementById('payment-loading');
-  const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
-  
-  // Показать модальное окно
-  function showPaymentModal() {
-    paymentModal.classList.add('show');
-    document.body.style.overflow = 'hidden';
-  }
-  
-  // Скрыть модальное окно
-  function hidePaymentModal() {
-    paymentModal.classList.remove('show');
-    document.body.style.overflow = '';
-    paymentLoading.style.display = 'none';
-  }
-  
-  // Показать индикатор загрузки
-  function showPaymentLoading() {
-    paymentLoading.style.display = 'flex';
-  }
-  
-  // Обработчики событий
-  if (upgradeSubscriptionBtn) {
-    upgradeSubscriptionBtn.addEventListener('click', showPaymentModal);
-  }
-  
-  paymentModalClose.addEventListener('click', hidePaymentModal);
-  paymentCancelBtn.addEventListener('click', hidePaymentModal);
-  paymentModalOverlay.addEventListener('click', hidePaymentModal);
-  
-  // Обработчик оплаты
-  paymentPayBtn.addEventListener('click', async function() {
-    try {
-      showPaymentLoading();
-      
-      // Создаем платеж
-      const response = await api.post('/payments/create-payment', {
-        plan_code: 'start'
-      });
-      
-      if (response.payment_url && response.form_params) {
-        // Создаем форму для отправки на Robokassa
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = response.payment_url;
-        form.style.display = 'none';
-        
-        // Добавляем параметры формы
-        Object.keys(response.form_params).forEach(key => {
-          const input = document.createElement('input');
-          input.type = 'hidden';
-          input.name = key;
-          input.value = response.form_params[key];
-          form.appendChild(input);
-        });
-        
-        // Добавляем форму на страницу и отправляем
-        document.body.appendChild(form);
-        form.submit();
-        
-        // Форма отправлена, скрываем модальное окно
-        hidePaymentModal();
-        
-      } else {
-        throw new Error('Некорректный ответ сервера');
-      }
-      
-    } catch (error) {
-      console.error('Ошибка создания платежа:', error);
-      ui.showNotification(
-        error.message || 'Ошибка при создании платежа. Попробуйте позже.',
-        'error'
-      );
-      hidePaymentModal();
-    }
-  });
-  
-  // Закрытие по клавише Escape
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && paymentModal.classList.contains('show')) {
-      hidePaymentModal();
-    }
-  });
-});
-</script>
 </body>
 </html>
