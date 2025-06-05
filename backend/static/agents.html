@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Мои агенты | Live VoiceAI</title>
+  <title>Мои агенты | Voicyfy</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     /* Основные стили */
@@ -60,15 +60,29 @@
     }
     
     .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
       font-size: 1.25rem;
       font-weight: 700;
       color: var(--text-dark);
       text-decoration: none;
     }
     
+    .sidebar-logo img {
+      width: 32px;
+      height: 32px;
+    }
+    
     .sidebar-nav {
       padding: 1.5rem 0;
       flex-grow: 1;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 0;
+      border-top: 1px solid var(--border-color);
+      margin-top: auto;
     }
     
     .sidebar-nav-item {
@@ -108,19 +122,6 @@
       font-weight: 600;
     }
     
-    .locked-feature {
-      opacity: 0.6;
-      cursor: not-allowed;
-      position: relative;
-    }
-    
-    .locked-feature::after {
-      content: "🔒";
-      font-size: 0.875rem;
-      position: absolute;
-      right: 1.5rem;
-    }
-    
     /* Основной контент */
     .main-content {
       flex: 1;
@@ -149,6 +150,69 @@
     .page-actions {
       display: flex;
       gap: 1rem;
+      align-items: center;
+    }
+    
+    /* Выпадающее меню пользователя */
+    .user-menu {
+      position: relative;
+    }
+    
+    .user-menu-trigger {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: none;
+      border: none;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    
+    .user-menu-trigger:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-email {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      background-color: var(--white);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 200px;
+      z-index: 100;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+    }
+    
+    .user-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s;
+    }
+    
+    .user-dropdown-item:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-dropdown-item i {
+      width: 16px;
+      text-align: center;
     }
     
     .btn {
@@ -755,12 +819,6 @@
       100% { opacity: 0; }
     }
     
-    @media (max-width: 768px) {
-      .agent-items {
-        grid-template-columns: 1fr;
-      }
-    }
-    
     /* Стили для функций */
     .function-option {
       display: flex;
@@ -863,13 +921,149 @@
     .sheet-tips li {
       margin-bottom: 0.5rem;
     }
+
+    /* Мобильная адаптация */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+      }
+      
+      .sidebar.mobile-open {
+        transform: translateX(0);
+      }
+      
+      .sidebar-footer {
+        padding: 0.75rem 0;
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+      }
+      
+      .content-container {
+        padding: 1rem;
+      }
+      
+      .page-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: stretch;
+      }
+      
+      .agent-items {
+        grid-template-columns: 1fr;
+      }
+      
+      .agent-item {
+        flex-direction: column;
+        text-align: center;
+      }
+      
+      .agent-actions {
+        flex-direction: row;
+        justify-content: center;
+      }
+      
+      .voice-options {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      }
+      
+      .testing-features {
+        grid-template-columns: 1fr;
+      }
+      
+      .form-footer {
+        flex-direction: column;
+      }
+      
+      .tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+      }
+      
+      .tab {
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      
+      .user-dropdown {
+        right: auto;
+        left: 0;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .content-container {
+        padding: 0.5rem;
+      }
+      
+      .form-section {
+        padding: 1rem;
+      }
+      
+      .agent-item {
+        padding: 1rem;
+      }
+      
+      .notification {
+        right: 0.5rem;
+        left: 0.5rem;
+        max-width: none;
+      }
+    }
+
+    /* Кнопка мобильного меню */
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-toggle {
+        display: block;
+      }
+    }
+
+    /* Overlay для мобильного меню */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 49;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar-overlay.show {
+        display: block;
+      }
+    }
   </style>
 </head>
 <body>
+  <!-- Overlay для мобильного меню -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
   <!-- Боковая панель -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <a href="/" class="sidebar-logo">Live VoiceAI</a>
+      <a href="/" class="sidebar-logo">
+        <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiMyNTYzZWIiLz4KPHN2ZyB4PSI4IiB5PSI4IiB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSI+CjxwYXRoIGQ9Ik0xMiA4VjE2TTE2IDEySDgiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+Cjwvc3ZnPgo8L3N2Zz4=" alt="Voicyfy Logo">
+        <span>Voicyfy</span>
+      </a>
     </div>
     
     <nav class="sidebar-nav">
@@ -884,29 +1078,30 @@
         <i class="fas fa-book"></i> База знаний
       </a>
       
-      <div class="sidebar-section">Расширения</div>
-<a href="/static/integrations.html" class="sidebar-nav-item">
-  <i class="fas fa-plug"></i> Интеграции
-</a>
-<a href="#" class="sidebar-nav-item locked-feature">
-  <i class="fas fa-wand-magic-sparkles"></i> Навыки
-</a>
-      
       <div class="sidebar-section">Аккаунт</div>
       <a href="/static/settings.html" class="sidebar-nav-item">
         <i class="fas fa-gear"></i> Настройки
       </a>
-      <a href="#" class="sidebar-nav-item" id="logout-button">
+    </nav>
+    
+    <!-- Кнопка выхода внизу -->
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru/static/index.html" class="sidebar-nav-item">
         <i class="fas fa-sign-out-alt"></i> Выйти
       </a>
-    </nav>
+    </div>
   </aside>
   
   <!-- Основной контент -->
   <main class="main-content">
     <!-- Верхняя панель навигации -->
     <div class="top-nav">
-      <h1 class="page-title">Мои агенты</h1>
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button class="mobile-menu-toggle" id="mobile-menu-toggle">
+          <i class="fas fa-bars"></i>
+        </button>
+        <h1 class="page-title">Мои агенты</h1>
+      </div>
       
       <div class="page-actions">
         <button class="btn btn-outline" id="view-embed-code" style="display: none;">
@@ -921,6 +1116,28 @@
         <button class="btn btn-primary" id="create-new-agent-btn">
           <i class="fas fa-plus"></i> Создать агента
         </button>
+        
+        <!-- Выпадающее меню пользователя -->
+        <div class="user-menu">
+          <button class="user-menu-trigger" id="user-menu-trigger">
+            <span class="user-email" id="user-email">Загрузка...</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          <div class="user-dropdown" id="user-dropdown">
+            <a href="/static/settings.html" class="user-dropdown-item">
+              <i class="fas fa-gear"></i>
+              <span>Настройки</span>
+            </a>
+            <a href="#" class="user-dropdown-item" id="admin-link" style="display: none;">
+              <i class="fas fa-crown"></i>
+              <span>Админ панель</span>
+            </a>
+            <a href="https://voicyfy.ru/static/index.html" class="user-dropdown-item">
+              <i class="fas fa-sign-out-alt"></i>
+              <span>Выйти</span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -1278,6 +1495,7 @@
       let isTestWidgetInitialized = false;
       let isMicPermissionGranted = false;
       let isTestActive = false;
+      let currentUserEmail = null;
       
       // Получаем элементы
       const tabs = document.querySelectorAll('.tab');
@@ -1290,7 +1508,6 @@
       const createNewAgentBtn = document.getElementById('create-new-agent-btn');
       const cancelButton = document.getElementById('cancel-button');
       const copyEmbedCodeBtn = document.getElementById('copy-embed-code');
-      const logoutButton = document.getElementById('logout-button');
       const notification = document.getElementById('notification');
       const notificationMessage = document.getElementById('notification-message');
       const notificationClose = document.getElementById('notification-close');
@@ -1298,11 +1515,43 @@
       const debugPanel = document.getElementById('debug-panel');
       const agentsListContainer = document.getElementById('agents-list-container');
       const editAgentContainer = document.getElementById('edit-agent-container');
+      const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+      const sidebar = document.getElementById('sidebar');
+      const sidebarOverlay = document.getElementById('sidebar-overlay');
+      const userMenuTrigger = document.getElementById('user-menu-trigger');
+      const userDropdown = document.getElementById('user-dropdown');
+      const userEmailDisplay = document.getElementById('user-email');
+      const adminLink = document.getElementById('admin-link');
       
       // Элементы для Google Sheet
       const googleSheetIdInput = document.getElementById('google-sheet-id');
       const testSheetBtn = document.getElementById('test-sheet-connection');
       const sheetConnectionStatus = document.getElementById('sheet-connection-status');
+      
+      // Мобильное меню
+      mobileMenuToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('mobile-open');
+        sidebarOverlay.classList.toggle('show');
+      });
+      
+      sidebarOverlay.addEventListener('click', function() {
+        sidebar.classList.remove('mobile-open');
+        sidebarOverlay.classList.remove('show');
+      });
+      
+      // Выпадающее меню пользователя
+      userMenuTrigger.addEventListener('click', function(e) {
+        e.stopPropagation();
+        userDropdown.classList.toggle('show');
+      });
+      
+      document.addEventListener('click', function() {
+        userDropdown.classList.remove('show');
+      });
+      
+      userDropdown.addEventListener('click', function(e) {
+        e.stopPropagation();
+      });
       
       // Добавляем обработчик для чекбокса функции webhook
       const webhookCheckbox = document.getElementById('function-send_webhook');
@@ -1353,6 +1602,24 @@
         buttons.forEach(button => {
           button.disabled = loading;
         });
+      }
+
+      // Функция для получения информации о пользователе
+      async function loadUserInfo() {
+        try {
+          const userInfo = await api.get('/user/profile');
+          currentUserEmail = userInfo.email;
+          userEmailDisplay.textContent = userInfo.email;
+          
+          // Показываем админ ссылку только для well96well@gmail.com
+          if (userInfo.email === 'well96well@gmail.com') {
+            adminLink.style.display = 'flex';
+            adminLink.href = '/static/admin.html';
+          }
+        } catch (error) {
+          debugLog(`Ошибка загрузки информации о пользователе: ${error.message}`);
+          userEmailDisplay.textContent = 'Неизвестный пользователь';
+        }
       }
       
       // Основные функции для работы с API
@@ -2265,16 +2532,12 @@
         ui.hideNotification();
       });
       
-      // Выход из системы
-      logoutButton.addEventListener('click', () => {
-        debugLog('Выход из системы');
-        localStorage.removeItem('auth_token');
-        window.location.href = '/static/login.html';
-      });
-      
       // Инициализация страницы
       function initPage() {
         if (!checkAuth()) return;
+        
+        // Загружаем информацию о пользователе
+        loadUserInfo();
         
         const params = checkUrlParams();
         
