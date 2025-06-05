@@ -170,64 +170,85 @@
     
     /* Выпадающее меню пользователя */
     .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
       position: relative;
     }
     
-    .user-menu-trigger {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem;
+    .user-button {
       background: none;
       border: none;
-      border-radius: var(--radius-md);
       cursor: pointer;
-      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
     }
     
-    .user-menu-trigger:hover {
+    .user-button:hover {
       background-color: var(--bg-light);
     }
     
-    .user-email {
-      font-size: 0.875rem;
-      color: var(--text-gray);
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
     }
     
     .user-dropdown {
       position: absolute;
-      top: 100%;
+      top: calc(100% + 0.5rem);
       right: 0;
       background-color: var(--white);
-      border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       box-shadow: var(--shadow-md);
-      min-width: 200px;
+      min-width: 180px;
       z-index: 100;
+      overflow: hidden;
       display: none;
     }
     
     .user-dropdown.show {
       display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
     }
     
-    .user-dropdown-item {
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
       padding: 0.75rem 1rem;
       color: var(--text-gray);
       text-decoration: none;
-      transition: background-color 0.2s;
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
     }
     
-    .user-dropdown-item:hover {
+    .dropdown-item:hover {
       background-color: var(--bg-light);
+      color: var(--primary-blue);
     }
     
-    .user-dropdown-item i {
-      width: 16px;
-      text-align: center;
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
     }
     
     .btn {
@@ -1147,24 +1168,20 @@
           <i class="fas fa-plus"></i> Создать агента
         </button>
         
-        <!-- Выпадающее меню пользователя -->
         <div class="user-menu">
-          <button class="user-menu-trigger" id="user-menu-trigger">
-            <span class="user-email" id="user-email">Загрузка...</span>
+          <button class="user-button" id="user-menu-button">
+            <div class="user-avatar" id="user-avatar">АП</div>
+            <span class="user-name" id="user-name">Александр Петров</span>
             <i class="fas fa-chevron-down"></i>
           </button>
+          
           <div class="user-dropdown" id="user-dropdown">
-            <a href="/static/settings.html" class="user-dropdown-item">
-              <i class="fas fa-gear"></i>
-              <span>Настройки</span>
+            <a href="/static/settings.html" class="dropdown-item">
+              <i class="fas fa-user"></i> Профиль
             </a>
-            <a href="#" class="user-dropdown-item" id="admin-link" style="display: none;">
-              <i class="fas fa-crown"></i>
-              <span>Админ панель</span>
-            </a>
-            <a href="https://voicyfy.ru/static/index.html" class="user-dropdown-item">
-              <i class="fas fa-sign-out-alt"></i>
-              <span>Выйти</span>
+            <div class="dropdown-divider"></div>
+            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+              <i class="fas fa-sign-out-alt"></i> Выйти
             </a>
           </div>
         </div>
@@ -1548,10 +1565,11 @@
       const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
       const sidebar = document.getElementById('sidebar');
       const sidebarOverlay = document.getElementById('sidebar-overlay');
-      const userMenuTrigger = document.getElementById('user-menu-trigger');
+      const userMenuButton = document.getElementById('user-menu-button');
       const userDropdown = document.getElementById('user-dropdown');
-      const userEmailDisplay = document.getElementById('user-email');
-      const adminLink = document.getElementById('admin-link');
+      const userEmailDisplay = document.getElementById('user-name');
+      const userAvatar = document.getElementById('user-avatar');
+      const dropdownLogout = document.getElementById('dropdown-logout');
       
       // Элементы для Google Sheet
       const googleSheetIdInput = document.getElementById('google-sheet-id');
@@ -1570,17 +1588,16 @@
       });
       
       // Выпадающее меню пользователя
-      userMenuTrigger.addEventListener('click', function(e) {
+      userMenuButton.addEventListener('click', function(e) {
         e.stopPropagation();
         userDropdown.classList.toggle('show');
       });
       
-      document.addEventListener('click', function() {
-        userDropdown.classList.remove('show');
-      });
-      
-      userDropdown.addEventListener('click', function(e) {
-        e.stopPropagation();
+      // Закрытие выпадающего меню при клике в другом месте
+      document.addEventListener('click', function(e) {
+        if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+          userDropdown.classList.remove('show');
+        }
       });
       
       // Добавляем обработчик для чекбокса функции webhook
@@ -1639,13 +1656,29 @@
         try {
           const userInfo = await api.get('/users/me');
           currentUserEmail = userInfo.email;
-          userEmailDisplay.textContent = userInfo.email;
+          
+          // Обновляем имя пользователя и аватар
+          const firstName = userInfo.first_name || '';
+          const lastName = userInfo.last_name || '';
+          
+          if (firstName || lastName) {
+            userEmailDisplay.textContent = firstName + (lastName ? ` ${lastName}` : '');
+            
+            // Инициалы для аватара
+            let initials = '';
+            if (firstName) initials += firstName[0];
+            if (lastName) initials += lastName[0];
+            userAvatar.textContent = initials.toUpperCase();
+          } else if (userInfo.company_name) {
+            userEmailDisplay.textContent = userInfo.company_name;
+            userAvatar.textContent = userInfo.company_name.substring(0, 2).toUpperCase();
+          } else {
+            userEmailDisplay.textContent = userInfo.email;
+            userAvatar.textContent = userInfo.email.substring(0, 2).toUpperCase();
+          }
           
           // Показываем админ ссылку только для well96well@gmail.com
           if (userInfo.email === 'well96well@gmail.com') {
-            adminLink.style.display = 'flex';
-            adminLink.href = '/static/admin.html';
-            
             // Добавляем раздел администрирования
             console.log('Проверка email для админ панели:', userInfo.email);
             console.log('Email подтвержден, добавляем админ панель');
@@ -2605,6 +2638,15 @@
       notificationClose.addEventListener('click', () => {
         ui.hideNotification();
       });
+      
+      // Выход из системы - обновленные обработчики
+      if (dropdownLogout) {
+        dropdownLogout.addEventListener('click', function(e) {
+          e.preventDefault();
+          localStorage.removeItem('auth_token');
+          window.location.href = 'https://voicyfy.ru/static/index.html';
+        });
+      }
       
       // Инициализация страницы
       function initPage() {
