@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Администрирование | Live VoiceAI</title>
+  <title>Администрирование | Voicyfy</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     /* Основные стили */
@@ -23,6 +23,7 @@
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-md: 0.5rem;
       --radius-lg: 1rem;
+      --transition-sm: all 0.2s ease;
       
       /* Дополнительные цвета для статусов */
       --green-light: #dcfce7;
@@ -71,10 +72,29 @@
     }
     
     .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
       font-size: 1.25rem;
       font-weight: 700;
       color: var(--text-dark);
       text-decoration: none;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
     }
     
     .sidebar-nav {
@@ -119,6 +139,11 @@
       font-weight: 600;
     }
     
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
     /* Основной контент */
     .main-content {
       flex: 1;
@@ -147,6 +172,90 @@
     .page-actions {
       display: flex;
       gap: 1rem;
+      align-items: center;
+    }
+    
+    /* Выпадающее меню пользователя */
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
+    }
+    
+    .user-button:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
     }
     
     /* Контейнер для содержимого */
@@ -217,6 +326,7 @@
       align-items: center;
       gap: 0.5rem;
       border: none;
+      text-decoration: none;
     }
     
     .btn-primary {
@@ -236,6 +346,16 @@
     
     .btn-outline:hover {
       background-color: var(--bg-light);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
     }
     
     .btn-success {
@@ -691,7 +811,15 @@
   <!-- Боковая панель -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <a href="/" class="sidebar-logo">Live VoiceAI</a>
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
     </div>
     
     <nav class="sidebar-nav">
@@ -706,14 +834,6 @@
         <i class="fas fa-book"></i> База знаний
       </a>
       
-      <div class="sidebar-section">Расширения</div>
-      <a href="/static/integrations.html" class="sidebar-nav-item">
-        <i class="fas fa-plug"></i> Интеграции
-      </a>
-      <a href="#" class="sidebar-nav-item locked-feature">
-        <i class="fas fa-wand-magic-sparkles"></i> Навыки
-      </a>
-      
       <div class="sidebar-section">Администрирование</div>
       <a href="/static/admin.html" class="sidebar-nav-item active">
         <i class="fas fa-user-shield"></i> Управление
@@ -723,10 +843,13 @@
       <a href="/static/settings.html" class="sidebar-nav-item">
         <i class="fas fa-gear"></i> Настройки
       </a>
-      <a href="#" class="sidebar-nav-item" id="logout-button">
+    </nav>
+    
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
         <i class="fas fa-sign-out-alt"></i> Выйти
       </a>
-    </nav>
+    </div>
   </aside>
   
   <!-- Основной контент -->
@@ -739,6 +862,24 @@
         <button class="btn btn-success" id="check-subscriptions-btn">
           <i class="fas fa-sync"></i> Проверить подписки
         </button>
+        
+        <div class="user-menu">
+          <button class="user-button" id="user-menu-button">
+            <div class="user-avatar" id="user-avatar">АП</div>
+            <span class="user-name" id="user-name">Александр Петров</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          
+          <div class="user-dropdown" id="user-dropdown">
+            <a href="/static/settings.html" class="dropdown-item">
+              <i class="fas fa-user"></i> Профиль
+            </a>
+            <div class="dropdown-divider"></div>
+            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+              <i class="fas fa-sign-out-alt"></i> Выйти
+            </a>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -1007,12 +1148,39 @@
       const loadingOverlay = document.getElementById('loading-overlay');
       const logoutButton = document.getElementById('logout-button');
       const checkSubscriptionsBtn = document.getElementById('check-subscriptions-btn');
+      const userMenuButton = document.getElementById('user-menu-button');
+      const userDropdown = document.getElementById('user-dropdown');
+      const userNameDisplay = document.getElementById('user-name');
+      const userAvatar = document.getElementById('user-avatar');
+      const dropdownLogout = document.getElementById('dropdown-logout');
       
       const totalUsersElement = document.getElementById('total-users');
       const activeUsersElement = document.getElementById('active-users');
       const paidSubscriptionsElement = document.getElementById('paid-subscriptions');
       const totalAssistantsElement = document.getElementById('total-assistants');
       const recentUsersElement = document.getElementById('recent-users');
+      
+      // Выпадающее меню пользователя
+      userMenuButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        userDropdown.classList.toggle('show');
+      });
+      
+      // Закрытие выпадающего меню при клике в другом месте
+      document.addEventListener('click', function(e) {
+        if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+          userDropdown.classList.remove('show');
+        }
+      });
+      
+      // Выход из системы
+      if (dropdownLogout) {
+        dropdownLogout.addEventListener('click', function(e) {
+          e.preventDefault();
+          localStorage.removeItem('auth_token');
+          window.location.href = 'https://voicyfy.ru/static/index.html';
+        });
+      }
       
       // API клиент
       const api = {
@@ -1563,6 +1731,26 @@
           ui.setLoading(true);
           currentUser = await api.getCurrentUser();
           
+          // Обновляем имя пользователя и аватар
+          const firstName = currentUser.first_name || '';
+          const lastName = currentUser.last_name || '';
+          
+          if (firstName || lastName) {
+            userNameDisplay.textContent = firstName + (lastName ? ` ${lastName}` : '');
+            
+            // Инициалы для аватара
+            let initials = '';
+            if (firstName) initials += firstName[0];
+            if (lastName) initials += lastName[0];
+            userAvatar.textContent = initials.toUpperCase();
+          } else if (currentUser.company_name) {
+            userNameDisplay.textContent = currentUser.company_name;
+            userAvatar.textContent = currentUser.company_name.substring(0, 2).toUpperCase();
+          } else {
+            userNameDisplay.textContent = currentUser.email;
+            userAvatar.textContent = currentUser.email.substring(0, 2).toUpperCase();
+          }
+          
           // Проверяем, является ли пользователь администратором
           isAdmin = currentUser.is_admin || currentUser.email === 'well96well@gmail.com';
           
@@ -1802,7 +1990,7 @@
       // Выход из системы
       logoutButton.addEventListener('click', function() {
         localStorage.removeItem('auth_token');
-        window.location.href = '/static/login.html';
+        window.location.href = 'https://voicyfy.ru/static/index.html';
       });
       
       // Инициализация страницы
