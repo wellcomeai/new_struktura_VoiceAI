@@ -9,7 +9,11 @@ from datetime import datetime
 from sqlalchemy.sql import func
 
 from backend.core.logging import get_logger
-from backend.core.dependencies import get_current_user, check_subscription_active, check_assistant_limit
+from backend.core.dependencies import (
+    get_current_user, 
+    check_subscription_active_for_assistants, 
+    check_assistant_limit
+)
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.assistant import AssistantConfig
@@ -26,18 +30,16 @@ logger = get_logger(__name__)
 # Create router
 router = APIRouter()
 
-# Existing endpoints remain unchanged
-
 @router.get("/", response_model=List[AssistantResponse])
 async def get_assistants(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
     Get all assistants for the current user.
     
     Args:
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -57,7 +59,7 @@ async def get_assistants(
 @router.post("/", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
 async def create_assistant(
     assistant_data: AssistantCreate,
-    current_user: User = Depends(check_assistant_limit),  # Используем dependency для проверки лимита
+    current_user: User = Depends(check_assistant_limit),
     db: Session = Depends(get_db)
 ):
     """
@@ -65,21 +67,25 @@ async def create_assistant(
     
     Args:
         assistant_data: Assistant creation data
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription and within limits)
         db: Database session dependency
     
     Returns:
         AssistantResponse with the new assistant information
     """
     try:
-        # Проверка ограничений подписки
+        # Дополнительная проверка подписки (check_assistant_limit уже включает её)
         subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
         
-        # Дополнительная проверка, что подписка активна
-        if not subscription_status["active"]:
+        if not subscription_status["active"] and not current_user.is_admin and current_user.email != "well96well@gmail.com":
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Active subscription required to create assistants"
+                detail={
+                    "error": "subscription_expired",
+                    "message": "Your subscription has expired. Please upgrade your subscription to create assistants.",
+                    "code": "SUBSCRIPTION_EXPIRED",
+                    "subscription_status": subscription_status
+                }
             )
         
         return await AssistantService.create_assistant(db, str(current_user.id), assistant_data)
@@ -95,7 +101,7 @@ async def create_assistant(
 @router.get("/{assistant_id}", response_model=AssistantResponse)
 async def get_assistant(
     assistant_id: str = Path(..., description="The ID of the assistant to retrieve"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -103,7 +109,7 @@ async def get_assistant(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -143,7 +149,7 @@ async def get_assistant(
 async def update_assistant(
     assistant_data: AssistantUpdate,
     assistant_id: str = Path(..., description="The ID of the assistant to update"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -152,7 +158,7 @@ async def update_assistant(
     Args:
         assistant_data: Assistant update data
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -172,7 +178,7 @@ async def update_assistant(
 @router.delete("/{assistant_id}", response_model=dict)
 async def delete_assistant(
     assistant_id: str = Path(..., description="The ID of the assistant to delete"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -180,7 +186,7 @@ async def delete_assistant(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -201,7 +207,7 @@ async def delete_assistant(
 @router.get("/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
 async def get_embed_code(
     assistant_id: str = Path(..., description="The ID of the assistant"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -209,7 +215,7 @@ async def get_embed_code(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -231,7 +237,7 @@ async def get_conversations(
     assistant_id: str = Path(..., description="The ID of the assistant"),
     skip: int = Query(0, ge=0, description="Number of conversations to skip"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of conversations to return"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -241,7 +247,7 @@ async def get_conversations(
         assistant_id: Assistant ID
         skip: Number of conversations to skip
         limit: Maximum number of conversations to return
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -264,7 +270,7 @@ async def get_conversations(
 @router.get("/{assistant_id}/stats", response_model=ConversationStats)
 async def get_conversation_stats(
     assistant_id: str = Path(..., description="The ID of the assistant"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -272,7 +278,7 @@ async def get_conversation_stats(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -296,7 +302,7 @@ async def get_conversation_stats(
 async def verify_google_sheet(
     sheet_data: Dict[str, str],
     assistant_id: str = Path(..., description="The ID of the assistant"),
-    current_user: User = Depends(check_subscription_active),  # Используем dependency для проверки подписки
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -305,7 +311,7 @@ async def verify_google_sheet(
     Args:
         sheet_data: Dictionary with sheet_id
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -339,13 +345,13 @@ async def verify_google_sheet(
             detail=f"Failed to verify Google Sheet: {str(e)}"
         )
 
-# New endpoints for knowledge base management
+# Knowledge base endpoints also require active subscription
 
 @router.post("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
 async def create_or_update_knowledge_base(
     content_data: Dict[str, str],
     assistant_id: str = Path(..., description="Assistant ID"),
-    current_user: User = Depends(check_subscription_active),
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -354,7 +360,7 @@ async def create_or_update_knowledge_base(
     Args:
         content_data: Dictionary with content for knowledge base
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -434,7 +440,7 @@ async def create_or_update_knowledge_base(
 @router.get("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
 async def get_knowledge_base_status(
     assistant_id: str = Path(..., description="Assistant ID"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -442,7 +448,7 @@ async def get_knowledge_base_status(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
@@ -486,7 +492,7 @@ async def get_knowledge_base_status(
 @router.delete("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
 async def delete_knowledge_base(
     assistant_id: str = Path(..., description="Assistant ID"),
-    current_user: User = Depends(check_subscription_active),
+    current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
@@ -494,7 +500,7 @@ async def delete_knowledge_base(
     
     Args:
         assistant_id: Assistant ID
-        current_user: Current authenticated user
+        current_user: Current authenticated user (with active subscription)
         db: Database session dependency
     
     Returns:
