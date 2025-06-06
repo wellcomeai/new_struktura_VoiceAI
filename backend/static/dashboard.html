@@ -1903,26 +1903,45 @@
         }
       };
 
-      // НОВАЯ ФУНКЦИЯ: Проверка доступа через API
-      async function checkUserAccess() {
-        try {
-          const accessInfo = await api.get('/subscription-status/check-access');
-          console.log('Результат проверки доступа:', accessInfo);
+      // Функция проверки, является ли пользователь админом
+      function isAdmin(userEmail) {
+        return userEmail === 'well96well@gmail.com';
+      }
+
+      // Функция проверки статуса подписки (ОРИГИНАЛЬНАЯ ЛОГИКА)
+      function checkSubscriptionStatus(userData, subscriptionData) {
+        console.log('Проверяем статус подписки:', { userData, subscriptionData });
+        
+        // Если пользователь - админ, всегда разрешаем доступ
+        if (isAdmin(userData.email)) {
+          console.log('Пользователь является админом, пропускаем проверку подписки');
+          return { isValid: true, reason: 'admin' };
+        }
+
+        // Проверяем наличие активной подписки
+        if (subscriptionData && subscriptionData.subscription_plan) {
+          const daysLeft = subscriptionData.days_left || 0;
           
-          // Если нужно показать поп-ап блокировки
-          if (accessInfo.show_payment_popup) {
-            const isTrialExpired = accessInfo.user_type === 'expired' || accessInfo.user_type === 'error';
-            ui.showSubscriptionExpiredModal(isTrialExpired);
-            return false; // Доступ заблокирован
+          // Если подписка истекла
+          if (daysLeft <= 0) {
+            console.log('Подписка истекла, дней осталось:', daysLeft);
+            return { isValid: false, reason: 'subscription_expired', data: subscriptionData };
           }
           
-          return true; // Доступ разрешен
-        } catch (error) {
-          console.error('Ошибка при проверке доступа:', error);
-          // В случае ошибки API - блокируем доступ для безопасности
-          ui.showSubscriptionExpiredModal(true);
-          return false;
+          // Если это триальный период и он закончился
+          if (subscriptionData.is_trial && daysLeft <= 0) {
+            console.log('Тестовый период истек');
+            return { isValid: false, reason: 'trial_expired', data: subscriptionData };
+          }
+          
+          console.log('Подписка активна, дней осталось:', daysLeft);
+          return { isValid: true, reason: 'active_subscription', data: subscriptionData };
         }
+
+        // Если нет подписки, проверяем есть ли тестовый период
+        // Пока считаем, что отсутствие подписки = истечение тестового периода
+        console.log('Подписка не найдена, считаем что тестовый период истек');
+        return { isValid: false, reason: 'trial_expired', data: null };
       }
 
       // Проверка результата оплаты
@@ -1936,15 +1955,21 @@
           
           setTimeout(async () => {
             try {
-              const accessInfo = await api.get('/subscription-status/force-check');
+              // Обновляем данные пользователя из БД
+              const userData = await api.getCurrentUser();
+              currentUser = userData;
               
-              if (accessInfo.access_granted) {
-                ui.hideSubscriptionExpiredModal();
-                ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
-                
-                await loadSubscriptionInfo();
-                window.history.replaceState({}, document.title, window.location.pathname);
-              }
+              // Перезагружаем информацию о подписке
+              await loadSubscriptionInfo();
+              
+              // Если поп-ап был показан - скрываем его
+              ui.hideSubscriptionExpiredModal();
+              
+              ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
+              
+              // Очищаем URL от параметров оплаты
+              window.history.replaceState({}, document.title, window.location.pathname);
+              
             } catch (error) {
               console.error('Ошибка при проверке результата оплаты:', error);
               ui.showNotification('Ошибка при проверке статуса оплаты', 'error');
@@ -2051,6 +2076,22 @@
         try {
           const subscriptionInfo = await api.get('/subscriptions/my-subscription');
           subscriptionStatus = subscriptionInfo;
+          
+          // ДОБАВЛЕНА ПРОВЕРКА: Проверяем статус подписки после загрузки
+          if (currentUser) {
+            const subscriptionCheck = checkSubscriptionStatus(currentUser, subscriptionInfo);
+            console.log('Результат проверки подписки:', subscriptionCheck);
+            
+            if (!subscriptionCheck.isValid) {
+              // Показываем модальное окно в зависимости от причины
+              if (subscriptionCheck.reason === 'trial_expired') {
+                ui.showSubscriptionExpiredModal(true); // тестовый период
+              } else if (subscriptionCheck.reason === 'subscription_expired') {
+                ui.showSubscriptionExpiredModal(false); // платная подписка
+              }
+              return; // Прерываем дальнейшую обработку
+            }
+          }
           
           const subscriptionDetails = document.getElementById('subscription-details');
           const upgradeSection = document.getElementById('subscription-upgrade');
@@ -2274,6 +2315,13 @@
         try {
           showPaymentLoading();
           
+          // ВРЕМЕННАЯ ЗАГЛУШКА: API endpoint еще не реализован
+          // TODO: Заменить на реальный API когда будет готов
+          ui.showNotification('Функция оплаты находится в разработке. Обратитесь к администратору.', 'info');
+          hidePaymentModal();
+          return;
+          
+          /* КОГДА API БУДЕТ ГОТОВ, РАСКОММЕНТИРОВАТЬ:
           const response = await api.post('/payments/create-payment', {
             plan_code: 'start'
           });
@@ -2300,6 +2348,7 @@
           } else {
             throw new Error('Некорректный ответ сервера');
           }
+          */
           
         } catch (error) {
           console.error('Ошибка создания платежа:', error);
@@ -2332,7 +2381,7 @@
         }
       });
       
-      // ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ
+      // ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ (ВОЗВРАТ К ОРИГИНАЛЬНОЙ ЛОГИКЕ + ПРОВЕРКА АДМИНА)
       async function initializePage() {
         if (!checkAuth()) return;
         
@@ -2342,13 +2391,8 @@
         // 2. Проверяем результат оплаты
         await checkPaymentResult();
         
-        // 3. НОВАЯ ЛОГИКА: Проверяем доступ через API
-        const hasAccess = await checkUserAccess();
-        
-        // 4. Если доступ разрешен, загружаем информацию о подписке (ОРИГИНАЛЬНАЯ ЛОГИКА)
-        if (hasAccess) {
-          await loadSubscriptionInfo();
-        }
+        // 3. Загружаем информацию о подписке (включает проверку блокировки)
+        await loadSubscriptionInfo();
       }
       
       // Запускаем инициализацию
