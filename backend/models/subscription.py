@@ -1,7 +1,7 @@
 # backend/models/subscription.py
 """
-Subscription plan model for WellcomeAI application.
-ПОЛНАЯ ВЕРСИЯ с отслеживанием
+Subscription models for WellcomeAI application.
+ПОЛНАЯ ВЕРСИЯ с отслеживанием всех событий подписки
 """
 
 import uuid
@@ -33,20 +33,6 @@ class SubscriptionPlan(Base, BaseModel):
         return f"<SubscriptionPlan {self.name} (code={self.code})>"
 
 
-# backend/models/subscription_log.py
-"""
-Subscription log model for WellcomeAI application.
-ПОЛНАЯ ВЕРСИЯ с отслеживанием всех событий
-"""
-
-import uuid
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Numeric
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-
-from .base import Base, BaseModel
-
 class SubscriptionLog(Base, BaseModel):
     """
     Model representing subscription action logs.
@@ -72,19 +58,6 @@ class SubscriptionLog(Base, BaseModel):
         """String representation of SubscriptionLog"""
         return f"<SubscriptionLog {self.action} for user {self.user_id}>"
 
-
-# backend/models/payment_transaction.py
-"""
-Новая модель для отслеживания транзакций
-"""
-
-import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, Boolean
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-
-from .base import Base, BaseModel
 
 class PaymentTransaction(Base, BaseModel):
     """
