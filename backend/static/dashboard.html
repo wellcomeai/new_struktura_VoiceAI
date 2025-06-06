@@ -715,7 +715,6 @@
       justify-content: flex-end;
     }
     
-    /* Новые стили для подписки */
     .subscription-progress {
       margin: 1rem 0;
     }
@@ -1016,7 +1015,7 @@
       font-size: 0.95rem;
     }
 
-    /* НОВЫЕ СТИЛИ ДЛЯ НЕЗАКРЫВАЕМОГО ПОСТАВЛЕНИЯ ПОДПИСКИ */
+    /* СТИЛИ ДЛЯ НЕЗАКРЫВАЕМОГО МОДАЛЬНОГО ОКНА ИСТЕКШЕЙ ПОДПИСКИ */
     .subscription-expired-modal {
       position: fixed;
       top: 0;
@@ -1228,7 +1227,7 @@
       }
     }
 
-    /* Адаптивный дизайн - улучшенная мобильная версия */
+    /* Адаптивный дизайн */
     @media (max-width: 1024px) {
       .stats-grid {
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -1291,87 +1290,17 @@
         width: 100%;
       }
       
-      .payment-modal {
-        padding: 10px;
-      }
-      
-      .payment-modal-content {
-        max-height: 95vh;
-      }
-      
-      .payment-modal-header,
-      .payment-modal-body,
-      .payment-modal-footer {
-        padding-left: 1.5rem;
-        padding-right: 1.5rem;
-      }
-      
-      .payment-modal-footer {
-        flex-direction: column;
-      }
-      
-      .comparison-item {
-        flex-direction: column;
-        gap: 0.5rem;
-      }
-      
-      .comparison-arrow {
-        transform: rotate(90deg);
-      }
-      
-      .subscription-details-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .welcome-title {
-        font-size: 1.25rem;
-      }
-      
-      .welcome-subtitle {
-        font-size: 0.9rem;
-      }
-      
-      .notice-title {
-        font-size: 1.25rem;
-      }
-      
-      .notice-description {
-        font-size: 0.9rem;
-        padding: 0 1rem;
-      }
-
-      /* Мобильная адаптация для модального окна истекшей подписки */
-      .subscription-expired-content {
-        margin: 10px;
-        max-height: calc(100vh - 20px);
-      }
-      
-      .subscription-expired-header {
-        padding: 1.5rem;
-      }
-      
-      .subscription-expired-icon {
-        font-size: 3rem;
-      }
-      
-      .subscription-expired-title {
-        font-size: 1.5rem;
-      }
-      
-      .subscription-expired-subtitle {
-        font-size: 1rem;
-      }
-      
-      .subscription-expired-body {
-        padding: 1.5rem;
-      }
-      
       .plans-grid {
         grid-template-columns: 1fr;
       }
       
       .plan-card.featured {
         transform: none;
+      }
+      
+      .subscription-expired-content {
+        margin: 10px;
+        max-height: calc(100vh - 20px);
       }
     }
     
@@ -1380,52 +1309,6 @@
         padding: 1rem 0.75rem;
       }
       
-      .api-key-actions {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-      }
-      
-      .section-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1rem;
-      }
-      
-      .subscription-upgrade {
-        justify-content: stretch;
-      }
-      
-      .subscription-upgrade .btn {
-        width: 100%;
-        justify-content: center;
-      }
-      
-      .user-button {
-        padding: 0.5rem;
-        gap: 0.5rem;
-      }
-      
-      .user-name {
-        display: none;
-      }
-      
-      .notification {
-        max-width: calc(100vw - 40px);
-        bottom: 10px;
-        right: 10px;
-        left: 10px;
-      }
-      
-      .info-notice {
-        padding: 1.5rem 1rem;
-      }
-      
-      .notice-icon {
-        font-size: 2.5rem;
-        margin-bottom: 1rem;
-      }
-
       .subscription-expired-header {
         padding: 1rem;
       }
@@ -1433,56 +1316,6 @@
       .subscription-expired-body,
       .subscription-expired-footer {
         padding: 1rem;
-      }
-    }
-    
-    /* Улучшенный responsive дизайн для планшетов */
-    @media (max-width: 1024px) and (min-width: 769px) {
-      .sidebar {
-        width: 220px;
-      }
-      
-      .main-content {
-        margin-left: 220px;
-      }
-      
-      .top-nav {
-        padding: 1rem 1.5rem;
-      }
-      
-      .content-container {
-        padding: 1.5rem;
-      }
-    }
-    
-    /* Landscape режим для мобильных устройств */
-    @media (max-height: 500px) and (orientation: landscape) {
-      .sidebar {
-        width: 200px;
-      }
-      
-      .main-content {
-        margin-left: 0;
-      }
-      
-      .sidebar.open {
-        transform: translateX(0);
-      }
-      
-      .top-nav {
-        padding: 0.75rem 1rem;
-      }
-      
-      .content-container {
-        padding: 1rem;
-      }
-      
-      .welcome-section {
-        margin-bottom: 1rem;
-      }
-      
-      .stats-grid {
-        margin-bottom: 1.5rem;
       }
     }
   </style>
@@ -1689,7 +1522,6 @@
       </div>
       
       <div class="payment-modal-body">
-        <!-- Основная информация о тарифе -->
         <div class="payment-plan-info">
           <div class="payment-plan-price">
             <span class="price-amount">1 490</span>
@@ -1703,7 +1535,6 @@
           </div>
         </div>
         
-        <!-- Список преимуществ -->
         <div class="payment-plan-features">
           <h3>Что входит в тариф:</h3>
           <ul class="features-list">
@@ -1734,7 +1565,6 @@
           </ul>
         </div>
         
-        <!-- Сравнение с бесплатным планом -->
         <div class="payment-comparison">
           <div class="comparison-item">
             <div class="comparison-free">
@@ -1760,7 +1590,6 @@
         </button>
       </div>
       
-      <!-- Индикатор загрузки -->
       <div class="payment-loading" id="payment-loading" style="display: none;">
         <div class="payment-spinner"></div>
         <p>Создание платежа...</p>
@@ -1768,7 +1597,7 @@
     </div>
   </div>
 
-  <!-- НОВЫЙ ПОСТАВЩИК НА ПОПРАВЧЕНИЕ ПОДПИСКИ -->
+  <!-- МОДАЛЬНОЕ ОКНО ИСТЕКШЕЙ ПОДПИСКИ -->
   <div class="subscription-expired-modal" id="subscription-expired-modal">
     <div class="subscription-expired-content">
       <div class="subscription-expired-header">
@@ -1906,7 +1735,6 @@
             const response = await fetch(`${this.baseUrl}${endpoint}`, options);
             
             if (response.status === 401) {
-              // Если токен недействителен, перенаправляем на страницу входа
               localStorage.removeItem('auth_token');
               window.location.href = '/';
               throw new Error('Требуется авторизация');
@@ -1964,13 +1792,9 @@
         showNotification(message, type = 'success') {
           notificationMessage.textContent = message;
           
-          // Удаляем все классы типов
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
-          
-          // Добавляем нужный класс
           notification.classList.add(`notification-${type}`);
           
-          // Обновляем иконку
           const icon = notification.querySelector('.notification-icon i');
           if (type === 'success') {
             icon.className = 'fas fa-check-circle';
@@ -1980,10 +1804,8 @@
             icon.className = 'fas fa-info-circle';
           }
           
-          // Показываем уведомление
           notification.classList.add('show');
           
-          // Скрываем через 5 секунд
           setTimeout(() => {
             this.hideNotification();
           }, 5000);
@@ -1998,42 +1820,28 @@
         unlockFeatures() {
           hasApiKey = true;
           
-          // Показываем уведомление для пользователей с ключом
           noKeyNotice.style.display = 'none';
           hasKeyNotice.style.display = 'flex';
           
-          // Показываем статус API ключа
           apiKeyStatus.style.display = 'flex';
-          
-          // Скрываем форму ввода
           apiKeyForm.style.display = 'none';
           
-          // Разблокируем пункты меню
-          const lockedFeatures = [
-            agentsNavItem,
-            knowledgeNavItem
-          ];
-          
+          const lockedFeatures = [agentsNavItem, knowledgeNavItem];
           lockedFeatures.forEach(element => {
             if (element) element.classList.remove('locked-feature');
           });
         },
         
-        // Блокировка функций (если API ключ не добавлен или удален)
+        // Блокировка функций
         lockFeatures() {
           hasApiKey = false;
           
-          // Показываем уведомление для пользователей без ключа
           noKeyNotice.style.display = 'flex';
           hasKeyNotice.style.display = 'none';
           
-          // Скрываем статус API ключа
           apiKeyStatus.style.display = 'none';
-          
-          // Показываем форму ввода
           apiKeyForm.style.display = 'flex';
           
-          // Блокируем пункты меню
           agentsNavItem.classList.add('locked-feature');
           knowledgeNavItem.classList.add('locked-feature');
         },
@@ -2042,14 +1850,12 @@
         viewKeyMode() {
           isEditingKey = false;
           
-          // Если ключ пустой, показываем форму добавления
           if (!actualApiKey) {
             apiKeyForm.style.display = 'flex';
             apiKeyStatus.style.display = 'none';
             return;
           }
           
-          // Если ключ есть, показываем статус
           apiKeyForm.style.display = 'none';
           apiKeyStatus.style.display = 'flex';
         },
@@ -2060,7 +1866,6 @@
           apiKeyStatus.style.display = 'none';
           apiKeyForm.style.display = 'flex';
           
-          // Если есть ключ, показываем его в поле ввода
           if (actualApiKey) {
             apiKeyInput.value = actualApiKey;
             apiKeyInput.type = 'text';
@@ -2075,18 +1880,15 @@
         showSubscriptionExpiredModal(isTrialExpired = true) {
           console.log('Показываем модальное окно истекшей подписки:', isTrialExpired);
           
-          // Обновляем текст в зависимости от типа подписки
           if (isTrialExpired) {
             subscriptionTypeText.textContent = 'тестовый период';
           } else {
             subscriptionTypeText.textContent = 'ваша подписка';
           }
           
-          // Блокируем контент на фоне
           document.body.classList.add('subscription-expired');
           contentContainer.classList.add('content-blocked');
           
-          // Показываем модальное окно
           subscriptionExpiredModal.classList.add('show');
         },
 
@@ -2094,175 +1896,14 @@
         hideSubscriptionExpiredModal() {
           console.log('Скрываем модальное окно истекшей подписки');
           
-          // Разблокируем контент
           document.body.classList.remove('subscription-expired');
           contentContainer.classList.remove('content-blocked');
           
-          // Скрываем модальное окно
           subscriptionExpiredModal.classList.remove('show');
         }
       };
 
-      // Проверка оплаты после возврата с Robokassa
-      async function checkPaymentResult() {
-        // Проверяем URL параметры на наличие результата оплаты
-        const urlParams = new URLSearchParams(window.location.search);
-        const paymentResult = urlParams.get('payment_result');
-        const paymentStatus = urlParams.get('payment_status');
-        
-        if (paymentResult && paymentStatus === 'success') {
-          console.log('Обнаружен успешный результат оплаты, проверяем доступ...');
-          
-          // Небольшая задержка для обработки платежа на backend
-          setTimeout(async () => {
-            try {
-              // Принудительная проверка обновленного статуса подписки
-              const accessInfo = await api.get('/subscription-status/force-check');
-              
-              if (accessInfo.access_granted) {
-                // Скрываем поп-ап блокировки если он показан
-                ui.hideSubscriptionExpiredModal();
-                
-                // Показываем уведомление об успешной оплате
-                ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
-                
-                // Перезагружаем информацию о подписке
-                await loadSubscriptionInfo();
-                
-                // Очищаем URL от параметров оплаты
-                window.history.replaceState({}, document.title, window.location.pathname);
-              }
-            } catch (error) {
-              console.error('Ошибка при проверке результата оплаты:', error);
-              ui.showNotification('Ошибка при проверке статуса оплаты', 'error');
-            }
-          }, 2000);
-        }
-      }
-      
-      // Проверка авторизации
-      function checkAuth() {
-        if (!api.isAuthenticated()) {
-          window.location.href = '/';
-          return false;
-        }
-        return true;
-      }
-      
-      // Загрузка данных пользователя
-      async function loadUserData() {
-        try {
-          const userData = await api.getCurrentUser();
-          currentUser = userData;
-          
-          // Обновляем имя пользователя и аватар
-          const firstName = userData.first_name || '';
-          const lastName = userData.last_name || '';
-          
-          if (firstName || lastName) {
-            welcomeMessage.textContent = `Добро пожаловать, ${firstName}!`;
-            userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
-            
-            // Инициалы для аватара
-            let initials = '';
-            if (firstName) initials += firstName[0];
-            if (lastName) initials += lastName[0];
-            userAvatar.textContent = initials.toUpperCase();
-          } else if (userData.company_name) {
-            welcomeMessage.textContent = `Добро пожаловать, ${userData.company_name}!`;
-            userName.textContent = userData.company_name;
-            userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
-          } else {
-            welcomeMessage.textContent = 'Добро пожаловать!';
-            userName.textContent = userData.email;
-            userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
-          }
-          
-          // Если у пользователя есть API ключ
-          if (userData.openai_api_key) {
-            // Сохраняем ключ в памяти (для возможности показа)
-            actualApiKey = userData.openai_api_key;
-            
-            // Включаем режим просмотра ключа
-            ui.viewKeyMode();
-            
-            // Разблокируем дополнительные функции
-            ui.unlockFeatures();
-            
-            // Загружаем статистику
-            loadStats();
-          } else {
-            // Если ключа нет, блокируем функции
-            ui.lockFeatures();
-          }
-          
-          // Добавляем раздел администрирования строго только для конкретной почты
-          console.log('Проверка email для админ панели:', userData.email);
-          if (userData.email === "well96well@gmail.com") {
-            console.log('Email подтвержден, добавляем админ панель');
-            // Проверяем, нет ли уже раздела администрирования
-            const existingAdminSection = document.querySelector('.sidebar-section');
-            const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
-              section => section.textContent.trim() === 'Администрирование'
-            );
-            console.log('Существующие админ разделы:', adminSections.length);
-            
-            if (adminSections.length === 0) {
-              console.log('Создаем новый раздел администрирования');
-              // Создаем новый раздел
-              const adminSection = document.createElement('div');
-              adminSection.className = 'sidebar-section';
-              adminSection.textContent = 'Администрирование';
-              
-              // Создаем пункт меню для админ-панели
-              const adminNavItem = document.createElement('a');
-              adminNavItem.href = '/static/admin.html';
-              adminNavItem.className = 'sidebar-nav-item';
-              adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
-              
-              // Находим место для вставки (перед разделом "Аккаунт")
-              const sidebarNav = document.querySelector('.sidebar-nav');
-              const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
-                section => section.textContent.trim() === 'Аккаунт'
-              );
-              
-              if (accountSection && sidebarNav) {
-                console.log('Вставляем перед разделом Аккаунт');
-                sidebarNav.insertBefore(adminSection, accountSection);
-                sidebarNav.insertBefore(adminNavItem, accountSection);
-              } else {
-                console.log('Добавляем в конец навигации');
-                // Если структура не найдена, добавляем в конец навигации
-                sidebarNav.appendChild(adminSection);
-                sidebarNav.appendChild(adminNavItem);
-              }
-              console.log('Админ панель добавлена успешно');
-            } else {
-              console.log('Админ раздел уже существует');
-            }
-          } else {
-            console.log('Email не подходит для админ панели');
-          }
-        } catch (error) {
-          console.error('Ошибка при загрузке данных пользователя:', error);
-          ui.showNotification('Не удалось загрузить данные пользователя', 'error');
-        }
-      }
-      
-      // Загрузка статистики
-      async function loadStats() {
-        if (!hasApiKey) return;
-        
-        try {
-          // Получаем список ботов для подсчета
-          const bots = await api.getAssistants();
-          botsCount.textContent = bots.length;
-        } catch (error) {
-          console.error('Ошибка при загрузке статистики:', error);
-        }
-      }
-      
-      // Проверка доступа пользователя к платформе
+      // НОВАЯ ФУНКЦИЯ: Проверка доступа через API
       async function checkUserAccess() {
         try {
           const accessInfo = await api.get('/subscription-status/check-access');
@@ -2284,7 +1925,128 @@
         }
       }
 
-      // Загрузка информации о подписке
+      // Проверка результата оплаты
+      async function checkPaymentResult() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentResult = urlParams.get('payment_result');
+        const paymentStatus = urlParams.get('payment_status');
+        
+        if (paymentResult && paymentStatus === 'success') {
+          console.log('Обнаружен успешный результат оплаты, проверяем доступ...');
+          
+          setTimeout(async () => {
+            try {
+              const accessInfo = await api.get('/subscription-status/force-check');
+              
+              if (accessInfo.access_granted) {
+                ui.hideSubscriptionExpiredModal();
+                ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
+                
+                await loadSubscriptionInfo();
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }
+            } catch (error) {
+              console.error('Ошибка при проверке результата оплаты:', error);
+              ui.showNotification('Ошибка при проверке статуса оплаты', 'error');
+            }
+          }, 2000);
+        }
+      }
+      
+      // Проверка авторизации
+      function checkAuth() {
+        if (!api.isAuthenticated()) {
+          window.location.href = '/';
+          return false;
+        }
+        return true;
+      }
+      
+      // ОРИГИНАЛЬНАЯ ФУНКЦИЯ: Загрузка данных пользователя
+      async function loadUserData() {
+        try {
+          const userData = await api.getCurrentUser();
+          currentUser = userData;
+          
+          const firstName = userData.first_name || '';
+          const lastName = userData.last_name || '';
+          
+          if (firstName || lastName) {
+            welcomeMessage.textContent = `Добро пожаловать, ${firstName}!`;
+            userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
+            
+            let initials = '';
+            if (firstName) initials += firstName[0];
+            if (lastName) initials += lastName[0];
+            userAvatar.textContent = initials.toUpperCase();
+          } else if (userData.company_name) {
+            welcomeMessage.textContent = `Добро пожаловать, ${userData.company_name}!`;
+            userName.textContent = userData.company_name;
+            userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
+          } else {
+            welcomeMessage.textContent = 'Добро пожаловать!';
+            userName.textContent = userData.email;
+            userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
+          }
+          
+          if (userData.openai_api_key) {
+            actualApiKey = userData.openai_api_key;
+            ui.viewKeyMode();
+            ui.unlockFeatures();
+            loadStats();
+          } else {
+            ui.lockFeatures();
+          }
+          
+          // Добавляем админ панель для админа
+          if (userData.email === "well96well@gmail.com") {
+            const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
+              section => section.textContent.trim() === 'Администрирование'
+            );
+            
+            if (adminSections.length === 0) {
+              const adminSection = document.createElement('div');
+              adminSection.className = 'sidebar-section';
+              adminSection.textContent = 'Администрирование';
+              
+              const adminNavItem = document.createElement('a');
+              adminNavItem.href = '/static/admin.html';
+              adminNavItem.className = 'sidebar-nav-item';
+              adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
+              
+              const sidebarNav = document.querySelector('.sidebar-nav');
+              const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
+                section => section.textContent.trim() === 'Аккаунт'
+              );
+              
+              if (accountSection && sidebarNav) {
+                sidebarNav.insertBefore(adminSection, accountSection);
+                sidebarNav.insertBefore(adminNavItem, accountSection);
+              } else {
+                sidebarNav.appendChild(adminSection);
+                sidebarNav.appendChild(adminNavItem);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Ошибка при загрузке данных пользователя:', error);
+          ui.showNotification('Не удалось загрузить данные пользователя', 'error');
+        }
+      }
+      
+      // Загрузка статистики
+      async function loadStats() {
+        if (!hasApiKey) return;
+        
+        try {
+          const bots = await api.getAssistants();
+          botsCount.textContent = bots.length;
+        } catch (error) {
+          console.error('Ошибка при загрузке статистики:', error);
+        }
+      }
+      
+      // ОРИГИНАЛЬНАЯ ФУНКЦИЯ: Загрузка информации о подписке
       async function loadSubscriptionInfo() {
         try {
           const subscriptionInfo = await api.get('/subscriptions/my-subscription');
@@ -2293,13 +2055,10 @@
           const subscriptionDetails = document.getElementById('subscription-details');
           const upgradeSection = document.getElementById('subscription-upgrade');
           
-          // Проверяем наличие подписки и корректность данных
           if (subscriptionInfo.subscription_plan) {
-            // Форматируем дату - проверка, что дата существует
             let endDateDisplay = 'Не указана';
             if (subscriptionInfo.subscription_end_date) {
               try {
-                // Проверяем, что дата - валидная дата
                 const endDate = new Date(subscriptionInfo.subscription_end_date);
                 if (!isNaN(endDate.getTime())) {
                   endDateDisplay = endDate.toLocaleDateString('ru-RU');
@@ -2309,7 +2068,6 @@
               }
             }
             
-            // Показываем информацию о подписке
             let statusClass = 'active';
             let statusText = 'Активна';
             
@@ -2344,14 +2102,12 @@
               </div>
             `;
             
-            // Показываем кнопку апгрейда для всех, кроме максимального тарифа
             if (subscriptionInfo.subscription_plan.code !== 'pro') {
               upgradeSection.style.display = 'flex';
             } else {
               upgradeSection.style.display = 'none';
             }
           } else {
-            // Нет активной подписки или данные некорректны
             subscriptionDetails.innerHTML = `
               <div class="subscription-empty">
                 <p>В настоящий момент у вас активирован базовый план. 
@@ -2361,7 +2117,6 @@
             upgradeSection.style.display = 'flex';
           }
           
-          // Если была ошибка и мы показали это - скрыть индикатор загрузки
           const loadingIndicator = document.querySelector('.subscription-loading');
           if (loadingIndicator) {
             loadingIndicator.style.display = 'none';
@@ -2369,7 +2124,6 @@
         } catch (error) {
           console.error('Ошибка при загрузке информации о подписке:', error);
           
-          // Более дружественное сообщение с кнопкой повтора
           document.getElementById('subscription-details').innerHTML = `
             <div class="subscription-error">
               <p>Не удалось загрузить информацию о подписке.</p>
@@ -2378,12 +2132,6 @@
               </button>
             </div>
           `;
-          
-          // Логируем в консоль больше информации для отладки
-          if (error.response) {
-            console.error('Статус ответа:', error.response.status);
-            console.error('Данные ответа:', error.response.data);
-          }
         }
       }
       
@@ -2396,7 +2144,6 @@
         sidebar.classList.remove('open');
       });
       
-      // Закрытие мобильного меню при клике вне области
       document.addEventListener('click', function(e) {
         if (sidebar.classList.contains('open') && 
             !sidebar.contains(e.target) && 
@@ -2411,18 +2158,16 @@
         userDropdown.classList.toggle('show');
       });
       
-      // Закрытие выпадающего меню при клике в другом месте
       document.addEventListener('click', function(e) {
         if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
           userDropdown.classList.remove('show');
         }
       });
       
-      // Обработчик для кнопки показать/скрыть пароль
+      // API ключ обработчики
       togglePasswordButton.addEventListener('click', function() {
         const icon = this.querySelector('i');
         
-        // Переключаем тип поля
         if (apiKeyInput.type === 'password') {
           apiKeyInput.type = 'text';
           icon.className = 'fas fa-eye-slash';
@@ -2434,12 +2179,11 @@
         }
       });
       
-      // Кнопка редактирования API ключа
       editApiKeyBtn.addEventListener('click', function() {
         ui.editKeyMode();
       });
       
-      // Выход из системы - обновленные обработчики
+      // Выход из системы
       logoutButton.addEventListener('click', function(e) {
         e.preventDefault();
         localStorage.removeItem('auth_token');
@@ -2458,7 +2202,6 @@
         
         const apiKey = apiKeyInput.value.trim();
         
-        // Если ключ не изменился, просто переключаем режим
         if (isEditingKey && apiKey === actualApiKey) {
           ui.viewKeyMode();
           return;
@@ -2467,25 +2210,15 @@
         try {
           await api.saveApiKey(apiKey);
           
-          // Сохраняем ключ в памяти (может быть пустой строкой)
           actualApiKey = apiKey;
-          
-          // Переключаем режим
           ui.viewKeyMode();
           
-          // Уведомление
           if (apiKey) {
             ui.showNotification('API ключ успешно сохранен');
-            
-            // Разблокируем дополнительные функции
             ui.unlockFeatures();
-            
-            // Загружаем статистику
             loadStats();
           } else {
             ui.showNotification('API ключ успешно удален');
-            
-            // Блокируем функции, если ключ был удален
             ui.lockFeatures();
           }
         } catch (error) {
@@ -2493,7 +2226,6 @@
         }
       });
       
-      // Закрытие уведомления
       notificationClose.addEventListener('click', ui.hideNotification);
       
       // Блокировка переходов на заблокированные страницы
@@ -2514,25 +2246,21 @@
       const paymentPayBtn = document.getElementById('payment-pay-btn');
       const paymentLoading = document.getElementById('payment-loading');
       
-      // Показать модальное окно
       function showPaymentModal() {
         paymentModal.classList.add('show');
         document.body.style.overflow = 'hidden';
       }
       
-      // Скрыть модальное окно
       function hidePaymentModal() {
         paymentModal.classList.remove('show');
         document.body.style.overflow = '';
         paymentLoading.style.display = 'none';
       }
       
-      // Показать индикатор загрузки
       function showPaymentLoading() {
         paymentLoading.style.display = 'flex';
       }
       
-      // Обработчик для кнопки улучшения тарифа - убираем alert
       if (upgradeSubscriptionBtn) {
         upgradeSubscriptionBtn.addEventListener('click', showPaymentModal);
       }
@@ -2546,19 +2274,16 @@
         try {
           showPaymentLoading();
           
-          // Создаем платеж
           const response = await api.post('/payments/create-payment', {
             plan_code: 'start'
           });
           
           if (response.payment_url && response.form_params) {
-            // Создаем форму для отправки на Robokassa
             const form = document.createElement('form');
             form.method = 'POST';
             form.action = response.payment_url;
             form.style.display = 'none';
             
-            // Добавляем параметры формы
             Object.keys(response.form_params).forEach(key => {
               const input = document.createElement('input');
               input.type = 'hidden';
@@ -2567,11 +2292,9 @@
               form.appendChild(input);
             });
             
-            // Добавляем форму на страницу и отправляем
             document.body.appendChild(form);
             form.submit();
             
-            // Форма отправлена, скрываем модальное окно
             hidePaymentModal();
             
           } else {
@@ -2588,20 +2311,49 @@
         }
       }
 
-      // Обработчик оплаты в обычном модальном окне
       paymentPayBtn.addEventListener('click', handlePayment);
-      
-      // Обработчик оплаты в модальном окне истекшей подписки
       renewSubscriptionBtn.addEventListener('click', async function() {
-        // Скрываем модальное окно истекшей подписки
         ui.hideSubscriptionExpiredModal();
-        
-        // Вызываем обработчик оплаты
         await handlePayment();
       });
       
-      // Закрытие по клавише Escape
+      // Закрытие по клавише Escape (НЕ разрешаем закрывать поп-ап подписки)
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
           if (paymentModal.classList.contains('show')) {
-            hidePayment
+            hidePaymentModal();
+          }
+          if (sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+          }
+          if (userDropdown.classList.contains('show')) {
+            userDropdown.classList.remove('show');
+          }
+        }
+      });
+      
+      // ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ
+      async function initializePage() {
+        if (!checkAuth()) return;
+        
+        // 1. Загружаем данные пользователя (ОРИГИНАЛЬНАЯ ЛОГИКА)
+        await loadUserData();
+        
+        // 2. Проверяем результат оплаты
+        await checkPaymentResult();
+        
+        // 3. НОВАЯ ЛОГИКА: Проверяем доступ через API
+        const hasAccess = await checkUserAccess();
+        
+        // 4. Если доступ разрешен, загружаем информацию о подписке (ОРИГИНАЛЬНАЯ ЛОГИКА)
+        if (hasAccess) {
+          await loadSubscriptionInfo();
+        }
+      }
+      
+      // Запускаем инициализацию
+      initializePage();
+    });
+  </script>
+</body>
+</html>
