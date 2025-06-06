@@ -24,7 +24,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa payment integration"""
+    """Service for Robokassa integration"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -41,6 +41,9 @@ class RobokassaService:
     PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     TEST_MODE = settings.ROBOKASSA_TEST_MODE
     
+    # ИСПРАВЛЕНИЕ: Добавляем константу для цены
+    DEFAULT_SUBSCRIPTION_PRICE = 1490.0
+    
     @staticmethod
     def generate_signature(
         merchant_login: str,
@@ -52,39 +55,28 @@ class RobokassaService:
     ) -> str:
         """
         Генерация подписи для Robokassa
-        
-        Args:
-            merchant_login: Идентификатор магазина
-            out_sum: Сумма платежа
-            inv_id: Номер счета
-            password: Пароль для подписи
-            receipt: Данные чека (необязательно)
-            custom_params: Дополнительные параметры (необязательно)
-            
-        Returns:
-            Подпись MD5
         """
-        # Базовая строка для подписи: MerchantLogin:OutSum:InvId:Password
-        sign_string = f"{merchant_login}:{out_sum}:{inv_id}"
-        
-        # Добавляем чек если есть
-        if receipt:
-            sign_string += f":{receipt}"
+        try:
+            # Базовая строка для подписи: MerchantLogin:OutSum:InvId:Password
+            sign_string = f"{merchant_login}:{out_sum}:{inv_id}:{password}"
             
-        sign_string += f":{password}"
-        
-        # Добавляем пользовательские параметры в алфавитном порядке
-        if custom_params:
-            sorted_params = sorted(custom_params.items())
-            for key, value in sorted_params:
-                sign_string += f":{key}={value}"
-        
-        logger.debug(f"Signature string: {sign_string}")
-        
-        # Генерируем MD5 хеш
-        signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
-        
-        return signature
+            # Добавляем пользовательские параметры в алфавитном порядке
+            if custom_params:
+                sorted_params = sorted(custom_params.items())
+                for key, value in sorted_params:
+                    sign_string += f":{key}={value}"
+            
+            logger.debug(f"Signature string: {sign_string}")
+            
+            # Генерируем MD5 хеш
+            signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
+            
+            logger.info(f"Generated signature: {signature}")
+            return signature
+            
+        except Exception as e:
+            logger.error(f"Error generating signature: {str(e)}")
+            raise
     
     @staticmethod
     def verify_result_signature(
@@ -96,67 +88,61 @@ class RobokassaService:
     ) -> bool:
         """
         Проверка подписи в уведомлении от Robokassa
-        
-        Args:
-            out_sum: Сумма платежа
-            inv_id: Номер счета  
-            password: Пароль #2
-            received_signature: Полученная подпись
-            custom_params: Дополнительные параметры
-            
-        Returns:
-            True если подпись корректна
         """
-        # Базовая строка: OutSum:InvId:Password2
-        sign_string = f"{out_sum}:{inv_id}:{password}"
-        
-        # Добавляем пользовательские параметры в алфавитном порядке
-        if custom_params:
-            sorted_params = sorted(custom_params.items())
-            for key, value in sorted_params:
-                sign_string += f":{key}={value}"
-        
-        logger.debug(f"Verification string: {sign_string}")
-        
-        # Генерируем подпись
-        expected_signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
-        
-        # Сравниваем подписи
-        is_valid = expected_signature == received_signature.upper()
-        
-        if not is_valid:
-            logger.error(f"Signature mismatch. Expected: {expected_signature}, Received: {received_signature}")
-        
-        return is_valid
+        try:
+            # Базовая строка: OutSum:InvId:Password2
+            sign_string = f"{out_sum}:{inv_id}:{password}"
+            
+            # Добавляем пользовательские параметры в алфавитном порядке
+            if custom_params:
+                sorted_params = sorted(custom_params.items())
+                for key, value in sorted_params:
+                    sign_string += f":{key}={value}"
+            
+            logger.debug(f"Verification string: {sign_string}")
+            
+            # Генерируем подпись
+            expected_signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
+            
+            # Сравниваем подписи
+            is_valid = expected_signature == received_signature.upper()
+            
+            if not is_valid:
+                logger.error(f"Signature mismatch. Expected: {expected_signature}, Received: {received_signature}")
+            
+            return is_valid
+            
+        except Exception as e:
+            logger.error(f"Error verifying signature: {str(e)}")
+            return False
     
     @staticmethod
     def create_receipt(description: str, amount: float) -> str:
         """
         Создание чека для фискализации
-        
-        Args:
-            description: Описание товара/услуги
-            amount: Сумма
-            
-        Returns:
-            JSON строка чека в URL encode
         """
-        receipt = {
-            "items": [
-                {
-                    "name": description,
-                    "quantity": 1,
-                    "sum": amount,
-                    "tax": "none"  # Без НДС
-                }
-            ]
-        }
-        
-        # Конвертируем в JSON и кодируем для URL
-        receipt_json = json.dumps(receipt, ensure_ascii=False)
-        receipt_encoded = quote(receipt_json)
-        
-        return receipt_encoded
+        try:
+            receipt = {
+                "items": [
+                    {
+                        "name": description[:128],  # Ограничиваем длину названия
+                        "quantity": 1,
+                        "sum": amount,
+                        "tax": "none"  # Без НДС
+                    }
+                ]
+            }
+            
+            # Конвертируем в JSON и кодируем для URL
+            receipt_json = json.dumps(receipt, ensure_ascii=False)
+            receipt_encoded = quote(receipt_json)
+            
+            logger.debug(f"Created receipt: {receipt_encoded}")
+            return receipt_encoded
+            
+        except Exception as e:
+            logger.error(f"Error creating receipt: {str(e)}")
+            raise
     
     @classmethod
     async def create_payment(
@@ -167,51 +153,62 @@ class RobokassaService:
     ) -> Dict[str, Any]:
         """
         Создание платежа для подписки
-        
-        Args:
-            db: Сессия базы данных
-            user_id: ID пользователя
-            plan_code: Код тарифного плана
-            
-        Returns:
-            Данные для перенаправления на оплату
         """
         try:
+            logger.info(f"Creating payment for user {user_id}, plan {plan_code}")
+            
+            # ИСПРАВЛЕНИЕ: Проверяем настройки Robokassa
+            if not cls.MERCHANT_LOGIN:
+                logger.error("ROBOKASSA_MERCHANT_LOGIN not configured")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Payment system not configured: missing merchant login"
+                )
+                
+            if not cls.PASSWORD_1:
+                logger.error("ROBOKASSA_PASSWORD_1 not configured")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Payment system not configured: missing password"
+                )
+            
             # Получаем пользователя
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
+                logger.error(f"User {user_id} not found")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="User not found"
                 )
             
-            # Получаем план подписки
+            # Получаем или создаем план подписки
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
-            if not plan and plan_code == "start":
-                # Создаем план "start" если его нет
+            if not plan:
+                logger.info(f"Creating new subscription plan: {plan_code}")
                 plan = SubscriptionPlan(
-                    code="start",
+                    code=plan_code,
                     name="Тариф Старт",
-                    price=1490.0,
+                    price=cls.DEFAULT_SUBSCRIPTION_PRICE,
                     max_assistants=3,
                     description="Полный доступ к платформе на 30 дней",
                     is_active=True
                 )
                 db.add(plan)
                 db.flush()
-            elif not plan:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Plan {plan_code} not found"
-                )
             
-            # Параметры платежа
-            out_sum = f"{settings.SUBSCRIPTION_PRICE:.2f}"  # Сумма из настроек
-            inv_id = f"{user_id}_{int(datetime.now().timestamp())}"  # Уникальный номер счета
-            description = f"Подписка {plan.name} на {settings.SUBSCRIPTION_DURATION_DAYS} дней"
+            # ИСПРАВЛЕНИЕ: Используем цену из плана, а не из settings
+            out_sum = f"{float(plan.price):.2f}"
+            inv_id = f"{user_id}_{int(datetime.now().timestamp())}"
+            description = f"Подписка {plan.name}"
+            
+            logger.info(f"Payment details: amount={out_sum}, inv_id={inv_id}")
             
             # Создаем чек для фискализации
-            receipt = cls.create_receipt(description, float(out_sum))
+            try:
+                receipt = cls.create_receipt(description, float(plan.price))
+            except Exception as e:
+                logger.error(f"Error creating receipt: {str(e)}")
+                receipt = ""  # Продолжаем без чека, если есть проблемы
             
             # Дополнительные параметры
             custom_params = {
@@ -220,14 +217,21 @@ class RobokassaService:
             }
             
             # Генерируем подпись
-            signature = cls.generate_signature(
-                cls.MERCHANT_LOGIN,
-                out_sum,
-                inv_id,
-                cls.PASSWORD_1,
-                receipt,
-                custom_params
-            )
+            try:
+                signature = cls.generate_signature(
+                    cls.MERCHANT_LOGIN,
+                    out_sum,
+                    inv_id,
+                    cls.PASSWORD_1,
+                    receipt if receipt else None,
+                    custom_params
+                )
+            except Exception as e:
+                logger.error(f"Error generating signature: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Error generating payment signature"
+                )
             
             # Формируем параметры для формы
             form_params = {
@@ -236,18 +240,37 @@ class RobokassaService:
                 "InvId": inv_id,
                 "Description": description,
                 "SignatureValue": signature,
-                "Receipt": receipt,
-                "ResultURL": cls.RESULT_URL,
-                "SuccessURL": cls.SUCCESS_URL,
-                "FailURL": cls.FAIL_URL,
                 "Culture": "ru",
-                "Encoding": "utf-8",
-                "Email": user.email,
-                "IsTest": "1" if cls.TEST_MODE else "0",
-                **{f"Shp_{k.lower().split('_', 1)[1]}": v for k, v in custom_params.items()}
+                "Encoding": "utf-8"
             }
             
-            logger.info(f"Creating payment for user {user_id}, plan {plan_code}, amount {out_sum}")
+            # Добавляем чек только если он создан успешно
+            if receipt:
+                form_params["Receipt"] = receipt
+            
+            # Добавляем URL'ы для обработки
+            if cls.RESULT_URL:
+                form_params["ResultURL"] = cls.RESULT_URL
+            if cls.SUCCESS_URL:
+                form_params["SuccessURL"] = cls.SUCCESS_URL  
+            if cls.FAIL_URL:
+                form_params["FailURL"] = cls.FAIL_URL
+            
+            # Добавляем email пользователя
+            if user.email:
+                form_params["Email"] = user.email
+            
+            # Добавляем тестовый режим
+            if cls.TEST_MODE:
+                form_params["IsTest"] = "1"
+            
+            # Добавляем пользовательские параметры
+            for key, value in custom_params.items():
+                param_key = key.replace("Shp_", "Shp_")  # Убеждаемся в правильном префиксе
+                form_params[param_key] = value
+            
+            logger.info(f"Payment created successfully: {inv_id}")
+            logger.debug(f"Form params: {form_params}")
             
             return {
                 "payment_url": cls.PAYMENT_URL,
@@ -262,7 +285,7 @@ class RobokassaService:
             logger.error(f"Error creating payment: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create payment"
+                detail=f"Failed to create payment: {str(e)}"
             )
     
     @classmethod
@@ -273,13 +296,6 @@ class RobokassaService:
     ) -> str:
         """
         Обработка уведомления о результате платежа от Robokassa
-        
-        Args:
-            db: Сессия базы данных
-            form_data: Данные формы от Robokassa
-            
-        Returns:
-            Ответ для Robokassa (OK{InvId} или FAIL)
         """
         try:
             # Извлекаем параметры
@@ -291,8 +307,7 @@ class RobokassaService:
             custom_params = {}
             for key, value in form_data.items():
                 if key.startswith("Shp_"):
-                    param_key = key[4:]  # Убираем "Shp_"
-                    custom_params[f"Shp_{param_key}"] = value
+                    custom_params[key] = value
             
             logger.info(f"Processing payment result for InvId: {inv_id}, OutSum: {out_sum}")
             
@@ -337,8 +352,9 @@ class RobokassaService:
             if user.subscription_end_date and user.subscription_end_date > now:
                 start_date = user.subscription_end_date
             
+            duration_days = getattr(settings, 'SUBSCRIPTION_DURATION_DAYS', 30)
             user.subscription_start_date = start_date
-            user.subscription_end_date = start_date + timedelta(days=settings.SUBSCRIPTION_DURATION_DAYS)
+            user.subscription_end_date = start_date + timedelta(days=duration_days)
             user.subscription_plan_id = plan.id
             user.is_trial = False
             
@@ -366,12 +382,6 @@ class RobokassaService:
     def get_payment_status_message(success: bool = True) -> Dict[str, Any]:
         """
         Получение сообщения о статусе платежа для пользователя
-        
-        Args:
-            success: Успешность платежа
-            
-        Returns:
-            Данные для отображения пользователю
         """
         if success:
             return {
