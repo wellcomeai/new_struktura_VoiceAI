@@ -43,27 +43,58 @@ async def create_payment(
         Данные для перенаправления на оплату
     """
     try:
-        # Проверяем, что пользователь не имеет активной подписки
-        # (можно убрать эту проверку, если разрешаем продление)
+        logger.info(f"🚀 Creating payment for user {current_user.id}, plan {plan_code}")
         
-        # Создаем платеж
+        # ДОБАВЛЕНО: Детальное логирование настроек
+        logger.info(f"📋 Payment settings:")
+        logger.info(f"   HOST_URL: {settings.HOST_URL}")
+        logger.info(f"   ROBOKASSA_MERCHANT_LOGIN: {settings.ROBOKASSA_MERCHANT_LOGIN}")
+        logger.info(f"   ROBOKASSA_TEST_MODE: {settings.ROBOKASSA_TEST_MODE}")
+        logger.info(f"   SUBSCRIPTION_PRICE: {getattr(settings, 'SUBSCRIPTION_PRICE', 'NOT SET')}")
+        
+        # ДОБАВЛЕНО: Проверка настроек перед созданием платежа
+        if not settings.ROBOKASSA_MERCHANT_LOGIN:
+            logger.error("❌ ROBOKASSA_MERCHANT_LOGIN is not configured")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Payment system not configured: missing merchant login. Contact administrator."
+            )
+            
+        if not settings.ROBOKASSA_PASSWORD_1:
+            logger.error("❌ ROBOKASSA_PASSWORD_1 is not configured")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Payment system not configured: missing password. Contact administrator."
+            )
+        
+        # Проверяем, что у пользователя нет активной подписки (опционально)
+        # Можно убрать эту проверку, если разрешаем продление
+        logger.info(f"👤 User info: email={current_user.email}, is_trial={current_user.is_trial}")
+        
+        # Создаем платеж через сервис
+        logger.info("💳 Calling RobokassaService.create_payment...")
         payment_data = await RobokassaService.create_payment(
             db=db,
             user_id=str(current_user.id),
             plan_code=plan_code
         )
         
-        logger.info(f"Payment created for user {current_user.id}, plan {plan_code}")
+        logger.info(f"✅ Payment created successfully:")
+        logger.info(f"   payment_url: {payment_data.get('payment_url')}")
+        logger.info(f"   inv_id: {payment_data.get('inv_id')}")
+        logger.info(f"   amount: {payment_data.get('amount')}")
+        logger.info(f"   form_params keys: {list(payment_data.get('form_params', {}).keys())}")
         
         return payment_data
         
-    except HTTPException:
+    except HTTPException as he:
+        logger.error(f"❌ HTTP Exception in create_payment: {he.detail}")
         raise
     except Exception as e:
-        logger.error(f"Error in create_payment endpoint: {str(e)}")
+        logger.error(f"❌ Unexpected error in create_payment: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create payment"
+            detail=f"Failed to create payment: {str(e)}"
         )
 
 @router.post("/robokassa-result")
@@ -86,18 +117,24 @@ async def robokassa_result(
         form_data = await request.form()
         form_dict = dict(form_data)
         
-        logger.info(f"Received Robokassa result notification: {form_dict}")
+        logger.info(f"📥 Received Robokassa result notification:")
+        logger.info(f"   OutSum: {OutSum}")
+        logger.info(f"   InvId: {InvId}")
+        logger.info(f"   SignatureValue: {SignatureValue[:10]}...")
+        logger.info(f"   Shp_user_id: {Shp_user_id}")
+        logger.info(f"   Shp_plan_code: {Shp_plan_code}")
+        logger.info(f"   All form data: {form_dict}")
         
         # Обрабатываем результат платежа
         result = await RobokassaService.process_payment_result(db, form_dict)
         
-        logger.info(f"Payment result processed: {result}")
+        logger.info(f"✅ Payment result processed: {result}")
         
         # Возвращаем ответ Robokassa
         return HTMLResponse(content=result, status_code=200)
         
     except Exception as e:
-        logger.error(f"Error in robokassa_result endpoint: {str(e)}")
+        logger.error(f"❌ Error in robokassa_result endpoint: {str(e)}", exc_info=True)
         # В случае ошибки возвращаем FAIL
         return HTMLResponse(content="FAIL", status_code=200)
 
@@ -113,7 +150,10 @@ async def payment_success(
     Сюда перенаправляется пользователь после успешной оплаты
     """
     try:
-        logger.info(f"User redirected to success page. InvId: {InvId}, OutSum: {OutSum}")
+        logger.info(f"🎉 User redirected to success page:")
+        logger.info(f"   InvId: {InvId}")
+        logger.info(f"   OutSum: {OutSum}")
+        logger.info(f"   SignatureValue: {SignatureValue[:10] if SignatureValue else None}...")
         
         # Получаем данные для отображения
         status_data = RobokassaService.get_payment_status_message(success=True)
@@ -197,7 +237,7 @@ async def payment_success(
         return HTMLResponse(content=html_content)
         
     except Exception as e:
-        logger.error(f"Error in payment_success endpoint: {str(e)}")
+        logger.error(f"❌ Error in payment_success endpoint: {str(e)}", exc_info=True)
         return HTMLResponse(content="<h1>Произошла ошибка</h1>", status_code=500)
 
 @router.get("/cancel", response_class=HTMLResponse)
@@ -211,7 +251,9 @@ async def payment_cancel(
     Сюда перенаправляется пользователь при отмене или неуспешной оплате
     """
     try:
-        logger.info(f"User redirected to cancel page. InvId: {InvId}, OutSum: {OutSum}")
+        logger.info(f"❌ User redirected to cancel page:")
+        logger.info(f"   InvId: {InvId}")
+        logger.info(f"   OutSum: {OutSum}")
         
         # Получаем данные для отображения
         status_data = RobokassaService.get_payment_status_message(success=False)
@@ -295,7 +337,7 @@ async def payment_cancel(
         return HTMLResponse(content=html_content)
         
     except Exception as e:
-        logger.error(f"Error in payment_cancel endpoint: {str(e)}")
+        logger.error(f"❌ Error in payment_cancel endpoint: {str(e)}", exc_info=True)
         return HTMLResponse(content="<h1>Произошла ошибка</h1>", status_code=500)
 
 @router.get("/status/{user_id}")
@@ -306,14 +348,6 @@ async def get_payment_status(
 ):
     """
     Получение статуса платежа/подписки пользователя
-    
-    Args:
-        user_id: ID пользователя
-        current_user: Текущий пользователь
-        db: Сессия базы данных
-        
-    Returns:
-        Статус подписки пользователя
     """
     try:
         # Проверяем права доступа
@@ -341,7 +375,7 @@ async def get_payment_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in get_payment_status endpoint: {str(e)}")
+        logger.error(f"❌ Error in get_payment_status endpoint: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get payment status"
@@ -390,8 +424,9 @@ async def test_payment_success(
         if current_user.subscription_end_date and current_user.subscription_end_date > now:
             start_date = current_user.subscription_end_date
         
+        duration_days = getattr(settings, 'SUBSCRIPTION_DURATION_DAYS', 30)
         current_user.subscription_start_date = start_date
-        current_user.subscription_end_date = start_date + timedelta(days=settings.SUBSCRIPTION_DURATION_DAYS)
+        current_user.subscription_end_date = start_date + timedelta(days=duration_days)
         current_user.subscription_plan_id = plan.id
         current_user.is_trial = False  # Больше не триал
         
@@ -417,14 +452,14 @@ async def test_payment_success(
                 "plan": plan.name,
                 "start_date": current_user.subscription_start_date.isoformat(),
                 "end_date": current_user.subscription_end_date.isoformat(),
-                "days_total": settings.SUBSCRIPTION_DURATION_DAYS,
+                "days_total": duration_days,
                 "is_trial": current_user.is_trial
             }
         }
         
     except Exception as e:
         db.rollback()
-        logger.error(f"❌ Error in test payment: {str(e)}")
+        logger.error(f"❌ Error in test payment: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при обработке тестовой оплаты: {str(e)}"
