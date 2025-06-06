@@ -19,9 +19,7 @@ from sqlalchemy.orm import Session
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
-from backend.models.subscription import SubscriptionPlan
-from backend.models.subscription_log import SubscriptionLog
-from backend.models.payment_transaction import PaymentTransaction
+from backend.models.subscription import SubscriptionPlan, PaymentTransaction
 from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
