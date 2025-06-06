@@ -13,12 +13,13 @@ from .websocket import router as websocket_router
 from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
-from .payments import router as payments_router  # Новый импорт
+from .payments import router as payments_router
+from .subscription_status import router as subscription_status_router  # Новый роутер для проверки подписки
 
 # Create a main API router
 api_router = APIRouter()
 
-# Исправлено: удалены префиксы, будут добавлены в app.py
+# Подключаем все роутеры
 api_router.include_router(auth_router, tags=["Authentication"])
 api_router.include_router(users_router, tags=["Users"])
 api_router.include_router(assistants_router, tags=["Assistants"])
@@ -27,7 +28,8 @@ api_router.include_router(websocket_router, tags=["WebSocket"])
 api_router.include_router(subscriptions_router, tags=["Subscriptions"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(knowledge_base_router)
-api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])  # Новый роутер
+api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])
+api_router.include_router(subscription_status_router, prefix="/subscription-status", tags=["Subscription Status"])  # Новый роутер
 
 # Export all routers for use in app.py
 __all__ = [
@@ -40,5 +42,6 @@ __all__ = [
     "subscriptions_router",
     "admin_router",
     "knowledge_base_router",
-    "payments_router"  # Добавлен новый роутер
+    "payments_router",
+    "subscription_status_router"  # Добавлен новый роутер
 ]
