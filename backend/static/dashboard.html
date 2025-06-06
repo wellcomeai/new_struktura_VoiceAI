@@ -2311,54 +2311,67 @@
       paymentModalOverlay.addEventListener('click', hidePaymentModal);
       
       // Обработчик оплаты
-      async function handlePayment() {
-        try {
-          showPaymentLoading();
-          
-          // ВРЕМЕННАЯ ЗАГЛУШКА: API endpoint еще не реализован
-          // TODO: Заменить на реальный API когда будет готов
-          ui.showNotification('Функция оплаты находится в разработке. Обратитесь к администратору.', 'info');
-          hidePaymentModal();
-          return;
-          
-          
-          const response = await api.post('/payments/create-payment', {
-            plan_code: 'start'
-          });
-          
-          if (response.payment_url && response.form_params) {
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = response.payment_url;
-            form.style.display = 'none';
-            
-            Object.keys(response.form_params).forEach(key => {
-              const input = document.createElement('input');
-              input.type = 'hidden';
-              input.name = key;
-              input.value = response.form_params[key];
-              form.appendChild(input);
-            });
-            
-            document.body.appendChild(form);
-            form.submit();
-            
-            hidePaymentModal();
-            
-          } else {
-            throw new Error('Некорректный ответ сервера');
-          }
-          
-          
-        } catch (error) {
-          console.error('Ошибка создания платежа:', error);
-          ui.showNotification(
-            error.message || 'Ошибка при создании платежа. Попробуйте позже.',
-            'error'
-          );
-          hidePaymentModal();
-        }
-      }
+      // Обработчик оплаты - ФИНАЛЬНАЯ ВЕРСИЯ
+async function handlePayment() {
+  try {
+    showPaymentLoading();
+    
+    console.log('🚀 Создаем платеж через API...');
+    
+    const response = await api.post('/payments/create-payment', {
+      plan_code: 'start'
+    });
+    
+    console.log('📦 Ответ API:', response);
+    
+    if (response.payment_url && response.form_params) {
+      console.log('✅ Данные платежа получены, создаем форму...');
+      
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = response.payment_url;
+      form.style.display = 'none';
+      
+      Object.keys(response.form_params).forEach(key => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = response.form_params[key];
+        form.appendChild(input);
+        
+        console.log(`📝 Добавлен параметр: ${key} = ${response.form_params[key]}`);
+      });
+      
+      document.body.appendChild(form);
+      
+      console.log('🌐 Перенаправляем на Robokassa:', response.payment_url);
+      
+      ui.showNotification('Перенаправляем на страницу оплаты...', 'info');
+      
+      setTimeout(() => {
+        form.submit();
+      }, 1000);
+      
+      hidePaymentModal();
+      
+    } else {
+      console.error('❌ Некорректный ответ сервера:', response);
+      throw new Error('Некорректный ответ сервера - отсутствуют данные для оплаты');
+    }
+    
+  } catch (error) {
+    console.error('❌ Ошибка создания платежа:', error);
+    
+    let errorMessage = 'Ошибка при создании платежа. Попробуйте позже.';
+    
+    if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    ui.showNotification(errorMessage, 'error');
+    hidePaymentModal();
+  }
+}
 
       paymentPayBtn.addEventListener('click', handlePayment);
       renewSubscriptionBtn.addEventListener('click', async function() {
