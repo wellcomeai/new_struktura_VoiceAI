@@ -13,8 +13,7 @@ import uuid
 
 from backend.core.logging import get_logger
 from backend.models.user import User
-from backend.models.subscription import SubscriptionPlan
-from backend.models.subscription_log import SubscriptionLog
+from backend.models.subscription import SubscriptionPlan, SubscriptionLog
 
 logger = get_logger(__name__)
 
