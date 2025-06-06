@@ -77,11 +77,39 @@ async def handle_websocket_connection(
             
         logger.info(f"Ассистент {assistant_id} имеет следующие функции: {enabled_functions}")
 
-        # Определяем API-ключ
+        # ✅ ГЛАВНАЯ ПРОВЕРКА: Блокировка WebSocket для пользователей с неактивной подпиской
         api_key = None
         if assistant.user_id:
             user = db.query(User).get(assistant.user_id)
-            if user and user.openai_api_key:
+            if user:
+                # Проверяем подписку только для НЕ-админов
+                if not user.is_admin and user.email != "well96well@gmail.com":
+                    from backend.services.user_service import UserService
+                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                    
+                    if not subscription_status["active"]:
+                        logger.warning(f"WebSocket blocked for user {user.id} - subscription expired")
+                        
+                        # Определяем тип блокировки
+                        if subscription_status.get("is_trial", False):
+                            error_message = "Ваш пробный период истек. Пожалуйста, оплатите подписку для продолжения использования голосовых ассистентов."
+                            error_code = "TRIAL_EXPIRED"
+                        else:
+                            error_message = "Ваша подписка истекла. Пожалуйста, продлите подписку для продолжения использования голосовых ассистентов."
+                            error_code = "SUBSCRIPTION_EXPIRED"
+                        
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {
+                                "code": error_code,
+                                "message": error_message,
+                                "subscription_status": subscription_status,
+                                "requires_payment": True
+                            }
+                        })
+                        await websocket.close(code=1008)
+                        return
+                
                 api_key = user.openai_api_key
         
         if not api_key:
