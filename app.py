@@ -17,7 +17,7 @@ from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.api import knowledge_base
-
+from backend.api import payments
 # Alembic для миграций
 from alembic.config import Config as AlembicConfig
 from alembic import command as alembic_command
@@ -61,7 +61,7 @@ app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Sub
 app.include_router(subscription_logs.router, prefix="/api/subscription-logs", tags=["Subscription Logs"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
-
+app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 # Проверка и создание директорий для статики
 static_dir = os.path.join(os.getcwd(), "backend/static")
 if not os.path.exists(static_dir):
