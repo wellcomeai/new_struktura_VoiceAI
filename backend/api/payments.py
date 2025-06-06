@@ -9,12 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
 
 from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user
+from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
+from backend.models.subscription import SubscriptionPlan
 from backend.services.payment_service import RobokassaService
+from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
 
@@ -178,12 +182,12 @@ async def payment_success(
                 <div class="icon">✅</div>
                 <h1 class="title">{status_data['title']}</h1>
                 <p class="message">{status_data['message']}</p>
-                <a href="{status_data['redirect_url']}" class="button">Перейти в панель управления</a>
+                <a href="{status_data['redirect_url']}?payment_result=success&payment_status=success" class="button">Перейти в панель управления</a>
             </div>
             <script>
                 // Автоматическое перенаправление через 5 секунд
                 setTimeout(() => {{
-                    window.location.href = "{status_data['redirect_url']}";
+                    window.location.href = "{status_data['redirect_url']}?payment_result=success&payment_status=success";
                 }}, 5000);
             </script>
         </body>
@@ -341,4 +345,87 @@ async def get_payment_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get payment status"
+        )
+
+# 🧪 ТЕСТОВЫЙ ENDPOINT - ТОЛЬКО ДЛЯ РАЗРАБОТКИ
+@router.post("/test-payment-success")
+async def test_payment_success(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🧪 ТОЛЬКО ДЛЯ ТЕСТИРОВАНИЯ: симулирует успешную оплату
+    
+    Этот endpoint позволяет быстро протестировать обновление подписки
+    без реального платежа. Работает только в режиме отладки.
+    """
+    if not settings.DEBUG:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только в режиме отладки"
+        )
+    
+    try:
+        logger.info(f"🧪 Processing test payment for user {current_user.id}")
+        
+        # Получаем или создаем план "start"
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
+        if not plan:
+            plan = SubscriptionPlan(
+                code="start",
+                name="Тариф Старт",
+                price=1490.0,
+                max_assistants=3,
+                description="Полный доступ к платформе на 30 дней",
+                is_active=True
+            )
+            db.add(plan)
+            db.flush()
+        
+        # Обновляем подписку пользователя
+        now = datetime.now(timezone.utc)
+        
+        # Если у пользователя уже есть активная подписка, продлеваем от её окончания
+        start_date = now
+        if current_user.subscription_end_date and current_user.subscription_end_date > now:
+            start_date = current_user.subscription_end_date
+        
+        current_user.subscription_start_date = start_date
+        current_user.subscription_end_date = start_date + timedelta(days=settings.SUBSCRIPTION_DURATION_DAYS)
+        current_user.subscription_plan_id = plan.id
+        current_user.is_trial = False  # Больше не триал
+        
+        db.commit()
+        db.refresh(current_user)
+        
+        # Логируем событие через SubscriptionService
+        await SubscriptionService.log_subscription_event(
+            db=db,
+            user_id=str(current_user.id),
+            action="test_payment_success",
+            plan_id=str(plan.id),
+            plan_code="start",
+            details=f"🧪 Тестовая оплата. Подписка продлена до {current_user.subscription_end_date.strftime('%Y-%m-%d')}"
+        )
+        
+        logger.info(f"✅ Test payment processed successfully for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": "🧪 Тестовая оплата успешно обработана",
+            "subscription": {
+                "plan": plan.name,
+                "start_date": current_user.subscription_start_date.isoformat(),
+                "end_date": current_user.subscription_end_date.isoformat(),
+                "days_total": settings.SUBSCRIPTION_DURATION_DAYS,
+                "is_trial": current_user.is_trial
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error in test payment: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при обработке тестовой оплаты: {str(e)}"
         )
