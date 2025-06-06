@@ -1,8 +1,8 @@
 # backend/services/payment_service.py
 
 """
-Payment service for WellcomeAI application.
-Handles Robokassa integration for subscription payments.
+ИСПРАВЛЕННЫЙ Payment service for WellcomeAI application.
+Упрощенная версия без зависимости от таблиц subscription_plans и subscription_logs.
 """
 
 import hashlib
@@ -18,13 +18,11 @@ from sqlalchemy.orm import Session
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
-from backend.models.subscription import SubscriptionPlan
-from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa integration"""
+    """Service for Robokassa integration - УПРОЩЕННАЯ ВЕРСИЯ"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -41,8 +39,9 @@ class RobokassaService:
     PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     TEST_MODE = settings.ROBOKASSA_TEST_MODE
     
-    # ИСПРАВЛЕНИЕ: Добавляем константу для цены
+    # Константы для упрощенного тарифа
     DEFAULT_SUBSCRIPTION_PRICE = 1490.0
+    DEFAULT_SUBSCRIPTION_DURATION_DAYS = 30
     
     @staticmethod
     def generate_signature(
@@ -152,12 +151,12 @@ class RobokassaService:
         plan_code: str = "start"
     ) -> Dict[str, Any]:
         """
-        Создание платежа для подписки
+        УПРОЩЕННАЯ версия создания платежа без зависимости от таблиц subscription_plans
         """
         try:
             logger.info(f"Creating payment for user {user_id}, plan {plan_code}")
             
-            # ИСПРАВЛЕНИЕ: Проверяем настройки Robokassa
+            # Проверяем настройки Robokassa
             if not cls.MERCHANT_LOGIN:
                 logger.error("ROBOKASSA_MERCHANT_LOGIN not configured")
                 raise HTTPException(
@@ -181,31 +180,16 @@ class RobokassaService:
                     detail="User not found"
                 )
             
-            # Получаем или создаем план подписки
-            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
-            if not plan:
-                logger.info(f"Creating new subscription plan: {plan_code}")
-                plan = SubscriptionPlan(
-                    code=plan_code,
-                    name="Тариф Старт",
-                    price=cls.DEFAULT_SUBSCRIPTION_PRICE,
-                    max_assistants=3,
-                    description="Полный доступ к платформе на 30 дней",
-                    is_active=True
-                )
-                db.add(plan)
-                db.flush()
-            
-            # ИСПРАВЛЕНИЕ: Используем цену из плана, а не из settings
-            out_sum = f"{float(plan.price):.2f}"
+            # ✅ УПРОЩЕНИЕ: Используем константы вместо таблицы subscription_plans
+            out_sum = f"{cls.DEFAULT_SUBSCRIPTION_PRICE:.2f}"
             inv_id = f"{user_id}_{int(datetime.now().timestamp())}"
-            description = f"Подписка {plan.name}"
+            description = "Тариф Старт - подписка на 30 дней"
             
             logger.info(f"Payment details: amount={out_sum}, inv_id={inv_id}")
             
             # Создаем чек для фискализации
             try:
-                receipt = cls.create_receipt(description, float(plan.price))
+                receipt = cls.create_receipt(description, cls.DEFAULT_SUBSCRIPTION_PRICE)
             except Exception as e:
                 logger.error(f"Error creating receipt: {str(e)}")
                 receipt = ""  # Продолжаем без чека, если есть проблемы
@@ -266,8 +250,7 @@ class RobokassaService:
             
             # Добавляем пользовательские параметры
             for key, value in custom_params.items():
-                param_key = key.replace("Shp_", "Shp_")  # Убеждаемся в правильном префиксе
-                form_params[param_key] = value
+                form_params[key] = value
             
             logger.info(f"Payment created successfully: {inv_id}")
             logger.debug(f"Form params: {form_params}")
@@ -295,7 +278,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        Обработка уведомления о результате платежа от Robokassa
+        УПРОЩЕННАЯ обработка уведомления о результате платежа от Robokassa
         """
         try:
             # Извлекаем параметры
@@ -338,13 +321,7 @@ class RobokassaService:
                 logger.error(f"User {user_id} not found for payment {inv_id}")
                 return "FAIL"
             
-            # Получаем план
-            plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
-            if not plan:
-                logger.error(f"Plan {plan_code} not found for payment {inv_id}")
-                return "FAIL"
-            
-            # Обновляем подписку пользователя
+            # ✅ УПРОЩЕНИЕ: Обновляем подписку напрямую без таблиц subscription_plans
             now = datetime.now(timezone.utc)
             
             # Если у пользователя уже есть активная подписка, продлеваем от её окончания
@@ -352,25 +329,17 @@ class RobokassaService:
             if user.subscription_end_date and user.subscription_end_date > now:
                 start_date = user.subscription_end_date
             
-            duration_days = getattr(settings, 'SUBSCRIPTION_DURATION_DAYS', 30)
             user.subscription_start_date = start_date
-            user.subscription_end_date = start_date + timedelta(days=duration_days)
-            user.subscription_plan_id = plan.id
-            user.is_trial = False
+            user.subscription_end_date = start_date + timedelta(days=cls.DEFAULT_SUBSCRIPTION_DURATION_DAYS)
+            user.is_trial = False  # Больше не триал
+            
+            # Устанавливаем план подписки в строковом поле
+            user.subscription_plan = plan_code
             
             db.commit()
             
-            # Логируем событие через SubscriptionService
-            await SubscriptionService.log_subscription_event(
-                db=db,
-                user_id=user_id,
-                action="payment_success",
-                plan_id=str(plan.id),
-                plan_code=plan_code,
-                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}"
-            )
-            
             logger.info(f"Payment {inv_id} processed successfully for user {user_id}")
+            logger.info(f"Subscription updated: start={start_date}, end={user.subscription_end_date}")
             
             return f"OK{inv_id}"
             
