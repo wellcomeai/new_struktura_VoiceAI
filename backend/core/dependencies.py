@@ -140,7 +140,7 @@ async def check_subscription_active_for_assistants(
     current_user: User = Depends(get_current_user)
 ) -> User:
     """
-    Специальная проверка для работы с ассистентами
+    Специальная СТРОГАЯ проверка для работы с ассистентами
     Блокирует доступ если подписка неактивна
     
     Args:
@@ -164,13 +164,23 @@ async def check_subscription_active_for_assistants(
     
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} blocked from using assistants - subscription expired")
+        
+        # Определяем тип блокировки для детального сообщения
+        if subscription_status.get("is_trial", False):
+            error_code = "TRIAL_EXPIRED"
+            error_message = "Ваш пробный период истек. Пожалуйста, оплатите подписку для продолжения использования ассистентов."
+        else:
+            error_code = "SUBSCRIPTION_EXPIRED" 
+            error_message = "Ваша подписка истекла. Пожалуйста, продлите подписку для продолжения использования ассистентов."
+        
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
-                "error": "subscription_expired",
-                "message": "Your trial period has expired. Please upgrade your subscription to continue using assistants.",
-                "code": "TRIAL_EXPIRED",
-                "subscription_status": subscription_status
+                "error": "subscription_required",
+                "message": error_message,
+                "code": error_code,
+                "subscription_status": subscription_status,
+                "requires_payment": True
             }
         )
     
@@ -203,16 +213,26 @@ async def check_assistant_limit(
     # Get subscription status
     subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
     
-    # Сначала проверяем активность подписки
+    # Сначала проверяем активность подписки - СТРОГАЯ ПРОВЕРКА
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} blocked from creating assistants - subscription expired")
+        
+        # Определяем тип ошибки
+        if subscription_status.get("is_trial", False):
+            error_code = "TRIAL_EXPIRED"
+            error_message = "Ваш пробный период истек. Пожалуйста, оплатите подписку для создания ассистентов."
+        else:
+            error_code = "SUBSCRIPTION_EXPIRED"
+            error_message = "Ваша подписка истекла. Пожалуйста, продлите подписку для создания ассистентов."
+        
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
-                "error": "subscription_expired", 
-                "message": "Your trial period has expired. Please upgrade your subscription to create assistants.",
-                "code": "TRIAL_EXPIRED",
-                "subscription_status": subscription_status
+                "error": "subscription_required", 
+                "message": error_message,
+                "code": error_code,
+                "subscription_status": subscription_status,
+                "requires_payment": True
             }
         )
     
@@ -226,7 +246,36 @@ async def check_assistant_limit(
     if assistant_count >= max_assistants:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You have reached your limit of {max_assistants} assistants. Please upgrade your subscription."
+            detail={
+                "error": "assistant_limit_reached",
+                "message": f"Вы достигли лимита в {max_assistants} ассистентов. Пожалуйста, обновите подписку для создания большего количества ассистентов.",
+                "current_count": assistant_count,
+                "max_assistants": max_assistants
+            }
         )
     
+    return current_user
+
+async def check_subscription_or_show_popup(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    Проверка подписки для функций, которые должны показывать поп-ап
+    Вместо блокировки возвращает пользователя, но фронтенд сам решает показывать ли поп-ап
+    
+    Args:
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Current user (всегда возвращает пользователя)
+    """
+    from backend.services.user_service import UserService
+    
+    # Администраторы всегда имеют доступ
+    if current_user.is_admin or current_user.email == "well96well@gmail.com":
+        return current_user
+    
+    # Для других пользователей просто возвращаем - проверку делает фронтенд
     return current_user
