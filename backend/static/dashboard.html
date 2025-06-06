@@ -45,6 +45,17 @@
       display: flex;
       line-height: 1.5;
     }
+
+    /* Блокировка контента при истекшей подписке */
+    body.subscription-expired {
+      overflow: hidden;
+    }
+
+    .content-blocked {
+      pointer-events: none;
+      opacity: 0.5;
+      filter: blur(2px);
+    }
     
     /* Боковая панель */
     .sidebar {
@@ -1005,6 +1016,201 @@
       font-size: 0.95rem;
     }
 
+    /* НОВЫЕ СТИЛИ ДЛЯ НЕЗАКРЫВАЕМОГО ПОСТАВЛЕНИЯ ПОДПИСКИ */
+    .subscription-expired-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .subscription-expired-modal.show {
+      display: flex;
+      animation: modal-fade-in 0.3s ease-in-out;
+    }
+
+    .subscription-expired-content {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      max-width: 600px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      animation: modal-slide-up 0.3s ease-out;
+      position: relative;
+    }
+
+    .subscription-expired-header {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      padding: 2rem;
+      text-align: center;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+
+    .subscription-expired-icon {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+
+    .subscription-expired-title {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .subscription-expired-subtitle {
+      font-size: 1.125rem;
+      opacity: 0.9;
+    }
+
+    .subscription-expired-body {
+      padding: 2rem;
+    }
+
+    .expired-notice {
+      background-color: rgba(239, 68, 68, 0.1);
+      border-left: 4px solid #ef4444;
+      padding: 1.5rem;
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      margin-bottom: 2rem;
+    }
+
+    .expired-notice-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #ef4444;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .expired-notice-text {
+      color: var(--text-dark);
+      line-height: 1.6;
+    }
+
+    .plans-comparison {
+      margin-bottom: 2rem;
+    }
+
+    .plans-comparison h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      text-align: center;
+      color: var(--text-dark);
+    }
+
+    .plans-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .plan-card {
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      text-align: center;
+      transition: var(--transition-sm);
+    }
+
+    .plan-card.featured {
+      border-color: var(--primary-blue);
+      background-color: var(--bg-blue-light);
+      transform: scale(1.05);
+    }
+
+    .plan-name {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--text-dark);
+    }
+
+    .plan-price {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary-blue);
+      margin-bottom: 1rem;
+    }
+
+    .plan-features {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .plan-features li {
+      padding: 0.5rem 0;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .plan-features li i {
+      color: #10b981;
+    }
+
+    .subscription-expired-footer {
+      padding: 2rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .renew-subscription-btn {
+      background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-dark));
+      color: white;
+      padding: 1rem 2rem;
+      border-radius: var(--radius-md);
+      font-weight: 600;
+      font-size: 1.125rem;
+      border: none;
+      cursor: pointer;
+      transition: var(--transition-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .renew-subscription-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .contact-support {
+      text-align: center;
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+
+    .contact-support a {
+      color: var(--primary-blue);
+      text-decoration: none;
+    }
+
+    .contact-support a:hover {
+      text-decoration: underline;
+    }
+
     /* Анимации */
     @keyframes modal-fade-in {
       from { opacity: 0; }
@@ -1133,6 +1339,40 @@
         font-size: 0.9rem;
         padding: 0 1rem;
       }
+
+      /* Мобильная адаптация для модального окна истекшей подписки */
+      .subscription-expired-content {
+        margin: 10px;
+        max-height: calc(100vh - 20px);
+      }
+      
+      .subscription-expired-header {
+        padding: 1.5rem;
+      }
+      
+      .subscription-expired-icon {
+        font-size: 3rem;
+      }
+      
+      .subscription-expired-title {
+        font-size: 1.5rem;
+      }
+      
+      .subscription-expired-subtitle {
+        font-size: 1rem;
+      }
+      
+      .subscription-expired-body {
+        padding: 1.5rem;
+      }
+      
+      .plans-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .plan-card.featured {
+        transform: none;
+      }
     }
     
     @media (max-width: 480px) {
@@ -1184,6 +1424,15 @@
       .notice-icon {
         font-size: 2.5rem;
         margin-bottom: 1rem;
+      }
+
+      .subscription-expired-header {
+        padding: 1rem;
+      }
+      
+      .subscription-expired-body,
+      .subscription-expired-footer {
+        padding: 1rem;
       }
     }
     
@@ -1310,7 +1559,7 @@
     </div>
     
     <!-- Контейнер для содержимого -->
-    <div class="content-container">
+    <div class="content-container" id="content-container">
       <!-- Секция приветствия -->
       <div class="welcome-section">
         <h2 class="welcome-title" id="welcome-message">Добро пожаловать, Александр!</h2>
@@ -1518,6 +1767,66 @@
       </div>
     </div>
   </div>
+
+  <!-- НОВЫЙ ПОСТАВЩИК НА ПОПРАВЧЕНИЕ ПОДПИСКИ -->
+  <div class="subscription-expired-modal" id="subscription-expired-modal">
+    <div class="subscription-expired-content">
+      <div class="subscription-expired-header">
+        <span class="subscription-expired-icon">⏰</span>
+        <h2 class="subscription-expired-title">Подписка истекла</h2>
+        <p class="subscription-expired-subtitle">Продлите подписку, чтобы продолжить использовать платформу</p>
+      </div>
+      
+      <div class="subscription-expired-body">
+        <div class="expired-notice">
+          <div class="expired-notice-title">
+            <i class="fas fa-exclamation-triangle"></i>
+            Ваша подписка завершилась
+          </div>
+          <div class="expired-notice-text">
+            К сожалению, <span id="subscription-type-text">тестовый период</span> завершился и ваши голосовые ассистенты временно отключены. Для восстановления доступа ко всем функциям платформы необходимо оформить подписку.
+          </div>
+        </div>
+        
+        <div class="plans-comparison">
+          <h3>Выберите подходящий тариф</h3>
+          <div class="plans-grid">
+            <div class="plan-card">
+              <div class="plan-name">Бесплатный</div>
+              <div class="plan-price">0 ₽</div>
+              <ul class="plan-features">
+                <li><i class="fas fa-check"></i> 1 ассистент</li>
+                <li><i class="fas fa-check"></i> Базовые функции</li>
+                <li><i class="fas fa-times"></i> Ограниченная поддержка</li>
+              </ul>
+            </div>
+            
+            <div class="plan-card featured">
+              <div class="plan-name">Старт</div>
+              <div class="plan-price">1 490 ₽</div>
+              <ul class="plan-features">
+                <li><i class="fas fa-check"></i> 3 ассистента</li>
+                <li><i class="fas fa-check"></i> Безлимитные диалоги</li>
+                <li><i class="fas fa-check"></i> База знаний</li>
+                <li><i class="fas fa-check"></i> Приоритетная поддержка</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="subscription-expired-footer">
+        <button class="renew-subscription-btn" id="renew-subscription-btn">
+          <i class="fas fa-credit-card"></i>
+          Продлить подписку за 1 490 ₽
+        </button>
+        
+        <div class="contact-support">
+          Нужна помощь? <a href="mailto:support@voicyfy.ru">Свяжитесь с поддержкой</a>
+        </div>
+      </div>
+    </div>
+  </div>
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -1548,11 +1857,19 @@
       const agentsNavItem = document.getElementById('agents-nav-item');
       const knowledgeNavItem = document.getElementById('knowledge-nav-item');
       const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
+      const contentContainer = document.getElementById('content-container');
+      
+      // Элементы для модального окна истекшей подписки
+      const subscriptionExpiredModal = document.getElementById('subscription-expired-modal');
+      const renewSubscriptionBtn = document.getElementById('renew-subscription-btn');
+      const subscriptionTypeText = document.getElementById('subscription-type-text');
       
       // Состояние приложения
       let hasApiKey = false;
       let actualApiKey = null;
       let isEditingKey = false;
+      let currentUser = null;
+      let subscriptionStatus = null;
       
       // API клиент
       const api = {
@@ -1752,8 +2069,76 @@
             apiKeyInput.value = '';
             apiKeyInput.placeholder = 'Введите API ключ OpenAI';
           }
+        },
+
+        // Показать модальное окно истекшей подписки
+        showSubscriptionExpiredModal(isTrialExpired = true) {
+          console.log('Показываем модальное окно истекшей подписки:', isTrialExpired);
+          
+          // Обновляем текст в зависимости от типа подписки
+          if (isTrialExpired) {
+            subscriptionTypeText.textContent = 'тестовый период';
+          } else {
+            subscriptionTypeText.textContent = 'ваша подписка';
+          }
+          
+          // Блокируем контент на фоне
+          document.body.classList.add('subscription-expired');
+          contentContainer.classList.add('content-blocked');
+          
+          // Показываем модальное окно
+          subscriptionExpiredModal.classList.add('show');
+        },
+
+        // Скрыть модальное окно истекшей подписки
+        hideSubscriptionExpiredModal() {
+          console.log('Скрываем модальное окно истекшей подписки');
+          
+          // Разблокируем контент
+          document.body.classList.remove('subscription-expired');
+          contentContainer.classList.remove('content-blocked');
+          
+          // Скрываем модальное окно
+          subscriptionExpiredModal.classList.remove('show');
         }
       };
+
+      // Проверка оплаты после возврата с Robokassa
+      async function checkPaymentResult() {
+        // Проверяем URL параметры на наличие результата оплаты
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentResult = urlParams.get('payment_result');
+        const paymentStatus = urlParams.get('payment_status');
+        
+        if (paymentResult && paymentStatus === 'success') {
+          console.log('Обнаружен успешный результат оплаты, проверяем доступ...');
+          
+          // Небольшая задержка для обработки платежа на backend
+          setTimeout(async () => {
+            try {
+              // Принудительная проверка обновленного статуса подписки
+              const accessInfo = await api.get('/subscription-status/force-check');
+              
+              if (accessInfo.access_granted) {
+                // Скрываем поп-ап блокировки если он показан
+                ui.hideSubscriptionExpiredModal();
+                
+                // Показываем уведомление об успешной оплате
+                ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
+                
+                // Перезагружаем информацию о подписке
+                await loadSubscriptionInfo();
+                
+                // Очищаем URL от параметров оплаты
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }
+            } catch (error) {
+              console.error('Ошибка при проверке результата оплаты:', error);
+              ui.showNotification('Ошибка при проверке статуса оплаты', 'error');
+            }
+          }, 2000);
+        }
+      }
       
       // Проверка авторизации
       function checkAuth() {
@@ -1768,6 +2153,7 @@
       async function loadUserData() {
         try {
           const userData = await api.getCurrentUser();
+          currentUser = userData;
           
           // Обновляем имя пользователя и аватар
           const firstName = userData.first_name || '';
@@ -1876,10 +2262,33 @@
         }
       }
       
+      // Проверка доступа пользователя к платформе
+      async function checkUserAccess() {
+        try {
+          const accessInfo = await api.get('/subscription-status/check-access');
+          console.log('Результат проверки доступа:', accessInfo);
+          
+          // Если нужно показать поп-ап блокировки
+          if (accessInfo.show_payment_popup) {
+            const isTrialExpired = accessInfo.user_type === 'expired' || accessInfo.user_type === 'error';
+            ui.showSubscriptionExpiredModal(isTrialExpired);
+            return false; // Доступ заблокирован
+          }
+          
+          return true; // Доступ разрешен
+        } catch (error) {
+          console.error('Ошибка при проверке доступа:', error);
+          // В случае ошибки API - блокируем доступ для безопасности
+          ui.showSubscriptionExpiredModal(true);
+          return false;
+        }
+      }
+
       // Загрузка информации о подписке
       async function loadSubscriptionInfo() {
         try {
           const subscriptionInfo = await api.get('/subscriptions/my-subscription');
+          subscriptionStatus = subscriptionInfo;
           
           const subscriptionDetails = document.getElementById('subscription-details');
           const upgradeSection = document.getElementById('subscription-upgrade');
@@ -2133,7 +2542,7 @@
       paymentModalOverlay.addEventListener('click', hidePaymentModal);
       
       // Обработчик оплаты
-      paymentPayBtn.addEventListener('click', async function() {
+      async function handlePayment() {
         try {
           showPaymentLoading();
           
@@ -2177,29 +2586,22 @@
           );
           hidePaymentModal();
         }
+      }
+
+      // Обработчик оплаты в обычном модальном окне
+      paymentPayBtn.addEventListener('click', handlePayment);
+      
+      // Обработчик оплаты в модальном окне истекшей подписки
+      renewSubscriptionBtn.addEventListener('click', async function() {
+        // Скрываем модальное окно истекшей подписки
+        ui.hideSubscriptionExpiredModal();
+        
+        // Вызываем обработчик оплаты
+        await handlePayment();
       });
       
       // Закрытие по клавише Escape
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
           if (paymentModal.classList.contains('show')) {
-            hidePaymentModal();
-          }
-          if (sidebar.classList.contains('open')) {
-            sidebar.classList.remove('open');
-          }
-          if (userDropdown.classList.contains('show')) {
-            userDropdown.classList.remove('show');
-          }
-        }
-      });
-      
-      // Инициализация страницы
-      if (checkAuth()) {
-        loadUserData();
-        loadSubscriptionInfo();
-      }
-    });
-  </script>
-</body>
-</html>
+            hidePayment
