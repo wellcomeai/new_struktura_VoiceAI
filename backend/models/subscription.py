@@ -1,11 +1,14 @@
+# backend/models/subscription.py
 """
 Subscription plan model for WellcomeAI application.
+ПОЛНАЯ ВЕРСИЯ с отслеживанием
 """
 
 import uuid
 from sqlalchemy import Column, String, Boolean, Numeric, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 
 from .base import Base, BaseModel
 
@@ -28,3 +31,95 @@ class SubscriptionPlan(Base, BaseModel):
     def __repr__(self):
         """String representation of SubscriptionPlan"""
         return f"<SubscriptionPlan {self.name} (code={self.code})>"
+
+
+# backend/models/subscription_log.py
+"""
+Subscription log model for WellcomeAI application.
+ПОЛНАЯ ВЕРСИЯ с отслеживанием всех событий
+"""
+
+import uuid
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Numeric
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+
+from .base import Base, BaseModel
+
+class SubscriptionLog(Base, BaseModel):
+    """
+    Model representing subscription action logs.
+    КРИТИЧЕСКИ ВАЖНО для отслеживания оплат и уведомлений!
+    """
+    __tablename__ = "subscription_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action = Column(String(50), nullable=False)  # payment_success, trial_start, subscription_expired, etc.
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=True)
+    plan_code = Column(String(20), nullable=True)
+    amount = Column(Numeric(10, 2), nullable=True)  # Сумма платежа
+    payment_id = Column(String(100), nullable=True)  # ID платежа в системе
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    plan = relationship("SubscriptionPlan", foreign_keys=[plan_id])
+
+    def __repr__(self):
+        """String representation of SubscriptionLog"""
+        return f"<SubscriptionLog {self.action} for user {self.user_id}>"
+
+
+# backend/models/payment_transaction.py
+"""
+Новая модель для отслеживания транзакций
+"""
+
+import uuid
+from sqlalchemy import Column, String, DateTime, ForeignKey, Numeric, Boolean
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+
+from .base import Base, BaseModel
+
+class PaymentTransaction(Base, BaseModel):
+    """
+    Model for tracking payment transactions.
+    КРИТИЧЕСКИ ВАЖНО для отчетности и поддержки!
+    """
+    __tablename__ = "payment_transactions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=True)
+    
+    # Данные от платежной системы
+    external_payment_id = Column(String(100), nullable=True)  # InvId от Robokassa
+    payment_system = Column(String(50), default="robokassa")
+    amount = Column(Numeric(10, 2), nullable=False)
+    currency = Column(String(3), default="RUB")
+    
+    # Статус транзакции
+    status = Column(String(20), default="pending")  # pending, success, failed, cancelled
+    is_processed = Column(Boolean, default=False)
+    
+    # Даты
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Дополнительные данные
+    payment_details = Column(String(500), nullable=True)  # JSON с деталями
+    error_message = Column(String(500), nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    plan = relationship("SubscriptionPlan", foreign_keys=[plan_id])
+
+    def __repr__(self):
+        """String representation of PaymentTransaction"""
+        return f"<PaymentTransaction {self.external_payment_id} ({self.status})>"
