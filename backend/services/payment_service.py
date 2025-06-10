@@ -1,9 +1,8 @@
 # backend/services/payment_service.py
 
 """
-ПРАВИЛЬНЫЙ Payment service for WellcomeAI application.
-Полная версия с отслеживанием платежей и уведомлениями.
-ИСПРАВЛЯЕТ ошибку 500 И сохраняет всю функциональность!
+ИСПРАВЛЕННЫЙ Payment service for WellcomeAI application.
+УБРАНЫ параметры amount и payment_id из вызовов log_subscription_event
 """
 
 import hashlib
@@ -25,7 +24,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa integration - ПОЛНАЯ ВЕРСИЯ с отслеживанием"""
+    """Service for Robokassa integration - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -154,7 +153,7 @@ class RobokassaService:
         plan_code: str = "start"
     ) -> Dict[str, Any]:
         """
-        ✅ ПРАВИЛЬНАЯ версия создания платежа с ПОЛНЫМ отслеживанием
+        ✅ ИСПРАВЛЕННАЯ версия создания платежа БЕЗ amount и payment_id в логах
         """
         try:
             logger.info(f"🚀 Creating payment for user {user_id}, plan {plan_code}")
@@ -236,16 +235,14 @@ class RobokassaService:
             
             logger.info(f"📋 Created payment transaction: {transaction.id}")
             
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Логируем начало процесса оплаты
+            # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=user_id,
                 action="payment_started",
                 plan_id=str(plan.id),
                 plan_code=plan_code,
-                details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}",
-                amount=float(out_sum),
-                payment_id=inv_id
+                details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}"
             )
             
             # Создаем чек для фискализации
@@ -342,7 +339,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        ✅ ПРАВИЛЬНАЯ обработка уведомления с ПОЛНЫМ отслеживанием
+        ✅ ИСПРАВЛЕННАЯ обработка уведомления БЕЗ amount и payment_id в логах
         """
         try:
             # Извлекаем параметры
@@ -419,16 +416,14 @@ class RobokassaService:
             
             db.commit()
             
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Логируем успешную оплату
+            # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=user_id,
                 action="payment_success",
                 plan_id=str(plan.id),
                 plan_code=plan_code,
-                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}, Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}",
-                amount=float(out_sum),
-                payment_id=inv_id
+                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}, Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}"
             )
             
             logger.info(f"✅ Payment {inv_id} processed successfully for user {user_id}")
