@@ -2,7 +2,7 @@
 
 """
 Configuration settings for the WellcomeAI application.
-ИСПРАВЛЕННАЯ ВЕРСИЯ - устранены проблемы с localhost и демо-данными
+ИСПРАВЛЕННАЯ ВЕРСИЯ - добавлены правильные валидаторы для Robokassa
 """
 
 import os
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # CORS Settings
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
     
-    # ✅ ИСПРАВЛЕНО: Robokassa settings - БЕЗ демо-значений по умолчанию
+    # ✅ ИСПРАВЛЕНО: Robokassa settings - СТРОГИЕ требования
     ROBOKASSA_MERCHANT_LOGIN: str = os.getenv("ROBOKASSA_MERCHANT_LOGIN", "")
     ROBOKASSA_PASSWORD_1: str = os.getenv("ROBOKASSA_PASSWORD_1", "")  
     ROBOKASSA_PASSWORD_2: str = os.getenv("ROBOKASSA_PASSWORD_2", "")
@@ -72,45 +72,136 @@ class Settings(BaseSettings):
     SUBSCRIPTION_PRICE: float = 1490.0  # Цена подписки в рублях
     SUBSCRIPTION_DURATION_DAYS: int = 30  # Длительность подписки в днях
     
-    # ✅ ДОБАВЛЕНО: Validators для критически важных настроек
+    # ✅ ИСПРАВЛЕНО: Улучшенные validators с детальными проверками
     @validator("HOST_URL")
     def validate_host_url(cls, v):
         if not v:
-            raise ValueError("HOST_URL must be set - localhost is not supported for Robokassa!")
-        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("HOST_URL must be set - localhost is not supported for Robokassa payments!")
+        
+        if not v.startswith(("http://", "https://")):
             raise ValueError("HOST_URL must start with http:// or https://")
-        if "localhost" in v or "127.0.0.1" in v:
-            raise ValueError("HOST_URL cannot be localhost - Robokassa needs public access!")
+        
+        # ✅ СТРОГАЯ проверка на localhost
+        localhost_indicators = ["localhost", "127.0.0.1", "0.0.0.0", ".local"]
+        if any(indicator in v.lower() for indicator in localhost_indicators):
+            raise ValueError(
+                "HOST_URL cannot be localhost or local domain - Robokassa requires public access! "
+                "Use public domain like https://yourdomain.com"
+            )
+        
+        # ✅ Проверка на правильный порт (Robokassa работает только с 80/443)
+        if ":8000" in v or ":5000" in v or ":3000" in v:
+            print(f"⚠️ WARNING: HOST_URL contains development port ({v}). "
+                  f"Robokassa only works with ports 80/443!")
+        
         return v
     
     @validator("DATABASE_URL")
     def validate_database_url(cls, v):
-        if not v and not cls.DEBUG:
+        if not v and not cls.__dict__.get('DEBUG', False):
             raise ValueError("DATABASE_URL must be set in production mode")
         return v
     
     @validator("ROBOKASSA_MERCHANT_LOGIN")
     def validate_robokassa_merchant(cls, v):
         if not v:
-            raise ValueError("ROBOKASSA_MERCHANT_LOGIN must be set - demo values not allowed!")
-        if v == "demo":
-            print("⚠️ WARNING: Using demo Robokassa merchant login - this will cause errors!")
+            raise ValueError(
+                "ROBOKASSA_MERCHANT_LOGIN must be set! "
+                "Get it from Robokassa personal cabinet -> My Shops"
+            )
+        
+        # ✅ Проверка на демо-значения
+        if v.lower() in ["demo", "test", "example", "merchant"]:
+            print(f"⚠️ WARNING: Using demo Robokassa merchant login '{v}' - this will cause payment errors!")
+        
         return v
     
     @validator("ROBOKASSA_PASSWORD_1")
     def validate_robokassa_password1(cls, v):
         if not v:
-            raise ValueError("ROBOKASSA_PASSWORD_1 must be set - demo values not allowed!")
-        if v in ["password_1", "password1", "demo"]:
-            print("⚠️ WARNING: Using demo Robokassa password 1 - this will cause errors!")
+            raise ValueError(
+                "ROBOKASSA_PASSWORD_1 must be set! "
+                "Create it in Robokassa personal cabinet -> My Shops -> Technical Settings"
+            )
+        
+        # ✅ Проверка на демо-значения и слабые пароли
+        weak_passwords = ["password_1", "password1", "demo", "test", "123456", "qwerty"]
+        if v.lower() in weak_passwords:
+            print(f"⚠️ WARNING: Using weak/demo Robokassa password 1 - this will cause payment errors!")
+        
+        # ✅ Проверка требований Robokassa к паролю
+        if len(v) < 8:
+            raise ValueError("ROBOKASSA_PASSWORD_1 must be at least 8 characters long")
+        
+        if not any(c.isdigit() for c in v):
+            print(f"⚠️ WARNING: ROBOKASSA_PASSWORD_1 should contain at least one digit")
+        
+        if not any(c.isalpha() for c in v):
+            print(f"⚠️ WARNING: ROBOKASSA_PASSWORD_1 should contain at least one letter")
+        
         return v
         
     @validator("ROBOKASSA_PASSWORD_2")
     def validate_robokassa_password2(cls, v):
         if not v:
-            raise ValueError("ROBOKASSA_PASSWORD_2 must be set - demo values not allowed!")
-        if v in ["password_2", "password2", "demo"]:
-            print("⚠️ WARNING: Using demo Robokassa password 2 - this will cause errors!")
+            raise ValueError(
+                "ROBOKASSA_PASSWORD_2 must be set! "
+                "Create it in Robokassa personal cabinet -> My Shops -> Technical Settings"
+            )
+        
+        # ✅ Проверка на демо-значения и слабые пароли
+        weak_passwords = ["password_2", "password2", "demo", "test", "123456", "qwerty"]
+        if v.lower() in weak_passwords:
+            print(f"⚠️ WARNING: Using weak/demo Robokassa password 2 - this will cause payment errors!")
+        
+        # ✅ Проверка требований Robokassa к паролю
+        if len(v) < 8:
+            raise ValueError("ROBOKASSA_PASSWORD_2 must be at least 8 characters long")
+        
+        if not any(c.isdigit() for c in v):
+            print(f"⚠️ WARNING: ROBOKASSA_PASSWORD_2 should contain at least one digit")
+        
+        if not any(c.isalpha() for c in v):
+            print(f"⚠️ WARNING: ROBOKASSA_PASSWORD_2 should contain at least one letter")
+        
+        return v
+    
+    @validator("ROBOKASSA_PASSWORD_2")
+    def validate_passwords_different(cls, v, values):
+        """Проверяем, что пароли разные"""
+        password1 = values.get('ROBOKASSA_PASSWORD_1')
+        if password1 and v == password1:
+            raise ValueError(
+                "ROBOKASSA_PASSWORD_1 and ROBOKASSA_PASSWORD_2 must be different! "
+                "Robokassa requires different passwords for initialization and notification."
+            )
+        return v
+    
+    # ✅ НОВЫЙ validator для проверки всей конфигурации Robokassa
+    @validator("ROBOKASSA_TEST_MODE")
+    def validate_robokassa_config(cls, v, values):
+        """Финальная проверка всей конфигурации Robokassa"""
+        
+        # Проверяем, что все параметры заданы
+        required_params = ['ROBOKASSA_MERCHANT_LOGIN', 'ROBOKASSA_PASSWORD_1', 'ROBOKASSA_PASSWORD_2', 'HOST_URL']
+        missing_params = []
+        
+        for param in required_params:
+            if not values.get(param):
+                missing_params.append(param)
+        
+        if missing_params:
+            raise ValueError(
+                f"Missing required Robokassa parameters: {', '.join(missing_params)}. "
+                f"Please check your .env file and Robokassa personal cabinet settings."
+            )
+        
+        # Если тестовый режим выключен, предупреждаем
+        if not v:
+            print("🚀 PRODUCTION MODE: Robokassa test mode is disabled - real payments will be processed!")
+        else:
+            print("🧪 TEST MODE: Robokassa test mode is enabled - no real payments will be charged")
+        
         return v
     
     class Config:
@@ -120,4 +211,10 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 # Create a global settings instance
-settings = Settings()
+try:
+    settings = Settings()
+    print("✅ Configuration loaded successfully")
+except Exception as e:
+    print(f"❌ Configuration error: {str(e)}")
+    print("Please check your .env file and fix the configuration issues.")
+    raise
