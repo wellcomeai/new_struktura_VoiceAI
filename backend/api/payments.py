@@ -3,6 +3,7 @@
 """
 Payment API endpoints for WellcomeAI application.
 Handles Robokassa payment integration.
+ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
@@ -138,8 +139,11 @@ async def robokassa_result(
         # В случае ошибки возвращаем FAIL
         return HTMLResponse(content="FAIL", status_code=200)
 
+# ✅ ИСПРАВЛЕНО: Поддержка как GET, так и POST для Success URL
 @router.get("/success", response_class=HTMLResponse)
+@router.post("/success", response_class=HTMLResponse)
 async def payment_success(
+    request: Request,
     OutSum: Optional[str] = None,
     InvId: Optional[str] = None,
     SignatureValue: Optional[str] = None
@@ -148,9 +152,21 @@ async def payment_success(
     Страница успешной оплаты (SuccessURL)
     
     Сюда перенаправляется пользователь после успешной оплаты
+    Поддерживает как GET, так и POST запросы
     """
     try:
+        # Получаем параметры из GET или POST
+        if request.method == "POST":
+            try:
+                form_data = await request.form()
+                OutSum = form_data.get("OutSum", OutSum)
+                InvId = form_data.get("InvId", InvId)
+                SignatureValue = form_data.get("SignatureValue", SignatureValue)
+            except Exception as form_error:
+                logger.warning(f"⚠️ Could not parse form data: {form_error}")
+        
         logger.info(f"🎉 User redirected to success page:")
+        logger.info(f"   Method: {request.method}")
         logger.info(f"   InvId: {InvId}")
         logger.info(f"   OutSum: {OutSum}")
         logger.info(f"   SignatureValue: {SignatureValue[:10] if SignatureValue else None}...")
@@ -240,8 +256,11 @@ async def payment_success(
         logger.error(f"❌ Error in payment_success endpoint: {str(e)}", exc_info=True)
         return HTMLResponse(content="<h1>Произошла ошибка</h1>", status_code=500)
 
+# ✅ ИСПРАВЛЕНО: Поддержка как GET, так и POST для Cancel URL
 @router.get("/cancel", response_class=HTMLResponse)
+@router.post("/cancel", response_class=HTMLResponse) 
 async def payment_cancel(
+    request: Request,
     OutSum: Optional[str] = None,
     InvId: Optional[str] = None
 ):
@@ -249,9 +268,20 @@ async def payment_cancel(
     Страница отмены оплаты (FailURL)
     
     Сюда перенаправляется пользователь при отмене или неуспешной оплате
+    Поддерживает как GET, так и POST запросы
     """
     try:
+        # Получаем параметры из GET или POST
+        if request.method == "POST":
+            try:
+                form_data = await request.form()
+                OutSum = form_data.get("OutSum", OutSum)
+                InvId = form_data.get("InvId", InvId)
+            except Exception as form_error:
+                logger.warning(f"⚠️ Could not parse form data in cancel: {form_error}")
+        
         logger.info(f"❌ User redirected to cancel page:")
+        logger.info(f"   Method: {request.method}")
         logger.info(f"   InvId: {InvId}")
         logger.info(f"   OutSum: {OutSum}")
         
@@ -381,86 +411,27 @@ async def get_payment_status(
             detail="Failed to get payment status"
         )
 
-# 🧪 ТЕСТОВЫЙ ENDPOINT - ТОЛЬКО ДЛЯ РАЗРАБОТКИ
-@router.post("/test-payment-success")
-async def test_payment_success(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+# ✅ ДОБАВЛЕН: Диагностический endpoint для проверки конфигурации
+@router.get("/config-check")
+async def check_payment_config():
     """
-    🧪 ТОЛЬКО ДЛЯ ТЕСТИРОВАНИЯ: симулирует успешную оплату
-    
-    Этот endpoint позволяет быстро протестировать обновление подписки
-    без реального платежа. Работает только в режиме отладки.
+    Проверка конфигурации платежной системы
     """
-    if not settings.DEBUG:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступно только в режиме отладки"
-        )
-    
-    try:
-        logger.info(f"🧪 Processing test payment for user {current_user.id}")
-        
-        # Получаем или создаем план "start"
-        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
-        if not plan:
-            plan = SubscriptionPlan(
-                code="start",
-                name="Тариф Старт",
-                price=1490.0,
-                max_assistants=3,
-                description="Полный доступ к платформе на 30 дней",
-                is_active=True
-            )
-            db.add(plan)
-            db.flush()
-        
-        # Обновляем подписку пользователя
-        now = datetime.now(timezone.utc)
-        
-        # Если у пользователя уже есть активная подписка, продлеваем от её окончания
-        start_date = now
-        if current_user.subscription_end_date and current_user.subscription_end_date > now:
-            start_date = current_user.subscription_end_date
-        
-        duration_days = getattr(settings, 'SUBSCRIPTION_DURATION_DAYS', 30)
-        current_user.subscription_start_date = start_date
-        current_user.subscription_end_date = start_date + timedelta(days=duration_days)
-        current_user.subscription_plan_id = plan.id
-        current_user.is_trial = False  # Больше не триал
-        
-        db.commit()
-        db.refresh(current_user)
-        
-        # Логируем событие через SubscriptionService
-        await SubscriptionService.log_subscription_event(
-            db=db,
-            user_id=str(current_user.id),
-            action="test_payment_success",
-            plan_id=str(plan.id),
-            plan_code="start",
-            details=f"🧪 Тестовая оплата. Подписка продлена до {current_user.subscription_end_date.strftime('%Y-%m-%d')}"
-        )
-        
-        logger.info(f"✅ Test payment processed successfully for user {current_user.id}")
-        
-        return {
-            "success": True,
-            "message": "🧪 Тестовая оплата успешно обработана",
-            "subscription": {
-                "plan": plan.name,
-                "start_date": current_user.subscription_start_date.isoformat(),
-                "end_date": current_user.subscription_end_date.isoformat(),
-                "days_total": duration_days,
-                "is_trial": current_user.is_trial
-            }
+    return {
+        "status": "OK",
+        "timestamp": datetime.now().isoformat(),
+        "config": {
+            "host_url": settings.HOST_URL,
+            "merchant_login": settings.ROBOKASSA_MERCHANT_LOGIN,
+            "test_mode": settings.ROBOKASSA_TEST_MODE,
+            "password_1_configured": bool(settings.ROBOKASSA_PASSWORD_1),
+            "password_2_configured": bool(settings.ROBOKASSA_PASSWORD_2),
+            "subscription_price": settings.SUBSCRIPTION_PRICE,
+            "subscription_duration_days": settings.SUBSCRIPTION_DURATION_DAYS
+        },
+        "endpoints": {
+            "result_url": f"{settings.HOST_URL}/api/payments/robokassa-result",
+            "success_url": f"{settings.HOST_URL}/api/payments/success",
+            "fail_url": f"{settings.HOST_URL}/api/payments/cancel"
         }
-        
-    except Exception as e:
-        db.rollback()
-        logger.error(f"❌ Error in test payment: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при обработке тестовой оплаты: {str(e)}"
-        )
+    }
