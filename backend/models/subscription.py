@@ -1,7 +1,7 @@
 # backend/models/subscription.py
 """
 Subscription models for WellcomeAI application.
-ПОЛНАЯ ВЕРСИЯ с отслеживанием всех событий подписки
+ИСПРАВЛЕННАЯ ВЕРСИЯ - убраны поля amount и payment_id из SubscriptionLog
 """
 
 import uuid
@@ -36,7 +36,7 @@ class SubscriptionPlan(Base, BaseModel):
 class SubscriptionLog(Base, BaseModel):
     """
     Model representing subscription action logs.
-    КРИТИЧЕСКИ ВАЖНО для отслеживания оплат и уведомлений!
+    ИСПРАВЛЕНО: убраны поля amount и payment_id
     """
     __tablename__ = "subscription_logs"
 
@@ -45,8 +45,7 @@ class SubscriptionLog(Base, BaseModel):
     action = Column(String(50), nullable=False)  # payment_success, trial_start, subscription_expired, etc.
     plan_id = Column(UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=True)
     plan_code = Column(String(20), nullable=True)
-    amount = Column(Numeric(10, 2), nullable=True)  # Сумма платежа
-    payment_id = Column(String(100), nullable=True)  # ID платежа в системе
+    # ✅ УБРАНЫ: amount и payment_id - вся информация сохраняется в details
     details = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
