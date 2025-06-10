@@ -1,8 +1,8 @@
 # backend/services/payment_service.py
 
 """
-ИСПРАВЛЕННЫЙ Payment service - устранена ошибка 500 Robokassa
-ВЕРСИЯ С ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ ДЛЯ ДИАГНОСТИКИ
+ИСПРАВЛЕННЫЙ Payment service - устранены все проблемы с Robokassa
+ВЕРСИЯ С ПРАВИЛЬНОЙ ГЕНЕРАЦИЕЙ ПОДПИСИ И ДЕТАЛЬНЫМ ЛОГИРОВАНИЕМ
 """
 
 import hashlib
@@ -24,7 +24,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa integration - ИСПРАВЛЕННАЯ ВЕРСИЯ с детальным логированием"""
+    """Service for Robokassa integration - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -54,30 +54,29 @@ class RobokassaService:
         custom_params: Optional[Dict[str, str]] = None
     ) -> str:
         """
-        ✅ ИСПРАВЛЕННАЯ генерация подписи с детальным логированием
+        ✅ ИСПРАВЛЕННАЯ генерация подписи согласно документации Robokassa
+        Формула для инициализации платежа: MerchantLogin:OutSum:InvId:Password1[:Shp_item=value]
         """
         try:
-            # Базовая строка для подписи: MerchantLogin:OutSum:InvId:Password
+            # ✅ ПРАВИЛЬНАЯ базовая строка: MerchantLogin:OutSum:InvId:Password
             sign_string = f"{merchant_login}:{out_sum}:{inv_id}:{password}"
             
-            # 🔍 ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
-            logger.info(f"🔐 SIGNATURE GENERATION DEBUG:")
+            logger.info(f"🔐 SIGNATURE GENERATION:")
             logger.info(f"   merchant_login: '{merchant_login}'")
             logger.info(f"   out_sum: '{out_sum}'")
             logger.info(f"   inv_id: '{inv_id}'")
-            logger.info(f"   password: '{password[:3]}...{password[-3:]}' (length: {len(password)})")
-            logger.info(f"   custom_params: {custom_params}")
+            logger.info(f"   password: '[HIDDEN]' (length: {len(password)})")
             logger.info(f"   base_string: '{sign_string}'")
             
-            # Добавляем пользовательские параметры в алфавитном порядке
+            # ✅ ИСПРАВЛЕНО: Добавляем пользовательские параметры в АЛФАВИТНОМ порядке
             if custom_params:
+                # Сортируем параметры по ключам в алфавитном порядке
                 sorted_params = sorted(custom_params.items())
-                logger.info(f"   sorted_params: {sorted_params}")
+                logger.info(f"   custom_params (sorted): {sorted_params}")
                 
                 for key, value in sorted_params:
-                    # ✅ ИСПРАВЛЕНО: Убираем префикс Shp_ при формировании подписи
-                    clean_key = key.replace("Shp_", "")
-                    param_string = f"{clean_key}={value}"
+                    # ✅ ВАЖНО: При генерации подписи НЕ убираем префикс Shp_
+                    param_string = f"{key}={value}"
                     sign_string += f":{param_string}"
                     logger.info(f"   added param: '{param_string}'")
             
@@ -103,25 +102,25 @@ class RobokassaService:
     ) -> bool:
         """
         ✅ ИСПРАВЛЕННАЯ проверка подписи в уведомлении от Robokassa
+        Формула для ResultURL: OutSum:InvId:Password2[:Shp_item=value]
         """
         try:
-            # Базовая строка для ResultURL: OutSum:InvId:Password2
+            # ✅ ПРАВИЛЬНАЯ базовая строка для ResultURL: OutSum:InvId:Password2
             sign_string = f"{out_sum}:{inv_id}:{password}"
             
-            logger.info(f"🔍 VERIFYING SIGNATURE:")
+            logger.info(f"🔍 VERIFYING RESULT SIGNATURE:")
             logger.info(f"   out_sum: '{out_sum}'")
             logger.info(f"   inv_id: '{inv_id}'")
-            logger.info(f"   password2: '{password[:3]}...{password[-3:]}'")
+            logger.info(f"   password2: '[HIDDEN]' (length: {len(password)})")
             logger.info(f"   received_signature: '{received_signature}'")
             logger.info(f"   custom_params: {custom_params}")
             
-            # Добавляем пользовательские параметры в алфавитном порядке
+            # ✅ ИСПРАВЛЕНО: Добавляем пользовательские параметры в алфавитном порядке
             if custom_params:
                 sorted_params = sorted(custom_params.items())
                 for key, value in sorted_params:
-                    # ✅ ИСПРАВЛЕНО: Убираем префикс Shp_ при проверке подписи
-                    clean_key = key.replace("Shp_", "")
-                    param_string = f"{clean_key}={value}"
+                    # ✅ ВАЖНО: При проверке подписи НЕ убираем префикс Shp_
+                    param_string = f"{key}={value}"
                     sign_string += f":{param_string}"
                     logger.info(f"   added verification param: '{param_string}'")
             
@@ -157,43 +156,38 @@ class RobokassaService:
         plan_code: str = "start"
     ) -> Dict[str, Any]:
         """
-        ✅ ИСПРАВЛЕННАЯ версия создания платежа с детальным логированием
+        ✅ ИСПРАВЛЕННАЯ версия создания платежа с правильной подписью
         """
         try:
             logger.info(f"🚀 Creating Robokassa payment for user {user_id}, plan {plan_code}")
             
-            # ✅ ДЕТАЛЬНАЯ ПРОВЕРКА НАСТРОЕК
-            logger.info(f"📋 ROBOKASSA CONFIGURATION CHECK:")
-            logger.info(f"   HOST_URL: '{cls.BASE_URL}'")
-            logger.info(f"   MERCHANT_LOGIN: '{cls.MERCHANT_LOGIN}'")
-            logger.info(f"   PASSWORD_1 length: {len(cls.PASSWORD_1) if cls.PASSWORD_1 else 0}")
-            logger.info(f"   PASSWORD_2 length: {len(cls.PASSWORD_2) if cls.PASSWORD_2 else 0}")
-            logger.info(f"   TEST_MODE: {cls.TEST_MODE}")
-            logger.info(f"   PAYMENT_URL: '{cls.PAYMENT_URL}'")
-            logger.info(f"   RESULT_URL: '{cls.RESULT_URL}'")
-            logger.info(f"   SUCCESS_URL: '{cls.SUCCESS_URL}'")
-            logger.info(f"   FAIL_URL: '{cls.FAIL_URL}'")
-            
-            # Проверки конфигурации
-            if "localhost" in cls.BASE_URL or "127.0.0.1" in cls.BASE_URL:
-                logger.error("❌ HOST_URL contains localhost!")
+            # ✅ КРИТИЧЕСКИЕ ПРОВЕРКИ НАСТРОЕК
+            if not cls.BASE_URL or "localhost" in cls.BASE_URL or "127.0.0.1" in cls.BASE_URL:
+                logger.error("❌ HOST_URL contains localhost or is invalid!")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="HOST_URL cannot be localhost for Robokassa"
+                    detail="HOST_URL cannot be localhost for Robokassa. Please use public domain."
                 )
             
             if not cls.MERCHANT_LOGIN or cls.MERCHANT_LOGIN == "demo":
                 logger.error("❌ Invalid MERCHANT_LOGIN")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Invalid merchant login configuration"
+                    detail="ROBOKASSA_MERCHANT_LOGIN must be configured with real merchant login"
                 )
                 
             if not cls.PASSWORD_1 or cls.PASSWORD_1 in ["password_1", "demo"]:
                 logger.error("❌ Invalid PASSWORD_1")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Invalid password configuration"
+                    detail="ROBOKASSA_PASSWORD_1 must be configured with real password"
+                )
+                
+            if not cls.PASSWORD_2 or cls.PASSWORD_2 in ["password_2", "demo"]:
+                logger.error("❌ Invalid PASSWORD_2")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="ROBOKASSA_PASSWORD_2 must be configured with real password"
                 )
             
             # Получаем пользователя
@@ -232,18 +226,15 @@ class RobokassaService:
                         detail=f"Unknown plan code: {plan_code}"
                     )
             
-            # Параметры платежа
-            out_sum = f"{float(plan.price):.2f}"
-            inv_id = f"pay_{user_id}_{int(datetime.now().timestamp())}"  # Упрощаем inv_id
+            # ✅ ИСПРАВЛЕНО: Правильные параметры платежа
+            out_sum = f"{float(plan.price):.2f}"  # Важно: формат X.XX
+            inv_id = f"{int(datetime.now().timestamp())}"  # Простой числовой ID
             description = f"Подписка {plan.name} на 30 дней"
             
             logger.info(f"💳 PAYMENT PARAMETERS:")
             logger.info(f"   out_sum: '{out_sum}'")
             logger.info(f"   inv_id: '{inv_id}'")
             logger.info(f"   description: '{description}'")
-            logger.info(f"   plan_name: '{plan.name}'")
-            logger.info(f"   plan_price: {plan.price}")
-            logger.info(f"   user_email: '{user.email}'")
             
             # Создаем запись транзакции
             transaction = PaymentTransaction(
@@ -262,14 +253,14 @@ class RobokassaService:
             
             logger.info(f"📋 Created payment transaction: {transaction.id}")
             
-            # ✅ МИНИМАЛЬНЫЕ дополнительные параметры
+            # ✅ ИСПРАВЛЕНО: Правильные дополнительные параметры с префиксом Shp_
             custom_params = {
                 "Shp_user_id": user_id,
                 "Shp_plan_code": plan_code
             }
             
-            # ✅ ГЕНЕРИРУЕМ ПОДПИСЬ
-            logger.info(f"🔐 Generating signature...")
+            # ✅ ГЕНЕРИРУЕМ ПРАВИЛЬНУЮ ПОДПИСЬ
+            logger.info(f"🔐 Generating signature with PASSWORD_1...")
             signature = cls.generate_signature(
                 cls.MERCHANT_LOGIN,
                 out_sum,
@@ -278,7 +269,7 @@ class RobokassaService:
                 custom_params
             )
             
-            # ✅ МИНИМАЛЬНЫЙ набор параметров для формы
+            # ✅ ИСПРАВЛЕНО: Правильные параметры формы
             form_params = {
                 "MerchantLogin": cls.MERCHANT_LOGIN,
                 "OutSum": out_sum,
@@ -289,13 +280,14 @@ class RobokassaService:
                 "Encoding": "utf-8"
             }
             
-            # Добавляем URL'ы только если они не содержат localhost
-            if not any(x in cls.RESULT_URL for x in ["localhost", "127.0.0.1"]):
+            # ✅ ВАЖНО: Добавляем URL'ы только для ПУБЛИЧНЫХ доменов
+            if cls.BASE_URL and not any(x in cls.BASE_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["ResultURL"] = cls.RESULT_URL
-            if not any(x in cls.SUCCESS_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["SuccessURL"] = cls.SUCCESS_URL  
-            if not any(x in cls.FAIL_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["FailURL"] = cls.FAIL_URL
+                logger.info(f"✅ Added callback URLs")
+            else:
+                logger.warning(f"⚠️ Skipping callback URLs due to localhost")
             
             # Добавляем email пользователя
             if user.email:
@@ -315,8 +307,6 @@ class RobokassaService:
             for key, value in form_params.items():
                 if key == "SignatureValue":
                     logger.info(f"   {key}: '{value}'")
-                elif "password" in key.lower():
-                    logger.info(f"   {key}: [HIDDEN]")
                 else:
                     logger.info(f"   {key}: '{value}'")
             
@@ -358,7 +348,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        Обработка уведомления от Robokassa с детальным логированием
+        ✅ ИСПРАВЛЕННАЯ обработка уведомления от Robokassa
         """
         try:
             # Извлекаем параметры
@@ -372,14 +362,17 @@ class RobokassaService:
                 if key.startswith("Shp_"):
                     custom_params[key] = value
             
-            logger.info(f"📥 Processing payment result for InvId: {inv_id}, OutSum: {out_sum}")
-            logger.info(f"📥 All form data: {form_data}")
+            logger.info(f"📥 Processing payment result:")
+            logger.info(f"   InvId: {inv_id}")
+            logger.info(f"   OutSum: {out_sum}")
+            logger.info(f"   SignatureValue: {signature_value[:10]}...")
+            logger.info(f"   Custom params: {custom_params}")
             
-            # Проверяем подпись
+            # ✅ ПРОВЕРЯЕМ ПОДПИСЬ С PASSWORD_2
             is_valid = cls.verify_result_signature(
                 out_sum,
                 inv_id,
-                cls.PASSWORD_2,
+                cls.PASSWORD_2,  # ✅ ВАЖНО: Для ResultURL используем PASSWORD_2
                 signature_value,
                 custom_params
             )
@@ -408,7 +401,7 @@ class RobokassaService:
                 logger.error(f"❌ Plan {plan_code} not found for payment {inv_id}")
                 return "FAIL"
             
-            # Обновляем подписку пользователя
+            # ✅ ОБНОВЛЯЕМ ПОДПИСКУ ПОЛЬЗОВАТЕЛЯ
             now = datetime.now(timezone.utc)
             
             # Если у пользователя уже есть активная подписка, продлеваем от её окончания
@@ -421,6 +414,17 @@ class RobokassaService:
             user.subscription_end_date = start_date + timedelta(days=duration_days)
             user.subscription_plan_id = plan.id
             user.is_trial = False  # Больше не триал
+            
+            # ✅ ОБНОВЛЯЕМ СТАТУС ТРАНЗАКЦИИ
+            transaction = db.query(PaymentTransaction).filter(
+                PaymentTransaction.external_payment_id == inv_id
+            ).first()
+            
+            if transaction:
+                transaction.status = "success"
+                transaction.paid_at = now
+                transaction.processed_at = now
+                transaction.is_processed = True
             
             db.commit()
             
@@ -436,6 +440,7 @@ class RobokassaService:
             
             logger.info(f"✅ Payment {inv_id} processed successfully for user {user_id}")
             
+            # ✅ ВАЖНО: Возвращаем правильный ответ для Robokassa
             return f"OK{inv_id}"
             
         except Exception as e:
