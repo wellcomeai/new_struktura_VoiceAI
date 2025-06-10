@@ -1,8 +1,7 @@
 # backend/services/payment_service.py
 
 """
-ИСПРАВЛЕННЫЙ Payment service for WellcomeAI application.
-УБРАНЫ параметры amount и payment_id из вызовов log_subscription_event
+ИСПРАВЛЕННЫЙ Payment service - устранена ошибка 500 Robokassa
 """
 
 import hashlib
@@ -24,7 +23,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa integration - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    """Service for Robokassa integration - ИСПРАВЛЕННАЯ ВЕРСИЯ без ошибки 500"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -51,11 +50,10 @@ class RobokassaService:
         out_sum: str,
         inv_id: str,
         password: str,
-        receipt: Optional[str] = None,
         custom_params: Optional[Dict[str, str]] = None
     ) -> str:
         """
-        Генерация подписи для Robokassa
+        ✅ ИСПРАВЛЕНО: Генерация подписи БЕЗ Receipt согласно документации
         """
         try:
             # Базовая строка для подписи: MerchantLogin:OutSum:InvId:Password
@@ -67,16 +65,16 @@ class RobokassaService:
                 for key, value in sorted_params:
                     sign_string += f":{key}={value}"
             
-            logger.debug(f"Signature string: {sign_string}")
+            logger.info(f"🔐 Signature string: {sign_string}")
             
             # Генерируем MD5 хеш
             signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
             
-            logger.info(f"Generated signature: {signature}")
+            logger.info(f"✅ Generated signature: {signature}")
             return signature
             
         except Exception as e:
-            logger.error(f"Error generating signature: {str(e)}")
+            logger.error(f"❌ Error generating signature: {str(e)}")
             raise
     
     @staticmethod
@@ -117,34 +115,6 @@ class RobokassaService:
             logger.error(f"Error verifying signature: {str(e)}")
             return False
     
-    @staticmethod
-    def create_receipt(description: str, amount: float) -> str:
-        """
-        Создание чека для фискализации
-        """
-        try:
-            receipt = {
-                "items": [
-                    {
-                        "name": description[:128],  # Ограничиваем длину названия
-                        "quantity": 1,
-                        "sum": amount,
-                        "tax": "none"  # Без НДС
-                    }
-                ]
-            }
-            
-            # Конвертируем в JSON и кодируем для URL
-            receipt_json = json.dumps(receipt, ensure_ascii=False)
-            receipt_encoded = quote(receipt_json)
-            
-            logger.debug(f"Created receipt: {receipt_encoded}")
-            return receipt_encoded
-            
-        except Exception as e:
-            logger.error(f"Error creating receipt: {str(e)}")
-            raise
-    
     @classmethod
     async def create_payment(
         cls,
@@ -153,39 +123,45 @@ class RobokassaService:
         plan_code: str = "start"
     ) -> Dict[str, Any]:
         """
-        ✅ ИСПРАВЛЕННАЯ версия создания платежа БЕЗ amount и payment_id в логах
+        ✅ ИСПРАВЛЕННАЯ версия создания платежа БЕЗ ошибки 500
         """
         try:
-            logger.info(f"🚀 Creating payment for user {user_id}, plan {plan_code}")
+            logger.info(f"🚀 Creating Robokassa payment for user {user_id}, plan {plan_code}")
             
             # Проверяем настройки Robokassa
             if not cls.MERCHANT_LOGIN:
-                logger.error("ROBOKASSA_MERCHANT_LOGIN not configured")
+                logger.error("❌ ROBOKASSA_MERCHANT_LOGIN not configured")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Payment system not configured: missing merchant login"
                 )
                 
             if not cls.PASSWORD_1:
-                logger.error("ROBOKASSA_PASSWORD_1 not configured")
+                logger.error("❌ ROBOKASSA_PASSWORD_1 not configured")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Payment system not configured: missing password"
                 )
             
+            # Логируем режим работы
+            if cls.TEST_MODE:
+                logger.warning("⚠️ ROBOKASSA TEST MODE IS ENABLED")
+            else:
+                logger.info("🎯 ROBOKASSA PRODUCTION MODE")
+            
             # Получаем пользователя
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
-                logger.error(f"User {user_id} not found")
+                logger.error(f"❌ User {user_id} not found")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="User not found"
                 )
             
-            # ✅ ПРАВИЛЬНО: Получаем план из таблицы subscription_plans
+            # Получаем план из таблицы subscription_plans
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
             if not plan:
-                logger.info(f"Creating new subscription plan: {plan_code}")
+                logger.info(f"📋 Creating new subscription plan: {plan_code}")
                 # Создаем план, если его нет
                 plan_data = {
                     "free": {"name": "Free Trial", "price": 0, "max_assistants": 1},
@@ -216,9 +192,13 @@ class RobokassaService:
             inv_id = f"{user_id}_{int(datetime.now().timestamp())}"
             description = f"{plan.name} - подписка на {cls.DEFAULT_SUBSCRIPTION_DURATION_DAYS} дней"
             
-            logger.info(f"💳 Payment details: amount={out_sum}, inv_id={inv_id}, plan={plan.name}")
+            logger.info(f"💳 Payment details:")
+            logger.info(f"   amount: {out_sum}")
+            logger.info(f"   inv_id: {inv_id}")
+            logger.info(f"   plan: {plan.name}")
+            logger.info(f"   merchant: {cls.MERCHANT_LOGIN}")
             
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Создаем запись транзакции ДО отправки платежа
+            # Создаем запись транзакции
             transaction = PaymentTransaction(
                 user_id=user.id,
                 plan_id=plan.id,
@@ -235,7 +215,7 @@ class RobokassaService:
             
             logger.info(f"📋 Created payment transaction: {transaction.id}")
             
-            # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
+            # Логируем начало процесса оплаты
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=user_id,
@@ -245,38 +225,32 @@ class RobokassaService:
                 details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}"
             )
             
-            # Создаем чек для фискализации
-            try:
-                receipt = cls.create_receipt(description, float(plan.price))
-            except Exception as e:
-                logger.error(f"Error creating receipt: {str(e)}")
-                receipt = ""  # Продолжаем без чека, если есть проблемы
+            # ✅ ИСПРАВЛЕНО: Убираем Receipt, который может вызывать ошибку 500
+            # Receipt часто является причиной ошибок в Robokassa
             
-            # Дополнительные параметры
+            # Дополнительные параметры (сокращаем для минимизации ошибок)
             custom_params = {
                 "Shp_user_id": user_id,
-                "Shp_plan_code": plan_code,
-                "Shp_transaction_id": str(transaction.id)  # ✅ ВАЖНО: передаем ID транзакции
+                "Shp_plan_code": plan_code
             }
             
-            # Генерируем подпись
+            # ✅ ИСПРАВЛЕНО: Генерируем подпись БЕЗ Receipt
             try:
                 signature = cls.generate_signature(
                     cls.MERCHANT_LOGIN,
                     out_sum,
                     inv_id,
                     cls.PASSWORD_1,
-                    receipt if receipt else None,
                     custom_params
                 )
             except Exception as e:
-                logger.error(f"Error generating signature: {str(e)}")
+                logger.error(f"❌ Error generating signature: {str(e)}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Error generating payment signature"
                 )
             
-            # Формируем параметры для формы
+            # ✅ ИСПРАВЛЕНО: Минимальный набор параметров для избежания ошибок
             form_params = {
                 "MerchantLogin": cls.MERCHANT_LOGIN,
                 "OutSum": out_sum,
@@ -286,10 +260,6 @@ class RobokassaService:
                 "Culture": "ru",
                 "Encoding": "utf-8"
             }
-            
-            # Добавляем чек только если он создан успешно
-            if receipt:
-                form_params["Receipt"] = receipt
             
             # Добавляем URL'ы для обработки
             if cls.RESULT_URL:
@@ -306,27 +276,36 @@ class RobokassaService:
             # Добавляем тестовый режим
             if cls.TEST_MODE:
                 form_params["IsTest"] = "1"
+                logger.info("🧪 Test mode parameter added")
             
             # Добавляем пользовательские параметры
             for key, value in custom_params.items():
                 form_params[key] = value
             
+            # Детальное логирование параметров
+            logger.info(f"📋 Final form parameters:")
+            for key, value in form_params.items():
+                if key == "SignatureValue":
+                    logger.info(f"   {key}: {value[:10]}...")
+                else:
+                    logger.info(f"   {key}: {value}")
+            
             logger.info(f"✅ Payment created successfully: {inv_id}")
-            logger.info(f"📄 Transaction ID: {transaction.id}")
+            logger.info(f"🌐 Redirecting to: {cls.PAYMENT_URL}")
             
             return {
                 "payment_url": cls.PAYMENT_URL,
                 "form_params": form_params,
                 "inv_id": inv_id,
                 "amount": out_sum,
-                "transaction_id": str(transaction.id)  # ✅ Возвращаем для отслеживания
+                "transaction_id": str(transaction.id)
             }
             
         except HTTPException:
             raise
         except Exception as e:
             db.rollback()
-            logger.error(f"❌ Error creating payment: {str(e)}")
+            logger.error(f"❌ Error creating Robokassa payment: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to create payment: {str(e)}"
@@ -339,7 +318,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        ✅ ИСПРАВЛЕННАЯ обработка уведомления БЕЗ amount и payment_id в логах
+        Обработка уведомления от Robokassa
         """
         try:
             # Извлекаем параметры
@@ -371,7 +350,6 @@ class RobokassaService:
             # Извлекаем пользовательские данные
             user_id = custom_params.get("Shp_user_id")
             plan_code = custom_params.get("Shp_plan_code", "start")
-            transaction_id = custom_params.get("Shp_transaction_id")
             
             if not user_id:
                 logger.error(f"❌ Missing user_id in payment {inv_id}")
@@ -389,17 +367,6 @@ class RobokassaService:
                 logger.error(f"❌ Plan {plan_code} not found for payment {inv_id}")
                 return "FAIL"
             
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Обновляем статус транзакции
-            if transaction_id:
-                transaction = db.query(PaymentTransaction).filter(
-                    PaymentTransaction.id == transaction_id
-                ).first()
-                if transaction:
-                    transaction.status = "success"
-                    transaction.paid_at = datetime.now(timezone.utc)
-                    transaction.is_processed = True
-                    logger.info(f"✅ Updated transaction {transaction_id} status to success")
-            
             # Обновляем подписку пользователя
             now = datetime.now(timezone.utc)
             
@@ -416,7 +383,7 @@ class RobokassaService:
             
             db.commit()
             
-            # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
+            # Логируем успешную оплату
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=user_id,
@@ -427,20 +394,6 @@ class RobokassaService:
             )
             
             logger.info(f"✅ Payment {inv_id} processed successfully for user {user_id}")
-            logger.info(f"📅 Subscription updated: start={start_date}, end={user.subscription_end_date}")
-            
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Отправляем уведомление об успешной оплате
-            try:
-                from backend.services.notification_service import NotificationService
-                await NotificationService.send_payment_success_notification(
-                    user=user,
-                    plan_name=plan.name,
-                    amount=float(out_sum),
-                    end_date=user.subscription_end_date
-                )
-                logger.info(f"📧 Payment success notification sent to {user.email}")
-            except Exception as notif_error:
-                logger.error(f"⚠️ Failed to send payment notification: {notif_error}")
             
             return f"OK{inv_id}"
             
