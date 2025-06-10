@@ -53,7 +53,7 @@ class RobokassaService:
         custom_params: Optional[Dict[str, str]] = None
     ) -> str:
         """
-        ✅ ИСПРАВЛЕНО: Генерация подписи БЕЗ Receipt согласно документации
+        ✅ ИСПРАВЛЕННАЯ генерация подписи согласно документации Robokassa
         """
         try:
             # Базовая строка для подписи: MerchantLogin:OutSum:InvId:Password
@@ -63,7 +63,9 @@ class RobokassaService:
             if custom_params:
                 sorted_params = sorted(custom_params.items())
                 for key, value in sorted_params:
-                    sign_string += f":{key}={value}"
+                    # ✅ ИСПРАВЛЕНО: Убираем префикс Shp_ при формировании подписи
+                    clean_key = key.replace("Shp_", "")
+                    sign_string += f":{clean_key}={value}"
             
             logger.info(f"🔐 Signature string: {sign_string}")
             
@@ -86,17 +88,19 @@ class RobokassaService:
         custom_params: Optional[Dict[str, str]] = None
     ) -> bool:
         """
-        Проверка подписи в уведомлении от Robokassa
+        ✅ ИСПРАВЛЕННАЯ проверка подписи в уведомлении от Robokassa
         """
         try:
-            # Базовая строка: OutSum:InvId:Password2
+            # Базовая строка для ResultURL: OutSum:InvId:Password2
             sign_string = f"{out_sum}:{inv_id}:{password}"
             
             # Добавляем пользовательские параметры в алфавитном порядке
             if custom_params:
                 sorted_params = sorted(custom_params.items())
                 for key, value in sorted_params:
-                    sign_string += f":{key}={value}"
+                    # ✅ ИСПРАВЛЕНО: Убираем префикс Shp_ при проверке подписи
+                    clean_key = key.replace("Shp_", "")
+                    sign_string += f":{clean_key}={value}"
             
             logger.debug(f"Verification string: {sign_string}")
             
@@ -128,19 +132,27 @@ class RobokassaService:
         try:
             logger.info(f"🚀 Creating Robokassa payment for user {user_id}, plan {plan_code}")
             
-            # Проверяем настройки Robokassa
-            if not cls.MERCHANT_LOGIN:
-                logger.error("❌ ROBOKASSA_MERCHANT_LOGIN not configured")
+            # ✅ ДОБАВЛЕНО: Проверка HOST_URL на localhost
+            if "localhost" in cls.BASE_URL or "127.0.0.1" in cls.BASE_URL:
+                logger.error("❌ HOST_URL contains localhost - Robokassa cannot reach local addresses!")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Payment system not configured: missing merchant login"
+                    detail="Настройте HOST_URL на публично доступный домен. Localhost недоступен для Robokassa."
+                )
+            
+            # Проверяем настройки Robokassa
+            if not cls.MERCHANT_LOGIN or cls.MERCHANT_LOGIN == "demo":
+                logger.error("❌ ROBOKASSA_MERCHANT_LOGIN not configured or using demo")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Настройте реальные данные Robokassa в переменных окружения"
                 )
                 
-            if not cls.PASSWORD_1:
-                logger.error("❌ ROBOKASSA_PASSWORD_1 not configured")
+            if not cls.PASSWORD_1 or cls.PASSWORD_1 == "password_1":
+                logger.error("❌ ROBOKASSA_PASSWORD_1 not configured or using demo")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Payment system not configured: missing password"
+                    detail="Настройте реальный PASSWORD_1 от Robokassa"
                 )
             
             # Логируем режим работы
@@ -197,6 +209,7 @@ class RobokassaService:
             logger.info(f"   inv_id: {inv_id}")
             logger.info(f"   plan: {plan.name}")
             logger.info(f"   merchant: {cls.MERCHANT_LOGIN}")
+            logger.info(f"   base_url: {cls.BASE_URL}")
             
             # Создаем запись транзакции
             transaction = PaymentTransaction(
@@ -225,16 +238,13 @@ class RobokassaService:
                 details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}"
             )
             
-            # ✅ ИСПРАВЛЕНО: Убираем Receipt, который может вызывать ошибку 500
-            # Receipt часто является причиной ошибок в Robokassa
-            
-            # Дополнительные параметры (сокращаем для минимизации ошибок)
+            # ✅ ИСПРАВЛЕНО: Минимальные дополнительные параметры
             custom_params = {
                 "Shp_user_id": user_id,
                 "Shp_plan_code": plan_code
             }
             
-            # ✅ ИСПРАВЛЕНО: Генерируем подпись БЕЗ Receipt
+            # ✅ ИСПРАВЛЕНО: Используем правильную генерацию подписи
             try:
                 signature = cls.generate_signature(
                     cls.MERCHANT_LOGIN,
@@ -250,7 +260,7 @@ class RobokassaService:
                     detail="Error generating payment signature"
                 )
             
-            # ✅ ИСПРАВЛЕНО: Минимальный набор параметров для избежания ошибок
+            # ✅ ИСПРАВЛЕНО: Минимальный набор параметров
             form_params = {
                 "MerchantLogin": cls.MERCHANT_LOGIN,
                 "OutSum": out_sum,
@@ -261,12 +271,12 @@ class RobokassaService:
                 "Encoding": "utf-8"
             }
             
-            # Добавляем URL'ы для обработки
-            if cls.RESULT_URL:
+            # Добавляем URL'ы для обработки ТОЛЬКО если они не localhost
+            if not any(x in cls.RESULT_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["ResultURL"] = cls.RESULT_URL
-            if cls.SUCCESS_URL:
+            if not any(x in cls.SUCCESS_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["SuccessURL"] = cls.SUCCESS_URL  
-            if cls.FAIL_URL:
+            if not any(x in cls.FAIL_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["FailURL"] = cls.FAIL_URL
             
             # Добавляем email пользователя
