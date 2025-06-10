@@ -1,7 +1,6 @@
 """
-ПРАВИЛЬНЫЙ Subscription service for WellcomeAI application.
-Полная версия с отслеживанием, логированием и уведомлениями.
-ИСПРАВЛЯЕТ ошибку 500 И сохраняет всю функциональность!
+ИСПРАВЛЕННЫЙ Subscription service for WellcomeAI application.
+УБРАНЫ параметры amount и payment_id из функции log_subscription_event
 """
 
 from fastapi import HTTPException, status
@@ -18,12 +17,12 @@ from backend.models.subscription import SubscriptionPlan, SubscriptionLog
 logger = get_logger(__name__)
 
 class SubscriptionService:
-    """Service for subscription operations - ПОЛНАЯ ВЕРСИЯ с отслеживанием"""
+    """Service for subscription operations - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
     
     @staticmethod
     async def activate_trial(db: Session, user_id: str, trial_days: int = 3) -> Optional[User]:
         """
-        ✅ ПРАВИЛЬНАЯ версия активации триального периода с ПОЛНЫМ логированием
+        ✅ ИСПРАВЛЕННАЯ версия активации триального периода БЕЗ amount и payment_id в логах
         """
         from backend.services.user_service import UserService
         
@@ -97,15 +96,14 @@ class SubscriptionService:
             db.commit()
             db.refresh(user)
             
-            # ✅ КРИТИЧЕСКИ ВАЖНО: Логируем активацию пробного периода в БД
+            # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=str(user.id),
                 action="trial_activate",
                 plan_id=str(trial_plan.id),
                 plan_code="free",
-                details=f"Trial activated for {trial_days} days until {user.subscription_end_date.strftime('%Y-%m-%d')}",
-                amount=0
+                details=f"Trial activated for {trial_days} days until {user.subscription_end_date.strftime('%Y-%m-%d')}"
             )
             
             # ✅ КРИТИЧЕСКИ ВАЖНО: Отправляем уведомление о начале триала
@@ -133,7 +131,7 @@ class SubscriptionService:
     @staticmethod
     async def check_expired_subscriptions(db: Session) -> int:
         """
-        ✅ ПРАВИЛЬНАЯ проверка и обновление истекших подписок с ПОЛНЫМ логированием
+        ✅ ИСПРАВЛЕННАЯ проверка и обновление истекших подписок БЕЗ amount и payment_id в логах
         """
         try:
             now = datetime.now(timezone.utc)
@@ -161,7 +159,7 @@ class SubscriptionService:
                 user.is_trial = False
                 # НЕ ОБНУЛЯЕМ subscription_end_date - оставляем для истории!
                 
-                # ✅ КРИТИЧЕСКИ ВАЖНО: Логируем истечение подписки в БД
+                # ✅ ИСПРАВЛЕНО: Убраны amount и payment_id из вызова
                 await SubscriptionService.log_subscription_event(
                     db=db,
                     user_id=str(user.id),
@@ -200,13 +198,10 @@ class SubscriptionService:
         action: str, 
         plan_id: Optional[str] = None, 
         plan_code: Optional[str] = None, 
-        details: Optional[str] = None,
-        amount: Optional[float] = None,
-        payment_id: Optional[str] = None
+        details: Optional[str] = None
     ) -> Optional[SubscriptionLog]:
         """
-        ✅ КРИТИЧЕСКИ ВАЖНАЯ функция логирования событий подписки в БД
-        Эта функция обеспечивает ПОЛНОЕ отслеживание всех действий!
+        ✅ ИСПРАВЛЕННАЯ функция логирования БЕЗ параметров amount и payment_id
         """
         try:
             log_entry = SubscriptionLog(
@@ -214,8 +209,6 @@ class SubscriptionService:
                 action=action,
                 plan_id=plan_id,
                 plan_code=plan_code,
-                amount=amount,
-                payment_id=payment_id,
                 details=details,
                 created_at=datetime.now(timezone.utc)
             )
@@ -250,8 +243,6 @@ class SubscriptionService:
                     "action": log.action,
                     "plan_id": str(log.plan_id) if log.plan_id else None,
                     "plan_code": log.plan_code,
-                    "amount": float(log.amount) if log.amount else None,
-                    "payment_id": log.payment_id,
                     "details": log.details,
                     "created_at": log.created_at
                 })
