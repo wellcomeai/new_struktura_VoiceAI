@@ -1,6 +1,8 @@
+# backend/core/config.py
+
 """
 Configuration settings for the WellcomeAI application.
-Handles environment variables and default configuration.
+ИСПРАВЛЕННАЯ ВЕРСИЯ - устранены проблемы с localhost и демо-данными
 """
 
 import os
@@ -23,7 +25,9 @@ class Settings(BaseSettings):
     
     # Server settings
     PORT: int = int(os.getenv("PORT", "5050"))
-    HOST_URL: Optional[str] = os.getenv("HOST_URL", "http://localhost:5050")
+    
+    # ✅ ИСПРАВЛЕНО: HOST_URL должен быть публично доступным
+    HOST_URL: Optional[str] = os.getenv("HOST_URL")
     
     # Database settings
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
@@ -58,17 +62,27 @@ class Settings(BaseSettings):
     # CORS Settings
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
     
-    # ✅ ИСПРАВЛЕНО: Robokassa settings - правильно сгруппированы
-    ROBOKASSA_MERCHANT_LOGIN: str = os.getenv("ROBOKASSA_MERCHANT_LOGIN", "demo")
-    ROBOKASSA_PASSWORD_1: str = os.getenv("ROBOKASSA_PASSWORD_1", "password_1")  
-    ROBOKASSA_PASSWORD_2: str = os.getenv("ROBOKASSA_PASSWORD_2", "password_2")
+    # ✅ ИСПРАВЛЕНО: Robokassa settings - БЕЗ демо-значений по умолчанию
+    ROBOKASSA_MERCHANT_LOGIN: str = os.getenv("ROBOKASSA_MERCHANT_LOGIN", "")
+    ROBOKASSA_PASSWORD_1: str = os.getenv("ROBOKASSA_PASSWORD_1", "")  
+    ROBOKASSA_PASSWORD_2: str = os.getenv("ROBOKASSA_PASSWORD_2", "")
     ROBOKASSA_TEST_MODE: bool = os.getenv("ROBOKASSA_TEST_MODE", "True") == "True"
     
-    # ✅ ИСПРАВЛЕНО: Payment settings - правильно сгруппированы
+    # ✅ ИСПРАВЛЕНО: Payment settings
     SUBSCRIPTION_PRICE: float = 1490.0  # Цена подписки в рублях
     SUBSCRIPTION_DURATION_DAYS: int = 30  # Длительность подписки в днях
     
-    # ✅ ДОБАВЛЕНО: Validators
+    # ✅ ДОБАВЛЕНО: Validators для критически важных настроек
+    @validator("HOST_URL")
+    def validate_host_url(cls, v):
+        if not v:
+            raise ValueError("HOST_URL must be set - localhost is not supported for Robokassa!")
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("HOST_URL must start with http:// or https://")
+        if "localhost" in v or "127.0.0.1" in v:
+            raise ValueError("HOST_URL cannot be localhost - Robokassa needs public access!")
+        return v
+    
     @validator("DATABASE_URL")
     def validate_database_url(cls, v):
         if not v and not cls.DEBUG:
@@ -77,26 +91,26 @@ class Settings(BaseSettings):
     
     @validator("ROBOKASSA_MERCHANT_LOGIN")
     def validate_robokassa_merchant(cls, v):
-        if not v or v == "demo":
-            print("⚠️ WARNING: Using demo Robokassa merchant login")
+        if not v:
+            raise ValueError("ROBOKASSA_MERCHANT_LOGIN must be set - demo values not allowed!")
+        if v == "demo":
+            print("⚠️ WARNING: Using demo Robokassa merchant login - this will cause errors!")
         return v
     
     @validator("ROBOKASSA_PASSWORD_1")
     def validate_robokassa_password1(cls, v):
-        if not v or v == "password_1":
-            print("⚠️ WARNING: Using default Robokassa password 1")
+        if not v:
+            raise ValueError("ROBOKASSA_PASSWORD_1 must be set - demo values not allowed!")
+        if v in ["password_1", "password1", "demo"]:
+            print("⚠️ WARNING: Using demo Robokassa password 1 - this will cause errors!")
         return v
         
     @validator("ROBOKASSA_PASSWORD_2")
     def validate_robokassa_password2(cls, v):
-        if not v or v == "password_2":
-            print("⚠️ WARNING: Using default Robokassa password 2")
-        return v
-    
-    @validator("HOST_URL")
-    def validate_host_url(cls, v):
-        if v and not v.startswith(("http://", "https://")):
-            raise ValueError("HOST_URL must start with http:// or https://")
+        if not v:
+            raise ValueError("ROBOKASSA_PASSWORD_2 must be set - demo values not allowed!")
+        if v in ["password_2", "password2", "demo"]:
+            print("⚠️ WARNING: Using demo Robokassa password 2 - this will cause errors!")
         return v
     
     class Config:
