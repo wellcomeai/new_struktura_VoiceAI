@@ -57,20 +57,46 @@ class Settings(BaseSettings):
     
     # CORS Settings
     CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "*")
-    # Robokassa settings (добавить в конец класса Settings)
+    
+    # ✅ ИСПРАВЛЕНО: Robokassa settings - правильно сгруппированы
     ROBOKASSA_MERCHANT_LOGIN: str = os.getenv("ROBOKASSA_MERCHANT_LOGIN", "demo")
     ROBOKASSA_PASSWORD_1: str = os.getenv("ROBOKASSA_PASSWORD_1", "password_1")  
     ROBOKASSA_PASSWORD_2: str = os.getenv("ROBOKASSA_PASSWORD_2", "password_2")
     ROBOKASSA_TEST_MODE: bool = os.getenv("ROBOKASSA_TEST_MODE", "True") == "True"
     
-    # Payment settings
+    # ✅ ИСПРАВЛЕНО: Payment settings - правильно сгруппированы
     SUBSCRIPTION_PRICE: float = 1490.0  # Цена подписки в рублях
     SUBSCRIPTION_DURATION_DAYS: int = 30  # Длительность подписки в днях
-    # Validators
+    
+    # ✅ ДОБАВЛЕНО: Validators
     @validator("DATABASE_URL")
     def validate_database_url(cls, v):
         if not v and not cls.DEBUG:
             raise ValueError("DATABASE_URL must be set in production mode")
+        return v
+    
+    @validator("ROBOKASSA_MERCHANT_LOGIN")
+    def validate_robokassa_merchant(cls, v):
+        if not v or v == "demo":
+            print("⚠️ WARNING: Using demo Robokassa merchant login")
+        return v
+    
+    @validator("ROBOKASSA_PASSWORD_1")
+    def validate_robokassa_password1(cls, v):
+        if not v or v == "password_1":
+            print("⚠️ WARNING: Using default Robokassa password 1")
+        return v
+        
+    @validator("ROBOKASSA_PASSWORD_2")
+    def validate_robokassa_password2(cls, v):
+        if not v or v == "password_2":
+            print("⚠️ WARNING: Using default Robokassa password 2")
+        return v
+    
+    @validator("HOST_URL")
+    def validate_host_url(cls, v):
+        if v and not v.startswith(("http://", "https://")):
+            raise ValueError("HOST_URL must start with http:// or https://")
         return v
     
     class Config:
