@@ -6,9 +6,12 @@ import os
 import asyncio
 import fcntl
 import time
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.core.config import settings
 from backend.core.logging import setup_logging, get_logger
@@ -18,6 +21,7 @@ from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.api import knowledge_base
 from backend.api import payments
+
 # Alembic для миграций
 from alembic.config import Config as AlembicConfig
 from alembic import command as alembic_command
@@ -38,6 +42,29 @@ app = FastAPI(
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
+
+# ✅ ДОБАВЛЕНО: Обработчики ошибок для продакшена
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"message": exc.detail}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"message": "Validation error", "details": exc.errors()}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Internal server error"}
+    )
 
 # Setup CORS
 origins = settings.CORS_ORIGINS.split(",") if isinstance(settings.CORS_ORIGINS, str) else settings.CORS_ORIGINS
@@ -62,91 +89,127 @@ app.include_router(subscription_logs.router, prefix="/api/subscription-logs", ta
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
-# Проверка и создание директорий для статики
-static_dir = os.path.join(os.getcwd(), "backend/static")
-if not os.path.exists(static_dir):
-    os.makedirs(static_dir)
-    logger.info(f"Created static directory at {static_dir}")
 
-js_dir = os.path.join(static_dir, "js")
-if not os.path.exists(js_dir):
-    os.makedirs(js_dir)
-    logger.info(f"Created js directory at {js_dir}")
+# ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
+def ensure_static_directories():
+    """Ensure static directories exist"""
+    try:
+        static_dir = os.path.join(os.getcwd(), "backend/static")
+        if not os.path.exists(static_dir):
+            os.makedirs(static_dir, exist_ok=True)
+            logger.info(f"Created static directory at {static_dir}")
+
+        js_dir = os.path.join(static_dir, "js")
+        if not os.path.exists(js_dir):
+            os.makedirs(js_dir, exist_ok=True)
+            logger.info(f"Created js directory at {js_dir}")
+        
+        return static_dir, js_dir
+    except Exception as e:
+        logger.error(f"Error creating static directories: {e}")
+        # Fallback to current directory
+        return os.getcwd(), os.getcwd()
+
+static_dir, js_dir = ensure_static_directories()
 
 # Монтируем статику
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
-app.mount("/js", StaticFiles(directory=js_dir), name="js")
+try:
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.mount("/js", StaticFiles(directory=js_dir), name="js")
+except Exception as e:
+    logger.error(f"Error mounting static files: {e}")
 
-# ▶️ Функция для запуска Alembic миграций
+# ✅ УЛУЧШЕНО: Функция для запуска Alembic миграций
 def run_migrations():
+    """Run database migrations"""
     try:
-        alembic_cfg = AlembicConfig("alembic.ini")
+        # Проверяем существование alembic.ini
+        alembic_ini_path = "alembic.ini"
+        if not os.path.exists(alembic_ini_path):
+            logger.warning(f"alembic.ini not found at {alembic_ini_path}")
+            return
+            
+        alembic_cfg = AlembicConfig(alembic_ini_path)
         alembic_command.upgrade(alembic_cfg, "head")
-        logger.info("Database migrations applied successfully")
+        logger.info("✅ Database migrations applied successfully")
     except Exception as e:
-        logger.error(f"Error applying migrations: {str(e)}")
+        logger.error(f"❌ Error applying migrations: {str(e)}")
+        # В продакшене не останавливаем приложение из-за ошибок миграции
+        if not settings.PRODUCTION:
+            raise
 
 # При старте приложения
 @app.on_event("startup")
 async def startup_event():
-    # 🔒 Используем файловую блокировку чтобы только один воркер выполнил миграции
-    lock_file_path = "/tmp/wellcome_migrations.lock"
-    
+    """Application startup event"""
     try:
-        # Создаем файл блокировки
-        with open(lock_file_path, 'w') as lock_file:
-            # Пытаемся получить эксклюзивную блокировку (неблокирующая)
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            
-            logger.info("🔒 Got migration lock, running migrations...")
-            
-            # Только этот воркер выполнит миграции
-            run_migrations()
-            create_tables(engine)
-            
-            logger.info("✅ Migrations completed by this worker")
-            
-    except BlockingIOError:
-        # Другой воркер уже выполняет миграции
-        logger.info("⏳ Another worker is handling migrations, waiting...")
+        logger.info("🚀 Starting WellcomeAI application...")
         
-        # Ждем завершения миграций (максимум 30 секунд)
-        max_wait = 30
-        waited = 0
-        while os.path.exists(lock_file_path) and waited < max_wait:
-            time.sleep(1)
-            waited += 1
-            
-        if waited >= max_wait:
-            logger.warning("⚠️ Waited too long for migrations to complete")
-        else:
-            logger.info("✅ Migrations completed by another worker")
-            
-    except Exception as e:
-        logger.error(f"❌ Error during startup: {str(e)}")
-        raise
-    finally:
-        # Удаляем файл блокировки
+        # ✅ ИСПРАВЛЕНО: Простая проверка блокировки для Render
+        lock_file_path = "/tmp/wellcome_migrations.lock"
+        migration_completed = False
+        
         try:
-            if os.path.exists(lock_file_path):
-                os.remove(lock_file_path)
-        except:
-            pass
-    
-    # Запустить подписочный фоновый процесс (только один раз)
-    try:
-        asyncio.create_task(start_subscription_checker())
-        logger.info("🔄 Subscription checker started")
+            # Для Render используем более простую блокировку
+            if not os.path.exists(lock_file_path):
+                # Создаем файл блокировки
+                with open(lock_file_path, 'w') as lock_file:
+                    lock_file.write(str(os.getpid()))
+                
+                logger.info("🔒 Running migrations...")
+                run_migrations()
+                create_tables(engine)
+                migration_completed = True
+                logger.info("✅ Migrations completed")
+            else:
+                logger.info("⏳ Waiting for migrations to complete...")
+                # Ждем завершения миграций
+                max_wait = 60
+                waited = 0
+                while os.path.exists(lock_file_path) and waited < max_wait:
+                    await asyncio.sleep(1)
+                    waited += 1
+                
+                if waited >= max_wait:
+                    logger.warning("⚠️ Migration timeout, proceeding anyway")
+                
+        except Exception as e:
+            logger.error(f"❌ Migration error: {str(e)}")
+            if not settings.PRODUCTION:
+                raise
+        finally:
+            # Удаляем файл блокировки
+            if migration_completed:
+                try:
+                    if os.path.exists(lock_file_path):
+                        os.remove(lock_file_path)
+                except Exception as e:
+                    logger.error(f"Error removing lock file: {e}")
+        
+        # Запустить подписочный фоновый процесс
+        try:
+            asyncio.create_task(start_subscription_checker())
+            logger.info("🔄 Subscription checker started")
+        except Exception as e:
+            logger.error(f"❌ Error starting subscription checker: {str(e)}")
+        
+        logger.info("✅ Application started successfully")
+        
     except Exception as e:
-        logger.error(f"❌ Error starting subscription checker: {str(e)}")
-    
-    logger.info("🚀 Application started successfully")
+        logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
+        if not settings.PRODUCTION:
+            raise
 
 # Главная страница (редирект на frontend)
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/static/index.html")
+
+# Health check для Render
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "service": "wellcome-ai"}
 
 # При выключении приложения
 @app.on_event("shutdown")
