@@ -11,7 +11,7 @@ from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user, check_admin_access
 from backend.db.session import get_db
 from backend.models.user import User
-from backend.models.subscription_log import SubscriptionLog
+from backend.models.subscription import SubscriptionLog
 from backend.services.subscription_service import SubscriptionService
 
 # Initialize logger
