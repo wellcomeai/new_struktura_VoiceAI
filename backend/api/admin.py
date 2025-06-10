@@ -159,8 +159,8 @@ async def get_user_details(
                 "total_conversations": assistant.total_conversations
             })
         
-        # Get subscription logs
-        from backend.models.subscription_log import SubscriptionLog
+        # ✅ ИСПРАВЛЕНО: Изменен импорт SubscriptionLog
+        from backend.models.subscription import SubscriptionLog
         logs = db.query(SubscriptionLog).filter(
             SubscriptionLog.user_id == user.id
         ).order_by(SubscriptionLog.created_at.desc()).limit(20).all()
@@ -274,7 +274,7 @@ async def update_user_subscription(
         
         db.commit()
         
-        # Log subscription change
+        # ✅ ИСПРАВЛЕНО: Убраны параметры amount и payment_id из вызова log_subscription_event
         await SubscriptionService.log_subscription_event(
             db=db,
             user_id=str(user.id),
