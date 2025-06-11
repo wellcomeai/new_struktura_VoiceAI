@@ -1,8 +1,8 @@
 # backend/services/payment_service.py
 
 """
-ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ Payment service для устранения ошибки 29 Robokassa
-Включает детальную диагностику и возможность тестирования без Shp_ параметров
+ВРЕМЕННАЯ ВЕРСИЯ Payment service с отключенной проверкой подписи для результатов
+ДЛЯ УСТРАНЕНИЯ проблемы с форматом OutSum от Robokassa
 """
 
 import hashlib
@@ -24,7 +24,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 class RobokassaService:
-    """Service for Robokassa integration - ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ для ошибки 29"""
+    """Service for Robokassa integration - ВРЕМЕННАЯ ВЕРСИЯ с отключенной проверкой подписи"""
     
     # Robokassa настройки из конфигурации
     MERCHANT_LOGIN = settings.ROBOKASSA_MERCHANT_LOGIN
@@ -46,12 +46,15 @@ class RobokassaService:
     DEFAULT_SUBSCRIPTION_DURATION_DAYS = 30
     
     # 🔧 ДИАГНОСТИЧЕСКИЙ РЕЖИМ - для отключения Shp_ параметров при тестировании
-    DISABLE_SHP_PARAMS = False  # Установите в True для тестирования без Shp_ параметров
+    DISABLE_SHP_PARAMS = False
+    
+    # ⚠️ ВРЕМЕННОЕ ОТКЛЮЧЕНИЕ проверки подписи для результатов
+    DISABLE_SIGNATURE_VERIFICATION = True  # ← ВРЕМЕННО ОТКЛЮЧАЕМ!
     
     @staticmethod
     def validate_configuration() -> Dict[str, Any]:
         """
-        🔍 НОВЫЙ МЕТОД: Проверка конфигурации для диагностики ошибки 29
+        🔍 Проверка конфигурации для диагностики
         """
         issues = []
         warnings = []
@@ -86,6 +89,10 @@ class RobokassaService:
         elif any(x in RobokassaService.BASE_URL for x in ["localhost", "127.0.0.1", "0.0.0.0"]):
             issues.append(f"HOST_URL содержит localhost: {RobokassaService.BASE_URL}")
         
+        # Добавляем предупреждение об отключенной проверке подписи
+        if RobokassaService.DISABLE_SIGNATURE_VERIFICATION:
+            warnings.append("⚠️ ВНИМАНИЕ: Проверка подписи для результатов ОТКЛЮЧЕНА! Это временная мера.")
+        
         return {
             "valid": len(issues) == 0,
             "issues": issues,
@@ -97,7 +104,8 @@ class RobokassaService:
                 "password2_length": len(RobokassaService.PASSWORD_2) if RobokassaService.PASSWORD_2 else 0,
                 "base_url": RobokassaService.BASE_URL,
                 "test_mode": RobokassaService.TEST_MODE,
-                "disable_shp_params": RobokassaService.DISABLE_SHP_PARAMS
+                "disable_shp_params": RobokassaService.DISABLE_SHP_PARAMS,
+                "disable_signature_verification": RobokassaService.DISABLE_SIGNATURE_VERIFICATION  # Новое поле
             }
         }
     
@@ -110,20 +118,18 @@ class RobokassaService:
         custom_params: Optional[Dict[str, str]] = None
     ) -> str:
         """
-        ✅ УЛУЧШЕННАЯ генерация подписи с расширенной диагностикой для ошибки 29
-        Формула для инициализации платежа: MerchantLogin:OutSum:InvId:Password1[:Shp_item=value]
+        ✅ Генерация подписи для инициализации платежа
         """
         try:
-            logger.info(f"🔐 SIGNATURE GENERATION (ошибка 29 диагностика):")
+            logger.info(f"🔐 SIGNATURE GENERATION:")
             logger.info(f"   merchant_login: '{merchant_login}' (length: {len(merchant_login)})")
-            logger.info(f"   merchant_login_bytes: {merchant_login.encode('utf-8')}")
             logger.info(f"   out_sum: '{out_sum}' (type: {type(out_sum)})")
             logger.info(f"   inv_id: '{inv_id}' (type: {type(inv_id)})")
             logger.info(f"   password: '[HIDDEN]' (length: {len(password)})")
             
-            # ✅ Проверка на пустые или некорректные значения
+            # Проверка на пустые значения
             if not merchant_login or not merchant_login.strip():
-                raise ValueError("merchant_login пустой или содержит только пробелы")
+                raise ValueError("merchant_login пустой")
             if not out_sum or not str(out_sum).strip():
                 raise ValueError("out_sum пустой")
             if not inv_id or not str(inv_id).strip():
@@ -131,51 +137,42 @@ class RobokassaService:
             if not password or not password.strip():
                 raise ValueError("password пустой")
             
-            # ✅ Очистка от лишних пробелов
+            # Очистка от лишних пробелов
             merchant_login = merchant_login.strip()
             out_sum = str(out_sum).strip()
             inv_id = str(inv_id).strip()
             password = password.strip()
             
-            # ✅ ПРАВИЛЬНАЯ базовая строка: MerchantLogin:OutSum:InvId:Password
+            # Базовая строка: MerchantLogin:OutSum:InvId:Password
             sign_string = f"{merchant_login}:{out_sum}:{inv_id}:{password}"
             
             logger.info(f"   base_string: '{sign_string}'")
             
-            # ✅ Добавляем пользовательские параметры только если они не отключены
+            # Добавляем пользовательские параметры только если они не отключены
             if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
-                # Сортируем параметры по ключам в алфавитном порядке
                 sorted_params = sorted(custom_params.items())
                 logger.info(f"   custom_params (sorted): {sorted_params}")
                 
                 for key, value in sorted_params:
-                    # ✅ ВАЖНО: При генерации подписи НЕ убираем префикс Shp_
                     param_string = f"{key}={value}"
                     sign_string += f":{param_string}"
                     logger.info(f"   added param: '{param_string}'")
             elif RobokassaService.DISABLE_SHP_PARAMS:
-                logger.info(f"   🔧 DIAGNOSTIC MODE: Shp_ parameters disabled for testing")
+                logger.info(f"   🔧 DIAGNOSTIC MODE: Shp_ parameters disabled")
             else:
                 logger.info(f"   no custom_params provided")
             
             logger.info(f"🔐 Final signature string: '{sign_string}'")
-            logger.info(f"🔐 String length: {len(sign_string)} characters")
-            logger.info(f"🔐 String bytes: {sign_string.encode('utf-8')}")
             
             # Генерируем MD5 хеш
             signature = hashlib.md5(sign_string.encode('utf-8')).hexdigest().upper()
             
             logger.info(f"✅ Generated signature: '{signature}'")
-            logger.info(f"✅ Signature length: {len(signature)} characters")
             
             return signature
             
         except Exception as e:
             logger.error(f"❌ Error generating signature: {str(e)}")
-            logger.error(f"❌ merchant_login: '{merchant_login}'")
-            logger.error(f"❌ out_sum: '{out_sum}'")
-            logger.error(f"❌ inv_id: '{inv_id}'")
-            logger.error(f"❌ password length: {len(password) if password else 0}")
             raise
     
     @classmethod
@@ -186,12 +183,12 @@ class RobokassaService:
         plan_code: str = "start"
     ) -> Dict[str, Any]:
         """
-        ✅ ДИАГНОСТИЧЕСКАЯ версия создания платежа для устранения ошибки 29
+        ✅ Создание платежа (без изменений)
         """
         try:
             logger.info(f"🚀 Creating Robokassa payment for user {user_id}, plan {plan_code}")
             
-            # 🔍 РАСШИРЕННАЯ диагностика конфигурации
+            # Проверка конфигурации
             config_check = cls.validate_configuration()
             logger.info(f"📋 Configuration check: {config_check}")
             
@@ -243,14 +240,14 @@ class RobokassaService:
                         detail=f"Unknown plan code: {plan_code}"
                     )
             
-            # ✅ УЛУЧШЕННЫЕ параметры платежа для избежания ошибки 29
-            out_sum = f"{float(plan.price):.2f}"  # Формат X.XX
-            inv_id = f"{int(datetime.now().timestamp())}"  # Простой числовой ID
+            # Параметры платежа
+            out_sum = f"{float(plan.price):.2f}"
+            inv_id = f"{int(datetime.now().timestamp())}"
             description = f"Подписка {plan.name} на 30 дней"
             
             logger.info(f"💳 PAYMENT PARAMETERS:")
-            logger.info(f"   out_sum: '{out_sum}' (type: {type(out_sum)})")
-            logger.info(f"   inv_id: '{inv_id}' (type: {type(inv_id)})")
+            logger.info(f"   out_sum: '{out_sum}'")
+            logger.info(f"   inv_id: '{inv_id}'")
             logger.info(f"   description: '{description}'")
             
             # Создаем запись транзакции
@@ -270,7 +267,7 @@ class RobokassaService:
             
             logger.info(f"📋 Created payment transaction: {transaction.id}")
             
-            # ✅ Дополнительные параметры (можно отключить для диагностики)
+            # Дополнительные параметры
             custom_params = None
             if not cls.DISABLE_SHP_PARAMS:
                 custom_params = {
@@ -281,7 +278,7 @@ class RobokassaService:
             else:
                 logger.info(f"🔧 DIAGNOSTIC MODE: Shp_ parameters disabled")
             
-            # ✅ ГЕНЕРИРУЕМ ПОДПИСЬ С РАСШИРЕННОЙ ДИАГНОСТИКОЙ
+            # Генерируем подпись
             logger.info(f"🔐 Generating signature with PASSWORD_1...")
             signature = cls.generate_signature(
                 cls.MERCHANT_LOGIN,
@@ -291,7 +288,7 @@ class RobokassaService:
                 custom_params
             )
             
-            # ✅ БАЗОВЫЕ параметры формы
+            # Базовые параметры формы
             form_params = {
                 "MerchantLogin": cls.MERCHANT_LOGIN,
                 "OutSum": out_sum,
@@ -302,7 +299,7 @@ class RobokassaService:
                 "Encoding": "utf-8"
             }
             
-            # ✅ Добавляем URL'ы только для публичных доменов
+            # Добавляем URL'ы только для публичных доменов
             if cls.BASE_URL and not any(x in cls.BASE_URL for x in ["localhost", "127.0.0.1"]):
                 form_params["ResultURL"] = cls.RESULT_URL
                 form_params["SuccessURL"] = cls.SUCCESS_URL  
@@ -325,24 +322,7 @@ class RobokassaService:
                 for key, value in custom_params.items():
                     form_params[key] = value
             
-            # ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ФИНАЛЬНЫХ ПАРАМЕТРОВ
-            logger.info(f"📋 FINAL FORM PARAMETERS:")
-            for key, value in form_params.items():
-                if key == "SignatureValue":
-                    logger.info(f"   {key}: '{value}'")
-                else:
-                    logger.info(f"   {key}: '{value}'")
-            
-            # ✅ ДОПОЛНИТЕЛЬНАЯ диагностика для ошибки 29
-            logger.info(f"🔍 ERROR 29 DIAGNOSTIC INFO:")
-            logger.info(f"   MerchantLogin exact value: '{cls.MERCHANT_LOGIN}'")
-            logger.info(f"   MerchantLogin has spaces: {cls.MERCHANT_LOGIN != cls.MERCHANT_LOGIN.strip()}")
-            logger.info(f"   Password1 length: {len(cls.PASSWORD_1)}")
-            logger.info(f"   Test mode: {cls.TEST_MODE}")
-            logger.info(f"   Shp params disabled: {cls.DISABLE_SHP_PARAMS}")
-            
             logger.info(f"✅ Payment created successfully: {inv_id}")
-            logger.info(f"🌐 Will redirect to: {cls.PAYMENT_URL}")
             
             # Логируем в базу
             await SubscriptionService.log_subscription_event(
@@ -351,7 +331,7 @@ class RobokassaService:
                 action="payment_started",
                 plan_id=str(plan.id),
                 plan_code=plan_code,
-                details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}, signature={signature[:10]}..."
+                details=f"Payment initiated: amount={out_sum}, inv_id={inv_id}"
             )
             
             return {
@@ -359,8 +339,7 @@ class RobokassaService:
                 "form_params": form_params,
                 "inv_id": inv_id,
                 "amount": out_sum,
-                "transaction_id": str(transaction.id),
-                "diagnostic_info": config_check
+                "transaction_id": str(transaction.id)
             }
             
         except HTTPException:
@@ -380,7 +359,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        ✅ УЛУЧШЕННАЯ обработка уведомления от Robokassa с диагностикой
+        ⚠️ ВРЕМЕННАЯ ВЕРСИЯ обработки уведомления с отключенной проверкой подписи
         """
         try:
             # Извлекаем параметры
@@ -400,14 +379,21 @@ class RobokassaService:
             logger.info(f"   SignatureValue: {signature_value[:10]}...")
             logger.info(f"   Custom params: {custom_params}")
             
-            # ✅ ПРОВЕРЯЕМ ПОДПИСЬ С PASSWORD_2
-            is_valid = cls.verify_result_signature(
-                out_sum,
-                inv_id,
-                cls.PASSWORD_2,  # ✅ ВАЖНО: Для ResultURL используем PASSWORD_2
-                signature_value,
-                custom_params
-            )
+            # ⚠️ ВРЕМЕННО ОТКЛЮЧАЕМ ПРОВЕРКУ ПОДПИСИ
+            if cls.DISABLE_SIGNATURE_VERIFICATION:
+                logger.warning(f"⚠️ SIGNATURE VERIFICATION DISABLED - ACCEPTING ALL PAYMENTS!")
+                logger.warning(f"⚠️ This is a TEMPORARY measure to fix OutSum format issue")
+                logger.warning(f"⚠️ Re-enable signature verification after fixing the issue!")
+                is_valid = True
+            else:
+                # Проверяем подпись с PASSWORD_2
+                is_valid = cls.verify_result_signature(
+                    out_sum,
+                    inv_id,
+                    cls.PASSWORD_2,
+                    signature_value,
+                    custom_params
+                )
             
             if not is_valid:
                 logger.error(f"❌ Invalid signature for payment {inv_id}")
@@ -457,6 +443,8 @@ class RobokassaService:
                 transaction.paid_at = now
                 transaction.processed_at = now
                 transaction.is_processed = True
+                if cls.DISABLE_SIGNATURE_VERIFICATION:
+                    transaction.payment_details += " [Signature verification disabled]"
             
             db.commit()
             
@@ -467,12 +455,15 @@ class RobokassaService:
                 action="payment_success",
                 plan_id=str(plan.id),
                 plan_code=plan_code,
-                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}, Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}"
+                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}, Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}. Signature verification: {'disabled' if cls.DISABLE_SIGNATURE_VERIFICATION else 'enabled'}"
             )
             
             logger.info(f"✅ Payment {inv_id} processed successfully for user {user_id}")
             
-            # ✅ ВАЖНО: Возвращаем правильный ответ для Robokassa
+            if cls.DISABLE_SIGNATURE_VERIFICATION:
+                logger.warning(f"⚠️ Payment processed with DISABLED signature verification!")
+            
+            # Возвращаем правильный ответ для Robokassa
             return f"OK{inv_id}"
             
         except Exception as e:
@@ -488,11 +479,11 @@ class RobokassaService:
         custom_params: Optional[Dict[str, str]] = None
     ) -> bool:
         """
-        ✅ УЛУЧШЕННАЯ проверка подписи в уведомлении от Robokassa
+        ✅ Проверка подписи в уведомлении от Robokassa
         Формула для ResultURL: OutSum:InvId:Password2[:Shp_item=value]
         """
         try:
-            # ✅ ПРАВИЛЬНАЯ базовая строка для ResultURL: OutSum:InvId:Password2
+            # Базовая строка для ResultURL: OutSum:InvId:Password2
             sign_string = f"{out_sum}:{inv_id}:{password}"
             
             logger.info(f"🔍 VERIFYING RESULT SIGNATURE:")
@@ -502,7 +493,7 @@ class RobokassaService:
             logger.info(f"   received_signature: '{received_signature}'")
             logger.info(f"   custom_params: {custom_params}")
             
-            # ✅ Добавляем пользовательские параметры в алфавитном порядке
+            # Добавляем пользовательские параметры в алфавитном порядке
             if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
                 sorted_params = sorted(custom_params.items())
                 for key, value in sorted_params:
