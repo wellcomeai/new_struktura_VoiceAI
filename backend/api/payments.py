@@ -3,7 +3,7 @@
 """
 Payment API endpoints for WellcomeAI application.
 Handles Robokassa payment integration.
-ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints + диагностические эндпоинты
+ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints + фиксированная цена 1490 рублей
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
@@ -17,11 +17,18 @@ from backend.core.dependencies import get_current_user
 from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
-from backend.models.subscription import SubscriptionPlan
+from backend.models.subscription import SubscriptionPlan, PaymentTransaction
 from backend.services.payment_service import RobokassaService
 from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
+
+# ✅ ФИКСИРОВАННЫЕ НАСТРОЙКИ ПОДПИСКИ
+FIXED_SUBSCRIPTION_PRICE = 1490.0  # Фиксированная цена в рублях
+SUBSCRIPTION_DURATION_DAYS = 30     # Длительность подписки в днях
+SUBSCRIPTION_PLAN_NAME = "Тариф Старт"
+SUBSCRIPTION_DESCRIPTION = "Стартовый тариф с доступом ко всем функциям"
+MAX_ASSISTANTS = 3
 
 # Create router
 router = APIRouter()
@@ -33,7 +40,7 @@ async def create_payment(
     db: Session = Depends(get_db)
 ):
     """
-    Создание платежа для подписки
+    Создание платежа для подписки с ФИКСИРОВАННОЙ ЦЕНОЙ 1490 рублей
     
     Args:
         plan_code: Код тарифного плана (по умолчанию "start")
@@ -47,11 +54,11 @@ async def create_payment(
         logger.info(f"🚀 Creating payment for user {current_user.id}, plan {plan_code}")
         
         # ДОБАВЛЕНО: Детальное логирование настроек
-        logger.info(f"📋 Payment settings:")
+        logger.info(f"📋 Payment settings (FIXED PRICE):")
         logger.info(f"   HOST_URL: {settings.HOST_URL}")
         logger.info(f"   ROBOKASSA_MERCHANT_LOGIN: {settings.ROBOKASSA_MERCHANT_LOGIN}")
         logger.info(f"   ROBOKASSA_TEST_MODE: {settings.ROBOKASSA_TEST_MODE}")
-        logger.info(f"   SUBSCRIPTION_PRICE: {getattr(settings, 'SUBSCRIPTION_PRICE', 'NOT SET')}")
+        logger.info(f"   FIXED_SUBSCRIPTION_PRICE: {FIXED_SUBSCRIPTION_PRICE} руб")
         
         # ДОБАВЛЕНО: Проверка настроек перед созданием платежа
         if not settings.ROBOKASSA_MERCHANT_LOGIN:
@@ -72,21 +79,141 @@ async def create_payment(
         # Можно убрать эту проверку, если разрешаем продление
         logger.info(f"👤 User info: email={current_user.email}, is_trial={current_user.is_trial}")
         
-        # Создаем платеж через сервис
-        logger.info("💳 Calling RobokassaService.create_payment...")
-        payment_data = await RobokassaService.create_payment(
-            db=db,
-            user_id=str(current_user.id),
-            plan_code=plan_code
+        # Получаем пользователя
+        user = db.query(User).filter(User.id == current_user.id).first()
+        if not user:
+            logger.error(f"❌ User {current_user.id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Получаем или создаем план (только для записи в БД, цена фиксированная)
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
+        if not plan:
+            logger.info(f"📋 Creating subscription plan: {plan_code}")
+            plan = SubscriptionPlan(
+                code=plan_code,
+                name=SUBSCRIPTION_PLAN_NAME,
+                price=FIXED_SUBSCRIPTION_PRICE,  # Сохраняем в БД для истории
+                max_assistants=MAX_ASSISTANTS,
+                description=SUBSCRIPTION_DESCRIPTION,
+                is_active=True
+            )
+            db.add(plan)
+            db.flush()
+            logger.info(f"✅ Created subscription plan: {plan_code}")
+        
+        # ✅ ИСПОЛЬЗУЕМ ФИКСИРОВАННУЮ ЦЕНУ (не зависит от БД)
+        out_sum = f"{FIXED_SUBSCRIPTION_PRICE:.2f}"  # Всегда 1490.00
+        inv_id = f"{int(datetime.now().timestamp())}"
+        description = f"Подписка на {SUBSCRIPTION_DURATION_DAYS} дней за {FIXED_SUBSCRIPTION_PRICE:.0f} рублей"
+        
+        logger.info(f"💳 PAYMENT PARAMETERS (FIXED PRICE):")
+        logger.info(f"   out_sum: '{out_sum}' (FIXED: {FIXED_SUBSCRIPTION_PRICE} руб)")
+        logger.info(f"   inv_id: '{inv_id}'")
+        logger.info(f"   description: '{description}'")
+        
+        # Создаем запись транзакции
+        transaction = PaymentTransaction(
+            user_id=user.id,
+            plan_id=plan.id,
+            external_payment_id=inv_id,
+            payment_system="robokassa",
+            amount=FIXED_SUBSCRIPTION_PRICE,  # Фиксированная сумма
+            currency="RUB",
+            status="pending",
+            payment_details=f"Plan: {plan_code}, Fixed price: {FIXED_SUBSCRIPTION_PRICE}"
+        )
+        db.add(transaction)
+        db.commit()
+        db.refresh(transaction)
+        
+        logger.info(f"📋 Created payment transaction: {transaction.id}")
+        
+        # Дополнительные параметры
+        custom_params = None
+        if not RobokassaService.DISABLE_SHP_PARAMS:
+            custom_params = {
+                "Shp_user_id": str(current_user.id),
+                "Shp_plan_code": plan_code
+            }
+            logger.info(f"✅ Using Shp_ parameters: {custom_params}")
+        else:
+            logger.info(f"🔧 DIAGNOSTIC MODE: Shp_ parameters disabled")
+        
+        # Генерируем подпись
+        logger.info(f"🔐 Generating signature with PASSWORD_1...")
+        signature = RobokassaService.generate_signature(
+            RobokassaService.MERCHANT_LOGIN,
+            out_sum,
+            inv_id,
+            RobokassaService.PASSWORD_1,
+            custom_params
         )
         
-        logger.info(f"✅ Payment created successfully:")
-        logger.info(f"   payment_url: {payment_data.get('payment_url')}")
-        logger.info(f"   inv_id: {payment_data.get('inv_id')}")
-        logger.info(f"   amount: {payment_data.get('amount')}")
-        logger.info(f"   form_params keys: {list(payment_data.get('form_params', {}).keys())}")
+        # Базовые параметры формы
+        form_params = {
+            "MerchantLogin": RobokassaService.MERCHANT_LOGIN,
+            "OutSum": out_sum,
+            "InvId": inv_id,
+            "Description": description,
+            "SignatureValue": signature,
+            "Culture": "ru",
+            "Encoding": "utf-8"
+        }
         
-        return payment_data
+        # Добавляем URL'ы только для публичных доменов
+        if RobokassaService.BASE_URL and not any(x in RobokassaService.BASE_URL for x in ["localhost", "127.0.0.1"]):
+            form_params["ResultURL"] = RobokassaService.RESULT_URL
+            form_params["SuccessURL"] = RobokassaService.SUCCESS_URL  
+            form_params["FailURL"] = RobokassaService.FAIL_URL
+            logger.info(f"✅ Added callback URLs")
+        else:
+            logger.warning(f"⚠️ Skipping callback URLs due to localhost")
+        
+        # Добавляем email пользователя
+        if user.email:
+            form_params["Email"] = user.email
+        
+        # Добавляем тестовый режим
+        if RobokassaService.TEST_MODE:
+            form_params["IsTest"] = "1"
+            logger.info("🧪 Test mode enabled")
+        
+        # Добавляем пользовательские параметры только если они не отключены
+        if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
+            for key, value in custom_params.items():
+                form_params[key] = value
+        
+        # ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ФИНАЛЬНЫХ ПАРАМЕТРОВ
+        logger.info(f"📋 FINAL FORM PARAMETERS:")
+        for key, value in form_params.items():
+            if key == "SignatureValue":
+                logger.info(f"   {key}: '{value}'")
+            else:
+                logger.info(f"   {key}: '{value}'")
+        
+        logger.info(f"✅ Payment created with FIXED PRICE: {FIXED_SUBSCRIPTION_PRICE} rubles")
+        
+        # Логируем в базу
+        await SubscriptionService.log_subscription_event(
+            db=db,
+            user_id=str(current_user.id),
+            action="payment_started",
+            plan_id=str(plan.id),
+            plan_code=plan_code,
+            details=f"Payment initiated with fixed price: {FIXED_SUBSCRIPTION_PRICE} rubles, inv_id={inv_id}"
+        )
+        
+        return {
+            "payment_url": RobokassaService.PAYMENT_URL,
+            "form_params": form_params,
+            "inv_id": inv_id,
+            "amount": out_sum,
+            "transaction_id": str(transaction.id),
+            "fixed_price": FIXED_SUBSCRIPTION_PRICE  # Для информации
+        }
         
     except HTTPException as he:
         logger.error(f"❌ HTTP Exception in create_payment: {he.detail}")
@@ -415,6 +542,45 @@ async def get_payment_status(
 # ДИАГНОСТИЧЕСКИЕ ЭНДПОИНТЫ для отладки проблем с Robokassa
 # =============================================================================
 
+@router.get("/debug-prices")
+async def debug_subscription_prices(db: Session = Depends(get_db)):
+    """
+    🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки цен подписок
+    """
+    try:
+        plans = db.query(SubscriptionPlan).all()
+        result = {
+            "fixed_price_config": {
+                "FIXED_SUBSCRIPTION_PRICE": FIXED_SUBSCRIPTION_PRICE,
+                "SUBSCRIPTION_DURATION_DAYS": SUBSCRIPTION_DURATION_DAYS,
+                "SUBSCRIPTION_PLAN_NAME": SUBSCRIPTION_PLAN_NAME,
+                "MAX_ASSISTANTS": MAX_ASSISTANTS
+            },
+            "database_plans": {}
+        }
+        
+        for plan in plans:
+            result["database_plans"][plan.code] = {
+                "name": plan.name,
+                "price": float(plan.price),
+                "max_assistants": plan.max_assistants,
+                "is_active": plan.is_active,
+                "created_at": plan.created_at.isoformat() if plan.created_at else None
+            }
+        
+        logger.info(f"🔍 Debug prices requested - fixed: {FIXED_SUBSCRIPTION_PRICE}, db plans: {len(plans)}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Error in debug_subscription_prices: {str(e)}")
+        return {
+            "error": str(e),
+            "fixed_price_config": {
+                "FIXED_SUBSCRIPTION_PRICE": FIXED_SUBSCRIPTION_PRICE,
+                "SUBSCRIPTION_DURATION_DAYS": SUBSCRIPTION_DURATION_DAYS
+            }
+        }
+
 @router.get("/config-check")
 async def check_robokassa_config():
     """
@@ -438,6 +604,7 @@ async def check_robokassa_config():
             "valid": config_check["valid"],
             "issues": config_check["issues"],
             "warnings": config_check["warnings"],
+            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
             "config": {
                 "merchant_login": config_check["config"]["merchant_login"],
                 "merchant_login_length": config_check["config"]["merchant_login_length"],
@@ -482,14 +649,14 @@ async def test_signature_generation(
         
         # Получаем параметры из запроса
         merchant_login = request.get("merchant_login", RobokassaService.MERCHANT_LOGIN)
-        out_sum = request.get("out_sum", "1490.00")
+        out_sum = request.get("out_sum", f"{FIXED_SUBSCRIPTION_PRICE:.2f}")  # Используем фиксированную цену
         inv_id = request.get("inv_id", "123456789")
         password = request.get("password", RobokassaService.PASSWORD_1)
         custom_params = request.get("custom_params", {"Shp_user_id": "test", "Shp_plan_code": "start"})
         
         logger.info(f"🔧 Testing signature generation")
         logger.info(f"   merchant_login: '{merchant_login}'")
-        logger.info(f"   out_sum: '{out_sum}'")
+        logger.info(f"   out_sum: '{out_sum}' (fixed price: {FIXED_SUBSCRIPTION_PRICE})")
         logger.info(f"   inv_id: '{inv_id}'")
         logger.info(f"   custom_params: {custom_params}")
         
@@ -513,6 +680,7 @@ async def test_signature_generation(
             "status": "ok",
             "signature": signature,
             "sign_string": sign_string,
+            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
             "parameters": {
                 "merchant_login": merchant_login,
                 "out_sum": out_sum,
@@ -553,6 +721,7 @@ async def enable_diagnostic_mode():
             "status": "ok",
             "message": "Диагностический режим включен - Shp_ параметры отключены",
             "disable_shp_params": True,
+            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
             "instructions": [
                 "Попробуйте создать платеж снова",
                 "Если ошибка 29 исчезла, проблема в обработке Shp_ параметров",
@@ -584,7 +753,8 @@ async def disable_diagnostic_mode():
         return {
             "status": "ok",
             "message": "Диагностический режим выключен - Shp_ параметры включены",
-            "disable_shp_params": False
+            "disable_shp_params": False,
+            "fixed_price": FIXED_SUBSCRIPTION_PRICE
         }
         
     except Exception as e:
