@@ -16,12 +16,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
-# ❌ УБИРАЕМ ДУБЛИРОВАНИЕ: не создаем таблицы здесь - это делается в app.py
-# ❌ УБРАНО:
-# from backend.db.session import engine
-# from backend.models.base import Base
-# Base.metadata.create_all(bind=engine)
-
 # Meta import configuration
 class BackendImportFinder(importlib.abc.MetaPathFinder):
     """
@@ -91,86 +85,151 @@ PORT = int(os.getenv('PORT', 5050))
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 
-# ✅ НОВОЕ: Функция автоисправления цен подписок
-async def fix_subscription_prices_on_startup():
+# ✅ НОВОЕ: Автоприменение миграций Alembic при старте
+def run_alembic_migrations():
     """
-    🔧 Автоматическое исправление цен подписок при запуске приложения
-    Гарантирует, что цена плана 'start' всегда будет 1490 рублей
+    🚀 Автоматически применяет миграции Alembic при старте приложения
     """
     try:
-        print("🔧 Проверяем и исправляем цены подписок...")
+        print("🔄 Применяем миграции Alembic...")
         
-        # Импортируем здесь, чтобы избежать циклических импортов
-        from backend.db.session import SessionLocal
-        from backend.models.subscription import SubscriptionPlan
+        # Импортируем Alembic
+        from alembic.config import Config
+        from alembic import command
         
-        db = SessionLocal()
+        # Путь к конфигурации Alembic
+        alembic_cfg_path = os.path.join(os.path.dirname(__file__), "alembic.ini")
         
-        # ✅ Исправляем цену плана 'start' на 1490
-        start_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
-        if start_plan:
-            if start_plan.price != 1490:
-                old_price = start_plan.price
-                start_plan.price = 1490
-                db.commit()
-                print(f"✅ Цена плана 'start' исправлена: {old_price} → 1490 рублей")
-            else:
-                print(f"✅ Цена плана 'start' уже корректная: 1490 рублей")
-        else:
-            print("ℹ️  План 'start' не найден в БД (будет создан при первом запросе)")
+        if not os.path.exists(alembic_cfg_path):
+            print(f"❌ Файл alembic.ini не найден: {alembic_cfg_path}")
+            return False
         
-        # ✅ Проверяем и исправляем цену плана 'pro' на 4990 (опционально)
-        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "pro").first()
-        if pro_plan and pro_plan.price != 4990:
-            old_price = pro_plan.price
-            pro_plan.price = 4990
-            db.commit()
-            print(f"✅ Цена плана 'pro' исправлена: {old_price} → 4990 рублей")
+        # Создаем конфигурацию Alembic
+        alembic_cfg = Config(alembic_cfg_path)
         
-        db.close()
-        print("🎉 Проверка цен завершена!")
+        # Устанавливаем DATABASE_URL из переменных окружения
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+            print(f"🔗 Используем DATABASE_URL для миграций")
         
+        # Применяем миграции до последней версии
+        print("📊 Применяем миграции до последней версии...")
+        command.upgrade(alembic_cfg, "head")
+        
+        print("✅ Миграции Alembic успешно применены!")
+        return True
+        
+    except ImportError as e:
+        print(f"❌ Alembic не установлен: {str(e)}")
+        print("   Устанавливаем alembic: pip install alembic")
+        return False
     except Exception as e:
-        print(f"❌ Ошибка при исправлении цен: {str(e)}")
-        # Продолжаем запуск даже при ошибке
-        pass
+        print(f"❌ Ошибка при применении миграций Alembic: {str(e)}")
+        print(f"   Тип ошибки: {type(e).__name__}")
+        print(f"   Продолжаем запуск приложения...")
+        return False
 
+# ✅ УЛУЧШЕННАЯ: Функция исправления цен (как запасной вариант)
 def run_startup_fixes():
-    """Запускаем исправления при старте (синхронная версия)"""
+    """
+    Запускаем исправления цен при старте (как запасной вариант если миграции не сработали)
+    """
     try:
-        # Синхронная версия для запуска в main
+        print("🔧 Проверяем и исправляем цены подписок...")
+        
+        # Импортируем модели
         from backend.db.session import SessionLocal
         from backend.models.subscription import SubscriptionPlan
         
-        print("🔧 Проверяем и исправляем цены подписок...")
-        
         db = SessionLocal()
+        
+        # Проверяем все планы в БД
+        all_plans = db.query(SubscriptionPlan).all()
+        print(f"📋 Найдено планов в БД: {len(all_plans)}")
+        
+        for plan in all_plans:
+            print(f"   - {plan.code}: {plan.name} = {plan.price} руб")
         
         # Исправляем цену плана 'start'
         start_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
         if start_plan:
-            if start_plan.price != 1490:
+            if float(start_plan.price) != 1490.0:
                 old_price = start_plan.price
-                start_plan.price = 1490
+                start_plan.price = 1490.0
                 db.commit()
-                print(f"✅ Цена плана 'start' исправлена: {old_price} → 1490 рублей")
+                print(f"✅ ИСПРАВЛЕНО: Цена плана 'start': {old_price} → 1490 рублей")
             else:
                 print(f"✅ Цена плана 'start' уже корректная: 1490 рублей")
+        else:
+            print("⚠️  План 'start' не найден в БД - будет создан при первом платеже")
+            
+            # Создаем план 'start' если его нет
+            try:
+                new_start_plan = SubscriptionPlan(
+                    code="start",
+                    name="Тариф Старт", 
+                    price=1490.0,
+                    max_assistants=3,
+                    description="Стартовый план с расширенными возможностями",
+                    is_active=True
+                )
+                db.add(new_start_plan)
+                db.commit()
+                print("✅ Создан план 'start' с ценой 1490 рублей")
+            except Exception as e:
+                print(f"❌ Ошибка создания плана 'start': {str(e)}")
         
         # Исправляем цену плана 'pro' 
         pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "pro").first()
-        if pro_plan and pro_plan.price != 4990:
-            old_price = pro_plan.price
-            pro_plan.price = 4990
-            db.commit()
-            print(f"✅ Цена плана 'pro' исправлена: {old_price} → 4990 рублей")
+        if pro_plan:
+            if float(pro_plan.price) != 4990.0:
+                old_price = pro_plan.price
+                pro_plan.price = 4990.0
+                db.commit()
+                print(f"✅ ИСПРАВЛЕНО: Цена плана 'pro': {old_price} → 4990 рублей")
+        
+        # Проверяем что изменения сохранились
+        updated_start_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
+        if updated_start_plan:
+            print(f"🔍 Финальная проверка - цена плана 'start': {updated_start_plan.price} рублей")
         
         db.close()
-        print("🎉 Проверка цен завершена!")
+        print("🎉 Проверка и исправление цен завершена!")
         
+    except ImportError as e:
+        print(f"❌ Ошибка импорта моделей: {str(e)}")
+        print("   Возможно, база данных еще не готова или модели не загружены")
     except Exception as e:
         print(f"❌ Ошибка при исправлении цен: {str(e)}")
+        print(f"   Тип ошибки: {type(e).__name__}")
         # Продолжаем запуск даже при ошибке
+
+# ✅ НОВОЕ: Проверка базы данных
+def check_database_connection():
+    """Проверяем подключение к базе данных"""
+    try:
+        print("🔗 Проверяем подключение к базе данных...")
+        
+        from backend.db.session import SessionLocal
+        
+        db = SessionLocal()
+        
+        # Простой тестовый запрос
+        result = db.execute("SELECT 1 as test").fetchone()
+        
+        if result and result[0] == 1:
+            print("✅ Подключение к базе данных успешно!")
+            db.close()
+            return True
+        else:
+            print("❌ Тест подключения к БД не прошел")
+            db.close()
+            return False
+            
+    except Exception as e:
+        print(f"❌ Ошибка подключения к базе данных: {str(e)}")
+        return False
 
 # Import FastAPI app
 from app import app
@@ -184,10 +243,34 @@ logger = logging.getLogger("wellcome-ai")
 if __name__ == "__main__":
     logger.info(f"🚀 Starting server on port {PORT}, debug={DEBUG}")
     
-    # ✅ НОВОЕ: Запускаем исправление цен ПЕРЕД стартом сервера
-    print("=" * 50)
-    run_startup_fixes()
-    print("=" * 50)
+    print("=" * 70)
+    print("🔄 ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ И МИГРАЦИЙ")
+    print("=" * 70)
+    
+    # ✅ ШАГ 1: Проверяем подключение к БД
+    db_connected = check_database_connection()
+    
+    if db_connected:
+        # ✅ ШАГ 2: Применяем миграции Alembic
+        migrations_success = run_alembic_migrations()
+        
+        # ✅ ШАГ 3: Запасное исправление цен (всегда выполняем для контроля)
+        print("\n" + "="*50)
+        print("🔧 ПРОВЕРКА И ИСПРАВЛЕНИЕ ЦЕН")
+        print("="*50)
+        run_startup_fixes()
+        
+        if migrations_success:
+            print("\n🎉 Инициализация БД завершена успешно (миграции + проверка цен)")
+        else:
+            print("\n⚠️  Инициализация БД завершена (только проверка цен)")
+    else:
+        print("\n❌ Не удалось подключиться к базе данных!")
+        print("   Сервер запустится, но могут быть проблемы с БД")
+    
+    print("=" * 70)
+    print("🚀 ЗАПУСК СЕРВЕРА")  
+    print("=" * 70)
     
     uvicorn.run(
         "app:app",
