@@ -3,10 +3,10 @@
 """
 Payment API endpoints for WellcomeAI application.
 Handles Robokassa payment integration.
-ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints
+ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints + диагностические эндпоинты
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
@@ -411,27 +411,185 @@ async def get_payment_status(
             detail="Failed to get payment status"
         )
 
-# ✅ ДОБАВЛЕН: Диагностический endpoint для проверки конфигурации
+# =============================================================================
+# ДИАГНОСТИЧЕСКИЕ ЭНДПОИНТЫ для отладки проблем с Robokassa
+# =============================================================================
+
 @router.get("/config-check")
-async def check_payment_config():
+async def check_robokassa_config():
     """
-    Проверка конфигурации платежной системы
+    🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки конфигурации Robokassa
+    Помогает диагностировать ошибку 29 и другие проблемы конфигурации
     """
-    return {
-        "status": "OK",
-        "timestamp": datetime.now().isoformat(),
-        "config": {
-            "host_url": settings.HOST_URL,
-            "merchant_login": settings.ROBOKASSA_MERCHANT_LOGIN,
-            "test_mode": settings.ROBOKASSA_TEST_MODE,
-            "password_1_configured": bool(settings.ROBOKASSA_PASSWORD_1),
-            "password_2_configured": bool(settings.ROBOKASSA_PASSWORD_2),
-            "subscription_price": settings.SUBSCRIPTION_PRICE,
-            "subscription_duration_days": settings.SUBSCRIPTION_DURATION_DAYS
-        },
-        "endpoints": {
-            "result_url": f"{settings.HOST_URL}/api/payments/robokassa-result",
-            "success_url": f"{settings.HOST_URL}/api/payments/success",
-            "fail_url": f"{settings.HOST_URL}/api/payments/cancel"
+    try:
+        from backend.services.payment_service import RobokassaService
+        
+        # Получаем результаты проверки конфигурации
+        config_check = RobokassaService.validate_configuration()
+        
+        logger.info(f"🔍 Configuration check requested")
+        logger.info(f"   Valid: {config_check['valid']}")
+        logger.info(f"   Issues: {config_check['issues']}")
+        logger.info(f"   Warnings: {config_check['warnings']}")
+        
+        # Возвращаем результат (скрываем чувствительную информацию)
+        return {
+            "status": "ok" if config_check["valid"] else "error",
+            "valid": config_check["valid"],
+            "issues": config_check["issues"],
+            "warnings": config_check["warnings"],
+            "config": {
+                "merchant_login": config_check["config"]["merchant_login"],
+                "merchant_login_length": config_check["config"]["merchant_login_length"],
+                "password1_length": config_check["config"]["password1_length"],
+                "password2_length": config_check["config"]["password2_length"],
+                "base_url": config_check["config"]["base_url"],
+                "test_mode": config_check["config"]["test_mode"],
+                "disable_shp_params": config_check["config"]["disable_shp_params"]
+            },
+            "recommendations": [
+                "Убедитесь, что MERCHANT_LOGIN точно скопирован из личного кабинета Robokassa",
+                "Проверьте, что пароли #1 и #2 совпадают с техническими настройками",
+                "Заполните блок 'Параметры проведения тестовых платежей' в кабинете",
+                "Используйте публичный домен (не localhost) для HOST_URL",
+                "Убедитесь, что магазин активирован в Robokassa"
+            ],
+            "help_links": [
+                "https://auth.robokassa.ru/ - Личный кабинет Robokassa",
+                "https://docs.robokassa.ru/ - Документация",
+                "https://robokassa.com/content/tipichnye-oshibki.html - Типичные ошибки"
+            ]
         }
-    }
+        
+    except Exception as e:
+        logger.error(f"❌ Error checking configuration: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Ошибка при проверке конфигурации Robokassa"
+        }
+
+@router.post("/test-signature")
+async def test_signature_generation(
+    request: dict = Body(...)
+):
+    """
+    🔧 ДИАГНОСТИЧЕСКИЙ endpoint для тестирования генерации подписи
+    Помогает отладить проблемы с подписью при ошибке 29
+    """
+    try:
+        from backend.services.payment_service import RobokassaService
+        
+        # Получаем параметры из запроса
+        merchant_login = request.get("merchant_login", RobokassaService.MERCHANT_LOGIN)
+        out_sum = request.get("out_sum", "1490.00")
+        inv_id = request.get("inv_id", "123456789")
+        password = request.get("password", RobokassaService.PASSWORD_1)
+        custom_params = request.get("custom_params", {"Shp_user_id": "test", "Shp_plan_code": "start"})
+        
+        logger.info(f"🔧 Testing signature generation")
+        logger.info(f"   merchant_login: '{merchant_login}'")
+        logger.info(f"   out_sum: '{out_sum}'")
+        logger.info(f"   inv_id: '{inv_id}'")
+        logger.info(f"   custom_params: {custom_params}")
+        
+        # Генерируем подпись
+        signature = RobokassaService.generate_signature(
+            merchant_login=merchant_login,
+            out_sum=out_sum,
+            inv_id=inv_id,
+            password=password,
+            custom_params=custom_params
+        )
+        
+        # Формируем строку для подписи вручную для проверки
+        sign_string = f"{merchant_login}:{out_sum}:{inv_id}:{password}"
+        if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
+            sorted_params = sorted(custom_params.items())
+            for key, value in sorted_params:
+                sign_string += f":{key}={value}"
+        
+        return {
+            "status": "ok",
+            "signature": signature,
+            "sign_string": sign_string,
+            "parameters": {
+                "merchant_login": merchant_login,
+                "out_sum": out_sum,
+                "inv_id": inv_id,
+                "password_length": len(password),
+                "custom_params": custom_params
+            },
+            "debug_info": {
+                "sign_string_length": len(sign_string),
+                "signature_length": len(signature),
+                "disable_shp_params": RobokassaService.DISABLE_SHP_PARAMS
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error testing signature: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Ошибка при тестировании подписи"
+        }
+
+@router.post("/enable-diagnostic-mode")
+async def enable_diagnostic_mode():
+    """
+    🔧 ДИАГНОСТИЧЕСКИЙ endpoint для включения режима без Shp_ параметров
+    Помогает протестировать платеж без дополнительных параметров при ошибке 29
+    """
+    try:
+        from backend.services.payment_service import RobokassaService
+        
+        # Включаем диагностический режим
+        RobokassaService.DISABLE_SHP_PARAMS = True
+        
+        logger.info(f"🔧 Diagnostic mode enabled: Shp_ parameters disabled")
+        
+        return {
+            "status": "ok",
+            "message": "Диагностический режим включен - Shp_ параметры отключены",
+            "disable_shp_params": True,
+            "instructions": [
+                "Попробуйте создать платеж снова",
+                "Если ошибка 29 исчезла, проблема в обработке Shp_ параметров",
+                "Проверьте формулу генерации подписи для Shp_ параметров",
+                "Не забудьте выключить диагностический режим после тестирования"
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error enabling diagnostic mode: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+@router.post("/disable-diagnostic-mode")
+async def disable_diagnostic_mode():
+    """
+    🔧 ДИАГНОСТИЧЕСКИЙ endpoint для выключения режима без Shp_ параметров
+    """
+    try:
+        from backend.services.payment_service import RobokassaService
+        
+        # Выключаем диагностический режим
+        RobokassaService.DISABLE_SHP_PARAMS = False
+        
+        logger.info(f"🔧 Diagnostic mode disabled: Shp_ parameters enabled")
+        
+        return {
+            "status": "ok",
+            "message": "Диагностический режим выключен - Shp_ параметры включены",
+            "disable_shp_params": False
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error disabling diagnostic mode: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
