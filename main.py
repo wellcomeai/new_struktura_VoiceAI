@@ -91,6 +91,87 @@ PORT = int(os.getenv('PORT', 5050))
 DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'info').lower()
 
+# ✅ НОВОЕ: Функция автоисправления цен подписок
+async def fix_subscription_prices_on_startup():
+    """
+    🔧 Автоматическое исправление цен подписок при запуске приложения
+    Гарантирует, что цена плана 'start' всегда будет 1490 рублей
+    """
+    try:
+        print("🔧 Проверяем и исправляем цены подписок...")
+        
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from backend.db.session import SessionLocal
+        from backend.models.subscription import SubscriptionPlan
+        
+        db = SessionLocal()
+        
+        # ✅ Исправляем цену плана 'start' на 1490
+        start_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
+        if start_plan:
+            if start_plan.price != 1490:
+                old_price = start_plan.price
+                start_plan.price = 1490
+                db.commit()
+                print(f"✅ Цена плана 'start' исправлена: {old_price} → 1490 рублей")
+            else:
+                print(f"✅ Цена плана 'start' уже корректная: 1490 рублей")
+        else:
+            print("ℹ️  План 'start' не найден в БД (будет создан при первом запросе)")
+        
+        # ✅ Проверяем и исправляем цену плана 'pro' на 4990 (опционально)
+        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "pro").first()
+        if pro_plan and pro_plan.price != 4990:
+            old_price = pro_plan.price
+            pro_plan.price = 4990
+            db.commit()
+            print(f"✅ Цена плана 'pro' исправлена: {old_price} → 4990 рублей")
+        
+        db.close()
+        print("🎉 Проверка цен завершена!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка при исправлении цен: {str(e)}")
+        # Продолжаем запуск даже при ошибке
+        pass
+
+def run_startup_fixes():
+    """Запускаем исправления при старте (синхронная версия)"""
+    try:
+        # Синхронная версия для запуска в main
+        from backend.db.session import SessionLocal
+        from backend.models.subscription import SubscriptionPlan
+        
+        print("🔧 Проверяем и исправляем цены подписок...")
+        
+        db = SessionLocal()
+        
+        # Исправляем цену плана 'start'
+        start_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "start").first()
+        if start_plan:
+            if start_plan.price != 1490:
+                old_price = start_plan.price
+                start_plan.price = 1490
+                db.commit()
+                print(f"✅ Цена плана 'start' исправлена: {old_price} → 1490 рублей")
+            else:
+                print(f"✅ Цена плана 'start' уже корректная: 1490 рублей")
+        
+        # Исправляем цену плана 'pro' 
+        pro_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "pro").first()
+        if pro_plan and pro_plan.price != 4990:
+            old_price = pro_plan.price
+            pro_plan.price = 4990
+            db.commit()
+            print(f"✅ Цена плана 'pro' исправлена: {old_price} → 4990 рублей")
+        
+        db.close()
+        print("🎉 Проверка цен завершена!")
+        
+    except Exception as e:
+        print(f"❌ Ошибка при исправлении цен: {str(e)}")
+        # Продолжаем запуск даже при ошибке
+
 # Import FastAPI app
 from app import app
 
@@ -102,6 +183,12 @@ logger = logging.getLogger("wellcome-ai")
 
 if __name__ == "__main__":
     logger.info(f"🚀 Starting server on port {PORT}, debug={DEBUG}")
+    
+    # ✅ НОВОЕ: Запускаем исправление цен ПЕРЕД стартом сервера
+    print("=" * 50)
+    run_startup_fixes()
+    print("=" * 50)
+    
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
