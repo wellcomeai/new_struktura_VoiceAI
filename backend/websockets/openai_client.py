@@ -65,22 +65,9 @@ def generate_short_id(prefix: str = "") -> str:
 def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
     """
     Возвращает оптимальные настройки VAD в зависимости от устройства.
-    ОБНОВЛЕНЫ настройки с учетом Voximplant и проблем iOS аудио воспроизведения.
+    ОБНОВЛЕНЫ настройки с учетом проблем iOS аудио воспроизведения.
     """
     user_agent_lower = user_agent.lower()
-    
-    # ✅ НОВОЕ: Специальные настройки для Voximplant
-    if any([
-        "voximplant" in user_agent_lower,
-        "go-http-client" in user_agent_lower,
-        "voxengine" in user_agent_lower,
-        "phone" in user_agent_lower
-    ]):
-        return {
-            "threshold": 0.4,         # Выше для стабильности телефонии
-            "prefix_padding_ms": 300, # Больше padding для телефонных сетей
-            "silence_duration_ms": 500 # Дольше пауза для качества телефонии
-        }
     
     # Настройки для iOS - специально настроены для работы с iOS Audio API
     if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
@@ -136,60 +123,10 @@ def get_ios_optimized_session_config(base_config: Dict[str, Any], user_agent: st
     
     return base_config
 
-def get_voximplant_optimized_session_config(base_config: Dict[str, Any], user_agent: str = "") -> Dict[str, Any]:
-    """
-    Возвращает оптимизированную конфигурацию сессии для Voximplant.
-    """
-    user_agent_lower = user_agent.lower()
-    
-    is_voximplant = any([
-        "voximplant" in user_agent_lower,
-        "go-http-client" in user_agent_lower,
-        "voxengine" in user_agent_lower,
-        "phone" in user_agent_lower
-    ])
-    
-    if is_voximplant:
-        # Специальные настройки для Voximplant
-        voximplant_config = base_config.copy()
-        
-        # ✅ ИСПРАВЛЕНО: Более агрессивные настройки VAD для телефонии
-        voximplant_config["turn_detection"] = {
-            "type": "server_vad",
-            "threshold": 0.4,           # Выше для стабильности телефонии
-            "prefix_padding_ms": 300,   # Больше padding для телефонных сетей
-            "silence_duration_ms": 500, # Дольше пауза для качества телефонии
-            "create_response": True
-        }
-        
-        # ✅ ИСПРАВЛЕНО: Оптимальные аудио настройки для Voximplant
-        voximplant_config["input_audio_format"] = "pcm16"
-        voximplant_config["output_audio_format"] = "pcm16"
-        
-        # ✅ НОВОЕ: Короткие ответы для телефонии
-        voximplant_config["max_response_output_tokens"] = 150
-        
-        # ✅ НОВОЕ: Более стабильная температура для телефонии
-        voximplant_config["temperature"] = 0.6
-        
-        # ✅ НОВОЕ: Добавляем инструкции для телефонного режима
-        if "instructions" in voximplant_config:
-            original_instructions = voximplant_config["instructions"]
-            voximplant_config["instructions"] = f"""ТЕЛЕФОННЫЙ РЕЖИМ: Отвечай кратко и четко. Избегай длинных фраз. Говори естественно.
-
-{original_instructions}
-
-ВАЖНО: Говори как живой человек, дружелюбно и лаконично. Не упоминай что ты ИИ или ассистент."""
-        
-        logger.info(f"[VOXIMPLANT] Применены оптимизированные настройки для Voximplant")
-        return voximplant_config
-    
-    return base_config
-
 class OpenAIRealtimeClient:
     """
     Client for interacting with OpenAI's Realtime API through WebSockets.
-    ОБНОВЛЕН для поддержки постоянно активного микрофона, быстрого перебивания и оптимизации для iOS и Voximplant.
+    ОБНОВЛЕН для поддержки постоянно активного микрофона, быстрого перебивания и оптимизации для iOS.
     """
     
     def __init__(
@@ -224,25 +161,17 @@ class OpenAIRealtimeClient:
         self.interruption_occurred = False
         self.last_interruption_time = 0
         
-        # Получаем УЛУЧШЕННЫЕ настройки VAD с учетом iOS и Voximplant
+        # Получаем УЛУЧШЕННЫЕ настройки VAD с учетом iOS
         self.vad_settings = get_device_vad_settings(user_agent)
         logger.info(f"[VAD] Настройки для устройства ({user_agent[:50]}): {self.vad_settings}")
         
         # Определяем тип устройства для специальной обработки
         self.is_ios = "iphone" in user_agent.lower() or "ipad" in user_agent.lower()
         self.is_android = "android" in user_agent.lower()
-        self.is_voximplant = any([
-            "voximplant" in user_agent.lower(),
-            "go-http-client" in user_agent.lower(),
-            "voxengine" in user_agent.lower(),
-            "phone" in user_agent.lower()
-        ])
         self.is_mobile = self.is_ios or self.is_android
         
         if self.is_ios:
             logger.info(f"[iOS] Обнаружено iOS устройство, будут применены специальные оптимизации")
-        elif self.is_voximplant:
-            logger.info(f"[VOXIMPLANT] Обнаружен Voximplant клиент, будут применены телефонные оптимизации")
         
         # Извлекаем список разрешенных функций
         if hasattr(assistant_config, "functions"):
@@ -263,7 +192,7 @@ class OpenAIRealtimeClient:
     async def connect(self) -> bool:
         """
         Establish WebSocket connection to OpenAI Realtime API.
-        ОБНОВЛЕН с улучшенными настройками VAD для перебивания и поддержкой iOS и Voximplant.
+        ОБНОВЛЕН с улучшенными настройками VAD для перебивания и поддержкой iOS.
         """
         if not self.api_key:
             logger.error("OpenAI API key not provided")
@@ -272,7 +201,7 @@ class OpenAIRealtimeClient:
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
             ("OpenAI-Beta", "realtime=v1"),
-            ("User-Agent", "WellcomeAI/2.1-Universal-Optimized")
+            ("User-Agent", "WellcomeAI/2.1-iOS-Optimized")
         ]
         try:
             self.ws = await asyncio.wait_for(
@@ -287,9 +216,7 @@ class OpenAIRealtimeClient:
                 timeout=30
             )
             self.is_connected = True
-            
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-            logger.info(f"Connected to OpenAI for client {self.client_id} ({client_type})")
+            logger.info(f"Connected to OpenAI for client {self.client_id} (iOS: {self.is_ios})")
 
             # Получаем свежие настройки
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -311,7 +238,7 @@ class OpenAIRealtimeClient:
                 if self.webhook_url:
                     logger.info(f"Извлечен URL вебхука из промпта: {self.webhook_url}")
 
-            # Отправляем обновленные настройки сессии с поддержкой всех типов клиентов
+            # Отправляем обновленные настройки сессии с поддержкой iOS
             if not await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -363,40 +290,22 @@ class OpenAIRealtimeClient:
     ) -> bool:
         """
         Update session settings on the OpenAI Realtime API side.
-        ОБНОВЛЕН с улучшенными настройками для Voximplant.
+        ОБНОВЛЕН с улучшенными настройками VAD для быстрого перебивания и поддержкой iOS.
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot update session: not connected")
             return False
             
-        # Определяем тип клиента
-        client_type = "Standard"
-        if self.is_voximplant:
-            client_type = "Voximplant"
-        elif self.is_ios:
-            client_type = "iOS"
-        elif self.is_android:
-            client_type = "Android"
+        # УЛУЧШЕННЫЕ настройки VAD для максимально быстрого перебивания
+        turn_detection = {
+            "type": "server_vad",
+            "threshold": self.vad_settings["threshold"],
+            "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
+            "silence_duration_ms": self.vad_settings["silence_duration_ms"],
+            "create_response": True,
+        }
         
-        # УЛУЧШЕННЫЕ настройки VAD в зависимости от типа клиента
-        if self.is_voximplant:
-            turn_detection = {
-                "type": "server_vad",
-                "threshold": 0.4,           # Выше для телефонии
-                "prefix_padding_ms": 300,   # Больше для стабильности
-                "silence_duration_ms": 500, # Дольше для качества
-                "create_response": True,
-            }
-        else:
-            turn_detection = {
-                "type": "server_vad",
-                "threshold": self.vad_settings["threshold"],
-                "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
-                "silence_duration_ms": self.vad_settings["silence_duration_ms"],
-                "create_response": True,
-            }
-        
-        logger.info(f"[VAD] Настройки для {client_type}: {turn_detection}")
+        logger.info(f"[VAD] Настройки для быстрого перебивания: {turn_detection}")
         
         # Получаем нормализованные определения функций
         normalized_functions = normalize_functions(functions)
@@ -441,19 +350,13 @@ class OpenAIRealtimeClient:
             }
         }
         
-        # ✅ НОВОЕ: Применяем специфичные для клиента настройки
-        if self.is_voximplant:
-            payload["session"] = get_voximplant_optimized_session_config(
-                payload["session"], self.user_agent
-            )
-        elif self.is_ios:
-            payload["session"] = get_ios_optimized_session_config(
-                payload["session"], self.user_agent
-            )
+        # НОВОЕ: Применяем iOS-специфичные настройки если это iOS устройство
+        payload["session"] = get_ios_optimized_session_config(payload["session"], self.user_agent)
         
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Session settings sent for {client_type} (voice={voice}, tools={len(tools)}, VAD optimized)")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"Session settings sent for {device_info} (voice={voice}, tools={len(tools)}, VAD optimized for interruption)")
             
             if tools:
                 for tool in tools:
@@ -488,13 +391,8 @@ class OpenAIRealtimeClient:
         try:
             current_time = time.time()
             
-            # Адаптивная защита от повторных перебиваний в зависимости от типа клиента
-            if self.is_voximplant:
-                protection_time = 0.25  # Больше для телефонии
-            elif self.is_ios:
-                protection_time = 0.15  # Меньше для iOS
-            else:
-                protection_time = 0.2   # Стандартное время
+            # Сокращаем время защиты от повторных перебиваний для iOS
+            protection_time = 0.15 if self.is_ios else 0.2
             
             if current_time - self.last_interruption_time < protection_time:
                 logger.info(f"[INTERRUPTION] Игнорируем повторное перебивание (защита от дребезга: {protection_time}s)")
@@ -503,8 +401,7 @@ class OpenAIRealtimeClient:
             self.last_interruption_time = current_time
             self.interruption_occurred = True
             
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else "другое устройство")
-            logger.info(f"[INTERRUPTION] БЫСТРАЯ обработка перебивания для клиента {self.client_id} ({client_type})")
+            logger.info(f"[INTERRUPTION] БЫСТРАЯ обработка перебивания для клиента {self.client_id} ({'iOS' if self.is_ios else 'другое устройство'})")
             
             # Мгновенно отменяем текущий ответ если ассистент говорит
             if self.is_assistant_speaking and self.current_response_id:
@@ -580,13 +477,13 @@ class OpenAIRealtimeClient:
         if speaking:
             self.current_response_id = response_id
             self.current_audio_samples = 0
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-            logger.info(f"[SPEECH {client_type}] Ассистент начал говорить: response_id={response_id}")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"[SPEECH {device_info}] Ассистент начал говорить: response_id={response_id}")
         else:
             self.current_response_id = None
             self.current_audio_samples = 0
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-            logger.info(f"[SPEECH {client_type}] Ассистент закончил говорить")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"[SPEECH {device_info}] Ассистент закончил говорить")
 
     def increment_audio_samples(self, sample_count: int) -> None:
         """
@@ -676,14 +573,8 @@ class OpenAIRealtimeClient:
             await self.ws.send(json.dumps(payload))
             logger.info(f"Результат функции отправлен: {function_call_id}")
             
-            # Адаптивная задержка в зависимости от типа клиента
-            if self.is_voximplant:
-                delay = 0.3  # Больше для телефонии
-            elif self.is_ios:
-                delay = 0.2  # Меньше для iOS
-            else:
-                delay = 0.25 # Стандартное время
-                
+            # Небольшая задержка перед запросом нового ответа
+            delay = 0.2 if self.is_ios else 0.3  # Меньше для iOS
             await asyncio.sleep(delay)
             
             # Запрашиваем новый ответ от модели
@@ -717,16 +608,9 @@ class OpenAIRealtimeClient:
         try:
             logger.info(f"[FUNCTION] Создание нового ответа после выполнения функции")
             
-            # Адаптивные настройки ответа в зависимости от типа клиента
-            if self.is_voximplant:
-                max_tokens = 150
-                temperature = 0.6
-            elif self.is_ios:
-                max_tokens = 200
-                temperature = 0.6
-            else:
-                max_tokens = 300
-                temperature = 0.7
+            # iOS-оптимизированные настройки ответа
+            max_tokens = 200 if self.is_ios else 300
+            temperature = 0.6 if self.is_ios else 0.7
             
             response_payload = {
                 "type": "response.create",
@@ -741,8 +625,8 @@ class OpenAIRealtimeClient:
             }
             
             await self.ws.send(json.dumps(response_payload))
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-            logger.info(f"Запрошен новый ответ после выполнения функции ({client_type})")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"Запрошен новый ответ после выполнения функции ({device_info})")
             
             return True
             
@@ -820,8 +704,8 @@ class OpenAIRealtimeClient:
         if self.ws:
             try:
                 await self.ws.close()
-                client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-                logger.info(f"WebSocket connection closed for client {self.client_id} ({client_type})")
+                device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+                logger.info(f"WebSocket connection closed for client {self.client_id} ({device_info})")
             except Exception as e:
                 logger.error(f"Error closing OpenAI WebSocket: {e}")
         self.is_connected = False
@@ -847,8 +731,8 @@ class OpenAIRealtimeClient:
                 except json.JSONDecodeError:
                     logger.error(f"Failed to decode message: {message[:100]}...")
         except ConnectionClosed:
-            client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
-            logger.info(f"WebSocket connection closed for client {self.client_id} ({client_type})")
+            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
+            logger.info(f"WebSocket connection closed for client {self.client_id} ({device_info})")
             self.is_connected = False
         except Exception as e:
             logger.error(f"Error receiving messages: {e}")
