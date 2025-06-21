@@ -43,7 +43,9 @@ async def handle_websocket_connection(
         user_agent = websocket.headers.get('user-agent', '')
         # Voximplant добавляет специальный header
         voximplant_header = websocket.headers.get('x-voximplant-call', '')
-        if voximplant_header or 'Voximplant' in user_agent:
+        if (voximplant_header or 
+            'Voximplant' in user_agent or 
+            'Go-http-client' in user_agent):  # Go-http-client - это Voximplant
             is_voximplant_client = True
             caller_number = websocket.headers.get('x-caller-number', 'unknown')
             logger.info(f"🚨 ТЕЛЕФОННЫЙ ЗВОНОК от {caller_number} через Voximplant")
@@ -214,6 +216,38 @@ async def handle_websocket_connection(
 
                     if msg_type == "ping":
                         await websocket.send_json({"type": "pong"})
+                        continue
+
+                    # ✅ НОВОЕ: Обработка информации о Voximplant звонке
+                    if msg_type == "voximplant.call_info":
+                        logger.info(f"📞 Получена информация о Voximplant звонке от клиента {client_id}")
+                        is_voximplant_client = True
+                        caller_number = data.get("caller_number", "unknown")
+                        logger.info(f"🚨 ТЕЛЕФОННЫЙ ЗВОНОК от {caller_number} через Voximplant (из сообщения)")
+                        
+                        # Обновляем информацию в БД если возможно
+                        if openai_client and openai_client.db_session and openai_client.conversation_record_id:
+                            try:
+                                conv = openai_client.db_session.query(Conversation).get(
+                                    uuid.UUID(openai_client.conversation_record_id)
+                                )
+                                if conv:
+                                    conv.client_info = {
+                                        "source": "voximplant",
+                                        "caller_number": caller_number,
+                                        "type": "phone_call",
+                                        "detected_from": "message"
+                                    }
+                                    openai_client.db_session.commit()
+                                    logger.info(f"📞 Обновлена информация о телефонном звонке в БД")
+                            except Exception as e:
+                                logger.error(f"Ошибка обновления информации о звонке: {e}")
+                        
+                        await websocket.send_json({
+                            "type": "voximplant.call_info.ack", 
+                            "event_id": data.get("event_id"),
+                            "message": "Call info received"
+                        })
                         continue
 
                     # ИСПРАВЛЕНИЕ: Обрабатываем session.update от клиента
