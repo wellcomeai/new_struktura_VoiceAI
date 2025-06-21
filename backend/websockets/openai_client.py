@@ -70,11 +70,16 @@ def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
     user_agent_lower = user_agent.lower()
     
     # ✅ НОВОЕ: Специальные настройки для Voximplant
-    if "voximplant" in user_agent_lower or "go-http-client" in user_agent_lower:
+    if any([
+        "voximplant" in user_agent_lower,
+        "go-http-client" in user_agent_lower,
+        "voxengine" in user_agent_lower,
+        "phone" in user_agent_lower
+    ]):
         return {
-            "threshold": 0.3,         # Немного выше для телефонии
-            "prefix_padding_ms": 200, # Больше padding для стабильности
-            "silence_duration_ms": 300 # Дольше для избежания обрывов
+            "threshold": 0.4,         # Выше для стабильности телефонии
+            "prefix_padding_ms": 300, # Больше padding для телефонных сетей
+            "silence_duration_ms": 500 # Дольше пауза для качества телефонии
         }
     
     # Настройки для iOS - специально настроены для работы с iOS Audio API
@@ -137,21 +142,32 @@ def get_voximplant_optimized_session_config(base_config: Dict[str, Any], user_ag
     """
     user_agent_lower = user_agent.lower()
     
-    if "voximplant" in user_agent_lower or "go-http-client" in user_agent_lower:
+    is_voximplant = any([
+        "voximplant" in user_agent_lower,
+        "go-http-client" in user_agent_lower,
+        "voxengine" in user_agent_lower,
+        "phone" in user_agent_lower
+    ])
+    
+    if is_voximplant:
         # Специальные настройки для Voximplant
         voximplant_config = base_config.copy()
         
-        # ✅ ИСПРАВЛЕНО: Настройки VAD для телефонии
-        voximplant_config["turn_detection"]["threshold"] = 0.3
-        voximplant_config["turn_detection"]["prefix_padding_ms"] = 200
-        voximplant_config["turn_detection"]["silence_duration_ms"] = 300
+        # ✅ ИСПРАВЛЕНО: Более агрессивные настройки VAD для телефонии
+        voximplant_config["turn_detection"] = {
+            "type": "server_vad",
+            "threshold": 0.4,           # Выше для стабильности телефонии
+            "prefix_padding_ms": 300,   # Больше padding для телефонных сетей
+            "silence_duration_ms": 500, # Дольше пауза для качества телефонии
+            "create_response": True
+        }
         
-        # ✅ ИСПРАВЛЕНО: Аудио настройки совместимые с Voximplant
+        # ✅ ИСПРАВЛЕНО: Оптимальные аудио настройки для Voximplant
         voximplant_config["input_audio_format"] = "pcm16"
         voximplant_config["output_audio_format"] = "pcm16"
         
         # ✅ НОВОЕ: Короткие ответы для телефонии
-        voximplant_config["max_response_output_tokens"] = 200
+        voximplant_config["max_response_output_tokens"] = 150
         
         # ✅ НОВОЕ: Более стабильная температура для телефонии
         voximplant_config["temperature"] = 0.6
@@ -159,11 +175,11 @@ def get_voximplant_optimized_session_config(base_config: Dict[str, Any], user_ag
         # ✅ НОВОЕ: Добавляем инструкции для телефонного режима
         if "instructions" in voximplant_config:
             original_instructions = voximplant_config["instructions"]
-            voximplant_config["instructions"] = f"""ТЕЛЕФОННЫЙ РЕЖИМ: Отвечай кратко и четко. Избегай длинных фраз. 
-            
+            voximplant_config["instructions"] = f"""ТЕЛЕФОННЫЙ РЕЖИМ: Отвечай кратко и четко. Избегай длинных фраз. Говори естественно.
+
 {original_instructions}
 
-ВАЖНО: Говори как живой человек, естественно и дружелюбно. Не упоминай что ты ИИ."""
+ВАЖНО: Говори как живой человек, дружелюбно и лаконично. Не упоминай что ты ИИ или ассистент."""
         
         logger.info(f"[VOXIMPLANT] Применены оптимизированные настройки для Voximplant")
         return voximplant_config
@@ -215,8 +231,12 @@ class OpenAIRealtimeClient:
         # Определяем тип устройства для специальной обработки
         self.is_ios = "iphone" in user_agent.lower() or "ipad" in user_agent.lower()
         self.is_android = "android" in user_agent.lower()
-        self.is_voximplant = ("voximplant" in user_agent.lower() or 
-                             "go-http-client" in user_agent.lower())
+        self.is_voximplant = any([
+            "voximplant" in user_agent.lower(),
+            "go-http-client" in user_agent.lower(),
+            "voxengine" in user_agent.lower(),
+            "phone" in user_agent.lower()
+        ])
         self.is_mobile = self.is_ios or self.is_android
         
         if self.is_ios:
@@ -343,22 +363,39 @@ class OpenAIRealtimeClient:
     ) -> bool:
         """
         Update session settings on the OpenAI Realtime API side.
-        ОБНОВЛЕН с улучшенными настройками VAD для быстрого перебивания и поддержкой iOS и Voximplant.
+        ОБНОВЛЕН с улучшенными настройками для Voximplant.
         """
         if not self.is_connected or not self.ws:
             logger.error("Cannot update session: not connected")
             return False
             
-        # УЛУЧШЕННЫЕ настройки VAD для максимально быстрого перебивания
-        turn_detection = {
-            "type": "server_vad",
-            "threshold": self.vad_settings["threshold"],
-            "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
-            "silence_duration_ms": self.vad_settings["silence_duration_ms"],
-            "create_response": True,
-        }
+        # Определяем тип клиента
+        client_type = "Standard"
+        if self.is_voximplant:
+            client_type = "Voximplant"
+        elif self.is_ios:
+            client_type = "iOS"
+        elif self.is_android:
+            client_type = "Android"
         
-        client_type = "Voximplant" if self.is_voximplant else ("iOS" if self.is_ios else ("Android" if self.is_android else "Desktop"))
+        # УЛУЧШЕННЫЕ настройки VAD в зависимости от типа клиента
+        if self.is_voximplant:
+            turn_detection = {
+                "type": "server_vad",
+                "threshold": 0.4,           # Выше для телефонии
+                "prefix_padding_ms": 300,   # Больше для стабильности
+                "silence_duration_ms": 500, # Дольше для качества
+                "create_response": True,
+            }
+        else:
+            turn_detection = {
+                "type": "server_vad",
+                "threshold": self.vad_settings["threshold"],
+                "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
+                "silence_duration_ms": self.vad_settings["silence_duration_ms"],
+                "create_response": True,
+            }
+        
         logger.info(f"[VAD] Настройки для {client_type}: {turn_detection}")
         
         # Получаем нормализованные определения функций
@@ -416,7 +453,7 @@ class OpenAIRealtimeClient:
         
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"Session settings sent for {client_type} (voice={voice}, tools={len(tools)}, VAD optimized for interruption)")
+            logger.info(f"Session settings sent for {client_type} (voice={voice}, tools={len(tools)}, VAD optimized)")
             
             if tools:
                 for tool in tools:
