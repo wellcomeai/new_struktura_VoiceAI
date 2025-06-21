@@ -188,6 +188,23 @@ async def handle_websocket_connection(
             "client_type": "phone" if is_voximplant_client else "web"
         })
 
+        # ✅ НОВОЕ: Автоматическое приветствие для телефонных звонков
+        if is_voximplant_client and openai_client.is_connected:
+            logger.info(f"📞 Отправляем автоматическое приветствие для телефонного звонка")
+            try:
+                # Создаем ответ для телефонного звонка
+                greeting_response = await openai_client.ws.send(json.dumps({
+                    "type": "response.create",
+                    "event_id": f"phone_greeting_{int(time.time() * 1000)}",
+                    "response": {
+                        "modalities": ["audio"],
+                        "instructions": "Поприветствуй звонящего кратко и дружелюбно. Спроси, чем можешь помочь. Говори естественно, как живой человек."
+                    }
+                }))
+                logger.info(f"📞 Автоматическое приветствие отправлено")
+            except Exception as e:
+                logger.error(f"📞 Ошибка отправки приветствия: {e}")
+
         # УПРОЩЕННАЯ обработка аудио - микрофон постоянно активен
         audio_buffer = bytearray()
         is_processing = False
