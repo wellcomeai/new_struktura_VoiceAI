@@ -26,6 +26,20 @@ logger = get_logger(__name__)
 active_connections: Dict[str, List[WebSocket]] = {}
 
 
+def is_voximplant_client(websocket: WebSocket) -> bool:
+    """Определяет Voximplant клиента"""
+    if not hasattr(websocket, 'headers'):
+        return False
+    
+    user_agent = websocket.headers.get('user-agent', '').lower() 
+    return any([
+        websocket.headers.get('x-voximplant-call') == 'true',
+        websocket.headers.get('x-caller-number') is not None,
+        'voximplant' in user_agent,
+        'go-http-client' in user_agent
+    ])
+
+
 # ✅ ИСПРАВЛЕНИЕ 1: Улучшенное определение Voximplant клиента
 async def detect_voximplant_client(websocket: WebSocket) -> tuple[bool, str]:
     """
@@ -204,11 +218,12 @@ async def handle_websocket_connection(
     client_id = str(uuid.uuid4())
     openai_client = None
     
-    # ✅ УЛУЧШЕННОЕ: Определяем тип клиента (веб или Voximplant)
-    is_voximplant_client, caller_number = await detect_voximplant_client(websocket)
+    # ✅ КРИТИЧНО: Определяем Voximplant ДО accept() для пропуска проверки подписки
+    is_voximplant = is_voximplant_client(websocket)
+    is_voximplant_client_detailed, caller_number = await detect_voximplant_client(websocket)
     
     # ✅ СПЕЦИАЛЬНАЯ ОБРАБОТКА: Voximplant телефонные звонки
-    if is_voximplant_client:
+    if is_voximplant or is_voximplant_client_detailed:
         logger.info(f"📞 Incoming call from {caller_number} to assistant {assistant_id}")
         logger.info(f"📞 Телефонный режим активирован для клиента {client_id}")
         
@@ -223,7 +238,7 @@ async def handle_websocket_connection(
 
     try:
         await websocket.accept()
-        connection_type = "📞 PHONE" if is_voximplant_client else "💻 WEB"
+        connection_type = "📞 PHONE" if (is_voximplant or is_voximplant_client_detailed) else "💻 WEB"
         logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}, type={connection_type}")
 
         # Регистрируем соединение
@@ -265,7 +280,7 @@ async def handle_websocket_connection(
         client_ip = getattr(websocket.client, 'host', '') if hasattr(websocket, 'client') else ''
         
         user_agent_with_info = user_agent
-        if is_voximplant_client:
+        if is_voximplant or is_voximplant_client_detailed:
             user_agent_with_info = f"Voximplant-Phone-Client/2.0 (caller: {caller_number}, ip: {client_ip})"
 
         # ✅ ГЛАВНАЯ ПРОВЕРКА: Блокировка WebSocket для пользователей с неактивной подпиской
@@ -273,8 +288,8 @@ async def handle_websocket_connection(
         if assistant.user_id:
             user = db.query(User).get(assistant.user_id)
             if user:
-                # Проверяем подписку только для НЕ-админов
-                if not user.is_admin and user.email != "well96well@gmail.com":
+                # ✅ НОВОЕ: Пропускаем проверку подписки для Voximplant клиентов
+                if not is_voximplant and not is_voximplant_client_detailed and not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
                     subscription_status = await UserService.check_subscription_status(db, str(user.id))
                     
@@ -300,6 +315,8 @@ async def handle_websocket_connection(
                         })
                         await websocket.close(code=1008)
                         return
+                elif is_voximplant or is_voximplant_client_detailed:
+                    logger.info(f"📞 Voximplant соединение - пропускаем проверку подписки")
                 
                 api_key = user.openai_api_key
         
@@ -337,16 +354,16 @@ async def handle_websocket_connection(
                 if conv:
                     # Добавляем подробную информацию о соединении
                     conv.client_info = {
-                        "source": "voximplant" if is_voximplant_client else "web",
-                        "caller_number": caller_number if is_voximplant_client else None,
-                        "type": "phone_call" if is_voximplant_client else "web_session",
+                        "source": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "web",
+                        "caller_number": caller_number if (is_voximplant or is_voximplant_client_detailed) else None,
+                        "type": "phone_call" if (is_voximplant or is_voximplant_client_detailed) else "web_session",
                         "user_agent": user_agent,
                         "client_ip": client_ip,
                         "connection_time": time.time(),
                         "headers": dict(websocket.headers) if hasattr(websocket, 'headers') else None
                     }
                     openai_client.db_session.commit()
-                    logger.info(f"📞 Сохранена информация о {'телефонном звонке' if is_voximplant_client else 'веб-соединении'} в БД")
+                    logger.info(f"📞 Сохранена информация о {'телефонном звонке' if (is_voximplant or is_voximplant_client_detailed) else 'веб-соединении'} в БД")
             except Exception as e:
                 logger.error(f"Ошибка сохранения информации о соединении: {e}")
 
@@ -355,13 +372,13 @@ async def handle_websocket_connection(
             "type": "connection_status", 
             "status": "connected", 
             "message": "Connection established",
-            "client_type": "phone" if is_voximplant_client else "web",
-            "optimizations": "voximplant" if is_voximplant_client else "standard",
-            "caller_number": caller_number if is_voximplant_client else None
+            "client_type": "phone" if (is_voximplant or is_voximplant_client_detailed) else "web",
+            "optimizations": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "standard",
+            "caller_number": caller_number if (is_voximplant or is_voximplant_client_detailed) else None
         })
 
         # ✅ УЛУЧШЕННОЕ: Автоматическое приветствие для телефонных звонков
-        if is_voximplant_client and openai_client.is_connected:
+        if (is_voximplant or is_voximplant_client_detailed) and openai_client.is_connected:
             logger.info(f"📞 Отправляем автоматическое приветствие для телефонного звонка")
             try:
                 # Более быстрое приветствие для телефонии
@@ -380,7 +397,7 @@ async def handle_websocket_connection(
                 logger.error(f"📞 Ошибка отправки приветствия: {e}")
 
         # ✅ НОВОЕ: Определяем режим обработки аудио в зависимости от клиента
-        if is_voximplant_client:
+        if is_voximplant or is_voximplant_client_detailed:
             # Для Voximplant используем более простую схему без сложных буферов
             audio_processing_mode = "voximplant_direct"
             logger.info(f"📞 Режим обработки аудио: {audio_processing_mode}")
@@ -401,7 +418,7 @@ async def handle_websocket_connection(
             "interruption_count": 0,
             "last_interruption_time": 0,
             "processing_mode": audio_processing_mode,
-            "client_type": "voximplant" if is_voximplant_client else "web"
+            "client_type": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "web"
         }
 
         # Запускаем приём сообщений от OpenAI
@@ -421,7 +438,7 @@ async def handle_websocket_connection(
                         continue
 
                     # ✅ НОВОЕ: Специальная обработка для Voximplant
-                    if is_voximplant_client:
+                    if is_voximplant or is_voximplant_client_detailed:
                         # Проверяем специфичные сообщения Voximplant
                         if await handle_voximplant_message(data, websocket, openai_client):
                             continue
@@ -433,7 +450,8 @@ async def handle_websocket_connection(
                     # ✅ НОВОЕ: Улучшенная обработка информации о Voximplant звонке
                     if msg_type == "voximplant.call_info":
                         logger.info(f"📞 Получена информация о Voximplant звонке от клиента {client_id}")
-                        is_voximplant_client = True
+                        is_voximplant = True
+                        is_voximplant_client_detailed = True
                         caller_number = data.get("caller_number", "unknown")
                         logger.info(f"🚨 ТЕЛЕФОННЫЙ ЗВОНОК от {caller_number} через Voximplant (из сообщения)")
                         
@@ -484,7 +502,7 @@ async def handle_websocket_connection(
                     # ✅ УЛУЧШЕННАЯ обработка аудио для разных типов клиентов
                     if msg_type == "input_audio_buffer.append":
                         # Если это не обработано специальной функцией для Voximplant
-                        if not is_voximplant_client or not await handle_voximplant_audio(data, openai_client, websocket):
+                        if not (is_voximplant or is_voximplant_client_detailed) or not await handle_voximplant_audio(data, openai_client, websocket):
                             audio_chunk = base64_to_audio_buffer(data["audio"])
                             
                             if audio_processing_mode == "voximplant_direct":
