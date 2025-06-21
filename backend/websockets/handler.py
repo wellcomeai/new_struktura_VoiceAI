@@ -197,7 +197,7 @@ async def handle_websocket_connection(
                     "type": "response.create",
                     "event_id": f"phone_greeting_{int(time.time() * 1000)}",
                     "response": {
-                        "modalities": ["audio"],
+                        "modalities": ["audio", "text"],
                         "instructions": "Поприветствуй звонящего кратко и дружелюбно. Спроси, чем можешь помочь. Говори естественно, как живой человек."
                     }
                 }))
