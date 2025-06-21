@@ -34,14 +34,32 @@ async def handle_websocket_connection(
     client_id = str(uuid.uuid4())
     openai_client = None
     
-    # Получаем User-Agent для определения типа устройства
+    # ✅ НОВОЕ: Определяем тип клиента (веб или Voximplant)
     user_agent = ""
+    is_voximplant_client = False
+    caller_number = None
+    
     if hasattr(websocket, 'headers'):
         user_agent = websocket.headers.get('user-agent', '')
+        # Voximplant добавляет специальный header
+        voximplant_header = websocket.headers.get('x-voximplant-call', '')
+        if voximplant_header or 'Voximplant' in user_agent:
+            is_voximplant_client = True
+            caller_number = websocket.headers.get('x-caller-number', 'unknown')
+            logger.info(f"🚨 ТЕЛЕФОННЫЙ ЗВОНОК от {caller_number} через Voximplant")
+    
+    # ✅ НОВОЕ: Специальная обработка для Voximplant
+    if is_voximplant_client:
+        # Логируем телефонный звонок
+        logger.info(f"📞 Incoming call from {caller_number} to assistant {assistant_id}")
+        
+        # Можно добавить специальную логику для телефонии
+        # Например, более короткие ответы, другие настройки VAD и т.д.
+        logger.info(f"📞 Телефонный режим активирован для клиента {client_id}")
 
     try:
         await websocket.accept()
-        logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}")
+        logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}, type={'📞 PHONE' if is_voximplant_client else '💻 WEB'}")
 
         # Регистрируем соединение
         active_connections.setdefault(assistant_id, []).append(websocket)
@@ -76,6 +94,11 @@ async def handle_websocket_connection(
             enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
             
         logger.info(f"Ассистент {assistant_id} имеет следующие функции: {enabled_functions}")
+
+        # ✅ НОВОЕ: Передаем информацию о типе клиента в OpenAI клиент
+        user_agent_with_phone_info = user_agent
+        if is_voximplant_client:
+            user_agent_with_phone_info = f"Voximplant-Phone-Client/1.0 (caller: {caller_number})"
 
         # ✅ ГЛАВНАЯ ПРОВЕРКА: Блокировка WebSocket для пользователей с неактивной подпиской
         api_key = None
@@ -121,7 +144,14 @@ async def handle_websocket_connection(
             return
 
         # Подключаемся к OpenAI с передачей user_agent
-        openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db, user_agent)
+        openai_client = OpenAIRealtimeClient(
+            api_key, 
+            assistant, 
+            client_id, 
+            db, 
+            user_agent_with_phone_info  # ✅ Передаем обновленный user_agent
+        )
+        
         if not await openai_client.connect():
             await websocket.send_json({
                 "type": "error",
@@ -130,8 +160,31 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
+        # ✅ ОПЦИОНАЛЬНО: Логирование в БД с пометкой о типе соединения
+        if openai_client and openai_client.db_session and openai_client.conversation_record_id:
+            try:
+                conv = openai_client.db_session.query(Conversation).get(
+                    uuid.UUID(openai_client.conversation_record_id)
+                )
+                if conv and is_voximplant_client:
+                    # Добавляем информацию о телефонном звонке
+                    conv.client_info = {
+                        "source": "voximplant",
+                        "caller_number": caller_number,
+                        "type": "phone_call"
+                    }
+                    openai_client.db_session.commit()
+                    logger.info(f"📞 Сохранена информация о телефонном звонке в БД")
+            except Exception as e:
+                logger.error(f"Ошибка сохранения информации о звонке: {e}")
+
         # Сообщаем клиенту об успешном подключении
-        await websocket.send_json({"type": "connection_status", "status": "connected", "message": "Connection established"})
+        await websocket.send_json({
+            "type": "connection_status", 
+            "status": "connected", 
+            "message": "Connection established",
+            "client_type": "phone" if is_voximplant_client else "web"
+        })
 
         # УПРОЩЕННАЯ обработка аудио - микрофон постоянно активен
         audio_buffer = bytearray()
