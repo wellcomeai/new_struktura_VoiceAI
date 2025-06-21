@@ -26,190 +26,6 @@ logger = get_logger(__name__)
 active_connections: Dict[str, List[WebSocket]] = {}
 
 
-def is_voximplant_client(websocket: WebSocket) -> bool:
-    """Определяет Voximplant клиента"""
-    if not hasattr(websocket, 'headers'):
-        return False
-    
-    user_agent = websocket.headers.get('user-agent', '').lower() 
-    return any([
-        websocket.headers.get('x-voximplant-call') == 'true',
-        websocket.headers.get('x-caller-number') is not None,
-        'voximplant' in user_agent,
-        'go-http-client' in user_agent
-    ])
-
-
-# ✅ ИСПРАВЛЕНИЕ 1: Улучшенное определение Voximplant клиента
-async def detect_voximplant_client(websocket: WebSocket) -> tuple[bool, str]:
-    """
-    Улучшенное определение Voximplant клиента
-    """
-    user_agent = ""
-    is_voximplant_client = False
-    caller_number = None
-    
-    if hasattr(websocket, 'headers'):
-        user_agent = websocket.headers.get('user-agent', '')
-        
-        # Проверяем специальные заголовки Voximplant
-        voximplant_call = websocket.headers.get('x-voximplant-call', '')
-        caller_number_header = websocket.headers.get('x-caller-number', '')
-        voximplant_session = websocket.headers.get('x-voximplant-session', '')
-        caller_id_header = websocket.headers.get('x-caller-id', '')
-        
-        # ✅ ИСПРАВЛЕНИЕ: Более точное определение
-        if (voximplant_call == 'true' or 
-            voximplant_session or
-            caller_number_header or
-            caller_id_header or
-            'Voximplant-Bridge' in user_agent or 
-            'Go-http-client' in user_agent or
-            'VoxEngine' in user_agent or
-            'voximplant' in user_agent.lower()):
-            is_voximplant_client = True
-            caller_number = (caller_number_header or 
-                           caller_id_header or 
-                           'unknown')
-            logger.info(f"🚨 VOXIMPLANT клиент обнаружен: {caller_number}")
-    
-    # ✅ НОВОЕ: Дополнительная проверка по IP (если это возможно)
-    client_ip = getattr(websocket.client, 'host', '') if hasattr(websocket, 'client') else ''
-    if client_ip and ('voximplant' in client_ip.lower() or 
-                     client_ip.startswith('185.164.') or  # Известные IP Voximplant
-                     client_ip.startswith('185.54.')):
-        is_voximplant_client = True
-        if not caller_number:
-            caller_number = 'unknown'
-        logger.info(f"🚨 VOXIMPLANT обнаружен по IP: {client_ip}")
-    
-    return is_voximplant_client, caller_number
-
-
-# ✅ ИСПРАВЛЕНИЕ 2: Улучшенная обработка аудио для Voximplant
-async def handle_voximplant_audio(data: dict, openai_client, websocket: WebSocket):
-    """
-    Специальная обработка аудио для Voximplant с лучшей производительностью
-    """
-    try:
-        if data.get("type") == "input_audio_buffer.append":
-            audio_chunk = base64_to_audio_buffer(data["audio"])
-            
-            # Для Voximplant: прямая отправка без дополнительной буферизации
-            if openai_client.is_connected:
-                await openai_client.process_audio(audio_chunk)
-                
-                # Быстрое подтверждение для телефонии
-                await websocket.send_json({
-                    "type": "input_audio_buffer.append.ack",
-                    "event_id": data.get("event_id"),
-                    "processing_mode": "voximplant_direct",
-                    "bytes_processed": len(audio_chunk),
-                    "timestamp": time.time()
-                })
-                return True
-                
-    except Exception as e:
-        logger.error(f"❌ Ошибка обработки Voximplant аудио: {e}")
-        return False
-    
-    return False
-
-
-# ✅ ИСПРАВЛЕНИЕ 3: Улучшенная обработка сообщений от Voximplant
-async def handle_voximplant_message(data: dict, websocket: WebSocket, openai_client):
-    """
-    Обработка специфичных для Voximplant сообщений
-    """
-    msg_type = data.get("type", "")
-    
-    if msg_type == "voximplant.call_info":
-        logger.info(f"📞 Получена информация о Voximplant звонке")
-        caller_number = data.get("caller_number", "unknown")
-        call_id = data.get("call_id", "unknown")
-        
-        # Сохраняем информацию о звонке в БД
-        if openai_client and openai_client.db_session and openai_client.conversation_record_id:
-            try:
-                conv = openai_client.db_session.query(Conversation).get(
-                    uuid.UUID(openai_client.conversation_record_id)
-                )
-                if conv:
-                    if not conv.client_info:
-                        conv.client_info = {}
-                    conv.client_info.update({
-                        "source": "voximplant",
-                        "caller_number": caller_number,
-                        "call_id": call_id,
-                        "type": "phone_call",
-                        "received_time": time.time(),
-                        "detected_from": "voximplant_message"
-                    })
-                    openai_client.db_session.commit()
-                    logger.info(f"📞 Информация о звонке сохранена в БД")
-            except Exception as e:
-                logger.error(f"Ошибка сохранения информации о звонке: {e}")
-        
-        # Отправляем подтверждение
-        await websocket.send_json({
-            "type": "voximplant.call_info.ack",
-            "event_id": data.get("event_id"),
-            "message": "Call info received",
-            "caller_number": caller_number,
-            "optimizations_applied": True
-        })
-        return True
-    
-    elif msg_type == "voximplant.status":
-        # Voximplant может отправлять статусные сообщения
-        status = data.get("status", "unknown")
-        logger.info(f"📞 Voximplant status: {status}")
-        await websocket.send_json({
-            "type": "voximplant.status.ack",
-            "event_id": data.get("event_id"),
-            "received_status": status
-        })
-        return True
-    
-    elif msg_type == "voximplant.audio_quality":
-        # Информация о качестве аудио от Voximplant
-        quality_info = data.get("quality", {})
-        logger.info(f"📞 Voximplant audio quality: {quality_info}")
-        return True
-    
-    return False
-
-
-# ✅ ИСПРАВЛЕНИЕ 5: Обновленные настройки OpenAI для Voximplant
-def get_voximplant_optimized_config(base_config: dict) -> dict:
-    """
-    Оптимизированная конфигурация OpenAI для телефонии
-    """
-    voximplant_config = base_config.copy()
-    
-    # Настройки VAD для телефонии
-    voximplant_config["turn_detection"] = {
-        "type": "server_vad",
-        "threshold": 0.4,           # Выше для стабильности телефонии
-        "prefix_padding_ms": 300,   # Больше padding
-        "silence_duration_ms": 500, # Дольше пауза
-        "create_response": True
-    }
-    
-    # Аудио настройки
-    voximplant_config["input_audio_format"] = "pcm16"
-    voximplant_config["output_audio_format"] = "pcm16"
-    
-    # Короткие ответы для телефонии
-    voximplant_config["max_response_output_tokens"] = 150
-    
-    # Стабильная температура
-    voximplant_config["temperature"] = 0.6
-    
-    logger.info(f"[VOXIMPLANT] Применены оптимизированные настройки для Voximplant")
-    return voximplant_config
-
-
 async def handle_websocket_connection(
     websocket: WebSocket,
     assistant_id: str,
@@ -218,28 +34,14 @@ async def handle_websocket_connection(
     client_id = str(uuid.uuid4())
     openai_client = None
     
-    # ✅ КРИТИЧНО: Определяем Voximplant ДО accept() для пропуска проверки подписки
-    is_voximplant = is_voximplant_client(websocket)
-    is_voximplant_client_detailed, caller_number = await detect_voximplant_client(websocket)
-    
-    # ✅ СПЕЦИАЛЬНАЯ ОБРАБОТКА: Voximplant телефонные звонки
-    if is_voximplant or is_voximplant_client_detailed:
-        logger.info(f"📞 Incoming call from {caller_number} to assistant {assistant_id}")
-        logger.info(f"📞 Телефонный режим активирован для клиента {client_id}")
-        
-        # Получаем дополнительную информацию для логирования
-        user_agent = websocket.headers.get('user-agent', '') if hasattr(websocket, 'headers') else ''
-        client_ip = getattr(websocket.client, 'host', '') if hasattr(websocket, 'client') else ''
-        
-        # Специальные настройки для телефонии
-        logger.info(f"📞 User-Agent: {user_agent}")
-        logger.info(f"📞 Client IP: {client_ip}")
-        logger.info(f"📞 Headers: {dict(websocket.headers) if hasattr(websocket, 'headers') else 'N/A'}")
+    # Получаем User-Agent для определения типа устройства
+    user_agent = ""
+    if hasattr(websocket, 'headers'):
+        user_agent = websocket.headers.get('user-agent', '')
 
     try:
         await websocket.accept()
-        connection_type = "📞 PHONE" if (is_voximplant or is_voximplant_client_detailed) else "💻 WEB"
-        logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}, type={connection_type}")
+        logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}")
 
         # Регистрируем соединение
         active_connections.setdefault(assistant_id, []).append(websocket)
@@ -275,21 +77,13 @@ async def handle_websocket_connection(
             
         logger.info(f"Ассистент {assistant_id} имеет следующие функции: {enabled_functions}")
 
-        # ✅ УЛУЧШЕННОЕ: Передаем более детальную информацию о типе клиента
-        user_agent = websocket.headers.get('user-agent', '') if hasattr(websocket, 'headers') else ''
-        client_ip = getattr(websocket.client, 'host', '') if hasattr(websocket, 'client') else ''
-        
-        user_agent_with_info = user_agent
-        if is_voximplant or is_voximplant_client_detailed:
-            user_agent_with_info = f"Voximplant-Phone-Client/2.0 (caller: {caller_number}, ip: {client_ip})"
-
         # ✅ ГЛАВНАЯ ПРОВЕРКА: Блокировка WebSocket для пользователей с неактивной подпиской
         api_key = None
         if assistant.user_id:
             user = db.query(User).get(assistant.user_id)
             if user:
-                # ✅ НОВОЕ: Пропускаем проверку подписки для Voximplant клиентов
-                if not is_voximplant and not is_voximplant_client_detailed and not user.is_admin and user.email != "well96well@gmail.com":
+                # Проверяем подписку только для НЕ-админов
+                if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
                     subscription_status = await UserService.check_subscription_status(db, str(user.id))
                     
@@ -315,8 +109,6 @@ async def handle_websocket_connection(
                         })
                         await websocket.close(code=1008)
                         return
-                elif is_voximplant or is_voximplant_client_detailed:
-                    logger.info(f"📞 Voximplant соединение - пропускаем проверку подписки")
                 
                 api_key = user.openai_api_key
         
@@ -328,15 +120,8 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
-        # ✅ ИСПРАВЛЕНО: Подключаемся к OpenAI с передачей обновленного user_agent
-        openai_client = OpenAIRealtimeClient(
-            api_key, 
-            assistant, 
-            client_id, 
-            db, 
-            user_agent_with_info  # ✅ Передаем обновленный user_agent
-        )
-        
+        # Подключаемся к OpenAI с передачей user_agent
+        openai_client = OpenAIRealtimeClient(api_key, assistant, client_id, db, user_agent)
         if not await openai_client.connect():
             await websocket.send_json({
                 "type": "error",
@@ -345,66 +130,9 @@ async def handle_websocket_connection(
             await websocket.close(code=1008)
             return
 
-        # ✅ УЛУЧШЕННОЕ: Логирование в БД с детальной информацией о соединении
-        if openai_client and openai_client.db_session and openai_client.conversation_record_id:
-            try:
-                conv = openai_client.db_session.query(Conversation).get(
-                    uuid.UUID(openai_client.conversation_record_id)
-                )
-                if conv:
-                    # Добавляем подробную информацию о соединении
-                    conv.client_info = {
-                        "source": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "web",
-                        "caller_number": caller_number if (is_voximplant or is_voximplant_client_detailed) else None,
-                        "type": "phone_call" if (is_voximplant or is_voximplant_client_detailed) else "web_session",
-                        "user_agent": user_agent,
-                        "client_ip": client_ip,
-                        "connection_time": time.time(),
-                        "headers": dict(websocket.headers) if hasattr(websocket, 'headers') else None
-                    }
-                    openai_client.db_session.commit()
-                    logger.info(f"📞 Сохранена информация о {'телефонном звонке' if (is_voximplant or is_voximplant_client_detailed) else 'веб-соединении'} в БД")
-            except Exception as e:
-                logger.error(f"Ошибка сохранения информации о соединении: {e}")
-
         # Сообщаем клиенту об успешном подключении
-        await websocket.send_json({
-            "type": "connection_status", 
-            "status": "connected", 
-            "message": "Connection established",
-            "client_type": "phone" if (is_voximplant or is_voximplant_client_detailed) else "web",
-            "optimizations": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "standard",
-            "caller_number": caller_number if (is_voximplant or is_voximplant_client_detailed) else None
-        })
+        await websocket.send_json({"type": "connection_status", "status": "connected", "message": "Connection established"})
 
-        # ✅ УЛУЧШЕННОЕ: Автоматическое приветствие для телефонных звонков
-        if (is_voximplant or is_voximplant_client_detailed) and openai_client.is_connected:
-            logger.info(f"📞 Отправляем автоматическое приветствие для телефонного звонка")
-            try:
-                # Более быстрое приветствие для телефонии
-                greeting_response = await openai_client.ws.send(json.dumps({
-                    "type": "response.create",
-                    "event_id": f"phone_greeting_{int(time.time() * 1000)}",
-                    "response": {
-                        "modalities": ["audio", "text"],
-                        "instructions": "Кратко поприветствуй звонящего и спроси чем можешь помочь. Будь дружелюбным но лаконичным.",
-                        "max_output_tokens": 100,  # Короткое приветствие
-                        "temperature": 0.6
-                    }
-                }))
-                logger.info(f"📞 Автоматическое приветствие отправлено")
-            except Exception as e:
-                logger.error(f"📞 Ошибка отправки приветствия: {e}")
-
-        # ✅ НОВОЕ: Определяем режим обработки аудио в зависимости от клиента
-        if is_voximplant or is_voximplant_client_detailed:
-            # Для Voximplant используем более простую схему без сложных буферов
-            audio_processing_mode = "voximplant_direct"
-            logger.info(f"📞 Режим обработки аудио: {audio_processing_mode}")
-        else:
-            # Для веб-клиентов используем стандартную схему
-            audio_processing_mode = "web_buffered"
-        
         # УПРОЩЕННАЯ обработка аудио - микрофон постоянно активен
         audio_buffer = bytearray()
         is_processing = False
@@ -416,9 +144,7 @@ async def handle_websocket_connection(
             "last_speech_start": 0,
             "last_speech_stop": 0,
             "interruption_count": 0,
-            "last_interruption_time": 0,
-            "processing_mode": audio_processing_mode,
-            "client_type": "voximplant" if (is_voximplant or is_voximplant_client_detailed) else "web"
+            "last_interruption_time": 0
         }
 
         # Запускаем приём сообщений от OpenAI
@@ -434,56 +160,7 @@ async def handle_websocket_connection(
                     msg_type = data.get("type", "")
 
                     if msg_type == "ping":
-                        await websocket.send_json({"type": "pong", "timestamp": time.time()})
-                        continue
-
-                    # ✅ НОВОЕ: Специальная обработка для Voximplant
-                    if is_voximplant or is_voximplant_client_detailed:
-                        # Проверяем специфичные сообщения Voximplant
-                        if await handle_voximplant_message(data, websocket, openai_client):
-                            continue
-                        
-                        # Специальная обработка аудио для Voximplant
-                        if await handle_voximplant_audio(data, openai_client, websocket):
-                            continue
-
-                    # ✅ НОВОЕ: Улучшенная обработка информации о Voximplant звонке
-                    if msg_type == "voximplant.call_info":
-                        logger.info(f"📞 Получена информация о Voximplant звонке от клиента {client_id}")
-                        is_voximplant = True
-                        is_voximplant_client_detailed = True
-                        caller_number = data.get("caller_number", "unknown")
-                        logger.info(f"🚨 ТЕЛЕФОННЫЙ ЗВОНОК от {caller_number} через Voximplant (из сообщения)")
-                        
-                        # Обновляем информацию в БД
-                        if openai_client and openai_client.db_session and openai_client.conversation_record_id:
-                            try:
-                                conv = openai_client.db_session.query(Conversation).get(
-                                    uuid.UUID(openai_client.conversation_record_id)
-                                )
-                                if conv:
-                                    if not conv.client_info:
-                                        conv.client_info = {}
-                                    conv.client_info.update({
-                                        "source": "voximplant",
-                                        "caller_number": caller_number,
-                                        "type": "phone_call",
-                                        "detected_from": "message",
-                                        "message_time": time.time(),
-                                        "event_id": data.get("event_id")
-                                    })
-                                    openai_client.db_session.commit()
-                                    logger.info(f"📞 Обновлена информация о телефонном звонке в БД")
-                            except Exception as e:
-                                logger.error(f"Ошибка обновления информации о звонке: {e}")
-                        
-                        await websocket.send_json({
-                            "type": "voximplant.call_info.ack", 
-                            "event_id": data.get("event_id"),
-                            "message": "Call info received",
-                            "optimizations_applied": True,
-                            "processing_mode": audio_processing_mode
-                        })
+                        await websocket.send_json({"type": "pong"})
                         continue
 
                     # ИСПРАВЛЕНИЕ: Обрабатываем session.update от клиента
@@ -493,64 +170,37 @@ async def handle_websocket_connection(
                         # Просто отправляем подтверждение
                         await websocket.send_json({
                             "type": "session.update.ack", 
-                            "event_id": data.get("event_id", f"ack_{int(time.time() * 1000)}"),
-                            "message": "Session managed by server"
+                            "event_id": data.get("event_id", f"ack_{int(time.time() * 1000)}")
                         })
                         logger.info(f"[SESSION] Клиенту отправлено подтверждение session.update.ack")
                         continue
 
-                    # ✅ УЛУЧШЕННАЯ обработка аудио для разных типов клиентов
+                    # УПРОЩЕННАЯ обработка аудио - просто пропускаем через OpenAI
                     if msg_type == "input_audio_buffer.append":
-                        # Если это не обработано специальной функцией для Voximplant
-                        if not (is_voximplant or is_voximplant_client_detailed) or not await handle_voximplant_audio(data, openai_client, websocket):
-                            audio_chunk = base64_to_audio_buffer(data["audio"])
-                            
-                            if audio_processing_mode == "voximplant_direct":
-                                # Для Voximplant: прямая отправка без буферизации для лучшей производительности
-                                if openai_client.is_connected:
-                                    await openai_client.process_audio(audio_chunk)
-                                    logger.debug(f"📞 Voximplant audio chunk processed directly: {len(audio_chunk)} bytes")
-                            else:
-                                # Для веб: стандартная буферизация
-                                audio_buffer.extend(audio_chunk)
-                                if openai_client.is_connected:
-                                    await openai_client.process_audio(audio_chunk)
-                            
-                            await websocket.send_json({
-                                "type": "input_audio_buffer.append.ack", 
-                                "event_id": data.get("event_id"),
-                                "processing_mode": audio_processing_mode,
-                                "bytes_processed": len(audio_chunk)
-                            })
+                        audio_chunk = base64_to_audio_buffer(data["audio"])
+                        audio_buffer.extend(audio_chunk)
+                        
+                        # Отправляем аудио напрямую в OpenAI без дополнительной обработки
+                        if openai_client.is_connected:
+                            await openai_client.process_audio(audio_chunk)
+                        
+                        await websocket.send_json({"type": "input_audio_buffer.append.ack", "event_id": data.get("event_id")})
                         continue
 
                     if msg_type == "input_audio_buffer.commit" and not is_processing:
                         is_processing = True
                         
-                        # ✅ АДАПТИВНАЯ обработка в зависимости от типа клиента
-                        if audio_processing_mode == "voximplant_direct":
-                            logger.info(f"📞 Voximplant audio commit - direct mode")
+                        # Убираем проверку минимального размера - доверяем клиенту
+                        # Клиент теперь сам решает когда отправлять буфер
                         
                         if openai_client.is_connected:
                             await openai_client.commit_audio()
-                            await websocket.send_json({
-                                "type": "input_audio_buffer.commit.ack", 
-                                "event_id": data.get("event_id"),
-                                "processing_mode": audio_processing_mode,
-                                "buffer_size": len(audio_buffer)
-                            })
+                            await websocket.send_json({"type": "input_audio_buffer.commit.ack", "event_id": data.get("event_id")})
                         else:
                             # Пробуем восстановить соединение
-                            logger.warning(f"OpenAI connection lost, attempting to reconnect for {client_id}")
                             if await openai_client.reconnect():
                                 await openai_client.commit_audio()
-                                await websocket.send_json({
-                                    "type": "input_audio_buffer.commit.ack", 
-                                    "event_id": data.get("event_id"),
-                                    "reconnected": True,
-                                    "processing_mode": audio_processing_mode
-                                })
-                                logger.info(f"OpenAI connection restored for {client_id}")
+                                await websocket.send_json({"type": "input_audio_buffer.commit.ack", "event_id": data.get("event_id")})
                             else:
                                 await websocket.send_json({
                                     "type": "error",
@@ -565,11 +215,7 @@ async def handle_websocket_connection(
                         audio_buffer.clear()
                         if openai_client.is_connected:
                             await openai_client.clear_audio_buffer()
-                        await websocket.send_json({
-                            "type": "input_audio_buffer.clear.ack", 
-                            "event_id": data.get("event_id"),
-                            "processing_mode": audio_processing_mode
-                        })
+                        await websocket.send_json({"type": "input_audio_buffer.clear.ack", "event_id": data.get("event_id")})
                         continue
 
                     if msg_type == "response.cancel":
@@ -578,10 +224,7 @@ async def handle_websocket_connection(
                                 "type": "response.cancel",
                                 "event_id": data.get("event_id")
                             }))
-                        await websocket.send_json({
-                            "type": "response.cancel.ack", 
-                            "event_id": data.get("event_id")
-                        })
+                        await websocket.send_json({"type": "response.cancel.ack", "event_id": data.get("event_id")})
                         continue
                     
                     # Обработка событий перебивания и управления микрофоном
@@ -590,8 +233,7 @@ async def handle_websocket_connection(
                         await openai_client.handle_interruption()
                         await websocket.send_json({
                             "type": "interruption.manual.ack", 
-                            "event_id": data.get("event_id"),
-                            "timestamp": time.time()
+                            "event_id": data.get("event_id")
                         })
                         continue
                     
@@ -639,17 +281,10 @@ async def handle_websocket_connection(
 
                 elif "bytes" in message:
                     # raw-байты от клиента
-                    raw_bytes = message["bytes"]
-                    audio_buffer.extend(raw_bytes)
-                    logger.debug(f"Received raw bytes: {len(raw_bytes)}")
-                    await websocket.send_json({
-                        "type": "binary.ack",
-                        "bytes_received": len(raw_bytes),
-                        "processing_mode": audio_processing_mode
-                    })
+                    audio_buffer.extend(message["bytes"])
+                    await websocket.send_json({"type": "binary.ack"})
 
             except (WebSocketDisconnect, ConnectionClosed):
-                logger.info(f"WebSocket disconnected for client {client_id}")
                 break
             except Exception as e:
                 logger.error(f"Error in WebSocket loop: {e}")
@@ -669,8 +304,7 @@ async def handle_websocket_connection(
         try:
             await websocket.send_json({
                 "type": "error",
-                "error": {"code": "server_error", "message": "Внутренняя ошибка сервера"},
-                "client_id": client_id
+                "error": {"code": "server_error", "message": "Внутренняя ошибка сервера"}
             })
         except:
             pass  # Игнорируем ошибки при отправке
@@ -681,7 +315,7 @@ async def handle_websocket_connection(
         conns = active_connections.get(assistant_id, [])
         if websocket in conns:
             conns.remove(websocket)
-        logger.info(f"[DEBUG] Соединение закрыто для клиента {client_id}")
+        logger.info(f"Removed WebSocket connection: client_id={client_id}")
 
 
 async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket: WebSocket, interruption_state: Dict):
@@ -705,12 +339,8 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
     waiting_for_function_response = False
     last_function_delivery_status = None
     
-    # Определяем тип клиента для логирования
-    client_type = interruption_state.get("client_type", "unknown")
-    processing_mode = interruption_state.get("processing_mode", "standard")
-    
     try:
-        logger.info(f"[DEBUG] Начало обработки сообщений от OpenAI для клиента {openai_client.client_id} (тип: {client_type})")
+        logger.info(f"[DEBUG] Начало обработки сообщений от OpenAI для клиента {openai_client.client_id}")
         logger.info(f"[DEBUG-FUNCTION] Текущие разрешенные функции: {openai_client.enabled_functions}")
         
         while True:
@@ -734,8 +364,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Отправляем событие клиенту
                     await websocket.send_json({
                         "type": "speech.started",
-                        "timestamp": interruption_state["last_speech_start"],
-                        "detected_by": "server_vad"
+                        "timestamp": interruption_state["last_speech_start"]
                     })
                     continue
                 
@@ -747,8 +376,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Отправляем событие клиенту
                     await websocket.send_json({
                         "type": "speech.stopped",
-                        "timestamp": interruption_state["last_speech_stop"],
-                        "detected_by": "server_vad"
+                        "timestamp": interruption_state["last_speech_stop"]
                     })
                     continue
                 
@@ -768,8 +396,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     await websocket.send_json({
                         "type": "conversation.interrupted",
                         "timestamp": interruption_state["last_interruption_time"],
-                        "interruption_count": interruption_state["interruption_count"],
-                        "client_type": client_type
+                        "interruption_count": interruption_state["interruption_count"]
                     })
                     continue
                 
@@ -781,8 +408,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     # Отправляем событие клиенту
                     await websocket.send_json({
                         "type": "response.cancelled",
-                        "timestamp": time.time(),
-                        "client_type": client_type
+                        "timestamp": time.time()
                     })
                     continue
                 
@@ -817,7 +443,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     except:
                         logger.info(f"[DEBUG-TRANSCRIPT] Данные события (не JSON): {response_data}")
                 
-                # ✅ ИСПРАВЛЕННАЯ обработка начала аудио ответа ассистента
+                # ИСПРАВЛЕННАЯ обработка начала аудио ответа ассистента
                 if msg_type == "response.audio.delta":
                     if not interruption_state["is_assistant_speaking"]:
                         # Ассистент начал генерировать аудио
@@ -829,20 +455,16 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         await websocket.send_json({
                             "type": "assistant.speech.started",
                             "response_id": response_id,
-                            "timestamp": time.time(),
-                            "client_type": client_type
+                            "timestamp": time.time()
                         })
                     
                     # Подсчитываем аудио семплы для точной отмены
                     delta_audio = response_data.get("delta", "")
                     if delta_audio:
-                        try:
-                            sample_count = len(base64.b64decode(delta_audio)) // 2
-                            openai_client.increment_audio_samples(sample_count)
-                        except:
-                            pass  # Игнорируем ошибки декодирования
+                        sample_count = len(base64.b64decode(delta_audio)) // 2
+                        openai_client.increment_audio_samples(sample_count)
                 
-                # ✅ ИСПРАВЛЕННОЕ завершение аудио ответа ассистента
+                # ИСПРАВЛЕННОЕ завершение аудио ответа ассистента
                 if msg_type == "response.audio.done":
                     if interruption_state["is_assistant_speaking"]:
                         interruption_state["is_assistant_speaking"] = False
@@ -851,11 +473,10 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         # Отправляем событие клиенту
                         await websocket.send_json({
                             "type": "assistant.speech.ended",
-                            "timestamp": time.time(),
-                            "client_type": client_type
+                            "timestamp": time.time()
                         })
                 
-                # Обработка функций (остается без изменений, но с улучшенным логированием)
+                # Остальная обработка функций остается без изменений
                 if msg_type == "response.function_call.started":
                     function_name = response_data.get("function_name")
                     function_call_id = response_data.get("call_id")
@@ -893,8 +514,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     await websocket.send_json({
                         "type": "function_call.started",
                         "function": normalized_name,
-                        "function_call_id": function_call_id,
-                        "client_type": client_type
+                        "function_call_id": function_call_id
                     })
                 
                 elif msg_type == "response.function_call_arguments.delta":
@@ -914,7 +534,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             logger.info(f"[DEBUG] Определена функция по аргументам: search_pinecone")
                     
                     pending_function_call["arguments_buffer"] += delta
-
+                
                 elif msg_type == "response.function_call_arguments.done":
                     arguments_str = response_data.get("arguments", pending_function_call["arguments_buffer"])
                     
@@ -968,8 +588,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                             await websocket.send_json({
                                 "type": "function_call.start",
                                 "function": normalized_name,
-                                "function_call_id": function_call_id,
-                                "client_type": client_type
+                                "function_call_id": function_call_id
                             })
                             
                             result = await execute_function(
@@ -1008,8 +627,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 "type": "function_call.completed",
                                 "function": normalized_name,
                                 "function_call_id": function_call_id,
-                                "result": result,
-                                "client_type": client_type
+                                "result": result
                             })
                             
                             if normalized_name == "send_webhook" and waiting_for_function_response:
@@ -1088,8 +706,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                     await websocket.send_json({
                         "type": "function_call.start",
                         "function": normalized_name,
-                        "function_call_id": function_call_id,
-                        "client_type": client_type
+                        "function_call_id": function_call_id
                     })
                     
                     result = await execute_function(
@@ -1112,8 +729,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         "type": "function_call.completed",
                         "function": normalized_name,
                         "function_call_id": function_call_id,
-                        "result": result,
-                        "client_type": client_type
+                        "result": result
                     })
                     
                     continue
@@ -1172,11 +788,8 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
 
                 if msg_type == "audio":
                     b64 = response_data.get("data", "")
-                    try:
-                        chunk = base64.b64decode(b64)
-                        await websocket.send_bytes(chunk)
-                    except Exception as e:
-                        logger.error(f"Error sending audio bytes: {e}")
+                    chunk = base64.b64decode(b64)
+                    await websocket.send_bytes(chunk)
                     continue
                 
                 if msg_type == "response.output_item.done":
@@ -1218,8 +831,7 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         # Отправляем событие клиенту
                         await websocket.send_json({
                             "type": "assistant.speech.ended",
-                            "timestamp": time.time(),
-                            "client_type": client_type
+                            "timestamp": time.time()
                         })
                     
                     logger.info(f"[DEBUG] Завершен диалог. Пользователь: '{user_transcript}'")
