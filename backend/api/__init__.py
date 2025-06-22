@@ -14,7 +14,8 @@ from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
 from .payments import router as payments_router
-from .subscription_status import router as subscription_status_router  # Новый роутер для проверки подписки
+from .subscription_status import router as subscription_status_router
+from .voximplant import router as voximplant_router  # ✅ ДОБАВЛЕНО: Voximplant роутер
 
 # Create a main API router
 api_router = APIRouter()
@@ -29,7 +30,8 @@ api_router.include_router(subscriptions_router, tags=["Subscriptions"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(knowledge_base_router)
 api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])
-api_router.include_router(subscription_status_router, prefix="/subscription-status", tags=["Subscription Status"])  # Новый роутер
+api_router.include_router(subscription_status_router, prefix="/subscription-status", tags=["Subscription Status"])
+api_router.include_router(voximplant_router, prefix="/voximplant", tags=["Voximplant"])  # ✅ ДОБАВЛЕНО: Voximplant в главный роутер
 
 # Export all routers for use in app.py
 __all__ = [
@@ -43,5 +45,6 @@ __all__ = [
     "admin_router",
     "knowledge_base_router",
     "payments_router",
-    "subscription_status_router"  # Добавлен новый роутер
+    "subscription_status_router",
+    "voximplant_router"  # ✅ ДОБАВЛЕНО: Voximplant роутер в экспорт
 ]
