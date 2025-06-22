@@ -21,6 +21,7 @@ from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.api import knowledge_base
 from backend.api import payments
+from backend.api import voximplant  # ✅ ДОБАВЛЕНО: Импорт Voximplant роутера
 
 # Alembic для миграций
 from alembic.config import Config as AlembicConfig
@@ -89,6 +90,7 @@ app.include_router(subscription_logs.router, prefix="/api/subscription-logs", ta
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
+app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])  # ✅ ДОБАВЛЕНО: Voximplant роутер
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
 def ensure_static_directories():
@@ -192,6 +194,15 @@ async def startup_event():
             logger.info("🔄 Subscription checker started")
         except Exception as e:
             logger.error(f"❌ Error starting subscription checker: {str(e)}")
+        
+        # ✅ ДОБАВЛЕНО: Логирование инициализации Voximplant интеграции
+        try:
+            logger.info("📞 Voximplant integration initialized")
+            logger.info(f"   WebSocket endpoint: {settings.HOST_URL}/api/voximplant/ws/{{assistant_id}}")
+            logger.info(f"   Demo endpoint: {settings.HOST_URL}/api/voximplant/ws/demo")
+            logger.info(f"   Test endpoint: {settings.HOST_URL}/api/voximplant/test")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Voximplant integration: {str(e)}")
         
         logger.info("✅ Application started successfully")
         
