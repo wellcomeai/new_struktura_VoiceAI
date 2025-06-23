@@ -376,42 +376,25 @@ class VoximplantProtocolHandler:
                 logger.info(f"[VOXIMPLANT] 🤖 Ассистент: '{transcript}'")
 
     async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """ИСПРАВЛЕННАЯ отправка аудио в Voximplant через протокол медиа-событий"""
+        """ИСПРАВЛЕННАЯ отправка аудио в Voximplant через бинарные данные"""
         if not self.is_connected or self.connection_closed:
             return
             
         try:
-            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Отправляем аудио в формате медиа-события Voximplant
-            # Это имитирует то, как webSocket.sendMediaTo() работает в Voximplant скрипте
+            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Voximplant ожидает получать аудио как бинарные данные,
+            # а не как JSON медиа-события! Это главное отличие от примера с ElevenLabs.
+            # В ElevenLabs используется специальный API, а здесь нужна прямая передача PCM16.
             
-            # Конвертируем PCM16 аудио в base64
-            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            # Отправляем PCM16 аудио напрямую как бинарные данные
+            await self.voximplant_ws.send_bytes(audio_bytes)
             
-            # Увеличиваем sequence number
-            self.sequence_number += 1
-            
-            # Формируем медиа-событие в формате Voximplant
-            media_event = {
-                "event": "media",
-                "sequenceNumber": str(self.sequence_number),
-                "media": {
-                    "timestamp": str(int(time.time() * 1000)),
-                    "payload": audio_base64,
-                    "chunk": str(self.sequence_number)
-                },
-                "streamId": f"assistant_audio_{self.client_id}"
-            }
-            
-            # Отправляем как JSON сообщение
-            await self.voximplant_ws.send_text(json.dumps(media_event))
-            
-            # Периодическое логирование
+            # Периодическое логирование для отладки
             if not hasattr(self, '_audio_sent_count'):
                 self._audio_sent_count = 0
             self._audio_sent_count += 1
             
             if self._audio_sent_count % 50 == 0:
-                logger.info(f"[VOXIMPLANT] ➡️ Отправлено аудио событий: {self._audio_sent_count}, размер чанка: {len(audio_bytes)} байт")
+                logger.info(f"[VOXIMPLANT] ➡️ Отправлено аудио пакетов: {self._audio_sent_count}, размер: {len(audio_bytes)} байт")
                 
         except Exception as e:
             if not self.connection_closed:
