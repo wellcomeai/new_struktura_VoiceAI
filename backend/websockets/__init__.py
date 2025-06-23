@@ -6,14 +6,12 @@ Handles real-time communication with clients.
 from .handler import handle_websocket_connection
 from .openai_client import OpenAIRealtimeClient
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
-
-# ✅ ИСПРАВЛЕНО: Импортируем новые классы из обновленного обработчика
-try:
-    from .voximplant_handler import VoximplantProtocolHandler, handle_voximplant_websocket_with_protocol
-except ImportError:
-    # Fallback на старые имена если новый файл еще не обновлен
-    VoximplantProtocolHandler = None
-    handle_voximplant_websocket_with_protocol = None
+from .voximplant_handler import (
+    VoximplantProtocolHandler, 
+    SimpleVoximplantHandler,
+    handle_voximplant_websocket_with_protocol,
+    handle_voximplant_websocket_simple
+)
 
 __all__ = [
     "handle_websocket_connection", 
@@ -21,5 +19,7 @@ __all__ = [
     "VoximplantAdapter",
     "handle_voximplant_websocket",
     "VoximplantProtocolHandler", 
-    "handle_voximplant_websocket_with_protocol"
+    "SimpleVoximplantHandler",
+    "handle_voximplant_websocket_with_protocol",
+    "handle_voximplant_websocket_simple"
 ]
