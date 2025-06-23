@@ -222,17 +222,25 @@ class SimpleVoximplantHandler:
             return
             
         try:
+            # ✅ ИСПРАВЛЕНО: Добавляем детальное логирование аудио
+            logger.info(f"[VOXIMPLANT] Получен аудио пакет: {len(audio_bytes)} байт")
+            
             # Накапливаем аудио в буфере
             self.audio_buffer.extend(audio_bytes)
             self.last_audio_time = time.time()
             
             # Отправляем чанками в OpenAI
+            chunks_sent = 0
             while len(self.audio_buffer) >= self.audio_chunk_size:
                 chunk = bytes(self.audio_buffer[:self.audio_chunk_size])
                 self.audio_buffer = self.audio_buffer[self.audio_chunk_size:]
                 
                 # Отправляем в OpenAI
                 await self.openai_client.process_audio(chunk)
+                chunks_sent += 1
+            
+            if chunks_sent > 0:
+                logger.info(f"[VOXIMPLANT] Отправлено в OpenAI: {chunks_sent} чанков аудио")
             
             # Автоматический коммит после паузы
             asyncio.create_task(self.auto_commit_audio())
@@ -246,6 +254,7 @@ class SimpleVoximplantHandler:
         
         if time.time() - self.last_audio_time >= 0.5:
             if self.openai_client:
+                logger.info(f"[VOXIMPLANT] Коммит аудио буфера в OpenAI")
                 await self.openai_client.commit_audio()
 
     async def handle_openai_messages(self):
@@ -264,27 +273,57 @@ class SimpleVoximplantHandler:
         """Обрабатывает конкретное сообщение от OpenAI"""
         msg_type = message.get("type", "")
         
+        # ✅ ИСПРАВЛЕНО: Детальное логирование всех сообщений от OpenAI
+        logger.info(f"[VOXIMPLANT] OpenAI сообщение: {msg_type}")
+        
         # Отправляем важные события в Voximplant
         if msg_type in ["error", "function_call.start", "function_call.completed"]:
             await self.send_message(message)
             
-        # Обрабатываем аудио от ассистента
+        # ✅ ИСПРАВЛЕНО: Улучшенная обработка аудио от ассистента
         elif msg_type == "response.audio.delta":
             delta_audio = message.get("delta", "")
             if delta_audio:
                 try:
                     audio_bytes = base64_to_audio_buffer(delta_audio)
+                    logger.info(f"[VOXIMPLANT] Отправка аудио в Voximplant: {len(audio_bytes)} байт")
                     await self.voximplant_ws.send_bytes(audio_bytes)
                 except Exception as e:
                     logger.error(f"[VOXIMPLANT] Ошибка отправки аудио: {e}")
                     
+        # ✅ НОВОЕ: Обработка транскрипции для диагностики
+        elif msg_type == "conversation.item.input_audio_transcription.completed":
+            transcript = message.get("transcript", "")
+            if transcript:
+                logger.info(f"[VOXIMPLANT] Транскрипция пользователя: '{transcript}'")
+                
+        elif msg_type == "response.audio_transcript.done":
+            transcript = message.get("transcript", "")
+            if transcript:
+                logger.info(f"[VOXIMPLANT] Транскрипция ассистента: '{transcript}'")
+                    
         # Отслеживаем состояние речи ассистента
         elif msg_type in ["response.audio.done", "response.done"]:
+            logger.info(f"[VOXIMPLANT] Ассистент закончил генерацию ответа")
             await self.send_message({
                 "type": "assistant_speaking",
                 "speaking": False,
                 "timestamp": time.time()
             })
+            
+        # ✅ НОВОЕ: Логируем начало генерации ответа
+        elif msg_type == "response.created":
+            logger.info(f"[VOXIMPLANT] Ассистент начал генерацию ответа")
+            
+        # ✅ НОВОЕ: Логируем события аудио буфера
+        elif msg_type == "input_audio_buffer.committed":
+            logger.info(f"[VOXIMPLANT] Аудио буфер успешно коммитнут в OpenAI")
+            
+        elif msg_type == "input_audio_buffer.speech_started":
+            logger.info(f"[VOXIMPLANT] OpenAI обнаружил начало речи пользователя")
+            
+        elif msg_type == "input_audio_buffer.speech_stopped":
+            logger.info(f"[VOXIMPLANT] OpenAI обнаружил окончание речи пользователя")
 
     async def send_message(self, message: dict):
         """Отправляет сообщение в Voximplant"""
