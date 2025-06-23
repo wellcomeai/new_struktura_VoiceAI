@@ -142,7 +142,7 @@ class VoximplantProtocolHandler:
                         except json.JSONDecodeError as e:
                             logger.warning(f"[VOXIMPLANT] Некорректный JSON: {e}")
                     elif "bytes" in message:
-                        # Обрабатываем сырые аудио данные
+                        # ВАЖНО: Voximplant отправляет PCM16 аудио напрямую как bytes
                         await self.process_raw_audio_data(message["bytes"])
                         
                 except WebSocketDisconnect:
@@ -167,104 +167,52 @@ class VoximplantProtocolHandler:
             self.is_connected = False
 
     async def process_voximplant_message(self, data: dict):
-        """Обработка сообщений с правильной поддержкой протокола Voximplant"""
-        # Проверяем, является ли это событием аудио протокола
-        if "event" in data:
-            await self.handle_voximplant_audio_event(data)
-            return
-            
-        # Обработка обычных сообщений
+        """Обработка JSON сообщений от Voximplant"""
         msg_type = data.get("type", "")
         
         if msg_type:
             logger.info(f"[VOXIMPLANT] Получено сообщение: {msg_type}")
         
         if msg_type == "call_started":
-            logger.info(f"[VOXIMPLANT] Звонок начат: {data.get('caller_number')}")
+            caller = data.get("caller_number", "unknown")
+            logger.info(f"[VOXIMPLANT] Звонок начат: {caller}")
+            self.is_audio_streaming = True
+            
+        elif msg_type == "audio_ready":
+            format_info = data.get("format", "pcm16")
+            logger.info(f"[VOXIMPLANT] Аудио готово: {format_info}")
             
         elif msg_type == "call_ended":
             logger.info(f"[VOXIMPLANT] Звонок завершен")
             self.connection_closed = True
             
-        elif msg_type == "audio_ready":
-            logger.info(f"[VOXIMPLANT] Аудио готово: {data.get('format', 'pcm16')}")
-
-    async def handle_voximplant_audio_event(self, data: dict):
-        """Исправленная обработка аудио событий Voximplant"""
-        event_type = data.get("event")
-        sequence_number = data.get("sequenceNumber", 0)
-        
-        if event_type == "start":
-            # Начало аудио потока
-            start_data = data.get("start", {})
-            media_format = start_data.get("mediaFormat", {})
-            encoding = media_format.get("encoding", "audio/x-mulaw")
-            sample_rate = media_format.get("sampleRate", 8000)
-            channels = media_format.get("channels", 1)
-            
-            logger.info(f"[VOXIMPLANT] ✅ Начало аудио: {encoding}, {sample_rate}Hz, {channels} канал(ов)")
-            self.is_audio_streaming = True
-            self.audio_packets_received = 0
-            self.audio_bytes_received = 0
-            
-        elif event_type == "media":
-            # Аудио данные в base64
-            media_data = data.get("media", {})
-            
-            # ИСПРАВЛЕНИЕ: media может быть строкой или объектом
-            if isinstance(media_data, str):
-                audio_base64 = media_data
-            elif isinstance(media_data, dict):
-                audio_base64 = media_data.get("payload", "")
-            else:
-                logger.error(f"[VOXIMPLANT] Неожиданный формат media: {type(media_data)}")
-                return
-                
-            if audio_base64 and self.is_audio_streaming:
-                try:
-                    # Декодируем base64 аудио
-                    audio_bytes = base64.b64decode(audio_base64)
-                    self.audio_packets_received += 1
-                    self.audio_bytes_received += len(audio_bytes)
-                    
-                    # Логируем прогресс
-                    if self.audio_packets_received % 10 == 0:
-                        logger.info(f"[VOXIMPLANT] ✅ Пакетов: {self.audio_packets_received}, байт: {self.audio_bytes_received}")
-                    
-                    # Обрабатываем аудио
-                    await self.process_audio_data(audio_bytes)
-                    
-                except Exception as e:
-                    logger.error(f"[VOXIMPLANT] Ошибка декодирования аудио: {e}")
-            
-        elif event_type == "stop":
-            # Окончание аудио потока
-            stop_data = data.get("stop", {})
-            media_info = stop_data.get("mediaInfo", {})
-            bytes_sent = media_info.get("bytesSent", 0)
-            duration = media_info.get("duration", 0)
-            
-            logger.info(f"[VOXIMPLANT] ✅ Конец аудио: {bytes_sent} байт, {duration} сек")
-            logger.info(f"[VOXIMPLANT] ✅ Всего: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
-            
-            self.is_audio_streaming = False
-            
-            # Коммитим оставшееся аудио
+            # Коммитим оставшееся аудио если есть
             if self.openai_client and len(self.audio_buffer) > 0:
-                logger.info(f"[VOXIMPLANT] Финальный коммит аудио")
                 await self.openai_client.commit_audio()
 
-    async def process_audio_data(self, audio_bytes: bytes):
-        """Обработка аудио данных с правильным размером чанков"""
+    async def process_raw_audio_data(self, audio_bytes: bytes):
+        """ИСПРАВЛЕННАЯ обработка сырых PCM16 аудио данных от Voximplant"""
         if not self.openai_client or not audio_bytes:
             return
             
         try:
+            # Обновляем статистику
+            self.audio_packets_received += 1
+            self.audio_bytes_received += len(audio_bytes)
+            
+            # Логируем начало потока
+            if self.audio_packets_received == 1:
+                logger.info(f"[VOXIMPLANT] ✅ Начало аудио: PCM16, 16000Hz, 1 канал(ов)")
+            
+            # Периодическое логирование
+            if self.audio_packets_received % 10 == 0:
+                logger.info(f"[VOXIMPLANT] ✅ Пакетов: {self.audio_packets_received}, байт: {self.audio_bytes_received}")
+            
             # Добавляем в буфер
             self.audio_buffer.extend(audio_bytes)
             self.last_audio_time = time.time()
             
-            # Отправляем чанками оптимального размера
+            # Отправляем в OpenAI чанками оптимального размера
             chunks_sent = 0
             while len(self.audio_buffer) >= self.audio_chunk_size:
                 chunk = bytes(self.audio_buffer[:self.audio_chunk_size])
@@ -274,27 +222,27 @@ class VoximplantProtocolHandler:
                 if await self.openai_client.process_audio(chunk):
                     chunks_sent += 1
             
-            if chunks_sent > 0:
-                logger.debug(f"[VOXIMPLANT] Отправлено в OpenAI: {chunks_sent} чанков")
-            
             # Автокоммит после паузы
             asyncio.create_task(self.auto_commit_audio())
             
         except Exception as e:
             logger.error(f"[VOXIMPLANT] Ошибка обработки аудио: {e}")
 
-    async def process_raw_audio_data(self, audio_bytes: bytes):
-        """Обработка сырых аудио данных (для обратной совместимости)"""
-        logger.debug(f"[VOXIMPLANT] Получены сырые аудио: {len(audio_bytes)} байт")
-        await self.process_audio_data(audio_bytes)
-
     async def auto_commit_audio(self):
         """Автоматический коммит после паузы в речи"""
-        await asyncio.sleep(0.8)
+        # Ждем короткую паузу
+        await asyncio.sleep(0.5)
         
-        if time.time() - self.last_audio_time >= 0.7:
-            if self.openai_client and not self.connection_closed:
-                logger.info(f"[VOXIMPLANT] Автокоммит аудио в OpenAI")
+        # Если нет новых данных - коммитим
+        if time.time() - self.last_audio_time >= 0.4:
+            if self.openai_client and not self.connection_closed and len(self.audio_buffer) > 0:
+                # Отправляем оставшееся аудио
+                if len(self.audio_buffer) > 0:
+                    chunk = bytes(self.audio_buffer)
+                    self.audio_buffer.clear()
+                    await self.openai_client.process_audio(chunk)
+                
+                logger.info(f"[VOXIMPLANT] Автокоммит аудио")
                 await self.openai_client.commit_audio()
 
     async def handle_openai_messages(self):
@@ -323,15 +271,11 @@ class VoximplantProtocolHandler:
         """Обработка сообщений от OpenAI с правильным форматом для Voximplant"""
         msg_type = message.get("type", "")
         
-        # Логируем только важные события
-        if msg_type not in ["response.audio.delta"]:
-            logger.debug(f"[VOXIMPLANT] OpenAI: {msg_type}")
-        
         # Отправляем ошибки и события функций
         if msg_type in ["error", "function_call.start", "function_call.completed"]:
             await self.send_message(message)
             
-        # ГЛАВНОЕ ИСПРАВЛЕНИЕ: Обработка аудио от ассистента
+        # Обработка аудио от ассистента
         elif msg_type == "response.audio.delta":
             delta_audio = message.get("delta", "")
             if delta_audio:
@@ -342,15 +286,14 @@ class VoximplantProtocolHandler:
                     # Накапливаем аудио в буфере
                     self.assistant_audio_buffer.extend(audio_bytes)
                     
-                    # Отправляем буферизированными чанками для плавного воспроизведения
-                    # Используем больший размер буфера для стабильности
+                    # Отправляем буферизированными чанками
                     chunk_size = 640  # 20мс при 16kHz PCM16
                     
                     while len(self.assistant_audio_buffer) >= chunk_size:
                         chunk = bytes(self.assistant_audio_buffer[:chunk_size])
                         self.assistant_audio_buffer = self.assistant_audio_buffer[chunk_size:]
                         
-                        # ВАЖНО: Отправляем аудио в правильном формате для Voximplant
+                        # Отправляем аудио в Voximplant
                         await self.send_audio_to_voximplant(chunk)
                     
                 except Exception as e:
@@ -376,19 +319,15 @@ class VoximplantProtocolHandler:
                 logger.info(f"[VOXIMPLANT] 🤖 Ассистент: '{transcript}'")
 
     async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """ИСПРАВЛЕННАЯ отправка аудио в Voximplant через бинарные данные"""
+        """Отправка PCM16 аудио в Voximplant"""
         if not self.is_connected or self.connection_closed:
             return
             
         try:
-            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Voximplant ожидает получать аудио как бинарные данные,
-            # а не как JSON медиа-события! Это главное отличие от примера с ElevenLabs.
-            # В ElevenLabs используется специальный API, а здесь нужна прямая передача PCM16.
-            
             # Отправляем PCM16 аудио напрямую как бинарные данные
             await self.voximplant_ws.send_bytes(audio_bytes)
             
-            # Периодическое логирование для отладки
+            # Периодическое логирование
             if not hasattr(self, '_audio_sent_count'):
                 self._audio_sent_count = 0
             self._audio_sent_count += 1
@@ -401,7 +340,7 @@ class VoximplantProtocolHandler:
                 logger.error(f"[VOXIMPLANT] Ошибка отправки аудио: {e}")
 
     async def send_message(self, message: dict):
-        """Отправка сообщения в Voximplant"""
+        """Отправка JSON сообщения в Voximplant"""
         if self.is_connected and not self.connection_closed:
             try:
                 await self.voximplant_ws.send_text(json.dumps(message))
@@ -426,6 +365,12 @@ class VoximplantProtocolHandler:
     async def cleanup(self):
         """Очистка ресурсов с правильным завершением"""
         logger.info(f"[VOXIMPLANT] Начало очистки")
+        
+        # Логируем финальную статистику перед очисткой
+        if self.audio_packets_received > 0:
+            duration = self.audio_bytes_received / (self.sample_rate * 2)  # 2 байта на сэмпл для PCM16
+            logger.info(f"[VOXIMPLANT] ✅ Конец аудио: {self.audio_bytes_received} байт, {duration:.1f} сек")
+            logger.info(f"[VOXIMPLANT] ✅ Всего: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
         
         self.is_connected = False
         self.connection_closed = True
@@ -456,7 +401,6 @@ class VoximplantProtocolHandler:
             
         logger.info(f"[VOXIMPLANT] Очистка завершена. Статистика: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
 
-    # Остальные методы остаются без изменений...
     async def load_assistant_config(self) -> Optional[AssistantConfig]:
         """Загружает конфигурацию ассистента"""
         try:
