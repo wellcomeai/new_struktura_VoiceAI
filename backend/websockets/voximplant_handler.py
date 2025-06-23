@@ -354,30 +354,22 @@ class VoximplantProtocolHandler:
                 logger.info(f"[VOXIMPLANT] 🤖 Ассистент: '{transcript}'")
 
     async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """Отправка аудио в Voximplant в правильном формате протокола"""
+        """Отправка аудио в Voximplant в правильном формате"""
         if not self.is_connected or self.connection_closed:
             return
             
         try:
-            # Формируем сообщение по протоколу Voximplant
-            self.sequence_number += 1
-            
-            # Кодируем аудио в base64
-            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-            
-            # Создаем сообщение в формате протокола
-            audio_message = {
-                "event": "media",
-                "sequenceNumber": self.sequence_number,
-                "media": audio_base64
-            }
-            
-            # Отправляем как JSON
-            await self.voximplant_ws.send_text(json.dumps(audio_message))
+            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Отправляем аудио как бинарные данные, а не JSON!
+            # Voximplant WebSocket автоматически передаст эти байты в звонок
+            await self.voximplant_ws.send_bytes(audio_bytes)
             
             # Периодическое логирование
-            if self.sequence_number % 50 == 0:
-                logger.debug(f"[VOXIMPLANT] Отправлено {self.sequence_number} аудио пакетов")
+            if not hasattr(self, '_audio_sent_count'):
+                self._audio_sent_count = 0
+            self._audio_sent_count += 1
+            
+            if self._audio_sent_count % 50 == 0:
+                logger.info(f"[VOXIMPLANT] Отправлено аудио пакетов: {self._audio_sent_count}, размер: {len(audio_bytes)} байт")
                 
         except Exception as e:
             if not self.connection_closed:
