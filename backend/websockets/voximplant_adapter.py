@@ -183,7 +183,12 @@ class VoximplantAdapter:
         """Обрабатывает текстовые сообщения от Voximplant"""
         msg_type = data.get("type", "")
         
-        logger.info(f"[VOXIMPLANT] Получено сообщение: {msg_type}")
+        # ✅ ИСПРАВЛЕНО: Детальное логирование для отладки
+        if msg_type:
+            logger.info(f"[VOXIMPLANT] Получено сообщение: {msg_type}")
+        else:
+            logger.warning(f"[VOXIMPLANT] Получено сообщение без типа: {data}")
+            return  # Игнорируем сообщения без типа
         
         if msg_type == "call_started":
             caller_number = data.get("caller_number", "unknown")
@@ -428,31 +433,47 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
             await websocket.close(code=1008)
             return
 
-        # Проверяем подписку пользователя (если ассистент не публичный)
+        # ✅ ИСПРАВЛЕНО: Проверяем подписку пользователя с дополнительной проверкой сессии БД
         if assistant.user_id and not assistant.is_public:
-            user = db.query(User).get(assistant.user_id)
-            if user and not user.is_admin and user.email != "well96well@gmail.com":
-                subscription_status = await UserService.check_subscription_status(db, str(user.id))
-                
-                if not subscription_status["active"]:
-                    logger.warning(f"[VOXIMPLANT] Доступ заблокирован для пользователя {user.id} - подписка истекла")
+            try:
+                # Обновляем сессию БД перед запросом
+                db.refresh(assistant)
+                user = db.query(User).get(assistant.user_id)
+                if user and not user.is_admin and user.email != "well96well@gmail.com":
+                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
                     
-                    await websocket.accept()
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "error": {
-                            "code": "SUBSCRIPTION_EXPIRED",
-                            "message": "Подписка истекла. Обновите подписку для продолжения использования.",
-                            "subscription_status": subscription_status,
-                            "requires_payment": True
-                        }
-                    }))
-                    await websocket.close(code=1008)
-                    return
+                    if not subscription_status["active"]:
+                        logger.warning(f"[VOXIMPLANT] Доступ заблокирован для пользователя {user.id} - подписка истекла")
+                        
+                        await websocket.accept()
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "error": {
+                                "code": "SUBSCRIPTION_EXPIRED",
+                                "message": "Подписка истекла. Обновите подписку для продолжения использования.",
+                                "subscription_status": subscription_status,
+                                "requires_payment": True
+                            }
+                        }))
+                        await websocket.close(code=1008)
+                        return
+            except Exception as db_error:
+                logger.error(f"[VOXIMPLANT] Ошибка проверки подписки: {db_error}")
+                # Продолжаем работу без проверки подписки в случае ошибки БД
 
-        # Создаем и запускаем исправленный адаптер
-        adapter = VoximplantAdapter(websocket, assistant_id, db)
-        await adapter.start()
+        # ✅ ИСПРАВЛЕНО: Создаем копию сессии БД для адаптера
+        try:
+            from backend.db.session import SessionLocal
+            adapter_db = SessionLocal()
+            
+            # Создаем и запускаем исправленный адаптер
+            adapter = VoximplantAdapter(websocket, assistant_id, adapter_db)
+            await adapter.start()
+            
+        finally:
+            # Закрываем сессию БД адаптера
+            if 'adapter_db' in locals():
+                adapter_db.close()
         
     except Exception as e:
         logger.error(f"[VOXIMPLANT] Ошибка обработки WebSocket: {e}")
