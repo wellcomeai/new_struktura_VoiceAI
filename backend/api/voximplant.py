@@ -1,4 +1,4 @@
-# backend/api/voximplant.py
+# backend/api/voximplant.py - ОБНОВЛЕННАЯ ВЕРСИЯ
 
 """
 Voximplant API endpoints for WellcomeAI application.
@@ -13,7 +13,6 @@ import time
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db
-from backend.websockets.voximplant_adapter import handle_voximplant_websocket
 
 logger = get_logger(__name__)
 
@@ -34,14 +33,6 @@ async def voximplant_websocket_endpoint(
     
     URL для Voximplant скрипта: 
     wss://your-backend.com/api/voximplant/ws/{assistant_id}?caller={number}&session={call_id}
-    
-    Args:
-        websocket: WebSocket соединение от Voximplant
-        assistant_id: ID ассистента для подключения
-        caller: Номер звонящего (опционально)
-        session: ID сессии звонка (опционально)
-        call_id: ID звонка в Voximplant (опционально)
-        db: Сессия базы данных
     """
     
     logger.info(f"[VOXIMPLANT] Новое WebSocket соединение:")
@@ -51,11 +42,13 @@ async def voximplant_websocket_endpoint(
     logger.info(f"   call_id: {call_id}")
     
     try:
-        await handle_voximplant_websocket(websocket, assistant_id, db)
+        # ✅ ИСПРАВЛЕНО: Используем упрощенный обработчик
+        from backend.websockets.voximplant_handler import handle_voximplant_websocket_simple
+        await handle_voximplant_websocket_simple(websocket, assistant_id, db)
+        
     except Exception as e:
         logger.error(f"[VOXIMPLANT] Ошибка обработки WebSocket соединения: {e}")
         
-        # Попытка отправить ошибку клиенту перед закрытием
         try:
             await websocket.send_json({
                 "type": "error",
@@ -76,9 +69,6 @@ async def voximplant_websocket_endpoint(
 async def test_voximplant_integration():
     """
     Тестовый эндпоинт для проверки готовности Voximplant интеграции.
-    
-    Returns:
-        Статус интеграции и информация о конфигурации
     """
     try:
         return {
@@ -100,7 +90,14 @@ async def test_voximplant_integration():
                 "encoding": "PCM16",
                 "sample_rate": "16kHz", 
                 "channels": "mono",
-                "chunk_size": "20ms"
+                "chunk_size": "40ms"
+            },
+            "voximplant_script_config": {
+                "wsUrl": f"{settings.HOST_URL.replace('https://', 'wss://').replace('http://', 'ws://')}/api/voximplant/ws",
+                "assistantId": "demo",
+                "audioEncoding": "PCM16",
+                "sampleRate": 16000,
+                "channels": 1
             }
         }
     except Exception as e:
@@ -114,12 +111,8 @@ async def test_voximplant_integration():
 async def get_voximplant_config():
     """
     Возвращает конфигурацию для настройки Voximplant скрипта.
-    
-    Returns:
-        Конфигурационные параметры для Voximplant
     """
     try:
-        # Определяем базовый URL для WebSocket соединений
         base_ws_url = settings.HOST_URL.replace("https://", "wss://").replace("http://", "ws://")
         
         return {
@@ -131,7 +124,7 @@ async def get_voximplant_config():
             },
             "voximplant_script_config": {
                 "wsUrl": f"{base_ws_url}/api/voximplant/ws",
-                "assistantId": "demo",  # По умолчанию для демо
+                "assistantId": "demo",
                 "audioEncoding": "PCM16",
                 "sampleRate": 16000,
                 "channels": 1
@@ -142,8 +135,8 @@ async def get_voximplant_config():
                 "session - ID сессии звонка (опционально)"
             ],
             "setup_instructions": [
-                "1. Скопируйте Voximplant скрипт из документации",
-                "2. Замените wsUrl на ваш домен",
+                "1. Скопируйте исправленный Voximplant скрипт",
+                "2. Замените wsUrl на ваш домен с правильным путем /api/voximplant/ws",
                 "3. Установите assistantId на ID вашего ассистента", 
                 "4. Загрузите скрипт в Voximplant Control Panel",
                 "5. Настройте маршрутизацию звонков на этот скрипт"
@@ -160,12 +153,8 @@ async def get_voximplant_config():
 async def voximplant_health_check():
     """
     Проверка состояния Voximplant интеграции.
-    
-    Returns:
-        Детальная информация о состоянии системы
     """
     try:
-        # Проверяем базовые компоненты
         health_status = {
             "status": "healthy",
             "timestamp": time.time(),
@@ -176,15 +165,15 @@ async def voximplant_health_check():
                 "database_connection": "operational"
             },
             "metrics": {
-                "active_connections": 0,  # TODO: Добавить счетчик активных соединений
-                "total_calls_processed": 0,  # TODO: Добавить метрики
-                "average_response_time": 0  # TODO: Добавить метрики
+                "active_connections": 0,
+                "total_calls_processed": 0,
+                "average_response_time": 0
             },
             "configuration": {
                 "host_url": settings.HOST_URL,
                 "debug_mode": settings.DEBUG,
-                "audio_chunk_size": 640,
-                "auto_commit_timeout": 500
+                "audio_chunk_size": 1280,
+                "auto_commit_timeout": 600
             }
         }
         
@@ -213,20 +202,9 @@ async def voximplant_health_check():
 async def voximplant_status_webhook(request_data: Dict[Any, Any]):
     """
     Webhook для получения статусов звонков от Voximplant.
-    
-    Args:
-        request_data: Данные от Voximplant о статусе звонка
-        
-    Returns:
-        Подтверждение получения webhook
     """
     try:
         logger.info(f"[VOXIMPLANT] Получен webhook статуса звонка: {request_data}")
-        
-        # Здесь можно добавить логику обработки статусов звонков:
-        # - Логирование завершенных звонков
-        # - Обновление метрик
-        # - Уведомления администраторов
         
         call_id = request_data.get("call_id")
         status = request_data.get("status")
