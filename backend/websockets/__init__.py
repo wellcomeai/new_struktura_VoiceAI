@@ -5,13 +5,14 @@ Handles real-time communication with clients.
 
 from .handler import handle_websocket_connection
 from .openai_client import OpenAIRealtimeClient
-# ✅ ДОБАВИТЬ эти две строки:
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
+from .voximplant_handler import SimpleVoximplantHandler, handle_voximplant_websocket_simple
 
-# ✅ ОБНОВИТЬ __all__ (заменить полностью):
 __all__ = [
     "handle_websocket_connection", 
     "OpenAIRealtimeClient",
     "VoximplantAdapter",
-    "handle_voximplant_websocket"
+    "handle_voximplant_websocket",
+    "SimpleVoximplantHandler", 
+    "handle_voximplant_websocket_simple"
 ]
