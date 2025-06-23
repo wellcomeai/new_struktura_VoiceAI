@@ -1,4 +1,9 @@
-# backend/websockets/voximplant_handler.py - ИСПРАВЛЕННАЯ ВЕРСИЯ с протоколом Voximplant
+# backend/websockets/voximplant_handler.py - ФИНАЛЬНАЯ РАБОЧАЯ ВЕРСИЯ
+
+"""
+Voximplant WebSocket handler with support for their specific audio protocol.
+Handles both simple and protocol-based audio transmission.
+"""
 
 import asyncio
 import json
@@ -20,8 +25,8 @@ logger = get_logger(__name__)
 
 class VoximplantProtocolHandler:
     """
-    ИСПРАВЛЕННЫЙ обработчик для Voximplant с поддержкой их специального протокола.
-    Правильно обрабатывает аудио события: start, media, stop.
+    Обработчик для Voximplant с поддержкой их специального протокола аудио.
+    Правильно обрабатывает события: start, media, stop.
     """
     
     def __init__(self, voximplant_ws: WebSocket, assistant_id: str, db: Session):
@@ -32,14 +37,14 @@ class VoximplantProtocolHandler:
         self.is_connected = False
         self.openai_client = None
         
-        # Аудио настройки для Voximplant
+        # Аудио настройки
         self.audio_buffer = bytearray()
         self.last_audio_time = time.time()
         self.audio_chunk_size = 1280  # 40мс при 16kHz PCM16
         self.sample_rate = 16000
         self.is_audio_streaming = False
         
-        # Счетчики для диагностики
+        # Статистика
         self.audio_packets_received = 0
         self.audio_bytes_received = 0
         self.sequence_number = 0
@@ -56,7 +61,7 @@ class VoximplantProtocolHandler:
             self.is_connected = True
             logger.info(f"[VOXIMPLANT] WebSocket принят")
             
-            # Загружаем конфигурацию ассистента
+            # Загружаем ассистента
             assistant = await self.load_assistant_config()
             if not assistant:
                 return
@@ -65,12 +70,13 @@ class VoximplantProtocolHandler:
             if not await self.check_subscription(assistant):
                 return
             
-            # Создаем OpenAI клиент
+            # Получаем API ключ
             api_key = await self.get_api_key(assistant)
             if not api_key:
                 await self.send_error("no_api_key", "Отсутствует ключ API OpenAI")
                 return
                 
+            # Создаем OpenAI клиент
             self.openai_client = OpenAIRealtimeClient(
                 api_key=api_key,
                 assistant_config=assistant,
@@ -91,13 +97,13 @@ class VoximplantProtocolHandler:
                 "message": "Connection established"
             })
             
-            # Запускаем задачи обработки
+            # Запускаем обработку
             openai_task = asyncio.create_task(self.handle_openai_messages())
             voximplant_task = asyncio.create_task(self.handle_voximplant_messages())
             
             self.background_tasks.extend([openai_task, voximplant_task])
             
-            # Ждем завершения любой из задач
+            # Ждем завершения
             done, pending = await asyncio.wait(
                 self.background_tasks, 
                 return_when=asyncio.FIRST_COMPLETED
@@ -179,9 +185,7 @@ class VoximplantProtocolHandler:
             return None
 
     async def handle_voximplant_messages(self):
-        """
-        ✅ ИСПРАВЛЕНО: Обрабатывает сообщения от Voximplant с поддержкой их протокола
-        """
+        """Обрабатывает сообщения от Voximplant"""
         try:
             while self.is_connected:
                 message = await self.voximplant_ws.receive()
@@ -193,7 +197,7 @@ class VoximplantProtocolHandler:
                     except json.JSONDecodeError as e:
                         logger.warning(f"[VOXIMPLANT] Некорректный JSON: {e}")
                 elif "bytes" in message:
-                    # На всякий случай обрабатываем и бинарные данные
+                    # Обрабатываем бинарные данные
                     logger.info(f"[VOXIMPLANT] Получен бинарный пакет: {len(message['bytes'])} байт")
                     await self.process_raw_audio_data(message["bytes"])
                 else:
@@ -205,10 +209,8 @@ class VoximplantProtocolHandler:
             logger.error(f"[VOXIMPLANT] Ошибка обработки сообщений: {e}")
 
     async def process_voximplant_message(self, data: dict):
-        """
-        ✅ КЛЮЧЕВАЯ ФУНКЦИЯ: Обрабатывает сообщения по протоколу Voximplant
-        """
-        # Проверяем наличие поля "event" - это протокол Voximplant для аудио
+        """Обрабатывает сообщения по протоколу Voximplant"""
+        # Проверяем протокол Voximplant с полем "event"
         if "event" in data:
             await self.handle_voximplant_audio_event(data)
             return
@@ -237,9 +239,7 @@ class VoximplantProtocolHandler:
                 await self.openai_client.handle_interruption()
 
     async def handle_voximplant_audio_event(self, data: dict):
-        """
-        ✅ НОВАЯ ФУНКЦИЯ: Обрабатывает аудио события Voximplant (start, media, stop)
-        """
+        """Обрабатывает аудио события Voximplant (start, media, stop)"""
         event_type = data.get("event")
         sequence_number = data.get("sequenceNumber", 0)
         
@@ -254,8 +254,6 @@ class VoximplantProtocolHandler:
             
             logger.info(f"[VOXIMPLANT] ✅ Начало аудио потока: {encoding}, {sample_rate}Hz, {channels} канал(ов)")
             self.is_audio_streaming = True
-            
-            # Сбрасываем статистику
             self.audio_packets_received = 0
             self.audio_bytes_received = 0
             
@@ -286,11 +284,11 @@ class VoximplantProtocolHandler:
             duration = media_info.get("duration", 0)
             
             logger.info(f"[VOXIMPLANT] ✅ Конец аудио потока: {bytes_sent} байт, {duration} сек")
-            logger.info(f"[VOXIMPLANT] ✅ Финальная статистика: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
+            logger.info(f"[VOXIMPLANT] ✅ Статистика: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
             
             self.is_audio_streaming = False
             
-            # Принудительно коммитим аудио в OpenAI
+            # Коммитим аудио в OpenAI
             if self.openai_client:
                 logger.info(f"[VOXIMPLANT] Принудительный коммит аудио в OpenAI")
                 await self.openai_client.commit_audio()
@@ -325,13 +323,13 @@ class VoximplantProtocolHandler:
             logger.error(f"[VOXIMPLANT] Ошибка обработки аудио: {e}")
 
     async def process_raw_audio_data(self, audio_bytes: bytes):
-        """Обрабатывает сырые бинарные аудио данные (если приходят)"""
+        """Обрабатывает сырые бинарные аудио данные"""
         logger.info(f"[VOXIMPLANT] Получены сырые аудио данные: {len(audio_bytes)} байт")
         await self.process_audio_data(audio_bytes)
 
     async def auto_commit_audio(self):
         """Автоматически коммитит аудио после паузы"""
-        await asyncio.sleep(0.8)  # Увеличена пауза для Voximplant
+        await asyncio.sleep(0.8)
         
         if time.time() - self.last_audio_time >= 0.6:
             if self.openai_client:
@@ -351,17 +349,17 @@ class VoximplantProtocolHandler:
             logger.error(f"[VOXIMPLANT] Ошибка обработки OpenAI: {e}")
 
     async def process_openai_message(self, message: dict):
-        """Обрабатывает конкретное сообщение от OpenAI"""
+        """Обрабатывает сообщения от OpenAI"""
         msg_type = message.get("type", "")
         
-        # Детальное логирование всех сообщений от OpenAI
+        # Детальное логирование
         logger.info(f"[VOXIMPLANT] OpenAI сообщение: {msg_type}")
         
         # Отправляем важные события в Voximplant
         if msg_type in ["error", "function_call.start", "function_call.completed"]:
             await self.send_message(message)
             
-        # ✅ ИСПРАВЛЕНО: Улучшенная обработка аудио от ассистента
+        # Обрабатываем аудио от ассистента
         elif msg_type == "response.audio.delta":
             delta_audio = message.get("delta", "")
             if delta_audio:
@@ -369,13 +367,13 @@ class VoximplantProtocolHandler:
                     audio_bytes = base64_to_audio_buffer(delta_audio)
                     logger.info(f"[VOXIMPLANT] ✅ Отправка аудио в Voximplant: {len(audio_bytes)} байт")
                     
-                    # ✅ ИСПРАВЛЕНО: Отправляем аудио в формате протокола Voximplant
-                    await self.send_audio_to_voximplant(audio_bytes)
+                    # Отправляем аудио обратно в Voximplant (как бинарные данные)
+                    await self.voximplant_ws.send_bytes(audio_bytes)
                     
                 except Exception as e:
                     logger.error(f"[VOXIMPLANT] Ошибка отправки аудио: {e}")
                     
-        # Обработка транскрипции для диагностики
+        # Обработка транскрипции
         elif msg_type == "conversation.item.input_audio_transcription.completed":
             transcript = message.get("transcript", "")
             if transcript:
@@ -405,29 +403,6 @@ class VoximplantProtocolHandler:
         elif msg_type == "input_audio_buffer.speech_stopped":
             logger.info(f"[VOXIMPLANT] ✅ OpenAI обнаружил окончание речи пользователя")
 
-    async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """
-        ✅ НОВАЯ ФУНКЦИЯ: Отправляет аудио в Voximplant в их протоколе
-        """
-        try:
-            # Кодируем аудио в base64
-            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-            
-            # Формируем сообщение в протоколе Voximplant
-            voximplant_audio_message = {
-                "event": "media",
-                "sequenceNumber": self.sequence_number,
-                "media": audio_b64
-            }
-            
-            self.sequence_number += 1
-            
-            # Отправляем в Voximplant
-            await self.send_message(voximplant_audio_message)
-            
-        except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка отправки аудио в протоколе Voximplant: {e}")
-
     async def send_message(self, message: dict):
         """Отправляет сообщение в Voximplant"""
         if self.is_connected:
@@ -450,7 +425,7 @@ class VoximplantProtocolHandler:
     async def cleanup(self):
         """Очищает ресурсы"""
         logger.info(f"[VOXIMPLANT] Начало очистки для {self.client_id}")
-        logger.info(f"[VOXIMPLANT] Финальная статистика аудио: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
+        logger.info(f"[VOXIMPLANT] Финальная статистика: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
         
         self.is_connected = False
         self.is_audio_streaming = False
@@ -467,13 +442,20 @@ class VoximplantProtocolHandler:
         logger.info(f"[VOXIMPLANT] Очистка завершена для {self.client_id}")
 
 
+# Для обратной совместимости
+SimpleVoximplantHandler = VoximplantProtocolHandler
+
+async def handle_voximplant_websocket_simple(websocket: WebSocket, assistant_id: str, db: Session):
+    """Для обратной совместимости"""
+    return await handle_voximplant_websocket_with_protocol(websocket, assistant_id, db)
+
 async def handle_voximplant_websocket_with_protocol(websocket: WebSocket, assistant_id: str, db: Session):
     """
-    ✅ ИСПРАВЛЕННАЯ функция для обработки Voximplant WebSocket с поддержкой протокола
+    Основная функция для обработки Voximplant WebSocket с поддержкой протокола
     """
     handler = None
     try:
-        # Создаем отдельную сессию БД для обработчика
+        # Создаем отдельную сессию БД
         from backend.db.session import SessionLocal
         handler_db = SessionLocal()
         
