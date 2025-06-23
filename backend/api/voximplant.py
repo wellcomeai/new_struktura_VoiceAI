@@ -42,9 +42,9 @@ async def voximplant_websocket_endpoint(
     logger.info(f"   call_id: {call_id}")
     
     try:
-        # ✅ ИСПРАВЛЕНО: Используем упрощенный обработчик
-        from backend.websockets.voximplant_handler import handle_voximplant_websocket_simple
-        await handle_voximplant_websocket_simple(websocket, assistant_id, db)
+        # ✅ ИСПРАВЛЕНО: Используем новый обработчик с поддержкой протокола Voximplant
+        from backend.websockets.voximplant_handler import handle_voximplant_websocket_with_protocol
+        await handle_voximplant_websocket_with_protocol(websocket, assistant_id, db)
         
     except Exception as e:
         logger.error(f"[VOXIMPLANT] Ошибка обработки WebSocket соединения: {e}")
