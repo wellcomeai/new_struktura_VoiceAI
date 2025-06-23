@@ -2,7 +2,7 @@
 
 """
 Voximplant WebSocket handler with proper protocol support.
-Fixes audio decoding issues and connection handling.
+Fixes audio transmission to Voximplant.
 """
 
 import asyncio
@@ -48,6 +48,9 @@ class VoximplantProtocolHandler:
         self.audio_packets_received = 0
         self.audio_bytes_received = 0
         self.sequence_number = 0
+        
+        # Буфер для аудио от ассистента
+        self.assistant_audio_buffer = bytearray()
         
         # Фоновые задачи
         self.background_tasks = []
@@ -328,7 +331,7 @@ class VoximplantProtocolHandler:
         if msg_type in ["error", "function_call.start", "function_call.completed"]:
             await self.send_message(message)
             
-        # Обработка аудио от ассистента
+        # ГЛАВНОЕ ИСПРАВЛЕНИЕ: Обработка аудио от ассистента
         elif msg_type == "response.audio.delta":
             delta_audio = message.get("delta", "")
             if delta_audio:
@@ -336,11 +339,30 @@ class VoximplantProtocolHandler:
                     # Декодируем аудио из base64
                     audio_bytes = base64.b64decode(delta_audio)
                     
-                    # ВАЖНО: Отправляем аудио в формате протокола Voximplant
-                    await self.send_audio_to_voximplant(audio_bytes)
+                    # Накапливаем аудио в буфере
+                    self.assistant_audio_buffer.extend(audio_bytes)
+                    
+                    # Отправляем буферизированными чанками для плавного воспроизведения
+                    # Используем больший размер буфера для стабильности
+                    chunk_size = 640  # 20мс при 16kHz PCM16
+                    
+                    while len(self.assistant_audio_buffer) >= chunk_size:
+                        chunk = bytes(self.assistant_audio_buffer[:chunk_size])
+                        self.assistant_audio_buffer = self.assistant_audio_buffer[chunk_size:]
+                        
+                        # ВАЖНО: Отправляем аудио в правильном формате для Voximplant
+                        await self.send_audio_to_voximplant(chunk)
                     
                 except Exception as e:
                     logger.error(f"[VOXIMPLANT] Ошибка обработки аудио от OpenAI: {e}")
+                    
+        # Обработка окончания аудио ответа
+        elif msg_type == "response.audio.done":
+            # Отправляем оставшееся аудио из буфера
+            if len(self.assistant_audio_buffer) > 0:
+                await self.send_audio_to_voximplant(bytes(self.assistant_audio_buffer))
+                self.assistant_audio_buffer.clear()
+                logger.info(f"[VOXIMPLANT] Отправлен финальный аудио буфер")
                     
         # Обработка транскрипций
         elif msg_type == "conversation.item.input_audio_transcription.completed":
@@ -354,14 +376,34 @@ class VoximplantProtocolHandler:
                 logger.info(f"[VOXIMPLANT] 🤖 Ассистент: '{transcript}'")
 
     async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """Отправка аудио в Voximplant в правильном формате"""
+        """ИСПРАВЛЕННАЯ отправка аудио в Voximplant через протокол медиа-событий"""
         if not self.is_connected or self.connection_closed:
             return
             
         try:
-            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Отправляем аудио как бинарные данные, а не JSON!
-            # Voximplant WebSocket автоматически передаст эти байты в звонок
-            await self.voximplant_ws.send_bytes(audio_bytes)
+            # КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Отправляем аудио в формате медиа-события Voximplant
+            # Это имитирует то, как webSocket.sendMediaTo() работает в Voximplant скрипте
+            
+            # Конвертируем PCM16 аудио в base64
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            # Увеличиваем sequence number
+            self.sequence_number += 1
+            
+            # Формируем медиа-событие в формате Voximplant
+            media_event = {
+                "event": "media",
+                "sequenceNumber": str(self.sequence_number),
+                "media": {
+                    "timestamp": str(int(time.time() * 1000)),
+                    "payload": audio_base64,
+                    "chunk": str(self.sequence_number)
+                },
+                "streamId": f"assistant_audio_{self.client_id}"
+            }
+            
+            # Отправляем как JSON сообщение
+            await self.voximplant_ws.send_text(json.dumps(media_event))
             
             # Периодическое логирование
             if not hasattr(self, '_audio_sent_count'):
@@ -369,7 +411,7 @@ class VoximplantProtocolHandler:
             self._audio_sent_count += 1
             
             if self._audio_sent_count % 50 == 0:
-                logger.info(f"[VOXIMPLANT] Отправлено аудио пакетов: {self._audio_sent_count}, размер: {len(audio_bytes)} байт")
+                logger.info(f"[VOXIMPLANT] ➡️ Отправлено аудио событий: {self._audio_sent_count}, размер чанка: {len(audio_bytes)} байт")
                 
         except Exception as e:
             if not self.connection_closed:
