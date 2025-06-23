@@ -1,4 +1,4 @@
-# backend/websockets/voximplant_handler.py - НОВЫЙ УПРОЩЕННЫЙ ОБРАБОТЧИК
+# backend/websockets/voximplant_handler.py - ИСПРАВЛЕННАЯ ВЕРСИЯ с протоколом Voximplant
 
 import asyncio
 import json
@@ -18,10 +18,10 @@ from backend.services.user_service import UserService
 
 logger = get_logger(__name__)
 
-class SimpleVoximplantHandler:
+class VoximplantProtocolHandler:
     """
-    УПРОЩЕННЫЙ обработчик для Voximplant без промежуточных адаптеров.
-    Напрямую интегрируется с OpenAI Realtime API.
+    ИСПРАВЛЕННЫЙ обработчик для Voximplant с поддержкой их специального протокола.
+    Правильно обрабатывает аудио события: start, media, stop.
     """
     
     def __init__(self, voximplant_ws: WebSocket, assistant_id: str, db: Session):
@@ -32,16 +32,22 @@ class SimpleVoximplantHandler:
         self.is_connected = False
         self.openai_client = None
         
-        # Аудио настройки для Voximplant PCM16
+        # Аудио настройки для Voximplant
         self.audio_buffer = bytearray()
         self.last_audio_time = time.time()
         self.audio_chunk_size = 1280  # 40мс при 16kHz PCM16
         self.sample_rate = 16000
+        self.is_audio_streaming = False
+        
+        # Счетчики для диагностики
+        self.audio_packets_received = 0
+        self.audio_bytes_received = 0
+        self.sequence_number = 0
         
         # Фоновые задачи
         self.background_tasks = []
         
-        logger.info(f"[VOXIMPLANT] Создан простой обработчик для assistant_id={assistant_id}")
+        logger.info(f"[VOXIMPLANT] Создан протокол-обработчик для assistant_id={assistant_id}")
 
     async def start(self):
         """Запускает обработчик"""
@@ -158,7 +164,7 @@ class SimpleVoximplantHandler:
             
         except Exception as e:
             logger.error(f"[VOXIMPLANT] Ошибка проверки подписки: {e}")
-            return True  # Продолжаем работу при ошибке проверки
+            return True
 
     async def get_api_key(self, assistant: AssistantConfig) -> Optional[str]:
         """Получает API ключ OpenAI"""
@@ -173,7 +179,9 @@ class SimpleVoximplantHandler:
             return None
 
     async def handle_voximplant_messages(self):
-        """Обрабатывает сообщения от Voximplant"""
+        """
+        ✅ ИСПРАВЛЕНО: Обрабатывает сообщения от Voximplant с поддержкой их протокола
+        """
         try:
             while self.is_connected:
                 message = await self.voximplant_ws.receive()
@@ -181,23 +189,35 @@ class SimpleVoximplantHandler:
                 if "text" in message:
                     try:
                         data = json.loads(message["text"])
-                        await self.process_text_message(data)
+                        await self.process_voximplant_message(data)
                     except json.JSONDecodeError as e:
                         logger.warning(f"[VOXIMPLANT] Некорректный JSON: {e}")
                 elif "bytes" in message:
-                    await self.process_audio_data(message["bytes"])
+                    # На всякий случай обрабатываем и бинарные данные
+                    logger.info(f"[VOXIMPLANT] Получен бинарный пакет: {len(message['bytes'])} байт")
+                    await self.process_raw_audio_data(message["bytes"])
+                else:
+                    logger.info(f"[VOXIMPLANT] Неизвестный тип сообщения: {list(message.keys())}")
                     
         except WebSocketDisconnect:
             logger.info(f"[VOXIMPLANT] Соединение закрыто")
         except Exception as e:
             logger.error(f"[VOXIMPLANT] Ошибка обработки сообщений: {e}")
 
-    async def process_text_message(self, data: dict):
-        """Обрабатывает текстовые сообщения"""
+    async def process_voximplant_message(self, data: dict):
+        """
+        ✅ КЛЮЧЕВАЯ ФУНКЦИЯ: Обрабатывает сообщения по протоколу Voximplant
+        """
+        # Проверяем наличие поля "event" - это протокол Voximplant для аудио
+        if "event" in data:
+            await self.handle_voximplant_audio_event(data)
+            return
+            
+        # Обрабатываем обычные сообщения
         msg_type = data.get("type", "")
         
         if not msg_type:
-            # Игнорируем сообщения без типа - это нормально для аудио
+            logger.warning(f"[VOXIMPLANT] Сообщение без типа: {data}")
             return
             
         logger.info(f"[VOXIMPLANT] Получено: {msg_type}")
@@ -216,15 +236,71 @@ class SimpleVoximplantHandler:
             if self.openai_client:
                 await self.openai_client.handle_interruption()
 
+    async def handle_voximplant_audio_event(self, data: dict):
+        """
+        ✅ НОВАЯ ФУНКЦИЯ: Обрабатывает аудио события Voximplant (start, media, stop)
+        """
+        event_type = data.get("event")
+        sequence_number = data.get("sequenceNumber", 0)
+        
+        logger.info(f"[VOXIMPLANT] Аудио событие: {event_type}, sequence: {sequence_number}")
+        
+        if event_type == "start":
+            # Начало аудио потока
+            media_format = data.get("start", {}).get("mediaFormat", {})
+            encoding = media_format.get("encoding", "unknown")
+            sample_rate = media_format.get("sampleRate", 0)
+            channels = media_format.get("channels", 1)
+            
+            logger.info(f"[VOXIMPLANT] ✅ Начало аудио потока: {encoding}, {sample_rate}Hz, {channels} канал(ов)")
+            self.is_audio_streaming = True
+            
+            # Сбрасываем статистику
+            self.audio_packets_received = 0
+            self.audio_bytes_received = 0
+            
+        elif event_type == "media":
+            # Аудио данные в base64
+            media_data = data.get("media", "")
+            if media_data and self.is_audio_streaming:
+                try:
+                    # Декодируем base64 аудио
+                    audio_bytes = base64.b64decode(media_data)
+                    self.audio_packets_received += 1
+                    self.audio_bytes_received += len(audio_bytes)
+                    
+                    # Логируем каждый 10-й пакет
+                    if self.audio_packets_received % 10 == 0:
+                        logger.info(f"[VOXIMPLANT] ✅ Получено аудио пакетов: {self.audio_packets_received}, байт: {self.audio_bytes_received}")
+                    
+                    # Обрабатываем аудио
+                    await self.process_audio_data(audio_bytes)
+                    
+                except Exception as e:
+                    logger.error(f"[VOXIMPLANT] Ошибка декодирования аудио: {e}")
+            
+        elif event_type == "stop":
+            # Окончание аудио потока
+            media_info = data.get("stop", {}).get("mediaInfo", {})
+            bytes_sent = media_info.get("bytesSent", 0)
+            duration = media_info.get("duration", 0)
+            
+            logger.info(f"[VOXIMPLANT] ✅ Конец аудио потока: {bytes_sent} байт, {duration} сек")
+            logger.info(f"[VOXIMPLANT] ✅ Финальная статистика: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
+            
+            self.is_audio_streaming = False
+            
+            # Принудительно коммитим аудио в OpenAI
+            if self.openai_client:
+                logger.info(f"[VOXIMPLANT] Принудительный коммит аудио в OpenAI")
+                await self.openai_client.commit_audio()
+
     async def process_audio_data(self, audio_bytes: bytes):
-        """Обрабатывает аудио данные от Voximplant"""
+        """Обрабатывает аудио данные и отправляет в OpenAI"""
         if not self.openai_client or not audio_bytes:
             return
             
         try:
-            # ✅ ИСПРАВЛЕНО: Добавляем детальное логирование аудио
-            logger.info(f"[VOXIMPLANT] Получен аудио пакет: {len(audio_bytes)} байт")
-            
             # Накапливаем аудио в буфере
             self.audio_buffer.extend(audio_bytes)
             self.last_audio_time = time.time()
@@ -240,7 +316,7 @@ class SimpleVoximplantHandler:
                 chunks_sent += 1
             
             if chunks_sent > 0:
-                logger.info(f"[VOXIMPLANT] Отправлено в OpenAI: {chunks_sent} чанков аудио")
+                logger.info(f"[VOXIMPLANT] ✅ Отправлено в OpenAI: {chunks_sent} чанков аудио")
             
             # Автоматический коммит после паузы
             asyncio.create_task(self.auto_commit_audio())
@@ -248,13 +324,18 @@ class SimpleVoximplantHandler:
         except Exception as e:
             logger.error(f"[VOXIMPLANT] Ошибка обработки аудио: {e}")
 
+    async def process_raw_audio_data(self, audio_bytes: bytes):
+        """Обрабатывает сырые бинарные аудио данные (если приходят)"""
+        logger.info(f"[VOXIMPLANT] Получены сырые аудио данные: {len(audio_bytes)} байт")
+        await self.process_audio_data(audio_bytes)
+
     async def auto_commit_audio(self):
         """Автоматически коммитит аудио после паузы"""
-        await asyncio.sleep(0.6)
+        await asyncio.sleep(0.8)  # Увеличена пауза для Voximplant
         
-        if time.time() - self.last_audio_time >= 0.5:
+        if time.time() - self.last_audio_time >= 0.6:
             if self.openai_client:
-                logger.info(f"[VOXIMPLANT] Коммит аудио буфера в OpenAI")
+                logger.info(f"[VOXIMPLANT] ✅ Автоматический коммит аудио буфера в OpenAI")
                 await self.openai_client.commit_audio()
 
     async def handle_openai_messages(self):
@@ -273,7 +354,7 @@ class SimpleVoximplantHandler:
         """Обрабатывает конкретное сообщение от OpenAI"""
         msg_type = message.get("type", "")
         
-        # ✅ ИСПРАВЛЕНО: Детальное логирование всех сообщений от OpenAI
+        # Детальное логирование всех сообщений от OpenAI
         logger.info(f"[VOXIMPLANT] OpenAI сообщение: {msg_type}")
         
         # Отправляем важные события в Voximplant
@@ -286,44 +367,66 @@ class SimpleVoximplantHandler:
             if delta_audio:
                 try:
                     audio_bytes = base64_to_audio_buffer(delta_audio)
-                    logger.info(f"[VOXIMPLANT] Отправка аудио в Voximplant: {len(audio_bytes)} байт")
-                    await self.voximplant_ws.send_bytes(audio_bytes)
+                    logger.info(f"[VOXIMPLANT] ✅ Отправка аудио в Voximplant: {len(audio_bytes)} байт")
+                    
+                    # ✅ ИСПРАВЛЕНО: Отправляем аудио в формате протокола Voximplant
+                    await self.send_audio_to_voximplant(audio_bytes)
+                    
                 except Exception as e:
                     logger.error(f"[VOXIMPLANT] Ошибка отправки аудио: {e}")
                     
-        # ✅ НОВОЕ: Обработка транскрипции для диагностики
+        # Обработка транскрипции для диагностики
         elif msg_type == "conversation.item.input_audio_transcription.completed":
             transcript = message.get("transcript", "")
             if transcript:
-                logger.info(f"[VOXIMPLANT] Транскрипция пользователя: '{transcript}'")
+                logger.info(f"[VOXIMPLANT] ✅ Транскрипция пользователя: '{transcript}'")
                 
         elif msg_type == "response.audio_transcript.done":
             transcript = message.get("transcript", "")
             if transcript:
-                logger.info(f"[VOXIMPLANT] Транскрипция ассистента: '{transcript}'")
+                logger.info(f"[VOXIMPLANT] ✅ Транскрипция ассистента: '{transcript}'")
                     
         # Отслеживаем состояние речи ассистента
         elif msg_type in ["response.audio.done", "response.done"]:
-            logger.info(f"[VOXIMPLANT] Ассистент закончил генерацию ответа")
+            logger.info(f"[VOXIMPLANT] ✅ Ассистент закончил генерацию ответа")
             await self.send_message({
                 "type": "assistant_speaking",
                 "speaking": False,
                 "timestamp": time.time()
             })
             
-        # ✅ НОВОЕ: Логируем начало генерации ответа
-        elif msg_type == "response.created":
-            logger.info(f"[VOXIMPLANT] Ассистент начал генерацию ответа")
-            
-        # ✅ НОВОЕ: Логируем события аудио буфера
+        # Логируем события аудио буфера
         elif msg_type == "input_audio_buffer.committed":
-            logger.info(f"[VOXIMPLANT] Аудио буфер успешно коммитнут в OpenAI")
+            logger.info(f"[VOXIMPLANT] ✅ Аудио буфер успешно коммитнут в OpenAI")
             
         elif msg_type == "input_audio_buffer.speech_started":
-            logger.info(f"[VOXIMPLANT] OpenAI обнаружил начало речи пользователя")
+            logger.info(f"[VOXIMPLANT] ✅ OpenAI обнаружил начало речи пользователя")
             
         elif msg_type == "input_audio_buffer.speech_stopped":
-            logger.info(f"[VOXIMPLANT] OpenAI обнаружил окончание речи пользователя")
+            logger.info(f"[VOXIMPLANT] ✅ OpenAI обнаружил окончание речи пользователя")
+
+    async def send_audio_to_voximplant(self, audio_bytes: bytes):
+        """
+        ✅ НОВАЯ ФУНКЦИЯ: Отправляет аудио в Voximplant в их протоколе
+        """
+        try:
+            # Кодируем аудио в base64
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            
+            # Формируем сообщение в протоколе Voximplant
+            voximplant_audio_message = {
+                "event": "media",
+                "sequenceNumber": self.sequence_number,
+                "media": audio_b64
+            }
+            
+            self.sequence_number += 1
+            
+            # Отправляем в Voximplant
+            await self.send_message(voximplant_audio_message)
+            
+        except Exception as e:
+            logger.error(f"[VOXIMPLANT] Ошибка отправки аудио в протоколе Voximplant: {e}")
 
     async def send_message(self, message: dict):
         """Отправляет сообщение в Voximplant"""
@@ -347,8 +450,10 @@ class SimpleVoximplantHandler:
     async def cleanup(self):
         """Очищает ресурсы"""
         logger.info(f"[VOXIMPLANT] Начало очистки для {self.client_id}")
+        logger.info(f"[VOXIMPLANT] Финальная статистика аудио: пакетов={self.audio_packets_received}, байт={self.audio_bytes_received}")
         
         self.is_connected = False
+        self.is_audio_streaming = False
         
         # Отменяем задачи
         for task in self.background_tasks:
@@ -362,9 +467,9 @@ class SimpleVoximplantHandler:
         logger.info(f"[VOXIMPLANT] Очистка завершена для {self.client_id}")
 
 
-async def handle_voximplant_websocket_simple(websocket: WebSocket, assistant_id: str, db: Session):
+async def handle_voximplant_websocket_with_protocol(websocket: WebSocket, assistant_id: str, db: Session):
     """
-    УПРОЩЕННАЯ функция для обработки Voximplant WebSocket соединений
+    ✅ ИСПРАВЛЕННАЯ функция для обработки Voximplant WebSocket с поддержкой протокола
     """
     handler = None
     try:
@@ -373,7 +478,7 @@ async def handle_voximplant_websocket_simple(websocket: WebSocket, assistant_id:
         handler_db = SessionLocal()
         
         try:
-            handler = SimpleVoximplantHandler(websocket, assistant_id, handler_db)
+            handler = VoximplantProtocolHandler(websocket, assistant_id, handler_db)
             await handler.start()
         finally:
             handler_db.close()
