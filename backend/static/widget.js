@@ -656,7 +656,7 @@
       <!-- Развернутый виджет -->
       <div class="wellcomeai-widget-expanded" id="wellcomeai-widget-expanded">
         <div class="wellcomeai-widget-header">
-          <div class="wellcomeai-widget-title">WellcomeAI</div>
+          <div class="wellcomeai-widget-title"></div>
           <button class="wellcomeai-widget-close" id="wellcomeai-widget-close">
             <i class="fas fa-times"></i>
           </button>
