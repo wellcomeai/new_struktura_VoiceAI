@@ -253,7 +253,7 @@
         height: 100%;
         border-radius: 50%;
         animation: wellcomeai-pulse-ring 3s ease-out infinite;
-        background: radial-gradient(rgba(59, 130, 246, 0.8) 0%, rgba(59, 130, 246, 0) 70%);
+        background: radial-gradient(rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0) 70%);
         opacity: 0;
       }
       
@@ -274,27 +274,29 @@
       .wellcomeai-audio-bars-mini {
         display: flex;
         align-items: center;
-        height: 24px;
-        gap: 3px;
+        height: 26px;
+        gap: 4px;
+        justify-content: center;
       }
       
       .wellcomeai-audio-bar-mini {
         width: 3px;
-        height: 8px;
+        height: 12px;
         background-color: #ffffff;
         border-radius: 1.5px;
         animation: wellcomeai-eq-animation 1.2s ease-in-out infinite;
+        opacity: 0.9;
       }
       
-      .wellcomeai-audio-bar-mini:nth-child(1) { animation-delay: 0.0s; }
-      .wellcomeai-audio-bar-mini:nth-child(2) { animation-delay: 0.1s; }
-      .wellcomeai-audio-bar-mini:nth-child(3) { animation-delay: 0.2s; }
-      .wellcomeai-audio-bar-mini:nth-child(4) { animation-delay: 0.1s; }
+      .wellcomeai-audio-bar-mini:nth-child(1) { animation-delay: 0.0s; height: 7px; }
+      .wellcomeai-audio-bar-mini:nth-child(2) { animation-delay: 0.3s; height: 12px; }
+      .wellcomeai-audio-bar-mini:nth-child(3) { animation-delay: 0.1s; height: 18px; }
+      .wellcomeai-audio-bar-mini:nth-child(4) { animation-delay: 0.5s; height: 9px; }
       
       @keyframes wellcomeai-eq-animation {
-        0% { height: 8px; }
-        50% { height: 16px; }
-        100% { height: 8px; }
+        0% { height: 5px; }
+        50% { height: 18px; }
+        100% { height: 5px; }
       }
       
       .wellcomeai-widget-icon {
@@ -304,6 +306,7 @@
         opacity: 0;
         position: absolute;
         transition: opacity 0.3s ease;
+        display: none; /* Полностью скрываем иконку */
       }
       
       .wellcomeai-widget-icon.active {
@@ -600,9 +603,9 @@
       }
       
       @keyframes wellcomeai-button-pulse {
-        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); }
-        70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+        0% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(74, 134, 232, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0); }
       }
       
       .wellcomeai-pulse-animation {
@@ -711,16 +714,13 @@
         <div class="wellcomeai-button-inner">
           <div class="wellcomeai-pulse-ring"></div>
           
-          <!-- Аудио эквалайзер для кнопки -->
+          <!-- Только эквалайзер для кнопки -->
           <div class="wellcomeai-audio-bars-mini">
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
           </div>
-          
-          <!-- Иконки состояния -->
-          <i class="fas fa-microphone wellcomeai-widget-icon active"></i>
         </div>
       </div>
       
