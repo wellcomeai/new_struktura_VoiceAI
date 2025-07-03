@@ -218,10 +218,8 @@
         width: 60px;
         height: 60px;
         border-radius: 50%;
-        background: rgba(19, 21, 26, 0.85);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1);
+        background: linear-gradient(135deg, #4a86e8, #2b59c3);
+        box-shadow: 0 8px 32px rgba(74, 134, 232, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -236,7 +234,7 @@
       
       .wellcomeai-widget-button:hover {
         transform: scale(1.05);
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.15);
+        box-shadow: 0 10px 30px rgba(74, 134, 232, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.15);
       }
       
       /* Элементы анимации кнопки */
@@ -283,7 +281,7 @@
       .wellcomeai-audio-bar-mini {
         width: 3px;
         height: 8px;
-        background-color: #3b82f6;
+        background-color: #ffffff;
         border-radius: 1.5px;
         animation: wellcomeai-eq-animation 1.2s ease-in-out infinite;
       }
