@@ -1,12 +1,12 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 2.2.0 - Премиальный дизайн с улучшенной визуализацией
+ * Версия: 2.3.0 - Премиальный дизайн с улучшенным потоковым воспроизведением аудио
  * 
  * Исправления:
- * - Убрана отправка session.update от клиента (сервер сам управляет сессией)
- * - Улучшено воспроизведение аудио для iOS
- * - Добавлена предварительная инициализация AudioContext для iOS
- * - Обновлен дизайн виджета для премиального вида
+ * - Добавлено потоковое воспроизведение аудио для предотвращения обрывов
+ * - Улучшено логирование аудио потока для диагностики
+ * - Добавлена проверка полноты транскрипций
+ * - Оптимизирована буферизация аудио данных
  */
 
 (function() {
@@ -924,6 +924,19 @@
     let lastPongTime = Date.now();
     let connectionTimeout = null;
     
+    // НОВЫЕ переменные для потокового воспроизведения
+    let audioStreamBuffer = [];
+    let isStreamingAudio = false;
+    let streamingTimeout = null;
+    let totalAudioFragments = 0;
+    let playedAudioFragments = 0;
+    const MIN_BUFFER_SIZE = 3; // Минимум фрагментов перед началом воспроизведения
+    const STREAM_CHECK_INTERVAL = 100; // Интервал проверки буфера в мс
+    
+    // Переменные для отслеживания транскрипций
+    let currentTranscript = '';
+    let transcriptFragments = [];
+    
     // Состояния для обработки перебивания
     let interruptionState = {
       is_assistant_speaking: false,
@@ -1029,12 +1042,45 @@
       return wavBuffer;
     }
 
-    // УЛУЧШЕННОЕ воспроизведение аудио для iOS
+    // ОБНОВЛЕННАЯ функция потокового воспроизведения
+    function startStreamingPlayback() {
+      if (streamingTimeout) {
+        clearTimeout(streamingTimeout);
+      }
+      
+      // Проверяем есть ли данные в буфере
+      if (audioStreamBuffer.length > 0 && !interruptionState.pending_audio_stop) {
+        const chunk = audioStreamBuffer.shift();
+        widgetLog(`[AUDIO STREAM] Воспроизводим фрагмент, осталось в буфере: ${audioStreamBuffer.length}`);
+        
+        addAudioToPlaybackQueue(chunk);
+        playedAudioFragments++;
+        
+        // Планируем следующую проверку
+        streamingTimeout = setTimeout(() => {
+          if (isStreamingAudio || audioStreamBuffer.length > 0) {
+            startStreamingPlayback();
+          }
+        }, STREAM_CHECK_INTERVAL);
+      } else if (isStreamingAudio) {
+        // Если буфер пуст, но стриминг активен, ждем новые данные
+        widgetLog(`[AUDIO STREAM] Буфер пуст, ожидаем новые данные...`);
+        streamingTimeout = setTimeout(() => {
+          startStreamingPlayback();
+        }, STREAM_CHECK_INTERVAL);
+      } else {
+        widgetLog(`[AUDIO STREAM] Стриминг завершен, воспроизведено фрагментов: ${playedAudioFragments}/${totalAudioFragments}`);
+      }
+    }
+
+    // УЛУЧШЕННОЕ воспроизведение аудио для iOS с логированием
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
         interruptionState.is_assistant_speaking = false;
         mainCircle.classList.remove('speaking');
+        
+        widgetLog(`[AUDIO PLAYBACK] Очередь воспроизведения пуста`);
         
         if (!isWidgetOpen) {
           widgetButton.classList.add('wellcomeai-pulse-animation');
@@ -1055,10 +1101,12 @@
       mainCircle.classList.remove('listening');
       
       const audioBase64 = audioPlaybackQueue.shift();
+      widgetLog(`[AUDIO PLAYBACK] Начинаем воспроизведение, размер данных: ${audioBase64.length} символов`);
       
       try {
         const audioData = base64ToArrayBuffer(audioBase64);
         if (audioData.byteLength === 0) {
+          widgetLog(`[AUDIO PLAYBACK] Пустые аудио данные, пропускаем`);
           playNextAudio();
           return;
         }
@@ -1187,6 +1235,7 @@
       if (!audioBase64 || typeof audioBase64 !== 'string') return;
       
       audioPlaybackQueue.push(audioBase64);
+      widgetLog(`[AUDIO QUEUE] Добавлен фрагмент в очередь, всего в очереди: ${audioPlaybackQueue.length}`);
       
       if (!isPlayingAudio) {
         playNextAudio();
@@ -1226,6 +1275,14 @@
       
       isPlayingAudio = false;
       interruptionState.is_assistant_speaking = false;
+      
+      // Очищаем потоковый буфер
+      audioStreamBuffer = [];
+      isStreamingAudio = false;
+      if (streamingTimeout) {
+        clearTimeout(streamingTimeout);
+        streamingTimeout = null;
+      }
       
       interruptionState.current_audio_elements.forEach(audio => {
         try {
@@ -1376,6 +1433,12 @@
       
       audioChunksBuffer = [];
       audioPlaybackQueue = [];
+      audioStreamBuffer = [];
+      isStreamingAudio = false;
+      totalAudioFragments = 0;
+      playedAudioFragments = 0;
+      currentTranscript = '';
+      transcriptFragments = [];
       
       hasAudioData = false;
       audioDataStartTime = 0;
@@ -2098,28 +2161,77 @@
                 return;
               }
               
+              // ОБНОВЛЕННАЯ обработка аудио с потоковым воспроизведением
               if (data.type === 'response.audio.delta') {
                 if (data.delta) {
-                  audioChunksBuffer.push(data.delta);
+                  totalAudioFragments++;
+                  audioStreamBuffer.push(data.delta);
+                  
+                  widgetLog(`[AUDIO DELTA] Получен фрагмент #${totalAudioFragments}, размер: ${data.delta.length} символов, в буфере: ${audioStreamBuffer.length}`);
+                  
+                  // Начинаем потоковое воспроизведение после накопления минимального буфера
+                  if (!isStreamingAudio && audioStreamBuffer.length >= MIN_BUFFER_SIZE) {
+                    isStreamingAudio = true;
+                    widgetLog(`[AUDIO STREAM] Начинаем потоковое воспроизведение, накоплено ${audioStreamBuffer.length} фрагментов`);
+                    startStreamingPlayback();
+                  }
                 }
                 return;
               }
               
-              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
+              // Обработка транскрипций для диагностики
+              if (data.type === 'response.audio_transcript.delta') {
+                if (data.delta) {
+                  transcriptFragments.push(data.delta);
+                  currentTranscript += data.delta;
+                  widgetLog(`[TRANSCRIPT DELTA] Фрагмент транскрипции: "${data.delta}"`);
+                }
+                return;
+              }
+              
+              if (data.type === 'response.audio_transcript.done') {
+                const fullTranscript = data.transcript || currentTranscript;
+                widgetLog(`[TRANSCRIPT FULL] Полная транскрипция (${fullTranscript.length} символов): "${fullTranscript}"`);
+                
+                // Показываем полный текст для проверки
+                if (DEBUG_MODE) {
+                  showMessage(`Полный ответ: ${fullTranscript}`, 10000);
+                }
+                
+                // Сброс транскрипции
+                currentTranscript = '';
+                transcriptFragments = [];
                 return;
               }
               
               if (data.type === 'response.audio.done') {
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
+                widgetLog(`[AUDIO DONE] Завершение аудио потока. Всего фрагментов: ${totalAudioFragments}, воспроизведено: ${playedAudioFragments}, в буфере: ${audioStreamBuffer.length}`);
+                
+                // Останавливаем потоковое воспроизведение
+                isStreamingAudio = false;
+                
+                // Воспроизводим оставшиеся фрагменты
+                if (audioStreamBuffer.length > 0) {
+                  widgetLog(`[AUDIO DONE] Воспроизводим оставшиеся ${audioStreamBuffer.length} фрагментов`);
+                  while (audioStreamBuffer.length > 0) {
+                    const chunk = audioStreamBuffer.shift();
+                    addAudioToPlaybackQueue(chunk);
+                    playedAudioFragments++;
+                  }
                 }
+                
+                // Сброс счетчиков
+                totalAudioFragments = 0;
+                playedAudioFragments = 0;
+                
+                widgetLog(`[AUDIO DONE] Обработка завершена`);
                 return;
               }
               
               if (data.type === 'response.done') {
                 widgetLog('Response done received');
+                widgetLog(`[AUDIO STATS] Финальная статистика: получено ${totalAudioFragments} фрагментов, воспроизведено ${playedAudioFragments}`);
+                
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                   setTimeout(() => {
                     startListening();
