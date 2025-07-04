@@ -191,6 +191,108 @@
       letter-spacing: -0.025em;
       text-shadow: 0 2px 4px rgba(37, 99, 235, 0.1);
     }
+
+    /* Иконки в навигации */
+    .nav-icons {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .nav-icon-link {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      transition: all 0.3s ease;
+      position: relative;
+      text-decoration: none;
+    }
+
+    .nav-icon-link:hover {
+      background-color: var(--primary-blue);
+      color: var(--white);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .nav-icon-link i {
+      font-size: 1.1rem;
+    }
+
+    .nav-icon-telegram {
+      background-color: #f0f4ff;
+      color: #0088cc;
+    }
+
+    .nav-icon-telegram:hover {
+      background-color: #0088cc;
+      color: var(--white);
+    }
+
+    .nav-icon-support {
+      background-color: #f0f4ff;
+      color: var(--primary-blue);
+    }
+
+    .nav-icon-support:hover {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+
+    /* Тултипы для иконок */
+    .nav-icon-link::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%) translateY(8px);
+      background-color: rgba(15, 23, 42, 0.95);
+      color: var(--white);
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+      pointer-events: none;
+      z-index: 50;
+    }
+
+    .nav-icon-link:hover::after {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(4px);
+    }
+
+    /* Стрелка для тултипа */
+    .nav-icon-link::before {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%) translateY(3px);
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 0 6px 6px 6px;
+      border-color: transparent transparent rgba(15, 23, 42, 0.95) transparent;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+      z-index: 51;
+    }
+
+    .nav-icon-link:hover::before {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(-1px);
+    }
     
     /* Анимированная сфера */
     .sphere-container {
@@ -372,6 +474,111 @@
       text-decoration: underline;
     }
 
+    /* Секция "Для чего" */
+    .use-cases-section {
+      background-color: var(--white);
+      padding: 5rem 0;
+    }
+
+    .use-cases-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2rem;
+    }
+
+    .use-cases-header {
+      text-align: center;
+      margin-bottom: 4rem;
+    }
+
+    .use-cases-title {
+      font-size: 2.5rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(90deg, #4a86e8, #2563eb, #1d4ed8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1.2;
+    }
+
+    .use-cases-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .use-cases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 3rem;
+      margin-bottom: 4rem;
+    }
+
+    .use-case-card {
+      background-color: var(--bg-light);
+      border-radius: var(--radius-lg);
+      padding: 2.5rem;
+      transition: all 0.3s ease;
+      position: relative;
+      border: 1px solid var(--border-color);
+    }
+
+    .use-case-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--primary-blue-light);
+    }
+
+    .use-case-icon {
+      width: 60px;
+      height: 60px;
+      background: var(--gradient-blue);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .use-case-icon i {
+      font-size: 1.75rem;
+      color: var(--white);
+    }
+
+    .use-case-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      margin-bottom: 1rem;
+    }
+
+    .use-case-description {
+      font-size: 1rem;
+      color: var(--text-gray);
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    .use-case-features {
+      list-style: none;
+      padding: 0;
+    }
+
+    .use-case-features li {
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      font-size: 0.95rem;
+      color: var(--text-gray);
+    }
+
+    .use-case-features i {
+      color: #10b981;
+      margin-right: 0.75rem;
+      font-size: 0.875rem;
+    }
+
     /* Секция тарифов */
     .pricing-section {
       background: linear-gradient(135deg, var(--bg-light) 0%, #e2e8f0 100%);
@@ -538,58 +745,6 @@
       font-weight: 600;
       color: var(--text-dark);
     }
-    
-    /* Виджет ассистента */
-    .assistant-widget-container {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 1000;
-      transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-    
-    .assistant-widget-button {
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #4a86e8, #2b59c3);
-      box-shadow: 0 4px 15px rgba(74, 134, 232, 0.4);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      position: relative;
-      overflow: hidden;
-      border: none;
-    }
-    
-    .assistant-widget-button:hover {
-      transform: scale(1.05);
-      box-shadow: 0 6px 20px rgba(74, 134, 232, 0.5);
-    }
-    
-    .assistant-widget-icon {
-      color: white;
-      font-size: 22px;
-      transition: all 0.3s ease;
-    }
-    
-    .pulse-animation {
-      animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
-    }
-    
-    @keyframes pulse-ring {
-      0% {
-        box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7);
-      }
-      70% {
-        box-shadow: 0 0 0 15px rgba(74, 134, 232, 0);
-      }
-      100% {
-        box-shadow: 0 0 0 0 rgba(74, 134, 232, 0);
-      }
-    }
 
     /* Футер */
     .footer {
@@ -726,6 +881,10 @@
       .pricing-card.featured:hover {
         transform: translateY(-8px);
       }
+
+      .use-cases-grid {
+        grid-template-columns: 1fr;
+      }
     }
     
     @media (max-width: 768px) {
@@ -786,6 +945,19 @@
       .footer-links {
         justify-content: center;
       }
+
+      .nav-icons {
+        gap: 0.5rem;
+      }
+
+      .nav-icon-link {
+        width: 36px;
+        height: 36px;
+      }
+
+      .nav-icon-link i {
+        font-size: 1rem;
+      }
     }
     
     @media (max-width: 480px) {
@@ -837,6 +1009,23 @@
       .price-amount {
         font-size: 2.5rem;
       }
+
+      .nav-icon-link::after {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+      }
+
+      .navbar {
+        padding: 1rem;
+      }
+
+      .use-cases-grid {
+        gap: 1.5rem;
+      }
+
+      .use-case-card {
+        padding: 2rem;
+      }
     }
   </style>
 </head>
@@ -852,6 +1041,21 @@
               <img src="/static/images/IMG_2820.PNG" alt="Voicyfy">
               <span class="logo-text">Voicyfy</span>
             </a>
+            
+            <!-- Иконки справа -->
+            <div class="nav-icons">
+              <a href="https://t.me/voicyfy" 
+                 target="_blank" 
+                 class="nav-icon-link nav-icon-telegram" 
+                 data-tooltip="Новостной канал Voicyfy">
+                <i class="fab fa-telegram"></i>
+              </a>
+              <a href="/support" 
+                 class="nav-icon-link nav-icon-support" 
+                 data-tooltip="Обратиться в Техническую поддержку">
+                <i class="fas fa-headset"></i>
+              </a>
+            </div>
           </div>
           
           <!-- Анимированная сфера -->
@@ -938,6 +1142,54 @@
         </div>
       </div>
 
+      <!-- Секция "Для чего" -->
+      <section class="use-cases-section">
+        <div class="use-cases-container">
+          <div class="use-cases-header">
+            <h2 class="use-cases-title">Для чего использовать Voicyfy?</h2>
+            <p class="use-cases-subtitle">
+              Интегрируйте голосовых ИИ-ассистентов в любые каналы коммуникации для автоматизации общения с клиентами
+            </p>
+          </div>
+          
+          <div class="use-cases-grid">
+            <!-- Встроить на сайт -->
+            <div class="use-case-card">
+              <div class="use-case-icon">
+                <i class="fas fa-globe"></i>
+              </div>
+              <h3 class="use-case-title">Встроить на сайт</h3>
+              <p class="use-case-description">
+                Добавьте голосового ассистента на ваш сайт одной строкой кода. Ассистент будет общаться с посетителями голосом в режиме реального времени.
+              </p>
+              <ul class="use-case-features">
+                <li><i class="fas fa-check"></i> Простая интеграция через HTML-код</li>
+                <li><i class="fas fa-check"></i> Настраиваемый внешний вид виджета</li>
+                <li><i class="fas fa-check"></i> Работа на любых платформах</li>
+                <li><i class="fas fa-check"></i> Мгновенные ответы на вопросы 24/7</li>
+              </ul>
+            </div>
+            
+            <!-- Подключить к телефонии -->
+            <div class="use-case-card">
+              <div class="use-case-icon">
+                <i class="fas fa-phone"></i>
+              </div>
+              <h3 class="use-case-title">Подключить к телефонии</h3>
+              <p class="use-case-description">
+                Интегрируйте ИИ-ассистента с вашей телефонной системой для автоматизации входящих и исходящих звонков.
+              </p>
+              <ul class="use-case-features">
+                <li><i class="fas fa-check"></i> Интеграция с SIP/VoIP системами</li>
+                <li><i class="fas fa-check"></i> Обработка входящих звонков</li>
+                <li><i class="fas fa-check"></i> Автоматические исходящие звонки</li>
+                <li><i class="fas fa-check"></i> Запись и аналитика разговоров</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Секция тарифов -->
       <section class="pricing-section">
         <div class="pricing-container">
@@ -996,8 +1248,6 @@
                 </ul>
               </div>
             </div>
-            
-
           </div>
         </div>
       </section>
@@ -1029,13 +1279,6 @@
         </div>
       </div>
     </footer>
-  </div>
-  
-  <!-- Виджет ассистента -->
-  <div class="assistant-widget-container" id="assistant-widget-container">
-    <button class="assistant-widget-button pulse-animation" id="assistant-widget-button">
-      <i class="fas fa-robot assistant-widget-icon"></i>
-    </button>
   </div>
   
   <script>
@@ -1204,35 +1447,8 @@
         }
       }
       
-      // Инициализация виджета ассистента
-      function initAssistantWidget() {
-        const widgetButton = document.getElementById('assistant-widget-button');
-        let widgetActive = false;
-        
-        // Загружаем скрипт виджета
-        function loadWidgetScript() {
-          const script = document.createElement('script');
-          script.src = '/static/widget.js';
-          script.dataset.assistantId = 'demo'; // ID демо-ассистента
-          script.dataset.position = 'bottom-right';
-          document.head.appendChild(script);
-          
-          // Удаляем наш кастомный виджет после загрузки оригинального
-          widgetButton.style.display = 'none';
-        }
-        
-        // Обработчик клика по кнопке виджета
-        widgetButton.addEventListener('click', function() {
-          if (!widgetActive) {
-            widgetActive = true;
-            loadWidgetScript();
-          }
-        });
-      }
-      
       // Инициализация страницы
       checkAuth();
-      initAssistantWidget();
     });
   </script>
 </body>
