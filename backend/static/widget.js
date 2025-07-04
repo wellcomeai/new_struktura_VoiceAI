@@ -2261,21 +2261,14 @@
                 return;
               } 
               
+              // ОТКЛЮЧЕНО: Не показываем текст ответа ассистента
               if (data.type === 'response.text.delta') {
-                if (data.delta) {
-                  showMessage(data.delta, 0);
-                  
-                  if (!isWidgetOpen) {
-                    widgetButton.classList.add('wellcomeai-pulse-animation');
-                  }
-                }
+                // Пропускаем отображение текста
                 return;
               }
               
               if (data.type === 'response.text.done') {
-                setTimeout(() => {
-                  hideMessage();
-                }, 5000);
+                // Пропускаем скрытие сообщения
                 return;
               }
               
@@ -2288,7 +2281,9 @@
                 return;
               }
               
+              // ОТКЛЮЧЕНО: Не показываем транскрипцию аудио
               if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
+                // Пропускаем транскрипцию
                 return;
               }
               
