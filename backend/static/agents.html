@@ -510,6 +510,38 @@
       margin-top: 1rem;
     }
     
+    /* Стили для блока ID агента */
+    .agent-id-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background-color: var(--bg-blue-light);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--primary-blue-light);
+      margin-bottom: 1rem;
+    }
+    
+    .agent-id-label {
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .agent-id-value {
+      font-family: monospace;
+      font-size: 0.95rem;
+      color: var(--primary-blue);
+      background-color: var(--white);
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      user-select: all;
+    }
+    
+    .copy-id-btn {
+      margin-left: auto;
+    }
+    
     /* Статистика */
     .stats-grid {
       display: grid;
@@ -1047,6 +1079,16 @@
         right: auto;
         left: 0;
       }
+      
+      .agent-id-info {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      
+      .copy-id-btn {
+        margin-left: 0;
+        width: 100%;
+      }
     }
 
     @media (max-width: 480px) {
@@ -1381,6 +1423,15 @@
             <h3 style="margin-bottom: 1rem;">Код для встраивания</h3>
             <p>Скопируйте этот код и вставьте его на свой сайт, чтобы добавить голосового ассистента.</p>
             
+            <!-- Новый блок для отображения ID агента -->
+            <div class="agent-id-info">
+              <span class="agent-id-label">ID агента:</span>
+              <span class="agent-id-value" id="agent-id-display">-</span>
+              <button class="btn btn-outline copy-id-btn" id="copy-agent-id">
+                <i class="fas fa-copy"></i> Копировать ID
+              </button>
+            </div>
+            
             <div class="embed-container">
               <div class="embed-code" id="embed-code">
               <!-- Код будет загружен динамически -->
@@ -1601,6 +1652,10 @@
       const googleSheetIdInput = document.getElementById('google-sheet-id');
       const testSheetBtn = document.getElementById('test-sheet-connection');
       const sheetConnectionStatus = document.getElementById('sheet-connection-status');
+      
+      // Элементы для отображения ID агента
+      const agentIdDisplay = document.getElementById('agent-id-display');
+      const copyAgentIdBtn = document.getElementById('copy-agent-id');
       
       // Мобильное меню
       mobileMenuToggle.addEventListener('click', function() {
@@ -2071,6 +2126,11 @@
           // Заполняем форму данными
           ui.fillAgentForm(agent);
           
+          // Обновляем отображение ID агента
+          if (agentIdDisplay) {
+            agentIdDisplay.textContent = currentAgentId;
+          }
+          
           // Загружаем код встраивания
           const embedData = await api.getEmbedCode(currentAgentId);
           document.getElementById('embed-code').textContent = embedData.embed_code;
@@ -2242,6 +2302,11 @@
         
         // Скрываем кнопку создания нового агента
         createNewAgentBtn.style.display = 'none';
+        
+        // Обновляем отображение ID агента (для новых агентов показываем прочерк)
+        if (agentIdDisplay) {
+          agentIdDisplay.textContent = '-';
+        }
       }
       
       // Переключение на режим редактирования
@@ -2285,6 +2350,11 @@
         
         // Сбрасываем текущий ID агента
         currentAgentId = null;
+        
+        // Обновляем отображение ID агента
+        if (agentIdDisplay) {
+          agentIdDisplay.textContent = '-';
+        }
       }
       
       // Функция для инициализации вкладки тестирования
@@ -2486,6 +2556,25 @@
                 <i class="fas fa-exclamation-circle"></i> Ошибка при проверке таблицы: ${error.message}
               </div>
             `;
+          }
+        });
+      }
+      
+      // Обработчик для кнопки копирования ID агента
+      if (copyAgentIdBtn) {
+        copyAgentIdBtn.addEventListener('click', () => {
+          const agentId = agentIdDisplay.textContent;
+          if (agentId && agentId !== '-') {
+            const tempTextarea = document.createElement('textarea');
+            tempTextarea.value = agentId;
+            document.body.appendChild(tempTextarea);
+            tempTextarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextarea);
+            
+            ui.showNotification('ID агента скопирован!', 'success');
+          } else {
+            ui.showNotification('Нет ID для копирования', 'error');
           }
         });
       }
