@@ -1,12 +1,11 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 2.2.0 - Премиальный дизайн с улучшенной визуализацией
+ * Версия: 2.3.0 - Потоковое воспроизведение и улучшенная обработка буфера
  * 
- * Исправления:
- * - Убрана отправка session.update от клиента (сервер сам управляет сессией)
- * - Улучшено воспроизведение аудио для iOS
- * - Добавлена предварительная инициализация AudioContext для iOS
- * - Обновлен дизайн виджета для премиального вида
+ * Изменения:
+ * - Добавлено потоковое воспроизведение аудио после накопления 3 фрагментов
+ * - Улучшена обработка буфера для предотвращения потери данных
+ * - Добавлена защита от потери аудио при проблемах с соединением
  */
 
 (function() {
@@ -274,27 +273,29 @@
       .wellcomeai-audio-bars-mini {
         display: flex;
         align-items: center;
-        height: 24px;
-        gap: 3px;
+        height: 26px;
+        gap: 4px;
+        justify-content: center;
       }
       
       .wellcomeai-audio-bar-mini {
         width: 3px;
-        height: 8px;
+        height: 12px;
         background-color: #ffffff;
         border-radius: 1.5px;
         animation: wellcomeai-eq-animation 1.2s ease-in-out infinite;
+        opacity: 0.9;
       }
       
-      .wellcomeai-audio-bar-mini:nth-child(1) { animation-delay: 0.0s; }
-      .wellcomeai-audio-bar-mini:nth-child(2) { animation-delay: 0.1s; }
-      .wellcomeai-audio-bar-mini:nth-child(3) { animation-delay: 0.2s; }
-      .wellcomeai-audio-bar-mini:nth-child(4) { animation-delay: 0.1s; }
+      .wellcomeai-audio-bar-mini:nth-child(1) { animation-delay: 0.0s; height: 7px; }
+      .wellcomeai-audio-bar-mini:nth-child(2) { animation-delay: 0.3s; height: 12px; }
+      .wellcomeai-audio-bar-mini:nth-child(3) { animation-delay: 0.1s; height: 18px; }
+      .wellcomeai-audio-bar-mini:nth-child(4) { animation-delay: 0.5s; height: 9px; }
       
       @keyframes wellcomeai-eq-animation {
-        0% { height: 8px; }
-        50% { height: 16px; }
-        100% { height: 8px; }
+        0% { height: 5px; }
+        50% { height: 18px; }
+        100% { height: 5px; }
       }
       
       .wellcomeai-widget-icon {
@@ -304,6 +305,7 @@
         opacity: 0;
         position: absolute;
         transition: opacity 0.3s ease;
+        display: none; /* Полностью скрываем иконку */
       }
       
       .wellcomeai-widget-icon.active {
@@ -681,6 +683,25 @@
       .wellcomeai-status-dot.interrupted {
         background-color: #d97706;
       }
+      
+      /* Новый индикатор буферизации для потокового воспроизведения */
+      .wellcomeai-buffer-indicator {
+        position: absolute;
+        top: -25px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        color: #6b7280;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 2px 8px;
+        border-radius: 10px;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      
+      .wellcomeai-buffer-indicator.show {
+        opacity: 1;
+      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("Styles created and added to head");
@@ -711,16 +732,13 @@
         <div class="wellcomeai-button-inner">
           <div class="wellcomeai-pulse-ring"></div>
           
-          <!-- Аудио эквалайзер для кнопки -->
+          <!-- Только эквалайзер для кнопки -->
           <div class="wellcomeai-audio-bars-mini">
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
             <div class="wellcomeai-audio-bar-mini"></div>
           </div>
-          
-          <!-- Иконки состояния -->
-          <i class="fas fa-microphone wellcomeai-widget-icon active"></i>
         </div>
       </div>
       
@@ -740,6 +758,11 @@
             <!-- Аудио визуализация -->
             <div class="wellcomeai-audio-visualization" id="wellcomeai-audio-visualization">
               <div class="wellcomeai-audio-bars" id="wellcomeai-audio-bars"></div>
+            </div>
+            
+            <!-- Индикатор буферизации -->
+            <div class="wellcomeai-buffer-indicator" id="wellcomeai-buffer-indicator">
+              Буферизация...
             </div>
           </div>
           
@@ -894,6 +917,7 @@
     const statusIndicator = document.getElementById('wellcomeai-status-indicator');
     const statusDot = document.getElementById('wellcomeai-status-dot');
     const statusText = document.getElementById('wellcomeai-status-text');
+    const bufferIndicator = document.getElementById('wellcomeai-buffer-indicator');
     
     // Проверка элементов
     if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay) {
@@ -923,6 +947,16 @@
     let lastPingTime = Date.now();
     let lastPongTime = Date.now();
     let connectionTimeout = null;
+    
+    // НОВЫЕ переменные для потокового воспроизведения
+    let isStreamingAudio = false;
+    let streamingStarted = false;
+    let streamingBuffer = [];
+    let streamingMinBuffer = 3; // Минимум 3 фрагмента для начала воспроизведения
+    let totalFragmentsReceived = 0;
+    let totalFragmentsPlayed = 0;
+    let pendingAudioBuffer = []; // Буфер для хранения аудио при проблемах с соединением
+    let isBufferRecoveryMode = false;
     
     // Состояния для обработки перебивания
     let interruptionState = {
@@ -1029,12 +1063,30 @@
       return wavBuffer;
     }
 
-    // УЛУЧШЕННОЕ воспроизведение аудио для iOS
+    // НОВАЯ функция для показа/скрытия индикатора буферизации
+    function updateBufferIndicator(show, fragmentsInBuffer = 0) {
+      if (!bufferIndicator) return;
+      
+      if (show) {
+        bufferIndicator.textContent = `Буферизация... (${fragmentsInBuffer}/${streamingMinBuffer})`;
+        bufferIndicator.classList.add('show');
+      } else {
+        bufferIndicator.classList.remove('show');
+      }
+    }
+
+    // ОБНОВЛЕННАЯ функция воспроизведения аудио для потокового режима
     function playNextAudio() {
+      // Проверяем есть ли аудио в очереди
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
+        streamingStarted = false;
+        isStreamingAudio = false;
         interruptionState.is_assistant_speaking = false;
         mainCircle.classList.remove('speaking');
+        
+        // Скрываем индикатор буферизации
+        updateBufferIndicator(false);
         
         if (!isWidgetOpen) {
           widgetButton.classList.add('wellcomeai-pulse-animation');
@@ -1046,6 +1098,11 @@
             startListening();
           }, 400);
         }
+        
+        widgetLog(`[STREAMING] Воспроизведение завершено. Всего фрагментов: получено=${totalFragmentsReceived}, воспроизведено=${totalFragmentsPlayed}`);
+        totalFragmentsReceived = 0;
+        totalFragmentsPlayed = 0;
+        
         return;
       }
       
@@ -1055,6 +1112,9 @@
       mainCircle.classList.remove('listening');
       
       const audioBase64 = audioPlaybackQueue.shift();
+      totalFragmentsPlayed++;
+      
+      widgetLog(`[STREAMING] Воспроизведение фрагмента ${totalFragmentsPlayed}/${totalFragmentsReceived}, в очереди: ${audioPlaybackQueue.length}`);
       
       try {
         const audioData = base64ToArrayBuffer(audioBase64);
@@ -1182,7 +1242,76 @@
       }
     }
     
-    // Добавить аудио в очередь воспроизведения
+    // НОВАЯ функция для добавления аудио в буфер и начала потокового воспроизведения
+    function addAudioToStreamingBuffer(audioBase64) {
+      if (!audioBase64 || typeof audioBase64 !== 'string') return;
+      
+      totalFragmentsReceived++;
+      streamingBuffer.push(audioBase64);
+      
+      widgetLog(`[STREAMING] Получен фрагмент ${totalFragmentsReceived}, в буфере: ${streamingBuffer.length}`);
+      
+      // Если мы в режиме восстановления буфера, сохраняем данные
+      if (isBufferRecoveryMode) {
+        pendingAudioBuffer.push(audioBase64);
+        widgetLog(`[BUFFER RECOVERY] Сохранен фрагмент, всего в резервном буфере: ${pendingAudioBuffer.length}`);
+      }
+      
+      // Проверяем, можем ли начать воспроизведение
+      if (!streamingStarted && streamingBuffer.length >= streamingMinBuffer) {
+        widgetLog(`[STREAMING] Достигнут минимальный буфер (${streamingMinBuffer}), начинаем воспроизведение`);
+        streamingStarted = true;
+        isStreamingAudio = true;
+        
+        // Скрываем индикатор буферизации
+        updateBufferIndicator(false);
+        
+        // Перемещаем буфер в очередь воспроизведения
+        while (streamingBuffer.length > 0) {
+          audioPlaybackQueue.push(streamingBuffer.shift());
+        }
+        
+        // Начинаем воспроизведение
+        if (!isPlayingAudio) {
+          playNextAudio();
+        }
+      } else if (streamingStarted) {
+        // Если воспроизведение уже началось, добавляем сразу в очередь
+        audioPlaybackQueue.push(streamingBuffer.shift());
+        
+        // Если воспроизведение остановилось из-за пустой очереди, возобновляем
+        if (!isPlayingAudio && audioPlaybackQueue.length > 0) {
+          widgetLog('[STREAMING] Возобновляем воспроизведение после пополнения очереди');
+          playNextAudio();
+        }
+      } else {
+        // Показываем индикатор буферизации
+        updateBufferIndicator(true, streamingBuffer.length);
+      }
+    }
+    
+    // НОВАЯ функция для обработки завершения потока аудио
+    function finalizeAudioStream() {
+      widgetLog(`[STREAMING] Завершение потока. Буфер: ${streamingBuffer.length}, очередь: ${audioPlaybackQueue.length}`);
+      
+      // Переносим все оставшиеся фрагменты из буфера в очередь
+      while (streamingBuffer.length > 0) {
+        audioPlaybackQueue.push(streamingBuffer.shift());
+      }
+      
+      // Если ничего не воспроизводится и есть данные в очереди, начинаем воспроизведение
+      if (!isPlayingAudio && audioPlaybackQueue.length > 0) {
+        playNextAudio();
+      }
+      
+      // Сбрасываем флаги потокового воспроизведения
+      isStreamingAudio = false;
+      
+      // Скрываем индикатор буферизации
+      updateBufferIndicator(false);
+    }
+    
+    // Добавить аудио в очередь воспроизведения (старая функция для совместимости)
     function addAudioToPlaybackQueue(audioBase64) {
       if (!audioBase64 || typeof audioBase64 !== 'string') return;
       
@@ -1226,6 +1355,14 @@
       
       isPlayingAudio = false;
       interruptionState.is_assistant_speaking = false;
+      
+      // НОВОЕ: очищаем буферы потокового воспроизведения
+      streamingBuffer = [];
+      streamingStarted = false;
+      isStreamingAudio = false;
+      totalFragmentsReceived = 0;
+      totalFragmentsPlayed = 0;
+      updateBufferIndicator(false);
       
       interruptionState.current_audio_elements.forEach(audio => {
         try {
@@ -1376,6 +1513,16 @@
       
       audioChunksBuffer = [];
       audioPlaybackQueue = [];
+      
+      // НОВОЕ: очищаем буферы потокового воспроизведения
+      streamingBuffer = [];
+      streamingStarted = false;
+      isStreamingAudio = false;
+      pendingAudioBuffer = [];
+      isBufferRecoveryMode = false;
+      totalFragmentsReceived = 0;
+      totalFragmentsPlayed = 0;
+      updateBufferIndicator(false);
       
       hasAudioData = false;
       audioDataStartTime = 0;
@@ -1790,6 +1937,28 @@
       });
     }
     
+    // НОВАЯ функция для восстановления аудио из резервного буфера
+    function recoverAudioFromBuffer() {
+      if (pendingAudioBuffer.length === 0) {
+        widgetLog('[BUFFER RECOVERY] Нет данных для восстановления');
+        return;
+      }
+      
+      widgetLog(`[BUFFER RECOVERY] Восстановление ${pendingAudioBuffer.length} фрагментов из резервного буфера`);
+      
+      // Перемещаем все данные из резервного буфера в очередь воспроизведения
+      while (pendingAudioBuffer.length > 0) {
+        audioPlaybackQueue.push(pendingAudioBuffer.shift());
+      }
+      
+      // Если ничего не воспроизводится, начинаем воспроизведение
+      if (!isPlayingAudio) {
+        playNextAudio();
+      }
+      
+      isBufferRecoveryMode = false;
+    }
+    
     // Функция для переподключения с задержкой
     function reconnectWithDelay(initialDelay = 0) {
       const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
@@ -1798,6 +1967,9 @@
         widgetLog('Maximum reconnection attempts reached');
         isReconnecting = false;
         connectionFailedPermanently = true;
+        
+        // НОВОЕ: восстанавливаем аудио из буфера при окончательной потере соединения
+        recoverAudioFromBuffer();
         
         if (isWidgetOpen) {
           showConnectionError("Не удалось восстановить соединение. Попробуйте перезагрузить страницу.");
@@ -1809,6 +1981,12 @@
       }
       
       isReconnecting = true;
+      
+      // НОВОЕ: включаем режим восстановления буфера
+      if (isStreamingAudio || audioPlaybackQueue.length > 0) {
+        isBufferRecoveryMode = true;
+        widgetLog('[BUFFER RECOVERY] Включен режим сохранения буфера');
+      }
       
       if (isWidgetOpen) {
         showMessage("Соединение прервано. Переподключение...", 0);
@@ -1831,6 +2009,9 @@
             if (success) {
               reconnectAttempts = 0;
               isReconnecting = false;
+              
+              // НОВОЕ: восстанавливаем аудио из буфера при успешном переподключении
+              recoverAudioFromBuffer();
               
               if (isWidgetOpen) {
                 showMessage("Соединение восстановлено", 3000);
@@ -2080,46 +2261,47 @@
                 return;
               } 
               
+              // ОТКЛЮЧЕНО: Не показываем текст ответа ассистента
               if (data.type === 'response.text.delta') {
-                if (data.delta) {
-                  showMessage(data.delta, 0);
-                  
-                  if (!isWidgetOpen) {
-                    widgetButton.classList.add('wellcomeai-pulse-animation');
-                  }
-                }
+                // Пропускаем отображение текста
                 return;
               }
               
               if (data.type === 'response.text.done') {
-                setTimeout(() => {
-                  hideMessage();
-                }, 5000);
+                // Пропускаем скрытие сообщения
                 return;
               }
               
+              // ОБНОВЛЕННАЯ обработка потокового аудио
               if (data.type === 'response.audio.delta') {
                 if (data.delta) {
-                  audioChunksBuffer.push(data.delta);
+                  // Используем потоковое воспроизведение
+                  addAudioToStreamingBuffer(data.delta);
                 }
                 return;
               }
               
+              // ОТКЛЮЧЕНО: Не показываем транскрипцию аудио
               if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
+                // Пропускаем транскрипцию
                 return;
               }
               
+              // ОБНОВЛЕННАЯ обработка завершения аудио
               if (data.type === 'response.audio.done') {
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
-                }
+                widgetLog('[STREAMING] Получено событие завершения аудио');
+                finalizeAudioStream();
                 return;
               }
               
               if (data.type === 'response.done') {
                 widgetLog('Response done received');
+                
+                // Финализируем поток если он не был завершен
+                if (streamingBuffer.length > 0 || isStreamingAudio) {
+                  finalizeAudioStream();
+                }
+                
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                   setTimeout(() => {
                     startListening();
@@ -2285,6 +2467,7 @@
       }
       
       widgetLog(`Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
+      widgetLog(`Streaming state: isStreaming=${isStreamingAudio}, started=${streamingStarted}, buffer=${streamingBuffer.length}, queue=${audioPlaybackQueue.length}`);
     }, 2000);
   }
 
