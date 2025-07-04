@@ -2272,7 +2272,6 @@
                 return;
               }
               
-              // ОБНОВЛЕННАЯ обработка потокового аудио
               if (data.type === 'response.audio.delta') {
                 if (data.delta) {
                   // Используем потоковое воспроизведение
@@ -2281,9 +2280,14 @@
                 return;
               }
               
-              // ОТКЛЮЧЕНО: Не показываем транскрипцию аудио
-              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
-                // Пропускаем транскрипцию
+              // Полностью игнорируем все события транскрипции
+              if (data.type && data.type.includes('transcript')) {
+                // Не логируем и не обрабатываем никакие транскрипции
+                return;
+              }
+              
+              // Игнорируем события, связанные с транскрипцией ввода
+              if (data.type && data.type.includes('input_audio_transcription')) {
                 return;
               }
               
