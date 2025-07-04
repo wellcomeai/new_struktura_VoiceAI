@@ -5,7 +5,6 @@
  * Исправления:
  * - Добавлено потоковое воспроизведение аудио для предотвращения обрывов
  * - Улучшено логирование аудио потока для диагностики
- * - Добавлена проверка полноты транскрипций
  * - Оптимизирована буферизация аудио данных
  */
 
@@ -933,10 +932,6 @@
     const MIN_BUFFER_SIZE = 3; // Минимум фрагментов перед началом воспроизведения
     const STREAM_CHECK_INTERVAL = 100; // Интервал проверки буфера в мс
     
-    // Переменные для отслеживания транскрипций
-    let currentTranscript = '';
-    let transcriptFragments = [];
-    
     // Состояния для обработки перебивания
     let interruptionState = {
       is_assistant_speaking: false,
@@ -1437,8 +1432,6 @@
       isStreamingAudio = false;
       totalAudioFragments = 0;
       playedAudioFragments = 0;
-      currentTranscript = '';
-      transcriptFragments = [];
       
       hasAudioData = false;
       audioDataStartTime = 0;
@@ -2179,28 +2172,8 @@
                 return;
               }
               
-              // Обработка транскрипций для диагностики
-              if (data.type === 'response.audio_transcript.delta') {
-                if (data.delta) {
-                  transcriptFragments.push(data.delta);
-                  currentTranscript += data.delta;
-                  widgetLog(`[TRANSCRIPT DELTA] Фрагмент транскрипции: "${data.delta}"`);
-                }
-                return;
-              }
-              
-              if (data.type === 'response.audio_transcript.done') {
-                const fullTranscript = data.transcript || currentTranscript;
-                widgetLog(`[TRANSCRIPT FULL] Полная транскрипция (${fullTranscript.length} символов): "${fullTranscript}"`);
-                
-                // Показываем полный текст для проверки
-                if (DEBUG_MODE) {
-                  showMessage(`Полный ответ: ${fullTranscript}`, 10000);
-                }
-                
-                // Сброс транскрипции
-                currentTranscript = '';
-                transcriptFragments = [];
+              // Пропускаем обработку транскрипций (убрано по запросу)
+              if (data.type === 'response.audio_transcript.delta' || data.type === 'response.audio_transcript.done') {
                 return;
               }
               
