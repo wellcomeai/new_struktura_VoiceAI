@@ -1,12 +1,13 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 2.2.0 - Премиальный дизайн с улучшенной визуализацией
+ * Версия: 2.2.1 - Премиальный дизайн с Voicyfy интеграцией
  * 
  * Исправления:
  * - Убрана отправка session.update от клиента (сервер сам управляет сессией)
  * - Улучшено воспроизведение аудио для iOS
  * - Добавлена предварительная инициализация AudioContext для iOS
  * - Обновлен дизайн виджета для премиального вида
+ * - Добавлена интеграция с Voicyfy
  */
 
 (function() {
@@ -199,7 +200,7 @@
   widgetLog(`WebSocket URL: ${WS_URL}`);
   widgetLog(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
 
-  // Создаем стили для виджета - ОБНОВЛЕННЫЕ СТИЛИ
+  // Создаем стили для виджета - ОБНОВЛЕННЫЕ СТИЛИ С VOICYFY
   function createStyles() {
     const styleEl = document.createElement('style');
     styleEl.id = 'wellcomeai-widget-styles';
@@ -334,7 +335,7 @@
       }
       
       .wellcomeai-widget-container.active .wellcomeai-widget-expanded {
-        height: 400px;
+        height: 460px; /* Увеличено для размещения Voicyfy */
         opacity: 1;
         pointer-events: all;
       }
@@ -384,6 +385,7 @@
         background: #f9fafc;
         position: relative;
         padding: 20px;
+        padding-bottom: 10px; /* Уменьшено для размещения Voicyfy */
       }
       
       /* Улучшенный дизайн главного круга */
@@ -581,7 +583,7 @@
       .wellcomeai-message-display {
         position: absolute;
         width: 90%;
-        bottom: 20px;
+        bottom: 70px; /* Поднято выше для размещения Voicyfy */
         left: 50%;
         transform: translateX(-50%);
         background: white;
@@ -647,7 +649,7 @@
       
       .wellcomeai-status-indicator {
         position: absolute;
-        bottom: 10px;
+        bottom: 50px; /* Поднято для размещения Voicyfy */
         left: 50%;
         transform: translateX(-50%);
         font-size: 11px;
@@ -684,6 +686,38 @@
       .wellcomeai-status-dot.interrupted {
         background-color: #d97706;
       }
+      
+      /* СТИЛИ ДЛЯ VOICYFY */
+      .wellcomeai-voicyfy-container {
+        position: absolute;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center;
+        padding: 8px;
+        opacity: 0.8;
+        transition: opacity 0.2s ease;
+      }
+      
+      .wellcomeai-voicyfy-container:hover {
+        opacity: 1;
+      }
+      
+      .wellcomeai-voicyfy-link {
+        display: inline-block;
+        text-decoration: none;
+        transition: transform 0.2s ease;
+      }
+      
+      .wellcomeai-voicyfy-link:hover {
+        transform: translateY(-2px);
+      }
+      
+      .wellcomeai-voicyfy-link img {
+        height: 25px;
+        width: auto;
+        display: block;
+      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("Styles created and added to head");
@@ -701,7 +735,7 @@
     }
   }
 
-  // Создание HTML структуры виджета - ОБНОВЛЕННАЯ СТРУКТУРА
+  // Создание HTML структуры виджета - ОБНОВЛЕННАЯ СТРУКТУРА С VOICYFY
   function createWidgetHTML() {
     const widgetContainer = document.createElement('div');
     widgetContainer.className = 'wellcomeai-widget-container';
@@ -758,6 +792,13 @@
           <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
             <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div>
             <span id="wellcomeai-status-text">Подключено</span>
+          </div>
+          
+          <!-- VOICYFY ИНТЕГРАЦИЯ -->
+          <div class="wellcomeai-voicyfy-container">
+            <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="wellcomeai-voicyfy-link">
+              <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Voicyfy - powered by AI">
+            </a>
           </div>
         </div>
       </div>
@@ -1470,7 +1511,7 @@
       const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
       if (expandedWidget) {
         expandedWidget.style.opacity = "1";
-        expandedWidget.style.height = "400px";
+        expandedWidget.style.height = "460px"; // Обновлено для размещения Voicyfy
         expandedWidget.style.pointerEvents = "all";
         expandedWidget.style.zIndex = "2147483647";
       }
