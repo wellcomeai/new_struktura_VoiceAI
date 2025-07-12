@@ -24,7 +24,7 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 # ✅ ФИКСИРОВАННЫЕ НАСТРОЙКИ ПОДПИСКИ
-FIXED_SUBSCRIPTION_PRICE = 1.0  # Фиксированная цена в рублях
+FIXED_SUBSCRIPTION_PRICE = 1490.0  # Фиксированная цена в рублях
 SUBSCRIPTION_DURATION_DAYS = 30     # Длительность подписки в днях
 SUBSCRIPTION_PLAN_NAME = "Тариф Старт"
 SUBSCRIPTION_DESCRIPTION = "Стартовый тариф с доступом ко всем функциям"
