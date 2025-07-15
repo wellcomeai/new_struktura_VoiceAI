@@ -16,13 +16,14 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.core.config import settings
 from backend.core.logging import setup_logging, get_logger
-from backend.api import auth, users, assistants, files, websocket, healthcheck, subscriptions, subscription_logs, admin, partners
+from backend.api import (
+    auth, users, assistants, files, websocket, healthcheck, 
+    subscriptions, subscription_logs, admin, partners, 
+    knowledge_base, payments, voximplant, elevenlabs
+)
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
-from backend.api import knowledge_base
-from backend.api import payments
-from backend.api import voximplant  # ✅ ДОБАВЛЕНО: Импорт Voximplant роутера
 
 # Alembic для миграций
 from alembic.config import Config as AlembicConfig
@@ -135,7 +136,8 @@ app.include_router(subscription_logs.router, prefix="/api/subscription-logs", ta
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
-app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])  # ✅ ДОБАВЛЕНО: Voximplant роутер
+app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])
+app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])  # ✅ ДОБАВЛЕНО: ElevenLabs роутер
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
@@ -186,6 +188,19 @@ def run_migrations():
         if not settings.PRODUCTION:
             raise
 
+# ✅ ДОБАВЛЕНО: Функция создания таблиц ElevenLabs
+def create_elevenlabs_tables():
+    """Create ElevenLabs tables"""
+    try:
+        from backend.models.elevenlabs import ElevenLabsAgent, ElevenLabsConversation
+        from backend.models.base import Base
+        Base.metadata.create_all(engine)
+        logger.info("✅ ElevenLabs tables created successfully")
+    except Exception as e:
+        logger.error(f"❌ Error creating ElevenLabs tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
 # При старте приложения
 @app.on_event("startup")
 async def startup_event():
@@ -207,6 +222,7 @@ async def startup_event():
                 logger.info("🔒 Running migrations...")
                 run_migrations()
                 create_tables(engine)
+                create_elevenlabs_tables()  # ✅ ДОБАВЛЕНО: Создание таблиц ElevenLabs
                 migration_completed = True
                 logger.info("✅ Migrations completed")
             else:
@@ -262,6 +278,15 @@ async def startup_event():
             logger.info(f"   Test endpoint: {settings.HOST_URL}/api/voximplant/test")
         except Exception as e:
             logger.error(f"❌ Error initializing Voximplant integration: {str(e)}")
+        
+        # ✅ ДОБАВЛЕНО: Логирование инициализации ElevenLabs интеграции
+        try:
+            logger.info("🎙️ ElevenLabs integration initialized")
+            logger.info(f"   API endpoints: {settings.HOST_URL}/api/elevenlabs/")
+            logger.info(f"   WebSocket endpoint: {settings.HOST_URL}/api/elevenlabs/ws/{{agent_id}}")
+            logger.info(f"   Voice generation endpoint: {settings.HOST_URL}/api/elevenlabs/generate")
+        except Exception as e:
+            logger.error(f"❌ Error initializing ElevenLabs integration: {str(e)}")
         
         logger.info("✅ Application started successfully")
         
