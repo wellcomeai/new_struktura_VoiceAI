@@ -26,6 +26,45 @@ from backend.schemas.elevenlabs import (
 logger = get_logger(__name__)
 router = APIRouter()
 
+@router.get("/api-key/status")
+async def check_api_key_status(
+    current_user: User = Depends(check_subscription_active_for_assistants),
+    db: Session = Depends(get_db)
+):
+    """
+    Check if user has ElevenLabs API key configured
+    """
+    try:
+        logger.info(f"Checking API key status for user {current_user.id}")
+        
+        has_api_key = bool(current_user.elevenlabs_api_key)
+        logger.info(f"User {current_user.id} has ElevenLabs API key: {has_api_key}")
+        
+        if has_api_key:
+            # Проверяем валидность ключа
+            logger.info("Validating ElevenLabs API key...")
+            is_valid = await ElevenLabsService.validate_api_key(current_user.elevenlabs_api_key)
+            logger.info(f"API key validation result: {is_valid}")
+            
+            return {
+                "has_api_key": True,
+                "is_valid": is_valid,
+                "message": "API key is configured and valid" if is_valid else "API key is configured but invalid"
+            }
+        else:
+            return {
+                "has_api_key": False,
+                "is_valid": False,
+                "message": "ElevenLabs API key not found. Please add your API key first."
+            }
+    except Exception as e:
+        logger.error(f"Error checking API key status: {str(e)}")
+        return {
+            "has_api_key": False,
+            "is_valid": False,
+            "message": "Error checking API key status"
+        }
+
 @router.post("/api-key")
 async def save_api_key(
     request: ElevenLabsApiKeyRequest,
@@ -36,10 +75,13 @@ async def save_api_key(
     Save and validate ElevenLabs API key
     """
     try:
+        logger.info(f"Saving API key for user {current_user.id}")
+        
         # Валидируем API ключ через ElevenLabs API
         is_valid = await ElevenLabsService.validate_api_key(request.api_key)
         
         if not is_valid:
+            logger.warning(f"Invalid API key provided by user {current_user.id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid ElevenLabs API key"
@@ -48,6 +90,8 @@ async def save_api_key(
         # Сохраняем API ключ в профиль пользователя
         current_user.elevenlabs_api_key = request.api_key
         db.commit()
+        
+        logger.info(f"API key saved successfully for user {current_user.id}")
         
         # Получаем доступные голоса
         voices = await ElevenLabsService.get_available_voices(request.api_key)
@@ -75,13 +119,20 @@ async def get_voices(
     Get available ElevenLabs voices
     """
     try:
+        logger.info(f"Getting voices for user {current_user.id}")
+        logger.info(f"User has ElevenLabs API key: {bool(current_user.elevenlabs_api_key)}")
+        
         if not current_user.elevenlabs_api_key:
+            logger.warning(f"User {current_user.id} tried to get voices without API key")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="ElevenLabs API key not found. Please add your API key first."
             )
         
+        logger.info("Fetching voices from ElevenLabs API...")
         voices = await ElevenLabsService.get_available_voices(current_user.elevenlabs_api_key)
+        logger.info(f"Retrieved {len(voices)} voices from ElevenLabs")
+        
         return voices
     except HTTPException:
         raise
@@ -101,6 +152,7 @@ async def get_agents(
     Get all ElevenLabs agents for the current user
     """
     try:
+        logger.info(f"Getting agents for user {current_user.id}")
         return await ElevenLabsService.get_agents(db, str(current_user.id))
     except Exception as e:
         logger.error(f"Error getting agents: {str(e)}")
@@ -119,6 +171,8 @@ async def create_agent(
     Create a new ElevenLabs agent
     """
     try:
+        logger.info(f"Creating agent for user {current_user.id}")
+        
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -150,6 +204,7 @@ async def get_agent(
     Get ElevenLabs agent by ID
     """
     try:
+        logger.info(f"Getting agent {agent_id} for user {current_user.id}")
         return await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
     except HTTPException:
         raise
@@ -171,6 +226,8 @@ async def update_agent(
     Update ElevenLabs agent
     """
     try:
+        logger.info(f"Updating agent {agent_id} for user {current_user.id}")
+        
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -203,6 +260,8 @@ async def delete_agent(
     Delete ElevenLabs agent
     """
     try:
+        logger.info(f"Deleting agent {agent_id} for user {current_user.id}")
+        
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -236,6 +295,7 @@ async def get_embed_code(
     Get embed code for ElevenLabs agent
     """
     try:
+        logger.info(f"Getting embed code for agent {agent_id} for user {current_user.id}")
         return await ElevenLabsService.get_embed_code(db, agent_id, str(current_user.id))
     except HTTPException:
         raise
@@ -256,6 +316,8 @@ async def get_signed_url(
     Get signed URL for WebSocket connection
     """
     try:
+        logger.info(f"Getting signed URL for agent {agent_id} for user {current_user.id}")
+        
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
