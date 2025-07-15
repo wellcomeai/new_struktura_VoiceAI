@@ -24,6 +24,7 @@ class User(Base, BaseModel):
     last_name = Column(String, nullable=True)
     company_name = Column(String, nullable=True)
     openai_api_key = Column(String, nullable=True)
+    elevenlabs_api_key = Column(String, nullable=True)  # ✅ ДОБАВЛЕНО: ElevenLabs API key
     subscription_plan = Column(String, default="free")
     usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
@@ -45,7 +46,7 @@ class User(Base, BaseModel):
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
-    # Add this to the User model in backend/models/user.py under relationships
+    elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")  # ✅ ДОБАВЛЕНО: ElevenLabs отношение
    
     def __repr__(self):
         """Строковое представление пользователя"""
@@ -67,6 +68,7 @@ class User(Base, BaseModel):
         # Удаляем конфиденциальные данные
         data.pop("password_hash", None)
         data.pop("openai_api_key", None)
+        data.pop("elevenlabs_api_key", None)  # ✅ ДОБАВЛЕНО: Исключаем ElevenLabs API key
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -80,6 +82,10 @@ class User(Base, BaseModel):
     def has_api_key(self):
         """Проверить, настроен ли ключ OpenAI API у пользователя"""
         return bool(self.openai_api_key)
+    
+    def has_elevenlabs_api_key(self):
+        """Проверить, настроен ли ключ ElevenLabs API у пользователя"""
+        return bool(self.elevenlabs_api_key)
     
     def has_active_subscription(self):
         """Проверить, активна ли подписка пользователя"""
