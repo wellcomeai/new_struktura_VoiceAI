@@ -1061,18 +1061,20 @@
         return true;
       }
       
-      // Проверка API ключа
-      async function checkApiKey() {
-        try {
-          const response = await api.get('/voices');
-          return true;
-        } catch (error) {
-          if (error.message.includes('API key not found')) {
-            return false;
-          }
-          throw error;
-        }
-      }
+      // Исправленная проверка API ключа
+async function checkApiKey() {
+  try {
+    const response = await api.get('/voices');
+    return true;
+  } catch (error) {
+    // ✅ ИСПРАВЛЕНО: Проверяем полное сообщение об ошибке
+    if (error.message.includes('ElevenLabs API key not found') || 
+        error.message.includes('API key not found')) {
+      return false;
+    }
+    throw error;
+  }
+}
       
       // Сохранение API ключа
       async function saveApiKey(apiKey) {
