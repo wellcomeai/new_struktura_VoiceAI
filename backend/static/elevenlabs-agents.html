@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Мои агенты 11Labs | Voicyfy</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Используем те же стили что и в agents.html */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .page-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    
+    /* Кнопки */
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+      text-decoration: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+    }
+    
+    .btn-danger {
+      background-color: #ef4444;
+      color: var(--white);
+    }
+    
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Карточки */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    /* Форма API ключа */
+    .api-key-form {
+      max-width: 500px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    
+    .api-key-description {
+      color: var(--text-gray);
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+    
+    .form-group {
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    textarea.form-control {
+      min-height: 150px;
+      resize: vertical;
+    }
+    
+    /* Табы */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+    }
+    
+    .tab {
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-weight: 500;
+    }
+    
+    .tab.active {
+      color: var(--primary-blue);
+      border-bottom-color: var(--primary-blue);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    /* Выбор голоса */
+    .voice-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .voice-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .voice-option:hover {
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option.selected {
+      border-color: var(--primary-blue);
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option input {
+      margin: 0;
+    }
+    
+    .voice-preview {
+      margin-left: auto;
+      padding: 0.25rem 0.5rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      font-size: 0.75rem;
+      color: var(--text-gray);
+      cursor: pointer;
+    }
+    
+    .voice-preview:hover {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    /* Список агентов */
+    .agents-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 1.5rem;
+    }
+    
+    .agent-item {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      transition: all 0.2s;
+    }
+    
+    .agent-item:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    
+    .agent-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    
+    .agent-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .agent-name {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    .agent-voice {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .agent-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    /* Тестирование */
+    .testing-section {
+      text-align: center;
+      padding: 2rem;
+    }
+    
+    .testing-status {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin: 2rem 0;
+      flex-wrap: wrap;
+    }
+    
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-gray);
+    }
+    
+    .status-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    
+    .status-indicator.connected {
+      background-color: #10b981;
+    }
+    
+    .status-indicator.connecting {
+      background-color: #f59e0b;
+      animation: pulse 1.5s infinite;
+    }
+    
+    .status-indicator.disconnected {
+      background-color: #ef4444;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+    
+    /* Embed код */
+    .embed-container {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .embed-code {
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 0.5rem;
+      font-family: monospace;
+      white-space: pre-wrap;
+      user-select: all;
+      overflow-x: auto;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+    }
+    
+    /* Уведомления */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+    
+    /* Состояние загрузки */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    
+    .empty-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+    
+    .empty-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    
+    .empty-description {
+      color: var(--text-gray);
+      max-width: 500px;
+      margin: 0 auto 2rem;
+    }
+    
+    /* Мобильная адаптация */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+      }
+      
+      .sidebar.mobile-open {
+        transform: translateX(0);
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+      }
+      
+      .content-container {
+        padding: 1rem;
+      }
+      
+      .agents-list {
+        grid-template-columns: 1fr;
+      }
+      
+      .voice-options {
+        grid-template-columns: 1fr;
+      }
+      
+      .testing-status {
+        flex-direction: column;
+        gap: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/elevenlabs-agents.html" class="sidebar-nav-item active">
+        <i class="fas fa-microphone"></i> Мои агенты 11Labs
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </div>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <h1 class="page-title">Мои агенты 11Labs</h1>
+      </div>
+      
+      <div class="page-actions">
+        <button class="btn btn-outline" id="view-embed-code" style="display: none;">
+          <i class="fas fa-code"></i> Код для встраивания
+        </button>
+        <button class="btn btn-danger" id="delete-agent" style="display: none;">
+          <i class="fas fa-trash"></i> Удалить
+        </button>
+        <button class="btn btn-primary" id="save-agent" style="display: none;">
+          <i class="fas fa-save"></i> Сохранить
+        </button>
+        <button class="btn btn-primary" id="create-new-agent-btn" style="display: none;">
+          <i class="fas fa-plus"></i> Создать агента
+        </button>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Форма API ключа (показывается если ключ не установлен) -->
+      <div id="api-key-container" class="card" style="display: none;">
+        <div class="card-header">
+          <h2 class="card-title">Настройка ElevenLabs API</h2>
+        </div>
+        <div class="api-key-form">
+          <div class="api-key-description">
+            <p>Для работы с голосовыми агентами ElevenLabs необходимо указать ваш API ключ.</p>
+            <p>Получить ключ можно в <a href="https://elevenlabs.io/app/speech-synthesis" target="_blank">личном кабинете ElevenLabs</a></p>
+          </div>
+          <form id="api-key-form">
+            <div class="form-group">
+              <label for="api-key">ElevenLabs API Key</label>
+              <input type="password" id="api-key" class="form-control" placeholder="sk_..." required>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              <i class="fas fa-key"></i> Сохранить API ключ
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Список агентов (показывается после установки API ключа) -->
+      <div id="agents-list-container" style="display: none;">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Ваши голосовые агенты ElevenLabs</h2>
+            <button class="btn btn-primary" id="add-agent-btn">
+              <i class="fas fa-plus"></i> Создать агента
+            </button>
+          </div>
+          <div id="agents-list" class="agents-list">
+            <!-- Содержимое будет заполнено динамически -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Форма редактирования агента -->
+      <div id="edit-agent-container" style="display: none;">
+        <!-- Табы -->
+        <div class="tabs">
+          <div class="tab active" data-tab="settings">Настройки</div>
+          <div class="tab" data-tab="testing">Тестирование</div>
+          <div class="tab" data-tab="embed">Встраивание</div>
+        </div>
+        
+        <!-- Таб настроек -->
+        <div class="tab-content active" id="settings-tab">
+          <form id="agent-form">
+            <div class="card">
+              <div class="form-group">
+                <label for="agent-name">Название агента</label>
+                <input type="text" id="agent-name" class="form-control" placeholder="Введите название" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="system-prompt">Системный промпт</label>
+                <textarea id="system-prompt" class="form-control" placeholder="Инструкции для ассистента" required></textarea>
+                <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  Задайте инструкции для вашего голосового ассистента. Это определит его поведение и стиль общения.
+                </p>
+              </div>
+              
+              <div class="form-group">
+                <label>Голос ассистента</label>
+                <div id="voice-options" class="voice-options">
+                  <!-- Голоса будут загружены динамически -->
+                </div>
+              </div>
+              
+              <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
+                <button type="button" class="btn btn-outline" id="cancel-button">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+              </div>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Таб тестирования -->
+        <div class="tab-content" id="testing-tab">
+          <div class="card testing-section">
+            <h3 style="margin-bottom: 1rem;">Тестирование голосового ассистента</h3>
+            <p style="color: var(--text-gray); margin-bottom: 2rem;">
+              Проверьте работу вашего голосового ассистента прямо в браузере
+            </p>
+            
+            <div class="testing-status">
+              <div class="status-item" id="connection-status">
+                <div class="status-indicator disconnected"></div>
+                <span>Не подключен</span>
+              </div>
+              <div class="status-item" id="microphone-status">
+                <i class="fas fa-microphone"></i>
+                <span>Микрофон: готов</span>
+              </div>
+              <div class="status-item" id="voice-status">
+                <i class="fas fa-volume-up"></i>
+                <span>Голос: <span id="selected-voice-name">-</span></span>
+              </div>
+            </div>
+            
+            <div id="testing-controls">
+              <button class="btn btn-primary" id="start-test-btn">
+                <i class="fas fa-play"></i> Начать тестирование
+              </button>
+              <button class="btn btn-outline" id="stop-test-btn" style="display: none;">
+                <i class="fas fa-stop"></i> Остановить
+              </button>
+            </div>
+            
+            <div style="margin-top: 2rem; color: var(--text-gray); font-size: 0.875rem;">
+              <p><i class="fas fa-info-circle"></i> Нажмите "Начать тестирование" и говорите с ассистентом</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Таб встраивания -->
+        <div class="tab-content" id="embed-tab">
+          <div class="card">
+            <h3 style="margin-bottom: 1rem;">Код для встраивания</h3>
+            <p>Скопируйте этот код и вставьте его на свой сайт, чтобы добавить голосового ассистента.</p>
+            
+            <div class="embed-container">
+              <div class="embed-code" id="embed-code">
+                <!-- Код будет загружен динамически -->
+              </div>
+              <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+                <button class="btn btn-primary" id="copy-embed-code">
+                  <i class="fas fa-copy"></i> Копировать код
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="card">
+            <h3 style="margin-bottom: 1rem;">Предпросмотр</h3>
+            <p>Так будет выглядеть ваш ассистент на сайте:</p>
+            
+            <div style="margin-top: 1.5rem; text-align: center;">
+              <div style="display: inline-block; position: relative;">
+                <div style="width: 400px; height: 300px; background-color: #f3f4f6; border: 1px dashed #d1d5db; border-radius: 0.5rem; display: flex; justify-content: center; align-items: center;">
+                  <div style="position: absolute; bottom: 20px; right: 20px; width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #8b5cf6); display: flex; justify-content: center; align-items: center; color: white; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);">
+                    <i class="fas fa-microphone" style="font-size: 1.5rem;"></i>
+                  </div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-gray);">Пример вашего сайта с виджетом голосового ассистента</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+    </div>
+  </main>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Переменные состояния
+      let currentAgentId = null;
+      let isLoading = false;
+      let availableVoices = [];
+      let testingWebSocket = null;
+      let testingAudioContext = null;
+      let testingMediaStream = null;
+      let isTestingActive = false;
+      
+      // Получаем элементы
+      const apiKeyContainer = document.getElementById('api-key-container');
+      const agentsListContainer = document.getElementById('agents-list-container');
+      const editAgentContainer = document.getElementById('edit-agent-container');
+      const apiKeyForm = document.getElementById('api-key-form');
+      const agentForm = document.getElementById('agent-form');
+      const agentsList = document.getElementById('agents-list');
+      const voiceOptions = document.getElementById('voice-options');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const loadingOverlay = document.getElementById('loading-overlay');
+      
+      // Кнопки
+      const addAgentBtn = document.getElementById('add-agent-btn');
+      const createNewAgentBtn = document.getElementById('create-new-agent-btn');
+      const saveAgentBtn = document.getElementById('save-agent');
+      const deleteAgentBtn = document.getElementById('delete-agent');
+      const viewEmbedCodeBtn = document.getElementById('view-embed-code');
+      const cancelButton = document.getElementById('cancel-button');
+      const copyEmbedCodeBtn = document.getElementById('copy-embed-code');
+      const startTestBtn = document.getElementById('start-test-btn');
+      const stopTestBtn = document.getElementById('stop-test-btn');
+      
+      // Табы
+      const tabs = document.querySelectorAll('.tab');
+      const tabContents = document.querySelectorAll('.tab-content');
+      
+      // API клиент
+      const api = {
+        baseUrl: '/api/elevenlabs',
+        
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string') {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+          
+          if (response.status === 401) {
+            localStorage.removeItem('auth_token');
+            window.location.href = '/static/login.html';
+            throw new Error('Требуется авторизация');
+          }
+          
+          const data = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(data.detail || 'Произошла ошибка');
+          }
+          
+          return data;
+        },
+        
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        }
+      };
+      
+      // Утилиты UI
+      const ui = {
+        showNotification(message, type = 'success') {
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          notification.classList.add(`notification-${type}`);
+          
+          const iconElement = notification.querySelector('.notification-icon i');
+          iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                               type === 'error' ? 'fas fa-exclamation-circle' : 
+                               'fas fa-info-circle';
+          
+          notificationMessage.textContent = message;
+          
+          notification.style.display = 'flex';
+          setTimeout(() => {
+            notification.classList.add('show');
+          }, 10);
+          
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        hideNotification() {
+          notification.classList.remove('show');
+          setTimeout(() => {
+            notification.style.display = 'none';
+          }, 300);
+        },
+        
+        switchTab(tabId) {
+          tabs.forEach(tab => {
+            tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+          });
+          
+          tabContents.forEach(content => {
+            content.classList.toggle('active', content.id === `${tabId}-tab`);
+          });
+        },
+        
+        setLoading(loading) {
+          isLoading = loading;
+          loadingOverlay.style.display = loading ? 'flex' : 'none';
+        },
+        
+        showView(view) {
+          apiKeyContainer.style.display = view === 'api-key' ? 'block' : 'none';
+          agentsListContainer.style.display = view === 'agents-list' ? 'block' : 'none';
+          editAgentContainer.style.display = view === 'edit-agent' ? 'block' : 'none';
+          
+          // Обновляем видимость кнопок
+          if (view === 'edit-agent') {
+            viewEmbedCodeBtn.style.display = 'inline-flex';
+            deleteAgentBtn.style.display = currentAgentId ? 'inline-flex' : 'none';
+            saveAgentBtn.style.display = 'inline-flex';
+            createNewAgentBtn.style.display = 'none';
+          } else {
+            viewEmbedCodeBtn.style.display = 'none';
+            deleteAgentBtn.style.display = 'none';
+            saveAgentBtn.style.display = 'none';
+            createNewAgentBtn.style.display = 'none';
+          }
+        }
+      };
+      
+      // Проверка авторизации
+      function checkAuth() {
+        if (!api.isAuthenticated()) {
+          window.location.href = '/static/login.html';
+          return false;
+        }
+        return true;
+      }
+      
+      // Проверка API ключа
+      async function checkApiKey() {
+        try {
+          const response = await api.get('/voices');
+          return true;
+        } catch (error) {
+          if (error.message.includes('API key not found')) {
+            return false;
+          }
+          throw error;
+        }
+      }
+      
+      // Сохранение API ключа
+      async function saveApiKey(apiKey) {
+        try {
+          ui.setLoading(true);
+          const response = await api.post('/api-key', { api_key: apiKey });
+          
+          if (response.success) {
+            availableVoices = response.voices;
+            ui.showNotification('API ключ сохранен успешно!', 'success');
+            await loadAgentsList();
+          } else {
+            throw new Error('Не удалось сохранить API ключ');
+          }
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при сохранении API ключа', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Загрузка списка агентов
+      async function loadAgentsList() {
+        try {
+          ui.setLoading(true);
+          const agents = await api.get('/');
+          renderAgentsList(agents);
+          ui.showView('agents-list');
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке списка агентов', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Отрисовка списка агентов
+      function renderAgentsList(agents) {
+        agentsList.innerHTML = '';
+        
+        if (agents.length === 0) {
+          agentsList.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">
+                <i class="fas fa-microphone"></i>
+              </div>
+              <h3 class="empty-title">У вас еще нет голосовых агентов</h3>
+              <p class="empty-description">
+                Создайте вашего первого голосового ассистента ElevenLabs
+              </p>
+              <button class="btn btn-primary" id="empty-create-agent-btn">
+                <i class="fas fa-plus"></i> Создать голосового агента
+              </button>
+            </div>
+          `;
+          
+          document.getElementById('empty-create-agent-btn').addEventListener('click', startCreateAgent);
+          return;
+        }
+        
+        agents.forEach(agent => {
+          const agentEl = document.createElement('div');
+          agentEl.className = 'agent-item';
+          agentEl.innerHTML = `
+            <div class="agent-icon">
+              <i class="fas fa-microphone"></i>
+            </div>
+            <div class="agent-info">
+              <h3 class="agent-name">${agent.name}</h3>
+              <p class="agent-voice">
+                <i class="fas fa-volume-up"></i> ${agent.voice_name || agent.voice_id}
+              </p>
+            </div>
+            <div class="agent-actions">
+              <button class="btn btn-outline edit-agent" data-id="${agent.id}">
+                <i class="fas fa-edit"></i> Редактировать
+              </button>
+            </div>
+          `;
+          agentsList.appendChild(agentEl);
+        });
+        
+        // Добавляем обработчики
+        document.querySelectorAll('.edit-agent').forEach(button => {
+          button.addEventListener('click', function() {
+            const agentId = this.getAttribute('data-id');
+            editAgent(agentId);
+          });
+        });
+      }
+      
+      // Загрузка голосов
+      async function loadVoices() {
+        try {
+          if (availableVoices.length === 0) {
+            availableVoices = await api.get('/voices');
+          }
+          renderVoiceOptions();
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке голосов', 'error');
+        }
+      }
+      
+      // Отрисовка опций голосов
+      function renderVoiceOptions() {
+        voiceOptions.innerHTML = '';
+        
+        availableVoices.forEach((voice, index) => {
+          const voiceEl = document.createElement('label');
+          voiceEl.className = 'voice-option';
+          if (index === 0) voiceEl.classList.add('selected');
+          
+          voiceEl.innerHTML = `
+            <input type="radio" name="voice" value="${voice.voice_id}" ${index === 0 ? 'checked' : ''}>
+            <span>${voice.name}</span>
+            ${voice.preview_url ? `<span class="voice-preview" data-url="${voice.preview_url}">▶</span>` : ''}
+          `;
+          
+          voiceOptions.appendChild(voiceEl);
+        });
+        
+        // Добавляем обработчики
+        document.querySelectorAll('.voice-option').forEach(option => {
+          option.addEventListener('click', function() {
+            document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
+            this.classList.add('selected');
+            this.querySelector('input').checked = true;
+            
+            // Обновляем отображение выбранного голоса в тестировании
+            const selectedVoiceName = this.querySelector('span').textContent;
+            const selectedVoiceNameEl = document.getElementById('selected-voice-name');
+            if (selectedVoiceNameEl) {
+              selectedVoiceNameEl.textContent = selectedVoiceName;
+            }
+          });
+        });
+        
+        // Добавляем обработчики для preview
+        document.querySelectorAll('.voice-preview').forEach(preview => {
+          preview.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const url = this.getAttribute('data-url');
+            if (url) {
+              const audio = new Audio(url);
+              audio.play();
+            }
+          });
+        });
+      }
+      
+      // Начать создание агента
+      function startCreateAgent() {
+        currentAgentId = null;
+        document.querySelector('.page-title').textContent = 'Создание голосового агента';
+        
+        // Очищаем форму
+        document.getElementById('agent-name').value = '';
+        document.getElementById('system-prompt').value = 'Вы умный голосовой помощник. Отвечайте на вопросы пользователя коротко, информативно и дружелюбно. Говорите естественно, как живой человек.';
+        
+        // Выбираем первый голос
+        const firstVoice = document.querySelector('.voice-option input');
+        if (firstVoice) {
+          firstVoice.checked = true;
+          firstVoice.closest('.voice-option').classList.add('selected');
+        }
+        
+        loadVoices();
+        ui.showView('edit-agent');
+        ui.switchTab('settings');
+      }
+      
+      // Редактирование агента
+      async function editAgent(agentId) {
+        try {
+          ui.setLoading(true);
+          currentAgentId = agentId;
+          
+          const agent = await api.get(`/${agentId}`);
+          
+          document.querySelector('.page-title').textContent = 'Редактирование голосового агента';
+          
+          // Заполняем форму
+          document.getElementById('agent-name').value = agent.name;
+          document.getElementById('system-prompt').value = agent.system_prompt || '';
+          
+          await loadVoices();
+          
+          // Выбираем голос агента
+          const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice_id}"]`);
+          if (voiceInput) {
+            document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
+            voiceInput.checked = true;
+            voiceInput.closest('.voice-option').classList.add('selected');
+          }
+          
+          // Обновляем отображение выбранного голоса
+          const selectedVoiceNameEl = document.getElementById('selected-voice-name');
+          if (selectedVoiceNameEl) {
+            selectedVoiceNameEl.textContent = agent.voice_name || agent.voice_id;
+          }
+          
+          // Загружаем код встраивания
+          const embedData = await api.get(`/${agentId}/embed`);
+          document.getElementById('embed-code').textContent = embedData.embed_code;
+          
+          ui.showView('edit-agent');
+          ui.switchTab('settings');
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке агента', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Сохранение агента
+      async function saveAgent() {
+        try {
+          ui.setLoading(true);
+          
+          const selectedVoice = document.querySelector('input[name="voice"]:checked');
+          const selectedVoiceOption = availableVoices.find(v => v.voice_id === selectedVoice.value);
+          
+          const agentData = {
+            name: document.getElementById('agent-name').value,
+            system_prompt: document.getElementById('system-prompt').value,
+            voice_id: selectedVoice.value,
+            voice_name: selectedVoiceOption ? selectedVoiceOption.name : selectedVoice.value
+          };
+          
+          if (currentAgentId) {
+            // Обновляем существующего агента
+            await api.put(`/${currentAgentId}`, agentData);
+            ui.showNotification('Агент успешно обновлен!', 'success');
+          } else {
+            // Создаем нового агента
+            const newAgent = await api.post('/', agentData);
+            currentAgentId = newAgent.id;
+            ui.showNotification('Агент успешно создан!', 'success');
+            
+            // Загружаем код встраивания
+            const embedData = await api.get(`/${currentAgentId}/embed`);
+            document.getElementById('embed-code').textContent = embedData.embed_code;
+          }
+          
+          deleteAgentBtn.style.display = 'inline-flex';
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при сохранении агента', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Удаление агента
+      async function deleteAgent() {
+        if (!currentAgentId) return;
+        
+        if (confirm('Вы уверены, что хотите удалить этого агента?')) {
+          try {
+            ui.setLoading(true);
+            await api.delete(`/${currentAgentId}`);
+            ui.showNotification('Агент успешно удален!', 'success');
+            
+            setTimeout(() => {
+              loadAgentsList();
+            }, 1000);
+          } catch (error) {
+            ui.showNotification(error.message || 'Ошибка при удалении агента', 'error');
+          } finally {
+            ui.setLoading(false);
+          }
+        }
+      }
+      
+      // Начать тестирование
+      async function startTesting() {
+        if (!currentAgentId) {
+          ui.showNotification('Сначала сохраните агента', 'error');
+          return;
+        }
+        
+        try {
+          ui.setLoading(true);
+          
+          // Получаем signed URL
+          const urlData = await api.get(`/${currentAgentId}/signed-url`);
+          const wsUrl = urlData.signed_url || urlData.fallback_url;
+          
+          // Запрашиваем доступ к микрофону
+          testingMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          
+          // Подключаемся к WebSocket
+          testingWebSocket = new WebSocket(wsUrl);
+          
+          testingWebSocket.onopen = () => {
+            updateConnectionStatus('connected', 'Подключен');
+            
+            // Отправляем инициализацию
+            testingWebSocket.send(JSON.stringify({
+              type: "conversation_initiation_client_data"
+            }));
+            
+            // Настраиваем аудио
+            setupAudioProcessing();
+            
+            isTestingActive = true;
+            startTestBtn.style.display = 'none';
+            stopTestBtn.style.display = 'inline-flex';
+          };
+          
+          testingWebSocket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            handleTestingMessage(data);
+          };
+          
+          testingWebSocket.onclose = () => {
+            updateConnectionStatus('disconnected', 'Отключен');
+            stopTesting();
+          };
+          
+          testingWebSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            updateConnectionStatus('disconnected', 'Ошибка подключения');
+            stopTesting();
+          };
+          
+          updateConnectionStatus('connecting', 'Подключение...');
+          
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при запуске тестирования', 'error');
+          stopTesting();
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+      
+      // Остановить тестирование
+      function stopTesting() {
+        isTestingActive = false;
+        
+        if (testingWebSocket) {
+          testingWebSocket.close();
+          testingWebSocket = null;
+        }
+        
+        if (testingMediaStream) {
+          testingMediaStream.getTracks().forEach(track => track.stop());
+          testingMediaStream = null;
+        }
+        
+        if (testingAudioContext) {
+          testingAudioContext.close();
+          testingAudioContext = null;
+        }
+        
+        updateConnectionStatus('disconnected', 'Отключен');
+        startTestBtn.style.display = 'inline-flex';
+        stopTestBtn.style.display = 'none';
+      }
+      
+      // Настройка обработки аудио
+      function setupAudioProcessing() {
+        testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const source = testingAudioContext.createMediaStreamSource(testingMediaStream);
+        const processor = testingAudioContext.createScriptProcessor(4096, 1, 1);
+        
+        processor.onaudioprocess = (event) => {
+          if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN && isTestingActive) {
+            const inputBuffer = event.inputBuffer.getChannelData(0);
+            const pcmData = convertToPCM16(inputBuffer);
+            const base64Audio = arrayBufferToBase64(pcmData);
+            
+            testingWebSocket.send(JSON.stringify({
+              user_audio_chunk: base64Audio
+            }));
+          }
+        };
+        
+        source.connect(processor);
+        processor.connect(testingAudioContext.destination);
+      }
+      
+      // Обработка сообщений WebSocket
+      function handleTestingMessage(data) {
+        switch (data.type) {
+          case 'conversation_initiation_metadata':
+            console.log('Conversation initiated:', data);
+            break;
+          case 'audio_event':
+            playAudioChunk(data.audio_event.audio_base_64);
+            break;
+          case 'agent_response':
+            console.log('Agent response:', data.agent_response_event.agent_response);
+            break;
+          case 'user_transcript':
+            console.log('User transcript:', data.user_transcription_event.user_transcript);
+            break;
+          default:
+            console.log('Unknown message:', data);
+        }
+      }
+      
+      // Воспроизведение аудио
+      function playAudioChunk(audioBase64) {
+        try {
+          const audioData = atob(audioBase64);
+          const pcmArray = new Uint8Array(audioData.length);
+          
+          for (let i = 0; i < audioData.length; i++) {
+            pcmArray[i] = audioData.charCodeAt(i);
+          }
+          
+          const wavBlob = createWavBlob(pcmArray, 16000, 1, 16);
+          const audioUrl = URL.createObjectURL(wavBlob);
+          
+          const audio = new Audio(audioUrl);
+          audio.play().then(() => {
+            URL.revokeObjectURL(audioUrl);
+          });
+        } catch (error) {
+          console.error('Error playing audio:', error);
+        }
+      }
+      
+      // Конвертация в PCM16
+      function convertToPCM16(float32Array) {
+        const buffer = new ArrayBuffer(float32Array.length * 2);
+        const view = new DataView(buffer);
+        
+        for (let i = 0; i < float32Array.length; i++) {
+          let sample = Math.max(-1, Math.min(1, float32Array[i]));
+          const pcmSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+          view.setInt16(i * 2, pcmSample, true);
+        }
+        
+        return new Uint8Array(buffer);
+      }
+      
+      // Конвертация в base64
+      function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        
+        return btoa(binary);
+      }
+      
+      // Создание WAV blob
+      function createWavBlob(pcmArray, sampleRate, numChannels, bitsPerSample) {
+        const length = pcmArray.length;
+        const arrayBuffer = new ArrayBuffer(44 + length);
+        const view = new DataView(arrayBuffer);
+        
+        const writeString = (offset, string) => {
+          for (let i = 0; i < string.length; i++) {
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        };
+        
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + length, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, numChannels, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+        view.setUint16(32, numChannels * (bitsPerSample / 8), true);
+        view.setUint16(34, bitsPerSample, true);
+        writeString(36, 'data');
+        view.setUint32(40, length, true);
+        
+        for (let i = 0; i < length; i++) {
+          view.setUint8(44 + i, pcmArray[i]);
+        }
+        
+        return new Blob([arrayBuffer], { type: 'audio/wav' });
+      }
+      
+      // Обновление статуса подключения
+      function updateConnectionStatus(status, message) {
+        const statusElement = document.getElementById('connection-status');
+        const indicator = statusElement.querySelector('.status-indicator');
+        const text = statusElement.querySelector('span');
+        
+        indicator.className = `status-indicator ${status}`;
+        text.textContent = message;
+      }
+      
+      // Обработчики событий
+      
+      // Переключение табов
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabId = tab.getAttribute('data-tab');
+          ui.switchTab(tabId);
+        });
+      });
+      
+      // Форма API ключа
+      apiKeyForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKey = document.getElementById('api-key').value;
+        await saveApiKey(apiKey);
+      });
+      
+      // Форма агента
+      agentForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveAgent();
+      });
+      
+      // Кнопки
+      addAgentBtn.addEventListener('click', startCreateAgent);
+      cancelButton.addEventListener('click', () => loadAgentsList());
+      deleteAgentBtn.addEventListener('click', deleteAgent);
+      viewEmbedCodeBtn.addEventListener('click', () => ui.switchTab('embed'));
+      startTestBtn.addEventListener('click', startTesting);
+      stopTestBtn.addEventListener('click', stopTesting);
+      
+      // Копирование embed кода
+      copyEmbedCodeBtn.addEventListener('click', () => {
+        const embedCode = document.getElementById('embed-code');
+        const tempTextarea = document.createElement('textarea');
+        tempTextarea.value = embedCode.textContent;
+        document.body.appendChild(tempTextarea);
+        tempTextarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempTextarea);
+        
+        ui.showNotification('Код для встраивания скопирован!', 'success');
+      });
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', () => {
+        ui.hideNotification();
+      });
+      
+      // Инициализация
+      async function init() {
+        if (!checkAuth()) return;
+        
+        try {
+          const hasApiKey = await checkApiKey();
+          
+          if (hasApiKey) {
+            await loadAgentsList();
+          } else {
+            ui.showView('api-key');
+          }
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при инициализации', 'error');
+        }
+      }
+      
+      // Запуск
+      init();
+    });
+  </script>
+</body>
+</html>
