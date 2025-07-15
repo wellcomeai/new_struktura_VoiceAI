@@ -188,18 +188,176 @@ def run_migrations():
         if not settings.PRODUCTION:
             raise
 
-# ✅ ДОБАВЛЕНО: Функция создания таблиц ElevenLabs
+# ✅ ОБНОВЛЕНО: Функция создания таблиц ElevenLabs с автоматической проверкой колонок
 def create_elevenlabs_tables():
-    """Create ElevenLabs tables"""
+    """
+    Create ElevenLabs tables and automatically add missing columns
+    """
     try:
         from backend.models.elevenlabs import ElevenLabsAgent, ElevenLabsConversation
         from backend.models.base import Base
+        from sqlalchemy import text, inspect
+        
+        logger.info("🔄 Creating ElevenLabs tables and checking missing columns...")
+        
+        # Создаем таблицы ElevenLabs
         Base.metadata.create_all(engine)
-        logger.info("✅ ElevenLabs tables created successfully")
+        
+        # ✅ АВТОМАТИЧЕСКАЯ ПРОВЕРКА И СОЗДАНИЕ НЕДОСТАЮЩИХ КОЛОНОК
+        inspector = inspect(engine)
+        
+        # Список колонок которые должны быть в таблице users
+        required_columns = {
+            'elevenlabs_api_key': 'VARCHAR NULL',
+            # Добавьте другие колонки если нужно
+        }
+        
+        # Проверяем таблицу users
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+                
+                logger.info(f"📋 Found {len(existing_columns)} columns in users table")
+                
+                # Проверяем каждую требуемую колонку
+                for column_name, column_definition in required_columns.items():
+                    if column_name not in existing_columns:
+                        logger.info(f"➕ Adding missing column: {column_name}")
+                        
+                        try:
+                            with engine.connect() as conn:
+                                # Создаем транзакцию для безопасности
+                                trans = conn.begin()
+                                try:
+                                    # Добавляем колонку
+                                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_definition}"))
+                                    trans.commit()
+                                    logger.info(f"✅ Successfully added column: {column_name}")
+                                except Exception as e:
+                                    trans.rollback()
+                                    logger.error(f"❌ Failed to add column {column_name}: {str(e)}")
+                                    
+                        except Exception as conn_error:
+                            logger.error(f"❌ Connection error adding column {column_name}: {str(conn_error)}")
+                    else:
+                        logger.info(f"✅ Column {column_name} already exists")
+                        
+            else:
+                logger.warning("⚠️ Table 'users' not found, skipping column checks")
+                
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+        
+        # ✅ ПРОВЕРЯЕМ ДРУГИЕ ВОЗМОЖНЫЕ НЕДОСТАЮЩИЕ ТАБЛИЦЫ
+        required_tables = {
+            'elevenlabs_agents': ElevenLabsAgent,
+            'elevenlabs_conversations': ElevenLabsConversation,
+        }
+        
+        for table_name, model_class in required_tables.items():
+            if not inspector.has_table(table_name):
+                logger.info(f"➕ Creating missing table: {table_name}")
+                try:
+                    model_class.__table__.create(engine)
+                    logger.info(f"✅ Successfully created table: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create table {table_name}: {str(e)}")
+            else:
+                logger.info(f"✅ Table {table_name} already exists")
+        
+        # ✅ ФИНАЛЬНАЯ ПРОВЕРКА
+        logger.info("🔍 Final verification...")
+        
+        # Проверяем что колонка elevenlabs_api_key создалась
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text("""
+                    SELECT column_name, data_type, is_nullable 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'users' AND column_name = 'elevenlabs_api_key'
+                """))
+                
+                row = result.fetchone()
+                if row:
+                    logger.info(f"✅ Column elevenlabs_api_key verified: {row[1]}, nullable: {row[2]}")
+                else:
+                    logger.error("❌ Column elevenlabs_api_key not found after creation attempt")
+                    
+        except Exception as verify_error:
+            logger.error(f"❌ Error during final verification: {str(verify_error)}")
+        
+        logger.info("✅ ElevenLabs tables and columns setup completed")
+        
     except Exception as e:
         logger.error(f"❌ Error creating ElevenLabs tables: {str(e)}")
         if not settings.PRODUCTION:
             raise
+
+# ✅ ДОПОЛНИТЕЛЬНАЯ ФУНКЦИЯ: Проверка и исправление всех недостающих колонок
+def check_and_fix_all_missing_columns():
+    """
+    Comprehensive check and fix for all missing columns across all tables
+    """
+    try:
+        from sqlalchemy import text, inspect
+        
+        logger.info("🔧 Comprehensive database schema check and fix...")
+        
+        inspector = inspect(engine)
+        
+        # Карта всех таблиц и их обязательных колонок
+        schema_fixes = {
+            'users': {
+                'elevenlabs_api_key': 'VARCHAR NULL',
+                # Добавляйте сюда другие колонки которые могут отсутствовать
+            },
+            'assistant_configs': {
+                # Добавьте если нужно
+            },
+            'subscription_plans': {
+                # Добавьте если нужно
+            }
+        }
+        
+        for table_name, required_columns in schema_fixes.items():
+            if not inspector.has_table(table_name):
+                logger.warning(f"⚠️ Table {table_name} not found, skipping")
+                continue
+                
+            logger.info(f"🔍 Checking table: {table_name}")
+            
+            columns = inspector.get_columns(table_name)
+            existing_columns = {col['name'] for col in columns}
+            
+            for column_name, column_definition in required_columns.items():
+                if column_name not in existing_columns:
+                    logger.info(f"➕ Adding missing column {table_name}.{column_name}")
+                    
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"))
+                                trans.commit()
+                                logger.info(f"✅ Successfully added {table_name}.{column_name}")
+                            except Exception as e:
+                                trans.rollback()
+                                # Проверяем возможные причины ошибки
+                                if "already exists" in str(e).lower():
+                                    logger.info(f"ℹ️  Column {table_name}.{column_name} already exists")
+                                else:
+                                    logger.error(f"❌ Failed to add {table_name}.{column_name}: {str(e)}")
+                                    
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error adding {table_name}.{column_name}: {str(conn_error)}")
+                else:
+                    logger.debug(f"✅ Column {table_name}.{column_name} exists")
+        
+        logger.info("✅ Comprehensive schema check completed")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in comprehensive schema check: {str(e)}")
 
 # При старте приложения
 @app.on_event("startup")
@@ -219,12 +377,23 @@ async def startup_event():
                 with open(lock_file_path, 'w') as lock_file:
                     lock_file.write(str(os.getpid()))
                 
-                logger.info("🔒 Running migrations...")
+                logger.info("🔒 Running migrations and schema fixes...")
+                
+                # Шаг 1: Запускаем миграции
                 run_migrations()
+                
+                # Шаг 2: Создаем базовые таблицы
                 create_tables(engine)
-                create_elevenlabs_tables()  # ✅ ДОБАВЛЕНО: Создание таблиц ElevenLabs
+                
+                # Шаг 3: Комплексная проверка и исправление схемы
+                check_and_fix_all_missing_columns()
+                
+                # Шаг 4: Создаем таблицы ElevenLabs и проверяем колонки
+                create_elevenlabs_tables()
+                
                 migration_completed = True
-                logger.info("✅ Migrations completed")
+                logger.info("✅ All migrations and schema fixes completed")
+                
             else:
                 logger.info("⏳ Waiting for migrations to complete...")
                 # Ждем завершения миграций
