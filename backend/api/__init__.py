@@ -15,8 +15,10 @@ from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
 from .payments import router as payments_router
 from .subscription_status import router as subscription_status_router
-from .voximplant import router as voximplant_router  # ✅ ДОБАВЛЕНО: Voximplant роутер
+from .voximplant import router as voximplant_router
+from .elevenlabs import router as elevenlabs_router  # ✅ ДОБАВЛЕНО: ElevenLabs роутер
 from .partners import router as partners_router
+
 # Create a main API router
 api_router = APIRouter()
 
@@ -31,8 +33,10 @@ api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(knowledge_base_router)
 api_router.include_router(payments_router, prefix="/payments", tags=["Payments"])
 api_router.include_router(subscription_status_router, prefix="/subscription-status", tags=["Subscription Status"])
-api_router.include_router(voximplant_router, prefix="/voximplant", tags=["Voximplant"])  # ✅ ДОБАВЛЕНО: Voximplant в главный роутер
+api_router.include_router(voximplant_router, prefix="/voximplant", tags=["Voximplant"])
+api_router.include_router(elevenlabs_router, prefix="/elevenlabs", tags=["ElevenLabs"])  # ✅ ДОБАВЛЕНО: ElevenLabs в главный роутер
 api_router.include_router(partners_router, prefix="/partners", tags=["Partners"])
+
 # Export all routers for use in app.py
 __all__ = [
     "api_router",
@@ -46,5 +50,7 @@ __all__ = [
     "knowledge_base_router",
     "payments_router",
     "subscription_status_router",
-    "voximplant_router"  # ✅ ДОБАВЛЕНО: Voximplant роутер в экспорт
+    "voximplant_router",
+    "elevenlabs_router",  # ✅ ДОБАВЛЕНО: ElevenLabs роутер в экспорт
+    "partners_router"
 ]
