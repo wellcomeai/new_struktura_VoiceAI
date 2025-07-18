@@ -1,12 +1,13 @@
 """
-ПОЛНЫЙ ИСПРАВЛЕННЫЙ файл ElevenLabs API endpoints для WellcomeAI application.
+ИСПРАВЛЕННЫЙ файл ElevenLabs API endpoints для WellcomeAI application.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import httpx
 import json
+import traceback
 
 from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user, check_subscription_active_for_assistants
@@ -25,6 +26,84 @@ from backend.schemas.elevenlabs import (
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+def validate_agent_data(agent_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Валидация данных агента
+    """
+    errors = []
+    
+    # Проверка обязательных полей
+    if not agent_data.get('name', '').strip():
+        errors.append("Название агента обязательно")
+    
+    if not agent_data.get('system_prompt', '').strip():
+        errors.append("Системный промпт обязателен")
+    
+    if not agent_data.get('voice_id', '').strip():
+        errors.append("Голос обязателен")
+    
+    # Проверка числовых значений
+    try:
+        temperature = float(agent_data.get('llm_temperature', 0.7))
+        if temperature < 0 or temperature > 2:
+            errors.append("Температура должна быть между 0 и 2")
+        agent_data['llm_temperature'] = temperature
+    except (ValueError, TypeError):
+        errors.append("Некорректное значение температуры")
+    
+    try:
+        max_tokens = int(agent_data.get('max_tokens', 1000))
+        if max_tokens < 100 or max_tokens > 4000:
+            errors.append("Количество токенов должно быть между 100 и 4000")
+        agent_data['max_tokens'] = max_tokens
+    except (ValueError, TypeError):
+        errors.append("Некорректное значение максимальных токенов")
+    
+    try:
+        stability = float(agent_data.get('voice_stability', 0.5))
+        if stability < 0 or stability > 1:
+            errors.append("Стабильность голоса должна быть между 0 и 1")
+        agent_data['voice_stability'] = stability
+    except (ValueError, TypeError):
+        errors.append("Некорректное значение стабильности голоса")
+    
+    try:
+        similarity = float(agent_data.get('voice_similarity', 0.8))
+        if similarity < 0 or similarity > 1:
+            errors.append("Схожесть голоса должна быть между 0 и 1")
+        agent_data['voice_similarity'] = similarity
+    except (ValueError, TypeError):
+        errors.append("Некорректное значение схожести голоса")
+    
+    try:
+        speed = float(agent_data.get('voice_speed', 1.0))
+        if speed < 0.5 or speed > 2.0:
+            errors.append("Скорость голоса должна быть между 0.5 и 2.0")
+        agent_data['voice_speed'] = speed
+    except (ValueError, TypeError):
+        errors.append("Некорректное значение скорости голоса")
+    
+    # Проверка встроенных инструментов
+    built_in_tools = agent_data.get('built_in_tools', [])
+    if not isinstance(built_in_tools, list):
+        errors.append("Встроенные инструменты должны быть списком")
+    else:
+        valid_tools = [
+            'end_call', 'language_detection', 'agent_transfer', 
+            'human_transfer', 'skip_turn', 'play_dtmf'
+        ]
+        for tool in built_in_tools:
+            if tool not in valid_tools:
+                errors.append(f"Неизвестный инструмент: {tool}")
+    
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Ошибки валидации: {'; '.join(errors)}"
+        )
+    
+    return agent_data
 
 @router.get("/api-key/status")
 async def check_api_key_status(
@@ -59,6 +138,7 @@ async def check_api_key_status(
             }
     except Exception as e:
         logger.error(f"Error checking API key status: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {
             "has_api_key": False,
             "is_valid": False,
@@ -105,6 +185,7 @@ async def save_api_key(
         raise
     except Exception as e:
         logger.error(f"Error saving API key: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to save API key"
@@ -138,6 +219,7 @@ async def get_voices(
         raise
     except Exception as e:
         logger.error(f"Error getting voices: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get voices"
@@ -153,9 +235,12 @@ async def get_agents(
     """
     try:
         logger.info(f"Getting agents for user {current_user.id}")
-        return await ElevenLabsService.get_agents(db, str(current_user.id))
+        agents = await ElevenLabsService.get_agents(db, str(current_user.id))
+        logger.info(f"Retrieved {len(agents)} agents for user {current_user.id}")
+        return agents
     except Exception as e:
         logger.error(f"Error getting agents: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve agents"
@@ -172,7 +257,14 @@ async def create_agent(
     """
     try:
         logger.info(f"Creating agent for user {current_user.id}")
-        logger.info(f"Agent data: {agent_data.dict()}")
+        
+        # Конвертируем в dict для валидации
+        agent_dict = agent_data.dict()
+        logger.info(f"Agent data received: {agent_dict}")
+        
+        # Валидируем данные
+        agent_dict = validate_agent_data(agent_dict)
+        logger.info(f"Agent data validated: {agent_dict}")
         
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
@@ -180,6 +272,7 @@ async def create_agent(
                 detail="ElevenLabs API key not found. Please add your API key first."
             )
         
+        # Создаем агента через сервис
         result = await ElevenLabsService.create_agent(
             db, 
             str(current_user.id), 
@@ -194,9 +287,10 @@ async def create_agent(
         raise
     except Exception as e:
         logger.error(f"Error creating agent: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create agent"
+            detail=f"Failed to create agent: {str(e)}"
         )
 
 @router.get("/{agent_id}", response_model=ElevenLabsAgentResponse)
@@ -210,14 +304,17 @@ async def get_agent(
     """
     try:
         logger.info(f"Getting agent {agent_id} for user {current_user.id}")
-        return await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+        agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+        logger.info(f"Retrieved agent {agent_id}: {agent.name}")
+        return agent
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting agent: {str(e)}")
+        logger.error(f"Error getting agent {agent_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve agent"
+            detail=f"Failed to retrieve agent: {str(e)}"
         )
 
 @router.put("/{agent_id}", response_model=ElevenLabsAgentResponse)
@@ -229,9 +326,18 @@ async def update_agent(
 ):
     """
     Update ElevenLabs agent
+    ✅ ИСПРАВЛЕНО: Улучшена обработка ошибок и валидация данных
     """
     try:
         logger.info(f"Updating agent {agent_id} for user {current_user.id}")
+        
+        # Конвертируем в dict для валидации
+        agent_dict = agent_data.dict()
+        logger.info(f"Agent data received: {agent_dict}")
+        
+        # Валидируем данные
+        agent_dict = validate_agent_data(agent_dict)
+        logger.info(f"Agent data validated: {agent_dict}")
         
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
@@ -239,7 +345,21 @@ async def update_agent(
                 detail="ElevenLabs API key not found"
             )
         
-        return await ElevenLabsService.update_agent(
+        # Проверяем существование агента
+        try:
+            existing_agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+            logger.info(f"Existing agent found: {existing_agent.name}")
+        except HTTPException as e:
+            if e.status_code == 404:
+                logger.error(f"Agent {agent_id} not found for user {current_user.id}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Agent {agent_id} not found"
+                )
+            raise
+        
+        # Обновляем агента
+        result = await ElevenLabsService.update_agent(
             db, 
             agent_id, 
             str(current_user.id),
@@ -247,13 +367,17 @@ async def update_agent(
             agent_data
         )
         
+        logger.info(f"✅ Agent updated successfully: {result.id}")
+        return result
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error updating agent: {str(e)}")
+        logger.error(f"❌ Error updating agent {agent_id}: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update agent"
+            detail=f"Failed to update agent: {str(e)}"
         )
 
 @router.delete("/{agent_id}")
@@ -281,15 +405,17 @@ async def delete_agent(
             current_user.elevenlabs_api_key
         )
         
+        logger.info(f"✅ Agent {agent_id} deleted successfully")
         return {"success": True, "message": "Agent deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting agent: {str(e)}")
+        logger.error(f"❌ Error deleting agent {agent_id}: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete agent"
+            detail=f"Failed to delete agent: {str(e)}"
         )
 
 @router.get("/{agent_id}/embed", response_model=ElevenLabsEmbedResponse)
@@ -303,14 +429,17 @@ async def get_embed_code(
     """
     try:
         logger.info(f"Getting embed code for agent {agent_id} for user {current_user.id}")
-        return await ElevenLabsService.get_embed_code(db, agent_id, str(current_user.id))
+        embed_data = await ElevenLabsService.get_embed_code(db, agent_id, str(current_user.id))
+        logger.info(f"Generated embed code for agent {agent_id}")
+        return embed_data
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting embed code: {str(e)}")
+        logger.error(f"Error getting embed code for agent {agent_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate embed code"
+            detail=f"Failed to generate embed code: {str(e)}"
         )
 
 @router.get("/{agent_id}/signed-url")
@@ -343,7 +472,7 @@ async def get_signed_url(
         
         logger.info(f"🔍 Getting signed URL for ElevenLabs agent: {agent.elevenlabs_agent_id}")
         
-        # ✅ ИСПРАВЛЕНО: Получаем signed URL с правильным методом
+        # Получаем signed URL
         signed_url = await ElevenLabsService.get_signed_url(
             current_user.elevenlabs_api_key,
             agent.elevenlabs_agent_id
@@ -351,7 +480,7 @@ async def get_signed_url(
         
         logger.info(f"✅ Successfully got signed URL")
         
-        # ✅ ДОБАВЛЕНО: Fallback URL для прямого подключения (для публичных агентов)
+        # Fallback URL для прямого подключения
         fallback_url = f"wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent.elevenlabs_agent_id}"
         
         return {
@@ -364,13 +493,13 @@ async def get_signed_url(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error getting signed URL: {str(e)}")
+        logger.error(f"❌ Error getting signed URL for agent {agent_id}: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get signed URL: {str(e)}"
         )
 
-# ✅ НОВЫЙ ENDPOINT: Для тестирования WebSocket соединения
 @router.get("/{agent_id}/test-connection")
 async def test_websocket_connection(
     agent_id: str,
@@ -384,13 +513,21 @@ async def test_websocket_connection(
         logger.info(f"Testing connection for agent {agent_id}")
         
         if not current_user.elevenlabs_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="ElevenLabs API key not found"
-            )
+            return {
+                "success": False,
+                "message": "ElevenLabs API key not found",
+                "details": {"agent_id": agent_id, "api_key_valid": False}
+            }
         
         # Получаем агента
-        agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+        try:
+            agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+        except HTTPException:
+            return {
+                "success": False,
+                "message": "Agent not found",
+                "details": {"agent_id": agent_id, "agent_exists": False}
+            }
         
         if not agent.elevenlabs_agent_id:
             return {
@@ -398,7 +535,8 @@ async def test_websocket_connection(
                 "message": "Agent not created in ElevenLabs yet",
                 "details": {
                     "agent_id": agent_id,
-                    "elevenlabs_agent_id": None
+                    "elevenlabs_agent_id": None,
+                    "agent_exists": True
                 }
             }
         
@@ -449,10 +587,9 @@ async def test_websocket_connection(
                 }
             }
         
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error during connection test: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {
             "success": False,
             "message": f"Connection test failed: {str(e)}",
@@ -462,7 +599,6 @@ async def test_websocket_connection(
             }
         }
 
-# ✅ СУЩЕСТВУЮЩИЙ ENDPOINT: Тестовый эндпоинт для проверки создания агента
 @router.post("/test-create")
 async def test_create_agent(
     test_data: Dict[str, Any],
@@ -482,11 +618,16 @@ async def test_create_agent(
                 detail="ElevenLabs API key not found"
             )
         
+        # Валидируем данные
+        test_data = validate_agent_data(test_data)
+        
         # Создаем агента напрямую с переданными данными
         elevenlabs_agent_id = await ElevenLabsService.create_elevenlabs_agent(
             current_user.elevenlabs_api_key, 
             test_data
         )
+        
+        logger.info(f"✅ Test agent created successfully: {elevenlabs_agent_id}")
         
         return {
             "success": True,
@@ -498,6 +639,7 @@ async def test_create_agent(
         raise
     except Exception as e:
         logger.error(f"Error in test create: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Test creation failed: {str(e)}"
