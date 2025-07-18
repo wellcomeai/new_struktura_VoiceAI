@@ -15,6 +15,7 @@ from backend.core.config import settings
 from backend.models.user import User
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
+from backend.models.elevenlabs import ElevenLabsAgent
 from backend.utils.audio_utils import base64_to_audio_buffer
 from backend.websockets.openai_client import OpenAIRealtimeClient, normalize_function_name
 from backend.services.google_sheets_service import GoogleSheetsService
@@ -42,6 +43,34 @@ async def handle_websocket_connection(
     try:
         await websocket.accept()
         logger.info(f"WebSocket connection accepted: client_id={client_id}, assistant_id={assistant_id}")
+
+        # ✅ НОВАЯ ПРОВЕРКА: Определяем ElevenLabs агентов
+        elevenlabs_agent = db.query(ElevenLabsAgent).filter(
+            ElevenLabsAgent.id == assistant_id
+        ).first()
+        if elevenlabs_agent:
+            logger.info(f"🎙️ ElevenLabs agent detected: {assistant_id} -> {elevenlabs_agent.name}")
+            logger.info(f"🔄 This agent should use direct ElevenLabs connection, not our WebSocket")
+            
+            # Отправляем информацию о том, что это ElevenLabs агент
+            await websocket.send_json({
+                "type": "elevenlabs_agent_detected",
+                "agent_info": {
+                    "id": str(elevenlabs_agent.id),
+                    "name": elevenlabs_agent.name,
+                    "elevenlabs_agent_id": elevenlabs_agent.elevenlabs_agent_id
+                },
+                "message": "This is an ElevenLabs agent. Use direct connection to ElevenLabs instead.",
+                "suggestion": "Use /api/elevenlabs/{agent_id}/signed-url endpoint for proper connection"
+            })
+            
+            # Ждем секунду чтобы сообщение дошло, затем закрываем соединение
+            await asyncio.sleep(1)
+            await websocket.close(code=1000, reason="ElevenLabs agent should use direct connection")
+            return
+
+        # Продолжаем с обычной логикой для наших ассистентов
+        logger.info(f"🤖 Standard assistant detected: {assistant_id}")
 
         # Регистрируем соединение
         active_connections.setdefault(assistant_id, []).append(websocket)
