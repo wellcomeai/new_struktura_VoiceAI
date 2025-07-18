@@ -1359,6 +1359,10 @@
       const volumeBar = document.getElementById('volume-bar');
       const vadScoreElement = document.getElementById('vad-score');
       
+      // ✅ ОТЛАДКА: Проверяем, что форма найдена
+      console.log('🔍 Форма агента найдена:', agentForm ? 'ДА' : 'НЕТ');
+      console.log('🔍 ID формы:', agentForm ? agentForm.id : 'форма не найдена');
+      
       // Кнопки
       const changeApiKeyBtn = document.getElementById('change-api-key-btn');
       const changeApiKeyListBtn = document.getElementById('change-api-key-list-btn');
@@ -1820,14 +1824,19 @@
       
       // Сохранение агента
       async function saveAgent() {
+        console.log('🔄 Функция saveAgent() вызвана');
+        
         try {
           ui.setLoading(true);
           
           const selectedVoice = document.querySelector('input[name="voice"]:checked');
           if (!selectedVoice) {
+            console.log('❌ Голос не выбран');
             ui.showNotification('Выберите голос для агента', 'error');
             return;
           }
+          
+          console.log('✅ Голос выбран:', selectedVoice.value);
           
           const selectedVoiceOption = availableVoices.find(v => v.voice_id === selectedVoice.value);
           
@@ -1853,11 +1862,15 @@
             built_in_tools: builtInTools
           };
           
+          console.log('📋 Данные агента:', agentData);
+          
           if (currentAgentId) {
+            console.log('📝 Обновление существующего агента:', currentAgentId);
             const updatedAgent = await api.put(`/${currentAgentId}`, agentData);
             currentAgentData = updatedAgent;
             ui.showNotification('Агент успешно обновлен!', 'success');
           } else {
+            console.log('➕ Создание нового агента');
             const newAgent = await api.post('/', agentData);
             currentAgentId = newAgent.id;
             currentAgentData = newAgent;
@@ -1869,7 +1882,10 @@
           }
           
           deleteAgentBtn.style.display = 'inline-flex';
+          console.log('✅ Агент успешно сохранен');
+          
         } catch (error) {
+          console.error('❌ Ошибка при сохранении агента:', error);
           ui.showNotification(error.message || 'Ошибка при сохранении агента', 'error');
         } finally {
           ui.setLoading(false);
@@ -2442,24 +2458,29 @@
       });
       
       agentForm.addEventListener('submit', async (e) => {
+        console.log('📝 Форма агента отправлена');
         e.preventDefault();
         await saveAgent();
       });
       
       // Кнопки
       changeApiKeyBtn.addEventListener('click', () => {
+        console.log('🔘 Кнопка "Сменить API ключ" нажата');
         ui.showModal(changeApiKeyModal);
       });
       
       changeApiKeyListBtn.addEventListener('click', () => {
+        console.log('🔘 Кнопка "Изменить" API ключ нажата');
         ui.showModal(changeApiKeyModal);
       });
       
       closeApiModal.addEventListener('click', () => {
+        console.log('🔘 Кнопка закрытия модального окна нажата');
         ui.hideModal(changeApiKeyModal);
       });
       
       cancelApiChange.addEventListener('click', () => {
+        console.log('🔘 Кнопка "Отмена" смены API ключа нажата');
         ui.hideModal(changeApiKeyModal);
       });
       
