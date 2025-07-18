@@ -917,8 +917,10 @@
       let testingWebSocket = null;
       let testingAudioContext = null;
       let testingMediaStream = null;
+      let testingAudioProcessor = null;
       let isTestingActive = false;
       let lastPingTime = null;
+      let currentAgentData = null;
       
       // Получаем элементы
       const apiKeyContainer = document.getElementById('api-key-container');
@@ -1261,6 +1263,7 @@
       // Начать создание агента
       function startCreateAgent() {
         currentAgentId = null;
+        currentAgentData = null;
         document.querySelector('.page-title').textContent = 'Создание голосового агента';
         
         // Очищаем форму
@@ -1286,6 +1289,7 @@
           currentAgentId = agentId;
           
           const agent = await api.get(`/${agentId}`);
+          currentAgentData = agent;
           
           document.querySelector('.page-title').textContent = 'Редактирование голосового агента';
           
@@ -1339,12 +1343,14 @@
           
           if (currentAgentId) {
             // Обновляем существующего агента
-            await api.put(`/${currentAgentId}`, agentData);
+            const updatedAgent = await api.put(`/${currentAgentId}`, agentData);
+            currentAgentData = updatedAgent;
             ui.showNotification('Агент успешно обновлен!', 'success');
           } else {
             // Создаем нового агента
             const newAgent = await api.post('/', agentData);
             currentAgentId = newAgent.id;
+            currentAgentData = newAgent;
             ui.showNotification('Агент успешно создан!', 'success');
             
             // Загружаем код встраивания
@@ -1381,7 +1387,7 @@
         }
       }
       
-      // ============= ОБНОВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
+      // ============= ИСПРАВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
       
       // Диагностика агента перед тестированием
       async function diagnoseAgent() {
@@ -1394,7 +1400,7 @@
         
         try {
           // Проверяем данные агента
-          const agent = await api.get(`/${currentAgentId}`);
+          const agent = currentAgentData || await api.get(`/${currentAgentId}`);
           console.log('📋 Данные агента:', agent);
           
           if (!agent.voice_id) {
@@ -1425,7 +1431,7 @@
         }
       }
       
-      // Начать тестирование с правильным протоколом ElevenLabs
+      // Начать тестирование с исправленным протоколом
       async function startTesting() {
         if (!currentAgentId) {
           ui.showNotification('Сначала сохраните агента', 'error');
@@ -1477,27 +1483,25 @@
               testingWebSocket.close();
               ui.showNotification('Таймаут подключения к ElevenLabs. Проверьте API ключ и настройки агента.', 'error');
             }
-          }, 10000); // 10 секунд таймаут
+          }, 15000); // 15 секунд таймаут
           
           testingWebSocket.onopen = () => {
             clearTimeout(connectionTimeout);
             console.log('✅ WebSocket подключен к ElevenLabs');
             updateConnectionStatus('connected', 'Подключен к ElevenLabs');
             
-            // Отправляем инициализацию разговора ElevenLabs
-            const initMessage = {
-              "type": "conversation_initiation_client_data"
-            };
+            // Отправляем правильную инициализацию согласно документации
+            sendInitializationMessage();
             
-            console.log('📤 Отправка инициализации:', initMessage);
-            testingWebSocket.send(JSON.stringify(initMessage));
-            
-            // Настраиваем аудио
-            setupElevenLabsAudioProcessing();
+            // Настраиваем аудио через небольшую задержку
+            setTimeout(() => {
+              setupElevenLabsAudioProcessing();
+            }, 1000);
             
             isTestingActive = true;
             startTestBtn.style.display = 'none';
             stopTestBtn.style.display = 'inline-flex';
+            retryConnectionBtn.style.display = 'none';
             
             ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
           };
@@ -1505,10 +1509,11 @@
           testingWebSocket.onmessage = (event) => {
             try {
               const data = JSON.parse(event.data);
-              console.log('📥 Получено сообщение от ElevenLabs:', data.type);
+              console.log('📥 Получено сообщение от ElevenLabs:', data.type || 'unknown');
               handleElevenLabsMessage(data);
             } catch (error) {
               console.error('❌ Ошибка парсинга сообщения:', error);
+              console.error('Raw message:', event.data);
             }
           };
           
@@ -1535,6 +1540,9 @@
               case 1006:
                 errorMessage = 'Соединение закрыто некорректно. Проверьте API ключ и подпись агента.';
                 break;
+              case 1008:
+                errorMessage = 'Ошибка 1008: Неправильный формат сообщения. Проверьте формат JSON.';
+                break;
               case 1011:
                 errorMessage = 'Внутренняя ошибка сервера';
                 break;
@@ -1560,14 +1568,9 @@
             
             updateConnectionStatus('disconnected', 'Ошибка подключения');
             
-            // Более детальная информация об ошибке
             let errorText = 'Не удалось подключиться к ElevenLabs';
-            
             if (testingWebSocket.readyState === WebSocket.CLOSED) {
-              errorText += '. Проверьте:';
-              errorText += '\n• API ключ ElevenLabs';
-              errorText += '\n• Настройки агента';
-              errorText += '\n• Интернет соединение';
+              errorText += '. Проверьте API ключ ElevenLabs и настройки агента.';
             }
             
             ui.showNotification(errorText, 'error');
@@ -1595,54 +1598,110 @@
         }
       }
       
-      // Настройка обработки аудио для ElevenLabs
-      function setupElevenLabsAudioProcessing() {
-        testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ 
-          sampleRate: 16000 
-        });
-        
-        const source = testingAudioContext.createMediaStreamSource(testingMediaStream);
-        const processor = testingAudioContext.createScriptProcessor(4096, 1, 1);
-        
-        // Буфер для накопления аудио
-        let audioBuffer = [];
-        let bufferDuration = 0;
-        const CHUNK_DURATION_MS = 250; // Отправляем каждые 250ms как рекомендует ElevenLabs
-        const SAMPLE_RATE = 16000;
-        const CHUNK_SIZE = (SAMPLE_RATE * CHUNK_DURATION_MS) / 1000;
-        
-        processor.onaudioprocess = (event) => {
-          if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN && isTestingActive) {
-            const inputBuffer = event.inputBuffer.getChannelData(0);
-            
-            // Добавляем в буфер
-            audioBuffer.push(...inputBuffer);
-            bufferDuration += inputBuffer.length;
-            
-            // Отправляем когда накопится достаточно данных
-            if (bufferDuration >= CHUNK_SIZE) {
-              const chunk = audioBuffer.splice(0, CHUNK_SIZE);
-              bufferDuration -= CHUNK_SIZE;
-              
-              // Конвертируем в PCM16 и base64
-              const pcmData = convertToPCM16(new Float32Array(chunk));
-              const base64Audio = arrayBufferToBase64(pcmData);
-              
-              // Отправляем в формате ElevenLabs
-              const audioMessage = {
-                "user_audio_chunk": base64Audio
-              };
-              
-              testingWebSocket.send(JSON.stringify(audioMessage));
+      // ✅ ИСПРАВЛЕННАЯ функция инициализации согласно документации
+      function sendInitializationMessage() {
+        try {
+          // Получаем данные агента для инициализации
+          const agent = currentAgentData;
+          const systemPrompt = agent ? agent.system_prompt : 'You are a helpful assistant.';
+          const voiceId = agent ? agent.voice_id : null;
+          
+          // Правильная инициализация согласно документации ElevenLabs
+          const initMessage = {
+            "type": "conversation_initiation_client_data",
+            "conversation_config_override": {
+              "agent": {
+                "prompt": {
+                  "prompt": systemPrompt
+                },
+                "language": "ru"
+              }
             }
+          };
+          
+          // Добавляем голос если он есть
+          if (voiceId) {
+            initMessage.conversation_config_override.tts = {
+              "voice_id": voiceId
+            };
           }
-        };
-        
-        source.connect(processor);
-        processor.connect(testingAudioContext.destination);
+          
+          console.log('📤 Отправка инициализации:', initMessage);
+          testingWebSocket.send(JSON.stringify(initMessage));
+          
+        } catch (error) {
+          console.error('❌ Ошибка инициализации:', error);
+        }
       }
       
-      // Обработка сообщений WebSocket от ElevenLabs
+      // ✅ ИСПРАВЛЕННАЯ функция настройки аудио обработки
+      function setupElevenLabsAudioProcessing() {
+        try {
+          testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ 
+            sampleRate: 16000 
+          });
+          
+          const source = testingAudioContext.createMediaStreamSource(testingMediaStream);
+          
+          // Используем ScriptProcessorNode (deprecated но работает везде)
+          testingAudioProcessor = testingAudioContext.createScriptProcessor(4096, 1, 1);
+          
+          // Буфер для накопления аудио
+          let audioBuffer = [];
+          let bufferDuration = 0;
+          const CHUNK_DURATION_MS = 250; // Отправляем каждые 250ms как рекомендует ElevenLabs
+          const SAMPLE_RATE = 16000;
+          const CHUNK_SIZE = (SAMPLE_RATE * CHUNK_DURATION_MS) / 1000;
+          
+          testingAudioProcessor.onaudioprocess = (event) => {
+            if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN && isTestingActive) {
+              const inputBuffer = event.inputBuffer.getChannelData(0);
+              
+              // Добавляем в буфер
+              audioBuffer.push(...inputBuffer);
+              bufferDuration += inputBuffer.length;
+              
+              // Отправляем когда накопится достаточно данных
+              if (bufferDuration >= CHUNK_SIZE) {
+                const chunk = audioBuffer.splice(0, CHUNK_SIZE);
+                bufferDuration -= CHUNK_SIZE;
+                
+                // Конвертируем в PCM16 и base64
+                const pcmData = convertToPCM16(new Float32Array(chunk));
+                const base64Audio = arrayBufferToBase64(pcmData);
+                
+                // Отправляем в правильном формате ElevenLabs
+                sendAudioToElevenLabs(base64Audio);
+              }
+            }
+          };
+          
+          source.connect(testingAudioProcessor);
+          testingAudioProcessor.connect(testingAudioContext.destination);
+          
+          console.log('✅ Аудио обработка настроена');
+          
+        } catch (error) {
+          console.error('❌ Ошибка настройки аудио:', error);
+        }
+      }
+      
+      // ✅ ИСПРАВЛЕННАЯ функция для отправки аудио данных
+      function sendAudioToElevenLabs(audioData) {
+        try {
+          // Правильный формат сообщения для ElevenLabs
+          const message = {
+            "user_audio_chunk": audioData  // base64 строка без prefixes
+          };
+          
+          testingWebSocket.send(JSON.stringify(message));
+          
+        } catch (error) {
+          console.error('❌ Ошибка отправки аудио:', error);
+        }
+      }
+      
+      // ✅ ИСПРАВЛЕННАЯ функция обработки входящих сообщений
       function handleElevenLabsMessage(data) {
         switch (data.type) {
           case 'conversation_initiation_metadata':
@@ -1655,54 +1714,38 @@
             ui.showNotification('Тестирование началось! Говорите с ассистентом', 'info');
             break;
             
-          case 'audio_event':
+          case 'audio':
             console.log('🔊 Получен аудио ответ от агента');
-            const audioEvent = data.audio_event;
-            if (audioEvent && audioEvent.audio_base_64) {
-              playElevenLabsAudio(audioEvent.audio_base_64);
+            // Правильный формат аудио согласно документации
+            const audioBase64 = data.audio_event?.audio_base_64;
+            if (audioBase64) {
+              playElevenLabsAudio(audioBase64);
             }
             break;
             
           case 'user_transcript':
-            console.log('📝 Транскрипция пользователя:', data.user_transcription_event.user_transcript);
-            // Можно показать в UI что пользователь сказал
+            console.log('📝 Транскрипция пользователя:', data.user_transcription_event?.user_transcript);
             break;
             
           case 'agent_response':
-            console.log('🤖 Ответ агента:', data.agent_response_event.agent_response);
-            // Можно показать в UI текст ответа агента
+            console.log('🤖 Ответ агента:', data.agent_response_event?.agent_response);
             break;
             
           case 'vad_score':
             // Voice Activity Detection - можно игнорировать или использовать для UI
-            const vadScore = data.vad_score_event.vad_score;
+            const vadScore = data.vad_score_event?.vad_score;
             console.log(`🎤 VAD Score: ${vadScore}`);
             break;
             
           case 'ping':
-            // Отвечаем на ping от сервера и измеряем задержку
+            // Правильная обработка ping согласно документации
             lastPingTime = Date.now();
             console.log('🏓 Ping от сервера, отправляем pong');
             const pongMessage = {
               "type": "pong",
-              "event_id": data.event_id
+              "event_id": data.ping_event?.event_id
             };
             testingWebSocket.send(JSON.stringify(pongMessage));
-            break;
-            
-          case 'pong':
-            // Измеряем задержку
-            if (lastPingTime) {
-              const latency = Date.now() - lastPingTime;
-              console.log(`📊 Задержка: ${latency}ms`);
-              const latencyElement = document.getElementById('latency-value');
-              const latencyStatus = document.getElementById('latency-status');
-              if (latencyElement && latencyStatus) {
-                latencyElement.textContent = latency;
-                latencyStatus.style.display = 'flex';
-              }
-              lastPingTime = null;
-            }
             break;
             
           case 'interruption':
@@ -1719,7 +1762,7 @@
         }
       }
       
-      // Воспроизведение аудио от ElevenLabs
+      // ✅ ИСПРАВЛЕННАЯ функция воспроизведения аудио
       function playElevenLabsAudio(audioBase64) {
         try {
           // ElevenLabs отправляет аудио в PCM формате
@@ -1760,6 +1803,11 @@
           testingMediaStream = null;
         }
         
+        if (testingAudioProcessor) {
+          testingAudioProcessor.disconnect();
+          testingAudioProcessor = null;
+        }
+        
         if (testingAudioContext) {
           testingAudioContext.close();
           testingAudioContext = null;
@@ -1777,12 +1825,13 @@
         }
       }
       
-      // Конвертация в PCM16
+      // ✅ ИСПРАВЛЕННАЯ конвертация в PCM16
       function convertToPCM16(float32Array) {
         const buffer = new ArrayBuffer(float32Array.length * 2);
         const view = new DataView(buffer);
         
         for (let i = 0; i < float32Array.length; i++) {
+          // Конвертируем float32 (-1.0 to 1.0) в int16 (-32768 to 32767)
           let sample = Math.max(-1, Math.min(1, float32Array[i]));
           const pcmSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
           view.setInt16(i * 2, pcmSample, true);
@@ -1791,7 +1840,7 @@
         return new Uint8Array(buffer);
       }
       
-      // Конвертация в base64
+      // ✅ ИСПРАВЛЕННАЯ конвертация в base64
       function arrayBufferToBase64(buffer) {
         let binary = '';
         const bytes = new Uint8Array(buffer);
@@ -1876,7 +1925,7 @@
       deleteAgentBtn.addEventListener('click', deleteAgent);
       viewEmbedCodeBtn.addEventListener('click', () => ui.switchTab('embed'));
       startTestBtn.addEventListener('click', startTesting);
-      stopTestBtn.addEventListener('click', stopTesting);
+      stopTestBtn.addEventListener('click', () => stopTesting());
       retryConnectionBtn.addEventListener('click', () => {
         retryConnectionBtn.style.display = 'none';
         startTesting();
