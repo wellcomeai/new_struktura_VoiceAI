@@ -1338,7 +1338,6 @@
       let isTestingActive = false;
       let currentAgentData = null;
       let keepAliveInterval = null;
-      let currentApiKey = null;
       
       // Получаем элементы
       const apiKeyContainer = document.getElementById('api-key-container');
@@ -1542,14 +1541,6 @@
         return true;
       }
       
-      // Маскирование API ключа
-      function maskApiKey(apiKey) {
-        if (!apiKey || apiKey.length < 8) return '●●●●●●●●';
-        const lastFour = apiKey.slice(-4);
-        const masked = '●'.repeat(Math.max(apiKey.length - 4, 4));
-        return masked + lastFour;
-      }
-      
       // Проверка API ключа
       async function checkApiKeyDetailed() {
         try {
@@ -1558,21 +1549,8 @@
           
           if (response.has_api_key && response.is_valid) {
             console.log('✅ API ключ валиден');
-            // Получаем полный ключ для маскирования (только для отображения)
-            try {
-              const userResponse = await fetch('/api/user/profile', {
-                headers: { 'Authorization': `Bearer ${api.getToken()}` }
-              });
-              if (userResponse.ok) {
-                const userData = await userResponse.json();
-                currentApiKey = userData.elevenlabs_api_key;
-                if (currentApiKey) {
-                  maskedApiKeySpan.textContent = maskApiKey(currentApiKey);
-                }
-              }
-            } catch (error) {
-              console.log('Не удалось получить API ключ для маскирования');
-            }
+            // Показываем маскированный ключ (как в ElevenLabs - только последние 4 символа)
+            maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●****';
             return true;
           } else if (response.has_api_key && !response.is_valid) {
             console.log('❌ API ключ недействителен');
@@ -1597,8 +1575,8 @@
           
           if (response.success) {
             availableVoices = response.voices;
-            currentApiKey = apiKey;
-            maskedApiKeySpan.textContent = maskApiKey(apiKey);
+            // Показываем маскированный ключ (как в ElevenLabs)
+            maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●' + apiKey.slice(-4);
             ui.showNotification('API ключ сохранен успешно!', 'success');
             await loadAgentsList();
           } else {
