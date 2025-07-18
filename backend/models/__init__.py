@@ -11,10 +11,12 @@ from .conversation import Conversation
 from .file import File
 from .integration import Integration
 from .pinecone_config import PineconeConfig
-from .elevenlabs import ElevenLabsAgent, ElevenLabsConversation
 
 # ✅ КРИТИЧЕСКИ ВАЖНО: Импортируем новые модели для отслеживания
 from .subscription import SubscriptionPlan, SubscriptionLog, PaymentTransaction
+
+# ✅ ДОБАВЛЕНО: Импортируем ElevenLabs модели
+from .elevenlabs import ElevenLabsAgent, ElevenLabsConversation
 
 from .function_log import FunctionLog
 
@@ -33,5 +35,8 @@ __all__ = [
     "SubscriptionPlan",
     "SubscriptionLog", 
     "PaymentTransaction",
+    # ✅ ДОБАВЛЕНО: ElevenLabs модели
+    "ElevenLabsAgent",
+    "ElevenLabsConversation",
     "FunctionLog"
 ]
