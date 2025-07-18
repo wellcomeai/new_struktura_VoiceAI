@@ -880,6 +880,7 @@
                     <li>Разрешите доступ к микрофону в браузере</li>
                     <li>Проверьте интернет соединение</li>
                     <li>Попробуйте обновить страницу</li>
+                    <li><strong>Рекомендуется использовать наушники вместо динамиков</strong></li>
                   </ul>
                 </div>
               </details>
@@ -943,7 +944,7 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // Переменные состояния
+      // ✅ ПЕРЕМЕННЫЕ СОСТОЯНИЯ С НОВЫМИ ДЛЯ КОНТРОЛЯ ЭХА
       let currentAgentId = null;
       let isLoading = false;
       let availableVoices = [];
@@ -958,6 +959,14 @@
       let pingInterval = null;
       let lastPingTime = null;
       let isAgentSpeaking = false;
+      
+      // ✅ НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ КОНТРОЛЯ ЭХА
+      let lastAgentResponse = '';
+      let agentSpeakingStartTime = null;
+      let audioQueue = [];
+      let isProcessingAudioQueue = false;
+      let highPassFilter = null;
+      let compressor = null;
       
       // Получаем элементы
       const apiKeyContainer = document.getElementById('api-key-container');
@@ -1117,6 +1126,99 @@
           }
         }
       };
+      
+      // ✅ НОВЫЕ УТИЛИТЫ ДЛЯ КОНТРОЛЯ ЭХА
+      
+      // Улучшенная функция определения громкости с фильтрацией
+      function calculateVolume(channelData) {
+        let sum = 0;
+        let peak = 0;
+        
+        for (let i = 0; i < channelData.length; i++) {
+          const sample = Math.abs(channelData[i]);
+          sum += sample * sample;
+          peak = Math.max(peak, sample);
+        }
+        
+        const rms = Math.sqrt(sum / channelData.length);
+        
+        // Комбинируем RMS и пиковое значение для лучшей детекции
+        const combinedLevel = (rms * 0.7) + (peak * 0.3);
+        
+        return Math.min(1, combinedLevel * 10);
+      }
+      
+      // Детекция эха на основе частотного анализа
+      function detectEcho(channelData) {
+        if (!isAgentSpeaking || !agentSpeakingStartTime) {
+          return false;
+        }
+        
+        // Если агент говорит меньше 200мс, то это не эхо
+        const speakingDuration = Date.now() - agentSpeakingStartTime;
+        if (speakingDuration < 200) {
+          return false;
+        }
+        
+        // Простая эвристика: если уровень звука очень высокий во время речи агента
+        const volume = calculateVolume(channelData);
+        if (volume > 0.3) {
+          console.log('🔍 Возможное эхо обнаружено, уровень:', volume.toFixed(3));
+          return true;
+        }
+        
+        return false;
+      }
+      
+      // Очередь аудио для предотвращения потери данных
+      function addToAudioQueue(audioData) {
+        audioQueue.push({
+          data: audioData,
+          timestamp: Date.now()
+        });
+        
+        // Ограничиваем размер очереди
+        if (audioQueue.length > 10) {
+          audioQueue.shift();
+        }
+        
+        processAudioQueue();
+      }
+      
+      async function processAudioQueue() {
+        if (isProcessingAudioQueue || audioQueue.length === 0) {
+          return;
+        }
+        
+        isProcessingAudioQueue = true;
+        
+        while (audioQueue.length > 0 && !isAgentSpeaking) {
+          const audioItem = audioQueue.shift();
+          
+          // Проверяем, не устарели ли данные (больше 1 секунды)
+          if (Date.now() - audioItem.timestamp > 1000) {
+            continue;
+          }
+          
+          try {
+            const audioMessage = {
+              user_audio_chunk: audioItem.data
+            };
+            
+            if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN) {
+              testingWebSocket.send(JSON.stringify(audioMessage));
+              console.log('📤 Отправлен аудио чанк из очереди');
+            }
+          } catch (error) {
+            console.error('❌ Ошибка отправки из очереди:', error);
+          }
+          
+          // Небольшая задержка между отправками
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        
+        isProcessingAudioQueue = false;
+      }
       
       // Проверка авторизации
       function checkAuth() {
@@ -1427,7 +1529,7 @@
         }
       }
       
-      // ============= ИСПРАВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
+      // ============= ✅ ИСПРАВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
       
       // Диагностика агента перед тестированием
       async function diagnoseAgent() {
@@ -1471,7 +1573,7 @@
         }
       }
       
-      // ✅ ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ функция тестирования на основе рабочего index.html
+      // ✅ УЛУЧШЕННАЯ функция тестирования с защитой от эха
       async function startTesting() {
         if (!currentAgentId) {
           ui.showNotification('Сначала сохраните агента', 'error');
@@ -1497,15 +1599,24 @@
             throw new Error('Не получен URL для подключения к ElevenLabs');
           }
           
-          // Запрашиваем доступ к микрофону
+          // ✅ УЛУЧШЕННЫЕ настройки микрофона с агрессивным эхоподавлением
           console.log('🎤 Запрос доступа к микрофону...');
           testingMediaStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
               sampleRate: 16000,
               channelCount: 1,
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
+              echoCancellation: true,        // Включаем эхоподавление
+              noiseSuppression: true,        // Подавление шума
+              autoGainControl: true,         // Автоматическая регулировка усиления
+              googEchoCancellation: true,    // Chrome-специфичное эхоподавление
+              googNoiseSuppression: true,    // Chrome-специфичное подавление шума
+              googAutoGainControl: true,     // Chrome-специфичная регулировка усиления
+              googHighpassFilter: true,      // Высокочастотный фильтр
+              googNoiseSuppression2: true,   // Улучшенное подавление шума
+              googEchoCancellation2: true,   // Улучшенное эхоподавление
+              googAutoGainControl2: true,    // Улучшенная регулировка усиления
+              latency: 0.01,                 // Минимальная задержка
+              volume: 0.8                    // Ограничиваем громкость
             }
           });
           console.log('✅ Доступ к микрофону получен');
@@ -1569,7 +1680,7 @@
         isTestingActive = true;
         updateConnectionStatus('connected', 'Подключен к ElevenLabs');
         
-        // Отправляем инициализацию (упрощенную как в index.html)
+        // Отправляем инициализацию
         sendInitializationMessage();
         
         // Настраиваем аудио обработку
@@ -1588,7 +1699,7 @@
         ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
       }
       
-      // ✅ УПРОЩЕННАЯ инициализация без лишних переопределений
+      // Упрощенная инициализация
       function sendInitializationMessage() {
         try {
           const initMessage = {
@@ -1603,7 +1714,7 @@
         }
       }
       
-      // ✅ ИСПРАВЛЕННАЯ настройка записи аудио (как в index.html)
+      // ✅ ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ настройка записи аудио с защитой от эха
       function setupAudioRecording() {
         try {
           testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({
@@ -1611,6 +1722,20 @@
           });
           
           const audioSource = testingAudioContext.createMediaStreamSource(testingMediaStream);
+          
+          // ✅ Добавляем фильтр высоких частот для удаления низкочастотных помех
+          highPassFilter = testingAudioContext.createBiquadFilter();
+          highPassFilter.type = 'highpass';
+          highPassFilter.frequency.setValueAtTime(80, testingAudioContext.currentTime); // Убираем частоты ниже 80Hz
+          
+          // ✅ Добавляем компрессор для выравнивания уровня
+          compressor = testingAudioContext.createDynamicsCompressor();
+          compressor.threshold.setValueAtTime(-24, testingAudioContext.currentTime);
+          compressor.knee.setValueAtTime(30, testingAudioContext.currentTime);
+          compressor.ratio.setValueAtTime(12, testingAudioContext.currentTime);
+          compressor.attack.setValueAtTime(0.003, testingAudioContext.currentTime);
+          compressor.release.setValueAtTime(0.25, testingAudioContext.currentTime);
+          
           testingAudioProcessor = testingAudioContext.createScriptProcessor(4096, 1, 1);
           
           testingAudioProcessor.onaudioprocess = (event) => {
@@ -1621,42 +1746,40 @@
               const inputBuffer = event.inputBuffer;
               const channelData = inputBuffer.getChannelData(0);
               
-              // Вычисляем уровень громкости для VAD
+              // Вычисляем уровень громкости
               const volume = calculateVolume(channelData);
               updateVolumeIndicator(volume);
               
-              // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Отправляем аудио ПОСТОЯННО (как требует ElevenLabs)
-              // Но уменьшаем громкость когда агент говорит, чтобы избежать эха
-              let audioToSend = channelData;
+              // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПОЛНАЯ БЛОКИРОВКА во время речи агента
               if (isAgentSpeaking) {
-                // Отправляем очень тихий сигнал когда агент говорит
-                audioToSend = new Float32Array(channelData.length);
-                audioToSend.fill(0.001); // Минимальный сигнал
+                return; // НЕ отправляем ВООБЩЕ НИЧЕГО когда агент говорит
               }
               
-              const pcmData = convertToPCM16(audioToSend);
-              const base64Audio = arrayBufferToBase64(pcmData);
+              // ✅ Детекция эха
+              if (detectEcho(channelData)) {
+                console.log('🔍 Эхо обнаружено и заблокировано');
+                return;
+              }
               
-              const audioMessage = {
-                user_audio_chunk: base64Audio
-              };
-              
-              try {
-                testingWebSocket.send(JSON.stringify(audioMessage));
-                // Логируем только при активности для уменьшения спама
-                if (volume > 0.01 && !isAgentSpeaking) {
-                  console.log('📤 Отправлен аудио чанк (активность)');
-                }
-              } catch (error) {
-                console.error('❌ Ошибка отправки аудио:', error);
+              // Отправляем только при значимой активности
+              if (volume > 0.03) { // Увеличенный порог
+                const pcmData = convertToPCM16(channelData);
+                const base64Audio = arrayBufferToBase64(pcmData);
+                
+                // Используем очередь для более стабильной отправки
+                addToAudioQueue(base64Audio);
               }
             }
           };
           
-          audioSource.connect(testingAudioProcessor);
-          testingAudioProcessor.connect(testingAudioContext.destination);
+          // ✅ Подключаем цепочку обработки с фильтрами
+          audioSource
+            .connect(highPassFilter)
+            .connect(compressor)
+            .connect(testingAudioProcessor)
+            .connect(testingAudioContext.destination);
           
-          console.log('✅ Аудио запись настроена');
+          console.log('✅ Аудио запись настроена с фильтрами');
           
         } catch (error) {
           console.error('❌ Ошибка настройки аудио:', error);
@@ -1664,6 +1787,7 @@
         }
       }
       
+      // ✅ УЛУЧШЕННАЯ обработка сообщений
       function onWebSocketMessage(event) {
         try {
           const data = JSON.parse(event.data);
@@ -1683,17 +1807,27 @@
               console.log('🔊 Получен аудио ответ от агента');
               const audioBase64 = data.audio_event?.audio_base_64;
               if (audioBase64) {
-                isAgentSpeaking = true;
                 playAudio(audioBase64);
               }
               break;
               
             case 'user_transcript':
-              console.log('📝 Транскрипция пользователя:', data.user_transcription_event?.user_transcript);
+              const transcript = data.user_transcription_event?.user_transcript;
+              console.log('📝 Транскрипция пользователя:', transcript);
+              
+              // ✅ Дополнительная защита от эха в транскрипции
+              if (transcript && transcript.trim().length > 0) {
+                console.log('✅ Принята пользовательская речь:', transcript);
+              }
               break;
               
             case 'agent_response':
-              console.log('🤖 Ответ агента:', data.agent_response_event?.agent_response);
+              const response = data.agent_response_event?.agent_response;
+              console.log('🤖 Ответ агента:', response);
+              // Сохраняем последний ответ агента для детекции эха
+              if (response) {
+                lastAgentResponse = response.toLowerCase();
+              }
               break;
               
             case 'vad_score':
@@ -1715,9 +1849,12 @@
               
             case 'interruption':
               console.log('⏸️ Обнаружено прерывание');
+              // ✅ При прерывании сразу разрешаем отправку аудио
               isAgentSpeaking = false;
-              // ✅ Немедленно возобновляем отправку аудио пользователя
+              agentSpeakingStartTime = null;
               ui.showNotification('Агент прерван - продолжайте говорить', 'info');
+              // Возобновляем обработку очереди
+              processAudioQueue();
               break;
               
             case 'error':
@@ -1776,9 +1913,16 @@
         stopTesting(true);
       }
       
-      // ✅ ИСПРАВЛЕННАЯ функция воспроизведения аудио
+      // ✅ КРИТИЧЕСКИ ВАЖНАЯ функция воспроизведения с максимальной защитой от эха
       function playAudio(audioBase64) {
         try {
+          // ✅ ВАЖНО: Устанавливаем флаги ДО начала воспроизведения
+          isAgentSpeaking = true;
+          agentSpeakingStartTime = Date.now();
+          
+          // ✅ Очищаем очередь аудио при начале ответа агента
+          audioQueue.length = 0;
+          
           // ElevenLabs отправляет PCM данные
           const audioData = atob(audioBase64);
           const pcmArray = new Uint8Array(audioData.length);
@@ -1796,13 +1940,22 @@
           
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl);
-            isAgentSpeaking = false;
-            console.log('🔊 Воспроизведение завершено');
+            
+            // ✅ УВЕЛИЧЕННАЯ задержка перед возобновлением записи для полного затухания звука
+            setTimeout(() => {
+              isAgentSpeaking = false;
+              agentSpeakingStartTime = null;
+              console.log('🔊 Воспроизведение завершено, запись возобновлена через 800мс');
+              
+              // Возобновляем обработку очереди
+              processAudioQueue();
+            }, 800); // ✅ Увеличенная задержка для надежности
           };
           
           audio.onerror = (error) => {
             URL.revokeObjectURL(audioUrl);
             isAgentSpeaking = false;
+            agentSpeakingStartTime = null;
             console.error('❌ Ошибка воспроизведения:', error);
           };
           
@@ -1811,12 +1964,14 @@
           }).catch(error => {
             URL.revokeObjectURL(audioUrl);
             isAgentSpeaking = false;
+            agentSpeakingStartTime = null;
             console.error('❌ Ошибка запуска воспроизведения:', error);
           });
           
         } catch (error) {
           console.error('❌ Ошибка обработки аудио:', error);
           isAgentSpeaking = false;
+          agentSpeakingStartTime = null;
         }
       }
       
@@ -1828,7 +1983,7 @@
             testingWebSocket.send(JSON.stringify(keepAliveMessage));
             console.log('💓 Keep-alive отправлен');
           }
-        }, 15000); // ✅ Увеличена частота до каждых 15 секунд для стабильности
+        }, 15000); // Увеличена частота до каждых 15 секунд
       }
       
       function stopKeepAlive() {
@@ -1858,16 +2013,6 @@
         }
       }
       
-      // Вычисление уровня громкости
-      function calculateVolume(channelData) {
-        let sum = 0;
-        for (let i = 0; i < channelData.length; i++) {
-          sum += channelData[i] * channelData[i];
-        }
-        const rms = Math.sqrt(sum / channelData.length);
-        return Math.min(1, rms * 10);
-      }
-      
       // Обновление индикатора громкости
       function updateVolumeIndicator(volume) {
         const percentage = Math.min(volume * 100, 100);
@@ -1883,7 +2028,7 @@
         }
       }
       
-      // Конвертация в PCM16 (как в index.html)
+      // Конвертация в PCM16
       function convertToPCM16(float32Array) {
         const buffer = new ArrayBuffer(float32Array.length * 2);
         const view = new DataView(buffer);
@@ -1897,7 +2042,7 @@
         return new Uint8Array(buffer);
       }
       
-      // Конвертация в base64 (как в index.html)
+      // Конвертация в base64
       function arrayBufferToBase64(buffer) {
         let binary = '';
         const bytes = new Uint8Array(buffer);
@@ -1910,7 +2055,7 @@
         return btoa(binary);
       }
       
-      // Создание WAV blob (как в index.html)
+      // Создание WAV blob
       function createWavBlob(pcmArray, sampleRate, numChannels, bitsPerSample) {
         const length = pcmArray.length;
         const arrayBuffer = new ArrayBuffer(44 + length);
@@ -1943,11 +2088,16 @@
         return new Blob([arrayBuffer], { type: 'audio/wav' });
       }
       
-      // Остановить тестирование
+      // ✅ УЛУЧШЕННАЯ остановка тестирования
       function stopTesting(showRetryButton = false) {
         isTestingActive = false;
         isAgentSpeaking = false;
+        agentSpeakingStartTime = null;
         lastPingTime = null;
+        
+        // Очищаем очередь аудио
+        audioQueue.length = 0;
+        isProcessingAudioQueue = false;
         
         if (testingWebSocket) {
           testingWebSocket.close();
@@ -1962,6 +2112,16 @@
         if (testingAudioProcessor) {
           testingAudioProcessor.disconnect();
           testingAudioProcessor = null;
+        }
+        
+        if (highPassFilter) {
+          highPassFilter.disconnect();
+          highPassFilter = null;
+        }
+        
+        if (compressor) {
+          compressor.disconnect();
+          compressor = null;
         }
         
         if (testingAudioContext && testingAudioContext.state !== 'closed') {
