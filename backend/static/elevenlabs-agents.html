@@ -1603,27 +1603,36 @@
         try {
           // Получаем данные агента для инициализации
           const agent = currentAgentData;
-          const systemPrompt = agent ? agent.system_prompt : 'You are a helpful assistant.';
+          const systemPrompt = agent ? agent.system_prompt : null;
           const voiceId = agent ? agent.voice_id : null;
           
-          // Правильная инициализация согласно документации ElevenLabs
-          const initMessage = {
-            "type": "conversation_initiation_client_data",
-            "conversation_config_override": {
-              "agent": {
-                "prompt": {
-                  "prompt": systemPrompt
-                },
-                "language": "ru"
-              }
-            }
+          // Начинаем с минимальной инициализации
+          let initMessage = {
+            "type": "conversation_initiation_client_data"
           };
           
-          // Добавляем голос если он есть
-          if (voiceId) {
-            initMessage.conversation_config_override.tts = {
-              "voice_id": voiceId
+          // Пробуем добавить переопределения только если они действительно нужны
+          const configOverride = {};
+          
+          // Переопределяем только промпт, если он есть и не пустой
+          if (systemPrompt && systemPrompt.trim() !== '' && systemPrompt.trim() !== 'You are a helpful assistant.') {
+            configOverride.agent = {
+              "prompt": {
+                "prompt": systemPrompt.trim()
+              }
             };
+          }
+          
+          // Переопределяем голос только если он есть
+          if (voiceId && voiceId.trim() !== '') {
+            configOverride.tts = {
+              "voice_id": voiceId.trim()
+            };
+          }
+          
+          // Добавляем переопределения только если они есть
+          if (Object.keys(configOverride).length > 0) {
+            initMessage.conversation_config_override = configOverride;
           }
           
           console.log('📤 Отправка инициализации:', initMessage);
@@ -1631,6 +1640,17 @@
           
         } catch (error) {
           console.error('❌ Ошибка инициализации:', error);
+          
+          // Fallback - отправляем совсем минимальное сообщение
+          try {
+            const fallbackMessage = {
+              "type": "conversation_initiation_client_data"
+            };
+            console.log('📤 Fallback инициализация:', fallbackMessage);
+            testingWebSocket.send(JSON.stringify(fallbackMessage));
+          } catch (fallbackError) {
+            console.error('❌ Ошибка fallback инициализации:', fallbackError);
+          }
         }
       }
       
@@ -1717,7 +1737,7 @@
           case 'audio':
             console.log('🔊 Получен аудио ответ от агента');
             // Правильный формат аудио согласно документации
-            const audioBase64 = data.audio_event?.audio_base_64;
+            const audioBase64 = data.audio_base_64;
             if (audioBase64) {
               playElevenLabsAudio(audioBase64);
             }
