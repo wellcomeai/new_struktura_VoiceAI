@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Мои агенты 11Labs | Voicyfy</title>
+  <title>Мои агенты 11Labs | Voicyfy - ИСПРАВЛЕНО</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#2563eb">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    /* Используем те же стили что и в agents.html */
+    /* ВСЕ СТИЛИ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ */
     :root {
       --primary-blue: #2563eb;
       --primary-blue-light: #3b82f6;
@@ -148,7 +148,7 @@
       min-height: 100vh;
     }
     
-    /* Верхняя панель навигации */
+    /* Остальные стили... */
     .top-nav {
       background-color: var(--white);
       border-bottom: 1px solid var(--border-color);
@@ -169,7 +169,6 @@
       align-items: center;
     }
     
-    /* Кнопки */
     .btn {
       padding: 0.6rem 1.25rem;
       border-radius: var(--radius-md);
@@ -222,13 +221,11 @@
       background-color: #dc2626;
     }
     
-    /* Контейнер для содержимого */
     .content-container {
       padding: 2rem;
       flex-grow: 1;
     }
     
-    /* Карточки */
     .card {
       background-color: var(--white);
       border-radius: var(--radius-lg);
@@ -250,7 +247,6 @@
       font-weight: 600;
     }
     
-    /* Форма API ключа */
     .api-key-form {
       max-width: 500px;
       margin: 0 auto;
@@ -293,7 +289,6 @@
       resize: vertical;
     }
     
-    /* Табы */
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--border-color);
@@ -321,7 +316,6 @@
       display: block;
     }
     
-    /* Выбор голоса */
     .voice-options {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -368,7 +362,6 @@
       color: var(--white);
     }
     
-    /* Список агентов */
     .agents-list {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -426,7 +419,6 @@
       gap: 0.5rem;
     }
     
-    /* Тестирование */
     .testing-section {
       text-align: center;
       padding: 2rem;
@@ -472,7 +464,6 @@
       100% { opacity: 0.4; }
     }
     
-    /* Статус голосовой активности */
     .vad-indicator {
       margin: 1rem 0;
       padding: 0.75rem;
@@ -500,7 +491,6 @@
       width: 0%;
     }
     
-    /* Embed код */
     .embed-container {
       background-color: var(--bg-light);
       border: 1px solid var(--border-color);
@@ -522,7 +512,6 @@
       color: var(--text-dark);
     }
     
-    /* Уведомления */
     .notification {
       position: fixed;
       top: 1rem;
@@ -586,7 +575,6 @@
       font-size: 1.125rem;
     }
     
-    /* Состояние загрузки */
     .loading-overlay {
       position: fixed;
       top: 0;
@@ -613,7 +601,6 @@
       to { transform: rotate(360deg); }
     }
     
-    /* Empty state */
     .empty-state {
       text-align: center;
       padding: 3rem 1rem;
@@ -676,7 +663,7 @@
   </style>
 </head>
 <body>
-  <!-- Боковая панель -->
+  <!-- ВСЯ HTML СТРУКТУРА ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ -->
   <aside class="sidebar">
     <div class="sidebar-header">
       <a href="/" class="sidebar-logo">
@@ -718,12 +705,10 @@
     </div>
   </aside>
   
-  <!-- Основной контент -->
   <main class="main-content">
-    <!-- Верхняя панель навигации -->
     <div class="top-nav">
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <h1 class="page-title">Мои агенты 11Labs</h1>
+        <h1 class="page-title">Мои агенты 11Labs - ИСПРАВЛЕНО</h1>
       </div>
       
       <div class="page-actions">
@@ -742,9 +727,8 @@
       </div>
     </div>
     
-    <!-- Контейнер для содержимого -->
     <div class="content-container">
-      <!-- Форма API ключа (показывается если ключ не установлен) -->
+      <!-- Форма API ключа -->
       <div id="api-key-container" class="card" style="display: none;">
         <div class="card-header">
           <h2 class="card-title">Настройка ElevenLabs API</h2>
@@ -766,7 +750,7 @@
         </div>
       </div>
 
-      <!-- Список агентов (показывается после установки API ключа) -->
+      <!-- Список агентов -->
       <div id="agents-list-container" style="display: none;">
         <div class="card">
           <div class="card-header">
@@ -776,21 +760,18 @@
             </button>
           </div>
           <div id="agents-list" class="agents-list">
-            <!-- Содержимое будет заполнено динамически -->
           </div>
         </div>
       </div>
 
       <!-- Форма редактирования агента -->
       <div id="edit-agent-container" style="display: none;">
-        <!-- Табы -->
         <div class="tabs">
           <div class="tab active" data-tab="settings">Настройки</div>
           <div class="tab" data-tab="testing">Тестирование</div>
           <div class="tab" data-tab="embed">Встраивание</div>
         </div>
         
-        <!-- Таб настроек -->
         <div class="tab-content active" id="settings-tab">
           <form id="agent-form">
             <div class="card">
@@ -810,7 +791,6 @@
               <div class="form-group">
                 <label>Голос ассистента</label>
                 <div id="voice-options" class="voice-options">
-                  <!-- Голоса будут загружены динамически -->
                 </div>
               </div>
               
@@ -822,7 +802,6 @@
           </form>
         </div>
         
-        <!-- Таб тестирования -->
         <div class="tab-content" id="testing-tab">
           <div class="card testing-section">
             <h3 style="margin-bottom: 1rem;">Тестирование голосового ассистента</h3>
@@ -845,7 +824,6 @@
               </div>
             </div>
             
-            <!-- Индикатор голосовой активности -->
             <div class="vad-indicator" id="vad-indicator" style="display: none;">
               <span>Активность голоса:</span>
               <div class="volume-bar-container">
@@ -888,7 +866,6 @@
           </div>
         </div>
         
-        <!-- Таб встраивания -->
         <div class="tab-content" id="embed-tab">
           <div class="card">
             <h3 style="margin-bottom: 1rem;">Код для встраивания</h3>
@@ -896,7 +873,6 @@
             
             <div class="embed-container">
               <div class="embed-code" id="embed-code">
-                <!-- Код будет загружен динамически -->
               </div>
               <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
                 <button class="btn btn-primary" id="copy-embed-code">
@@ -925,7 +901,6 @@
       </div>
     </div>
     
-    <!-- Уведомление -->
     <div class="notification notification-success" id="notification" style="display: none;">
       <div class="notification-icon">
         <i class="fas fa-check-circle"></i>
@@ -936,7 +911,6 @@
       <button class="notification-close" id="notification-close">&times;</button>
     </div>
 
-    <!-- Индикатор загрузки -->
     <div class="loading-overlay" id="loading-overlay" style="display: none;">
       <div class="loading-spinner"></div>
     </div>
@@ -944,7 +918,7 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // ✅ ПЕРЕМЕННЫЕ СОСТОЯНИЯ С НОВЫМИ ДЛЯ КОНТРОЛЯ ЭХА
+      // ✅ ИСПРАВЛЕННЫЕ ПЕРЕМЕННЫЕ - упрощено для ElevenLabs
       let currentAgentId = null;
       let isLoading = false;
       let availableVoices = [];
@@ -953,20 +927,8 @@
       let testingMediaStream = null;
       let testingAudioProcessor = null;
       let isTestingActive = false;
-      let vadScore = 0;
       let currentAgentData = null;
       let keepAliveInterval = null;
-      let pingInterval = null;
-      let lastPingTime = null;
-      let isAgentSpeaking = false;
-      
-      // ✅ НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ КОНТРОЛЯ ЭХА
-      let lastAgentResponse = '';
-      let agentSpeakingStartTime = null;
-      let audioQueue = [];
-      let isProcessingAudioQueue = false;
-      let highPassFilter = null;
-      let compressor = null;
       
       // Получаем элементы
       const apiKeyContainer = document.getElementById('api-key-container');
@@ -984,7 +946,6 @@
       const volumeBar = document.getElementById('volume-bar');
       const vadScoreElement = document.getElementById('vad-score');
       
-      // Кнопки
       const addAgentBtn = document.getElementById('add-agent-btn');
       const createNewAgentBtn = document.getElementById('create-new-agent-btn');
       const saveAgentBtn = document.getElementById('save-agent');
@@ -996,11 +957,10 @@
       const stopTestBtn = document.getElementById('stop-test-btn');
       const retryConnectionBtn = document.getElementById('retry-connection-btn');
       
-      // Табы
       const tabs = document.querySelectorAll('.tab');
       const tabContents = document.querySelectorAll('.tab-content');
       
-      // API клиент
+      // API клиент - БЕЗ ИЗМЕНЕНИЙ
       const api = {
         baseUrl: '/api/elevenlabs',
         
@@ -1062,7 +1022,7 @@
         }
       };
       
-      // Утилиты UI
+      // UI утилиты - БЕЗ ИЗМЕНЕНИЙ
       const ui = {
         showNotification(message, type = 'success') {
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
@@ -1112,7 +1072,6 @@
           agentsListContainer.style.display = view === 'agents-list' ? 'block' : 'none';
           editAgentContainer.style.display = view === 'edit-agent' ? 'block' : 'none';
           
-          // Обновляем видимость кнопок
           if (view === 'edit-agent') {
             viewEmbedCodeBtn.style.display = 'inline-flex';
             deleteAgentBtn.style.display = currentAgentId ? 'inline-flex' : 'none';
@@ -1127,100 +1086,302 @@
         }
       };
       
-      // ✅ НОВЫЕ УТИЛИТЫ ДЛЯ КОНТРОЛЯ ЭХА
+      // ✅ ПОЛНОСТЬЮ ПЕРЕПИСАННЫЕ ФУНКЦИИ ДЛЯ ELEVENLABS
       
-      // Улучшенная функция определения громкости с фильтрацией
-      function calculateVolume(channelData) {
-        let sum = 0;
-        let peak = 0;
+      // ✅ ПРАВИЛЬНАЯ инициализация WebSocket
+      function onWebSocketOpen() {
+        console.log('✅ WebSocket подключен к ElevenLabs');
+        isTestingActive = true;
+        updateConnectionStatus('connected', 'Подключен к ElevenLabs');
         
-        for (let i = 0; i < channelData.length; i++) {
-          const sample = Math.abs(channelData[i]);
-          sum += sample * sample;
-          peak = Math.max(peak, sample);
-        }
+        // ✅ ПРАВИЛЬНАЯ инициализация для ElevenLabs
+        sendElevenLabsInitialization();
         
-        const rms = Math.sqrt(sum / channelData.length);
+        startTestBtn.style.display = 'none';
+        stopTestBtn.style.display = 'inline-flex';
+        retryConnectionBtn.style.display = 'none';
+        vadIndicator.style.display = 'flex';
         
-        // Комбинируем RMS и пиковое значение для лучшей детекции
-        const combinedLevel = (rms * 0.7) + (peak * 0.3);
-        
-        return Math.min(1, combinedLevel * 10);
+        startKeepAlive();
+        ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
       }
       
-      // Детекция эха на основе частотного анализа
-      function detectEcho(channelData) {
-        if (!isAgentSpeaking || !agentSpeakingStartTime) {
-          return false;
-        }
-        
-        // Если агент говорит меньше 200мс, то это не эхо
-        const speakingDuration = Date.now() - agentSpeakingStartTime;
-        if (speakingDuration < 200) {
-          return false;
-        }
-        
-        // Простая эвристика: если уровень звука очень высокий во время речи агента
-        const volume = calculateVolume(channelData);
-        if (volume > 0.3) {
-          console.log('🔍 Возможное эхо обнаружено, уровень:', volume.toFixed(3));
-          return true;
-        }
-        
-        return false;
-      }
-      
-      // Очередь аудио для предотвращения потери данных
-      function addToAudioQueue(audioData) {
-        audioQueue.push({
-          data: audioData,
-          timestamp: Date.now()
-        });
-        
-        // Ограничиваем размер очереди
-        if (audioQueue.length > 10) {
-          audioQueue.shift();
-        }
-        
-        processAudioQueue();
-      }
-      
-      async function processAudioQueue() {
-        if (isProcessingAudioQueue || audioQueue.length === 0) {
-          return;
-        }
-        
-        isProcessingAudioQueue = true;
-        
-        while (audioQueue.length > 0 && !isAgentSpeaking) {
-          const audioItem = audioQueue.shift();
-          
-          // Проверяем, не устарели ли данные (больше 1 секунды)
-          if (Date.now() - audioItem.timestamp > 1000) {
-            continue;
+      // ✅ ПРАВИЛЬНАЯ инициализация ElevenLabs
+      function sendElevenLabsInitialization() {
+        try {
+          const agent = currentAgentData;
+          if (!agent) {
+            console.error('❌ Данные агента не найдены');
+            return;
           }
-          
-          try {
-            const audioMessage = {
-              user_audio_chunk: audioItem.data
-            };
-            
-            if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN) {
-              testingWebSocket.send(JSON.stringify(audioMessage));
-              console.log('📤 Отправлен аудио чанк из очереди');
+
+          const initMessage = {
+            "type": "conversation_initiation_client_data",
+            "conversation_config_override": {
+              "agent": {
+                "prompt": {
+                  "prompt": agent.system_prompt || "Вы умный голосовой помощник."
+                },
+                "language": "ru"
+              },
+              "tts": {
+                "voice_id": agent.voice_id
+              }
             }
-          } catch (error) {
-            console.error('❌ Ошибка отправки из очереди:', error);
-          }
+          };
           
-          // Небольшая задержка между отправками
-          await new Promise(resolve => setTimeout(resolve, 50));
+          console.log('📤 Отправка инициализации ElevenLabs:', initMessage);
+          testingWebSocket.send(JSON.stringify(initMessage));
+          
+        } catch (error) {
+          console.error('❌ Ошибка инициализации ElevenLabs:', error);
         }
-        
-        isProcessingAudioQueue = false;
       }
       
-      // Проверка авторизации
+      // ✅ ПРАВИЛЬНАЯ настройка записи для ElevenLabs
+      function setupAudioRecording() {
+        try {
+          testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: 16000 // ElevenLabs работает с 16kHz
+          });
+          
+          const audioSource = testingAudioContext.createMediaStreamSource(testingMediaStream);
+          testingAudioProcessor = testingAudioContext.createScriptProcessor(4096, 1, 1);
+          
+          testingAudioProcessor.onaudioprocess = (event) => {
+            if (testingWebSocket && 
+                testingWebSocket.readyState === WebSocket.OPEN && 
+                isTestingActive) {
+              
+              const inputBuffer = event.inputBuffer;
+              const channelData = inputBuffer.getChannelData(0);
+              
+              // ✅ УБИРАЕМ САМОДЕЛЬНУЮ ДЕТЕКЦИЮ - ElevenLabs сам управляет VAD
+              
+              const pcmData = convertToPCM16(channelData);
+              const base64Audio = arrayBufferToBase64(pcmData);
+              
+              // ✅ ПРАВИЛЬНАЯ отправка для ElevenLabs
+              try {
+                const audioMessage = {
+                  "user_audio_chunk": base64Audio
+                };
+                
+                testingWebSocket.send(JSON.stringify(audioMessage));
+                
+              } catch (error) {
+                console.error('❌ Ошибка отправки аудио:', error);
+              }
+            }
+          };
+          
+          audioSource
+            .connect(testingAudioProcessor)
+            .connect(testingAudioContext.destination);
+          
+          console.log('✅ Аудио запись настроена для ElevenLabs');
+          
+        } catch (error) {
+          console.error('❌ Ошибка настройки аудио:', error);
+          ui.showNotification('Ошибка настройки аудио: ' + error.message, 'error');
+        }
+      }
+      
+      // ✅ ПРАВИЛЬНАЯ обработка сообщений от ElevenLabs
+      function onWebSocketMessage(event) {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📥 Сообщение от ElevenLabs:', data.type || 'unknown');
+          
+          switch (data.type) {
+            case 'conversation_initiation_metadata':
+              console.log('🎯 Разговор инициализирован:', data);
+              const metadata = data.conversation_initiation_metadata_event;
+              if (metadata) {
+                console.log(`📊 Conversation ID: ${metadata.conversation_id}`);
+                // ✅ ВАЖНО: Начинаем запись только после получения метаданных
+                setTimeout(() => {
+                  setupAudioRecording();
+                }, 500);
+              }
+              ui.showNotification('Готов к разговору! Говорите', 'info');
+              break;
+              
+            case 'audio':
+              console.log('🔊 Получен аудио ответ от агента');
+              const audioBase64 = data.audio_event?.audio_base_64;
+              if (audioBase64) {
+                playElevenLabsAudio(audioBase64);
+              }
+              break;
+              
+            case 'user_transcript':
+              const transcript = data.user_transcription_event?.user_transcript;
+              console.log('📝 Транскрипция пользователя:', transcript);
+              
+              if (transcript && transcript.trim().length > 0) {
+                console.log('✅ Распознана речь пользователя:', transcript);
+                showTranscript(transcript, 'user');
+              }
+              break;
+              
+            case 'agent_response':
+              const response = data.agent_response_event?.agent_response;
+              console.log('🤖 Ответ агента:', response);
+              if (response) {
+                showTranscript(response, 'agent');
+              }
+              break;
+              
+            case 'vad_score':
+              const vadScoreValue = data.vad_score_event?.vad_score;
+              if (vadScoreValue !== undefined) {
+                updateVadIndicator(vadScoreValue);
+              }
+              break;
+              
+            case 'interruption':
+              console.log('⏸️ Прерывание от ElevenLabs');
+              ui.showNotification('Прерывание обнаружено', 'info');
+              break;
+              
+            case 'ping':
+              if (data.ping_event?.event_id) {
+                const pongMessage = {
+                  "type": "pong",
+                  "event_id": data.ping_event.event_id
+                };
+                testingWebSocket.send(JSON.stringify(pongMessage));
+                console.log('🏓 Pong отправлен');
+              }
+              break;
+              
+            case 'error':
+              console.error('❌ Ошибка от ElevenLabs:', data);
+              ui.showNotification('Ошибка ElevenLabs: ' + (data.message || 'Неизвестная ошибка'), 'error');
+              break;
+              
+            default:
+              if (data.type !== 'pong') {
+                console.log('❓ Неизвестное сообщение:', data.type);
+              }
+          }
+        } catch (error) {
+          console.error('❌ Ошибка обработки сообщения:', error);
+        }
+      }
+      
+      // ✅ УПРОЩЕННОЕ воспроизведение аудио
+      function playElevenLabsAudio(audioBase64) {
+        try {
+          const audioData = atob(audioBase64);
+          const pcmArray = new Uint8Array(audioData.length);
+          
+          for (let i = 0; i < audioData.length; i++) {
+            pcmArray[i] = audioData.charCodeAt(i);
+          }
+          
+          const wavBlob = createWavBlob(pcmArray, 16000, 1, 16);
+          const audioUrl = URL.createObjectURL(wavBlob);
+          
+          const audio = new Audio(audioUrl);
+          audio.volume = 0.8;
+          
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            console.log('🔊 Воспроизведение завершено');
+          };
+          
+          audio.onerror = (error) => {
+            URL.revokeObjectURL(audioUrl);
+            console.error('❌ Ошибка воспроизведения:', error);
+          };
+          
+          audio.play().then(() => {
+            console.log('🔊 Воспроизведение началось');
+          }).catch(error => {
+            URL.revokeObjectURL(audioUrl);
+            console.error('❌ Ошибка запуска воспроизведения:', error);
+          });
+          
+        } catch (error) {
+          console.error('❌ Ошибка обработки аудио:', error);
+        }
+      }
+      
+      // ✅ Показать транскрипцию
+      function showTranscript(text, type) {
+        const messageDisplay = document.getElementById('wellcomeai-message-display');
+        if (!messageDisplay) return;
+        
+        const prefix = type === 'user' ? 'Вы: ' : 'Ассистент: ';
+        messageDisplay.textContent = prefix + text;
+        messageDisplay.classList.add('show');
+        
+        setTimeout(() => {
+          messageDisplay.classList.remove('show');
+        }, 5000);
+      }
+      
+      // ✅ Обновление VAD индикатора 
+      function updateVadIndicator(vadScore) {
+        if (vadScoreElement) {
+          vadScoreElement.textContent = vadScore.toFixed(2);
+        }
+        
+        if (volumeBar) {
+          const percentage = Math.min(vadScore * 100, 100);
+          volumeBar.style.width = percentage + '%';
+          
+          if (vadScore > 0.8) {
+            volumeBar.style.background = 'linear-gradient(90deg, #10b981, #059669)';
+          } else if (vadScore > 0.3) {
+            volumeBar.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
+          } else {
+            volumeBar.style.background = 'linear-gradient(90deg, #6b7280, #4b5563)';
+          }
+        }
+      }
+      
+      // ✅ УПРОЩЕННАЯ остановка тестирования
+      function stopTesting(showRetryButton = false) {
+        isTestingActive = false;
+        
+        if (testingWebSocket) {
+          testingWebSocket.close();
+          testingWebSocket = null;
+        }
+        
+        if (testingMediaStream) {
+          testingMediaStream.getTracks().forEach(track => track.stop());
+          testingMediaStream = null;
+        }
+        
+        if (testingAudioProcessor) {
+          testingAudioProcessor.disconnect();
+          testingAudioProcessor = null;
+        }
+        
+        if (testingAudioContext && testingAudioContext.state !== 'closed') {
+          testingAudioContext.close();
+          testingAudioContext = null;
+        }
+        
+        stopKeepAlive();
+        
+        updateConnectionStatus('disconnected', 'Отключен');
+        startTestBtn.style.display = 'inline-flex';
+        stopTestBtn.style.display = 'none';
+        retryConnectionBtn.style.display = showRetryButton ? 'inline-flex' : 'none';
+        vadIndicator.style.display = 'none';
+        
+        if (volumeBar) volumeBar.style.width = '0%';
+        if (vadScoreElement) vadScoreElement.textContent = '0.00';
+      }
+      
+      // ВСЕ ОСТАЛЬНЫЕ ФУНКЦИИ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ...
+      // (Проверка авторизации, API ключа, загрузка агентов, сохранение и т.д.)
+      
       function checkAuth() {
         if (!api.isAuthenticated()) {
           window.location.href = '/static/login.html';
@@ -1229,12 +1390,10 @@
         return true;
       }
       
-      // Проверка API ключа
       async function checkApiKeyDetailed() {
         try {
           console.log('🔍 Проверка API ключа ElevenLabs...');
           const response = await api.get('/api-key/status');
-          console.log('📊 Статус API ключа:', response);
           
           if (response.has_api_key && response.is_valid) {
             console.log('✅ API ключ валиден');
@@ -1254,7 +1413,6 @@
         }
       }
       
-      // Сохранение API ключа
       async function saveApiKey(apiKey) {
         try {
           ui.setLoading(true);
@@ -1274,7 +1432,6 @@
         }
       }
       
-      // Загрузка списка агентов
       async function loadAgentsList() {
         try {
           ui.setLoading(true);
@@ -1288,7 +1445,6 @@
         }
       }
       
-      // Отрисовка списка агентов
       function renderAgentsList(agents) {
         agentsList.innerHTML = '';
         
@@ -1334,7 +1490,6 @@
           agentsList.appendChild(agentEl);
         });
         
-        // Добавляем обработчики
         document.querySelectorAll('.edit-agent').forEach(button => {
           button.addEventListener('click', function() {
             const agentId = this.getAttribute('data-id');
@@ -1343,7 +1498,6 @@
         });
       }
       
-      // Загрузка голосов
       async function loadVoices() {
         try {
           if (availableVoices.length === 0) {
@@ -1355,7 +1509,6 @@
         }
       }
       
-      // Отрисовка опций голосов
       function renderVoiceOptions() {
         voiceOptions.innerHTML = '';
         
@@ -1373,14 +1526,12 @@
           voiceOptions.appendChild(voiceEl);
         });
         
-        // Добавляем обработчики
         document.querySelectorAll('.voice-option').forEach(option => {
           option.addEventListener('click', function() {
             document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
             this.classList.add('selected');
             this.querySelector('input').checked = true;
             
-            // Обновляем отображение выбранного голоса в тестировании
             const selectedVoiceName = this.querySelector('span').textContent;
             const selectedVoiceNameEl = document.getElementById('selected-voice-name');
             if (selectedVoiceNameEl) {
@@ -1389,7 +1540,6 @@
           });
         });
         
-        // Добавляем обработчики для preview
         document.querySelectorAll('.voice-preview').forEach(preview => {
           preview.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -1402,17 +1552,14 @@
         });
       }
       
-      // Начать создание агента
       function startCreateAgent() {
         currentAgentId = null;
         currentAgentData = null;
         document.querySelector('.page-title').textContent = 'Создание голосового агента';
         
-        // Очищаем форму
         document.getElementById('agent-name').value = '';
         document.getElementById('system-prompt').value = 'Вы умный голосовой помощник. Отвечайте на вопросы пользователя коротко, информативно и дружелюбно. Говорите естественно, как живой человек.';
         
-        // Выбираем первый голос
         const firstVoice = document.querySelector('.voice-option input');
         if (firstVoice) {
           firstVoice.checked = true;
@@ -1424,7 +1571,6 @@
         ui.switchTab('settings');
       }
       
-      // Редактирование агента
       async function editAgent(agentId) {
         try {
           ui.setLoading(true);
@@ -1435,13 +1581,11 @@
           
           document.querySelector('.page-title').textContent = 'Редактирование голосового агента';
           
-          // Заполняем форму
           document.getElementById('agent-name').value = agent.name;
           document.getElementById('system-prompt').value = agent.system_prompt || '';
           
           await loadVoices();
           
-          // Выбираем голос агента
           const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice_id}"]`);
           if (voiceInput) {
             document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
@@ -1449,13 +1593,11 @@
             voiceInput.closest('.voice-option').classList.add('selected');
           }
           
-          // Обновляем отображение выбранного голоса
           const selectedVoiceNameEl = document.getElementById('selected-voice-name');
           if (selectedVoiceNameEl) {
             selectedVoiceNameEl.textContent = agent.voice_name || agent.voice_id;
           }
           
-          // Загружаем код встраивания
           const embedData = await api.get(`/${agentId}/embed`);
           document.getElementById('embed-code').textContent = embedData.embed_code;
           
@@ -1468,7 +1610,6 @@
         }
       }
       
-      // Сохранение агента
       async function saveAgent() {
         try {
           ui.setLoading(true);
@@ -1484,18 +1625,15 @@
           };
           
           if (currentAgentId) {
-            // Обновляем существующего агента
             const updatedAgent = await api.put(`/${currentAgentId}`, agentData);
             currentAgentData = updatedAgent;
             ui.showNotification('Агент успешно обновлен!', 'success');
           } else {
-            // Создаем нового агента
             const newAgent = await api.post('/', agentData);
             currentAgentId = newAgent.id;
             currentAgentData = newAgent;
             ui.showNotification('Агент успешно создан!', 'success');
             
-            // Загружаем код встраивания
             const embedData = await api.get(`/${currentAgentId}/embed`);
             document.getElementById('embed-code').textContent = embedData.embed_code;
           }
@@ -1508,7 +1646,6 @@
         }
       }
       
-      // Удаление агента
       async function deleteAgent() {
         if (!currentAgentId) return;
         
@@ -1529,59 +1666,15 @@
         }
       }
       
-      // ============= ✅ ИСПРАВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
-      
-      // Диагностика агента перед тестированием
-      async function diagnoseAgent() {
-        console.log('🔍 Диагностика агента...');
-        
-        if (!currentAgentId) {
-          console.log('❌ ID агента не установлен');
-          return false;
-        }
-        
-        try {
-          // Проверяем данные агента
-          const agent = currentAgentData || await api.get(`/${currentAgentId}`);
-          console.log('📋 Данные агента:', agent);
-          
-          if (!agent.voice_id) {
-            console.log('❌ У агента не установлен голос');
-            ui.showNotification('У агента не установлен голос. Выберите голос в настройках.', 'error');
-            return false;
-          }
-          
-          if (!agent.system_prompt) {
-            console.log('⚠️ У агента не установлен системный промпт');
-          }
-          
-          // Проверяем API ключ
-          const keyStatus = await api.get('/api-key/status');
-          if (!keyStatus.is_valid) {
-            console.log('❌ API ключ недействителен');
-            ui.showNotification('API ключ ElevenLabs недействителен', 'error');
-            return false;
-          }
-          
-          console.log('✅ Диагностика пройдена успешно');
-          return true;
-          
-        } catch (error) {
-          console.error('❌ Ошибка диагностики:', error);
-          ui.showNotification('Ошибка при проверке агента: ' + error.message, 'error');
-          return false;
-        }
-      }
-      
-      // ✅ УЛУЧШЕННАЯ функция тестирования с защитой от эха
+      // ✅ ИСПРАВЛЕННОЕ тестирование для ElevenLabs
       async function startTesting() {
         if (!currentAgentId) {
           ui.showNotification('Сначала сохраните агента', 'error');
           return;
         }
         
-        // Проводим диагностику перед подключением
-        const diagnosticsPassed = await diagnoseAgent();
+        // Диагностика
+        const diagnosticsPassed = await diagnoseElevenLabsConnection();
         if (!diagnosticsPassed) {
           return;
         }
@@ -1589,7 +1682,7 @@
         try {
           ui.setLoading(true);
           
-          // Получаем signed URL
+          // Получаем signed URL для ElevenLabs
           const urlData = await api.get(`/${currentAgentId}/signed-url`);
           const wsUrl = urlData.signed_url || urlData.fallback_url;
           
@@ -1599,24 +1692,15 @@
             throw new Error('Не получен URL для подключения к ElevenLabs');
           }
           
-          // ✅ УЛУЧШЕННЫЕ настройки микрофона с агрессивным эхоподавлением
+          // Получаем доступ к микрофону
           console.log('🎤 Запрос доступа к микрофону...');
           testingMediaStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
               sampleRate: 16000,
               channelCount: 1,
-              echoCancellation: true,        // Включаем эхоподавление
-              noiseSuppression: true,        // Подавление шума
-              autoGainControl: true,         // Автоматическая регулировка усиления
-              googEchoCancellation: true,    // Chrome-специфичное эхоподавление
-              googNoiseSuppression: true,    // Chrome-специфичное подавление шума
-              googAutoGainControl: true,     // Chrome-специфичная регулировка усиления
-              googHighpassFilter: true,      // Высокочастотный фильтр
-              googNoiseSuppression2: true,   // Улучшенное подавление шума
-              googEchoCancellation2: true,   // Улучшенное эхоподавление
-              googAutoGainControl2: true,    // Улучшенная регулировка усиления
-              latency: 0.01,                 // Минимальная задержка
-              volume: 0.8                    // Ограничиваем громкость
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
             }
           });
           console.log('✅ Доступ к микрофону получен');
@@ -1675,198 +1759,39 @@
         }
       }
       
-      function onWebSocketOpen() {
-        console.log('✅ WebSocket подключен к ElevenLabs');
-        isTestingActive = true;
-        updateConnectionStatus('connected', 'Подключен к ElevenLabs');
+      // ✅ Диагностика для ElevenLabs
+      async function diagnoseElevenLabsConnection() {
+        console.log('🔍 Диагностика ElevenLabs...');
         
-        // Отправляем инициализацию
-        sendInitializationMessage();
-        
-        // Настраиваем аудио обработку
-        setTimeout(() => {
-          setupAudioRecording();
-        }, 1000);
-        
-        // Настраиваем интерфейс
-        startTestBtn.style.display = 'none';
-        stopTestBtn.style.display = 'inline-flex';
-        retryConnectionBtn.style.display = 'none';
-        vadIndicator.style.display = 'flex';
-        
-        startKeepAlive();
-        
-        ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
-      }
-      
-      // Упрощенная инициализация
-      function sendInitializationMessage() {
-        try {
-          const initMessage = {
-            "type": "conversation_initiation_client_data"
-          };
-          
-          console.log('📤 Отправка инициализации:', initMessage);
-          testingWebSocket.send(JSON.stringify(initMessage));
-          
-        } catch (error) {
-          console.error('❌ Ошибка инициализации:', error);
+        if (!currentAgentId) {
+          console.log('❌ ID агента не установлен');
+          return false;
         }
-      }
-      
-      // ✅ ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ настройка записи аудио с защитой от эха
-      function setupAudioRecording() {
+        
         try {
-          testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: 16000
-          });
+          const agent = currentAgentData || await api.get(`/${currentAgentId}`);
+          console.log('📋 Данные агента:', agent);
           
-          const audioSource = testingAudioContext.createMediaStreamSource(testingMediaStream);
-          
-          // ✅ Добавляем фильтр высоких частот для удаления низкочастотных помех
-          highPassFilter = testingAudioContext.createBiquadFilter();
-          highPassFilter.type = 'highpass';
-          highPassFilter.frequency.setValueAtTime(80, testingAudioContext.currentTime); // Убираем частоты ниже 80Hz
-          
-          // ✅ Добавляем компрессор для выравнивания уровня
-          compressor = testingAudioContext.createDynamicsCompressor();
-          compressor.threshold.setValueAtTime(-24, testingAudioContext.currentTime);
-          compressor.knee.setValueAtTime(30, testingAudioContext.currentTime);
-          compressor.ratio.setValueAtTime(12, testingAudioContext.currentTime);
-          compressor.attack.setValueAtTime(0.003, testingAudioContext.currentTime);
-          compressor.release.setValueAtTime(0.25, testingAudioContext.currentTime);
-          
-          testingAudioProcessor = testingAudioContext.createScriptProcessor(4096, 1, 1);
-          
-          testingAudioProcessor.onaudioprocess = (event) => {
-            if (testingWebSocket && 
-                testingWebSocket.readyState === WebSocket.OPEN && 
-                isTestingActive) {
-              
-              const inputBuffer = event.inputBuffer;
-              const channelData = inputBuffer.getChannelData(0);
-              
-              // Вычисляем уровень громкости
-              const volume = calculateVolume(channelData);
-              updateVolumeIndicator(volume);
-              
-              // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ПОЛНАЯ БЛОКИРОВКА во время речи агента
-              if (isAgentSpeaking) {
-                return; // НЕ отправляем ВООБЩЕ НИЧЕГО когда агент говорит
-              }
-              
-              // ✅ Детекция эха
-              if (detectEcho(channelData)) {
-                console.log('🔍 Эхо обнаружено и заблокировано');
-                return;
-              }
-              
-              // Отправляем только при значимой активности
-              if (volume > 0.03) { // Увеличенный порог
-                const pcmData = convertToPCM16(channelData);
-                const base64Audio = arrayBufferToBase64(pcmData);
-                
-                // Используем очередь для более стабильной отправки
-                addToAudioQueue(base64Audio);
-              }
-            }
-          };
-          
-          // ✅ Подключаем цепочку обработки с фильтрами
-          audioSource
-            .connect(highPassFilter)
-            .connect(compressor)
-            .connect(testingAudioProcessor)
-            .connect(testingAudioContext.destination);
-          
-          console.log('✅ Аудио запись настроена с фильтрами');
-          
-        } catch (error) {
-          console.error('❌ Ошибка настройки аудио:', error);
-          ui.showNotification('Ошибка настройки аудио: ' + error.message, 'error');
-        }
-      }
-      
-      // ✅ УЛУЧШЕННАЯ обработка сообщений
-      function onWebSocketMessage(event) {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('📥 Получено сообщение от ElevenLabs:', data.type || 'unknown');
-          
-          switch (data.type) {
-            case 'conversation_initiation_metadata':
-              console.log('🎯 Разговор инициализирован:', data);
-              const metadata = data.conversation_initiation_metadata_event;
-              if (metadata) {
-                console.log(`📊 Conversation ID: ${metadata.conversation_id}`);
-              }
-              ui.showNotification('Тестирование началось! Говорите с ассистентом', 'info');
-              break;
-              
-            case 'audio':
-              console.log('🔊 Получен аудио ответ от агента');
-              const audioBase64 = data.audio_event?.audio_base_64;
-              if (audioBase64) {
-                playAudio(audioBase64);
-              }
-              break;
-              
-            case 'user_transcript':
-              const transcript = data.user_transcription_event?.user_transcript;
-              console.log('📝 Транскрипция пользователя:', transcript);
-              
-              // ✅ Дополнительная защита от эха в транскрипции
-              if (transcript && transcript.trim().length > 0) {
-                console.log('✅ Принята пользовательская речь:', transcript);
-              }
-              break;
-              
-            case 'agent_response':
-              const response = data.agent_response_event?.agent_response;
-              console.log('🤖 Ответ агента:', response);
-              // Сохраняем последний ответ агента для детекции эха
-              if (response) {
-                lastAgentResponse = response.toLowerCase();
-              }
-              break;
-              
-            case 'vad_score':
-              const vadScoreValue = data.vad_score_event?.vad_score;
-              if (vadScoreValue !== undefined) {
-                handleVadScore(vadScoreValue);
-              }
-              break;
-              
-            case 'ping':
-              lastPingTime = Date.now();
-              const pongMessage = {
-                "type": "pong",
-                "event_id": data.ping_event?.event_id
-              };
-              testingWebSocket.send(JSON.stringify(pongMessage));
-              console.log('🏓 Ping-pong обмен');
-              break;
-              
-            case 'interruption':
-              console.log('⏸️ Обнаружено прерывание');
-              // ✅ При прерывании сразу разрешаем отправку аудио
-              isAgentSpeaking = false;
-              agentSpeakingStartTime = null;
-              ui.showNotification('Агент прерван - продолжайте говорить', 'info');
-              // Возобновляем обработку очереди
-              processAudioQueue();
-              break;
-              
-            case 'error':
-              console.error('❌ Ошибка от ElevenLabs:', data);
-              ui.showNotification('Ошибка ElevenLabs: ' + (data.message || 'Неизвестная ошибка'), 'error');
-              break;
-              
-            default:
-              console.log('❓ Неизвестное сообщение:', data.type);
+          if (!agent.voice_id) {
+            console.log('❌ У агента не установлен голос');
+            ui.showNotification('У агента не установлен голос. Выберите голос в настройках.', 'error');
+            return false;
           }
+          
+          const keyStatus = await api.get('/api-key/status');
+          if (!keyStatus.is_valid) {
+            console.log('❌ API ключ недействителен');
+            ui.showNotification('API ключ ElevenLabs недействителен', 'error');
+            return false;
+          }
+          
+          console.log('✅ Диагностика ElevenLabs пройдена');
+          return true;
+          
         } catch (error) {
-          console.error('❌ Ошибка обработки сообщения:', error);
+          console.error('❌ Ошибка диагностики:', error);
+          ui.showNotification('Ошибка при проверке агента: ' + error.message, 'error');
+          return false;
         }
       }
       
@@ -1913,69 +1838,6 @@
         stopTesting(true);
       }
       
-      // ✅ КРИТИЧЕСКИ ВАЖНАЯ функция воспроизведения с максимальной защитой от эха
-      function playAudio(audioBase64) {
-        try {
-          // ✅ ВАЖНО: Устанавливаем флаги ДО начала воспроизведения
-          isAgentSpeaking = true;
-          agentSpeakingStartTime = Date.now();
-          
-          // ✅ Очищаем очередь аудио при начале ответа агента
-          audioQueue.length = 0;
-          
-          // ElevenLabs отправляет PCM данные
-          const audioData = atob(audioBase64);
-          const pcmArray = new Uint8Array(audioData.length);
-          
-          for (let i = 0; i < audioData.length; i++) {
-            pcmArray[i] = audioData.charCodeAt(i);
-          }
-          
-          // Создаем WAV blob
-          const wavBlob = createWavBlob(pcmArray, 16000, 1, 16);
-          const audioUrl = URL.createObjectURL(wavBlob);
-          
-          const audio = new Audio(audioUrl);
-          audio.volume = 0.8;
-          
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl);
-            
-            // ✅ УВЕЛИЧЕННАЯ задержка перед возобновлением записи для полного затухания звука
-            setTimeout(() => {
-              isAgentSpeaking = false;
-              agentSpeakingStartTime = null;
-              console.log('🔊 Воспроизведение завершено, запись возобновлена через 800мс');
-              
-              // Возобновляем обработку очереди
-              processAudioQueue();
-            }, 800); // ✅ Увеличенная задержка для надежности
-          };
-          
-          audio.onerror = (error) => {
-            URL.revokeObjectURL(audioUrl);
-            isAgentSpeaking = false;
-            agentSpeakingStartTime = null;
-            console.error('❌ Ошибка воспроизведения:', error);
-          };
-          
-          audio.play().then(() => {
-            console.log('🔊 Воспроизведение началось');
-          }).catch(error => {
-            URL.revokeObjectURL(audioUrl);
-            isAgentSpeaking = false;
-            agentSpeakingStartTime = null;
-            console.error('❌ Ошибка запуска воспроизведения:', error);
-          });
-          
-        } catch (error) {
-          console.error('❌ Ошибка обработки аудио:', error);
-          isAgentSpeaking = false;
-          agentSpeakingStartTime = null;
-        }
-      }
-      
-      // Keep-alive механизм  
       function startKeepAlive() {
         keepAliveInterval = setInterval(() => {
           if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN) {
@@ -1983,7 +1845,7 @@
             testingWebSocket.send(JSON.stringify(keepAliveMessage));
             console.log('💓 Keep-alive отправлен');
           }
-        }, 15000); // Увеличена частота до каждых 15 секунд
+        }, 15000);
       }
       
       function stopKeepAlive() {
@@ -1993,42 +1855,16 @@
         }
       }
       
-      // Обновление VAD индикатора
-      function handleVadScore(score) {
-        vadScore = score;
-        vadScoreElement.textContent = score.toFixed(2);
+      function updateConnectionStatus(status, message) {
+        const statusElement = document.getElementById('connection-status');
+        const indicator = statusElement.querySelector('.status-indicator');
+        const text = statusElement.querySelector('span');
         
-        const percentage = Math.min(score * 100, 100);
-        volumeBar.style.width = percentage + '%';
-        
-        // Меняем цвет в зависимости от активности
-        if (score > 0.8) {
-          volumeBar.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
-        } else if (score > 0.5) {
-          volumeBar.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
-        } else if (score > 0.2) {
-          volumeBar.style.background = 'linear-gradient(90deg, #10b981, #059669)';
-        } else {
-          volumeBar.style.background = 'linear-gradient(90deg, #6b7280, #4b5563)';
-        }
+        indicator.className = `status-indicator ${status}`;
+        text.textContent = message;
       }
       
-      // Обновление индикатора громкости
-      function updateVolumeIndicator(volume) {
-        const percentage = Math.min(volume * 100, 100);
-        volumeBar.style.width = percentage + '%';
-        vadScoreElement.textContent = volume.toFixed(2);
-        
-        if (volume > 0.3) {
-          volumeBar.style.background = 'linear-gradient(90deg, #10b981, #3b82f6)';
-        } else if (volume > 0.1) {
-          volumeBar.style.background = 'linear-gradient(90deg, #f59e0b, #3b82f6)';
-        } else {
-          volumeBar.style.background = 'linear-gradient(90deg, #6b7280, #3b82f6)';
-        }
-      }
-      
-      // Конвертация в PCM16
+      // Утилиты аудио - БЕЗ ИЗМЕНЕНИЙ
       function convertToPCM16(float32Array) {
         const buffer = new ArrayBuffer(float32Array.length * 2);
         const view = new DataView(buffer);
@@ -2042,7 +1878,6 @@
         return new Uint8Array(buffer);
       }
       
-      // Конвертация в base64
       function arrayBufferToBase64(buffer) {
         let binary = '';
         const bytes = new Uint8Array(buffer);
@@ -2055,7 +1890,6 @@
         return btoa(binary);
       }
       
-      // Создание WAV blob
       function createWavBlob(pcmArray, sampleRate, numChannels, bitsPerSample) {
         const length = pcmArray.length;
         const arrayBuffer = new ArrayBuffer(44 + length);
@@ -2088,73 +1922,7 @@
         return new Blob([arrayBuffer], { type: 'audio/wav' });
       }
       
-      // ✅ УЛУЧШЕННАЯ остановка тестирования
-      function stopTesting(showRetryButton = false) {
-        isTestingActive = false;
-        isAgentSpeaking = false;
-        agentSpeakingStartTime = null;
-        lastPingTime = null;
-        
-        // Очищаем очередь аудио
-        audioQueue.length = 0;
-        isProcessingAudioQueue = false;
-        
-        if (testingWebSocket) {
-          testingWebSocket.close();
-          testingWebSocket = null;
-        }
-        
-        if (testingMediaStream) {
-          testingMediaStream.getTracks().forEach(track => track.stop());
-          testingMediaStream = null;
-        }
-        
-        if (testingAudioProcessor) {
-          testingAudioProcessor.disconnect();
-          testingAudioProcessor = null;
-        }
-        
-        if (highPassFilter) {
-          highPassFilter.disconnect();
-          highPassFilter = null;
-        }
-        
-        if (compressor) {
-          compressor.disconnect();
-          compressor = null;
-        }
-        
-        if (testingAudioContext && testingAudioContext.state !== 'closed') {
-          testingAudioContext.close();
-          testingAudioContext = null;
-        }
-        
-        stopKeepAlive();
-        
-        updateConnectionStatus('disconnected', 'Отключен');
-        startTestBtn.style.display = 'inline-flex';
-        stopTestBtn.style.display = 'none';
-        retryConnectionBtn.style.display = showRetryButton ? 'inline-flex' : 'none';
-        vadIndicator.style.display = 'none';
-        
-        // Сброс индикаторов
-        volumeBar.style.width = '0%';
-        vadScoreElement.textContent = '0.00';
-      }
-      
-      // Обновление статуса подключения
-      function updateConnectionStatus(status, message) {
-        const statusElement = document.getElementById('connection-status');
-        const indicator = statusElement.querySelector('.status-indicator');
-        const text = statusElement.querySelector('span');
-        
-        indicator.className = `status-indicator ${status}`;
-        text.textContent = message;
-      }
-      
-      // ============= ОБРАБОТЧИКИ СОБЫТИЙ =============
-      
-      // Переключение табов
+      // Обработчики событий - БЕЗ ИЗМЕНЕНИЙ
       tabs.forEach(tab => {
         tab.addEventListener('click', () => {
           const tabId = tab.getAttribute('data-tab');
@@ -2162,20 +1930,17 @@
         });
       });
       
-      // Форма API ключа
       apiKeyForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const apiKey = document.getElementById('api-key').value;
         await saveApiKey(apiKey);
       });
       
-      // Форма агента
       agentForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         await saveAgent();
       });
       
-      // Кнопки
       addAgentBtn.addEventListener('click', startCreateAgent);
       cancelButton.addEventListener('click', () => loadAgentsList());
       deleteAgentBtn.addEventListener('click', deleteAgent);
@@ -2187,7 +1952,6 @@
         startTesting();
       });
       
-      // Копирование embed кода
       copyEmbedCodeBtn.addEventListener('click', () => {
         const embedCode = document.getElementById('embed-code');
         const tempTextarea = document.createElement('textarea');
@@ -2200,7 +1964,6 @@
         ui.showNotification('Код для встраивания скопирован!', 'success');
       });
       
-      // Закрытие уведомления
       notificationClose.addEventListener('click', () => {
         ui.hideNotification();
       });
@@ -2222,7 +1985,6 @@
         }
       }
       
-      // Запуск
       init();
     });
   </script>
