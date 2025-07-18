@@ -26,6 +26,12 @@ class ElevenLabsService:
     
     ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
     
+    # ✅ ДОБАВЛЕНО: Проверка админа (как в dashboard.html)
+    @staticmethod
+    def is_admin(user_email: str) -> bool:
+        """Проверить, является ли пользователь админом"""
+        return user_email == "well96well@gmail.com"
+    
     @staticmethod
     async def validate_api_key(api_key: str) -> bool:
         """
@@ -246,6 +252,29 @@ class ElevenLabsService:
         Create new agent
         """
         try:
+            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа (как в dashboard.html)
+            from backend.models.user import User
+            
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            
+            # Проверяем админа - админу разрешаем всё
+            if not ElevenLabsService.is_admin(user.email):
+                # Для обычных пользователей проверяем подписку
+                if not user.has_active_subscription():
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "error": "subscription_required",
+                            "message": "Active subscription required to create ElevenLabs agents",
+                            "code": "SUBSCRIPTION_REQUIRED"
+                        }
+                    )
+            
             # Создаем агента в ElevenLabs
             elevenlabs_agent_data = {
                 "name": agent_data.name,
@@ -280,6 +309,8 @@ class ElevenLabsService:
             db.commit()
             db.refresh(agent)
             
+            logger.info(f"✅ ElevenLabs agent created successfully: {agent.id} for user {user_id}")
+            
             return ElevenLabsAgentResponse(
                 id=str(agent.id),
                 user_id=str(agent.user_id),
@@ -292,6 +323,8 @@ class ElevenLabsService:
                 created_at=agent.created_at,
                 updated_at=agent.updated_at
             )
+        except HTTPException:
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error creating agent: {str(e)}")
@@ -312,6 +345,29 @@ class ElevenLabsService:
         Update agent
         """
         try:
+            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа
+            from backend.models.user import User
+            
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            
+            # Проверяем админа - админу разрешаем всё
+            if not ElevenLabsService.is_admin(user.email):
+                # Для обычных пользователей проверяем подписку
+                if not user.has_active_subscription():
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "error": "subscription_required",
+                            "message": "Active subscription required to update ElevenLabs agents",
+                            "code": "SUBSCRIPTION_REQUIRED"
+                        }
+                    )
+            
             # Получаем агента
             agent = db.query(ElevenLabsAgent).filter(
                 ElevenLabsAgent.id == agent_id,
@@ -387,6 +443,29 @@ class ElevenLabsService:
         Delete agent
         """
         try:
+            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа
+            from backend.models.user import User
+            
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            
+            # Проверяем админа - админу разрешаем всё
+            if not ElevenLabsService.is_admin(user.email):
+                # Для обычных пользователей проверяем подписку
+                if not user.has_active_subscription():
+                    raise HTTPException(
+                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                        detail={
+                            "error": "subscription_required",
+                            "message": "Active subscription required to delete ElevenLabs agents",
+                            "code": "SUBSCRIPTION_REQUIRED"
+                        }
+                    )
+            
             # Получаем агента
             agent = db.query(ElevenLabsAgent).filter(
                 ElevenLabsAgent.id == agent_id,
