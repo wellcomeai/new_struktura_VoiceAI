@@ -1,5 +1,5 @@
 """
-ИСПРАВЛЕННЫЕ ElevenLabs API endpoints для WellcomeAI application.
+ПОЛНЫЙ ИСПРАВЛЕННЫЙ файл ElevenLabs API endpoints для WellcomeAI application.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,7 +28,7 @@ router = APIRouter()
 
 @router.get("/api-key/status")
 async def check_api_key_status(
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для статуса
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -68,7 +68,7 @@ async def check_api_key_status(
 @router.post("/api-key")
 async def save_api_key(
     request: ElevenLabsApiKeyRequest,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для сохранения ключа
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -112,7 +112,7 @@ async def save_api_key(
 
 @router.get("/voices", response_model=List[ElevenLabsVoiceResponse])
 async def get_voices(
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения голосов
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -145,7 +145,7 @@ async def get_voices(
 
 @router.get("/", response_model=List[ElevenLabsAgentResponse])
 async def get_agents(
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения списка
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -164,7 +164,7 @@ async def get_agents(
 @router.post("/", response_model=ElevenLabsAgentResponse)
 async def create_agent(
     agent_data: ElevenLabsAgentCreate,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -180,7 +180,6 @@ async def create_agent(
                 detail="ElevenLabs API key not found. Please add your API key first."
             )
         
-        # ✅ ДОБАВЛЕНО: дополнительная проверка подписки (логика теперь в сервисе)
         result = await ElevenLabsService.create_agent(
             db, 
             str(current_user.id), 
@@ -203,7 +202,7 @@ async def create_agent(
 @router.get("/{agent_id}", response_model=ElevenLabsAgentResponse)
 async def get_agent(
     agent_id: str,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения одного агента
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -225,7 +224,7 @@ async def get_agent(
 async def update_agent(
     agent_id: str,
     agent_data: ElevenLabsAgentUpdate,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -240,7 +239,6 @@ async def update_agent(
                 detail="ElevenLabs API key not found"
             )
         
-        # ✅ ДОБАВЛЕНО: логика проверки подписки теперь в сервисе
         return await ElevenLabsService.update_agent(
             db, 
             agent_id, 
@@ -261,7 +259,7 @@ async def update_agent(
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: str,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -276,7 +274,6 @@ async def delete_agent(
                 detail="ElevenLabs API key not found"
             )
         
-        # ✅ ДОБАВЛЕНО: логика проверки подписки теперь в сервисе
         await ElevenLabsService.delete_agent(
             db, 
             agent_id, 
@@ -298,7 +295,7 @@ async def delete_agent(
 @router.get("/{agent_id}/embed", response_model=ElevenLabsEmbedResponse)
 async def get_embed_code(
     agent_id: str,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для embed кода
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -319,14 +316,72 @@ async def get_embed_code(
 @router.get("/{agent_id}/signed-url")
 async def get_signed_url(
     agent_id: str,
-    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для signed URL
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Get signed URL for WebSocket connection
+    ✅ ИСПРАВЛЕНО: Улучшена обработка ошибок и логирование
     """
     try:
         logger.info(f"Getting signed URL for agent {agent_id} for user {current_user.id}")
+        
+        if not current_user.elevenlabs_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ElevenLabs API key not found. Please add your API key first."
+            )
+        
+        # Получаем агента
+        agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
+        
+        if not agent.elevenlabs_agent_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Agent not created in ElevenLabs yet. Please recreate the agent."
+            )
+        
+        logger.info(f"🔍 Getting signed URL for ElevenLabs agent: {agent.elevenlabs_agent_id}")
+        
+        # ✅ ИСПРАВЛЕНО: Получаем signed URL с правильным методом
+        signed_url = await ElevenLabsService.get_signed_url(
+            current_user.elevenlabs_api_key,
+            agent.elevenlabs_agent_id
+        )
+        
+        logger.info(f"✅ Successfully got signed URL")
+        
+        # ✅ ДОБАВЛЕНО: Fallback URL для прямого подключения (для публичных агентов)
+        fallback_url = f"wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent.elevenlabs_agent_id}"
+        
+        return {
+            "signed_url": signed_url,
+            "agent_id": agent.elevenlabs_agent_id,
+            "fallback_url": fallback_url,
+            "message": "Signed URL generated successfully. Valid for 15 minutes."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting signed URL: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get signed URL: {str(e)}"
+        )
+
+# ✅ НОВЫЙ ENDPOINT: Для тестирования WebSocket соединения
+@router.get("/{agent_id}/test-connection")
+async def test_websocket_connection(
+    agent_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Test WebSocket connection to ElevenLabs agent
+    """
+    try:
+        logger.info(f"Testing connection for agent {agent_id}")
         
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
@@ -338,33 +393,76 @@ async def get_signed_url(
         agent = await ElevenLabsService.get_agent_by_id(db, agent_id, str(current_user.id))
         
         if not agent.elevenlabs_agent_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Agent not created in ElevenLabs yet"
+            return {
+                "success": False,
+                "message": "Agent not created in ElevenLabs yet",
+                "details": {
+                    "agent_id": agent_id,
+                    "elevenlabs_agent_id": None
+                }
+            }
+        
+        # Проверяем API ключ
+        api_key_valid = await ElevenLabsService.validate_api_key(current_user.elevenlabs_api_key)
+        
+        if not api_key_valid:
+            return {
+                "success": False,
+                "message": "Invalid ElevenLabs API key",
+                "details": {
+                    "agent_id": agent_id,
+                    "elevenlabs_agent_id": agent.elevenlabs_agent_id,
+                    "api_key_valid": False
+                }
+            }
+        
+        # Пытаемся получить signed URL
+        try:
+            signed_url = await ElevenLabsService.get_signed_url(
+                current_user.elevenlabs_api_key,
+                agent.elevenlabs_agent_id
             )
-        
-        # Получаем signed URL
-        signed_url = await ElevenLabsService.get_signed_url(
-            current_user.elevenlabs_api_key,
-            agent.elevenlabs_agent_id
-        )
-        
-        return {
-            "signed_url": signed_url,
-            "agent_id": agent.elevenlabs_agent_id,
-            "fallback_url": f"wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent.elevenlabs_agent_id}"
-        }
+            
+            return {
+                "success": True,
+                "message": "Connection test successful",
+                "details": {
+                    "agent_id": agent_id,
+                    "elevenlabs_agent_id": agent.elevenlabs_agent_id,
+                    "api_key_valid": True,
+                    "signed_url_obtained": True,
+                    "signed_url": signed_url
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get signed URL during test: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Failed to get signed URL: {str(e)}",
+                "details": {
+                    "agent_id": agent_id,
+                    "elevenlabs_agent_id": agent.elevenlabs_agent_id,
+                    "api_key_valid": True,
+                    "signed_url_obtained": False,
+                    "error": str(e)
+                }
+            }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting signed URL: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get signed URL"
-        )
+        logger.error(f"Error during connection test: {str(e)}")
+        return {
+            "success": False,
+            "message": f"Connection test failed: {str(e)}",
+            "details": {
+                "agent_id": agent_id,
+                "error": str(e)
+            }
+        }
 
-# ✅ НОВЫЙ ЭНДПОИНТ: Тестовый эндпоинт для проверки создания агента
+# ✅ СУЩЕСТВУЮЩИЙ ENDPOINT: Тестовый эндпоинт для проверки создания агента
 @router.post("/test-create")
 async def test_create_agent(
     test_data: Dict[str, Any],
