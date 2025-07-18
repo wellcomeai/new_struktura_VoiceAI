@@ -1327,6 +1327,8 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      console.log('🚀 Инициализация ElevenLabs...');
+      
       // Переменные состояния
       let currentAgentId = null;
       let isLoading = false;
@@ -1339,7 +1341,7 @@
       let currentAgentData = null;
       let keepAliveInterval = null;
       
-      // Получаем элементы
+      // Получаем элементы с проверкой их существования
       const apiKeyContainer = document.getElementById('api-key-container');
       const agentsListContainer = document.getElementById('agents-list-container');
       const editAgentContainer = document.getElementById('edit-agent-container');
@@ -1359,11 +1361,7 @@
       const volumeBar = document.getElementById('volume-bar');
       const vadScoreElement = document.getElementById('vad-score');
       
-      // ✅ ОТЛАДКА: Проверяем, что форма найдена
-      console.log('🔍 Форма агента найдена:', agentForm ? 'ДА' : 'НЕТ');
-      console.log('🔍 ID формы:', agentForm ? agentForm.id : 'форма не найдена');
-      
-      // Кнопки
+      // Кнопки с проверкой существования
       const changeApiKeyBtn = document.getElementById('change-api-key-btn');
       const changeApiKeyListBtn = document.getElementById('change-api-key-list-btn');
       const closeApiModal = document.getElementById('close-api-modal');
@@ -1394,7 +1392,15 @@
       const tabs = document.querySelectorAll('.tab');
       const tabContents = document.querySelectorAll('.tab-content');
       
-      // API клиент
+      // ✅ ПРОВЕРКА ЭЛЕМЕНТОВ: Проверяем существование ключевых элементов
+      console.log('🔍 Проверка элементов:');
+      console.log('- saveAgentBtn:', saveAgentBtn ? 'найдена' : 'НЕ НАЙДЕНА');
+      console.log('- deleteAgentBtn:', deleteAgentBtn ? 'найдена' : 'НЕ НАЙДЕНА');
+      console.log('- agentForm:', agentForm ? 'найдена' : 'НЕ НАЙДЕНА');
+      console.log('- apiKeyForm:', apiKeyForm ? 'найдена' : 'НЕ НАЙДЕНА');
+      console.log('- changeApiKeyModal:', changeApiKeyModal ? 'найдена' : 'НЕ НАЙДЕНА');
+      
+      // ✅ УЛУЧШЕННЫЙ API КЛИЕНТ: Добавляем детальное логирование и обработку ошибок
       const api = {
         baseUrl: '/api/elevenlabs',
         
@@ -1407,36 +1413,51 @@
         },
         
         async fetch(endpoint, options = {}) {
-          if (this.isAuthenticated()) {
-            options.headers = {
-              ...options.headers,
-              'Authorization': `Bearer ${this.getToken()}`
-            };
+          console.log(`🌐 API запрос: ${options.method || 'GET'} ${this.baseUrl}${endpoint}`);
+          
+          try {
+            if (this.isAuthenticated()) {
+              options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${this.getToken()}`
+              };
+            }
+            
+            if (options.body && typeof options.body !== 'string') {
+              options.headers = {
+                ...options.headers,
+                'Content-Type': 'application/json'
+              };
+              options.body = JSON.stringify(options.body);
+            }
+            
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            console.log(`📡 Ответ: ${response.status} ${response.statusText}`);
+            
+            if (response.status === 401) {
+              localStorage.removeItem('auth_token');
+              window.location.href = '/static/login.html';
+              throw new Error('Требуется авторизация');
+            }
+            
+            let data;
+            try {
+              data = await response.json();
+            } catch (jsonError) {
+              console.error('❌ Ошибка парсинга JSON:', jsonError);
+              throw new Error('Сервер вернул некорректный JSON');
+            }
+            
+            if (!response.ok) {
+              console.error('❌ Ошибка API:', data);
+              throw new Error(data.detail || `HTTP ${response.status}`);
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('❌ Сетевая ошибка:', error);
+            throw error;
           }
-          
-          if (options.body && typeof options.body !== 'string') {
-            options.headers = {
-              ...options.headers,
-              'Content-Type': 'application/json'
-            };
-            options.body = JSON.stringify(options.body);
-          }
-          
-          const response = await fetch(`${this.baseUrl}${endpoint}`, options);
-          
-          if (response.status === 401) {
-            localStorage.removeItem('auth_token');
-            window.location.href = '/static/login.html';
-            throw new Error('Требуется авторизация');
-          }
-          
-          const data = await response.json();
-          
-          if (!response.ok) {
-            throw new Error(data.detail || 'Произошла ошибка');
-          }
-          
-          return data;
         },
         
         get(endpoint) {
@@ -1459,13 +1480,20 @@
       // UI утилиты
       const ui = {
         showNotification(message, type = 'success') {
+          if (!notification || !notificationMessage) {
+            console.error('❌ Элементы уведомлений не найдены');
+            return;
+          }
+          
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
           notification.classList.add(`notification-${type}`);
           
           const iconElement = notification.querySelector('.notification-icon i');
-          iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
-                               type === 'error' ? 'fas fa-exclamation-circle' : 
-                               'fas fa-info-circle';
+          if (iconElement) {
+            iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                                 type === 'error' ? 'fas fa-exclamation-circle' : 
+                                 'fas fa-info-circle';
+          }
           
           notificationMessage.textContent = message;
           
@@ -1480,6 +1508,7 @@
         },
         
         hideNotification() {
+          if (!notification) return;
           notification.classList.remove('show');
           setTimeout(() => {
             notification.style.display = 'none';
@@ -1498,41 +1527,53 @@
         
         setLoading(loading) {
           isLoading = loading;
-          loadingOverlay.style.display = loading ? 'flex' : 'none';
+          if (loadingOverlay) {
+            loadingOverlay.style.display = loading ? 'flex' : 'none';
+          }
         },
         
         showView(view) {
-          apiKeyContainer.style.display = view === 'api-key' ? 'block' : 'none';
-          agentsListContainer.style.display = view === 'agents-list' ? 'block' : 'none';
-          editAgentContainer.style.display = view === 'edit-agent' ? 'block' : 'none';
+          if (apiKeyContainer) {
+            apiKeyContainer.style.display = view === 'api-key' ? 'block' : 'none';
+          }
+          if (agentsListContainer) {
+            agentsListContainer.style.display = view === 'agents-list' ? 'block' : 'none';
+          }
+          if (editAgentContainer) {
+            editAgentContainer.style.display = view === 'edit-agent' ? 'block' : 'none';
+          }
           
           if (view === 'agents-list') {
-            changeApiKeyBtn.style.display = 'inline-flex';
-            viewEmbedCodeBtn.style.display = 'none';
-            deleteAgentBtn.style.display = 'none';
-            saveAgentBtn.style.display = 'none';
-            createNewAgentBtn.style.display = 'none';
+            if (changeApiKeyBtn) changeApiKeyBtn.style.display = 'inline-flex';
+            if (viewEmbedCodeBtn) viewEmbedCodeBtn.style.display = 'none';
+            if (deleteAgentBtn) deleteAgentBtn.style.display = 'none';
+            if (saveAgentBtn) saveAgentBtn.style.display = 'none';
+            if (createNewAgentBtn) createNewAgentBtn.style.display = 'none';
           } else if (view === 'edit-agent') {
-            changeApiKeyBtn.style.display = 'none';
-            viewEmbedCodeBtn.style.display = 'inline-flex';
-            deleteAgentBtn.style.display = currentAgentId ? 'inline-flex' : 'none';
-            saveAgentBtn.style.display = 'inline-flex';
-            createNewAgentBtn.style.display = 'none';
+            if (changeApiKeyBtn) changeApiKeyBtn.style.display = 'none';
+            if (viewEmbedCodeBtn) viewEmbedCodeBtn.style.display = 'inline-flex';
+            if (deleteAgentBtn) deleteAgentBtn.style.display = currentAgentId ? 'inline-flex' : 'none';
+            if (saveAgentBtn) saveAgentBtn.style.display = 'inline-flex';
+            if (createNewAgentBtn) createNewAgentBtn.style.display = 'none';
           } else {
-            changeApiKeyBtn.style.display = 'none';
-            viewEmbedCodeBtn.style.display = 'none';
-            deleteAgentBtn.style.display = 'none';
-            saveAgentBtn.style.display = 'none';
-            createNewAgentBtn.style.display = 'none';
+            if (changeApiKeyBtn) changeApiKeyBtn.style.display = 'none';
+            if (viewEmbedCodeBtn) viewEmbedCodeBtn.style.display = 'none';
+            if (deleteAgentBtn) deleteAgentBtn.style.display = 'none';
+            if (saveAgentBtn) saveAgentBtn.style.display = 'none';
+            if (createNewAgentBtn) createNewAgentBtn.style.display = 'none';
           }
         },
         
         showModal(modal) {
-          modal.classList.add('show');
+          if (modal) {
+            modal.classList.add('show');
+          }
         },
         
         hideModal(modal) {
-          modal.classList.remove('show');
+          if (modal) {
+            modal.classList.remove('show');
+          }
         }
       };
       
@@ -1553,8 +1594,9 @@
           
           if (response.has_api_key && response.is_valid) {
             console.log('✅ API ключ валиден');
-            // Показываем маскированный ключ (как в ElevenLabs - только последние 4 символа)
-            maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●****';
+            if (maskedApiKeySpan) {
+              maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●****';
+            }
             return true;
           } else if (response.has_api_key && !response.is_valid) {
             console.log('❌ API ключ недействителен');
@@ -1579,8 +1621,9 @@
           
           if (response.success) {
             availableVoices = response.voices;
-            // Показываем маскированный ключ (как в ElevenLabs)
-            maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●' + apiKey.slice(-4);
+            if (maskedApiKeySpan) {
+              maskedApiKeySpan.textContent = '●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●' + apiKey.slice(-4);
+            }
             ui.showNotification('API ключ сохранен успешно!', 'success');
             await loadAgentsList();
           } else {
@@ -1609,6 +1652,11 @@
       
       // Отображение списка агентов
       function renderAgentsList(agents) {
+        if (!agentsList) {
+          console.error('❌ Элемент agentsList не найден');
+          return;
+        }
+        
         agentsList.innerHTML = '';
         
         if (agents.length === 0) {
@@ -1627,7 +1675,10 @@
             </div>
           `;
           
-          document.getElementById('empty-create-agent-btn').addEventListener('click', startCreateAgent);
+          const emptyCreateBtn = document.getElementById('empty-create-agent-btn');
+          if (emptyCreateBtn) {
+            emptyCreateBtn.addEventListener('click', startCreateAgent);
+          }
           return;
         }
         
@@ -1676,6 +1727,11 @@
       
       // Отображение опций голосов
       function renderVoiceOptions() {
+        if (!voiceOptions) {
+          console.error('❌ Элемент voiceOptions не найден');
+          return;
+        }
+        
         voiceOptions.innerHTML = '';
         
         availableVoices.forEach((voice, index) => {
@@ -1720,23 +1776,35 @@
       
       // Начало создания агента
       function startCreateAgent() {
+        console.log('➕ Создание нового агента');
         currentAgentId = null;
         currentAgentData = null;
-        document.querySelector('.page-title').textContent = 'Создание голосового агента';
+        
+        const pageTitle = document.querySelector('.page-title');
+        if (pageTitle) {
+          pageTitle.textContent = 'Создание голосового агента';
+        }
         
         // Очистка основных полей
-        document.getElementById('agent-name').value = '';
-        document.getElementById('first-message').value = 'Привет! Как дела?';
-        document.getElementById('agent-language').value = 'ru';
-        document.getElementById('llm-model').value = 'gpt-4o-mini';
-        document.getElementById('system-prompt').value = 'Вы умный голосовой помощник. Отвечайте на вопросы пользователя коротко, информативно и дружелюбно. Говорите естественно, как живой человек.';
+        const agentName = document.getElementById('agent-name');
+        const firstMessage = document.getElementById('first-message');
+        const agentLanguage = document.getElementById('agent-language');
+        const llmModel = document.getElementById('llm-model');
+        const systemPrompt = document.getElementById('system-prompt');
+        
+        if (agentName) agentName.value = '';
+        if (firstMessage) firstMessage.value = 'Привет! Как дела?';
+        if (agentLanguage) agentLanguage.value = 'ru';
+        if (llmModel) llmModel.value = 'gpt-4o-mini';
+        if (systemPrompt) systemPrompt.value = 'Вы умный голосовой помощник. Отвечайте на вопросы пользователя коротко, информативно и дружелюбно. Говорите естественно, как живой человек.';
         
         // Сброс продвинутых настроек
-        document.getElementById('llm-temperature').value = '0.7';
-        document.getElementById('max-tokens').value = '1000';
-        document.getElementById('voice-stability').value = '0.5';
-        document.getElementById('voice-similarity').value = '0.8';
-        document.getElementById('voice-speed').value = '1.0';
+        if (llmTemperature) llmTemperature.value = '0.7';
+        const maxTokens = document.getElementById('max-tokens');
+        if (maxTokens) maxTokens.value = '1000';
+        if (voiceStability) voiceStability.value = '0.5';
+        if (voiceSimilarity) voiceSimilarity.value = '0.8';
+        if (voiceSpeed) voiceSpeed.value = '1.0';
         
         // Обновление отображения значений
         updateRangeDisplays();
@@ -1768,21 +1836,31 @@
           const agent = await api.get(`/${agentId}`);
           currentAgentData = agent;
           
-          document.querySelector('.page-title').textContent = 'Редактирование голосового агента';
+          const pageTitle = document.querySelector('.page-title');
+          if (pageTitle) {
+            pageTitle.textContent = 'Редактирование голосового агента';
+          }
           
           // Заполнение основных полей
-          document.getElementById('agent-name').value = agent.name;
-          document.getElementById('first-message').value = agent.first_message || 'Привет! Как дела?';
-          document.getElementById('agent-language').value = agent.language || 'ru';
-          document.getElementById('llm-model').value = agent.llm_model || 'gpt-4o-mini';
-          document.getElementById('system-prompt').value = agent.system_prompt || '';
+          const agentName = document.getElementById('agent-name');
+          const firstMessage = document.getElementById('first-message');
+          const agentLanguage = document.getElementById('agent-language');
+          const llmModel = document.getElementById('llm-model');
+          const systemPrompt = document.getElementById('system-prompt');
+          
+          if (agentName) agentName.value = agent.name;
+          if (firstMessage) firstMessage.value = agent.first_message || 'Привет! Как дела?';
+          if (agentLanguage) agentLanguage.value = agent.language || 'ru';
+          if (llmModel) llmModel.value = agent.llm_model || 'gpt-4o-mini';
+          if (systemPrompt) systemPrompt.value = agent.system_prompt || '';
           
           // Заполнение продвинутых настроек
-          document.getElementById('llm-temperature').value = agent.llm_temperature || '0.7';
-          document.getElementById('max-tokens').value = agent.max_tokens || '1000';
-          document.getElementById('voice-stability').value = agent.voice_stability || '0.5';
-          document.getElementById('voice-similarity').value = agent.voice_similarity || '0.8';
-          document.getElementById('voice-speed').value = agent.voice_speed || '1.0';
+          if (llmTemperature) llmTemperature.value = agent.llm_temperature || '0.7';
+          const maxTokens = document.getElementById('max-tokens');
+          if (maxTokens) maxTokens.value = agent.max_tokens || '1000';
+          if (voiceStability) voiceStability.value = agent.voice_stability || '0.5';
+          if (voiceSimilarity) voiceSimilarity.value = agent.voice_similarity || '0.8';
+          if (voiceSpeed) voiceSpeed.value = agent.voice_speed || '1.0';
           
           // Обновление отображения значений
           updateRangeDisplays();
@@ -1810,8 +1888,15 @@
           }
           
           // Код для встраивания
-          const embedData = await api.get(`/${agentId}/embed`);
-          document.getElementById('embed-code').textContent = embedData.embed_code;
+          try {
+            const embedData = await api.get(`/${agentId}/embed`);
+            const embedCodeEl = document.getElementById('embed-code');
+            if (embedCodeEl) {
+              embedCodeEl.textContent = embedData.embed_code;
+            }
+          } catch (embedError) {
+            console.warn('⚠️ Ошибка получения кода для встраивания:', embedError);
+          }
           
           ui.showView('edit-agent');
           ui.switchTab('settings');
@@ -1822,12 +1907,27 @@
         }
       }
       
-      // Сохранение агента
+      // ✅ УЛУЧШЕННАЯ ФУНКЦИЯ СОХРАНЕНИЯ АГЕНТА: Добавляем валидацию и обработку ошибок
       async function saveAgent() {
         console.log('🔄 Функция saveAgent() вызвана');
         
         try {
           ui.setLoading(true);
+          
+          // 1. ВАЛИДАЦИЯ ОБЯЗАТЕЛЬНЫХ ПОЛЕЙ
+          const agentName = document.getElementById('agent-name')?.value?.trim();
+          if (!agentName) {
+            console.log('❌ Название агента не введено');
+            ui.showNotification('Введите название агента', 'error');
+            return;
+          }
+          
+          const systemPrompt = document.getElementById('system-prompt')?.value?.trim();
+          if (!systemPrompt) {
+            console.log('❌ Системный промпт не введен');
+            ui.showNotification('Введите системный промпт', 'error');
+            return;
+          }
           
           const selectedVoice = document.querySelector('input[name="voice"]:checked');
           if (!selectedVoice) {
@@ -1836,8 +1936,12 @@
             return;
           }
           
-          console.log('✅ Голос выбран:', selectedVoice.value);
+          console.log('✅ Валидация пройдена');
+          console.log('- Название:', agentName);
+          console.log('- Голос:', selectedVoice.value);
+          console.log('- Системный промпт:', systemPrompt.substring(0, 50) + '...');
           
+          // 2. БЕЗОПАСНАЯ СБОРКА ДАННЫХ
           const selectedVoiceOption = availableVoices.find(v => v.voice_id === selectedVoice.value);
           
           // Собираем выбранные встроенные инструменты
@@ -1847,41 +1951,52 @@
           });
           
           const agentData = {
-            name: document.getElementById('agent-name').value,
-            first_message: document.getElementById('first-message').value,
-            language: document.getElementById('agent-language').value,
-            llm_model: document.getElementById('llm-model').value,
-            system_prompt: document.getElementById('system-prompt').value,
+            name: agentName,
+            first_message: document.getElementById('first-message')?.value || 'Привет! Как дела?',
+            language: document.getElementById('agent-language')?.value || 'ru',
+            llm_model: document.getElementById('llm-model')?.value || 'gpt-4o-mini',
+            system_prompt: systemPrompt,
             voice_id: selectedVoice.value,
             voice_name: selectedVoiceOption ? selectedVoiceOption.name : selectedVoice.value,
-            llm_temperature: parseFloat(document.getElementById('llm-temperature').value),
-            max_tokens: parseInt(document.getElementById('max-tokens').value),
-            voice_stability: parseFloat(document.getElementById('voice-stability').value),
-            voice_similarity: parseFloat(document.getElementById('voice-similarity').value),
-            voice_speed: parseFloat(document.getElementById('voice-speed').value),
+            llm_temperature: parseFloat(document.getElementById('llm-temperature')?.value || '0.7'),
+            max_tokens: parseInt(document.getElementById('max-tokens')?.value || '1000'),
+            voice_stability: parseFloat(document.getElementById('voice-stability')?.value || '0.5'),
+            voice_similarity: parseFloat(document.getElementById('voice-similarity')?.value || '0.8'),
+            voice_speed: parseFloat(document.getElementById('voice-speed')?.value || '1.0'),
             built_in_tools: builtInTools
           };
           
           console.log('📋 Данные агента:', agentData);
           
+          // 3. УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК
+          let result;
           if (currentAgentId) {
             console.log('📝 Обновление существующего агента:', currentAgentId);
-            const updatedAgent = await api.put(`/${currentAgentId}`, agentData);
-            currentAgentData = updatedAgent;
+            result = await api.put(`/${currentAgentId}`, agentData);
+            currentAgentData = result;
             ui.showNotification('Агент успешно обновлен!', 'success');
           } else {
             console.log('➕ Создание нового агента');
-            const newAgent = await api.post('/', agentData);
-            currentAgentId = newAgent.id;
-            currentAgentData = newAgent;
+            result = await api.post('/', agentData);
+            currentAgentId = result.id;
+            currentAgentData = result;
             ui.showNotification('Агент успешно создан!', 'success');
             
             // Получаем код для встраивания
-            const embedData = await api.get(`/${currentAgentId}/embed`);
-            document.getElementById('embed-code').textContent = embedData.embed_code;
+            try {
+              const embedData = await api.get(`/${currentAgentId}/embed`);
+              const embedCodeEl = document.getElementById('embed-code');
+              if (embedCodeEl) {
+                embedCodeEl.textContent = embedData.embed_code;
+              }
+            } catch (embedError) {
+              console.warn('⚠️ Ошибка получения кода для встраивания:', embedError);
+            }
           }
           
-          deleteAgentBtn.style.display = 'inline-flex';
+          if (deleteAgentBtn) {
+            deleteAgentBtn.style.display = 'inline-flex';
+          }
           console.log('✅ Агент успешно сохранен');
           
         } catch (error) {
@@ -1915,10 +2030,18 @@
       
       // Обновление отображения значений слайдеров
       function updateRangeDisplays() {
-        stabilityValue.textContent = voiceStability.value;
-        similarityValue.textContent = voiceSimilarity.value;
-        speedValue.textContent = voiceSpeed.value;
-        temperatureValue.textContent = llmTemperature.value;
+        if (stabilityValue && voiceStability) {
+          stabilityValue.textContent = voiceStability.value;
+        }
+        if (similarityValue && voiceSimilarity) {
+          similarityValue.textContent = voiceSimilarity.value;
+        }
+        if (speedValue && voiceSpeed) {
+          speedValue.textContent = voiceSpeed.value;
+        }
+        if (temperatureValue && llmTemperature) {
+          temperatureValue.textContent = llmTemperature.value;
+        }
       }
       
       // Тестирование (остается без изменений)
@@ -2054,10 +2177,10 @@
         
         sendElevenLabsInitialization();
         
-        startTestBtn.style.display = 'none';
-        stopTestBtn.style.display = 'inline-flex';
-        retryConnectionBtn.style.display = 'none';
-        vadIndicator.style.display = 'flex';
+        if (startTestBtn) startTestBtn.style.display = 'none';
+        if (stopTestBtn) stopTestBtn.style.display = 'inline-flex';
+        if (retryConnectionBtn) retryConnectionBtn.style.display = 'none';
+        if (vadIndicator) vadIndicator.style.display = 'flex';
         
         startKeepAlive();
         ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
@@ -2297,10 +2420,10 @@
         stopKeepAlive();
         
         updateConnectionStatus('disconnected', 'Отключен');
-        startTestBtn.style.display = 'inline-flex';
-        stopTestBtn.style.display = 'none';
-        retryConnectionBtn.style.display = showRetryButton ? 'inline-flex' : 'none';
-        vadIndicator.style.display = 'none';
+        if (startTestBtn) startTestBtn.style.display = 'inline-flex';
+        if (stopTestBtn) stopTestBtn.style.display = 'none';
+        if (retryConnectionBtn) retryConnectionBtn.style.display = showRetryButton ? 'inline-flex' : 'none';
+        if (vadIndicator) vadIndicator.style.display = 'none';
         
         if (volumeBar) volumeBar.style.width = '0%';
         if (vadScoreElement) vadScoreElement.textContent = '0.00';
@@ -2367,11 +2490,13 @@
       
       function updateConnectionStatus(status, message) {
         const statusElement = document.getElementById('connection-status');
-        const indicator = statusElement.querySelector('.status-indicator');
-        const text = statusElement.querySelector('span');
-        
-        indicator.className = `status-indicator ${status}`;
-        text.textContent = message;
+        if (statusElement) {
+          const indicator = statusElement.querySelector('.status-indicator');
+          const text = statusElement.querySelector('span');
+          
+          if (indicator) indicator.className = `status-indicator ${status}`;
+          if (text) text.textContent = message;
+        }
       }
       
       // Утилиты аудио
@@ -2432,7 +2557,7 @@
         return new Blob([arrayBuffer], { type: 'audio/wav' });
       }
       
-      // Обработчики событий
+      // ✅ ОБРАБОТЧИКИ СОБЫТИЙ: Добавляем безопасные обработчики с проверкой элементов
       
       // Вкладки
       tabs.forEach(tab => {
@@ -2443,93 +2568,155 @@
       });
       
       // Формы
-      apiKeyForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const apiKey = document.getElementById('api-key').value;
-        await saveApiKey(apiKey);
-      });
+      if (apiKeyForm) {
+        apiKeyForm.addEventListener('submit', async (e) => {
+          console.log('📝 Форма API ключа отправлена');
+          e.preventDefault();
+          const apiKey = document.getElementById('api-key')?.value;
+          if (apiKey) {
+            await saveApiKey(apiKey);
+          }
+        });
+      }
       
-      changeApiKeyForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const newApiKey = document.getElementById('new-api-key').value;
-        await saveApiKey(newApiKey);
-        ui.hideModal(changeApiKeyModal);
-        document.getElementById('new-api-key').value = '';
-      });
+      if (changeApiKeyForm) {
+        changeApiKeyForm.addEventListener('submit', async (e) => {
+          console.log('📝 Форма смены API ключа отправлена');
+          e.preventDefault();
+          const newApiKey = document.getElementById('new-api-key')?.value;
+          if (newApiKey) {
+            await saveApiKey(newApiKey);
+            ui.hideModal(changeApiKeyModal);
+            document.getElementById('new-api-key').value = '';
+          }
+        });
+      }
       
-      agentForm.addEventListener('submit', async (e) => {
-        console.log('📝 Форма агента отправлена');
-        e.preventDefault();
-        await saveAgent();
-      });
+      if (agentForm) {
+        agentForm.addEventListener('submit', async (e) => {
+          console.log('📝 Форма агента отправлена');
+          e.preventDefault();
+          await saveAgent();
+        });
+      }
       
-      // Кнопки
-      changeApiKeyBtn.addEventListener('click', () => {
-        console.log('🔘 Кнопка "Сменить API ключ" нажата');
-        ui.showModal(changeApiKeyModal);
-      });
+      // ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК КНОПКИ "СОХРАНИТЬ": Исправляем основную проблему
+      if (saveAgentBtn) {
+        saveAgentBtn.addEventListener('click', async (e) => {
+          e.preventDefault(); // Предотвращаем стандартное поведение
+          console.log('🔘 Кнопка "Сохранить" нажата');
+          await saveAgent(); // Вызываем функцию сохранения
+        });
+        console.log('✅ Обработчик кнопки "Сохранить" добавлен');
+      } else {
+        console.error('❌ Кнопка save-agent не найдена!');
+      }
       
-      changeApiKeyListBtn.addEventListener('click', () => {
-        console.log('🔘 Кнопка "Изменить" API ключ нажата');
-        ui.showModal(changeApiKeyModal);
-      });
+      // Остальные кнопки с безопасными обработчиками
+      if (changeApiKeyBtn) {
+        changeApiKeyBtn.addEventListener('click', () => {
+          console.log('🔘 Кнопка "Сменить API ключ" нажата');
+          ui.showModal(changeApiKeyModal);
+        });
+      }
       
-      closeApiModal.addEventListener('click', () => {
-        console.log('🔘 Кнопка закрытия модального окна нажата');
-        ui.hideModal(changeApiKeyModal);
-      });
+      if (changeApiKeyListBtn) {
+        changeApiKeyListBtn.addEventListener('click', () => {
+          console.log('🔘 Кнопка "Изменить" API ключ нажата');
+          ui.showModal(changeApiKeyModal);
+        });
+      }
       
-      cancelApiChange.addEventListener('click', () => {
-        console.log('🔘 Кнопка "Отмена" смены API ключа нажата');
-        ui.hideModal(changeApiKeyModal);
-      });
+      if (closeApiModal) {
+        closeApiModal.addEventListener('click', () => {
+          console.log('🔘 Кнопка закрытия модального окна нажата');
+          ui.hideModal(changeApiKeyModal);
+        });
+      }
       
-      addAgentBtn.addEventListener('click', startCreateAgent);
+      if (cancelApiChange) {
+        cancelApiChange.addEventListener('click', () => {
+          console.log('🔘 Кнопка "Отмена" смены API ключа нажата');
+          ui.hideModal(changeApiKeyModal);
+        });
+      }
+      
+      if (addAgentBtn) {
+        addAgentBtn.addEventListener('click', startCreateAgent);
+      }
       
       if (cancelButton) {
         cancelButton.addEventListener('click', () => loadAgentsList());
       }
       
-      cancelAdvancedButton.addEventListener('click', () => loadAgentsList());
+      if (cancelAdvancedButton) {
+        cancelAdvancedButton.addEventListener('click', () => loadAgentsList());
+      }
       
-      saveAdvancedButton.addEventListener('click', async () => {
-        await saveAgent();
-      });
+      if (saveAdvancedButton) {
+        saveAdvancedButton.addEventListener('click', async () => {
+          await saveAgent();
+        });
+      }
       
-      deleteAgentBtn.addEventListener('click', deleteAgent);
+      if (deleteAgentBtn) {
+        deleteAgentBtn.addEventListener('click', deleteAgent);
+      }
       
-      viewEmbedCodeBtn.addEventListener('click', () => ui.switchTab('embed'));
+      if (viewEmbedCodeBtn) {
+        viewEmbedCodeBtn.addEventListener('click', () => ui.switchTab('embed'));
+      }
       
-      startTestBtn.addEventListener('click', startTesting);
+      if (startTestBtn) {
+        startTestBtn.addEventListener('click', startTesting);
+      }
       
-      stopTestBtn.addEventListener('click', () => stopTesting());
+      if (stopTestBtn) {
+        stopTestBtn.addEventListener('click', () => stopTesting());
+      }
       
-      retryConnectionBtn.addEventListener('click', () => {
-        retryConnectionBtn.style.display = 'none';
-        startTesting();
-      });
+      if (retryConnectionBtn) {
+        retryConnectionBtn.addEventListener('click', () => {
+          if (retryConnectionBtn) retryConnectionBtn.style.display = 'none';
+          startTesting();
+        });
+      }
       
-      copyEmbedCodeBtn.addEventListener('click', () => {
-        const embedCode = document.getElementById('embed-code');
-        const tempTextarea = document.createElement('textarea');
-        tempTextarea.value = embedCode.textContent;
-        document.body.appendChild(tempTextarea);
-        tempTextarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(tempTextarea);
-        
-        ui.showNotification('Код для встраивания скопирован!', 'success');
-      });
+      if (copyEmbedCodeBtn) {
+        copyEmbedCodeBtn.addEventListener('click', () => {
+          const embedCode = document.getElementById('embed-code');
+          if (embedCode) {
+            const tempTextarea = document.createElement('textarea');
+            tempTextarea.value = embedCode.textContent;
+            document.body.appendChild(tempTextarea);
+            tempTextarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextarea);
+            
+            ui.showNotification('Код для встраивания скопирован!', 'success');
+          }
+        });
+      }
       
-      notificationClose.addEventListener('click', () => {
-        ui.hideNotification();
-      });
+      if (notificationClose) {
+        notificationClose.addEventListener('click', () => {
+          ui.hideNotification();
+        });
+      }
       
       // Слайдеры
-      voiceStability.addEventListener('input', updateRangeDisplays);
-      voiceSimilarity.addEventListener('input', updateRangeDisplays);
-      voiceSpeed.addEventListener('input', updateRangeDisplays);
-      llmTemperature.addEventListener('input', updateRangeDisplays);
+      if (voiceStability) {
+        voiceStability.addEventListener('input', updateRangeDisplays);
+      }
+      if (voiceSimilarity) {
+        voiceSimilarity.addEventListener('input', updateRangeDisplays);
+      }
+      if (voiceSpeed) {
+        voiceSpeed.addEventListener('input', updateRangeDisplays);
+      }
+      if (llmTemperature) {
+        llmTemperature.addEventListener('input', updateRangeDisplays);
+      }
       
       // Встроенные инструменты
       document.querySelectorAll('input[name="built_in_tools"]').forEach(checkbox => {
@@ -2539,29 +2726,52 @@
       });
       
       // Закрытие модального окна по клику вне его
-      changeApiKeyModal.addEventListener('click', (e) => {
-        if (e.target === changeApiKeyModal) {
-          ui.hideModal(changeApiKeyModal);
-        }
-      });
+      if (changeApiKeyModal) {
+        changeApiKeyModal.addEventListener('click', (e) => {
+          if (e.target === changeApiKeyModal) {
+            ui.hideModal(changeApiKeyModal);
+          }
+        });
+      }
+      
+      // ✅ ФУНКЦИИ ОТЛАДКИ: Добавляем глобальные функции для отладки
+      window.elevenLabsDebug = {
+        saveAgent: () => saveAgent(),
+        currentAgentId: () => currentAgentId,
+        availableVoices: () => availableVoices,
+        currentAgentData: () => currentAgentData,
+        api: api,
+        ui: ui
+      };
       
       // Инициализация
       async function init() {
-        if (!checkAuth()) return;
+        console.log('🔄 Инициализация системы...');
+        
+        if (!checkAuth()) {
+          console.log('❌ Авторизация не пройдена');
+          return;
+        }
         
         try {
           const hasApiKey = await checkApiKeyDetailed();
           
           if (hasApiKey) {
+            console.log('✅ API ключ найден, загружаем список агентов');
             await loadAgentsList();
           } else {
+            console.log('⚠️ API ключ не найден, показываем форму ввода');
             ui.showView('api-key');
           }
         } catch (error) {
+          console.error('❌ Ошибка при инициализации:', error);
           ui.showNotification(error.message || 'Ошибка при инициализации', 'error');
         }
+        
+        console.log('✅ ElevenLabs инициализирован');
       }
       
+      // Запуск инициализации
       init();
     });
   </script>
