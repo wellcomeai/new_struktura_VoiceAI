@@ -815,6 +815,10 @@
                 <i class="fas fa-volume-up"></i>
                 <span>Голос: <span id="selected-voice-name">-</span></span>
               </div>
+              <div class="status-item" id="latency-status" style="display: none;">
+                <i class="fas fa-tachometer-alt"></i>
+                <span>Задержка: <span id="latency-value">-</span>ms</span>
+              </div>
             </div>
             
             <div id="testing-controls">
@@ -824,10 +828,28 @@
               <button class="btn btn-outline" id="stop-test-btn" style="display: none;">
                 <i class="fas fa-stop"></i> Остановить
               </button>
+              <button class="btn btn-secondary" id="retry-connection-btn" style="display: none;">
+                <i class="fas fa-redo"></i> Повторить подключение
+              </button>
             </div>
             
             <div style="margin-top: 2rem; color: var(--text-gray); font-size: 0.875rem;">
               <p><i class="fas fa-info-circle"></i> Нажмите "Начать тестирование" и говорите с ассистентом</p>
+              <details style="margin-top: 1rem;">
+                <summary style="cursor: pointer; color: var(--primary-blue);">
+                  <i class="fas fa-question-circle"></i> Устранение проблем с подключением
+                </summary>
+                <div style="margin-top: 0.5rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md); font-size: 0.8rem;">
+                  <p><strong>Если подключение не работает:</strong></p>
+                  <ul style="margin: 0.5rem 0 0 1rem;">
+                    <li>Проверьте правильность API ключа ElevenLabs</li>
+                    <li>Убедитесь, что у агента выбран голос</li>
+                    <li>Разрешите доступ к микрофону в браузере</li>
+                    <li>Проверьте интернет соединение</li>
+                    <li>Попробуйте обновить страницу</li>
+                  </ul>
+                </div>
+              </details>
             </div>
           </div>
         </div>
@@ -896,6 +918,7 @@
       let testingAudioContext = null;
       let testingMediaStream = null;
       let isTestingActive = false;
+      let lastPingTime = null;
       
       // Получаем элементы
       const apiKeyContainer = document.getElementById('api-key-container');
@@ -920,6 +943,7 @@
       const copyEmbedCodeBtn = document.getElementById('copy-embed-code');
       const startTestBtn = document.getElementById('start-test-btn');
       const stopTestBtn = document.getElementById('stop-test-btn');
+      const retryConnectionBtn = document.getElementById('retry-connection-btn');
       
       // Табы
       const tabs = document.querySelectorAll('.tab');
@@ -1061,18 +1085,27 @@
         return true;
       }
       
-      // Проверка API ключа
-      async function checkApiKey() {
+      // Проверка API ключа с дополнительной диагностикой
+      async function checkApiKeyDetailed() {
         try {
+          console.log('🔍 Проверка API ключа ElevenLabs...');
           const response = await api.get('/api-key/status');
+          console.log('📊 Статус API ключа:', response);
           
           if (response.has_api_key && response.is_valid) {
+            console.log('✅ API ключ валиден');
             return true;
+          } else if (response.has_api_key && !response.is_valid) {
+            console.log('❌ API ключ недействителен');
+            ui.showNotification('API ключ ElevenLabs недействителен. Обновите ключ в настройках.', 'error');
+            return false;
           } else {
+            console.log('⚠️ API ключ не установлен');
             return false;
           }
         } catch (error) {
-          console.error('Error checking API key:', error);
+          console.error('❌ Ошибка проверки API ключа:', error);
+          ui.showNotification('Ошибка при проверке API ключа: ' + error.message, 'error');
           return false;
         }
       }
@@ -1350,10 +1383,58 @@
       
       // ============= ОБНОВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
       
+      // Диагностика агента перед тестированием
+      async function diagnoseAgent() {
+        console.log('🔍 Диагностика агента...');
+        
+        if (!currentAgentId) {
+          console.log('❌ ID агента не установлен');
+          return false;
+        }
+        
+        try {
+          // Проверяем данные агента
+          const agent = await api.get(`/${currentAgentId}`);
+          console.log('📋 Данные агента:', agent);
+          
+          if (!agent.voice_id) {
+            console.log('❌ У агента не установлен голос');
+            ui.showNotification('У агента не установлен голос. Выберите голос в настройках.', 'error');
+            return false;
+          }
+          
+          if (!agent.system_prompt) {
+            console.log('⚠️ У агента не установлен системный промпт');
+          }
+          
+          // Проверяем API ключ
+          const keyStatus = await api.get('/api-key/status');
+          if (!keyStatus.is_valid) {
+            console.log('❌ API ключ недействителен');
+            ui.showNotification('API ключ ElevenLabs недействителен', 'error');
+            return false;
+          }
+          
+          console.log('✅ Диагностика пройдена успешно');
+          return true;
+          
+        } catch (error) {
+          console.error('❌ Ошибка диагностики:', error);
+          ui.showNotification('Ошибка при проверке агента: ' + error.message, 'error');
+          return false;
+        }
+      }
+      
       // Начать тестирование с правильным протоколом ElevenLabs
       async function startTesting() {
         if (!currentAgentId) {
           ui.showNotification('Сначала сохраните агента', 'error');
+          return;
+        }
+        
+        // Проводим диагностику перед подключением
+        const diagnosticsPassed = await diagnoseAgent();
+        if (!diagnosticsPassed) {
           return;
         }
         
@@ -1365,28 +1446,47 @@
           const wsUrl = urlData.signed_url || urlData.fallback_url;
           
           console.log('🔗 Подключение к ElevenLabs URL:', wsUrl);
+          console.log('📋 URL данные:', urlData);
+          
+          // Проверяем валидность URL
+          if (!wsUrl) {
+            throw new Error('Не получен URL для подключения к ElevenLabs');
+          }
           
           // Запрашиваем доступ к микрофону
+          console.log('🎤 Запрос доступа к микрофону...');
           testingMediaStream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
               sampleRate: 16000,
               channelCount: 1,
               echoCancellation: true,
-              noiseSuppression: true
+              noiseSuppression: true,
+              autoGainControl: true
             }
           });
+          console.log('✅ Доступ к микрофону получен');
           
           // Подключаемся к WebSocket ElevenLabs
+          console.log('🔌 Создание WebSocket подключения...');
           testingWebSocket = new WebSocket(wsUrl);
           
+          // Устанавливаем таймаут для подключения
+          const connectionTimeout = setTimeout(() => {
+            if (testingWebSocket && testingWebSocket.readyState === WebSocket.CONNECTING) {
+              console.log('⏰ Таймаут подключения');
+              testingWebSocket.close();
+              ui.showNotification('Таймаут подключения к ElevenLabs. Проверьте API ключ и настройки агента.', 'error');
+            }
+          }, 10000); // 10 секунд таймаут
+          
           testingWebSocket.onopen = () => {
+            clearTimeout(connectionTimeout);
             console.log('✅ WebSocket подключен к ElevenLabs');
             updateConnectionStatus('connected', 'Подключен к ElevenLabs');
             
             // Отправляем инициализацию разговора ElevenLabs
             const initMessage = {
               "type": "conversation_initiation_client_data"
-              // ElevenLabs будет использовать настройки агента с сервера
             };
             
             console.log('📤 Отправка инициализации:', initMessage);
@@ -1398,6 +1498,8 @@
             isTestingActive = true;
             startTestBtn.style.display = 'none';
             stopTestBtn.style.display = 'inline-flex';
+            
+            ui.showNotification('Подключение установлено! Говорите с ассистентом', 'success');
           };
           
           testingWebSocket.onmessage = (event) => {
@@ -1411,23 +1513,83 @@
           };
           
           testingWebSocket.onclose = (event) => {
+            clearTimeout(connectionTimeout);
             console.log('🔌 WebSocket закрыт:', event.code, event.reason);
-            updateConnectionStatus('disconnected', 'Отключен');
-            stopTesting();
+            
+            let errorMessage = 'Подключение закрыто';
+            
+            // Расшифровываем коды ошибок WebSocket
+            switch (event.code) {
+              case 1000:
+                errorMessage = 'Нормальное закрытие соединения';
+                break;
+              case 1001:
+                errorMessage = 'Эндпоинт недоступен';
+                break;
+              case 1002:
+                errorMessage = 'Ошибка протокола';
+                break;
+              case 1003:
+                errorMessage = 'Неподдерживаемый тип данных';
+                break;
+              case 1006:
+                errorMessage = 'Соединение закрыто некорректно. Проверьте API ключ и подпись агента.';
+                break;
+              case 1011:
+                errorMessage = 'Внутренняя ошибка сервера';
+                break;
+              case 1015:
+                errorMessage = 'Ошибка TLS handshake';
+                break;
+              default:
+                errorMessage = `Соединение закрыто с кодом ${event.code}`;
+            }
+            
+            updateConnectionStatus('disconnected', errorMessage);
+            
+            if (event.code !== 1000) {
+              ui.showNotification(`Ошибка подключения: ${errorMessage}`, 'error');
+            }
+            
+            stopTesting(event.code !== 1000); // Показываем кнопку повтора при ошибках
           };
           
           testingWebSocket.onerror = (error) => {
+            clearTimeout(connectionTimeout);
             console.error('❌ WebSocket ошибка:', error);
+            
             updateConnectionStatus('disconnected', 'Ошибка подключения');
-            stopTesting();
+            
+            // Более детальная информация об ошибке
+            let errorText = 'Не удалось подключиться к ElevenLabs';
+            
+            if (testingWebSocket.readyState === WebSocket.CLOSED) {
+              errorText += '. Проверьте:';
+              errorText += '\n• API ключ ElevenLabs';
+              errorText += '\n• Настройки агента';
+              errorText += '\n• Интернет соединение';
+            }
+            
+            ui.showNotification(errorText, 'error');
+            stopTesting(true); // Показываем кнопку повтора при ошибках
           };
           
           updateConnectionStatus('connecting', 'Подключение к ElevenLabs...');
           
         } catch (error) {
           console.error('❌ Ошибка запуска тестирования:', error);
-          ui.showNotification(error.message || 'Ошибка при запуске тестирования', 'error');
-          stopTesting();
+          
+          let errorMessage = error.message;
+          if (error.name === 'NotAllowedError') {
+            errorMessage = 'Доступ к микрофону заблокирован. Разрешите использование микрофона в браузере.';
+          } else if (error.name === 'NotFoundError') {
+            errorMessage = 'Микрофон не найден. Подключите микрофон и попробуйте снова.';
+          } else if (error.name === 'NotSupportedError') {
+            errorMessage = 'Ваш браузер не поддерживает запись аудио.';
+          }
+          
+          ui.showNotification(errorMessage || 'Ошибка при запуске тестирования', 'error');
+          stopTesting(true); // Показываем кнопку повтора при ошибках
         } finally {
           ui.setLoading(false);
         }
@@ -1518,13 +1680,29 @@
             break;
             
           case 'ping':
-            // Отвечаем на ping от сервера
+            // Отвечаем на ping от сервера и измеряем задержку
+            lastPingTime = Date.now();
             console.log('🏓 Ping от сервера, отправляем pong');
             const pongMessage = {
               "type": "pong",
               "event_id": data.event_id
             };
             testingWebSocket.send(JSON.stringify(pongMessage));
+            break;
+            
+          case 'pong':
+            // Измеряем задержку
+            if (lastPingTime) {
+              const latency = Date.now() - lastPingTime;
+              console.log(`📊 Задержка: ${latency}ms`);
+              const latencyElement = document.getElementById('latency-value');
+              const latencyStatus = document.getElementById('latency-status');
+              if (latencyElement && latencyStatus) {
+                latencyElement.textContent = latency;
+                latencyStatus.style.display = 'flex';
+              }
+              lastPingTime = null;
+            }
             break;
             
           case 'interruption':
@@ -1568,8 +1746,9 @@
       }
       
       // Остановить тестирование
-      function stopTesting() {
+      function stopTesting(showRetryButton = false) {
         isTestingActive = false;
+        lastPingTime = null;
         
         if (testingWebSocket) {
           testingWebSocket.close();
@@ -1589,6 +1768,13 @@
         updateConnectionStatus('disconnected', 'Отключен');
         startTestBtn.style.display = 'inline-flex';
         stopTestBtn.style.display = 'none';
+        retryConnectionBtn.style.display = showRetryButton ? 'inline-flex' : 'none';
+        
+        // Скрываем индикатор задержки
+        const latencyStatus = document.getElementById('latency-status');
+        if (latencyStatus) {
+          latencyStatus.style.display = 'none';
+        }
       }
       
       // Конвертация в PCM16
@@ -1691,6 +1877,10 @@
       viewEmbedCodeBtn.addEventListener('click', () => ui.switchTab('embed'));
       startTestBtn.addEventListener('click', startTesting);
       stopTestBtn.addEventListener('click', stopTesting);
+      retryConnectionBtn.addEventListener('click', () => {
+        retryConnectionBtn.style.display = 'none';
+        startTesting();
+      });
       
       // Копирование embed кода
       copyEmbedCodeBtn.addEventListener('click', () => {
@@ -1715,7 +1905,7 @@
         if (!checkAuth()) return;
         
         try {
-          const hasApiKey = await checkApiKey();
+          const hasApiKey = await checkApiKeyDetailed();
           
           if (hasApiKey) {
             await loadAgentsList();
