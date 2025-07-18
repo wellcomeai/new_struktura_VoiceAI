@@ -1,5 +1,5 @@
 """
-ElevenLabs service for WellcomeAI application.
+ИСПРАВЛЕННЫЙ ElevenLabs service для WellcomeAI application.
 """
 
 import httpx
@@ -26,7 +26,6 @@ class ElevenLabsService:
     
     ELEVENLABS_API_BASE = "https://api.elevenlabs.io/v1"
     
-    # ✅ ДОБАВЛЕНО: Проверка админа (как в dashboard.html)
     @staticmethod
     def is_admin(user_email: str) -> bool:
         """Проверить, является ли пользователь админом"""
@@ -43,6 +42,7 @@ class ElevenLabsService:
                     f"{ElevenLabsService.ELEVENLABS_API_BASE}/user",
                     headers={"xi-api-key": api_key}
                 )
+                logger.info(f"API key validation response: {response.status_code}")
                 return response.status_code == 200
         except Exception as e:
             logger.error(f"Error validating API key: {str(e)}")
@@ -61,6 +61,7 @@ class ElevenLabsService:
                 )
                 
                 if response.status_code != 200:
+                    logger.error(f"Failed to get voices: {response.status_code} - {response.text}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Failed to get voices from ElevenLabs"
@@ -94,9 +95,15 @@ class ElevenLabsService:
         Create agent in ElevenLabs
         """
         try:
-            async with httpx.AsyncClient() as client:
+            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/create"
+            
+            logger.info(f"Creating agent at URL: {url}")
+            logger.info(f"Agent data: {json.dumps(agent_data, indent=2)}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
-                    f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents",
+                    url,
                     headers={
                         "xi-api-key": api_key,
                         "Content-Type": "application/json"
@@ -104,21 +111,27 @@ class ElevenLabsService:
                     json=agent_data
                 )
                 
+                logger.info(f"ElevenLabs response status: {response.status_code}")
+                logger.info(f"ElevenLabs response headers: {dict(response.headers)}")
+                
                 if response.status_code != 200:
+                    logger.error(f"ElevenLabs API error: {response.status_code} - {response.text}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Failed to create agent in ElevenLabs"
+                        detail=f"Failed to create agent in ElevenLabs: {response.text}"
                     )
                 
                 result = response.json()
+                logger.info(f"Agent created successfully: {result}")
                 return result.get("agent_id")
+                
         except HTTPException:
             raise
         except Exception as e:
             logger.error(f"Error creating ElevenLabs agent: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create agent in ElevenLabs"
+                detail=f"Failed to create agent in ElevenLabs: {str(e)}"
             )
     
     @staticmethod
@@ -127,9 +140,15 @@ class ElevenLabsService:
         Update agent in ElevenLabs
         """
         try:
-            async with httpx.AsyncClient() as client:
+            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}"
+            
+            logger.info(f"Updating agent at URL: {url}")
+            logger.info(f"Update data: {json.dumps(agent_data, indent=2)}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.patch(
-                    f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}",
+                    url,
                     headers={
                         "xi-api-key": api_key,
                         "Content-Type": "application/json"
@@ -137,7 +156,12 @@ class ElevenLabsService:
                     json=agent_data
                 )
                 
+                logger.info(f"Update response status: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Update failed: {response.text}")
+                
                 return response.status_code == 200
+                
         except Exception as e:
             logger.error(f"Error updating ElevenLabs agent: {str(e)}")
             return False
@@ -148,13 +172,23 @@ class ElevenLabsService:
         Delete agent from ElevenLabs
         """
         try:
-            async with httpx.AsyncClient() as client:
+            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}"
+            
+            logger.info(f"Deleting agent at URL: {url}")
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.delete(
-                    f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}",
+                    url,
                     headers={"xi-api-key": api_key}
                 )
                 
+                logger.info(f"Delete response status: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"Delete failed: {response.text}")
+                
                 return response.status_code == 200
+                
         except Exception as e:
             logger.error(f"Error deleting ElevenLabs agent: {str(e)}")
             return False
@@ -165,14 +199,18 @@ class ElevenLabsService:
         Get signed URL for WebSocket connection
         """
         try:
-            async with httpx.AsyncClient() as client:
+            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/conversation/get-signed-url"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
-                    f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/conversation/get-signed-url",
+                    url,
                     headers={"xi-api-key": api_key},
                     params={"agent_id": agent_id}
                 )
                 
                 if response.status_code != 200:
+                    logger.error(f"Failed to get signed URL: {response.status_code} - {response.text}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail="Failed to get signed URL"
@@ -180,6 +218,7 @@ class ElevenLabsService:
                 
                 result = response.json()
                 return result.get("signed_url")
+                
         except HTTPException:
             raise
         except Exception as e:
@@ -252,7 +291,6 @@ class ElevenLabsService:
         Create new agent
         """
         try:
-            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа (как в dashboard.html)
             from backend.models.user import User
             
             user = db.query(User).filter(User.id == user_id).first()
@@ -275,9 +313,8 @@ class ElevenLabsService:
                         }
                     )
             
-            # Создаем агента в ElevenLabs
+            # ✅ ИСПРАВЛЕН JSON: используем правильную структуру
             elevenlabs_agent_data = {
-                "name": agent_data.name,
                 "conversation_config": {
                     "agent": {
                         "prompt": {
@@ -287,9 +324,13 @@ class ElevenLabsService:
                     "tts": {
                         "voice_id": agent_data.voice_id
                     }
-                }
+                },
+                "name": agent_data.name
             }
             
+            logger.info(f"Creating ElevenLabs agent with data: {json.dumps(elevenlabs_agent_data, indent=2)}")
+            
+            # Создаем агента в ElevenLabs
             elevenlabs_agent_id = await ElevenLabsService.create_elevenlabs_agent(
                 api_key, elevenlabs_agent_data
             )
@@ -323,6 +364,7 @@ class ElevenLabsService:
                 created_at=agent.created_at,
                 updated_at=agent.updated_at
             )
+            
         except HTTPException:
             raise
         except Exception as e:
@@ -345,7 +387,6 @@ class ElevenLabsService:
         Update agent
         """
         try:
-            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа
             from backend.models.user import User
             
             user = db.query(User).filter(User.id == user_id).first()
@@ -382,6 +423,7 @@ class ElevenLabsService:
             
             # Обновляем в ElevenLabs если есть изменения
             if agent.elevenlabs_agent_id:
+                # ✅ ИСПРАВЛЕН JSON: используем правильную структуру
                 elevenlabs_agent_data = {}
                 
                 if agent_data.name:
@@ -427,6 +469,7 @@ class ElevenLabsService:
                 created_at=agent.created_at,
                 updated_at=agent.updated_at
             )
+            
         except HTTPException:
             raise
         except Exception as e:
@@ -443,7 +486,6 @@ class ElevenLabsService:
         Delete agent
         """
         try:
-            # ✅ ИСПРАВЛЕНО: Добавлена проверка админа
             from backend.models.user import User
             
             user = db.query(User).filter(User.id == user_id).first()
@@ -487,6 +529,7 @@ class ElevenLabsService:
             db.commit()
             
             return True
+            
         except HTTPException:
             raise
         except Exception as e:
