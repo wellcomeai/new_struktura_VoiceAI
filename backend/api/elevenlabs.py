@@ -1,5 +1,5 @@
 """
-ElevenLabs API endpoints for WellcomeAI application.
+ИСПРАВЛЕННЫЕ ElevenLabs API endpoints для WellcomeAI application.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,7 +28,7 @@ router = APIRouter()
 
 @router.get("/api-key/status")
 async def check_api_key_status(
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для статуса
     db: Session = Depends(get_db)
 ):
     """
@@ -68,7 +68,7 @@ async def check_api_key_status(
 @router.post("/api-key")
 async def save_api_key(
     request: ElevenLabsApiKeyRequest,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для сохранения ключа
     db: Session = Depends(get_db)
 ):
     """
@@ -112,7 +112,7 @@ async def save_api_key(
 
 @router.get("/voices", response_model=List[ElevenLabsVoiceResponse])
 async def get_voices(
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения голосов
     db: Session = Depends(get_db)
 ):
     """
@@ -145,7 +145,7 @@ async def get_voices(
 
 @router.get("/", response_model=List[ElevenLabsAgentResponse])
 async def get_agents(
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения списка
     db: Session = Depends(get_db)
 ):
     """
@@ -164,7 +164,7 @@ async def get_agents(
 @router.post("/", response_model=ElevenLabsAgentResponse)
 async def create_agent(
     agent_data: ElevenLabsAgentCreate,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
     db: Session = Depends(get_db)
 ):
     """
@@ -172,6 +172,7 @@ async def create_agent(
     """
     try:
         logger.info(f"Creating agent for user {current_user.id}")
+        logger.info(f"Agent data: {agent_data.dict()}")
         
         if not current_user.elevenlabs_api_key:
             raise HTTPException(
@@ -179,12 +180,17 @@ async def create_agent(
                 detail="ElevenLabs API key not found. Please add your API key first."
             )
         
-        return await ElevenLabsService.create_agent(
+        # ✅ ДОБАВЛЕНО: дополнительная проверка подписки (логика теперь в сервисе)
+        result = await ElevenLabsService.create_agent(
             db, 
             str(current_user.id), 
             current_user.elevenlabs_api_key,
             agent_data
         )
+        
+        logger.info(f"✅ Agent created successfully: {result.id}")
+        return result
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -197,7 +203,7 @@ async def create_agent(
 @router.get("/{agent_id}", response_model=ElevenLabsAgentResponse)
 async def get_agent(
     agent_id: str,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для получения одного агента
     db: Session = Depends(get_db)
 ):
     """
@@ -219,7 +225,7 @@ async def get_agent(
 async def update_agent(
     agent_id: str,
     agent_data: ElevenLabsAgentUpdate,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
     db: Session = Depends(get_db)
 ):
     """
@@ -234,6 +240,7 @@ async def update_agent(
                 detail="ElevenLabs API key not found"
             )
         
+        # ✅ ДОБАВЛЕНО: логика проверки подписки теперь в сервисе
         return await ElevenLabsService.update_agent(
             db, 
             agent_id, 
@@ -241,6 +248,7 @@ async def update_agent(
             current_user.elevenlabs_api_key,
             agent_data
         )
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -253,7 +261,7 @@ async def update_agent(
 @router.delete("/{agent_id}")
 async def delete_agent(
     agent_id: str,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: проверка подписки перенесена в сервис
     db: Session = Depends(get_db)
 ):
     """
@@ -268,6 +276,7 @@ async def delete_agent(
                 detail="ElevenLabs API key not found"
             )
         
+        # ✅ ДОБАВЛЕНО: логика проверки подписки теперь в сервисе
         await ElevenLabsService.delete_agent(
             db, 
             agent_id, 
@@ -276,6 +285,7 @@ async def delete_agent(
         )
         
         return {"success": True, "message": "Agent deleted successfully"}
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -288,7 +298,7 @@ async def delete_agent(
 @router.get("/{agent_id}/embed", response_model=ElevenLabsEmbedResponse)
 async def get_embed_code(
     agent_id: str,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для embed кода
     db: Session = Depends(get_db)
 ):
     """
@@ -309,7 +319,7 @@ async def get_embed_code(
 @router.get("/{agent_id}/signed-url")
 async def get_signed_url(
     agent_id: str,
-    current_user: User = Depends(check_subscription_active_for_assistants),
+    current_user: User = Depends(get_current_user),  # ✅ ИСПРАВЛЕНО: убрали проверку подписки для signed URL
     db: Session = Depends(get_db)
 ):
     """
@@ -344,6 +354,7 @@ async def get_signed_url(
             "agent_id": agent.elevenlabs_agent_id,
             "fallback_url": f"wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent.elevenlabs_agent_id}"
         }
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -351,4 +362,45 @@ async def get_signed_url(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get signed URL"
+        )
+
+# ✅ НОВЫЙ ЭНДПОИНТ: Тестовый эндпоинт для проверки создания агента
+@router.post("/test-create")
+async def test_create_agent(
+    test_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Test endpoint for creating agent with custom data
+    """
+    try:
+        logger.info(f"Test creating agent for user {current_user.id}")
+        logger.info(f"Test data: {json.dumps(test_data, indent=2)}")
+        
+        if not current_user.elevenlabs_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ElevenLabs API key not found"
+            )
+        
+        # Создаем агента напрямую с переданными данными
+        elevenlabs_agent_id = await ElevenLabsService.create_elevenlabs_agent(
+            current_user.elevenlabs_api_key, 
+            test_data
+        )
+        
+        return {
+            "success": True,
+            "elevenlabs_agent_id": elevenlabs_agent_id,
+            "message": "Test agent created successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in test create: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Test creation failed: {str(e)}"
         )
