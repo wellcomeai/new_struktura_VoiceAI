@@ -11,6 +11,7 @@ from .conversation import Conversation
 from .file import File
 from .integration import Integration
 from .pinecone_config import PineconeConfig
+from .elevenlabs import ElevenLabsAgent, ElevenLabsConversation
 
 # ✅ КРИТИЧЕСКИ ВАЖНО: Импортируем новые модели для отслеживания
 from .subscription import SubscriptionPlan, SubscriptionLog, PaymentTransaction
