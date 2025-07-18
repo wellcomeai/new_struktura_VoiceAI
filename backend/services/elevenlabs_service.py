@@ -292,6 +292,7 @@ class ElevenLabsService:
         """
         try:
             from backend.models.user import User
+            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
             
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -300,10 +301,11 @@ class ElevenLabsService:
                     detail="User not found"
                 )
             
-            # Проверяем админа - админу разрешаем всё
+            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
             if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку
-                if not user.has_active_subscription():
+                # Для обычных пользователей проверяем подписку через UserService
+                subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                if not subscription_status["active"]:
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail={
@@ -388,6 +390,7 @@ class ElevenLabsService:
         """
         try:
             from backend.models.user import User
+            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
             
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -396,10 +399,11 @@ class ElevenLabsService:
                     detail="User not found"
                 )
             
-            # Проверяем админа - админу разрешаем всё
+            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
             if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку
-                if not user.has_active_subscription():
+                # Для обычных пользователей проверяем подписку через UserService
+                subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                if not subscription_status["active"]:
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail={
@@ -487,6 +491,7 @@ class ElevenLabsService:
         """
         try:
             from backend.models.user import User
+            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
             
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -495,10 +500,11 @@ class ElevenLabsService:
                     detail="User not found"
                 )
             
-            # Проверяем админа - админу разрешаем всё
+            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
             if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку
-                if not user.has_active_subscription():
+                # Для обычных пользователей проверяем подписку через UserService
+                subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                if not subscription_status["active"]:
                     raise HTTPException(
                         status_code=status.HTTP_402_PAYMENT_REQUIRED,
                         detail={
