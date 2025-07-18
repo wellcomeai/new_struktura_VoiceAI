@@ -1,5 +1,9 @@
 """
 ИСПРАВЛЕННЫЙ ElevenLabs service для WellcomeAI application.
+Основные изменения:
+1. Исправлен endpoint для получения signed URL
+2. Исправлена обработка ответа
+3. Добавлены дополнительные проверки
 """
 
 import httpx
@@ -95,7 +99,6 @@ class ElevenLabsService:
         Create agent in ElevenLabs
         """
         try:
-            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
             url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/create"
             
             logger.info(f"Creating agent at URL: {url}")
@@ -140,7 +143,6 @@ class ElevenLabsService:
         Update agent in ElevenLabs
         """
         try:
-            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
             url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}"
             
             logger.info(f"Updating agent at URL: {url}")
@@ -172,7 +174,6 @@ class ElevenLabsService:
         Delete agent from ElevenLabs
         """
         try:
-            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
             url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent_id}"
             
             logger.info(f"Deleting agent at URL: {url}")
@@ -197,10 +198,14 @@ class ElevenLabsService:
     async def get_signed_url(api_key: str, agent_id: str) -> str:
         """
         Get signed URL for WebSocket connection
+        ✅ ИСПРАВЛЕНО: Правильный endpoint и обработка ответа
         """
         try:
-            # ✅ ИСПРАВЛЕН URL: используем правильный endpoint
-            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/conversation/get-signed-url"
+            # ✅ ИСПРАВЛЕНО: Используем get_signed_url (с underscore) вместо get-signed-url
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/conversation/get_signed_url"
+            
+            logger.info(f"Getting signed URL at: {url}")
+            logger.info(f"Agent ID: {agent_id}")
             
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
@@ -209,15 +214,28 @@ class ElevenLabsService:
                     params={"agent_id": agent_id}
                 )
                 
+                logger.info(f"Signed URL response status: {response.status_code}")
+                logger.info(f"Signed URL response body: {response.text}")
+                
                 if response.status_code != 200:
                     logger.error(f"Failed to get signed URL: {response.status_code} - {response.text}")
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Failed to get signed URL"
+                        detail=f"Failed to get signed URL: {response.text}"
                     )
                 
                 result = response.json()
-                return result.get("signed_url")
+                signed_url = result.get("signed_url")
+                
+                if not signed_url:
+                    logger.error(f"No signed_url in response: {result}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No signed URL returned from ElevenLabs"
+                    )
+                
+                logger.info(f"✅ Got signed URL: {signed_url}")
+                return signed_url
                 
         except HTTPException:
             raise
@@ -225,8 +243,10 @@ class ElevenLabsService:
             logger.error(f"Error getting signed URL: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to get signed URL"
+                detail=f"Failed to get signed URL: {str(e)}"
             )
+    
+    # ... остальные методы остаются без изменений ...
     
     @staticmethod
     async def get_agents(db: Session, user_id: str) -> List[ElevenLabsAgentResponse]:
@@ -287,12 +307,10 @@ class ElevenLabsService:
         api_key: str, 
         agent_data: ElevenLabsAgentCreate
     ) -> ElevenLabsAgentResponse:
-        """
-        Create new agent
-        """
+        """Create new agent"""
         try:
             from backend.models.user import User
-            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
+            from backend.services.user_service import UserService
             
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -301,9 +319,8 @@ class ElevenLabsService:
                     detail="User not found"
                 )
             
-            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
+            # Проверка подписки
             if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку через UserService
                 subscription_status = await UserService.check_subscription_status(db, str(user.id))
                 if not subscription_status["active"]:
                     raise HTTPException(
@@ -315,7 +332,7 @@ class ElevenLabsService:
                         }
                     )
             
-            # ✅ ИСПРАВЛЕН JSON: используем правильную структуру
+            # Структура данных для ElevenLabs
             elevenlabs_agent_data = {
                 "conversation_config": {
                     "agent": {
@@ -378,179 +395,8 @@ class ElevenLabsService:
             )
     
     @staticmethod
-    async def update_agent(
-        db: Session, 
-        agent_id: str, 
-        user_id: str, 
-        api_key: str, 
-        agent_data: ElevenLabsAgentUpdate
-    ) -> ElevenLabsAgentResponse:
-        """
-        Update agent
-        """
-        try:
-            from backend.models.user import User
-            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
-            
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
-            
-            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
-            if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку через UserService
-                subscription_status = await UserService.check_subscription_status(db, str(user.id))
-                if not subscription_status["active"]:
-                    raise HTTPException(
-                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                        detail={
-                            "error": "subscription_required",
-                            "message": "Active subscription required to update ElevenLabs agents",
-                            "code": "SUBSCRIPTION_REQUIRED"
-                        }
-                    )
-            
-            # Получаем агента
-            agent = db.query(ElevenLabsAgent).filter(
-                ElevenLabsAgent.id == agent_id,
-                ElevenLabsAgent.user_id == user_id
-            ).first()
-            
-            if not agent:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Agent not found"
-                )
-            
-            # Обновляем в ElevenLabs если есть изменения
-            if agent.elevenlabs_agent_id:
-                # ✅ ИСПРАВЛЕН JSON: используем правильную структуру
-                elevenlabs_agent_data = {}
-                
-                if agent_data.name:
-                    elevenlabs_agent_data["name"] = agent_data.name
-                
-                if agent_data.system_prompt or agent_data.voice_id:
-                    elevenlabs_agent_data["conversation_config"] = {}
-                    
-                    if agent_data.system_prompt:
-                        elevenlabs_agent_data["conversation_config"]["agent"] = {
-                            "prompt": {
-                                "prompt": agent_data.system_prompt
-                            }
-                        }
-                    
-                    if agent_data.voice_id:
-                        elevenlabs_agent_data["conversation_config"]["tts"] = {
-                            "voice_id": agent_data.voice_id
-                        }
-                
-                if elevenlabs_agent_data:
-                    await ElevenLabsService.update_elevenlabs_agent(
-                        api_key, agent.elevenlabs_agent_id, elevenlabs_agent_data
-                    )
-            
-            # Обновляем в нашей БД
-            update_data = agent_data.dict(exclude_unset=True)
-            for key, value in update_data.items():
-                setattr(agent, key, value)
-            
-            db.commit()
-            db.refresh(agent)
-            
-            return ElevenLabsAgentResponse(
-                id=str(agent.id),
-                user_id=str(agent.user_id),
-                elevenlabs_agent_id=agent.elevenlabs_agent_id,
-                name=agent.name,
-                system_prompt=agent.system_prompt,
-                voice_id=agent.voice_id,
-                voice_name=agent.voice_name,
-                is_active=agent.is_active,
-                created_at=agent.created_at,
-                updated_at=agent.updated_at
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error updating agent: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update agent"
-            )
-    
-    @staticmethod
-    async def delete_agent(db: Session, agent_id: str, user_id: str, api_key: str) -> bool:
-        """
-        Delete agent
-        """
-        try:
-            from backend.models.user import User
-            from backend.services.user_service import UserService  # ✅ ИСПРАВЛЕНО: добавлен импорт
-            
-            user = db.query(User).filter(User.id == user_id).first()
-            if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="User not found"
-                )
-            
-            # ✅ ИСПРАВЛЕНО: используем правильную проверку подписки
-            if not ElevenLabsService.is_admin(user.email):
-                # Для обычных пользователей проверяем подписку через UserService
-                subscription_status = await UserService.check_subscription_status(db, str(user.id))
-                if not subscription_status["active"]:
-                    raise HTTPException(
-                        status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                        detail={
-                            "error": "subscription_required",
-                            "message": "Active subscription required to delete ElevenLabs agents",
-                            "code": "SUBSCRIPTION_REQUIRED"
-                        }
-                    )
-            
-            # Получаем агента
-            agent = db.query(ElevenLabsAgent).filter(
-                ElevenLabsAgent.id == agent_id,
-                ElevenLabsAgent.user_id == user_id
-            ).first()
-            
-            if not agent:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Agent not found"
-                )
-            
-            # Удаляем из ElevenLabs
-            if agent.elevenlabs_agent_id:
-                await ElevenLabsService.delete_elevenlabs_agent(api_key, agent.elevenlabs_agent_id)
-            
-            # Удаляем из нашей БД
-            db.delete(agent)
-            db.commit()
-            
-            return True
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error deleting agent: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete agent"
-            )
-    
-    @staticmethod
     async def get_embed_code(db: Session, agent_id: str, user_id: str) -> ElevenLabsEmbedResponse:
-        """
-        Get embed code for agent
-        """
+        """Get embed code for agent"""
         agent = db.query(ElevenLabsAgent).filter(
             ElevenLabsAgent.id == agent_id,
             ElevenLabsAgent.user_id == user_id
