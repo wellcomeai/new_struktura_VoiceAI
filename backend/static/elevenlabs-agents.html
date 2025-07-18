@@ -1061,23 +1061,21 @@
         return true;
       }
       
-      // Обновленная проверка API ключа
-async function checkApiKey() {
-  try {
-    const response = await api.get('/api-key/status');
-    
-    if (response.has_api_key && response.is_valid) {
-      return true;
-    } else {
-      // Если ключ не установлен или не валиден, показываем форму
-      return false;
-    }
-  } catch (error) {
-    // В случае ошибки считаем, что ключ не установлен
-    console.error('Error checking API key:', error);
-    return false;
-  }
-}
+      // Проверка API ключа
+      async function checkApiKey() {
+        try {
+          const response = await api.get('/api-key/status');
+          
+          if (response.has_api_key && response.is_valid) {
+            return true;
+          } else {
+            return false;
+          }
+        } catch (error) {
+          console.error('Error checking API key:', error);
+          return false;
+        }
+      }
       
       // Сохранение API ключа
       async function saveApiKey(apiKey) {
@@ -1350,7 +1348,9 @@ async function checkApiKey() {
         }
       }
       
-      // Начать тестирование
+      // ============= ОБНОВЛЕННЫЕ ФУНКЦИИ ТЕСТИРОВАНИЯ =============
+      
+      // Начать тестирование с правильным протоколом ElevenLabs
       async function startTesting() {
         if (!currentAgentId) {
           ui.showNotification('Сначала сохраните агента', 'error');
@@ -1360,26 +1360,40 @@ async function checkApiKey() {
         try {
           ui.setLoading(true);
           
-          // Получаем signed URL
+          // Получаем signed URL для ElevenLabs
           const urlData = await api.get(`/${currentAgentId}/signed-url`);
           const wsUrl = urlData.signed_url || urlData.fallback_url;
           
-          // Запрашиваем доступ к микрофону
-          testingMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log('🔗 Подключение к ElevenLabs URL:', wsUrl);
           
-          // Подключаемся к WebSocket
+          // Запрашиваем доступ к микрофону
+          testingMediaStream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true
+            }
+          });
+          
+          // Подключаемся к WebSocket ElevenLabs
           testingWebSocket = new WebSocket(wsUrl);
           
           testingWebSocket.onopen = () => {
-            updateConnectionStatus('connected', 'Подключен');
+            console.log('✅ WebSocket подключен к ElevenLabs');
+            updateConnectionStatus('connected', 'Подключен к ElevenLabs');
             
-            // Отправляем инициализацию
-            testingWebSocket.send(JSON.stringify({
-              type: "conversation_initiation_client_data"
-            }));
+            // Отправляем инициализацию разговора ElevenLabs
+            const initMessage = {
+              "type": "conversation_initiation_client_data"
+              // ElevenLabs будет использовать настройки агента с сервера
+            };
+            
+            console.log('📤 Отправка инициализации:', initMessage);
+            testingWebSocket.send(JSON.stringify(initMessage));
             
             // Настраиваем аудио
-            setupAudioProcessing();
+            setupElevenLabsAudioProcessing();
             
             isTestingActive = true;
             startTestBtn.style.display = 'none';
@@ -1387,28 +1401,169 @@ async function checkApiKey() {
           };
           
           testingWebSocket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            handleTestingMessage(data);
+            try {
+              const data = JSON.parse(event.data);
+              console.log('📥 Получено сообщение от ElevenLabs:', data.type);
+              handleElevenLabsMessage(data);
+            } catch (error) {
+              console.error('❌ Ошибка парсинга сообщения:', error);
+            }
           };
           
-          testingWebSocket.onclose = () => {
+          testingWebSocket.onclose = (event) => {
+            console.log('🔌 WebSocket закрыт:', event.code, event.reason);
             updateConnectionStatus('disconnected', 'Отключен');
             stopTesting();
           };
           
           testingWebSocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
+            console.error('❌ WebSocket ошибка:', error);
             updateConnectionStatus('disconnected', 'Ошибка подключения');
             stopTesting();
           };
           
-          updateConnectionStatus('connecting', 'Подключение...');
+          updateConnectionStatus('connecting', 'Подключение к ElevenLabs...');
           
         } catch (error) {
+          console.error('❌ Ошибка запуска тестирования:', error);
           ui.showNotification(error.message || 'Ошибка при запуске тестирования', 'error');
           stopTesting();
         } finally {
           ui.setLoading(false);
+        }
+      }
+      
+      // Настройка обработки аудио для ElevenLabs
+      function setupElevenLabsAudioProcessing() {
+        testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ 
+          sampleRate: 16000 
+        });
+        
+        const source = testingAudioContext.createMediaStreamSource(testingMediaStream);
+        const processor = testingAudioContext.createScriptProcessor(4096, 1, 1);
+        
+        // Буфер для накопления аудио
+        let audioBuffer = [];
+        let bufferDuration = 0;
+        const CHUNK_DURATION_MS = 250; // Отправляем каждые 250ms как рекомендует ElevenLabs
+        const SAMPLE_RATE = 16000;
+        const CHUNK_SIZE = (SAMPLE_RATE * CHUNK_DURATION_MS) / 1000;
+        
+        processor.onaudioprocess = (event) => {
+          if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN && isTestingActive) {
+            const inputBuffer = event.inputBuffer.getChannelData(0);
+            
+            // Добавляем в буфер
+            audioBuffer.push(...inputBuffer);
+            bufferDuration += inputBuffer.length;
+            
+            // Отправляем когда накопится достаточно данных
+            if (bufferDuration >= CHUNK_SIZE) {
+              const chunk = audioBuffer.splice(0, CHUNK_SIZE);
+              bufferDuration -= CHUNK_SIZE;
+              
+              // Конвертируем в PCM16 и base64
+              const pcmData = convertToPCM16(new Float32Array(chunk));
+              const base64Audio = arrayBufferToBase64(pcmData);
+              
+              // Отправляем в формате ElevenLabs
+              const audioMessage = {
+                "user_audio_chunk": base64Audio
+              };
+              
+              testingWebSocket.send(JSON.stringify(audioMessage));
+            }
+          }
+        };
+        
+        source.connect(processor);
+        processor.connect(testingAudioContext.destination);
+      }
+      
+      // Обработка сообщений WebSocket от ElevenLabs
+      function handleElevenLabsMessage(data) {
+        switch (data.type) {
+          case 'conversation_initiation_metadata':
+            console.log('🎯 Разговор инициализирован:', data);
+            const metadata = data.conversation_initiation_metadata_event;
+            if (metadata) {
+              console.log(`📊 Conversation ID: ${metadata.conversation_id}`);
+              console.log(`🎵 Audio format: ${metadata.agent_output_audio_format}`);
+            }
+            ui.showNotification('Тестирование началось! Говорите с ассистентом', 'info');
+            break;
+            
+          case 'audio_event':
+            console.log('🔊 Получен аудио ответ от агента');
+            const audioEvent = data.audio_event;
+            if (audioEvent && audioEvent.audio_base_64) {
+              playElevenLabsAudio(audioEvent.audio_base_64);
+            }
+            break;
+            
+          case 'user_transcript':
+            console.log('📝 Транскрипция пользователя:', data.user_transcription_event.user_transcript);
+            // Можно показать в UI что пользователь сказал
+            break;
+            
+          case 'agent_response':
+            console.log('🤖 Ответ агента:', data.agent_response_event.agent_response);
+            // Можно показать в UI текст ответа агента
+            break;
+            
+          case 'vad_score':
+            // Voice Activity Detection - можно игнорировать или использовать для UI
+            const vadScore = data.vad_score_event.vad_score;
+            console.log(`🎤 VAD Score: ${vadScore}`);
+            break;
+            
+          case 'ping':
+            // Отвечаем на ping от сервера
+            console.log('🏓 Ping от сервера, отправляем pong');
+            const pongMessage = {
+              "type": "pong",
+              "event_id": data.event_id
+            };
+            testingWebSocket.send(JSON.stringify(pongMessage));
+            break;
+            
+          case 'interruption':
+            console.log('⏸️ Обнаружено перебивание');
+            break;
+            
+          case 'error':
+            console.error('❌ Ошибка от ElevenLabs:', data);
+            ui.showNotification('Ошибка от ElevenLabs: ' + (data.message || 'Неизвестная ошибка'), 'error');
+            break;
+            
+          default:
+            console.log('❓ Неизвестное сообщение от ElevenLabs:', data.type, data);
+        }
+      }
+      
+      // Воспроизведение аудио от ElevenLabs
+      function playElevenLabsAudio(audioBase64) {
+        try {
+          // ElevenLabs отправляет аудио в PCM формате
+          const audioData = atob(audioBase64);
+          const pcmArray = new Uint8Array(audioData.length);
+          
+          for (let i = 0; i < audioData.length; i++) {
+            pcmArray[i] = audioData.charCodeAt(i);
+          }
+          
+          // Создаем WAV blob для воспроизведения
+          const wavBlob = createWavBlob(pcmArray, 16000, 1, 16);
+          const audioUrl = URL.createObjectURL(wavBlob);
+          
+          const audio = new Audio(audioUrl);
+          audio.play().then(() => {
+            URL.revokeObjectURL(audioUrl);
+          }).catch(error => {
+            console.error('❌ Ошибка воспроизведения аудио:', error);
+          });
+        } catch (error) {
+          console.error('❌ Ошибка обработки аудио:', error);
         }
       }
       
@@ -1434,70 +1589,6 @@ async function checkApiKey() {
         updateConnectionStatus('disconnected', 'Отключен');
         startTestBtn.style.display = 'inline-flex';
         stopTestBtn.style.display = 'none';
-      }
-      
-      // Настройка обработки аудио
-      function setupAudioProcessing() {
-        testingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        const source = testingAudioContext.createMediaStreamSource(testingMediaStream);
-        const processor = testingAudioContext.createScriptProcessor(4096, 1, 1);
-        
-        processor.onaudioprocess = (event) => {
-          if (testingWebSocket && testingWebSocket.readyState === WebSocket.OPEN && isTestingActive) {
-            const inputBuffer = event.inputBuffer.getChannelData(0);
-            const pcmData = convertToPCM16(inputBuffer);
-            const base64Audio = arrayBufferToBase64(pcmData);
-            
-            testingWebSocket.send(JSON.stringify({
-              user_audio_chunk: base64Audio
-            }));
-          }
-        };
-        
-        source.connect(processor);
-        processor.connect(testingAudioContext.destination);
-      }
-      
-      // Обработка сообщений WebSocket
-      function handleTestingMessage(data) {
-        switch (data.type) {
-          case 'conversation_initiation_metadata':
-            console.log('Conversation initiated:', data);
-            break;
-          case 'audio_event':
-            playAudioChunk(data.audio_event.audio_base_64);
-            break;
-          case 'agent_response':
-            console.log('Agent response:', data.agent_response_event.agent_response);
-            break;
-          case 'user_transcript':
-            console.log('User transcript:', data.user_transcription_event.user_transcript);
-            break;
-          default:
-            console.log('Unknown message:', data);
-        }
-      }
-      
-      // Воспроизведение аудио
-      function playAudioChunk(audioBase64) {
-        try {
-          const audioData = atob(audioBase64);
-          const pcmArray = new Uint8Array(audioData.length);
-          
-          for (let i = 0; i < audioData.length; i++) {
-            pcmArray[i] = audioData.charCodeAt(i);
-          }
-          
-          const wavBlob = createWavBlob(pcmArray, 16000, 1, 16);
-          const audioUrl = URL.createObjectURL(wavBlob);
-          
-          const audio = new Audio(audioUrl);
-          audio.play().then(() => {
-            URL.revokeObjectURL(audioUrl);
-          });
-        } catch (error) {
-          console.error('Error playing audio:', error);
-        }
       }
       
       // Конвертация в PCM16
@@ -1570,7 +1661,7 @@ async function checkApiKey() {
         text.textContent = message;
       }
       
-      // Обработчики событий
+      // ============= ОБРАБОТЧИКИ СОБЫТИЙ =============
       
       // Переключение табов
       tabs.forEach(tab => {
