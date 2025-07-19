@@ -6,6 +6,7 @@
 3. Добавлены дополнительные проверки
 4. ✅ ДОБАВЛЕНЫ НЕДОСТАЮЩИЕ МЕТОДЫ: update_agent, get_agent и другие
 5. ✅ ИСПРАВЛЕНА СОВМЕСТИМОСТЬ С FRONTEND
+6. ✅ УБРАН first_message из conversation_config (вызывал ошибку 1008)
 """
 
 import httpx
@@ -161,6 +162,8 @@ class ElevenLabsService:
                 )
                 
                 logger.info(f"Update response status: {response.status_code}")
+                logger.info(f"Update response body: {response.text}")
+                
                 if response.status_code != 200:
                     logger.error(f"Update failed: {response.text}")
                 
@@ -181,6 +184,7 @@ class ElevenLabsService:
     ) -> Dict[str, Any]:
         """
         Update agent - метод, который вызывается из роутера
+        ✅ ИСПРАВЛЕНО: Убран first_message из conversation_config
         """
         try:
             logger.info(f"🔄 Updating agent {agent_id} for user {user_id}")
@@ -198,7 +202,7 @@ class ElevenLabsService:
                     detail="Agent not found"
                 )
             
-            # Подготавливаем данные для ElevenLabs API
+            # ✅ ИСПРАВЛЕНО: Убран first_message из conversation_config
             elevenlabs_agent_data = {
                 "name": agent_data.get("name"),
                 "conversation_config": {
@@ -206,7 +210,7 @@ class ElevenLabsService:
                         "prompt": {
                             "prompt": agent_data.get("system_prompt", "")
                         },
-                        "first_message": agent_data.get("first_message", "Привет! Как дела?"),
+                        # ❌ УБРАНО: "first_message" - вызывало ошибку 1008
                         "language": agent_data.get("language", "ru")
                     },
                     "asr": {
@@ -350,7 +354,7 @@ class ElevenLabsService:
                         "name": result.get("name", agent.name),
                         "voice_id": tts_config.get("voice_id", agent.voice_id),
                         "voice_name": agent.voice_name,
-                        "first_message": agent_config.get("first_message", "Привет! Как дела?"),
+                        "first_message": "Привет! Как дела?",  # ✅ Статическое значение
                         "system_prompt": agent_config.get("prompt", {}).get("prompt", agent.system_prompt),
                         "language": agent_config.get("language", "ru"),
                         "llm_model": llm_config.get("model", "gpt-4o-mini"),
@@ -369,7 +373,7 @@ class ElevenLabsService:
                         "name": agent.name,
                         "voice_id": agent.voice_id,
                         "voice_name": agent.voice_name,
-                        "first_message": "Привет! Как дела?",
+                        "first_message": "Привет! Как дела?",  # ✅ Статическое значение
                         "system_prompt": agent.system_prompt,
                         "language": "ru",
                         "llm_model": "gpt-4o-mini",
@@ -552,13 +556,15 @@ class ElevenLabsService:
                         }
                     )
             
-            # Структура данных для ElevenLabs
+            # ✅ ИСПРАВЛЕНО: Убран first_message из conversation_config
             elevenlabs_agent_data = {
                 "conversation_config": {
                     "agent": {
                         "prompt": {
                             "prompt": agent_data.system_prompt or "You are a helpful assistant."
-                        }
+                        },
+                        # ❌ УБРАНО: "first_message" - вызывало ошибку 1008
+                        "language": "ru"
                     },
                     "tts": {
                         "voice_id": agent_data.voice_id
