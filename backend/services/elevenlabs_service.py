@@ -4,6 +4,8 @@
 1. Исправлен endpoint для получения signed URL
 2. Исправлена обработка ответа
 3. Добавлены дополнительные проверки
+4. ✅ ДОБАВЛЕНЫ НЕДОСТАЮЩИЕ МЕТОДЫ: update_agent, get_agent и другие
+5. ✅ ИСПРАВЛЕНА СОВМЕСТИМОСТЬ С FRONTEND
 """
 
 import httpx
@@ -168,6 +170,226 @@ class ElevenLabsService:
             logger.error(f"Error updating ElevenLabs agent: {str(e)}")
             return False
     
+    # ✅ ДОБАВЛЕН НЕДОСТАЮЩИЙ МЕТОД update_agent
+    @staticmethod
+    async def update_agent(
+        db: Session, 
+        agent_id: str, 
+        user_id: str, 
+        api_key: str, 
+        agent_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Update agent - метод, который вызывается из роутера
+        """
+        try:
+            logger.info(f"🔄 Updating agent {agent_id} for user {user_id}")
+            logger.info(f"📋 Agent data: {json.dumps(agent_data, indent=2)}")
+            
+            # Получаем агента из БД
+            agent = db.query(ElevenLabsAgent).filter(
+                ElevenLabsAgent.id == agent_id,
+                ElevenLabsAgent.user_id == user_id
+            ).first()
+            
+            if not agent:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Agent not found"
+                )
+            
+            # Подготавливаем данные для ElevenLabs API
+            elevenlabs_agent_data = {
+                "name": agent_data.get("name"),
+                "conversation_config": {
+                    "agent": {
+                        "prompt": {
+                            "prompt": agent_data.get("system_prompt", "")
+                        },
+                        "first_message": agent_data.get("first_message", "Привет! Как дела?"),
+                        "language": agent_data.get("language", "ru")
+                    },
+                    "asr": {
+                        "quality": "high",
+                        "user_input_audio_format": "pcm_16000"
+                    },
+                    "tts": {
+                        "voice_id": agent_data.get("voice_id"),
+                        "model_id": "eleven_multilingual_v2",
+                        "voice_settings": {
+                            "stability": agent_data.get("voice_stability", 0.5),
+                            "similarity_boost": agent_data.get("voice_similarity", 0.8),
+                            "speed": agent_data.get("voice_speed", 1.0)
+                        }
+                    },
+                    "llm": {
+                        "model": agent_data.get("llm_model", "gpt-4o-mini"),
+                        "temperature": agent_data.get("llm_temperature", 0.7),
+                        "max_tokens": agent_data.get("max_tokens", 1000)
+                    }
+                }
+            }
+            
+            # Добавляем встроенные инструменты если они есть
+            if agent_data.get("built_in_tools"):
+                elevenlabs_agent_data["conversation_config"]["tools"] = []
+                for tool in agent_data["built_in_tools"]:
+                    elevenlabs_agent_data["conversation_config"]["tools"].append({
+                        "type": "built_in",
+                        "name": tool
+                    })
+            
+            logger.info(f"📤 Sending to ElevenLabs: {json.dumps(elevenlabs_agent_data, indent=2)}")
+            
+            # Обновляем агента в ElevenLabs
+            success = await ElevenLabsService.update_elevenlabs_agent(
+                api_key, 
+                agent.elevenlabs_agent_id, 
+                elevenlabs_agent_data
+            )
+            
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to update agent in ElevenLabs"
+                )
+            
+            # Обновляем данные в нашей БД
+            agent.name = agent_data.get("name", agent.name)
+            agent.system_prompt = agent_data.get("system_prompt", agent.system_prompt)
+            agent.voice_id = agent_data.get("voice_id", agent.voice_id)
+            agent.voice_name = agent_data.get("voice_name", agent.voice_name)
+            
+            db.commit()
+            db.refresh(agent)
+            
+            logger.info(f"✅ Agent {agent_id} updated successfully")
+            
+            # Возвращаем данные в формате, ожидаемом frontend
+            return {
+                "id": str(agent.id),
+                "name": agent.name,
+                "voice_id": agent.voice_id,
+                "voice_name": agent.voice_name,
+                "first_message": agent_data.get("first_message", "Привет! Как дела?"),
+                "system_prompt": agent.system_prompt,
+                "language": agent_data.get("language", "ru"),
+                "llm_model": agent_data.get("llm_model", "gpt-4o-mini"),
+                "llm_temperature": agent_data.get("llm_temperature", 0.7),
+                "max_tokens": agent_data.get("max_tokens", 1000),
+                "voice_stability": agent_data.get("voice_stability", 0.5),
+                "voice_similarity": agent_data.get("voice_similarity", 0.8),
+                "voice_speed": agent_data.get("voice_speed", 1.0),
+                "built_in_tools": agent_data.get("built_in_tools", [])
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Error updating agent: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update agent: {str(e)}"
+            )
+    
+    # ✅ ДОБАВЛЕН НЕДОСТАЮЩИЙ МЕТОД get_agent
+    @staticmethod
+    async def get_agent(
+        db: Session, 
+        agent_id: str, 
+        user_id: str, 
+        api_key: str
+    ) -> Dict[str, Any]:
+        """
+        Get agent data - метод, который вызывается из роутера
+        """
+        try:
+            logger.info(f"🔍 Getting agent {agent_id} for user {user_id}")
+            
+            # Получаем агента из БД
+            agent = db.query(ElevenLabsAgent).filter(
+                ElevenLabsAgent.id == agent_id,
+                ElevenLabsAgent.user_id == user_id
+            ).first()
+            
+            if not agent:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Agent not found"
+                )
+            
+            # Получаем подробные данные агента из ElevenLabs
+            url = f"{ElevenLabsService.ELEVENLABS_API_BASE}/convai/agents/{agent.elevenlabs_agent_id}"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers={"xi-api-key": api_key}
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    # Извлекаем данные из ответа ElevenLabs
+                    conv_config = result.get("conversation_config", {})
+                    agent_config = conv_config.get("agent", {})
+                    tts_config = conv_config.get("tts", {})
+                    llm_config = conv_config.get("llm", {})
+                    voice_settings = tts_config.get("voice_settings", {})
+                    tools = conv_config.get("tools", [])
+                    
+                    # Извлекаем встроенные инструменты
+                    built_in_tools = []
+                    for tool in tools:
+                        if tool.get("type") == "built_in":
+                            built_in_tools.append(tool.get("name"))
+                    
+                    return {
+                        "id": str(agent.id),
+                        "name": result.get("name", agent.name),
+                        "voice_id": tts_config.get("voice_id", agent.voice_id),
+                        "voice_name": agent.voice_name,
+                        "first_message": agent_config.get("first_message", "Привет! Как дела?"),
+                        "system_prompt": agent_config.get("prompt", {}).get("prompt", agent.system_prompt),
+                        "language": agent_config.get("language", "ru"),
+                        "llm_model": llm_config.get("model", "gpt-4o-mini"),
+                        "llm_temperature": llm_config.get("temperature", 0.7),
+                        "max_tokens": llm_config.get("max_tokens", 1000),
+                        "voice_stability": voice_settings.get("stability", 0.5),
+                        "voice_similarity": voice_settings.get("similarity_boost", 0.8),
+                        "voice_speed": voice_settings.get("speed", 1.0),
+                        "built_in_tools": built_in_tools
+                    }
+                else:
+                    # Если не удалось получить из ElevenLabs, возвращаем данные из БД
+                    logger.warning(f"Failed to get agent from ElevenLabs: {response.status_code}")
+                    return {
+                        "id": str(agent.id),
+                        "name": agent.name,
+                        "voice_id": agent.voice_id,
+                        "voice_name": agent.voice_name,
+                        "first_message": "Привет! Как дела?",
+                        "system_prompt": agent.system_prompt,
+                        "language": "ru",
+                        "llm_model": "gpt-4o-mini",
+                        "llm_temperature": 0.7,
+                        "max_tokens": 1000,
+                        "voice_stability": 0.5,
+                        "voice_similarity": 0.8,
+                        "voice_speed": 1.0,
+                        "built_in_tools": []
+                    }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Error getting agent: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to get agent: {str(e)}"
+            )
+    
     @staticmethod
     async def delete_elevenlabs_agent(api_key: str, agent_id: str) -> bool:
         """
@@ -245,8 +467,6 @@ class ElevenLabsService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to get signed URL: {str(e)}"
             )
-    
-    # ... остальные методы остаются без изменений ...
     
     @staticmethod
     async def get_agents(db: Session, user_id: str) -> List[ElevenLabsAgentResponse]:
@@ -392,6 +612,58 @@ class ElevenLabsService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create agent"
+            )
+    
+    # ✅ ДОБАВЛЕН НЕДОСТАЮЩИЙ МЕТОД delete_agent  
+    @staticmethod
+    async def delete_agent(
+        db: Session, 
+        agent_id: str, 
+        user_id: str, 
+        api_key: str
+    ) -> bool:
+        """
+        Delete agent - метод, который вызывается из роутера
+        """
+        try:
+            logger.info(f"🗑️ Deleting agent {agent_id} for user {user_id}")
+            
+            # Получаем агента из БД
+            agent = db.query(ElevenLabsAgent).filter(
+                ElevenLabsAgent.id == agent_id,
+                ElevenLabsAgent.user_id == user_id
+            ).first()
+            
+            if not agent:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Agent not found"
+                )
+            
+            # Удаляем агента из ElevenLabs
+            success = await ElevenLabsService.delete_elevenlabs_agent(
+                api_key, 
+                agent.elevenlabs_agent_id
+            )
+            
+            if not success:
+                logger.warning(f"Failed to delete agent from ElevenLabs, but continuing with DB deletion")
+            
+            # Удаляем из нашей БД
+            db.delete(agent)
+            db.commit()
+            
+            logger.info(f"✅ Agent {agent_id} deleted successfully")
+            return True
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Error deleting agent: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete agent: {str(e)}"
             )
     
     @staticmethod
