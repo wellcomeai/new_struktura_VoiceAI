@@ -1,0 +1,11 @@
+[33mcommit da6c8b290cf385abb3c8c500a7bf837dc3ff4f2d[m
+Author: Valeriy Shishkin <19wellai96@gmail.com>
+Date:   Thu May 15 07:57:05 2025 +0300
+
+    Удален секретный JSON и добавлен в gitignore
+
+[33mcommit 7e86f685708185ab661c9b8a3f0651318d310baf[m
+Author: Valeriy Shishkin <19wellai96@gmail.com>
+Date:   Thu May 15 07:54:55 2025 +0300
+
+    Новая версия проекта
