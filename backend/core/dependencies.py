@@ -114,8 +114,8 @@ async def check_subscription_active(
     """
     from backend.services.user_service import UserService
     
-    # Администраторы всегда имеют доступ
-    if current_user.is_admin or current_user.email == "well96well@gmail.com":
+    # Администраторы и привилегированные пользователи всегда имеют доступ
+    if current_user.is_admin or current_user.email == "well96well@gmail.com" or current_user.email == "stas@gmail.com":
         return current_user
     
     # Check subscription status
@@ -155,8 +155,8 @@ async def check_subscription_active_for_assistants(
     """
     from backend.services.user_service import UserService
     
-    # Администраторы всегда имеют доступ
-    if current_user.is_admin or current_user.email == "well96well@gmail.com":
+    # Администраторы и привилегированные пользователи всегда имеют доступ
+    if current_user.is_admin or current_user.email == "well96well@gmail.com" or current_user.email == "stas@gmail.com":
         return current_user
     
     # Проверяем статус подписки
@@ -206,8 +206,8 @@ async def check_assistant_limit(
     from backend.models.assistant import AssistantConfig
     from backend.services.user_service import UserService
     
-    # Admin has unlimited assistants
-    if current_user.is_admin or current_user.email == "well96well@gmail.com":
+    # Admin и привилегированные пользователи имеют неограниченное количество ассистентов
+    if current_user.is_admin or current_user.email == "well96well@gmail.com" or current_user.email == "stas@gmail.com":
         return current_user
     
     # Get subscription status
@@ -273,8 +273,8 @@ async def check_subscription_or_show_popup(
     """
     from backend.services.user_service import UserService
     
-    # Администраторы всегда имеют доступ
-    if current_user.is_admin or current_user.email == "well96well@gmail.com":
+    # Администраторы и привилегированные пользователи всегда имеют доступ
+    if current_user.is_admin or current_user.email == "well96well@gmail.com" or current_user.email == "stas@gmail.com":
         return current_user
     
     # Для других пользователей просто возвращаем - проверку делает фронтенд
