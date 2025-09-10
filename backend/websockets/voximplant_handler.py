@@ -548,7 +548,8 @@ class VoximplantProtocolHandler:
                 context={
                     "assistant_config": self.openai_client.assistant_config,
                     "client_id": self.client_id,
-                    "db_session": self.db
+                    "db_session": self.db,
+                    "websocket": self.websocket  # ✅ ДОБАВЛЯЕМ WebSocket для Voximplant
                 }
             )
             
