@@ -1580,6 +1580,57 @@
                 </div>
               </div>
             </div>
+            
+            <!-- ✅ НОВАЯ ФУНКЦИЯ end_conversation -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-end_conversation" id="function-end_conversation">
+                <span>Завершение диалога</span>
+              </label>
+              
+              <div id="end-conversation-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">
+{
+  "name": "end_conversation",
+  "description": "Завершает текущий диалог с пользователем и закрывает соединение",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "farewell_message": {
+        "type": "string",
+        "description": "Прощальное сообщение перед завершением диалога",
+        "default": "До свидания! Хорошего дня!"
+      },
+      "reason": {
+        "type": "string", 
+        "description": "Причина завершения диалога (для логирования)",
+        "default": "assistant_initiated"
+      }
+    },
+    "required": []
+  }
+}
+                </pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь самостоятельно завершать диалог когда:</p>
+                  <ul>
+                    <li>Пользователь явно попрощался или сказал "пока"</li>
+                    <li>Запрос пользователя полностью решен и дальнейший диалог не нужен</li>
+                    <li>Пользователь благодарит за помощь и показывает завершение разговора</li>
+                  </ul>
+                  <p>Используй функцию end_conversation с прощальным сообщением:</p>
+                  <pre>
+{
+  "farewell_message": "Спасибо за обращение! До свидания!",
+  "reason": "conversation_completed"
+}</pre>
+                  <p><strong>Важно:</strong> Используй эту функцию только когда уверен, что диалог действительно завершен. Не завершай разговор посреди обсуждения или если пользователь может задать дополнительные вопросы.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1657,6 +1708,10 @@
       const agentIdDisplay = document.getElementById('agent-id-display');
       const copyAgentIdBtn = document.getElementById('copy-agent-id');
       
+      // ✅ ПЕРЕМЕННЫЕ ДЛЯ НОВОЙ ФУНКЦИИ end_conversation
+      const endConversationCheckbox = document.getElementById('function-end_conversation');
+      const endConversationInfo = document.getElementById('end-conversation-info');
+      
       // Мобильное меню
       mobileMenuToggle.addEventListener('click', function() {
         sidebar.classList.toggle('mobile-open');
@@ -1698,6 +1753,13 @@
       if (pineconeCheckbox && pineconeInfo) {
         pineconeCheckbox.addEventListener('change', function() {
           pineconeInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ДЛЯ ЧЕКБОКСА ФУНКЦИИ end_conversation
+      if (endConversationCheckbox && endConversationInfo) {
+        endConversationCheckbox.addEventListener('change', function() {
+          endConversationInfo.style.display = this.checked ? 'block' : 'none';
         });
       }
       
@@ -2030,6 +2092,13 @@
             pineconeInfo.style.display = isPineconeEnabled ? 'block' : 'none';
           }
           
+          // ✅ ДОБАВЛЯЕМ ЗАГРУЗКУ СОСТОЯНИЯ ФУНКЦИИ end_conversation
+          if (endConversationCheckbox) {
+            const isEndConversationEnabled = functions.some(func => func.name === 'end_conversation');
+            endConversationCheckbox.checked = isEndConversationEnabled;
+            endConversationInfo.style.display = isEndConversationEnabled ? 'block' : 'none';
+          }
+          
           debugLog('Форма успешно заполнена');
         },
         
@@ -2059,6 +2128,14 @@
             enabledFunctions.push({
               name: "search_pinecone",
               description: "Ищет похожие документы в Pinecone векторной базе данных"
+            });
+          }
+          
+          // ✅ ДОБАВЛЯЕМ ПРОВЕРКУ ФУНКЦИИ end_conversation
+          if (endConversationCheckbox && endConversationCheckbox.checked) {
+            enabledFunctions.push({
+              name: "end_conversation",
+              description: "Завершает текущий диалог с пользователем и закрывает соединение"
             });
           }
           
