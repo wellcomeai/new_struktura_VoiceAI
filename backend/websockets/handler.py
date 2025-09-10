@@ -620,13 +620,15 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                                 "function_call_id": function_call_id
                             })
                             
+                            # ✅ ИЗМЕНЕНИЕ: Добавляем WebSocket в контекст
                             result = await execute_function(
                                 name=normalized_name,
                                 arguments=arguments,
                                 context={
                                     "assistant_config": openai_client.assistant_config,
                                     "client_id": openai_client.client_id,
-                                    "db_session": openai_client.db_session
+                                    "db_session": openai_client.db_session,
+                                    "websocket": websocket  # ✅ ДОБАВЛЯЕМ WebSocket в контекст
                                 }
                             )
                             
@@ -738,13 +740,15 @@ async def handle_openai_messages(openai_client: OpenAIRealtimeClient, websocket:
                         "function_call_id": function_call_id
                     })
                     
+                    # ✅ ИЗМЕНЕНИЕ: Добавляем WebSocket в контекст
                     result = await execute_function(
                         name=normalized_name,
                         arguments=function_data.get("arguments", {}),
                         context={
                             "assistant_config": openai_client.assistant_config,
                             "client_id": openai_client.client_id,
-                            "db_session": openai_client.db_session
+                            "db_session": openai_client.db_session,
+                            "websocket": websocket  # ✅ ДОБАВЛЯЕМ WebSocket в контекст
                         }
                     )
                     
