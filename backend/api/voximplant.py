@@ -369,7 +369,8 @@ async def execute_assistant_function(
                 "assistant_config": assistant,
                 "client_id": call_data.get("chat_id", f"voximplant_{call_data.get('call_id', uuid.uuid4())}"),
                 "db_session": db,
-                "call_data": call_data
+                "call_data": call_data,
+                "source": "voximplant"
             }
             
             # Удаляем function_id из аргументов, так как это наш внутренний параметр
