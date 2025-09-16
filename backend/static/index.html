@@ -169,6 +169,52 @@
       color: var(--primary-blue);
     }
 
+    /* 🆕 СТИЛИ ДЛЯ ДИНАМИЧЕСКОЙ ВАЛИДАЦИИ ПАРОЛЯ */
+    .password-hint-validation {
+      margin-top: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.375rem;
+      transition: all 0.3s ease;
+      background: var(--bg-light);
+      border: 1px solid var(--border-color);
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+
+    .password-hint-validation.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    
+    .password-hint-validation.valid {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+      color: #166534;
+    }
+    
+    .password-hint-validation.invalid {
+      background: #fef2f2;
+      border-color: #fecaca;
+      color: #dc2626;
+    }
+    
+    .password-hint-validation i {
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+    
+    .password-hint-validation.valid i {
+      color: #16a34a;
+    }
+    
+    .password-hint-validation.invalid i {
+      color: #dc2626;
+    }
+
     /* Кнопки */
     .btn {
       padding: 0.75rem 1.5rem;
@@ -1241,6 +1287,11 @@
             <div class="form-group">
               <label for="register-password">Пароль</label>
               <input type="password" id="register-password" class="form-control" placeholder="Минимум 8 символов" required minlength="8">
+              <!-- 🆕 ДИНАМИЧЕСКАЯ ВАЛИДАЦИЯ ПАРОЛЯ -->
+              <div id="password-hint" class="password-hint-validation">
+                <i class="fas fa-times"></i>
+                <span>Минимум 8 символов</span>
+              </div>
             </div>
             
             <div class="form-group">
@@ -1512,6 +1563,63 @@
       }
     }
     
+    // 🆕 КЛАСС ДЛЯ ВАЛИДАЦИИ ПАРОЛЯ
+    class PasswordValidator {
+      static init() {
+        const passwordInput = document.getElementById('register-password');
+        const passwordHint = document.getElementById('password-hint');
+        
+        if (passwordInput && passwordHint) {
+          console.log('🔒 Initializing Password Validator...');
+          
+          // Показываем подсказку при фокусе
+          passwordInput.addEventListener('focus', () => {
+            passwordHint.classList.add('show');
+          });
+          
+          // Валидация в реальном времени
+          passwordInput.addEventListener('input', (e) => {
+            this.validatePassword(e.target.value, passwordHint);
+          });
+          
+          // Скрываем подсказку при потере фокуса (если пароль валидный)
+          passwordInput.addEventListener('blur', () => {
+            if (passwordInput.value.length >= 8) {
+              setTimeout(() => {
+                passwordHint.classList.remove('show');
+              }, 1000);
+            }
+          });
+        }
+      }
+      
+      static validatePassword(password, hintElement) {
+        const isValid = password.length >= 8;
+        const icon = hintElement.querySelector('i');
+        const text = hintElement.querySelector('span');
+        
+        if (isValid) {
+          // Пароль соответствует требованиям
+          hintElement.classList.remove('invalid');
+          hintElement.classList.add('valid');
+          icon.className = 'fas fa-check';
+          text.textContent = 'Отлично! Пароль соответствует требованиям';
+        } else {
+          // Пароль не соответствует требованиям
+          hintElement.classList.remove('valid');
+          hintElement.classList.add('invalid');
+          icon.className = 'fas fa-times';
+          
+          if (password.length === 0) {
+            text.textContent = 'Минимум 8 символов';
+          } else {
+            const remaining = 8 - password.length;
+            text.textContent = `Нужно еще ${remaining} символ${remaining === 1 ? '' : remaining < 5 ? 'а' : 'ов'}`;
+          }
+        }
+      }
+    }
+    
     // Функция закрытия партнерского приветствия
     function closePartnerWelcome() {
       const modal = document.getElementById('partner-welcome-modal');
@@ -1523,6 +1631,9 @@
     document.addEventListener('DOMContentLoaded', function() {
       // 🆕 ИНИЦИАЛИЗАЦИЯ РЕФЕРАЛЬНОЙ СИСТЕМЫ
       ReferralTracker.init();
+      
+      // 🆕 ИНИЦИАЛИЗАЦИЯ ВАЛИДАТОРА ПАРОЛЯ
+      PasswordValidator.init();
       
       // Переключение форм авторизации
       const tabs = document.querySelectorAll('.auth-tab');
