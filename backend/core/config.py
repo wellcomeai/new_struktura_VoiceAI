@@ -43,7 +43,10 @@ class Settings(BaseSettings):
         "REALTIME_WS_URL", 
         "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
     )
-    
+    REALTIME_WS_URL_GA: str = os.getenv(
+    "REALTIME_WS_URL_GA",
+    "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+    )
     # WebSocket settings
     WS_PING_INTERVAL: int = 20  # seconds
     WS_PING_TIMEOUT: int = 60   # seconds
