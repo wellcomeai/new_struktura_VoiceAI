@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 GA Voice Agent - Direct Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        body {
+            background: radial-gradient(circle, #1a1a2e, #16213e, #0f3460);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            position: relative;
+        }
+        
+        .title {
+            position: absolute;
+            top: 50px;
+            font-size: 2rem;
+            font-weight: 300;
+            text-align: center;
+            opacity: 0.9;
+            z-index: 10;
+        }
+        
+        .voice-sphere {
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #4facfe 0%, #00f2fe 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            box-shadow: 0 0 50px rgba(79, 172, 254, 0.3);
+            animation: breathe 3s ease-in-out infinite;
+        }
+        
+        .voice-sphere:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 80px rgba(79, 172, 254, 0.5);
+        }
+        
+        .voice-sphere.listening {
+            background: radial-gradient(circle, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 0 80px rgba(240, 147, 251, 0.6);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .voice-sphere.speaking {
+            background: radial-gradient(circle, #4ecdc4 0%, #44a08d 100%);
+            box-shadow: 0 0 100px rgba(78, 205, 196, 0.7);
+            animation: ripple 2s ease-in-out infinite;
+        }
+        
+        .voice-sphere.error {
+            background: radial-gradient(circle, #ff6b6b 0%, #ee5a24 100%);
+            box-shadow: 0 0 60px rgba(255, 107, 107, 0.5);
+            animation: shake 0.5s ease-in-out;
+        }
+        
+        .sphere-icon {
+            font-size: 4rem;
+            color: white;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            z-index: 2;
+        }
+        
+        .status-text {
+            position: absolute;
+            bottom: 80px;
+            font-size: 1.2rem;
+            text-align: center;
+            opacity: 0.8;
+            max-width: 600px;
+        }
+        
+        .connection-info {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            gap: 20px;
+            font-size: 0.9rem;
+            opacity: 0.6;
+        }
+        
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #fbbf24;
+        }
+        
+        .status-dot.connected { background: #10b981; }
+        .status-dot.error { background: #ef4444; }
+        
+        .log-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            max-height: 300px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            padding: 15px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #00ff00;
+            overflow-y: auto;
+            display: none;
+            z-index: 100;
+        }
+        
+        .log-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+        }
+        
+        .audio-visualizer {
+            position: absolute;
+            bottom: -30px;
+            display: flex;
+            gap: 3px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .audio-bar {
+            width: 3px;
+            height: 10px;
+            background: white;
+            border-radius: 2px;
+            animation: audioViz 0.8s ease-in-out infinite;
+        }
+        
+        .audio-bar:nth-child(2) { animation-delay: 0.1s; }
+        .audio-bar:nth-child(3) { animation-delay: 0.2s; }
+        .audio-bar:nth-child(4) { animation-delay: 0.3s; }
+        .audio-bar:nth-child(5) { animation-delay: 0.4s; }
+        
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.08); opacity: 0.8; }
+        }
+        
+        @keyframes ripple {
+            0% { transform: scale(1); }
+            25% { transform: scale(1.05); }
+            50% { transform: scale(1.1); }
+            75% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+        
+        @keyframes audioViz {
+            0%, 100% { height: 10px; }
+            50% { height: 25px; }
+        }
+        
+        @media (max-width: 768px) {
+            .voice-sphere { width: 250px; height: 250px; }
+            .sphere-icon { font-size: 3rem; }
+            .title { font-size: 1.5rem; top: 30px; }
+            .log-panel { width: 90%; right: 5%; }
+        }
+    </style>
+</head>
+<body>
+    <button class="log-toggle" onclick="toggleLogs()">📋 GA Logs</button>
+    
+    <div class="container">
+        <h1 class="title">🚀 GA Voice Agent Test</h1>
+        
+        <div class="voice-sphere" id="voiceSphere" onclick="toggleVoiceChat()">
+            <div class="sphere-icon" id="sphereIcon">🎤</div>
+            <div class="audio-visualizer" id="audioVisualizer">
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+            </div>
+        </div>
+        
+        <div class="status-text" id="statusText">Нажмите на сферу чтобы начать голосовой чат с GA агентом</div>
+        
+        <div class="connection-info">
+            <div class="info-item">
+                <div class="status-dot" id="connectionDot"></div>
+                <span>GA WebSocket</span>
+            </div>
+            <div class="info-item">
+                <div class="status-dot" id="micDot"></div>
+                <span>Микрофон</span>
+            </div>
+            <div class="info-item">
+                <span>ID: e15022db...2000c8d617</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="log-panel" id="logPanel">
+        <div style="color: #fbbf24; margin-bottom: 10px;">🚀 GA Real-time Logs:</div>
+        <div id="logContent"></div>
+    </div>
+
+    <script>
+        // ✅ КОНФИГУРАЦИЯ GA ТЕСТИРОВАНИЯ
+        const GA_CONFIG = {
+            ASSISTANT_ID: 'e15022db-4100-4cd9-8b60-6a2000c8d617',
+            WS_ENDPOINT: '/ws/e15022db-4100-4cd9-8b60-6a2000c8d617/ga',
+            SERVER_URL: window.location.origin,
+            SAMPLE_RATE: 24000,
+            CHANNELS: 1
+        };
+
+        // ✅ СОСТОЯНИЕ ПРИЛОЖЕНИЯ
+        const appState = {
+            websocket: null,
+            audioContext: null,
+            mediaStream: null,
+            isConnected: false,
+            isListening: false,
+            isSpeaking: false,
+            audioProcessor: null,
+            audioPlaybackQueue: [],
+            isPlayingAudio: false
+        };
+
+        // ✅ ЭЛЕМЕНТЫ DOM
+        const elements = {
+            sphere: document.getElementById('voiceSphere'),
+            icon: document.getElementById('sphereIcon'),
+            statusText: document.getElementById('statusText'),
+            connectionDot: document.getElementById('connectionDot'),
+            micDot: document.getElementById('micDot'),
+            audioVisualizer: document.getElementById('audioVisualizer'),
+            logPanel: document.getElementById('logPanel'),
+            logContent: document.getElementById('logContent')
+        };
+
+        // ✅ ЛОГИРОВАНИЕ
+        let logCount = 0;
+        
+        function gaLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const colors = {
+                info: '#00ff00',
+                error: '#ff4444',
+                warn: '#ffaa00',
+                ga: '#00aaff',
+                audio: '#ff00ff'
+            };
+            
+            // Консоль браузера
+            console.log(`[GA] ${message}`);
+            
+            // Панель логов
+            const logEntry = document.createElement('div');
+            logEntry.style.color = colors[type] || colors.info;
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            
+            elements.logContent.appendChild(logEntry);
+            elements.logContent.scrollTop = elements.logContent.scrollHeight;
+            
+            if (logCount++ > 100) {
+                elements.logContent.removeChild(elements.logContent.firstElementChild);
+                logCount--;
+            }
+        }
+
+        // ✅ UI ОБНОВЛЕНИЯ
+        function updateStatus(message) {
+            elements.statusText.textContent = message;
+            gaLog(`Status: ${message}`, 'info');
+        }
+
+        function updateSphereState(state) {
+            elements.sphere.className = `voice-sphere ${state}`;
+            
+            switch(state) {
+                case 'listening':
+                    elements.icon.textContent = '👂';
+                    elements.audioVisualizer.style.opacity = '1';
+                    break;
+                case 'speaking':
+                    elements.icon.textContent = '🗣️';
+                    elements.audioVisualizer.style.opacity = '1';
+                    break;
+                case 'error':
+                    elements.icon.textContent = '❌';
+                    elements.audioVisualizer.style.opacity = '0';
+                    break;
+                default:
+                    elements.icon.textContent = '🎤';
+                    elements.audioVisualizer.style.opacity = '0';
+            }
+        }
+
+        function updateConnectionDot(connected) {
+            elements.connectionDot.className = `status-dot ${connected ? 'connected' : 'error'}`;
+        }
+
+        function updateMicDot(active) {
+            elements.micDot.className = `status-dot ${active ? 'connected' : 'error'}`;
+        }
+
+        // ✅ АУДИО ИНИЦИАЛИЗАЦИЯ
+        async function initializeAudio() {
+            try {
+                gaLog('🎵 Инициализация аудио системы...', 'audio');
+                
+                appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: GA_CONFIG.SAMPLE_RATE,
+                    latencyHint: 'interactive'
+                });
+                
+                if (appState.audioContext.state === 'suspended') {
+                    await appState.audioContext.resume();
+                }
+                
+                appState.mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: GA_CONFIG.SAMPLE_RATE,
+                        channelCount: GA_CONFIG.CHANNELS
+                    }
+                });
+                
+                gaLog('✅ Аудио система инициализирована', 'audio');
+                updateMicDot(true);
+                return true;
+                
+            } catch (error) {
+                gaLog(`❌ Ошибка инициализации аудио: ${error.message}`, 'error');
+                updateMicDot(false);
+                return false;
+            }
+        }
+
+        // ✅ WEBSOCKET СОЕДИНЕНИЕ
+        async function connectWebSocket() {
+            try {
+                const wsUrl = GA_CONFIG.SERVER_URL.replace(/^http/, 'ws') + GA_CONFIG.WS_ENDPOINT;
+                gaLog(`🌐 Подключение к GA WebSocket: ${wsUrl}`, 'ga');
+                
+                appState.websocket = new WebSocket(wsUrl);
+                appState.websocket.binaryType = 'arraybuffer';
+                
+                appState.websocket.onopen = () => {
+                    gaLog('✅ GA WebSocket подключен!', 'ga');
+                    appState.isConnected = true;
+                    updateConnectionDot(true);
+                    updateStatus('GA агент подключен! Начните разговор');
+                    updateSphereState('');
+                };
+                
+                appState.websocket.onmessage = handleWebSocketMessage;
+                
+                appState.websocket.onclose = (event) => {
+                    gaLog(`🔌 WebSocket закрыт: ${event.code} ${event.reason}`, 'warn');
+                    appState.isConnected = false;
+                    updateConnectionDot(false);
+                    updateStatus('Соединение потеряно. Перезагрузите страницу.');
+                    updateSphereState('error');
+                };
+                
+                appState.websocket.onerror = (error) => {
+                    gaLog(`❌ WebSocket ошибка: ${error}`, 'error');
+                    updateConnectionDot(false);
+                    updateSphereState('error');
+                };
+                
+            } catch (error) {
+                gaLog(`❌ Ошибка создания WebSocket: ${error.message}`, 'error');
+                updateConnectionDot(false);
+                updateSphereState('error');
+            }
+        }
+
+        // ✅ ОБРАБОТКА WEBSOCKET СООБЩЕНИЙ
+        function handleWebSocketMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                const msgType = data.type;
+                
+                gaLog(`📨 GA Message: ${msgType}`, 'ga');
+                
+                switch(msgType) {
+                    case 'connection_status':
+                        if (data.status === 'connected') {
+                            gaLog(`🎯 GA ${data.version || 'version'} подключена: ${data.message}`, 'ga');
+                            updateStatus('GA агент готов к работе!');
+                        }
+                        break;
+                        
+                    case 'session.created':
+                        gaLog(`🎉 GA Session создана с моделью: ${data.model}`, 'ga');
+                        break;
+                        
+                    case 'response.audio.delta':
+                        if (data.delta) {
+                            handleAudioResponse(data.delta);
+                        }
+                        break;
+                        
+                    case 'response.text.delta':
+                        if (data.delta) {
+                            updateStatus(`GA: ${data.delta}`);
+                        }
+                        break;
+                        
+                    case 'speech.started':
+                        gaLog('👂 Пользователь начал говорить', 'ga');
+                        updateSphereState('listening');
+                        updateStatus('Слушаю...');
+                        break;
+                        
+                    case 'speech.stopped':
+                        gaLog('🛑 Пользователь закончил говорить', 'ga');
+                        break;
+                        
+                    case 'assistant.speech.started':
+                        gaLog('🗣️ GA агент начал отвечать', 'ga');
+                        appState.isSpeaking = true;
+                        updateSphereState('speaking');
+                        updateStatus('GA агент отвечает...');
+                        break;
+                        
+                    case 'assistant.speech.ended':
+                        gaLog('✅ GA агент закончил отвечать', 'ga');
+                        appState.isSpeaking = false;
+                        updateSphereState('');
+                        updateStatus('Готов к следующему вопросу');
+                        break;
+                        
+                    case 'error':
+                        gaLog(`❌ GA Error: ${data.error?.message}`, 'error');
+                        updateStatus(`Ошибка: ${data.error?.message}`);
+                        updateSphereState('error');
+                        break;
+                        
+                    default:
+                        if (msgType.includes('.ack')) {
+                            // Игнорируем ACK сообщения
+                        } else {
+                            gaLog(`🔍 Неизвестное GA сообщение: ${msgType}`, 'warn');
+                        }
+                }
+                
+            } catch (error) {
+                gaLog(`❌ Ошибка обработки сообщения: ${error.message}`, 'error');
+            }
+        }
+
+        // ✅ ОБРАБОТКА АУДИО ОТВЕТА
+        function handleAudioResponse(audioBase64) {
+            try {
+                const audioData = atob(audioBase64);
+                const audioArray = new Uint8Array(audioData.length);
+                for (let i = 0; i < audioData.length; i++) {
+                    audioArray[i] = audioData.charCodeAt(i);
+                }
+                
+                // Простое воспроизведение через Audio API
+                const blob = new Blob([audioArray.buffer], { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(blob);
+                const audio = new Audio(audioUrl);
+                
+                audio.onended = () => URL.revokeObjectURL(audioUrl);
+                audio.play().catch(e => {
+                    gaLog(`🔊 Ошибка воспроизведения: ${e.message}`, 'error');
+                });
+                
+            } catch (error) {
+                gaLog(`🔊 Ошибка обработки аудио: ${error.message}`, 'error');
+            }
+        }
+
+        // ✅ ЗАПУСК ГОЛОСОВОГО ЧАТА
+        async function toggleVoiceChat() {
+            if (!appState.isConnected) {
+                gaLog('❌ WebSocket не подключен', 'error');
+                return;
+            }
+            
+            if (!appState.audioContext) {
+                const audioReady = await initializeAudio();
+                if (!audioReady) {
+                    updateStatus('Ошибка доступа к микрофону');
+                    return;
+                }
+            }
+            
+            if (appState.isListening) {
+                stopListening();
+            } else {
+                startListening();
+            }
+        }
+
+        // ✅ НАЧАТЬ ПРОСЛУШИВАНИЕ
+        function startListening() {
+            if (!appState.mediaStream || !appState.audioContext) {
+                gaLog('❌ Аудио не готово для прослушивания', 'error');
+                return;
+            }
+            
+            gaLog('🎤 Начинаем прослушивание...', 'audio');
+            appState.isListening = true;
+            updateSphereState('listening');
+            updateStatus('Говорите с GA агентом...');
+            
+            // Создаем аудио процессор
+            const source = appState.audioContext.createMediaStreamSource(appState.mediaStream);
+            appState.audioProcessor = appState.audioContext.createScriptProcessor(2048, 1, 1);
+            
+            appState.audioProcessor.onaudioprocess = (e) => {
+                if (appState.isListening && appState.websocket && appState.websocket.readyState === WebSocket.OPEN) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    
+                    // Конвертируем в PCM16
+                    const pcm16Data = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
+                    }
+                    
+                    // Отправляем в GA WebSocket
+                    const audioBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(pcm16Data.buffer)));
+                    appState.websocket.send(JSON.stringify({
+                        type: "input_audio_buffer.append",
+                        audio: audioBase64,
+                        event_id: `audio_${Date.now()}`
+                    }));
+                }
+            };
+            
+            source.connect(appState.audioProcessor);
+            appState.audioProcessor.connect(appState.audioContext.destination);
+            
+            // Автокоммит через паузу
+            setTimeout(() => {
+                if (appState.isListening) {
+                    commitAudio();
+                }
+            }, 3000);
+        }
+
+        // ✅ ОСТАНОВИТЬ ПРОСЛУШИВАНИЕ
+        function stopListening() {
+            gaLog('🛑 Остановка прослушивания', 'audio');
+            appState.isListening = false;
+            
+            if (appState.audioProcessor) {
+                appState.audioProcessor.disconnect();
+                appState.audioProcessor = null;
+            }
+            
+            updateSphereState('');
+            commitAudio();
+        }
+
+        // ✅ КОММИТ АУДИО
+        function commitAudio() {
+            if (appState.websocket && appState.websocket.readyState === WebSocket.OPEN) {
+                appState.websocket.send(JSON.stringify({
+                    type: "input_audio_buffer.commit",
+                    event_id: `commit_${Date.now()}`
+                }));
+                gaLog('📤 Аудио буфер отправлен в GA', 'audio');
+            }
+        }
+
+        // ✅ ПЕРЕКЛЮЧЕНИЕ ЛОГОВ
+        function toggleLogs() {
+            const panel = elements.logPanel;
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // ✅ АВТОЗАПУСК ПРИ ЗАГРУЗКЕ
+        window.addEventListener('load', async () => {
+            gaLog('🎬 GA Voice Test загружен', 'ga');
+            gaLog(`🎯 Assistant ID: ${GA_CONFIG.ASSISTANT_ID}`, 'ga');
+            gaLog(`🌐 Endpoint: ${GA_CONFIG.WS_ENDPOINT}`, 'ga');
+            
+            updateStatus('Подключение к GA агенту...');
+            
+            // Подключаемся автоматически
+            await connectWebSocket();
+            
+            // Автоматически инициализируем аудио при первом клике
+            elements.sphere.addEventListener('click', async () => {
+                if (!appState.audioContext) {
+                    const audioReady = await initializeAudio();
+                    if (audioReady) {
+                        gaLog('🎵 Аудио готово к использованию!', 'audio');
+                    }
+                }
+            });
+        });
+
+        // ✅ ОЧИСТКА ПРИ ЗАКРЫТИИ
+        window.addEventListener('beforeunload', () => {
+            if (appState.websocket) {
+                appState.websocket.close();
+            }
+            if (appState.mediaStream) {
+                appState.mediaStream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
