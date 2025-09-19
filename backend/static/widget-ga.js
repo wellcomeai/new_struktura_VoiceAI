@@ -194,7 +194,7 @@
   const WIDGET_POSITION = getWidgetPosition();
   
   // Формируем WebSocket URL с указанием ID ассистента
-  const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+  const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID + '/ga';
   
   widgetLog(`Configuration: Server URL: ${SERVER_URL}, Assistant ID: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
   widgetLog(`WebSocket URL: ${WS_URL}`);
