@@ -161,7 +161,7 @@ class OpenAIRealtimeClientNew:
             logger.error("[GA] OpenAI API key not provided")
             return False
 
-        # ✅ ИСПРАВЛЕНО: убрали Beta заголовок для GA
+        # ✅ ИСПРАВЛЕННЫЕ ЗАГОЛОВКИ согласно документации OpenAI
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
             # ❌ УБРАНО: ("OpenAI-Beta", "realtime=v1"),  # GA не требует beta заголовок
@@ -171,6 +171,7 @@ class OpenAIRealtimeClientNew:
         # ✅ ДИАГНОСТИКА
         logger.info(f"[GA] 🌐 Подключение к GA URL: {self.openai_url}")
         logger.info(f"[GA] 🔑 API Key prefix: {self.api_key[:12]}...")
+        logger.info(f"[GA] 📋 Headers: Authorization: Bearer *****, User-Agent: WellcomeAI/2.1-GA-Version")
         
         try:
             self.ws = await asyncio.wait_for(
@@ -220,6 +221,10 @@ class OpenAIRealtimeClientNew:
             return True
         except asyncio.TimeoutError:
             logger.error(f"[GA] ❌ Connection timeout for client {self.client_id}")
+            return False
+        except websockets.exceptions.InvalidStatusCode as e:
+            logger.error(f"[GA] ❌ Invalid status code: {e.status_code}")
+            logger.error(f"[GA] Response headers: {e.response_headers}")
             return False
         except Exception as e:
             logger.error(f"[GA] ❌ Failed to connect: {e}")
@@ -275,12 +280,12 @@ class OpenAIRealtimeClientNew:
             "model": "whisper-1"
         }
         
-        # ✅ ИСПРАВЛЕННЫЙ GA payload
+        # ✅ ИСПРАВЛЕННЫЙ GA payload согласно документации
         payload = {
             "type": "session.update",
             "session": {
-                # ✅ ДОБАВЛЕНО: явное указание модели для GA
-                "model": "gpt-realtime",
+                # ✅ УБРАНО: модель указывается в URL, не в payload
+                # "model": "gpt-realtime", 
                 "modalities": ["text", "audio"],
                 "instructions": system_message,
                 "voice": voice,
@@ -290,17 +295,18 @@ class OpenAIRealtimeClientNew:
                 "tools": tools,
                 "tool_choice": tool_choice,
                 "input_audio_transcription": input_audio_transcription,
-                # ✅ GA параметры
-                "max_response_output_tokens": 500
+                "max_response_output_tokens": 500,
+                # ✅ ДОБАВЛЕНО: стандартные параметры для gpt-realtime
+                "temperature": 0.8
             }
         }
         
         # ✅ ДИАГНОСТИКА
         logger.info(f"[GA] 📤 Отправка session.update:")
-        logger.info(f"[GA] - Model: gpt-realtime") 
         logger.info(f"[GA] - Voice: {voice}")
         logger.info(f"[GA] - Tools: {len(tools)}")
         logger.info(f"[GA] - VAD threshold: {turn_detection['threshold']}")
+        logger.info(f"[GA] - Instructions length: {len(system_message)} chars")
         
         try:
             await self.ws.send(json.dumps(payload))
@@ -310,7 +316,6 @@ class OpenAIRealtimeClientNew:
                 for tool in tools:
                     logger.info(f"[GA] 🔧 Enabled function: {tool['name']}")
                     
-            return True
         except Exception as e:
             logger.error(f"[GA] ❌ Error sending session.update: {e}")
             return False
@@ -334,9 +339,6 @@ class OpenAIRealtimeClientNew:
 
         return True
 
-    # ✅ ВСЕ ОСТАЛЬНЫЕ МЕТОДЫ ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
-    # Просто меняем логи с [DEBUG] на [GA] для отличия
-    
     async def handle_interruption(self) -> bool:
         """Обработка событий перебивания."""
         try:
