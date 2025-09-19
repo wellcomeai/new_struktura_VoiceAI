@@ -17,7 +17,7 @@ from backend.functions import get_function_definitions, get_enabled_functions, n
 
 logger = get_logger(__name__)
 
-DEFAULT_VOICE = "marin"  # ✅ ИЗМЕНЕНО: новый голос по умолчанию
+DEFAULT_VOICE = "marin"  # ✅ GA голос по умолчанию
 DEFAULT_SYSTEM_MESSAGE = "You are a helpful voice assistant."
 
 def normalize_functions(assistant_functions):
@@ -112,7 +112,7 @@ class OpenAIRealtimeClientNew:
         self.ws = None
         self.is_connected = False
         
-        # ✅ НОВЫЙ GA URL
+        # ✅ GA URL из settings
         self.openai_url = settings.REALTIME_WS_URL_GA
         
         self.session_id = str(uuid.uuid4())
@@ -161,11 +161,16 @@ class OpenAIRealtimeClientNew:
             logger.error("[GA] OpenAI API key not provided")
             return False
 
+        # ✅ ИСПРАВЛЕНО: убрали Beta заголовок для GA
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
+            # ❌ УБРАНО: ("OpenAI-Beta", "realtime=v1"),  # GA не требует beta заголовок
             ("User-Agent", "WellcomeAI/2.1-GA-Version")
         ]
+        
+        # ✅ ДИАГНОСТИКА
+        logger.info(f"[GA] 🌐 Подключение к GA URL: {self.openai_url}")
+        logger.info(f"[GA] 🔑 API Key prefix: {self.api_key[:12]}...")
         
         try:
             self.ws = await asyncio.wait_for(
@@ -180,7 +185,7 @@ class OpenAIRealtimeClientNew:
                 timeout=30
             )
             self.is_connected = True
-            logger.info(f"[GA] Connected to OpenAI GA for client {self.client_id}")
+            logger.info(f"[GA] ✅ Подключен к OpenAI GA for client {self.client_id}")
 
             # Получаем свежие настройки
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -202,7 +207,7 @@ class OpenAIRealtimeClientNew:
                 if self.webhook_url:
                     logger.info(f"[GA] Извлечен URL вебхука: {self.webhook_url}")
 
-            # ✅ НОВЫЕ GA настройки сессии
+            # ✅ GA настройки сессии
             if not await self.update_session_ga(
                 voice=voice,
                 system_message=system_message,
@@ -214,10 +219,12 @@ class OpenAIRealtimeClientNew:
 
             return True
         except asyncio.TimeoutError:
-            logger.error(f"[GA] Connection timeout for client {self.client_id}")
+            logger.error(f"[GA] ❌ Connection timeout for client {self.client_id}")
             return False
         except Exception as e:
-            logger.error(f"[GA] Failed to connect: {e}")
+            logger.error(f"[GA] ❌ Failed to connect: {e}")
+            logger.error(f"[GA] URL: {self.openai_url}")
+            logger.error(f"[GA] Exception type: {type(e)}")
             return False
 
     async def update_session_ga(
@@ -239,9 +246,7 @@ class OpenAIRealtimeClientNew:
             "threshold": self.vad_settings["threshold"],
             "prefix_padding_ms": self.vad_settings["prefix_padding_ms"],
             "silence_duration_ms": self.vad_settings["silence_duration_ms"],
-            "create_response": True,
-            # ✅ НОВОЕ: idle timeout для "Are you still there?"
-            "idle_timeout_ms": 10000  # 10 секунд
+            "create_response": True
         }
         
         logger.info(f"[GA] VAD настройки: {turn_detection}")
@@ -270,36 +275,44 @@ class OpenAIRealtimeClientNew:
             "model": "whisper-1"
         }
         
-        # ✅ НОВЫЙ GA формат payload
+        # ✅ ИСПРАВЛЕННЫЙ GA payload
         payload = {
             "type": "session.update",
             "session": {
-                "type": "realtime",  # ✅ ОБЯЗАТЕЛЬНОЕ НОВОЕ ПОЛЕ!
-                "turn_detection": turn_detection,
+                # ✅ ДОБАВЛЕНО: явное указание модели для GA
+                "model": "gpt-realtime",
+                "modalities": ["text", "audio"],
+                "instructions": system_message,
+                "voice": voice,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
-                "voice": voice,
-                "instructions": system_message,
-                "modalities": ["text", "audio"],
-                # ❌ УБИРАЕМ temperature полностью (GA не поддерживает!)
-                "max_response_output_tokens": 500,
+                "turn_detection": turn_detection,
                 "tools": tools,
                 "tool_choice": tool_choice,
                 "input_audio_transcription": input_audio_transcription,
-                # ✅ НОВЫЕ GA параметры
-                "truncation": "enabled"  # Автообрезка старых сообщений
+                # ✅ GA параметры
+                "max_response_output_tokens": 500
             }
         }
         
+        # ✅ ДИАГНОСТИКА
+        logger.info(f"[GA] 📤 Отправка session.update:")
+        logger.info(f"[GA] - Model: gpt-realtime") 
+        logger.info(f"[GA] - Voice: {voice}")
+        logger.info(f"[GA] - Tools: {len(tools)}")
+        logger.info(f"[GA] - VAD threshold: {turn_detection['threshold']}")
+        
         try:
             await self.ws.send(json.dumps(payload))
-            logger.info(f"[GA] Session settings sent (voice={voice}, tools={len(tools)}, GA format)")
+            logger.info(f"[GA] ✅ Session settings sent successfully")
             
             if tools:
                 for tool in tools:
-                    logger.info(f"[GA] Enabled function: {tool['name']}")
+                    logger.info(f"[GA] 🔧 Enabled function: {tool['name']}")
+                    
+            return True
         except Exception as e:
-            logger.error(f"[GA] Error sending session.update: {e}")
+            logger.error(f"[GA] ❌ Error sending session.update: {e}")
             return False
 
         # Создаем запись в БД
@@ -511,7 +524,6 @@ class OpenAIRealtimeClientNew:
                     "modalities": ["text", "audio"],
                     "voice": self.assistant_config.voice or DEFAULT_VOICE,
                     "instructions": getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE,
-                    # ❌ НЕ добавляем temperature в GA!
                     "max_output_tokens": max_tokens
                 }
             }
