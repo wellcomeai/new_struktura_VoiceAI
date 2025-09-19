@@ -1,660 +1,897 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🚀 GA Voice Agent - Direct Test</title>
+    <title>VoiceAI — Персональный Голосовой Ассистент Нового Поколения</title>
+    <meta name="description" content="Революционная технология голосового взаимодействия с искусственным интеллектом. Естественные диалоги, моментальные ответы, безграничные возможности.">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --accent-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --dark-gradient: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+            
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --text-muted: #718096;
+            --border-light: #e2e8f0;
+            --bg-light: #f7fafc;
+            --bg-card: rgba(255, 255, 255, 0.8);
+            
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
+            --shadow-xl: 0 20px 25px rgba(0,0,0,0.1), 0 10px 10px rgba(0,0,0,0.04);
+            
+            --animation-fast: 0.15s ease-out;
+            --animation-normal: 0.3s ease-out;
+            --animation-slow: 0.6s ease-out;
+        }
+        
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         
         body {
-            background: radial-gradient(circle, #1a1a2e, #16213e, #0f3460);
-            color: white;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: var(--text-primary);
+            background: #ffffff;
+            overflow-x: hidden;
+        }
+        
+        /* Animated Background */
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient-shift 15s ease infinite;
+            opacity: 0.05;
+        }
+        
+        @keyframes gradient-shift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-light);
+            transition: var(--animation-normal);
+        }
+        
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-size: 1.75rem;
+            font-weight: 800;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logo i {
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2rem;
+        }
+        
+        .nav-menu {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+        }
+        
+        .nav-link {
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-weight: 500;
+            transition: var(--animation-fast);
+            position: relative;
+        }
+        
+        .nav-link:hover {
+            color: var(--text-primary);
+        }
+        
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary-gradient);
+            transition: width var(--animation-normal);
+        }
+        
+        .nav-link:hover::after {
+            width: 100%;
+        }
+        
+        /* Hero Section */
+        .hero {
             min-height: 100vh;
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 2rem;
+            position: relative;
+            background: radial-gradient(ellipse at top, rgba(102, 126, 234, 0.1) 0%, rgba(255, 255, 255, 0) 50%);
+        }
+        
+        .hero-content {
+            max-width: 800px;
+            z-index: 10;
+        }
+        
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-card);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-light);
+            border-radius: 50px;
+            padding: 0.5rem 1.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .hero-title {
+            font-size: clamp(2.5rem, 5vw, 4.5rem);
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, #1a202c 0%, #667eea 50%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero-subtitle {
+            font-size: clamp(1.125rem, 2.5vw, 1.5rem);
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .hero-cta {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 4rem;
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all var(--animation-normal);
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        
+        .btn:hover::before {
+            left: 100%;
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            color: white;
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-light);
+            backdrop-filter: blur(10px);
+        }
+        
+        .btn-secondary:hover {
+            background: white;
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        /* Features Grid */
+        .features {
+            padding: 6rem 2rem;
+            background: var(--bg-light);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        
+        .section-title {
+            font-size: clamp(2rem, 4vw, 3rem);
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        
+        .section-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-top: 4rem;
+        }
+        
+        .feature-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            padding: 2.5rem;
+            transition: all var(--animation-normal);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary-gradient);
+            transform: scaleX(0);
+            transition: transform var(--animation-normal);
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            background: var(--accent-gradient);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            font-size: 1.5rem;
+            color: white;
+        }
+        
+        .feature-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+        
+        .feature-description {
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        
+        /* Demo Section */
+        .demo {
+            padding: 6rem 2rem;
+            background: white;
+            position: relative;
+        }
+        
+        .demo-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+        
+        .demo-content h2 {
+            font-size: clamp(2rem, 4vw, 2.5rem);
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+        
+        .demo-content p {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            line-height: 1.7;
+        }
+        
+        .demo-visual {
+            position: relative;
+            height: 400px;
+            background: var(--primary-gradient);
+            border-radius: 20px;
+            display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
         }
         
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            position: relative;
-        }
-        
-        .title {
+        .demo-visual::before {
+            content: '';
             position: absolute;
-            top: 50px;
-            font-size: 2rem;
-            font-weight: 300;
-            text-align: center;
-            opacity: 0.9;
-            z-index: 10;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shine 3s linear infinite;
         }
         
-        .voice-sphere {
-            width: 300px;
-            height: 300px;
-            border-radius: 50%;
-            background: radial-gradient(circle, #4facfe 0%, #00f2fe 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-            box-shadow: 0 0 50px rgba(79, 172, 254, 0.3);
-            animation: breathe 3s ease-in-out infinite;
+        @keyframes shine {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
         }
         
-        .voice-sphere:hover {
-            transform: scale(1.05);
-            box-shadow: 0 0 80px rgba(79, 172, 254, 0.5);
-        }
-        
-        .voice-sphere.listening {
-            background: radial-gradient(circle, #f093fb 0%, #f5576c 100%);
-            box-shadow: 0 0 80px rgba(240, 147, 251, 0.6);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-        
-        .voice-sphere.speaking {
-            background: radial-gradient(circle, #4ecdc4 0%, #44a08d 100%);
-            box-shadow: 0 0 100px rgba(78, 205, 196, 0.7);
-            animation: ripple 2s ease-in-out infinite;
-        }
-        
-        .voice-sphere.error {
-            background: radial-gradient(circle, #ff6b6b 0%, #ee5a24 100%);
-            box-shadow: 0 0 60px rgba(255, 107, 107, 0.5);
-            animation: shake 0.5s ease-in-out;
-        }
-        
-        .sphere-icon {
+        .demo-icon {
             font-size: 4rem;
             color: white;
-            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
             z-index: 2;
-        }
-        
-        .status-text {
-            position: absolute;
-            bottom: 80px;
-            font-size: 1.2rem;
-            text-align: center;
-            opacity: 0.8;
-            max-width: 600px;
-        }
-        
-        .connection-info {
-            position: absolute;
-            bottom: 20px;
-            display: flex;
-            gap: 20px;
-            font-size: 0.9rem;
-            opacity: 0.6;
-        }
-        
-        .info-item {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #fbbf24;
-        }
-        
-        .status-dot.connected { background: #10b981; }
-        .status-dot.error { background: #ef4444; }
-        
-        .log-panel {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            width: 400px;
-            max-height: 300px;
-            background: rgba(0, 0, 0, 0.8);
-            border-radius: 10px;
-            padding: 15px;
-            font-family: monospace;
-            font-size: 12px;
-            color: #00ff00;
-            overflow-y: auto;
-            display: none;
-            z-index: 100;
-        }
-        
-        .log-toggle {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 10px 15px;
-            border-radius: 20px;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
-        }
-        
-        .audio-visualizer {
-            position: absolute;
-            bottom: -30px;
-            display: flex;
-            gap: 3px;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        
-        .audio-bar {
-            width: 3px;
-            height: 10px;
-            background: white;
-            border-radius: 2px;
-            animation: audioViz 0.8s ease-in-out infinite;
-        }
-        
-        .audio-bar:nth-child(2) { animation-delay: 0.1s; }
-        .audio-bar:nth-child(3) { animation-delay: 0.2s; }
-        .audio-bar:nth-child(4) { animation-delay: 0.3s; }
-        .audio-bar:nth-child(5) { animation-delay: 0.4s; }
-        
-        @keyframes breathe {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.02); }
+            animation: pulse 2s ease-in-out infinite;
         }
         
         @keyframes pulse {
             0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.08); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 0.8; }
         }
         
-        @keyframes ripple {
-            0% { transform: scale(1); }
-            25% { transform: scale(1.05); }
-            50% { transform: scale(1.1); }
-            75% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+        /* Stats */
+        .stats {
+            padding: 4rem 2rem;
+            background: var(--dark-gradient);
+            color: white;
         }
         
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
         }
         
-        @keyframes audioViz {
-            0%, 100% { height: 10px; }
-            50% { height: 25px; }
+        .stat-item {
+            text-align: center;
         }
         
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .stat-label {
+            font-size: 1.125rem;
+            opacity: 0.8;
+        }
+        
+        /* CTA Section */
+        .cta-section {
+            padding: 6rem 2rem;
+            background: radial-gradient(ellipse at center, rgba(102, 126, 234, 0.1) 0%, rgba(255, 255, 255, 0) 50%);
+            text-align: center;
+        }
+        
+        .cta-content {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .cta-title {
+            font-size: clamp(2rem, 4vw, 2.5rem);
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+        
+        .cta-subtitle {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+        }
+        
+        /* Footer */
+        .footer {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 3rem 2rem 2rem;
+            text-align: center;
+        }
+        
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .footer-logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .footer-text {
+            opacity: 0.7;
+            margin-bottom: 2rem;
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .footer-link {
+            color: #e2e8f0;
+            text-decoration: none;
+            opacity: 0.7;
+            transition: var(--animation-fast);
+        }
+        
+        .footer-link:hover {
+            opacity: 1;
+            color: #667eea;
+        }
+        
+        .footer-bottom {
+            border-top: 1px solid #2d3748;
+            padding-top: 2rem;
+            opacity: 0.5;
+        }
+        
+        /* Responsive Design */
         @media (max-width: 768px) {
-            .voice-sphere { width: 250px; height: 250px; }
-            .sphere-icon { font-size: 3rem; }
-            .title { font-size: 1.5rem; top: 30px; }
-            .log-panel { width: 90%; right: 5%; }
+            .nav-menu {
+                display: none;
+            }
+            
+            .hero-cta {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .btn {
+                width: 100%;
+                max-width: 300px;
+                justify-content: center;
+            }
+            
+            .demo-container {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .footer-links {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+        
+        /* Smooth scrolling */
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        /* Loading animations */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeIn 1s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Stagger animations */
+        .fade-in:nth-child(1) { animation-delay: 0.1s; }
+        .fade-in:nth-child(2) { animation-delay: 0.2s; }
+        .fade-in:nth-child(3) { animation-delay: 0.3s; }
+        .fade-in:nth-child(4) { animation-delay: 0.4s; }
+        
+        /* Scroll reveal */
+        .reveal {
+            opacity: 0;
+            transform: translateY(50px);
+            transition: all 0.6s ease-out;
+        }
+        
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
         }
     </style>
 </head>
+
 <body>
-    <button class="log-toggle" onclick="toggleLogs()">📋 GA Logs</button>
+    <!-- Animated Background -->
+    <div class="animated-bg"></div>
     
-    <div class="container">
-        <h1 class="title">🚀 GA Voice Agent Test</h1>
-        
-        <div class="voice-sphere" id="voiceSphere" onclick="toggleVoiceChat()">
-            <div class="sphere-icon" id="sphereIcon">🎤</div>
-            <div class="audio-visualizer" id="audioVisualizer">
-                <div class="audio-bar"></div>
-                <div class="audio-bar"></div>
-                <div class="audio-bar"></div>
-                <div class="audio-bar"></div>
-                <div class="audio-bar"></div>
+    <!-- Header -->
+    <header class="header">
+        <nav class="nav-container">
+            <div class="logo">
+                <i class="fas fa-microphone"></i>
+                VoiceAI
             </div>
-        </div>
-        
-        <div class="status-text" id="statusText">Нажмите на сферу чтобы начать голосовой чат с GA агентом</div>
-        
-        <div class="connection-info">
-            <div class="info-item">
-                <div class="status-dot" id="connectionDot"></div>
-                <span>GA WebSocket</span>
-            </div>
-            <div class="info-item">
-                <div class="status-dot" id="micDot"></div>
-                <span>Микрофон</span>
-            </div>
-            <div class="info-item">
-                <span>ID: 84480767...bdfe8c5a</span>
-            </div>
-        </div>
-    </div>
-    
-    <div class="log-panel" id="logPanel">
-        <div style="color: #fbbf24; margin-bottom: 10px;">🚀 GA Real-time Logs:</div>
-        <div id="logContent"></div>
-    </div>
+            <ul class="nav-menu">
+                <li><a href="#features" class="nav-link">Возможности</a></li>
+                <li><a href="#demo" class="nav-link">Демо</a></li>
+                <li><a href="#about" class="nav-link">О нас</a></li>
+                <li><a href="#contact" class="nav-link">Контакты</a></li>
+            </ul>
+        </nav>
+    </header>
 
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-badge fade-in">
+                <i class="fas fa-sparkles"></i>
+                Powered by Advanced AI
+            </div>
+            
+            <h1 class="hero-title fade-in">
+                Будущее голосового взаимодействия уже здесь
+            </h1>
+            
+            <p class="hero-subtitle fade-in">
+                Революционная технология искусственного интеллекта, которая понимает вас с полуслова и отвечает естественным голосом. Начните диалог с AI прямо сейчас.
+            </p>
+            
+            <div class="hero-cta fade-in">
+                <a href="#demo" class="btn btn-primary">
+                    <i class="fas fa-play"></i>
+                    Попробовать сейчас
+                </a>
+                <a href="#features" class="btn btn-secondary">
+                    <i class="fas fa-info-circle"></i>
+                    Узнать больше
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-header reveal">
+                <h2 class="section-title">Невероятные возможности</h2>
+                <p class="section-subtitle">
+                    Передовые технологии машинного обучения для максимально естественного общения
+                </p>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <h3 class="feature-title">Интеллектуальное понимание</h3>
+                    <p class="feature-description">
+                        Наш AI понимает контекст, эмоции и подтексты. Ведет диалог как живой собеседник, запоминает детали разговора.
+                    </p>
+                </div>
+                
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-bolt"></i>
+                    </div>
+                    <h3 class="feature-title">Мгновенная реакция</h3>
+                    <p class="feature-description">
+                        Время отклика менее 200мс. Прерывайте ассистента, меняйте тему — он адаптируется в реальном времени.
+                    </p>
+                </div>
+                
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-globe"></i>
+                    </div>
+                    <h3 class="feature-title">Многоязычность</h3>
+                    <p class="feature-description">
+                        Поддержка 95+ языков мира. Переключайтесь между языками прямо в разговоре — ассистент поймет и ответит.
+                    </p>
+                </div>
+                
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-shield-alt"></i>
+                    </div>
+                    <h3 class="feature-title">Приватность</h3>
+                    <p class="feature-description">
+                        Данные обрабатываются с соблюдением GDPR. Сквозное шифрование, локальное хранение настроек.
+                    </p>
+                </div>
+                
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-puzzle-piece"></i>
+                    </div>
+                    <h3 class="feature-title">Интеграции</h3>
+                    <p class="feature-description">
+                        Подключайте к CRM, базам данных, API сервисам. Ассистент может выполнять действия в ваших системах.
+                    </p>
+                </div>
+                
+                <div class="feature-card reveal fade-in">
+                    <div class="feature-icon">
+                        <i class="fas fa-paint-brush"></i>
+                    </div>
+                    <h3 class="feature-title">Персонализация</h3>
+                    <p class="feature-description">
+                        Настройте голос, тон общения, специализацию. Обучите ассистента особенностям вашего бизнеса.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Section -->
+    <section id="demo" class="demo">
+        <div class="demo-container">
+            <div class="demo-content reveal">
+                <h2>Испытайте силу голосового AI</h2>
+                <p>
+                    Нажмите кнопку в правом нижнем углу и начните разговор. Спросите о чем угодно — о погоде, новостях, попросите помочь с задачей или просто поболтайте.
+                </p>
+                <div class="hero-cta">
+                    <a href="javascript:void(0)" class="btn btn-primary" onclick="openVoiceWidget()">
+                        <i class="fas fa-microphone"></i>
+                        Начать диалог
+                    </a>
+                </div>
+            </div>
+            
+            <div class="demo-visual reveal">
+                <i class="demo-icon fas fa-comments"></i>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats">
+        <div class="container">
+            <div class="stats-grid">
+                <div class="stat-item reveal">
+                    <div class="stat-number">< 200</div>
+                    <div class="stat-label">миллисекунд задержки</div>
+                </div>
+                <div class="stat-item reveal">
+                    <div class="stat-number">95+</div>
+                    <div class="stat-label">поддерживаемых языков</div>
+                </div>
+                <div class="stat-item reveal">
+                    <div class="stat-number">99.9%</div>
+                    <div class="stat-label">время безотказной работы</div>
+                </div>
+                <div class="stat-item reveal">
+                    <div class="stat-number">24/7</div>
+                    <div class="stat-label">техническая поддержка</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section id="about" class="cta-section">
+        <div class="cta-content reveal">
+            <h2 class="cta-title">Готовы к революции в общении?</h2>
+            <p class="cta-subtitle">
+                Присоединитесь к тысячам компаний, которые уже используют нашего голосового ассистента для автоматизации бизнес-процессов.
+            </p>
+            <div class="hero-cta">
+                <a href="#contact" class="btn btn-primary">
+                    <i class="fas fa-rocket"></i>
+                    Начать бесплатно
+                </a>
+                <a href="mailto:support@voiceai.ru" class="btn btn-secondary">
+                    <i class="fas fa-envelope"></i>
+                    Связаться с нами
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer id="contact" class="footer">
+        <div class="footer-content">
+            <div class="footer-logo">VoiceAI</div>
+            <p class="footer-text">
+                Революционная платформа для голосового взаимодействия с искусственным интеллектом
+            </p>
+            
+            <div class="footer-links">
+                <a href="mailto:support@voiceai.ru" class="footer-link">Поддержка</a>
+                <a href="#" class="footer-link">Документация</a>
+                <a href="#" class="footer-link">API</a>
+                <a href="#" class="footer-link">Условия использования</a>
+                <a href="#" class="footer-link">Конфиденциальность</a>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2024 VoiceAI. Все права защищены. Powered by AI Technology.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- GA Voice Widget Integration -->
     <script>
-        // ✅ КОНФИГУРАЦИЯ GA ТЕСТИРОВАНИЯ
-        const GA_CONFIG = {
-            ASSISTANT_ID: '84480767-76f3-491f-8c76-8181bdfe8c5a',
-            WS_ENDPOINT: '/ws/84480767-76f3-491f-8c76-8181bdfe8c5a/ga',
-            SERVER_URL: window.location.origin,
-            SAMPLE_RATE: 24000,
-            CHANNELS: 1
-        };
-
-        // ✅ СОСТОЯНИЕ ПРИЛОЖЕНИЯ
-        const appState = {
-            websocket: null,
-            audioContext: null,
-            mediaStream: null,
-            isConnected: false,
-            isListening: false,
-            isSpeaking: false,
-            audioProcessor: null,
-            audioPlaybackQueue: [],
-            isPlayingAudio: false
-        };
-
-        // ✅ ЭЛЕМЕНТЫ DOM
-        const elements = {
-            sphere: document.getElementById('voiceSphere'),
-            icon: document.getElementById('sphereIcon'),
-            statusText: document.getElementById('statusText'),
-            connectionDot: document.getElementById('connectionDot'),
-            micDot: document.getElementById('micDot'),
-            audioVisualizer: document.getElementById('audioVisualizer'),
-            logPanel: document.getElementById('logPanel'),
-            logContent: document.getElementById('logContent')
-        };
-
-        // ✅ ЛОГИРОВАНИЕ
-        let logCount = 0;
-        
-        function gaLog(message, type = 'info') {
-            const timestamp = new Date().toLocaleTimeString();
-            const colors = {
-                info: '#00ff00',
-                error: '#ff4444',
-                warn: '#ffaa00',
-                ga: '#00aaff',
-                audio: '#ff00ff'
-            };
-            
-            // Консоль браузера
-            console.log(`[GA] ${message}`);
-            
-            // Панель логов
-            const logEntry = document.createElement('div');
-            logEntry.style.color = colors[type] || colors.info;
-            logEntry.innerHTML = `[${timestamp}] ${message}`;
-            
-            elements.logContent.appendChild(logEntry);
-            elements.logContent.scrollTop = elements.logContent.scrollHeight;
-            
-            if (logCount++ > 100) {
-                elements.logContent.removeChild(elements.logContent.firstElementChild);
-                logCount--;
-            }
-        }
-
-        // ✅ UI ОБНОВЛЕНИЯ
-        function updateStatus(message) {
-            elements.statusText.textContent = message;
-            gaLog(`Status: ${message}`, 'info');
-        }
-
-        function updateSphereState(state) {
-            elements.sphere.className = `voice-sphere ${state}`;
-            
-            switch(state) {
-                case 'listening':
-                    elements.icon.textContent = '👂';
-                    elements.audioVisualizer.style.opacity = '1';
-                    break;
-                case 'speaking':
-                    elements.icon.textContent = '🗣️';
-                    elements.audioVisualizer.style.opacity = '1';
-                    break;
-                case 'error':
-                    elements.icon.textContent = '❌';
-                    elements.audioVisualizer.style.opacity = '0';
-                    break;
-                default:
-                    elements.icon.textContent = '🎤';
-                    elements.audioVisualizer.style.opacity = '0';
-            }
-        }
-
-        function updateConnectionDot(connected) {
-            elements.connectionDot.className = `status-dot ${connected ? 'connected' : 'error'}`;
-        }
-
-        function updateMicDot(active) {
-            elements.micDot.className = `status-dot ${active ? 'connected' : 'error'}`;
-        }
-
-        // ✅ АУДИО ИНИЦИАЛИЗАЦИЯ
-        async function initializeAudio() {
-            try {
-                gaLog('🎵 Инициализация аудио системы...', 'audio');
-                
-                appState.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: GA_CONFIG.SAMPLE_RATE,
-                    latencyHint: 'interactive'
-                });
-                
-                if (appState.audioContext.state === 'suspended') {
-                    await appState.audioContext.resume();
-                }
-                
-                appState.mediaStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        sampleRate: GA_CONFIG.SAMPLE_RATE,
-                        channelCount: GA_CONFIG.CHANNELS
-                    }
-                });
-                
-                gaLog('✅ Аудио система инициализирована', 'audio');
-                updateMicDot(true);
-                return true;
-                
-            } catch (error) {
-                gaLog(`❌ Ошибка инициализации аудио: ${error.message}`, 'error');
-                updateMicDot(false);
-                return false;
-            }
-        }
-
-        // ✅ WEBSOCKET СОЕДИНЕНИЕ
-        async function connectWebSocket() {
-            try {
-                const wsUrl = GA_CONFIG.SERVER_URL.replace(/^http/, 'ws') + GA_CONFIG.WS_ENDPOINT;
-                gaLog(`🌐 Подключение к GA WebSocket: ${wsUrl}`, 'ga');
-                
-                appState.websocket = new WebSocket(wsUrl);
-                appState.websocket.binaryType = 'arraybuffer';
-                
-                appState.websocket.onopen = () => {
-                    gaLog('✅ GA WebSocket подключен!', 'ga');
-                    appState.isConnected = true;
-                    updateConnectionDot(true);
-                    updateStatus('GA агент подключен! Начните разговор');
-                    updateSphereState('');
-                };
-                
-                appState.websocket.onmessage = handleWebSocketMessage;
-                
-                appState.websocket.onclose = (event) => {
-                    gaLog(`🔌 WebSocket закрыт: ${event.code} ${event.reason}`, 'warn');
-                    appState.isConnected = false;
-                    updateConnectionDot(false);
-                    updateStatus('Соединение потеряно. Перезагрузите страницу.');
-                    updateSphereState('error');
-                };
-                
-                appState.websocket.onerror = (error) => {
-                    gaLog(`❌ WebSocket ошибка: ${error}`, 'error');
-                    updateConnectionDot(false);
-                    updateSphereState('error');
-                };
-                
-            } catch (error) {
-                gaLog(`❌ Ошибка создания WebSocket: ${error.message}`, 'error');
-                updateConnectionDot(false);
-                updateSphereState('error');
-            }
-        }
-
-        // ✅ ОБРАБОТКА WEBSOCKET СООБЩЕНИЙ
-        function handleWebSocketMessage(event) {
-            try {
-                const data = JSON.parse(event.data);
-                const msgType = data.type;
-                
-                gaLog(`📨 GA Message: ${msgType}`, 'ga');
-                
-                switch(msgType) {
-                    case 'connection_status':
-                        if (data.status === 'connected') {
-                            gaLog(`🎯 GA ${data.version || 'version'} подключена: ${data.message}`, 'ga');
-                            updateStatus('GA агент готов к работе!');
-                        }
-                        break;
-                        
-                    case 'session.created':
-                        gaLog(`🎉 GA Session создана с моделью: ${data.model}`, 'ga');
-                        break;
-                        
-                    case 'response.audio.delta':
-                        if (data.delta) {
-                            handleAudioResponse(data.delta);
-                        }
-                        break;
-                        
-                    case 'response.text.delta':
-                        if (data.delta) {
-                            updateStatus(`GA: ${data.delta}`);
-                        }
-                        break;
-                        
-                    case 'speech.started':
-                        gaLog('👂 Пользователь начал говорить', 'ga');
-                        updateSphereState('listening');
-                        updateStatus('Слушаю...');
-                        break;
-                        
-                    case 'speech.stopped':
-                        gaLog('🛑 Пользователь закончил говорить', 'ga');
-                        break;
-                        
-                    case 'assistant.speech.started':
-                        gaLog('🗣️ GA агент начал отвечать', 'ga');
-                        appState.isSpeaking = true;
-                        updateSphereState('speaking');
-                        updateStatus('GA агент отвечает...');
-                        break;
-                        
-                    case 'assistant.speech.ended':
-                        gaLog('✅ GA агент закончил отвечать', 'ga');
-                        appState.isSpeaking = false;
-                        updateSphereState('');
-                        updateStatus('Готов к следующему вопросу');
-                        break;
-                        
-                    case 'error':
-                        gaLog(`❌ GA Error: ${data.error?.message}`, 'error');
-                        updateStatus(`Ошибка: ${data.error?.message}`);
-                        updateSphereState('error');
-                        break;
-                        
-                    default:
-                        if (msgType.includes('.ack')) {
-                            // Игнорируем ACK сообщения
-                        } else {
-                            gaLog(`🔍 Неизвестное GA сообщение: ${msgType}`, 'warn');
-                        }
-                }
-                
-            } catch (error) {
-                gaLog(`❌ Ошибка обработки сообщения: ${error.message}`, 'error');
-            }
-        }
-
-        // ✅ ОБРАБОТКА АУДИО ОТВЕТА
-        function handleAudioResponse(audioBase64) {
-            try {
-                const audioData = atob(audioBase64);
-                const audioArray = new Uint8Array(audioData.length);
-                for (let i = 0; i < audioData.length; i++) {
-                    audioArray[i] = audioData.charCodeAt(i);
-                }
-                
-                // Простое воспроизведение через Audio API
-                const blob = new Blob([audioArray.buffer], { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(blob);
-                const audio = new Audio(audioUrl);
-                
-                audio.onended = () => URL.revokeObjectURL(audioUrl);
-                audio.play().catch(e => {
-                    gaLog(`🔊 Ошибка воспроизведения: ${e.message}`, 'error');
-                });
-                
-            } catch (error) {
-                gaLog(`🔊 Ошибка обработки аудио: ${error.message}`, 'error');
-            }
-        }
-
-        // ✅ ЗАПУСК ГОЛОСОВОГО ЧАТА
-        async function toggleVoiceChat() {
-            if (!appState.isConnected) {
-                gaLog('❌ WebSocket не подключен', 'error');
-                return;
-            }
-            
-            if (!appState.audioContext) {
-                const audioReady = await initializeAudio();
-                if (!audioReady) {
-                    updateStatus('Ошибка доступа к микрофону');
-                    return;
-                }
-            }
-            
-            if (appState.isListening) {
-                stopListening();
+        // Функция для принудительного открытия виджета
+        function openVoiceWidget() {
+            // Находим кнопку виджета
+            const widgetButton = document.getElementById('wellcomeai-widget-button');
+            if (widgetButton) {
+                widgetButton.click();
             } else {
-                startListening();
+                // Если виджет еще не загружен, ждем и пробуем снова
+                setTimeout(openVoiceWidget, 500);
             }
         }
-
-        // ✅ НАЧАТЬ ПРОСЛУШИВАНИЕ
-        function startListening() {
-            if (!appState.mediaStream || !appState.audioContext) {
-                gaLog('❌ Аудио не готово для прослушивания', 'error');
-                return;
-            }
+        
+        // Scroll reveal animation
+        function reveal() {
+            const reveals = document.querySelectorAll('.reveal');
             
-            gaLog('🎤 Начинаем прослушивание...', 'audio');
-            appState.isListening = true;
-            updateSphereState('listening');
-            updateStatus('Говорите с GA агентом...');
-            
-            // Создаем аудио процессор
-            const source = appState.audioContext.createMediaStreamSource(appState.mediaStream);
-            appState.audioProcessor = appState.audioContext.createScriptProcessor(2048, 1, 1);
-            
-            appState.audioProcessor.onaudioprocess = (e) => {
-                if (appState.isListening && appState.websocket && appState.websocket.readyState === WebSocket.OPEN) {
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    
-                    // Конвертируем в PCM16
-                    const pcm16Data = new Int16Array(inputData.length);
-                    for (let i = 0; i < inputData.length; i++) {
-                        pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
-                    }
-                    
-                    // Отправляем в GA WebSocket
-                    const audioBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(pcm16Data.buffer)));
-                    appState.websocket.send(JSON.stringify({
-                        type: "input_audio_buffer.append",
-                        audio: audioBase64,
-                        event_id: `audio_${Date.now()}`
-                    }));
+            for (let i = 0; i < reveals.length; i++) {
+                const windowHeight = window.innerHeight;
+                const elementTop = reveals[i].getBoundingClientRect().top;
+                const elementVisible = 150;
+                
+                if (elementTop < windowHeight - elementVisible) {
+                    reveals[i].classList.add('active');
                 }
-            };
-            
-            source.connect(appState.audioProcessor);
-            appState.audioProcessor.connect(appState.audioContext.destination);
-            
-            // Автокоммит через паузу
-            setTimeout(() => {
-                if (appState.isListening) {
-                    commitAudio();
-                }
-            }, 3000);
-        }
-
-        // ✅ ОСТАНОВИТЬ ПРОСЛУШИВАНИЕ
-        function stopListening() {
-            gaLog('🛑 Остановка прослушивания', 'audio');
-            appState.isListening = false;
-            
-            if (appState.audioProcessor) {
-                appState.audioProcessor.disconnect();
-                appState.audioProcessor = null;
-            }
-            
-            updateSphereState('');
-            commitAudio();
-        }
-
-        // ✅ КОММИТ АУДИО
-        function commitAudio() {
-            if (appState.websocket && appState.websocket.readyState === WebSocket.OPEN) {
-                appState.websocket.send(JSON.stringify({
-                    type: "input_audio_buffer.commit",
-                    event_id: `commit_${Date.now()}`
-                }));
-                gaLog('📤 Аудио буфер отправлен в GA', 'audio');
             }
         }
-
-        // ✅ ПЕРЕКЛЮЧЕНИЕ ЛОГОВ
-        function toggleLogs() {
-            const panel = elements.logPanel;
-            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-        }
-
-        // ✅ АВТОЗАПУСК ПРИ ЗАГРУЗКЕ
-        window.addEventListener('load', async () => {
-            gaLog('🎬 GA Voice Test загружен', 'ga');
-            gaLog(`🎯 Assistant ID: ${GA_CONFIG.ASSISTANT_ID}`, 'ga');
-            gaLog(`🌐 Endpoint: ${GA_CONFIG.WS_ENDPOINT}`, 'ga');
+        
+        window.addEventListener('scroll', reveal);
+        
+        // Инициализируем анимации при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            reveal();
             
-            updateStatus('Подключение к GA агенту...');
-            
-            // Подключаемся автоматически
-            await connectWebSocket();
-            
-            // Автоматически инициализируем аудио при первом клике
-            elements.sphere.addEventListener('click', async () => {
-                if (!appState.audioContext) {
-                    const audioReady = await initializeAudio();
-                    if (audioReady) {
-                        gaLog('🎵 Аудио готово к использованию!', 'audio');
-                    }
-                }
+            // Добавляем плавное появление для элементов
+            const fadeElements = document.querySelectorAll('.fade-in');
+            fadeElements.forEach((el, index) => {
+                setTimeout(() => {
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateY(0)';
+                }, index * 100);
             });
         });
-
-        // ✅ ОЧИСТКА ПРИ ЗАКРЫТИИ
-        window.addEventListener('beforeunload', () => {
-            if (appState.websocket) {
-                appState.websocket.close();
-            }
-            if (appState.mediaStream) {
-                appState.mediaStream.getTracks().forEach(track => track.stop());
+        
+        // Обработка скролла для шапки
+        let lastScrollTop = 0;
+        window.addEventListener('scroll', function() {
+            const header = document.querySelector('.header');
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            
+            if (scrollTop > 100) {
+                header.style.background = 'rgba(255, 255, 255, 0.98)';
+                header.style.boxShadow = '0 2px 20px rgba(0,0,0,0.1)';
+            } else {
+                header.style.background = 'rgba(255, 255, 255, 0.95)';
+                header.style.boxShadow = 'none';
             }
         });
+    </script>
+    
+    <!-- GA Voice Widget - Замени на свой assistant ID -->
+    <script src="/static/widget-ga.js" 
+            data-assistantId="your-assistant-id-here"
+            data-server="https://yourdomain.com">
     </script>
 </body>
 </html>
