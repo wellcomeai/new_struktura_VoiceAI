@@ -1,0 +1,1993 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Настройки | Voicyfy</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Favicon -->
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#2563eb">
+  <style>
+    /* Базовые стили из dashboard.html */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --accent-blue: #4a86e8;
+      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --radius-full: 9999px;
+      --transition-sm: all 0.2s ease;
+      --transition-md: all 0.3s ease;
+      --success-green: #10b981;
+      --error-red: #ef4444;
+      --warning-yellow: #f59e0b;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+      line-height: 1.5;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 10;
+      transition: var(--transition-md);
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .sidebar-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
+    }
+    
+    .mobile-toggle {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      font-size: 1.25rem;
+      cursor: pointer;
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: var(--transition-sm);
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+      font-weight: 500;
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      margin-top: 1.5rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      transition: var(--transition-md);
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: var(--shadow-sm);
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
+    }
+    
+    .user-button:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Секции настроек */
+    .settings-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+    }
+    
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .section-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .section-description {
+      color: var(--text-gray);
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+    
+    /* Формы */
+    .settings-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    
+    .form-label {
+      font-weight: 500;
+      color: var(--text-dark);
+      font-size: 0.875rem;
+    }
+    
+    .form-input {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+      background-color: var(--white);
+    }
+    
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    .form-input:disabled {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      cursor: not-allowed;
+    }
+    
+    .input-wrapper {
+      position: relative;
+    }
+    
+    .toggle-password {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+    
+    .toggle-password:hover {
+      color: var(--primary-blue);
+    }
+    
+    /* Кнопки */
+    .btn {
+      padding: 0.75rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      border: none;
+      gap: 0.5rem;
+      text-decoration: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+    }
+
+    .btn-success {
+      background-color: var(--success-green);
+      color: var(--white);
+    }
+
+    .btn-success:hover {
+      background-color: #059669;
+    }
+    
+    .form-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+    
+    /* Информационные блоки */
+    .info-box {
+      background-color: var(--bg-blue-light);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    
+    .info-icon {
+      color: var(--primary-blue);
+      font-size: 1.125rem;
+      margin-top: 0.125rem;
+    }
+    
+    .info-content {
+      flex: 1;
+    }
+    
+    .info-title {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      font-size: 0.875rem;
+    }
+    
+    .info-description {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+    
+    /* Секция для просмотра текущего пароля */
+    .current-password-section {
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      background-color: var(--bg-light);
+      margin-bottom: 1.5rem;
+    }
+    
+    .current-password-label {
+      font-weight: 500;
+      color: var(--text-dark);
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    
+    .password-display {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .password-value {
+      font-family: inherit;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+      background-color: var(--white);
+      padding: 0.5rem 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      flex: 1;
+      display: flex;
+      align-items: center;
+    }
+
+    /* 🆕 СТИЛИ ДЛЯ ПАРТНЕРСКОЙ ПРОГРАММЫ */
+    .partner-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+    }
+
+    .partner-status {
+      background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+      border: 1px solid #bfdbfe;
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .partner-status-inactive {
+      background: var(--bg-light);
+      border: 1px solid var(--border-color);
+    }
+
+    .partner-status-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .partner-status-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+
+    .partner-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.375rem 0.875rem;
+      background: var(--primary-blue);
+      color: white;
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .partner-badge.inactive {
+      background: var(--text-gray);
+    }
+
+    .referral-link-container {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .referral-link-label {
+      font-weight: 500;
+      color: var(--text-dark);
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .referral-link-wrapper {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+
+    .referral-link-input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      background-color: var(--white);
+      color: var(--text-dark);
+      cursor: text;
+      user-select: all;
+    }
+
+    .referral-link-input:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+
+    .copy-button {
+      padding: 0.75rem 1rem;
+      background-color: var(--primary-blue);
+      color: white;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .copy-button:hover {
+      background-color: var(--primary-blue-dark);
+    }
+
+    .copy-button.copied {
+      background-color: var(--success-green);
+    }
+
+    /* Статистика партнера */
+    .partner-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary-blue);
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    .stat-card.earnings .stat-value {
+      color: var(--success-green);
+    }
+
+    /* Таблица рефералов */
+    .referrals-table-container {
+      overflow-x: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      margin-top: 1.5rem;
+    }
+
+    .referrals-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    .referrals-table th {
+      background-color: var(--bg-light);
+      padding: 0.75rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text-dark);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .referrals-table td {
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-gray);
+    }
+
+    .referrals-table tbody tr:hover {
+      background-color: var(--bg-light);
+    }
+
+    .referrals-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .payment-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: var(--radius-full);
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .payment-status.paid {
+      background-color: #d1fae5;
+      color: #065f46;
+    }
+
+    .payment-status.pending {
+      background-color: #fed7aa;
+      color: #92400e;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-gray);
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+
+    .empty-state-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 0.5rem;
+    }
+
+    .empty-state-description {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    /* Промо блок для неактивных партнеров */
+    .partner-promo {
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      border: 2px dashed var(--primary-blue);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+
+    .partner-promo-icon {
+      font-size: 3rem;
+      color: var(--primary-blue);
+      margin-bottom: 1rem;
+    }
+
+    .partner-promo-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      margin-bottom: 0.75rem;
+    }
+
+    .partner-promo-description {
+      color: var(--text-gray);
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+
+    .partner-promo-benefits {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .promo-benefit {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-dark);
+      font-weight: 500;
+    }
+
+    .promo-benefit i {
+      color: var(--success-green);
+    }
+    
+    /* Уведомления */
+    .notification {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      max-width: 350px;
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      color: var(--text-gray);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.125rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    /* Адаптивный дизайн */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        box-shadow: var(--shadow-lg);
+      }
+      
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .mobile-toggle {
+        display: block;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      
+      .page-title {
+        font-size: 1.125rem;
+        order: 2;
+        width: 100%;
+      }
+      
+      .user-menu {
+        order: 1;
+      }
+      
+      .content-container {
+        padding: 1.5rem 1rem;
+      }
+      
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+      
+      .form-actions {
+        flex-direction: column;
+      }
+
+      .partner-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .referral-link-wrapper {
+        flex-direction: column;
+      }
+
+      .copy-button {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .partner-promo-benefits {
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .referrals-table {
+        font-size: 0.75rem;
+      }
+
+      .referrals-table th,
+      .referrals-table td {
+        padding: 0.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Боковая панель -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+      <button class="mobile-toggle" id="sidebar-close">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item active">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </div>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content" id="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <button class="mobile-toggle" id="sidebar-toggle">
+        <i class="fas fa-bars"></i>
+      </button>
+      
+      <h1 class="page-title">Настройки аккаунта</h1>
+      
+      <div class="user-menu">
+        <button class="user-button" id="user-menu-button">
+          <div class="user-avatar" id="user-avatar">АП</div>
+          <span class="user-name" id="user-name">Александр Петров</span>
+          <i class="fas fa-chevron-down"></i>
+        </button>
+        
+        <div class="user-dropdown" id="user-dropdown">
+          <a href="/static/settings.html" class="dropdown-item">
+            <i class="fas fa-user"></i> Профиль
+          </a>
+          <div class="dropdown-divider"></div>
+          <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+            <i class="fas fa-sign-out-alt"></i> Выйти
+          </a>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      
+      <!-- Профиль пользователя -->
+      <div class="settings-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-user"></i> Основная информация профиля
+          </h2>
+        </div>
+        
+        <p class="section-description">
+          Управляйте основной информацией вашего профиля.
+        </p>
+        
+        <form class="settings-form" id="profile-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="first-name">Имя</label>
+              <input type="text" id="first-name" class="form-input" placeholder="Введите ваше имя">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label" for="last-name">Фамилия</label>
+              <input type="text" id="last-name" class="form-input" placeholder="Введите вашу фамилию">
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="company-name">Название компании</label>
+            <input type="text" id="company-name" class="form-input" placeholder="Введите название компании (необязательно)">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="email">Email адрес</label>
+            <input type="email" id="email" class="form-input" disabled>
+            <div class="info-box" style="margin-top: 0.5rem;">
+              <i class="fas fa-info-circle info-icon"></i>
+              <div class="info-content">
+                <div class="info-title">Email адрес нельзя изменить</div>
+                <div class="info-description">Для смены email обратитесь в службу поддержки</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="profile-cancel">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="profile-save">
+              <i class="fas fa-save"></i> Сохранить изменения
+            </button>
+          </div>
+        </form>
+      </div>
+      
+      <!-- Просмотр текущего пароля и смена пароля -->
+      <div class="settings-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-shield-alt"></i> Пароль и безопасность
+          </h2>
+        </div>
+        
+        <p class="section-description">
+          Просматривайте и изменяйте пароль для обеспечения безопасности вашего аккаунта.
+        </p>
+        
+        <!-- Информация о пароле -->
+        <div class="current-password-section">
+          <label class="current-password-label">Статус пароля:</label>
+          <div class="password-display">
+            <div class="password-value" id="password-status">
+              <i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;"></i>
+              Пароль установлен и активен
+            </div>
+          </div>
+        </div>
+        
+        <!-- Форма смены пароля -->
+        <form class="settings-form" id="password-form">
+          <div class="form-group">
+            <label class="form-label" for="current-password">Подтвердите текущий пароль</label>
+            <div class="input-wrapper">
+              <input type="password" id="current-password" class="form-input" placeholder="Введите текущий пароль для подтверждения">
+              <button type="button" class="toggle-password" data-target="current-password">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="new-password">Новый пароль</label>
+            <div class="input-wrapper">
+              <input type="password" id="new-password" class="form-input" placeholder="Введите новый пароль">
+              <button type="button" class="toggle-password" data-target="new-password">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label" for="confirm-password">Подтвердите новый пароль</label>
+            <div class="input-wrapper">
+              <input type="password" id="confirm-password" class="form-input" placeholder="Повторите новый пароль">
+              <button type="button" class="toggle-password" data-target="confirm-password">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div class="info-box">
+            <i class="fas fa-info-circle info-icon"></i>
+            <div class="info-content">
+              <div class="info-title">Требования к паролю</div>
+              <div class="info-description">Пароль должен содержать минимум 8 символов</div>
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="password-cancel">Отмена</button>
+            <button type="submit" class="btn btn-primary" id="password-save">
+              <i class="fas fa-key"></i> Изменить пароль
+            </button>
+          </div>
+        </form>
+      </div>
+      
+      <!-- 🆕 ПАРТНЕРСКАЯ ПРОГРАММА -->
+      <div class="partner-section" id="partner-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-handshake"></i> Партнерская программа
+          </h2>
+        </div>
+        
+        <p class="section-description">
+          Зарабатывайте 30% с каждого платежа приглашенных вами пользователей.
+        </p>
+        
+        <!-- Статус партнерства -->
+        <div class="partner-status" id="partner-status">
+          <div class="partner-status-header">
+            <h3 class="partner-status-title">Статус партнерства</h3>
+            <div class="partner-badge" id="partner-badge">
+              <i class="fas fa-star"></i>
+              <span>Партнер</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Контент для активных партнеров -->
+        <div id="partner-active-content" style="display: none;">
+          <!-- Реферальная ссылка -->
+          <div class="referral-link-container">
+            <label class="referral-link-label">Ваша реферальная ссылка:</label>
+            <div class="referral-link-wrapper">
+              <input type="text" id="referral-link" class="referral-link-input" readonly>
+              <button class="copy-button" id="copy-referral-link">
+                <i class="fas fa-copy"></i>
+                <span>Скопировать</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Статистика -->
+          <div class="partner-stats">
+            <div class="stat-card">
+              <div class="stat-value" id="total-referrals">0</div>
+              <div class="stat-label">Всего рефералов</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="paid-referrals">0</div>
+              <div class="stat-label">Оплатили подписку</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="conversion-rate">0%</div>
+              <div class="stat-label">Конверсия</div>
+            </div>
+            <div class="stat-card earnings">
+              <div class="stat-value" id="total-earnings">0 ₽</div>
+              <div class="stat-label">Общий заработок</div>
+            </div>
+            <div class="stat-card earnings">
+              <div class="stat-value" id="month-earnings">0 ₽</div>
+              <div class="stat-label">Заработок за месяц</div>
+            </div>
+          </div>
+          
+          <!-- Таблица рефералов -->
+          <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem; margin-top: 2rem;">
+            <i class="fas fa-users"></i> Ваши рефералы
+          </h3>
+          
+          <div class="referrals-table-container">
+            <table class="referrals-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Дата регистрации</th>
+                  <th>Статус оплаты</th>
+                  <th>Дата оплаты</th>
+                  <th>Комиссия</th>
+                </tr>
+              </thead>
+              <tbody id="referrals-tbody">
+                <!-- Рефералы будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+          
+          <!-- Пустое состояние для таблицы -->
+          <div id="referrals-empty" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">
+              <i class="fas fa-user-friends"></i>
+            </div>
+            <div class="empty-state-title">У вас пока нет рефералов</div>
+            <div class="empty-state-description">
+              Поделитесь вашей реферальной ссылкой, чтобы начать зарабатывать
+            </div>
+          </div>
+          
+          <!-- Пагинация -->
+          <div id="referrals-pagination" style="display: none; margin-top: 1rem; text-align: center;">
+            <button class="btn btn-secondary" id="load-more-referrals">
+              <i class="fas fa-arrow-down"></i> Загрузить еще
+            </button>
+          </div>
+        </div>
+        
+        <!-- Контент для неактивных партнеров -->
+        <div id="partner-inactive-content" style="display: none;">
+          <div class="partner-promo">
+            <div class="partner-promo-icon">
+              <i class="fas fa-rocket"></i>
+            </div>
+            <h3 class="partner-promo-title">Станьте партнером Voicyfy!</h3>
+            <p class="partner-promo-description">
+              Приглашайте друзей и коллег использовать Voicyfy и получайте постоянный доход
+            </p>
+            <div class="partner-promo-benefits">
+              <div class="promo-benefit">
+                <i class="fas fa-check-circle"></i>
+                <span>30% с каждой оплаты</span>
+              </div>
+              <div class="promo-benefit">
+                <i class="fas fa-check-circle"></i>
+                <span>Пожизненные комиссии</span>
+              </div>
+              <div class="promo-benefit">
+                <i class="fas fa-check-circle"></i>
+                <span>Мгновенная активация</span>
+              </div>
+            </div>
+            <button class="btn btn-success" id="activate-partner">
+              <i class="fas fa-bolt"></i>
+              Активировать партнерство
+            </button>
+          </div>
+        </div>
+      </div>
+      
+    </div>
+  </main>
+  
+  <!-- Уведомление -->
+  <div class="notification" id="notification">
+    <div class="notification-icon">
+      <i class="fas fa-check-circle"></i>
+    </div>
+    <div class="notification-content">
+      <div id="notification-message"></div>
+    </div>
+    <button class="notification-close" id="notification-close">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Получаем элементы DOM
+      const sidebar = document.getElementById('sidebar');
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+      const sidebarClose = document.getElementById('sidebar-close');
+      const userMenuButton = document.getElementById('user-menu-button');
+      const userDropdown = document.getElementById('user-dropdown');
+      const logoutButton = document.getElementById('logout-button');
+      const dropdownLogout = document.getElementById('dropdown-logout');
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const userName = document.getElementById('user-name');
+      const userAvatar = document.getElementById('user-avatar');
+      
+      // Состояние приложения
+      let currentUser = null;
+      let originalData = {};
+      let partnerData = null;
+      let referralsOffset = 0;
+      const referralsLimit = 50;
+      
+      // API клиент
+      const api = {
+        baseUrl: '/api',
+        
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string') {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          try {
+            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+            
+            if (response.status === 401) {
+              localStorage.removeItem('auth_token');
+              window.location.href = '/';
+              throw new Error('Требуется авторизация');
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+            }
+            
+            return data;
+          } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+          }
+        },
+        
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
+        },
+        
+        // API методы
+        getCurrentUser() {
+          return this.get('/users/me');
+        },
+        
+        updateProfile(data) {
+          return this.put('/users/me', data);
+        },
+        
+        changePassword(currentPassword, newPassword) {
+          return this.put('/users/me/password', {
+            current_password: currentPassword,
+            new_password: newPassword
+          });
+        },
+        
+        // 🆕 API методы для партнерской программы
+        getPartnerDashboard() {
+          return this.get('/partners/dashboard');
+        },
+        
+        getPartnerReferrals(skip = 0, limit = 50) {
+          return this.get(`/partners/referrals?skip=${skip}&limit=${limit}`);
+        },
+        
+        activatePartnership() {
+          return this.post('/partners/activate', {});
+        }
+      };
+      
+      // Управление UI
+      const ui = {
+        showNotification(message, type = 'success') {
+          notificationMessage.textContent = message;
+          
+          notification.classList.remove('notification-success', 'notification-error', 'notification-info');
+          notification.classList.add(`notification-${type}`);
+          
+          const icon = notification.querySelector('.notification-icon i');
+          if (type === 'success') {
+            icon.className = 'fas fa-check-circle';
+          } else if (type === 'error') {
+            icon.className = 'fas fa-exclamation-circle';
+          } else {
+            icon.className = 'fas fa-info-circle';
+          }
+          
+          notification.classList.add('show');
+          
+          setTimeout(() => {
+            this.hideNotification();
+          }, 5000);
+        },
+        
+        hideNotification() {
+          notification.classList.remove('show');
+        }
+      };
+      
+      // Функция проверки, является ли пользователь админом
+      function isAdmin(userEmail) {
+        return userEmail === 'well96well@gmail.com';
+      }
+      
+      // Проверка авторизации
+      function checkAuth() {
+        if (!api.isAuthenticated()) {
+          window.location.href = '/';
+          return false;
+        }
+        return true;
+      }
+      
+      // Загрузка данных пользователя
+      async function loadUserData() {
+        try {
+          const userData = await api.getCurrentUser();
+          currentUser = userData;
+          
+          // Сохраняем оригинальные данные для сброса
+          originalData = {
+            profile: {
+              first_name: userData.first_name || '',
+              last_name: userData.last_name || '',
+              company_name: userData.company_name || '',
+              email: userData.email || ''
+            }
+          };
+          
+          // ВАЖНО: Пароли хранятся как хеши в БД для безопасности
+          // Реальный пароль недоступен и не передается от сервера
+          
+          // Заполняем формы
+          populateForms(userData);
+          
+          // Обновляем информацию в шапке
+          updateUserInfo(userData);
+          
+          // Добавляем админ панель для админа
+          if (isAdmin(userData.email)) {
+            const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
+              section => section.textContent.trim() === 'Администрирование'
+            );
+            
+            if (adminSections.length === 0) {
+              const adminSection = document.createElement('div');
+              adminSection.className = 'sidebar-section';
+              adminSection.textContent = 'Администрирование';
+              
+              const adminNavItem = document.createElement('a');
+              adminNavItem.href = '/static/admin.html';
+              adminNavItem.className = 'sidebar-nav-item';
+              adminNavItem.innerHTML = '<i class="fas fa-user-shield"></i> Управление';
+              
+              const sidebarNav = document.querySelector('.sidebar-nav');
+              const accountSection = Array.from(document.querySelectorAll('.sidebar-section')).find(
+                section => section.textContent.trim() === 'Аккаунт'
+              );
+              
+              if (accountSection && sidebarNav) {
+                sidebarNav.insertBefore(adminSection, accountSection);
+                sidebarNav.insertBefore(adminNavItem, accountSection);
+              } else {
+                sidebarNav.appendChild(adminSection);
+                sidebarNav.appendChild(adminNavItem);
+              }
+            }
+          }
+          
+          // 🆕 Загружаем данные партнерской программы
+          await loadPartnerData();
+          
+        } catch (error) {
+          console.error('Ошибка при загрузке данных пользователя:', error);
+          ui.showNotification('Не удалось загрузить данные пользователя', 'error');
+        }
+      }
+      
+      // 🆕 Загрузка данных партнерской программы
+      async function loadPartnerData() {
+        try {
+          const response = await api.getPartnerDashboard();
+          console.log('Partner dashboard response:', response);
+          
+          if (response.partner_info) {
+            // Пользователь уже партнер
+            partnerData = response;
+            showActivePartnerContent(response);
+            
+            // Загружаем список рефералов
+            await loadReferrals();
+          } else {
+            // Пользователь еще не партнер
+            showInactivePartnerContent();
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки партнерских данных:', error);
+          // Если ошибка 404, значит партнерство не активировано
+          if (error.message.includes('404')) {
+            showInactivePartnerContent();
+          } else {
+            ui.showNotification('Не удалось загрузить данные партнерской программы', 'error');
+          }
+        }
+      }
+      
+      // 🆕 Загрузка списка рефералов
+      async function loadReferrals(loadMore = false) {
+        try {
+          if (!loadMore) {
+            referralsOffset = 0;
+          }
+          
+          const response = await api.getPartnerReferrals(referralsOffset, referralsLimit);
+          console.log('Referrals response:', response);
+          
+          if (response.referrals) {
+            if (loadMore) {
+              // Добавляем к существующей таблице
+              appendReferralsToTable(response.referrals);
+            } else {
+              // Заменяем всю таблицу
+              fillReferralsTable(response.referrals);
+            }
+            
+            // Показываем/скрываем кнопку "Загрузить еще"
+            const paginationDiv = document.getElementById('referrals-pagination');
+            if (response.pagination && response.pagination.has_more) {
+              paginationDiv.style.display = 'block';
+              referralsOffset += referralsLimit;
+            } else {
+              paginationDiv.style.display = 'none';
+            }
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки рефералов:', error);
+        }
+      }
+      
+      // 🆕 Добавление рефералов к существующей таблице
+      function appendReferralsToTable(referrals) {
+        const tbody = document.getElementById('referrals-tbody');
+        
+        referrals.forEach(referral => {
+          const row = document.createElement('tr');
+          
+          // Email
+          const emailCell = document.createElement('td');
+          emailCell.textContent = referral.referral_user.email;
+          row.appendChild(emailCell);
+          
+          // Дата регистрации
+          const dateCell = document.createElement('td');
+          const regDate = new Date(referral.stats.referred_at);
+          dateCell.textContent = regDate.toLocaleDateString('ru-RU');
+          row.appendChild(dateCell);
+          
+          // Статус оплаты
+          const statusCell = document.createElement('td');
+          const statusSpan = document.createElement('span');
+          statusSpan.className = 'payment-status';
+          
+          if (referral.stats.first_payment_made) {
+            statusSpan.classList.add('paid');
+            statusSpan.innerHTML = '<i class="fas fa-check-circle"></i> Оплачено';
+          } else {
+            statusSpan.classList.add('pending');
+            statusSpan.innerHTML = '<i class="fas fa-clock"></i> Ожидается';
+          }
+          
+          statusCell.appendChild(statusSpan);
+          row.appendChild(statusCell);
+          
+          // Дата оплаты
+          const paymentDateCell = document.createElement('td');
+          if (referral.stats.first_payment_at) {
+            const paymentDate = new Date(referral.stats.first_payment_at);
+            paymentDateCell.textContent = paymentDate.toLocaleDateString('ru-RU');
+          } else {
+            paymentDateCell.textContent = '—';
+          }
+          row.appendChild(paymentDateCell);
+          
+          // Комиссия
+          const commissionCell = document.createElement('td');
+          if (referral.stats.total_earned > 0) {
+            commissionCell.textContent = referral.stats.total_earned.toFixed(2) + ' ₽';
+          } else {
+            commissionCell.textContent = '—';
+          }
+          row.appendChild(commissionCell);
+          
+          tbody.appendChild(row);
+        });
+      }
+      
+      // 🆕 Отображение контента для активных партнеров
+      function showActivePartnerContent(data) {
+        const activeContent = document.getElementById('partner-active-content');
+        const inactiveContent = document.getElementById('partner-inactive-content');
+        const partnerStatus = document.getElementById('partner-status');
+        const partnerBadge = document.getElementById('partner-badge');
+        
+        // Показываем активный контент
+        activeContent.style.display = 'block';
+        inactiveContent.style.display = 'none';
+        
+        // Обновляем статус
+        partnerStatus.classList.remove('partner-status-inactive');
+        partnerBadge.classList.remove('inactive');
+        partnerBadge.innerHTML = '<i class="fas fa-star"></i><span>Партнер</span>';
+        
+        // Заполняем реферальную ссылку
+        const referralLink = document.getElementById('referral-link');
+        referralLink.value = data.partner_info.referral_link;
+        
+        // Обновляем статистику
+        document.getElementById('total-referrals').textContent = data.statistics.total_referrals;
+        document.getElementById('paid-referrals').textContent = data.statistics.paid_referrals;
+        document.getElementById('conversion-rate').textContent = data.statistics.conversion_rate + '%';
+        document.getElementById('total-earnings').textContent = data.statistics.total_earnings.toFixed(2) + ' ₽';
+        document.getElementById('month-earnings').textContent = data.statistics.this_month_earnings.toFixed(2) + ' ₽';
+        
+        // Заполняем таблицу рефералов будет вызвана отдельно в loadReferrals()
+      }
+      
+      // 🆕 Отображение контента для неактивных партнеров
+      function showInactivePartnerContent() {
+        const activeContent = document.getElementById('partner-active-content');
+        const inactiveContent = document.getElementById('partner-inactive-content');
+        const partnerStatus = document.getElementById('partner-status');
+        const partnerBadge = document.getElementById('partner-badge');
+        
+        // Показываем неактивный контент
+        activeContent.style.display = 'none';
+        inactiveContent.style.display = 'block';
+        
+        // Обновляем статус
+        partnerStatus.classList.add('partner-status-inactive');
+        partnerBadge.classList.add('inactive');
+        partnerBadge.innerHTML = '<i class="fas fa-lock"></i><span>Не активирован</span>';
+      }
+      
+      // 🆕 Заполнение таблицы рефералов
+      function fillReferralsTable(referrals) {
+        const tbody = document.getElementById('referrals-tbody');
+        const emptyState = document.getElementById('referrals-empty');
+        const paginationDiv = document.getElementById('referrals-pagination');
+        
+        tbody.innerHTML = '';
+        
+        if (referrals.length === 0) {
+          emptyState.style.display = 'block';
+          tbody.parentElement.style.display = 'none';
+          paginationDiv.style.display = 'none';
+        } else {
+          emptyState.style.display = 'none';
+          tbody.parentElement.style.display = 'table';
+          
+          referrals.forEach(referral => {
+            const row = document.createElement('tr');
+            
+            // Email
+            const emailCell = document.createElement('td');
+            emailCell.textContent = referral.referral_user.email;
+            row.appendChild(emailCell);
+            
+            // Дата регистрации
+            const dateCell = document.createElement('td');
+            const regDate = new Date(referral.stats.referred_at);
+            dateCell.textContent = regDate.toLocaleDateString('ru-RU');
+            row.appendChild(dateCell);
+            
+            // Статус оплаты
+            const statusCell = document.createElement('td');
+            const statusSpan = document.createElement('span');
+            statusSpan.className = 'payment-status';
+            
+            if (referral.stats.first_payment_made) {
+              statusSpan.classList.add('paid');
+              statusSpan.innerHTML = '<i class="fas fa-check-circle"></i> Оплачено';
+            } else {
+              statusSpan.classList.add('pending');
+              statusSpan.innerHTML = '<i class="fas fa-clock"></i> Ожидается';
+            }
+            
+            statusCell.appendChild(statusSpan);
+            row.appendChild(statusCell);
+            
+            // Дата оплаты
+            const paymentDateCell = document.createElement('td');
+            if (referral.stats.first_payment_at) {
+              const paymentDate = new Date(referral.stats.first_payment_at);
+              paymentDateCell.textContent = paymentDate.toLocaleDateString('ru-RU');
+            } else {
+              paymentDateCell.textContent = '—';
+            }
+            row.appendChild(paymentDateCell);
+            
+            // Комиссия
+            const commissionCell = document.createElement('td');
+            if (referral.stats.total_earned > 0) {
+              commissionCell.textContent = referral.stats.total_earned.toFixed(2) + ' ₽';
+            } else {
+              commissionCell.textContent = '—';
+            }
+            row.appendChild(commissionCell);
+            
+            tbody.appendChild(row);
+          });
+        }
+      }
+      
+      // 🆕 Активация партнерства
+      async function activatePartnership() {
+        try {
+          const response = await api.activatePartnership();
+          
+          if (response.success) {
+            ui.showNotification('Партнерская программа успешно активирована!', 'success');
+            
+            // Перезагружаем партнерские данные
+            await loadPartnerData();
+          }
+        } catch (error) {
+          console.error('Ошибка активации партнерства:', error);
+          ui.showNotification('Не удалось активировать партнерство', 'error');
+        }
+      }
+      
+      // 🆕 Копирование реферальной ссылки
+      function copyReferralLink() {
+        const referralLink = document.getElementById('referral-link');
+        const copyButton = document.getElementById('copy-referral-link');
+        
+        referralLink.select();
+        referralLink.setSelectionRange(0, 99999); // Для мобильных устройств
+        
+        try {
+          document.execCommand('copy');
+          
+          // Меняем текст кнопки
+          const buttonText = copyButton.querySelector('span');
+          const buttonIcon = copyButton.querySelector('i');
+          
+          buttonText.textContent = 'Скопировано!';
+          buttonIcon.className = 'fas fa-check';
+          copyButton.classList.add('copied');
+          
+          // Возвращаем обратно через 2 секунды
+          setTimeout(() => {
+            buttonText.textContent = 'Скопировать';
+            buttonIcon.className = 'fas fa-copy';
+            copyButton.classList.remove('copied');
+          }, 2000);
+          
+          ui.showNotification('Реферальная ссылка скопирована', 'success');
+        } catch (err) {
+          console.error('Ошибка копирования:', err);
+          ui.showNotification('Не удалось скопировать ссылку', 'error');
+        }
+      }
+      
+      // Заполнение форм данными пользователя
+      function populateForms(userData) {
+        // Профиль
+        document.getElementById('first-name').value = userData.first_name || '';
+        document.getElementById('last-name').value = userData.last_name || '';
+        document.getElementById('company-name').value = userData.company_name || '';
+        document.getElementById('email').value = userData.email || '';
+      }
+      
+      // Обновление информации пользователя в шапке
+      function updateUserInfo(userData) {
+        const firstName = userData.first_name || '';
+        const lastName = userData.last_name || '';
+        
+        if (firstName || lastName) {
+          userName.textContent = firstName + (lastName ? ` ${lastName}` : '');
+          
+          let initials = '';
+          if (firstName) initials += firstName[0];
+          if (lastName) initials += lastName[0];
+          userAvatar.textContent = initials.toUpperCase();
+        } else if (userData.company_name) {
+          userName.textContent = userData.company_name;
+          userAvatar.textContent = userData.company_name.substring(0, 2).toUpperCase();
+        } else {
+          userName.textContent = userData.email;
+          userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
+        }
+      }
+      
+      // Обработчики показа/скрытия паролей в формах
+      document.querySelectorAll('.toggle-password').forEach(button => {
+        button.addEventListener('click', function() {
+          const targetId = this.getAttribute('data-target');
+          const input = document.getElementById(targetId);
+          const icon = this.querySelector('i');
+          
+          if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'fas fa-eye-slash';
+            this.title = 'Скрыть';
+          } else {
+            input.type = 'password';
+            icon.className = 'fas fa-eye';
+            this.title = 'Показать';
+          }
+        });
+      });
+      
+      // Мобильное меню
+      sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.add('open');
+      });
+      
+      sidebarClose.addEventListener('click', function() {
+        sidebar.classList.remove('open');
+      });
+      
+      document.addEventListener('click', function(e) {
+        if (sidebar.classList.contains('open') && 
+            !sidebar.contains(e.target) && 
+            !sidebarToggle.contains(e.target)) {
+          sidebar.classList.remove('open');
+        }
+      });
+      
+      // Выпадающее меню пользователя
+      userMenuButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        userDropdown.classList.toggle('show');
+      });
+      
+      document.addEventListener('click', function(e) {
+        if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+          userDropdown.classList.remove('show');
+        }
+      });
+      
+      // Выход из системы
+      function logout() {
+        localStorage.removeItem('auth_token');
+        window.location.href = 'https://voicyfy.ru/static/index.html';
+      }
+      
+      logoutButton.addEventListener('click', function(e) {
+        e.preventDefault();
+        logout();
+      });
+      
+      dropdownLogout.addEventListener('click', function(e) {
+        e.preventDefault();
+        logout();
+      });
+      
+      // Обработка формы профиля
+      document.getElementById('profile-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const formData = {
+          first_name: document.getElementById('first-name').value.trim(),
+          last_name: document.getElementById('last-name').value.trim(),
+          company_name: document.getElementById('company-name').value.trim()
+        };
+        
+        try {
+          await api.updateProfile(formData);
+          ui.showNotification('Профиль успешно обновлен');
+          
+          // Обновляем оригинальные данные
+          originalData.profile = { ...formData, email: originalData.profile.email };
+          
+          // Обновляем информацию в шапке
+          updateUserInfo({ ...currentUser, ...formData });
+          
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при обновлении профиля', 'error');
+        }
+      });
+      
+      // Обработка формы смены пароля
+      document.getElementById('password-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const currentPassword = document.getElementById('current-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          ui.showNotification('Заполните все поля', 'error');
+          return;
+        }
+        
+        if (newPassword !== confirmPassword) {
+          ui.showNotification('Новые пароли не совпадают', 'error');
+          return;
+        }
+        
+        if (newPassword.length < 8) {
+          ui.showNotification('Пароль должен содержать минимум 8 символов', 'error');
+          return;
+        }
+        
+        try {
+          await api.changePassword(currentPassword, newPassword);
+          ui.showNotification('Пароль успешно изменен');
+          
+          // Очищаем форму
+          document.getElementById('password-form').reset();
+          
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при смене пароля', 'error');
+        }
+      });
+      
+      // Обработка кнопок отмены
+      document.getElementById('profile-cancel').addEventListener('click', function() {
+        document.getElementById('first-name').value = originalData.profile.first_name;
+        document.getElementById('last-name').value = originalData.profile.last_name;
+        document.getElementById('company-name').value = originalData.profile.company_name;
+      });
+      
+      document.getElementById('password-cancel').addEventListener('click', function() {
+        document.getElementById('password-form').reset();
+      });
+      
+      // 🆕 Обработчики партнерской программы
+      const activateButton = document.getElementById('activate-partner');
+      if (activateButton) {
+        activateButton.addEventListener('click', activatePartnership);
+      }
+      
+      const copyButton = document.getElementById('copy-referral-link');
+      if (copyButton) {
+        copyButton.addEventListener('click', copyReferralLink);
+      }
+      
+      const loadMoreButton = document.getElementById('load-more-referrals');
+      if (loadMoreButton) {
+        loadMoreButton.addEventListener('click', () => loadReferrals(true));
+      }
+      
+      // Закрытие уведомлений
+      notificationClose.addEventListener('click', ui.hideNotification);
+      
+      // Закрытие по клавише Escape
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          if (sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+          }
+          if (userDropdown.classList.contains('show')) {
+            userDropdown.classList.remove('show');
+          }
+        }
+      });
+      
+      // Инициализация страницы
+      async function initializePage() {
+        if (!checkAuth()) return;
+        await loadUserData();
+      }
+      
+      // Запускаем инициализацию
+      initializePage();
+    });
+  </script>
+</body>
+</html>
