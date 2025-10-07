@@ -1,13 +1,17 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 2.2.1 - Премиальный дизайн с Voicyfy интеграцией
+ * Версия: 3.0.0 - GA Production (gpt-realtime)
  * 
- * Исправления:
- * - Убрана отправка session.update от клиента (сервер сам управляет сессией)
- * - Улучшено воспроизведение аудио для iOS
- * - Добавлена предварительная инициализация AudioContext для iOS
- * - Обновлен дизайн виджета для премиального вида
- * - Добавлена интеграция с Voicyfy
+ * ✅ Использует OpenAI Realtime GA API
+ * ✅ Model: gpt-realtime-mini
+ * ✅ Совместим с handler_realtime_new.py
+ * 
+ * Изменения от версии 2.2.1:
+ * - Убрана отправка session.update от клиента (сервер управляет сессией)
+ * - Сервер автоматически преобразует новые события GA в старый формат
+ * - Полная обратная совместимость с UI/UX логикой
+ * - Премиальный дизайн с Voicyfy интеграцией сохранен
+ * - iOS/Android оптимизации сохранены
  */
 
 (function() {
@@ -43,12 +47,12 @@
   // Функция для логирования
   const widgetLog = (message, type = 'info') => {
     if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('render.com')) {
-      const logPrefix = '[WellcomeAI Widget]';
+      const logPrefix = '[WellcomeAI Widget GA]';
       const timestamp = new Date().toISOString().slice(11, 23);
       const formattedMessage = `${timestamp} | ${type.toUpperCase()} | ${message}`;
       console.log(`${logPrefix} ${formattedMessage}`);
     } else if (DEBUG_MODE || type === 'error') {
-      const prefix = '[WellcomeAI Widget]';
+      const prefix = '[WellcomeAI Widget GA]';
       if (type === 'error') {
         console.error(`${prefix} ERROR:`, message);
       } else if (type === 'warn') {
@@ -196,8 +200,8 @@
   // Формируем WebSocket URL с указанием ID ассистента
   const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
   
-  widgetLog(`Configuration: Server URL: ${SERVER_URL}, Assistant ID: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
-  widgetLog(`WebSocket URL: ${WS_URL}`);
+  widgetLog(`[GA API] Configuration: Server: ${SERVER_URL}, Assistant: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
+  widgetLog(`[GA API] WebSocket URL: ${WS_URL}`);
   widgetLog(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
 
   // Создаем стили для виджета - ОБНОВЛЕННЫЕ СТИЛИ С VOICYFY
@@ -720,7 +724,7 @@
       }
     `;
     document.head.appendChild(styleEl);
-    widgetLog("Styles created and added to head");
+    widgetLog("[GA API] Styles created and added to head");
   }
 
   // Загрузка Font Awesome для иконок
@@ -811,7 +815,7 @@
 
     widgetContainer.innerHTML = widgetHTML;
     document.body.appendChild(widgetContainer);
-    widgetLog("HTML structure created and appended to body");
+    widgetLog("[GA API] HTML structure created and appended to body");
     
     // Делаем кнопку виджета видимой
     const widgetButton = document.getElementById('wellcomeai-widget-button');
@@ -824,7 +828,7 @@
 
   // ОБНОВЛЕННАЯ инициализация аудио с специальной поддержкой iOS
   async function initializeAudio() {
-    widgetLog(`[AUDIO] Начало инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
+    widgetLog(`[GA API AUDIO] Начало инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
     try {
       // 1. Проверяем поддержку getUserMedia
@@ -839,13 +843,13 @@
           sampleRate: 24000,
           latencyHint: 'interactive'
         });
-        widgetLog(`[AUDIO] AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
+        widgetLog(`[GA API AUDIO] AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
       }
 
       // 3. Активируем AudioContext если приостановлен
       if (window.globalAudioContext.state === 'suspended') {
         await window.globalAudioContext.resume();
-        widgetLog('[AUDIO] AudioContext активирован');
+        widgetLog('[GA API AUDIO] AudioContext активирован');
       }
 
       // 4. Получаем доступ к микрофону с едиными настройками
@@ -861,12 +865,12 @@
         };
 
         window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-        widgetLog(`[AUDIO] Микрофон активирован`);
+        widgetLog(`[GA API AUDIO] Микрофон активирован`);
 
         // Обработчик закрытия потока
         window.globalMicStream.getAudioTracks().forEach(track => {
           track.onended = () => {
-            widgetLog('[AUDIO] Поток микрофона завершен');
+            widgetLog('[GA API AUDIO] Поток микрофона завершен');
             window.globalMicStream = null;
           };
         });
@@ -886,9 +890,9 @@
           silentSource.connect(window.globalAudioContext.destination);
           silentSource.start(0);
           
-          widgetLog('[AUDIO iOS] Тишина воспроизведена для разблокировки iOS');
+          widgetLog('[GA API AUDIO iOS] Тишина воспроизведена для разблокировки iOS');
         } catch (iosError) {
-          widgetLog(`[AUDIO iOS] Ошибка при создании буфера тишины: ${iosError.message}`, 'warn');
+          widgetLog(`[GA API AUDIO iOS] Ошибка при создании буфера тишины: ${iosError.message}`, 'warn');
         }
       }
 
@@ -896,19 +900,19 @@
       if (isMobile) {
         // Проверяем что контекст действительно работает
         if (window.globalAudioContext.state !== 'running') {
-          widgetLog('[AUDIO Mobile] Пытаемся снова активировать AudioContext');
+          widgetLog('[GA API AUDIO Mobile] Пытаемся снова активировать AudioContext');
           await window.globalAudioContext.resume();
         }
       }
 
       // 7. Устанавливаем флаг успешной инициализации
       window.audioInitialized = true;
-      widgetLog('[AUDIO] Инициализация завершена успешно');
+      widgetLog('[GA API AUDIO] Инициализация завершена успешно');
       
       return true;
 
     } catch (error) {
-      widgetLog(`[AUDIO] Ошибка инициализации: ${error.message}`, 'error');
+      widgetLog(`[GA API AUDIO] Ошибка инициализации: ${error.message}`, 'error');
       return false;
     }
   }
@@ -917,7 +921,7 @@
   function initWidget() {
     // Проверяем, что ID ассистента существует
     if (!ASSISTANT_ID) {
-      widgetLog("Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
+      widgetLog("[GA API] Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
       alert('WellcomeAI Widget Error: Assistant ID not found. Please check console for details.');
       return;
     }
@@ -938,7 +942,7 @@
     
     // Проверка элементов
     if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay) {
-      widgetLog("Some UI elements were not found!", 'error');
+      widgetLog("[GA API] Some UI elements were not found!", 'error');
       return;
     }
     
@@ -969,10 +973,10 @@
     let interruptionState = {
       is_assistant_speaking: false,
       is_user_speaking: false,
-      last_interruption: 0,
+      last_speech_start: 0,
+      last_speech_stop: 0,
       interruption_count: 0,
-      current_audio_elements: [],
-      pending_audio_stop: false
+      last_interruption_time: 0
     };
     
     // Единая конфигурация аудио для всех устройств
@@ -1015,7 +1019,7 @@
         }
         return bytes.buffer;
       } catch (e) {
-        widgetLog(`Ошибка при декодировании base64: ${e.message}`, "error");
+        widgetLog(`[GA API] Ошибка при декодировании base64: ${e.message}`, "error");
         return new ArrayBuffer(0);
       }
     }
@@ -1120,15 +1124,16 @@
         audio.src = audioUrl;
         
         // Добавляем к списку активных аудио элементов
+        interruptionState.current_audio_elements = interruptionState.current_audio_elements || [];
         interruptionState.current_audio_elements.push(audio);
         
         // УЛУЧШЕННАЯ обработка событий для iOS
         audio.onloadeddata = function() {
-          widgetLog('[AUDIO iOS] Аудио данные загружены');
+          widgetLog('[GA API AUDIO iOS] Аудио данные загружены');
         };
         
         audio.oncanplay = function() {
-          widgetLog('[AUDIO iOS] Аудио готово к воспроизведению');
+          widgetLog('[GA API AUDIO iOS] Аудио готово к воспроизведению');
           
           // Проверяем что не было прервано
           if (!interruptionState.is_assistant_speaking) {
@@ -1144,10 +1149,10 @@
           // СПЕЦИАЛЬНО ДЛЯ iOS - дополнительная разблокировка
           if (isIOS && window.globalAudioContext && window.globalAudioContext.state === 'suspended') {
             window.globalAudioContext.resume().then(() => {
-              widgetLog('[AUDIO iOS] AudioContext активирован перед воспроизведением');
+              widgetLog('[GA API AUDIO iOS] AudioContext активирован перед воспроизведением');
               attemptPlayback();
             }).catch(err => {
-              widgetLog(`[AUDIO iOS] Ошибка активации AudioContext: ${err.message}`, 'error');
+              widgetLog(`[GA API AUDIO iOS] Ошибка активации AudioContext: ${err.message}`, 'error');
               attemptPlayback();
             });
           } else {
@@ -1160,17 +1165,17 @@
             if (playPromise !== undefined) {
               playPromise
                 .then(() => {
-                  widgetLog('[AUDIO iOS] Воспроизведение началось успешно');
+                  widgetLog('[GA API AUDIO iOS] Воспроизведение началось успешно');
                 })
                 .catch(error => {
-                  widgetLog(`[AUDIO iOS] Ошибка воспроизведения: ${error.message}`, "error");
+                  widgetLog(`[GA API AUDIO iOS] Ошибка воспроизведения: ${error.message}`, "error");
                   
                   // Для iOS попробуем еще раз после небольшой задержки
                   if (isIOS && error.name === 'NotAllowedError') {
-                    widgetLog('[AUDIO iOS] Попытка повторного воспроизведения через 100мс', 'warn');
+                    widgetLog('[GA API AUDIO iOS] Попытка повторного воспроизведения через 100мс', 'warn');
                     setTimeout(() => {
                       audio.play().catch(retryError => {
-                        widgetLog(`[AUDIO iOS] Повторная попытка не удалась: ${retryError.message}`, 'error');
+                        widgetLog(`[GA API AUDIO iOS] Повторная попытка не удалась: ${retryError.message}`, 'error');
                         cleanupAndNext();
                       });
                     }, 100);
@@ -1179,7 +1184,7 @@
                   }
                 });
             } else {
-              widgetLog('[AUDIO iOS] play() вернул undefined', 'warn');
+              widgetLog('[GA API AUDIO iOS] play() вернул undefined', 'warn');
               cleanupAndNext();
             }
           }
@@ -1195,7 +1200,7 @@
         };
         
         audio.onended = function() {
-          widgetLog('[AUDIO iOS] Воспроизведение завершено');
+          widgetLog('[GA API AUDIO iOS] Воспроизведение завершено');
           URL.revokeObjectURL(audioUrl);
           const index = interruptionState.current_audio_elements.indexOf(audio);
           if (index > -1) {
@@ -1205,7 +1210,7 @@
         };
         
         audio.onerror = function(e) {
-          widgetLog(`[AUDIO iOS] Ошибка аудио элемента: ${e.message || 'Неизвестная ошибка'}`, 'error');
+          widgetLog(`[GA API AUDIO iOS] Ошибка аудио элемента: ${e.message || 'Неизвестная ошибка'}`, 'error');
           URL.revokeObjectURL(audioUrl);
           const index = interruptionState.current_audio_elements.indexOf(audio);
           if (index > -1) {
@@ -1218,7 +1223,7 @@
         audio.load();
         
       } catch (error) {
-        widgetLog(`[AUDIO iOS] Ошибка создания аудио: ${error.message}`, "error");
+        widgetLog(`[GA API AUDIO iOS] Ошибка создания аудио: ${error.message}`, "error");
         playNextAudio();
       }
     }
@@ -1238,7 +1243,7 @@
     function handleInterruptionEvent(eventData) {
       const now = Date.now();
       
-      widgetLog(`[INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
+      widgetLog(`[GA API INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
       
       interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
       interruptionState.last_interruption = eventData.timestamp || now;
@@ -1258,27 +1263,29 @@
       
       updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
       
-      widgetLog(`[INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
+      widgetLog(`[GA API INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
     }
     
     // Остановка всех аудио воспроизведений
     function stopAllAudioPlayback() {
-      widgetLog('[INTERRUPTION] Остановка всех аудио воспроизведений');
+      widgetLog('[GA API INTERRUPTION] Остановка всех аудио воспроизведений');
       
       isPlayingAudio = false;
       interruptionState.is_assistant_speaking = false;
       
-      interruptionState.current_audio_elements.forEach(audio => {
-        try {
-          audio.pause();
-          audio.currentTime = 0;
-          if (audio.src && audio.src.startsWith('blob:')) {
-            URL.revokeObjectURL(audio.src);
+      if (interruptionState.current_audio_elements) {
+        interruptionState.current_audio_elements.forEach(audio => {
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+            if (audio.src && audio.src.startsWith('blob:')) {
+              URL.revokeObjectURL(audio.src);
+            }
+          } catch (e) {
+            widgetLog(`[GA API INTERRUPTION] Ошибка при остановке аудио: ${e.message}`, 'warn');
           }
-        } catch (e) {
-          widgetLog(`[INTERRUPTION] Ошибка при остановке аудио: ${e.message}`, 'warn');
-        }
-      });
+        });
+      }
       
       interruptionState.current_audio_elements = [];
       audioPlaybackQueue = [];
@@ -1290,19 +1297,19 @@
             timestamp: Date.now()
           }));
         } catch (e) {
-          widgetLog(`[INTERRUPTION] Ошибка отправки события остановки: ${e.message}`, 'warn');
+          widgetLog(`[GA API INTERRUPTION] Ошибка отправки события остановки: ${e.message}`, 'warn');
         }
       }
       
-      widgetLog('[INTERRUPTION] Все аудио воспроизведения остановлены');
+      widgetLog('[GA API INTERRUPTION] Все аудио воспроизведения остановлены');
     }
     
     // Переключение в режим прослушивания
     function switchToListeningMode() {
-      widgetLog('[INTERRUPTION] Переключение в режим прослушивания');
+      widgetLog('[GA API INTERRUPTION] Переключение в режим прослушивания');
       
       if (isListening) {
-        widgetLog('[INTERRUPTION] Уже в режиме прослушивания');
+        widgetLog('[GA API INTERRUPTION] Уже в режиме прослушивания');
         return;
       }
       
@@ -1319,12 +1326,12 @@
         }, 100);
       }
       
-      widgetLog('[INTERRUPTION] Переключение в режим прослушивания завершено');
+      widgetLog('[GA API INTERRUPTION] Переключение в режим прослушивания завершено');
     }
     
     // Обработка начала речи пользователя
     function handleSpeechStarted(eventData) {
-      widgetLog(`[INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[GA API INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_user_speaking = true;
       
@@ -1340,7 +1347,7 @@
     
     // Обработка окончания речи пользователя
     function handleSpeechStopped(eventData) {
-      widgetLog(`[INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[GA API INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_user_speaking = false;
       
@@ -1354,7 +1361,7 @@
     
     // Обработка начала речи ассистента
     function handleAssistantSpeechStarted(eventData) {
-      widgetLog(`[INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[GA API INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_assistant_speaking = true;
       
@@ -1366,7 +1373,7 @@
     
     // Обработка окончания речи ассистента
     function handleAssistantSpeechEnded(eventData) {
-      widgetLog(`[INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[GA API INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_assistant_speaking = false;
       
@@ -1500,7 +1507,7 @@
     
     // Открыть виджет
     async function openWidget() {
-      widgetLog("Opening widget");
+      widgetLog("[GA API] Opening widget");
       
       widgetContainer.style.zIndex = "2147483647";
       widgetButton.style.zIndex = "2147483647";
@@ -1518,7 +1525,7 @@
       
       // ЕДИНАЯ ИНИЦИАЛИЗАЦИЯ для всех устройств при открытии виджета
       if (!window.audioInitialized) {
-        widgetLog('[AUDIO] Начинаем инициализацию аудио при открытии виджета');
+        widgetLog('[GA API AUDIO] Начинаем инициализацию аудио при открытии виджета');
         
         const success = await initializeAudio();
         
@@ -1536,11 +1543,11 @@
       // Запускаем прослушивание при открытии, если соединение активно
       if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
         startListening();
-        updateConnectionStatus('connected', 'Подключено');
+        updateConnectionStatus('connected', 'Подключено (GA API)');
       } else if (!isConnected && !isReconnecting) {
         connectWebSocket();
       } else {
-        widgetLog(`Cannot start listening yet: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
+        widgetLog(`[GA API] Cannot start listening yet: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
         
         if (isReconnecting) {
           updateConnectionStatus('connecting', 'Переподключение...');
@@ -1552,7 +1559,7 @@
     
     // Закрыть виджет
     function closeWidget() {
-      widgetLog("Closing widget");
+      widgetLog("[GA API] Closing widget");
       
       stopAllAudioProcessing();
       
@@ -1577,23 +1584,23 @@
     // Начало записи голоса - БЕЗ ИЗМЕНЕНИЙ
     async function startListening() {
       if (!isConnected || isPlayingAudio || isReconnecting || isListening) {
-        widgetLog(`Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
+        widgetLog(`[GA API] Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
         return;
       }
       
       // Проверяем инициализацию аудио
       if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
-        widgetLog('Аудио не инициализировано, пытаемся инициализировать', 'warn');
+        widgetLog('[GA API] Аудио не инициализировано, пытаемся инициализировать', 'warn');
         const success = await initializeAudio();
         if (!success) {
-          widgetLog('Не удалось инициализировать аудио', 'error');
+          widgetLog('[GA API] Не удалось инициализировать аудио', 'error');
           showMessage("Ошибка доступа к микрофону");
           return;
         }
       }
       
       isListening = true;
-      widgetLog('Начинаем прослушивание');
+      widgetLog('[GA API] Начинаем прослушивание');
       
       // Отправляем команду для очистки буфера ввода
       if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -1607,9 +1614,9 @@
       if (window.globalAudioContext.state === 'suspended') {
         try {
           await window.globalAudioContext.resume();
-          widgetLog('AudioContext возобновлен');
+          widgetLog('[GA API] AudioContext возобновлен');
         } catch (error) {
-          widgetLog(`Не удалось возобновить AudioContext: ${error}`, 'error');
+          widgetLog(`[GA API] Не удалось возобновить AudioContext: ${error}`, 'error');
           isListening = false;
           return;
         }
@@ -1620,7 +1627,7 @@
         const bufferSize = 2048;
         
         audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
-        widgetLog(`Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
+        widgetLog(`[GA API] Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
         
         // Переменные для отслеживания звука
         let isSilent = true;
@@ -1688,11 +1695,11 @@
               if (!hasAudioData && hasSound) {
                 hasAudioData = true;
                 audioDataStartTime = Date.now();
-                widgetLog("Начало записи аудиоданных");
+                widgetLog("[GA API] Начало записи аудиоданных");
               }
               
             } catch (error) {
-              widgetLog(`Ошибка отправки аудио: ${error.message}`, "error");
+              widgetLog(`[GA API] Ошибка отправки аудио: ${error.message}`, "error");
             }
             
             // Логика определения тишины и автоматической отправки
@@ -1747,7 +1754,7 @@
         mainCircle.classList.remove('speaking');
       }
       
-      widgetLog("Прослушивание начато успешно");
+      widgetLog("[GA API] Прослушивание начато успешно");
     }
     
     // Функция для отправки аудиобуфера
@@ -1755,17 +1762,17 @@
       if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
       
       if (!hasAudioData) {
-        widgetLog("Не отправляем пустой аудиобуфер", "warn");
+        widgetLog("[GA API] Не отправляем пустой аудиобуфер", "warn");
         return;
       }
       
       const audioLength = Date.now() - audioDataStartTime;
       if (audioLength < minimumAudioLength) {
-        widgetLog(`Аудиобуфер слишком короткий (${audioLength}мс), ожидаем больше данных`, "warn");
+        widgetLog(`[GA API] Аудиобуфер слишком короткий (${audioLength}мс), ожидаем больше данных`, "warn");
         
         setTimeout(() => {
           if (isListening && hasAudioData && !isReconnecting) {
-            widgetLog(`Отправка аудиобуфера после дополнительной записи (${Date.now() - audioDataStartTime}мс)`);
+            widgetLog(`[GA API] Отправка аудиобуфера после дополнительной записи (${Date.now() - audioDataStartTime}мс)`);
             sendCommitBuffer();
           }
         }, minimumAudioLength - audioLength + 50);
@@ -1778,11 +1785,11 @@
     
     // Функция для фактической отправки буфера
     function sendCommitBuffer() {
-      widgetLog("Отправка аудиобуфера");
+      widgetLog("[GA API] Отправка аудиобуфера");
       
       const audioLength = Date.now() - audioDataStartTime;
       if (audioLength < 100) {
-        widgetLog(`Аудиобуфер слишком короткий для OpenAI (${audioLength}мс < 100мс), не отправляем`, "warn");
+        widgetLog(`[GA API] Аудиобуфер слишком короткий для OpenAI (${audioLength}мс < 100мс), не отправляем`, "warn");
         
         hasAudioData = false;
         audioDataStartTime = 0;
@@ -1836,7 +1843,7 @@
       const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
       
       if (reconnectAttempts >= maxAttempts) {
-        widgetLog('Maximum reconnection attempts reached');
+        widgetLog('[GA API] Maximum reconnection attempts reached');
         isReconnecting = false;
         connectionFailedPermanently = true;
         
@@ -1864,7 +1871,7 @@
       
       reconnectAttempts++;
       
-      widgetLog(`Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
+      widgetLog(`[GA API] Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
       
       setTimeout(() => {
         if (isReconnecting) {
@@ -1875,7 +1882,7 @@
               
               if (isWidgetOpen) {
                 showMessage("Соединение восстановлено", 3000);
-                updateConnectionStatus('connected', 'Подключено');
+                updateConnectionStatus('connected', 'Подключено (GA API)');
                 
                 setTimeout(() => {
                   if (isWidgetOpen && !isListening && !isPlayingAudio) {
@@ -1897,20 +1904,20 @@
     async function connectWebSocket() {
       try {
         loaderModal.classList.add('active');
-        widgetLog("Подключение...");
+        widgetLog("[GA API] Подключение...");
         
         isReconnecting = true;
         
         hideConnectionError();
         
         if (!ASSISTANT_ID) {
-          widgetLog('Assistant ID not found!', 'error');
+          widgetLog('[GA API] Assistant ID not found!', 'error');
           showMessage("Ошибка: ID ассистента не указан. Проверьте код встраивания.");
           loaderModal.classList.remove('active');
           return false;
         }
         
-        widgetLog(`Connecting to WebSocket at: ${WS_URL}`);
+        widgetLog(`[GA API] Connecting to WebSocket at: ${WS_URL}`);
         
         if (websocket) {
           try {
@@ -1934,7 +1941,7 @@
         websocket.binaryType = 'arraybuffer';
         
         connectionTimeout = setTimeout(() => {
-          widgetLog("Превышено время ожидания соединения", "error");
+          widgetLog("[GA API] Превышено время ожидания соединения", "error");
           
           if (websocket) {
             websocket.close();
@@ -1961,7 +1968,7 @@
                     Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
                     Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
                     
-            widgetLog(`Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
+            widgetLog(`[GA API] Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
             
             if (isWidgetOpen) {
               showMessage(`Превышено время ожидания. Повторная попытка через ${Math.round(delay/1000)} сек...`);
@@ -1974,9 +1981,10 @@
           }
         }, CONNECTION_TIMEOUT);
         
+        // ✅ КРИТИЧНОЕ ИЗМЕНЕНИЕ ДЛЯ GA API
         websocket.onopen = function() {
           clearTimeout(connectionTimeout);
-          widgetLog('WebSocket connection established');
+          widgetLog('[GA API] ✅ WebSocket connection established');
           isConnected = true;
           isReconnecting = false;
           reconnectAttempts = 0;
@@ -1995,26 +2003,26 @@
                 lastPingTime = Date.now();
                 
                 if (Date.now() - lastPongTime > pingIntervalTime * 3) {
-                  widgetLog("Ping timeout, no pong received", "warn");
+                  widgetLog("[GA API] Ping timeout, no pong received", "warn");
                   
                   clearInterval(pingInterval);
                   websocket.close();
                   reconnectWithDelay(1000);
                 }
               } catch (e) {
-                widgetLog(`Error sending ping: ${e.message}`, "error");
+                widgetLog(`[GA API] Error sending ping: ${e.message}`, "error");
               }
             }
           }, pingIntervalTime);
           
           hideConnectionError();
           
-          // ИСПРАВЛЕНИЕ: НЕ отправляем session.update от клиента!
-          // Сервер сам управляет сессией через openai_client.update_session()
-          widgetLog("[CONNECTION] Соединение установлено, сервер сам настроит сессию");
+          // ✅ КРИТИЧНО: НЕ отправляем session.update!
+          // Сервер GA API сам управляет сессией (handler_realtime_new.py)
+          widgetLog("[GA API] Session managed by server (model: gpt-realtime-mini)");
           
           if (isWidgetOpen) {
-            updateConnectionStatus('connected', 'Подключено');
+            updateConnectionStatus('connected', 'Подключено (GA API)');
             startListening();
           }
         };
@@ -2022,12 +2030,12 @@
         websocket.onmessage = function(event) {
           try {
             if (event.data instanceof Blob) {
-              widgetLog("Получены бинарные данные от сервера");
+              widgetLog("[GA API] Получены бинарные данные от сервера");
               return;
             }
             
             if (!event.data) {
-              widgetLog("Получено пустое сообщение от сервера", "warn");
+              widgetLog("[GA API] Получено пустое сообщение от сервера", "warn");
               return;
             }
 
@@ -2037,7 +2045,7 @@
               lastPongTime = Date.now();
               
               if (data.type !== 'input_audio_buffer.append') {
-                widgetLog(`Получено сообщение типа: ${data.type || 'unknown'}`);
+                widgetLog(`[GA API] Получено сообщение типа: ${data.type || 'unknown'}`);
               }
               
               // Обработка событий перебивания
@@ -2067,7 +2075,7 @@
               }
               
               if (data.type === 'response.cancelled') {
-                widgetLog(`[INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
+                widgetLog(`[GA API INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
                 
                 stopAllAudioPlayback();
                 
@@ -2085,12 +2093,12 @@
               }
               
               if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`Получена информация о сессии: ${data.type}`);
+                widgetLog(`[GA API] Получена информация о сессии: ${data.type}`);
                 return;
               }
               
               if (data.type === 'connection_status') {
-                widgetLog(`Статус соединения: ${data.status} - ${data.message}`);
+                widgetLog(`[GA API] Статус соединения: ${data.status} - ${data.message}`);
                 if (data.status === 'connected') {
                   isConnected = true;
                   reconnectAttempts = 0;
@@ -2107,7 +2115,7 @@
               
               if (data.type === 'error') {
                 if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("Ошибка: пустой аудиобуфер", "warn");
+                  widgetLog("[GA API] Ошибка: пустой аудиобуфер", "warn");
                   if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                     setTimeout(() => { 
                       startListening(); 
@@ -2116,7 +2124,7 @@
                   return;
                 }
                 
-                widgetLog(`Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
+                widgetLog(`[GA API] Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
                 showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
                 return;
               } 
@@ -2160,7 +2168,7 @@
               }
               
               if (data.type === 'response.done') {
-                widgetLog('Response done received');
+                widgetLog('[GA API] Response done received');
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                   setTimeout(() => {
                     startListening();
@@ -2174,26 +2182,26 @@
                 return;
               }
               
-              widgetLog(`Неизвестный тип сообщения: ${data.type}`, "warn");
+              widgetLog(`[GA API] Неизвестный тип сообщения: ${data.type}`, "warn");
               
             } catch (parseError) {
-              widgetLog(`Ошибка парсинга JSON: ${parseError.message}`, "warn");
+              widgetLog(`[GA API] Ошибка парсинга JSON: ${parseError.message}`, "warn");
               
               if (event.data === 'pong') {
                 lastPongTime = Date.now();
-                widgetLog("Получен pong-ответ");
+                widgetLog("[GA API] Получен pong-ответ");
                 return;
               }
               
-              widgetLog(`Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
+              widgetLog(`[GA API] Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
             }
           } catch (generalError) {
-            widgetLog(`Общая ошибка обработки сообщения: ${generalError.message}`, "error");
+            widgetLog(`[GA API] Общая ошибка обработки сообщения: ${generalError.message}`, "error");
           }
         };
         
         websocket.onclose = function(event) {
-          widgetLog(`WebSocket connection closed: ${event.code}, ${event.reason}`);
+          widgetLog(`[GA API] WebSocket connection closed: ${event.code}, ${event.reason}`);
           isConnected = false;
           isListening = false;
           
@@ -2207,7 +2215,7 @@
           
           if (event.code === 1000 || event.code === 1001) {
             isReconnecting = false;
-            widgetLog('Clean WebSocket close, not reconnecting');
+            widgetLog('[GA API] Clean WebSocket close, not reconnecting');
             return;
           }
           
@@ -2215,7 +2223,7 @@
         };
         
         websocket.onerror = function(error) {
-          widgetLog(`WebSocket error: ${error}`, 'error');
+          widgetLog(`[GA API] WebSocket error: ${error}`, 'error');
           
           if (isWidgetOpen) {
             showMessage("Ошибка соединения с сервером");
@@ -2225,7 +2233,7 @@
         
         return true;
       } catch (error) {
-        widgetLog(`Error connecting to WebSocket: ${error}`, 'error');
+        widgetLog(`[GA API] Error connecting to WebSocket: ${error}`, 'error');
         isReconnecting = false;
         loaderModal.classList.remove('active');
         
@@ -2249,14 +2257,14 @@
 
     // Добавляем обработчики событий для интерфейса
     widgetButton.addEventListener('click', function(e) {
-      widgetLog('Button clicked');
+      widgetLog('[GA API] Button clicked');
       e.preventDefault();
       e.stopPropagation();
       openWidget(); // ЕДИНАЯ точка входа для всех устройств
     });
 
     widgetClose.addEventListener('click', function(e) {
-      widgetLog('Close button clicked');
+      widgetLog('[GA API] Close button clicked');
       e.preventDefault();
       e.stopPropagation();
       closeWidget();
@@ -2264,7 +2272,7 @@
     
     // Обработчик для основного круга - для дополнительного запуска распознавания
     mainCircle.addEventListener('click', function() {
-      widgetLog(`Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
+      widgetLog(`[GA API] Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
       
       if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
         if (isConnected) {
@@ -2280,7 +2288,7 @@
     // Обработчик для кнопки повторного подключения
     if (retryButton) {
       retryButton.addEventListener('click', function() {
-        widgetLog('Retry button clicked');
+        widgetLog('[GA API] Retry button clicked');
         resetConnection();
       });
     }
@@ -2290,50 +2298,50 @@
     
     // Проверка DOM и состояния после инициализации
     setTimeout(function() {
-      widgetLog('DOM check after initialization');
+      widgetLog('[GA API] DOM check after initialization');
       
       const widgetContainer = document.getElementById('wellcomeai-widget-container');
       const widgetButton = document.getElementById('wellcomeai-widget-button');
       const widgetExpanded = document.getElementById('wellcomeai-widget-expanded');
       
       if (!widgetContainer) {
-        widgetLog('Widget container not found in DOM!', 'error');
+        widgetLog('[GA API] Widget container not found in DOM!', 'error');
       } else {
-        widgetLog(`Container z-index = ${getComputedStyle(widgetContainer).zIndex}`);
+        widgetLog(`[GA API] Container z-index = ${getComputedStyle(widgetContainer).zIndex}`);
       }
       
       if (!widgetButton) {
-        widgetLog('Button not found in DOM!', 'error');
+        widgetLog('[GA API] Button not found in DOM!', 'error');
       } else {
-        widgetLog(`Button is visible = ${getComputedStyle(widgetButton).display !== 'none'}`);
+        widgetLog(`[GA API] Button is visible = ${getComputedStyle(widgetButton).display !== 'none'}`);
       }
       
       if (!widgetExpanded) {
-        widgetLog('Expanded widget not found in DOM!', 'error');
+        widgetLog('[GA API] Expanded widget not found in DOM!', 'error');
       }
       
-      widgetLog(`Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
-      widgetLog(`Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
+      widgetLog(`[GA API] Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
+      widgetLog(`[GA API] Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
       
       if (window.audioInitialized) {
-        widgetLog(`[AUDIO] Audio state: initialized=${window.audioInitialized}`);
+        widgetLog(`[GA API AUDIO] Audio state: initialized=${window.audioInitialized}`);
         if (window.globalAudioContext) {
-          widgetLog(`[AUDIO] AudioContext state=${window.globalAudioContext.state}, sampleRate=${window.globalAudioContext.sampleRate}`);
+          widgetLog(`[GA API AUDIO] AudioContext state=${window.globalAudioContext.state}, sampleRate=${window.globalAudioContext.sampleRate}`);
         }
         if (window.globalMicStream) {
-          widgetLog(`[AUDIO] MediaStream active=${window.globalMicStream.active}, tracks=${window.globalMicStream.getAudioTracks().length}`);
+          widgetLog(`[GA API AUDIO] MediaStream active=${window.globalMicStream.active}, tracks=${window.globalMicStream.getAudioTracks().length}`);
         }
       }
       
-      widgetLog(`Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
+      widgetLog(`[GA API] Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
     }, 2000);
   }
 
   // Инициализируем виджет
   function initializeWidget() {
-    widgetLog('Starting unified initialization process');
+    widgetLog('[GA API] Starting unified initialization process');
     
-    widgetLog(`Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
+    widgetLog(`[GA API] Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
     loadFontAwesome();
     createStyles();
@@ -2342,19 +2350,19 @@
     
     initWidget();
     
-    widgetLog('Unified widget initialization complete - same behavior for all devices');
+    widgetLog('[GA API] ✅ Widget initialization complete - Production GA version (gpt-realtime-mini)');
   }
   
   // Проверяем, есть ли уже виджет на странице
   if (!document.getElementById('wellcomeai-widget-container')) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initializeWidget);
-      widgetLog('Will initialize on DOMContentLoaded');
+      widgetLog('[GA API] Will initialize on DOMContentLoaded');
     } else {
-      widgetLog('DOM already loaded, initializing immediately');
+      widgetLog('[GA API] DOM already loaded, initializing immediately');
       initializeWidget();
     }
   } else {
-    widgetLog('Widget already exists on the page, skipping initialization');
+    widgetLog('[GA API] Widget already exists on the page, skipping initialization');
   }
 })();
