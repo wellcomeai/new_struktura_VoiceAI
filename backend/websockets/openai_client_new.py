@@ -350,7 +350,7 @@ class OpenAIRealtimeClientNew:
         payload = {
             "type": "session.update",
             "session": {
-                "model": "gpt-realtime",
+                "model": "gpt-realtime-mini",
                 "turn_detection": turn_detection,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
