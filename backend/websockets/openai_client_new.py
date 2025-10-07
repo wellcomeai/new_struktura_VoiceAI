@@ -134,7 +134,7 @@ class OpenAIRealtimeClientNew:
     
     Key differences from beta:
     - Model: gpt-realtime
-    - Session type required: "realtime"
+    - Session type set via URL, not in session.update
     - New event names: output_text, output_audio, output_audio_transcript
     - New events: conversation.item.added/done
     """
@@ -252,7 +252,7 @@ class OpenAIRealtimeClientNew:
                 if self.webhook_url:
                     logger.info(f"[NEW-API] Webhook URL: {self.webhook_url}")
 
-            # 🆕 Отправляем session.update с type: "realtime"
+            # 🆕 Отправляем session.update БЕЗ type (тип уже установлен через URL)
             if not await self.update_session(
                 voice=voice,
                 system_message=system_message,
@@ -303,7 +303,10 @@ class OpenAIRealtimeClientNew:
         functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
     ) -> bool:
         """
-        🆕 Update session settings with REQUIRED type parameter for GA API.
+        🆕 Update session settings for GA API.
+        
+        ВАЖНО: Параметр "type" НЕ отправляется в session.update,
+        так как тип сессии уже установлен через URL при подключении.
         """
         if not self.is_connected or not self.ws:
             logger.error("[NEW-API] Cannot update session: not connected")
@@ -342,12 +345,12 @@ class OpenAIRealtimeClientNew:
             "model": "whisper-1"
         }
         
-        # 🆕 NEW: Session payload with REQUIRED type parameter
+        # 🆕 ИСПРАВЛЕНИЕ: Убран параметр "type": "realtime"
+        # Тип сессии уже установлен через URL подключения
         payload = {
             "type": "session.update",
             "session": {
-                "type": "realtime",  # 🆕 REQUIRED in GA API
-                "model": "gpt-realtime",  # 🆕 NEW model name
+                "model": "gpt-realtime",
                 "turn_detection": turn_detection,
                 "input_audio_format": "pcm16",
                 "output_audio_format": "pcm16",
