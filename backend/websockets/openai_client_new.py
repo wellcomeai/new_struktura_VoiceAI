@@ -24,7 +24,7 @@ from backend.functions import get_function_definitions, get_enabled_functions, n
 logger = get_logger(__name__)
 
 DEFAULT_VOICE = "alloy"
-DEFAULT_SYSTEM_MESSAGE = "You are a helpful voice assistant."
+DEFAULT_SYSTEM_MESSAGE = "ТЫ мой умный помошник по имени Джон Маккарти.Ты веселый и приятный парень.Стендапер и мотиватор , хочу слышать эмоции от тебя"
 
 
 def normalize_functions(assistant_functions):
