@@ -1,12 +1,13 @@
 /**
  * WellcomeAI Widget Loader Script - 🆕 GA API TEST VERSION
- * Версия: 3.0.0-test - NEW Realtime API (gpt-realtime)
+ * Версия: 3.0.0-test-FULL - NEW Realtime API (gpt-realtime)
  * 
  * 🆕 Изменения для GA API:
  * - WebSocket URL: /ws-test/{assistant_id}
  * - Model: gpt-realtime
  * - Готов к тестированию новых событий
  * 
+ * ✅ ПОЛНАЯ ВЕРСИЯ со всеми функциями
  * ⚠️ ЭТО ТЕСТОВАЯ ВЕРСИЯ! Для production используйте widget.js
  */
 
@@ -852,7 +853,7 @@
     }
   }
 
-  // Инициализация аудио (без изменений)
+  // Инициализация аудио
   async function initializeAudio() {
     widgetLog(`[AUDIO] Начало инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
@@ -932,7 +933,7 @@
     }
   }
 
-  // Основная логика виджета (остальное без изменений, только логирование с TEST префиксом)
+  // Основная логика виджета
   function initWidget() {
     if (!ASSISTANT_ID) {
       widgetLog("🆕 TEST: Assistant ID not found", 'error');
@@ -1009,7 +1010,7 @@
     }
     createAudioBars();
 
-    // Вспомогательные функции (без изменений)
+    // Вспомогательные функции
     function arrayBufferToBase64(buffer) {
       const bytes = new Uint8Array(buffer);
       let binary = '';
@@ -1078,7 +1079,7 @@
       return wavBuffer;
     }
 
-    // Воспроизведение аудио (без изменений)
+    // ✅ ПОЛНАЯ функция воспроизведения аудио
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         isPlayingAudio = false;
@@ -1232,10 +1233,599 @@
       }
     }
 
-    // Остальные функции без изменений, только с префиксом TEST в логах...
-    // (handleInterruptionEvent, stopAllAudioPlayback, switchToListeningMode, etc.)
+    // ✅ Обработка событий перебивания
+    function handleInterruptionEvent(eventData) {
+      const now = Date.now();
+      
+      widgetLog(`[INTERRUPTION] Получено событие: ${JSON.stringify(eventData)}`);
+      
+      interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
+      interruptionState.last_interruption = eventData.timestamp || now;
+      
+      stopAllAudioPlayback();
+      switchToListeningMode();
+      
+      mainCircle.classList.remove('speaking');
+      mainCircle.classList.add('interrupted');
+      
+      setTimeout(() => {
+        mainCircle.classList.remove('interrupted');
+        if (!interruptionState.is_assistant_speaking) {
+          mainCircle.classList.add('listening');
+        }
+      }, 1000);
+      
+      updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
+      
+      widgetLog(`[INTERRUPTION] Обработано #${interruptionState.interruption_count}`);
+    }
     
-    // Подключение к WebSocket
+    // ✅ Остановка всех аудио
+    function stopAllAudioPlayback() {
+      widgetLog('[INTERRUPTION] Остановка всех аудио');
+      
+      isPlayingAudio = false;
+      interruptionState.is_assistant_speaking = false;
+      
+      interruptionState.current_audio_elements.forEach(audio => {
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          if (audio.src && audio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audio.src);
+          }
+        } catch (e) {
+          widgetLog(`[INTERRUPTION] Ошибка: ${e.message}`, 'warn');
+        }
+      });
+      
+      interruptionState.current_audio_elements = [];
+      audioPlaybackQueue = [];
+      
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        try {
+          websocket.send(JSON.stringify({
+            type: "audio_playback.stopped",
+            timestamp: Date.now()
+          }));
+        } catch (e) {
+          widgetLog(`[INTERRUPTION] Ошибка отправки: ${e.message}`, 'warn');
+        }
+      }
+    }
+    
+    // ✅ Переключение в режим прослушивания
+    function switchToListeningMode() {
+      widgetLog('[INTERRUPTION] Переключение в режим прослушивания');
+      
+      if (isListening) {
+        widgetLog('[INTERRUPTION] Уже в режиме прослушивания');
+        return;
+      }
+      
+      interruptionState.is_user_speaking = true;
+      
+      mainCircle.classList.remove('speaking', 'interrupted');
+      mainCircle.classList.add('listening');
+      
+      if (isConnected && !isReconnecting) {
+        setTimeout(() => {
+          if (!isListening && !isPlayingAudio) {
+            startListening();
+          }
+        }, 100);
+      }
+    }
+    
+    // ✅ Обработчики событий речи
+    function handleSpeechStarted(eventData) {
+      widgetLog(`[INTERRUPTION] Пользователь начал говорить`);
+      
+      interruptionState.is_user_speaking = true;
+      
+      if (interruptionState.is_assistant_speaking) {
+        stopAllAudioPlayback();
+        mainCircle.classList.add('interrupted');
+        updateConnectionStatus('interrupted', 'Перебивание');
+      }
+      
+      mainCircle.classList.remove('speaking');
+      mainCircle.classList.add('listening');
+    }
+    
+    function handleSpeechStopped(eventData) {
+      widgetLog(`[INTERRUPTION] Пользователь закончил говорить`);
+      
+      interruptionState.is_user_speaking = false;
+      
+      setTimeout(() => {
+        mainCircle.classList.remove('interrupted');
+        if (!interruptionState.is_assistant_speaking) {
+          mainCircle.classList.remove('listening');
+        }
+      }, 500);
+    }
+    
+    function handleAssistantSpeechStarted(eventData) {
+      widgetLog(`[INTERRUPTION] Ассистент начал говорить`);
+      
+      interruptionState.is_assistant_speaking = true;
+      
+      mainCircle.classList.remove('listening', 'interrupted');
+      mainCircle.classList.add('speaking');
+      
+      updateConnectionStatus('connected', 'Ассистент говорит');
+    }
+    
+    function handleAssistantSpeechEnded(eventData) {
+      widgetLog(`[INTERRUPTION] Ассистент закончил говорить`);
+      
+      interruptionState.is_assistant_speaking = false;
+      
+      mainCircle.classList.remove('speaking');
+      
+      if (isWidgetOpen && isConnected && !isReconnecting) {
+        setTimeout(() => {
+          if (!isListening && !isPlayingAudio) {
+            startListening();
+          }
+        }, 500);
+      }
+      
+      updateConnectionStatus('connected', 'Готов');
+    }
+    
+    // ✅ Обновление статуса
+    function updateConnectionStatus(status, message) {
+      if (!statusIndicator || !statusDot || !statusText) return;
+      
+      statusText.textContent = message || status;
+      
+      statusDot.classList.remove('connected', 'disconnected', 'connecting', 'interrupted');
+      
+      if (status === 'connected') {
+        statusDot.classList.add('connected');
+      } else if (status === 'disconnected') {
+        statusDot.classList.add('disconnected');
+      } else if (status === 'interrupted') {
+        statusDot.classList.add('interrupted');
+      } else {
+        statusDot.classList.add('connecting');
+      }
+      
+      statusIndicator.classList.add('show');
+      
+      setTimeout(() => {
+        statusIndicator.classList.remove('show');
+      }, 3000);
+    }
+
+    // ✅ Остановка всех аудио процессов
+    function stopAllAudioProcessing() {
+      isListening = false;
+      
+      stopAllAudioPlayback();
+      
+      audioChunksBuffer = [];
+      audioPlaybackQueue = [];
+      
+      hasAudioData = false;
+      audioDataStartTime = 0;
+      
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: "input_audio_buffer.clear",
+          event_id: `clear_${Date.now()}`
+        }));
+        
+        websocket.send(JSON.stringify({
+          type: "response.cancel",
+          event_id: `cancel_${Date.now()}`
+        }));
+      }
+      
+      mainCircle.classList.remove('listening', 'speaking', 'interrupted');
+      
+      resetAudioVisualization();
+      
+      interruptionState.is_assistant_speaking = false;
+      interruptionState.is_user_speaking = false;
+    }
+    
+    // ✅ Показать/скрыть сообщения
+    function showMessage(message, duration = 5000) {
+      messageDisplay.textContent = message;
+      messageDisplay.classList.add('show');
+      
+      if (duration > 0) {
+        setTimeout(() => {
+          messageDisplay.classList.remove('show');
+        }, duration);
+      }
+    }
+
+    function hideMessage() {
+      messageDisplay.classList.remove('show');
+    }
+    
+    // ✅ Показать/скрыть ошибку соединения
+    function showConnectionError(message) {
+      if (connectionError) {
+        connectionError.innerHTML = `
+          ${message || 'Ошибка соединения с сервером'}
+          <button class="wellcomeai-retry-button" id="wellcomeai-retry-button">
+            Повторить подключение
+          </button>
+        `;
+        connectionError.classList.add('visible');
+        
+        const newRetryButton = connectionError.querySelector('#wellcomeai-retry-button');
+        if (newRetryButton) {
+          newRetryButton.addEventListener('click', function() {
+            resetConnection();
+          });
+        }
+      }
+    }
+    
+    function hideConnectionError() {
+      if (connectionError) {
+        connectionError.classList.remove('visible');
+      }
+    }
+    
+    // ✅ Сброс соединения
+    function resetConnection() {
+      reconnectAttempts = 0;
+      connectionFailedPermanently = false;
+      
+      hideConnectionError();
+      
+      showMessage("Попытка подключения...");
+      updateConnectionStatus('connecting', 'Подключение...');
+      
+      connectWebSocket();
+    }
+    
+    // ✅ Открыть виджет
+    async function openWidget() {
+      widgetLog("Opening widget");
+      
+      widgetContainer.classList.add('active');
+      isWidgetOpen = true;
+      
+      if (!window.audioInitialized) {
+        const success = await initializeAudio();
+        
+        if (!success) {
+          showMessage("Ошибка доступа к микрофону", 5000);
+          return;
+        }
+      }
+      
+      if (connectionFailedPermanently) {
+        showConnectionError('Не удалось подключиться');
+        return;
+      }
+      
+      if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
+        startListening();
+        updateConnectionStatus('connected', 'Подключено (GA API)');
+      } else if (!isConnected && !isReconnecting) {
+        connectWebSocket();
+      }
+      
+      widgetButton.classList.remove('wellcomeai-pulse-animation');
+    }
+    
+    // ✅ Закрыть виджет
+    function closeWidget() {
+      widgetLog("Closing widget");
+      
+      stopAllAudioProcessing();
+      
+      widgetContainer.classList.remove('active');
+      isWidgetOpen = false;
+      
+      hideMessage();
+      hideConnectionError();
+      
+      if (statusIndicator) {
+        statusIndicator.classList.remove('show');
+      }
+    }
+    
+    // ✅ Начало прослушивания
+    async function startListening() {
+      if (!isConnected || isPlayingAudio || isReconnecting || isListening) {
+        widgetLog(`Cannot start listening: connected=${isConnected}, playing=${isPlayingAudio}, reconnecting=${isReconnecting}, listening=${isListening}`);
+        return;
+      }
+      
+      if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
+        widgetLog('Audio not initialized', 'warn');
+        const success = await initializeAudio();
+        if (!success) {
+          showMessage("Ошибка доступа к микрофону");
+          return;
+        }
+      }
+      
+      isListening = true;
+      widgetLog('Starting listening');
+      
+      if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+          type: "input_audio_buffer.clear",
+          event_id: `clear_${Date.now()}`
+        }));
+      }
+      
+      if (window.globalAudioContext.state === 'suspended') {
+        try {
+          await window.globalAudioContext.resume();
+          widgetLog('AudioContext resumed');
+        } catch (error) {
+          widgetLog(`Failed to resume AudioContext: ${error}`, 'error');
+          isListening = false;
+          return;
+        }
+      }
+      
+      if (!audioProcessor) {
+        const bufferSize = 2048;
+        
+        audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
+        
+        let isSilent = true;
+        let silenceStartTime = Date.now();
+        let lastCommitTime = 0;
+        let hasSentAudioInCurrentSegment = false;
+        
+        audioProcessor.onaudioprocess = function(e) {
+          if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
+            const inputBuffer = e.inputBuffer;
+            let inputData = inputBuffer.getChannelData(0);
+            
+            if (inputData.length === 0) {
+              return;
+            }
+            
+            let maxAmplitude = 0;
+            for (let i = 0; i < inputData.length; i++) {
+              maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+            }
+            
+            if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
+              const amplifiedData = new Float32Array(inputData.length);
+              const gainFactor = AUDIO_CONFIG.amplificationFactor;
+              
+              for (let i = 0; i < inputData.length; i++) {
+                amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gainFactor));
+              }
+              
+              inputData = amplifiedData;
+              
+              maxAmplitude = 0;
+              for (let i = 0; i < inputData.length; i++) {
+                maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+              }
+            }
+            
+            const hasSound = maxAmplitude > AUDIO_CONFIG.soundDetectionThreshold;
+            
+            updateAudioVisualization(inputData);
+            
+            const pcm16Data = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
+            }
+            
+            try {
+              const message = JSON.stringify({
+                type: "input_audio_buffer.append",
+                event_id: `audio_${Date.now()}`,
+                audio: arrayBufferToBase64(pcm16Data.buffer)
+              });
+              
+              websocket.send(message);
+              hasSentAudioInCurrentSegment = true;
+              
+              if (!hasAudioData && hasSound) {
+                hasAudioData = true;
+                audioDataStartTime = Date.now();
+              }
+              
+            } catch (error) {
+              widgetLog(`Error sending audio: ${error.message}`, "error");
+            }
+            
+            const now = Date.now();
+            
+            if (hasSound) {
+              isSilent = false;
+              silenceStartTime = now;
+              
+              if (!mainCircle.classList.contains('listening') && 
+                  !mainCircle.classList.contains('speaking')) {
+                mainCircle.classList.add('listening');
+              }
+            } else if (!isSilent) {
+              const silenceDuration = now - silenceStartTime;
+              
+              if (silenceDuration > AUDIO_CONFIG.silenceDuration) {
+                isSilent = true;
+                
+                if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
+                  setTimeout(() => {
+                    if (isSilent && isListening && !isReconnecting) {
+                      commitAudioBuffer();
+                      lastCommitTime = Date.now();
+                      hasSentAudioInCurrentSegment = false;
+                    }
+                  }, 100);
+                }
+              }
+            }
+          }
+        };
+        
+        const streamSource = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
+        streamSource.connect(audioProcessor);
+        
+        const gainNode = window.globalAudioContext.createGain();
+        gainNode.gain.value = 0;
+        audioProcessor.connect(gainNode);
+        gainNode.connect(window.globalAudioContext.destination);
+      }
+      
+      hasAudioData = false;
+      audioDataStartTime = 0;
+      
+      if (!isPlayingAudio) {
+        mainCircle.classList.add('listening');
+        mainCircle.classList.remove('speaking');
+      }
+      
+      widgetLog("Listening started");
+    }
+    
+    // ✅ Коммит аудио буфера
+    function commitAudioBuffer() {
+      if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
+      
+      if (!hasAudioData) {
+        widgetLog("Empty buffer", "warn");
+        return;
+      }
+      
+      const audioLength = Date.now() - audioDataStartTime;
+      if (audioLength < minimumAudioLength) {
+        setTimeout(() => {
+          if (isListening && hasAudioData && !isReconnecting) {
+            sendCommitBuffer();
+          }
+        }, minimumAudioLength - audioLength + 50);
+        
+        return;
+      }
+      
+      sendCommitBuffer();
+    }
+    
+    function sendCommitBuffer() {
+      widgetLog("Committing audio buffer");
+      
+      const audioLength = Date.now() - audioDataStartTime;
+      if (audioLength < 100) {
+        hasAudioData = false;
+        audioDataStartTime = 0;
+        return;
+      }
+      
+      mainCircle.classList.remove('listening');
+      
+      websocket.send(JSON.stringify({
+        type: "input_audio_buffer.commit",
+        event_id: `commit_${Date.now()}`
+      }));
+      
+      hasAudioData = false;
+      audioDataStartTime = 0;
+    }
+    
+    // ✅ Визуализация аудио
+    function updateAudioVisualization(audioData) {
+      const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar');
+      const step = Math.floor(audioData.length / bars.length);
+      
+      for (let i = 0; i < bars.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < step; j++) {
+          const index = i * step + j;
+          if (index < audioData.length) {
+            sum += Math.abs(audioData[index]);
+          }
+        }
+        const average = sum / step;
+        
+        const multiplier = isMobile ? 200 : 100;
+        
+        const height = 2 + Math.min(28, Math.floor(average * multiplier));
+        bars[i].style.height = `${height}px`;
+      }
+    }
+    
+    function resetAudioVisualization() {
+      const bars = audioBars.querySelectorAll('.wellcomeai-audio-bar');
+      bars.forEach(bar => {
+        bar.style.height = '2px';
+      });
+    }
+    
+    // ✅ Переподключение с задержкой
+    function reconnectWithDelay(initialDelay = 0) {
+      const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+      
+      if (reconnectAttempts >= maxAttempts) {
+        widgetLog('Max reconnection attempts reached');
+        isReconnecting = false;
+        connectionFailedPermanently = true;
+        
+        if (isWidgetOpen) {
+          showConnectionError("Не удалось восстановить соединение");
+          updateConnectionStatus('disconnected', 'Отключено');
+        } else {
+          widgetButton.classList.add('wellcomeai-pulse-animation');
+        }
+        return;
+      }
+      
+      isReconnecting = true;
+      
+      if (isWidgetOpen) {
+        showMessage("Переподключение...", 0);
+        updateConnectionStatus('connecting', 'Переподключение...');
+      }
+      
+      const delay = initialDelay > 0 ? 
+                initialDelay : 
+                isMobile ? 
+                    Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
+                    Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
+      
+      reconnectAttempts++;
+      
+      widgetLog(`Reconnecting in ${delay/1000}s, attempt ${reconnectAttempts}/${maxAttempts}`);
+      
+      setTimeout(() => {
+        if (isReconnecting) {
+          connectWebSocket().then(success => {
+            if (success) {
+              reconnectAttempts = 0;
+              isReconnecting = false;
+              
+              if (isWidgetOpen) {
+                showMessage("Соединение восстановлено", 3000);
+                updateConnectionStatus('connected', 'Подключено (GA API)');
+                
+                setTimeout(() => {
+                  if (isWidgetOpen && !isListening && !isPlayingAudio) {
+                    startListening();
+                  }
+                }, 1000);
+              }
+            } else {
+              isReconnecting = false;
+            }
+          }).catch(() => {
+            isReconnecting = false;
+          });
+        }
+      }, delay);
+    }
+    
+    // ✅ Подключение к WebSocket
     async function connectWebSocket() {
       try {
         loaderModal.classList.add('active');
@@ -1276,7 +1866,7 @@
         websocket.binaryType = 'arraybuffer';
         
         connectionTimeout = setTimeout(() => {
-          widgetLog("🆕 TEST: Превышено время ожидания", "error");
+          widgetLog("🆕 TEST: Connection timeout", "error");
           
           if (websocket) {
             websocket.close();
@@ -1293,7 +1883,7 @@
             connectionFailedPermanently = true;
             
             if (isWidgetOpen) {
-              showConnectionError("Не удалось подключиться к серверу");
+              showConnectionError("Не удалось подключиться");
               updateConnectionStatus('disconnected', 'Отключено');
             } else {
               widgetButton.classList.add('wellcomeai-pulse-animation');
@@ -1303,10 +1893,10 @@
                     Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
                     Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
                     
-            widgetLog(`🆕 TEST: Повтор через ${delay/1000} сек (${reconnectAttempts}/${maxAttempts})`);
+            widgetLog(`🆕 TEST: Retry in ${delay/1000}s (${reconnectAttempts}/${maxAttempts})`);
             
             if (isWidgetOpen) {
-              showMessage(`Превышено время. Повтор через ${Math.round(delay/1000)} сек...`);
+              showMessage(`Повтор через ${Math.round(delay/1000)}с...`);
               updateConnectionStatus('connecting', 'Переподключение...');
             }
             
@@ -1318,7 +1908,7 @@
         
         websocket.onopen = function() {
           clearTimeout(connectionTimeout);
-          widgetLog('🆕 TEST: ✅ WebSocket подключен к новому GA API');
+          widgetLog('🆕 TEST: ✅ Connected to GA API');
           isConnected = true;
           isReconnecting = false;
           reconnectAttempts = 0;
@@ -1351,7 +1941,7 @@
           
           hideConnectionError();
           
-          widgetLog("🆕 TEST: Соединение установлено, сервер настроит сессию");
+          widgetLog("🆕 TEST: Session will be configured by server");
           
           if (isWidgetOpen) {
             updateConnectionStatus('connected', 'Подключено (GA API)');
@@ -1362,12 +1952,12 @@
         websocket.onmessage = function(event) {
           try {
             if (event.data instanceof Blob) {
-              widgetLog("🆕 TEST: Получены бинарные данные");
+              widgetLog("🆕 TEST: Binary data received");
               return;
             }
             
             if (!event.data) {
-              widgetLog("🆕 TEST: Пустое сообщение", "warn");
+              widgetLog("🆕 TEST: Empty message", "warn");
               return;
             }
 
@@ -1377,10 +1967,10 @@
               lastPongTime = Date.now();
               
               if (data.type !== 'input_audio_buffer.append') {
-                widgetLog(`🆕 TEST: Получено: ${data.type || 'unknown'}`);
+                widgetLog(`🆕 TEST: Received: ${data.type || 'unknown'}`);
               }
               
-              // Обработка событий (аналогично старому виджету)
+              // Обработка событий
               if (data.type === 'conversation.interrupted') {
                 handleInterruptionEvent(data);
                 return;
@@ -1407,7 +1997,7 @@
               }
               
               if (data.type === 'response.cancelled') {
-                widgetLog(`🆕 TEST: Ответ отменен`);
+                widgetLog(`🆕 TEST: Response cancelled`);
                 
                 stopAllAudioPlayback();
                 
@@ -1425,12 +2015,12 @@
               }
               
               if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`🆕 TEST: Сессия: ${data.type}`);
+                widgetLog(`🆕 TEST: Session: ${data.type}`);
                 return;
               }
               
               if (data.type === 'connection_status') {
-                widgetLog(`🆕 TEST: Статус: ${data.status} - ${data.message}`);
+                widgetLog(`🆕 TEST: Status: ${data.status} - ${data.message}`);
                 if (data.status === 'connected') {
                   isConnected = true;
                   reconnectAttempts = 0;
@@ -1447,7 +2037,7 @@
               
               if (data.type === 'error') {
                 if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("🆕 TEST: Пустой буфер", "warn");
+                  widgetLog("🆕 TEST: Empty buffer", "warn");
                   if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                     setTimeout(() => { 
                       startListening(); 
@@ -1456,8 +2046,8 @@
                   return;
                 }
                 
-                widgetLog(`🆕 TEST: Ошибка: ${data.error ? data.error.message : 'Неизвестная'}`, "error");
-                showMessage(data.error ? data.error.message : 'Ошибка сервера', 5000);
+                widgetLog(`🆕 TEST: Error: ${data.error ? data.error.message : 'Unknown'}`, "error");
+                showMessage(data.error ? data.error.message : 'Server error', 5000);
                 return;
               } 
               
@@ -1513,24 +2103,24 @@
                 return;
               }
               
-              widgetLog(`🆕 TEST: Неизвестный тип: ${data.type}`, "warn");
+              widgetLog(`🆕 TEST: Unknown type: ${data.type}`, "warn");
               
             } catch (parseError) {
-              widgetLog(`🆕 TEST: Ошибка парсинга: ${parseError.message}`, "warn");
+              widgetLog(`🆕 TEST: Parse error: ${parseError.message}`, "warn");
               
               if (event.data === 'pong') {
                 lastPongTime = Date.now();
-                widgetLog("🆕 TEST: Pong получен");
+                widgetLog("🆕 TEST: Pong received");
                 return;
               }
             }
           } catch (generalError) {
-            widgetLog(`🆕 TEST: Общая ошибка: ${generalError.message}`, "error");
+            widgetLog(`🆕 TEST: General error: ${generalError.message}`, "error");
           }
         };
         
         websocket.onclose = function(event) {
-          widgetLog(`🆕 TEST: WebSocket закрыт: ${event.code}, ${event.reason}`);
+          widgetLog(`🆕 TEST: WebSocket closed: ${event.code}, ${event.reason}`);
           isConnected = false;
           isListening = false;
           
@@ -1555,14 +2145,14 @@
           widgetLog(`🆕 TEST: WebSocket error: ${error}`, 'error');
           
           if (isWidgetOpen) {
-            showMessage("Ошибка соединения");
-            updateConnectionStatus('disconnected', 'Ошибка');
+            showMessage("Connection error");
+            updateConnectionStatus('disconnected', 'Error');
           }
         };
         
         return true;
       } catch (error) {
-        widgetLog(`🆕 TEST: Ошибка подключения: ${error}`, 'error');
+        widgetLog(`🆕 TEST: Connection error: ${error}`, 'error');
         isReconnecting = false;
         loaderModal.classList.remove('active');
         
@@ -1573,8 +2163,8 @@
         if (reconnectAttempts >= maxAttempts) {
           connectionFailedPermanently = true;
           if (isWidgetOpen) {
-            showConnectionError("Не удалось подключиться");
-            updateConnectionStatus('disconnected', 'Отключено');
+            showConnectionError("Failed to connect");
+            updateConnectionStatus('disconnected', 'Disconnected');
           }
         } else {
           reconnectWithDelay();
@@ -1584,13 +2174,7 @@
       }
     }
 
-    // Остальные функции аналогичны оригиналу...
-    // (openWidget, closeWidget, startListening, etc.)
-    // Просто добавить префикс TEST в логи
-    
-    // Simplified versions for brevity - add all functions from original widget.js
-    // with TEST logging prefix
-    
+    // Обработчики событий
     widgetButton.addEventListener('click', async function(e) {
       widgetLog('🆕 TEST: Button clicked');
       e.preventDefault();
@@ -1599,7 +2183,7 @@
       if (!window.audioInitialized) {
         const success = await initializeAudio();
         if (!success) {
-          showMessage("Ошибка доступа к микрофону", 5000);
+          showMessage("Microphone error", 5000);
           return;
         }
       }
@@ -1621,6 +2205,24 @@
       isWidgetOpen = false;
     });
     
+    mainCircle.addEventListener('click', function() {
+      if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
+        if (isConnected) {
+          startListening();
+        } else if (connectionFailedPermanently) {
+          showConnectionError("No connection");
+        } else {
+          connectWebSocket();
+        }
+      }
+    });
+    
+    if (retryButton) {
+      retryButton.addEventListener('click', function() {
+        resetConnection();
+      });
+    }
+    
     // Создаём соединение
     connectWebSocket();
     
@@ -1634,7 +2236,7 @@
 
   // Инициализация
   function initializeWidget() {
-    widgetLog('🆕 TEST: Starting TEST widget initialization');
+    widgetLog('🆕 TEST: Starting initialization');
     widgetLog(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
     loadFontAwesome();
