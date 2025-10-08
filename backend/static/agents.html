@@ -1006,6 +1006,92 @@
       margin-bottom: 0.5rem;
     }
 
+    /* Стили для карточки JARVIS */
+    .jarvis-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      color: white;
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+      box-shadow: var(--shadow-lg);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .jarvis-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+
+    .jarvis-image {
+      flex-shrink: 0;
+      width: 200px;
+      height: 200px;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+    }
+
+    .jarvis-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .jarvis-content {
+      flex: 1;
+    }
+
+    .jarvis-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .jarvis-title i {
+      font-size: 1.5rem;
+    }
+
+    .jarvis-description {
+      font-size: 1rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+      opacity: 0.95;
+    }
+
+    .jarvis-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      background-color: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: var(--radius-md);
+      color: white;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+
+    .jarvis-link:hover {
+      background-color: rgba(255, 255, 255, 0.3);
+      border-color: rgba(255, 255, 255, 0.5);
+      transform: translateX(5px);
+    }
+
+    .jarvis-link i {
+      transition: transform 0.3s ease;
+    }
+
+    .jarvis-link:hover i {
+      transform: translateX(3px);
+    }
+
     /* Мобильная адаптация */
     @media (max-width: 768px) {
       .sidebar {
@@ -1089,6 +1175,26 @@
         margin-left: 0;
         width: 100%;
       }
+
+      .jarvis-card {
+        flex-direction: column;
+        padding: 1.5rem;
+        text-align: center;
+      }
+
+      .jarvis-image {
+        width: 150px;
+        height: 150px;
+      }
+
+      .jarvis-title {
+        justify-content: center;
+        font-size: 1.5rem;
+      }
+
+      .jarvis-description {
+        font-size: 0.95rem;
+      }
     }
 
     @media (max-width: 480px) {
@@ -1108,6 +1214,15 @@
         right: 0.5rem;
         left: 0.5rem;
         max-width: none;
+      }
+
+      .jarvis-image {
+        width: 120px;
+        height: 120px;
+      }
+
+      .jarvis-title {
+        font-size: 1.25rem;
       }
     }
 
@@ -1440,6 +1555,28 @@
                 <button class="btn btn-primary" id="copy-embed-code">
                   <i class="fas fa-copy"></i> Копировать код
                 </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Карточка JARVIS -->
+          <div class="form-section">
+            <div class="jarvis-card">
+              <div class="jarvis-image">
+                <img src="https://i.ibb.co/VY2rxYb/image.jpg" alt="JARVIS Assistant" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 200 200%22%3E%3Crect fill=%22%234a86e8%22 width=%22200%22 height=%22200%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-family=%22Arial%22 font-size=%2260%22 fill=%22white%22%3EJARVIS%3C/text%3E%3C/svg%3E';">
+              </div>
+              <div class="jarvis-content">
+                <h3 class="jarvis-title">
+                  <i class="fas fa-code"></i>
+                  Код для JARVIS
+                </h3>
+                <p class="jarvis-description">
+                  Если нужна полная версия, скопируйте код по ссылке и оптимизируйте под себя. Текущая версия кода содержит Jarvis ассистента с расширенными возможностями и улучшенным интерфейсом.
+                </p>
+                <a href="https://foryouchatsgpt.notion.site/HTML-JARVIS-286c677cc66880089028e61fc1821d4f" target="_blank" rel="noopener noreferrer" class="jarvis-link">
+                  Перейти к документации
+                  <i class="fas fa-arrow-right"></i>
+                </a>
               </div>
             </div>
           </div>
