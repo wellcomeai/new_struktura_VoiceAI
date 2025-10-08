@@ -159,7 +159,7 @@ class OpenAIRealtimeClientNew:
         self.is_connected = False
         
         # 🆕 NEW: GA API URL with model parameter
-        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-mini"
         
         self.session_id = str(uuid.uuid4())
         self.conversation_record_id: Optional[str] = None
