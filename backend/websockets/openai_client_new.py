@@ -1,8 +1,10 @@
 # backend/websockets/openai_client_new.py
 """
 🆕 OpenAI Realtime API Client - GA Version
-Model: gpt-realtime
+Model: gpt-realtime-mini
 Production-ready client for new Realtime API with updated events format.
+
+🔄 MIGRATED TO GA: Async function calling support
 """
 
 import asyncio
@@ -133,10 +135,11 @@ class OpenAIRealtimeClientNew:
     🆕 Client for OpenAI Realtime GA API (gpt-realtime model).
     
     Key differences from beta:
-    - Model: gpt-realtime
+    - Model: gpt-realtime-mini
     - Session type set via URL, not in session.update
     - New event names: output_text, output_audio, output_audio_transcript
     - New events: conversation.item.added/done
+    - 🔄 GA MIGRATION: Async function calling - no manual response.create needed
     """
     
     def __init__(
@@ -230,7 +233,7 @@ class OpenAIRealtimeClientNew:
                 timeout=30
             )
             self.is_connected = True
-            logger.info(f"[NEW-API] ✅ Connected to OpenAI GA API for {self.client_id} (model: gpt-realtime)")
+            logger.info(f"[NEW-API] ✅ Connected to OpenAI GA API for {self.client_id} (model: gpt-realtime-mini)")
 
             # Получаем настройки
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -371,7 +374,7 @@ class OpenAIRealtimeClientNew:
         try:
             await self.ws.send(json.dumps(payload))
             device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-            logger.info(f"[NEW-API] ✅ Session settings sent for {device_info} (model: gpt-realtime, tools: {len(tools)})")
+            logger.info(f"[NEW-API] ✅ Session settings sent for {device_info} (model: gpt-realtime-mini, tools: {len(tools)})")
             
             if tools:
                 for tool in tools:
@@ -549,7 +552,13 @@ class OpenAIRealtimeClientNew:
 
     async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Send function execution result back to OpenAI.
+        🔄 GA MIGRATED: Send function execution result back to OpenAI.
+        
+        В GA API модель автоматически продолжает после получения результата функции.
+        НЕ НУЖНО вызывать response.create вручную!
+        
+        Returns:
+            Dict with success status and payload
         """
         if not self.is_connected or not self.ws:
             error_msg = "Cannot send function result: not connected"
@@ -578,17 +587,13 @@ class OpenAIRealtimeClientNew:
                 }
             }
             
-            logger.info(f"[NEW-API] Sending function result: {function_call_id}")
-            
             await self.ws.send(json.dumps(payload))
-            logger.info(f"[NEW-API] Function result sent: {function_call_id}")
+            logger.info(f"[NEW-API] ✅ Function result sent: {function_call_id}")
             
-            delay = 0.2 if self.is_ios else 0.3
-            await asyncio.sleep(delay)
-            
-            await self.create_response_after_function()
-            
-            logger.info(f"[NEW-API] Function result sent and response requested")
+            # 🔄 GA MIGRATION: Модель автоматически продолжит работу!
+            # В Beta API здесь был вызов create_response_after_function()
+            # В GA API это НЕ НУЖНО - модель сама генерирует следующий response
+            logger.info(f"[NEW-API-GA] 🚀 Waiting for model to continue automatically (async function calling)")
             
             return {
                 "success": True,
@@ -607,21 +612,40 @@ class OpenAIRealtimeClientNew:
 
     async def create_response_after_function(self) -> bool:
         """
+        ⚠️ LEGACY METHOD - Для обратной совместимости и edge cases
+        
         Request new response from model after function execution.
+        
+        🔄 GA API ВАЖНО: 
+        В GA API (gpt-realtime-mini) этот метод НЕ НУЖЕН для обычного flow!
+        Модель автоматически продолжает после получения результата функции.
+        
+        Используйте ТОЛЬКО для специальных случаев:
+        - Ручное управление диалогом
+        - Out-of-band responses
+        - Дебаг и тестирование
+        - Принудительная генерация ответа в нестандартных ситуациях
+        
+        ❌ НЕ вызывайте автоматически после send_function_result()!
+        Это создаст дублирующие ответы и нарушит GA flow.
+        
+        Returns:
+            bool: Success status
         """
         if not self.is_connected or not self.ws:
             logger.error("[NEW-API] Cannot create response: not connected")
             return False
             
         try:
-            logger.info(f"[NEW-API] Creating new response after function execution")
+            logger.warning(f"[NEW-API] ⚠️ Manual response.create called (should be RARE in GA API!)")
+            logger.warning(f"[NEW-API] ⚠️ This may cause duplicate responses if called after function execution")
             
             max_tokens = 200 if self.is_ios else 300
             temperature = 0.6 if self.is_ios else 0.7
             
             response_payload = {
                 "type": "response.create",
-                "event_id": f"resp_after_func_{int(time.time() * 1000)}",
+                "event_id": f"resp_manual_{int(time.time() * 1000)}",
                 "response": {
                     "modalities": ["text", "audio"],
                     "voice": self.assistant_config.voice or DEFAULT_VOICE,
@@ -633,12 +657,12 @@ class OpenAIRealtimeClientNew:
             
             await self.ws.send(json.dumps(response_payload))
             device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-            logger.info(f"[NEW-API] New response requested after function ({device_info})")
+            logger.info(f"[NEW-API] Manual response requested ({device_info})")
             
             return True
             
         except Exception as e:
-            logger.error(f"[NEW-API] Error creating response after function: {e}")
+            logger.error(f"[NEW-API] Error creating manual response: {e}")
             return False
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
