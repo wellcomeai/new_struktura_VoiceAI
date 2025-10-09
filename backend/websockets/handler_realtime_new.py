@@ -1,8 +1,10 @@
 # backend/websockets/handler_realtime_new.py
 """
 🆕 NEW OpenAI Realtime API (GA) Handler
-Version: GA 1.0 (gpt-realtime model)
+Version: GA 1.0 (gpt-realtime-mini model)
 Production-ready handler with new API events and format
+
+🔄 MIGRATED TO GA: Async function calling support
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -42,10 +44,11 @@ async def handle_websocket_connection_new(
     🆕 GA Version - Main WebSocket handler for new Realtime API
     
     Key changes from beta:
-    - New model: gpt-realtime
+    - New model: gpt-realtime-mini
     - Updated event names (output_text, output_audio)
     - Required session type parameter
     - New conversation.item events
+    - 🔄 GA MIGRATION: Async function calling - model auto-continues
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -159,8 +162,8 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to new Realtime API",
-            "model": "gpt-realtime"
+            "message": "Connected to new Realtime API (GA version with async functions)",
+            "model": "gpt-realtime-mini"
         })
 
         # Аудио буфер
@@ -358,6 +361,7 @@ async def handle_openai_messages_new(
     - response.audio.delta → response.output_audio.delta
     - response.audio_transcript.delta → response.output_audio_transcript.delta
     - New conversation.item.added/done events
+    - 🔄 GA MIGRATION: No manual response.create after functions
     """
     if not openai_client.is_connected or not openai_client.ws:
         logger.error("[NEW-API] OpenAI client not connected")
@@ -375,6 +379,7 @@ async def handle_openai_messages_new(
         "arguments_buffer": ""
     }
     
+    # 🔄 GA MIGRATION: Tracking function execution without manual response creation
     waiting_for_function_response = False
     last_function_delivery_status = None
     
@@ -449,19 +454,22 @@ async def handle_openai_messages_new(
                 if msg_type == "error":
                     logger.error(f"[NEW-API] API Error: {json.dumps(response_data, ensure_ascii=False)}")
                     
+                    # 🔄 GA MIGRATION: Не вызываем response.create даже при ошибке
+                    # Модель сама решит как продолжить
                     if waiting_for_function_response and "item" in str(response_data.get("error", {})):
                         error_message = response_data.get("error", {}).get("message", "Function error")
-                        logger.error(f"[NEW-API] Function error: {error_message}")
+                        logger.error(f"[NEW-API-GA] Function error detected: {error_message}")
                         
+                        # Просто информируем клиента об ошибке
                         error_response = {
-                            "type": "response.content_part.added",
-                            "content": {
-                                "text": f"Ошибка функции: {error_message}"
-                            }
+                            "type": "function_call.error",
+                            "error": error_message,
+                            "timestamp": time.time()
                         }
                         await websocket.send_json(error_response)
                         
-                        await openai_client.create_response_after_function()
+                        # ✅ GA: Модель автоматически продолжит, не вызываем response.create!
+                        logger.info(f"[NEW-API-GA] 🚀 Model will handle error automatically")
                         waiting_for_function_response = False
                     else:
                         await websocket.send_json(response_data)
@@ -513,12 +521,12 @@ async def handle_openai_messages_new(
                         "type": "response.text.done"
                     })
                 
-                # Обработка функций (без изменений в GA)
+                # 🔄 GA MIGRATION: Обработка функций с асинхронным продолжением
                 if msg_type == "response.function_call.started":
                     function_name = response_data.get("function_name")
                     function_call_id = response_data.get("call_id")
                     
-                    logger.info(f"[NEW-API] Function call started: {function_name}")
+                    logger.info(f"[NEW-API-GA] Function call started: {function_name}")
                     
                     normalized_name = normalize_function_name(function_name) or function_name
                     
@@ -526,13 +534,13 @@ async def handle_openai_messages_new(
                         logger.warning(f"[NEW-API] Unauthorized function: {normalized_name}")
                         
                         error_response = {
-                            "type": "response.content_part.added",
-                            "content": {
-                                "text": f"Функция {function_name} не активирована"
-                            }
+                            "type": "function_call.error",
+                            "function": normalized_name,
+                            "error": f"Function {function_name} not activated"
                         }
                         await websocket.send_json(error_response)
                         
+                        # Отправляем ошибку в OpenAI
                         if function_call_id:
                             dummy_result = {
                                 "error": f"Function {normalized_name} not allowed",
@@ -566,7 +574,7 @@ async def handle_openai_messages_new(
                     function_name = response_data.get("function_name", pending_function_call["name"])
                     function_call_id = response_data.get("call_id", pending_function_call["call_id"])
                     
-                    logger.info(f"[NEW-API] Function arguments done: {function_name}")
+                    logger.info(f"[NEW-API-GA] Function arguments done: {function_name}")
                     
                     normalized_name = normalize_function_name(function_name) or function_name
                     
@@ -574,10 +582,9 @@ async def handle_openai_messages_new(
                         logger.warning(f"[NEW-API] Unauthorized function: {normalized_name}")
                         
                         error_response = {
-                            "type": "response.content_part.added",
-                            "content": {
-                                "text": f"Функция {function_name} не активирована"
-                            }
+                            "type": "function_call.error",
+                            "function": normalized_name,
+                            "error": f"Function {function_name} not activated"
                         }
                         await websocket.send_json(error_response)
                         
@@ -596,11 +603,13 @@ async def handle_openai_messages_new(
                             arguments = json.loads(arguments_str)
                             
                             await websocket.send_json({
-                                "type": "function_call.start",
+                                "type": "function_call.executing",
                                 "function": normalized_name,
-                                "function_call_id": function_call_id
+                                "function_call_id": function_call_id,
+                                "arguments": arguments
                             })
                             
+                            # Выполняем функцию
                             result = await execute_function(
                                 name=normalized_name,
                                 arguments=arguments,
@@ -614,29 +623,37 @@ async def handle_openai_messages_new(
                             function_result = result
                             waiting_for_function_response = True
                             
+                            # 🔄 GA MIGRATION: Отправляем результат БЕЗ последующего response.create
+                            logger.info(f"[NEW-API-GA] 🚀 Sending function result, model will auto-continue")
+                            
                             delivery_status = await openai_client.send_function_result(function_call_id, result)
                             last_function_delivery_status = delivery_status
                             
                             if not delivery_status["success"]:
-                                logger.error(f"[NEW-API] Function result delivery error: {delivery_status['error']}")
+                                logger.error(f"[NEW-API-GA] Function result delivery error: {delivery_status['error']}")
                                 
+                                # ✅ GA: Просто логируем ошибку, модель сама решит что делать
                                 error_message = {
-                                    "type": "response.content_part.added",
-                                    "content": {
-                                        "text": f"Ошибка выполнения функции: {delivery_status['error']}"
-                                    }
+                                    "type": "function_call.delivery_error",
+                                    "function_call_id": function_call_id,
+                                    "error": delivery_status['error']
                                 }
                                 await websocket.send_json(error_message)
                                 
-                                await openai_client.create_response_after_function()
+                                # ❌ УДАЛЕНО: await openai_client.create_response_after_function()
+                                # ✅ GA: Модель автоматически продолжит даже после ошибки доставки
+                                logger.info(f"[NEW-API-GA] 🚀 Model will handle delivery error automatically")
                                 waiting_for_function_response = False
-                            
-                            await websocket.send_json({
-                                "type": "function_call.completed",
-                                "function": normalized_name,
-                                "function_call_id": function_call_id,
-                                "result": result
-                            })
+                            else:
+                                # Успешная доставка
+                                logger.info(f"[NEW-API-GA] ✅ Function result delivered successfully")
+                                
+                                await websocket.send_json({
+                                    "type": "function_call.completed",
+                                    "function": normalized_name,
+                                    "function_call_id": function_call_id,
+                                    "result": result
+                                })
                             
                         except json.JSONDecodeError as e:
                             logger.error(f"[NEW-API] Function args parse error: {e}")
@@ -646,6 +663,7 @@ async def handle_openai_messages_new(
                             })
                         except Exception as e:
                             logger.error(f"[NEW-API] Function execution error: {e}")
+                            logger.error(f"[NEW-API] Traceback: {traceback.format_exc()}")
                             await websocket.send_json({
                                 "type": "error",
                                 "error": {"code": "function_execution_error", "message": str(e)}
@@ -654,8 +672,9 @@ async def handle_openai_messages_new(
                     pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
 
                 elif msg_type == "response.content_part.added":
+                    # 🔄 GA MIGRATION: Когда получаем content после функции, это значит модель продолжила
                     if waiting_for_function_response:
-                        logger.info(f"[NEW-API] Response after function execution")
+                        logger.info(f"[NEW-API-GA] ✅ Model auto-continued after function (GA behavior)")
                         waiting_for_function_response = False
                     
                     if "text" in response_data.get("content", {}):
@@ -696,7 +715,7 @@ async def handle_openai_messages_new(
                 
                 # 🆕 НОВОЕ: Обработка conversation.item.added (новое событие в GA)
                 if msg_type == "conversation.item.added":
-                    logger.info(f"[NEW-API] Conversation item added")
+                    logger.info(f"[NEW-API-GA] Conversation item added")
                     item = response_data.get("item", {})
                     role = item.get("role", "")
                     content = item.get("content", [])
@@ -714,7 +733,7 @@ async def handle_openai_messages_new(
                 
                 # 🆕 НОВОЕ: conversation.item.done (новое событие в GA)
                 if msg_type == "conversation.item.done":
-                    logger.info(f"[NEW-API] Conversation item done")
+                    logger.info(f"[NEW-API-GA] Conversation item done")
                 
                 # 🆕 НОВОЕ: Преобразуем output_audio.delta для клиента (обратная совместимость)
                 if msg_type == "response.output_audio.delta":
@@ -734,7 +753,7 @@ async def handle_openai_messages_new(
                 
                 # Завершение ответа
                 if msg_type == "response.done":
-                    logger.info(f"[NEW-API] Response done")
+                    logger.info(f"[NEW-API-GA] Response done")
                     
                     if interruption_state["is_assistant_speaking"]:
                         interruption_state["is_assistant_speaking"] = False
@@ -782,6 +801,7 @@ async def handle_openai_messages_new(
                         
                         function_result = None
                     
+                    # 🔄 GA MIGRATION: Сбрасываем флаг после завершения ответа
                     waiting_for_function_response = False
                 
                 # Все остальные сообщения пробрасываем клиенту
@@ -790,7 +810,7 @@ async def handle_openai_messages_new(
             except ConnectionClosed as e:
                 logger.warning(f"[NEW-API] OpenAI connection closed: {e}")
                 if await openai_client.reconnect():
-                    logger.info("[NEW-API] Reconnected to OpenAI")
+                    logger.info("[NEW-API-GA] Reconnected to OpenAI")
                     continue
                 else:
                     logger.error("[NEW-API] Reconnection failed")
@@ -801,7 +821,7 @@ async def handle_openai_messages_new(
                     break
 
     except (ConnectionClosed, asyncio.CancelledError):
-        logger.info(f"[NEW-API] Connection closed for {openai_client.client_id}")
+        logger.info(f"[NEW-API-GA] Connection closed for {openai_client.client_id}")
         return
     except Exception as e:
         logger.error(f"[NEW-API] Handler error: {e}")
