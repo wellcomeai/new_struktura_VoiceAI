@@ -1,10 +1,10 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 FINAL PRODUCTION VERSION - OpenAI Realtime API Handler
-✅ Fixed: Function execution without .started event
-✅ Enhanced logging for production monitoring
-✅ Immediate function result logging
-✅ Ready for investor demo
+🚀 PRODUCTION VERSION 2.0 - OpenAI Realtime API Handler
+✅ Fixed: Function name detection from multiple sources
+✅ Enhanced: Maximum logging for debugging
+✅ Fixed: conversation.item.created tracking
+✅ Ready for production deployment
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -44,6 +44,9 @@ logging.basicConfig(
 # Active connections
 active_connections_new: Dict[str, List[WebSocket]] = {}
 
+# 🔍 DEBUG MODE - Set to False in production after debugging
+ENABLE_DETAILED_LOGGING = True
+
 
 def log_to_render(message: str, level: str = "INFO"):
     """Force log to Render stdout immediately"""
@@ -64,7 +67,7 @@ async def handle_websocket_connection_new(
     db: Session
 ) -> None:
     """
-    🚀 FINAL PRODUCTION - Main WebSocket handler
+    🚀 PRODUCTION v2.0 - Main WebSocket handler with enhanced logging
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -74,6 +77,7 @@ async def handle_websocket_connection_new(
     log_to_render(f"🚀 NEW CONNECTION INITIATED")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
+    log_to_render(f"   Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     user_agent = ""
@@ -129,6 +133,8 @@ async def handle_websocket_connection_new(
             return
 
         log_to_render(f"✅ Assistant loaded: {getattr(assistant, 'name', assistant_id)}")
+        log_to_render(f"   Voice: {getattr(assistant, 'voice', 'default')}")
+        log_to_render(f"   Model: gpt-realtime-mini")
 
         # Extract enabled functions
         functions = getattr(assistant, "functions", None)
@@ -138,11 +144,14 @@ async def handle_websocket_connection_new(
         elif isinstance(functions, dict) and "enabled_functions" in functions:
             enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
             
-        log_to_render(f"🔧 Functions enabled ({len(enabled_functions)}): {enabled_functions}")
+        log_to_render(f"🔧 Functions configuration:")
+        log_to_render(f"   Enabled count: {len(enabled_functions)}")
+        log_to_render(f"   Functions: {enabled_functions}")
 
         # Check Google Sheets config
         if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
-            log_to_render(f"📊 Google Sheets logging ENABLED: {assistant.google_sheet_id[:20]}...")
+            log_to_render(f"📊 Google Sheets logging ENABLED")
+            log_to_render(f"   Sheet ID: {assistant.google_sheet_id[:20]}...")
         else:
             log_to_render(f"⚠️ Google Sheets logging DISABLED (no sheet_id)")
 
@@ -151,13 +160,18 @@ async def handle_websocket_connection_new(
         if assistant.user_id:
             user = db.query(User).get(assistant.user_id)
             if user:
-                log_to_render(f"👤 User loaded: {user.email}")
+                log_to_render(f"👤 User loaded:")
+                log_to_render(f"   Email: {user.email}")
+                log_to_render(f"   User ID: {user.id}")
                 
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
                     subscription_status = await UserService.check_subscription_status(db, str(user.id))
                     
-                    log_to_render(f"💳 Subscription check: active={subscription_status.get('active')}, trial={subscription_status.get('is_trial')}")
+                    log_to_render(f"💳 Subscription check:")
+                    log_to_render(f"   Active: {subscription_status.get('active')}")
+                    log_to_render(f"   Trial: {subscription_status.get('is_trial')}")
+                    log_to_render(f"   Status: {subscription_status}")
                     
                     if not subscription_status["active"]:
                         log_to_render(f"❌ Subscription expired for user {user.id}", "WARNING")
@@ -194,9 +208,12 @@ async def handle_websocket_connection_new(
 
         # Create OpenAI Realtime client
         log_to_render(f"🚀 Creating OpenAI Realtime client...")
+        log_to_render(f"   Client ID: {client_id}")
+        log_to_render(f"   API Key: {api_key[:10]}...")
         openai_client = OpenAIRealtimeClientNew(api_key, assistant, client_id, db, user_agent)
         
         log_to_render(f"🔌 Connecting to OpenAI GA API...")
+        log_to_render(f"   URL: wss://api.openai.com/v1/realtime?model=gpt-realtime-mini")
         connect_start = time.time()
         if not await openai_client.connect():
             log_to_render(f"❌ Failed to connect to OpenAI", "ERROR")
@@ -214,10 +231,11 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Realtime API (Production version)",
+            "message": "Connected to Realtime API (Production v2.0)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
-            "google_sheets": bool(getattr(assistant, 'google_sheet_id', None))
+            "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
+            "client_id": client_id
         })
 
         # Audio buffer
@@ -252,7 +270,7 @@ async def handle_websocket_connection_new(
                     data = json.loads(message["text"])
                     msg_type = data.get("type", "")
 
-                    if msg_type != "ping" and message_count % 10 == 0:
+                    if ENABLE_DETAILED_LOGGING and message_count % 10 == 0:
                         log_to_render(f"📨 Client message #{message_count}: {msg_type}")
 
                     if msg_type == "ping":
@@ -260,6 +278,7 @@ async def handle_websocket_connection_new(
                         continue
 
                     if msg_type == "session.update":
+                        log_to_render(f"📝 Client session.update received")
                         await websocket.send_json({
                             "type": "session.update.ack", 
                             "event_id": data.get("event_id", f"ack_{int(time.time() * 1000)}")
@@ -282,7 +301,9 @@ async def handle_websocket_connection_new(
 
                     if msg_type == "input_audio_buffer.commit" and not is_processing:
                         is_processing = True
-                        log_to_render(f"📤 Committing audio buffer: {len(audio_buffer)} bytes")
+                        log_to_render(f"📤 Committing audio buffer:")
+                        log_to_render(f"   Buffer size: {len(audio_buffer)} bytes")
+                        log_to_render(f"   Duration: ~{len(audio_buffer) / 32000:.2f}s")
                         
                         if openai_client.is_connected:
                             await openai_client.commit_audio()
@@ -310,7 +331,7 @@ async def handle_websocket_connection_new(
                         continue
 
                     if msg_type == "input_audio_buffer.clear":
-                        log_to_render(f"🗑️ Clearing audio buffer")
+                        log_to_render(f"🗑️ Clearing audio buffer ({len(audio_buffer)} bytes)")
                         audio_buffer.clear()
                         if openai_client.is_connected:
                             await openai_client.clear_audio_buffer()
@@ -419,8 +440,9 @@ async def handle_openai_messages_new(
     interruption_state: Dict
 ):
     """
-    🚀 FINAL PRODUCTION - Handle messages from OpenAI
-    ✅ FIXED: Function execution without .started event
+    🚀 PRODUCTION v2.0 - Handle messages from OpenAI
+    ✅ FIXED: Multiple sources for function name detection
+    ✅ ENHANCED: Maximum logging for debugging
     """
     if not openai_client.is_connected or not openai_client.ws:
         log_to_render(f"❌ OpenAI client not connected", "ERROR")
@@ -429,6 +451,9 @@ async def handle_openai_messages_new(
     # Transcripts
     user_transcript = ""
     assistant_transcript = ""
+    
+    # 🆕 Function tracking map (call_id -> function metadata)
+    function_calls_map = {}
     
     # Function buffer
     pending_function_call = {
@@ -442,7 +467,10 @@ async def handle_openai_messages_new(
     function_execution_count = 0
     
     try:
-        log_to_render(f"🎭 OpenAI message handler started for {openai_client.client_id}")
+        log_to_render(f"🎭 OpenAI message handler started")
+        log_to_render(f"   Client ID: {openai_client.client_id}")
+        log_to_render(f"   Session ID: {openai_client.session_id}")
+        log_to_render(f"   Enabled functions: {openai_client.enabled_functions}")
         
         while True:
             try:
@@ -457,17 +485,71 @@ async def handle_openai_messages_new(
                     
                 msg_type = response_data.get("type", "unknown")
                 
-                # Log important events
-                if msg_type in [
-                    "input_audio_buffer.speech_started",
-                    "input_audio_buffer.speech_stopped",
-                    "conversation.interrupted",
-                    "response.function_call.started",
-                    "response.function_call_arguments.done",
-                    "response.done",
-                    "error"
-                ]:
+                # 🔍 DETAILED LOGGING - Log all important events
+                should_log = (
+                    ENABLE_DETAILED_LOGGING and (
+                        event_count % 20 == 0 or  # Every 20th event
+                        "function" in msg_type or  # All function events
+                        "item.created" in msg_type or  # Item creation
+                        "content_part" in msg_type or  # Content events
+                        msg_type in [
+                            "input_audio_buffer.speech_started",
+                            "input_audio_buffer.speech_stopped",
+                            "conversation.interrupted",
+                            "response.done",
+                            "error"
+                        ]
+                    )
+                )
+                
+                if should_log:
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     log_to_render(f"📡 OpenAI Event #{event_count}: {msg_type}")
+                    log_to_render(f"   Event ID: {response_data.get('event_id', 'N/A')}")
+                    
+                    # Show all keys for debugging
+                    if "function" in msg_type or msg_type == "conversation.item.created":
+                        log_to_render(f"   🔑 All keys: {list(response_data.keys())}")
+                        
+                        # Show important fields
+                        for field in ["name", "function_name", "call_id", "item_id", "arguments", "item"]:
+                            if field in response_data:
+                                value = response_data[field]
+                                if isinstance(value, dict):
+                                    log_to_render(f"   📦 {field}: {json.dumps(value, ensure_ascii=False)[:300]}")
+                                else:
+                                    log_to_render(f"   📦 {field}: {str(value)[:300]}")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                # 🆕 Track conversation.item.created for function metadata
+                if msg_type == "conversation.item.created":
+                    item = response_data.get("item", {})
+                    item_type = item.get("type")
+                    
+                    log_to_render(f"📦 Item created:")
+                    log_to_render(f"   Type: {item_type}")
+                    log_to_render(f"   Item ID: {item.get('id')}")
+                    
+                    if item_type == "function_call":
+                        call_id = item.get("call_id")
+                        function_name = item.get("name")
+                        
+                        log_to_render(f"🔧 Function call item detected:")
+                        log_to_render(f"   Call ID: {call_id}")
+                        log_to_render(f"   Function name: {function_name}")
+                        
+                        if call_id and function_name:
+                            normalized_name = normalize_function_name(function_name)
+                            function_calls_map[call_id] = {
+                                "name": normalized_name,
+                                "original_name": function_name,
+                                "item_id": item.get("id"),
+                                "status": "pending",
+                                "timestamp": time.time()
+                            }
+                            log_to_render(f"✅ Function registered in map:")
+                            log_to_render(f"   Normalized: {normalized_name}")
+                            log_to_render(f"   Map size: {len(function_calls_map)}")
                 
                 # VAD events
                 if msg_type == "input_audio_buffer.speech_started":
@@ -522,7 +604,8 @@ async def handle_openai_messages_new(
                 
                 # Error handling
                 if msg_type == "error":
-                    log_to_render(f"❌ OpenAI API Error: {json.dumps(response_data, ensure_ascii=False)}", "ERROR")
+                    log_to_render(f"❌ OpenAI API Error:")
+                    log_to_render(f"   Full error: {json.dumps(response_data, ensure_ascii=False, indent=2)}", "ERROR")
                     await websocket.send_json(response_data)
                     continue
                 
@@ -530,7 +613,8 @@ async def handle_openai_messages_new(
                 if msg_type == "response.output_audio.delta":
                     if not interruption_state["is_assistant_speaking"]:
                         response_id = response_data.get("response_id", f"resp_{time.time()}")
-                        log_to_render(f"🔊 Assistant started speaking: {response_id}")
+                        log_to_render(f"🔊 Assistant started speaking:")
+                        log_to_render(f"   Response ID: {response_id}")
                         interruption_state["is_assistant_speaking"] = True
                         openai_client.set_assistant_speaking(True, response_id)
                         
@@ -570,74 +654,172 @@ async def handle_openai_messages_new(
                         "type": "response.text.done"
                     })
                 
-                # 🚀 PRODUCTION: Function execution with FIXED logic
+                # 🚀 PRODUCTION v2.0: Enhanced function execution
                 if msg_type == "response.function_call.started":
-                    function_name = response_data.get("function_name")
+                    function_name = response_data.get("function_name") or response_data.get("name")
                     function_call_id = response_data.get("call_id")
                     
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     log_to_render(f"🔧 FUNCTION CALL STARTED")
                     log_to_render(f"   Function: {function_name}")
                     log_to_render(f"   Call ID: {function_call_id}")
+                    log_to_render(f"   Timestamp: {time.time()}")
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
-                    normalized_name = normalize_function_name(function_name) or function_name
-                    log_to_render(f"🔄 Normalized name: {normalized_name}")
-                    
-                    if normalized_name not in openai_client.enabled_functions:
-                        log_to_render(f"❌ UNAUTHORIZED function: {normalized_name}", "WARNING")
-                        log_to_render(f"   Allowed functions: {openai_client.enabled_functions}", "WARNING")
+                    if function_name:
+                        normalized_name = normalize_function_name(function_name)
+                        log_to_render(f"🔄 Normalized name: {normalized_name}")
                         
-                        error_response = {
-                            "type": "function_call.error",
-                            "function": normalized_name,
-                            "error": f"Function {function_name} not activated"
+                        if normalized_name not in openai_client.enabled_functions:
+                            log_to_render(f"❌ UNAUTHORIZED function: {normalized_name}", "WARNING")
+                            log_to_render(f"   Allowed functions: {openai_client.enabled_functions}", "WARNING")
+                            
+                            error_response = {
+                                "type": "function_call.error",
+                                "function": normalized_name,
+                                "error": f"Function {function_name} not activated"
+                            }
+                            await websocket.send_json(error_response)
+                            
+                            if function_call_id:
+                                dummy_result = {
+                                    "error": f"Function {normalized_name} not allowed",
+                                    "status": "error"
+                                }
+                                await openai_client.send_function_result(function_call_id, dummy_result)
+                            continue
+                        
+                        # Update both pending and map
+                        pending_function_call = {
+                            "name": normalized_name,
+                            "call_id": function_call_id,
+                            "arguments_buffer": ""
                         }
-                        await websocket.send_json(error_response)
                         
                         if function_call_id:
-                            dummy_result = {
-                                "error": f"Function {normalized_name} not allowed",
-                                "status": "error"
+                            function_calls_map[function_call_id] = {
+                                "name": normalized_name,
+                                "original_name": function_name,
+                                "status": "started",
+                                "timestamp": time.time()
                             }
-                            await openai_client.send_function_result(function_call_id, dummy_result)
-                        continue
-                    
-                    pending_function_call = {
-                        "name": normalized_name,
-                        "call_id": function_call_id,
-                        "arguments_buffer": ""
-                    }
-                    
-                    await websocket.send_json({
-                        "type": "function_call.started",
-                        "function": normalized_name,
-                        "function_call_id": function_call_id
-                    })
+                            log_to_render(f"✅ Function tracked in map (from .started)")
+                        
+                        await websocket.send_json({
+                            "type": "function_call.started",
+                            "function": normalized_name,
+                            "function_call_id": function_call_id
+                        })
                 
                 elif msg_type == "response.function_call_arguments.delta":
                     delta = response_data.get("delta", "")
+                    call_id = response_data.get("call_id")
                     
-                    if not pending_function_call["name"] and "call_id" in response_data:
-                        pending_function_call["call_id"] = response_data.get("call_id")
+                    # Check if name is in delta
+                    function_name = response_data.get("name") or response_data.get("function_name")
+                    
+                    if ENABLE_DETAILED_LOGGING:
+                        log_to_render(f"📝 Function arguments delta:")
+                        log_to_render(f"   Call ID: {call_id}")
+                        log_to_render(f"   Delta length: {len(delta)}")
+                        log_to_render(f"   Has name: {bool(function_name)}")
+                        if function_name:
+                            log_to_render(f"   Name in delta: {function_name}")
+                    
+                    # Update pending with any new info
+                    if function_name and not pending_function_call["name"]:
+                        normalized_name = normalize_function_name(function_name)
+                        pending_function_call["name"] = normalized_name
+                        log_to_render(f"✅ Function name from delta: {normalized_name}")
+                        
+                        # Also update map
+                        if call_id:
+                            function_calls_map[call_id] = {
+                                "name": normalized_name,
+                                "original_name": function_name,
+                                "status": "streaming",
+                                "timestamp": time.time()
+                            }
+                    
+                    if call_id and not pending_function_call["call_id"]:
+                        pending_function_call["call_id"] = call_id
                     
                     pending_function_call["arguments_buffer"] += delta
                 
                 elif msg_type == "response.function_call_arguments.done":
-                    # ✅ CRITICAL FIX: Get data from response_data FIRST, then fallback to pending
-                    # This fixes the bug where OpenAI skips .started event
-                    function_name = response_data.get("function_name") or pending_function_call.get("name")
-                    function_call_id = response_data.get("call_id") or pending_function_call.get("call_id")
-                    arguments_str = response_data.get("arguments") or pending_function_call.get("arguments_buffer", "")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log_to_render(f"📋 FUNCTION ARGUMENTS DONE")
+                    log_to_render(f"   Event count: {event_count}")
                     
-                    log_to_render(f"📋 Function arguments received")
+                    # 🆕 MULTI-SOURCE DETECTION STRATEGY
+                    # Priority: response_data > pending > map > single function fallback
+                    
+                    # Source 1: Direct from response_data
+                    function_name = response_data.get("function_name") or response_data.get("name")
+                    function_call_id = response_data.get("call_id")
+                    arguments_str = response_data.get("arguments", "")
+                    
+                    log_to_render(f"🔍 Detection attempt #1 (response_data):")
+                    log_to_render(f"   Name: {function_name}")
+                    log_to_render(f"   Call ID: {function_call_id}")
+                    log_to_render(f"   Arguments: {arguments_str[:100]}...")
+                    
+                    # Source 2: From pending_function_call (accumulated from deltas)
+                    if not function_name:
+                        function_name = pending_function_call.get("name")
+                        log_to_render(f"🔍 Detection attempt #2 (pending buffer):")
+                        log_to_render(f"   Name: {function_name}")
+                    
+                    if not function_call_id:
+                        function_call_id = pending_function_call.get("call_id")
+                        log_to_render(f"   Call ID from pending: {function_call_id}")
+                    
+                    if not arguments_str:
+                        arguments_str = pending_function_call.get("arguments_buffer", "")
+                        log_to_render(f"   Arguments from buffer: {arguments_str[:100]}...")
+                    
+                    # Source 3: From function_calls_map (conversation.item.created)
+                    if not function_name and function_call_id and function_call_id in function_calls_map:
+                        function_name = function_calls_map[function_call_id]["name"]
+                        log_to_render(f"🔍 Detection attempt #3 (function_calls_map):")
+                        log_to_render(f"   Name recovered: {function_name}")
+                        log_to_render(f"   Map entry: {function_calls_map[function_call_id]}")
+                    
+                    # Source 4: Fallback to single enabled function
+                    if not function_name and len(openai_client.enabled_functions) == 1:
+                        function_name = openai_client.enabled_functions[0]
+                        log_to_render(f"🔍 Detection attempt #4 (single function fallback):")
+                        log_to_render(f"   Using only enabled function: {function_name}")
+                    
+                    log_to_render(f"📊 Final detection result:")
                     log_to_render(f"   Function: {function_name}")
                     log_to_render(f"   Call ID: {function_call_id}")
-                    log_to_render(f"   Arguments: {arguments_str[:200]}...")
+                    log_to_render(f"   Arguments length: {len(arguments_str)}")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
                     # Validate we have all required data
                     if not function_name:
-                        log_to_render(f"❌ Missing function_name in response", "ERROR")
+                        log_to_render(f"❌ CRITICAL: Cannot determine function name!", "ERROR")
+                        log_to_render(f"   Response keys: {list(response_data.keys())}", "ERROR")
+                        log_to_render(f"   Pending: {pending_function_call}", "ERROR")
+                        log_to_render(f"   Map size: {len(function_calls_map)}", "ERROR")
+                        log_to_render(f"   Map contents: {function_calls_map}", "ERROR")
+                        log_to_render(f"   Enabled functions: {openai_client.enabled_functions}", "ERROR")
+                        log_to_render(f"   Full response_data: {json.dumps(response_data, ensure_ascii=False, indent=2)}", "ERROR")
+                        
+                        # Send detailed error to client
+                        await websocket.send_json({
+                            "type": "function_call.error",
+                            "error": "Cannot determine function name",
+                            "call_id": function_call_id,
+                            "debug_info": {
+                                "response_keys": list(response_data.keys()),
+                                "enabled_functions": openai_client.enabled_functions,
+                                "map_size": len(function_calls_map),
+                                "pending_had_name": bool(pending_function_call.get("name"))
+                            }
+                        })
+                        
                         pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
                         continue
                     
@@ -647,10 +829,11 @@ async def handle_openai_messages_new(
                         continue
                     
                     normalized_name = normalize_function_name(function_name) or function_name
-                    log_to_render(f"🔄 Normalized: {normalized_name}")
+                    log_to_render(f"🔄 Final normalized name: {normalized_name}")
                     
                     if normalized_name and normalized_name not in openai_client.enabled_functions:
                         log_to_render(f"❌ UNAUTHORIZED function: {normalized_name}", "WARNING")
+                        log_to_render(f"   Allowed: {openai_client.enabled_functions}", "WARNING")
                         
                         error_response = {
                             "type": "function_call.error",
@@ -672,7 +855,9 @@ async def handle_openai_messages_new(
                     # Execute function
                     try:
                         arguments = json.loads(arguments_str)
-                        log_to_render(f"✅ Arguments parsed successfully")
+                        log_to_render(f"✅ Arguments parsed successfully:")
+                        log_to_render(f"   Type: {type(arguments)}")
+                        log_to_render(f"   Keys: {list(arguments.keys()) if isinstance(arguments, dict) else 'N/A'}")
                         
                         await websocket.send_json({
                             "type": "function_call.executing",
@@ -681,7 +866,10 @@ async def handle_openai_messages_new(
                             "arguments": arguments
                         })
                         
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         log_to_render(f"🚀 EXECUTING FUNCTION: {normalized_name}")
+                        log_to_render(f"   Arguments: {json.dumps(arguments, ensure_ascii=False)[:300]}")
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         start_time = time.time()
                         
                         # Execute function
@@ -698,20 +886,22 @@ async def handle_openai_messages_new(
                         execution_time = time.time() - start_time
                         function_execution_count += 1
                         
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         log_to_render(f"✅ FUNCTION EXECUTED SUCCESSFULLY")
+                        log_to_render(f"   Function: {normalized_name}")
                         log_to_render(f"   Execution time: {execution_time:.3f}s")
                         log_to_render(f"   Result type: {type(result)}")
-                        log_to_render(f"   Result preview: {str(result)[:200]}...")
+                        log_to_render(f"   Result preview: {str(result)[:300]}...")
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         
                         # 🚀 PRODUCTION: Immediate logging
-                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         log_to_render(f"💾 STARTING IMMEDIATE LOGGING")
-                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         
                         try:
                             # Save to database
                             if openai_client.db_session and openai_client.conversation_record_id:
-                                log_to_render(f"💾 Attempting database save...")
+                                log_to_render(f"💾 Saving to database...")
+                                log_to_render(f"   Conversation ID: {openai_client.conversation_record_id}")
                                 conv = openai_client.db_session.query(Conversation).get(
                                     uuid.UUID(openai_client.conversation_record_id)
                                 )
@@ -722,16 +912,13 @@ async def handle_openai_messages_new(
                                         conv.user_message = user_transcript
                                     openai_client.db_session.commit()
                                     log_to_render(f"✅ DATABASE SAVE SUCCESSFUL")
-                                    log_to_render(f"   Conversation ID: {openai_client.conversation_record_id}")
                                 else:
-                                    log_to_render(f"⚠️ Conversation record not found in DB", "WARNING")
-                            else:
-                                log_to_render(f"⚠️ No DB session or conversation_record_id", "WARNING")
+                                    log_to_render(f"⚠️ Conversation record not found", "WARNING")
                             
                             # Save to Google Sheets
                             if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
                                 sheet_id = openai_client.assistant_config.google_sheet_id
-                                log_to_render(f"📊 Attempting Google Sheets save...")
+                                log_to_render(f"📊 Saving to Google Sheets...")
                                 log_to_render(f"   Sheet ID: {sheet_id[:20]}...")
                                 
                                 sheets_start = time.time()
@@ -744,15 +931,11 @@ async def handle_openai_messages_new(
                                 sheets_time = time.time() - sheets_start
                                 
                                 if sheets_result:
-                                    log_to_render(f"✅ GOOGLE SHEETS SAVE SUCCESSFUL (took {sheets_time:.3f}s)")
+                                    log_to_render(f"✅ GOOGLE SHEETS SAVE OK ({sheets_time:.3f}s)")
                                 else:
-                                    log_to_render(f"❌ GOOGLE SHEETS SAVE FAILED (took {sheets_time:.3f}s)", "WARNING")
-                            else:
-                                log_to_render(f"⚠️ Google Sheets not configured", "WARNING")
+                                    log_to_render(f"❌ GOOGLE SHEETS SAVE FAILED ({sheets_time:.3f}s)", "WARNING")
                             
-                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                             log_to_render(f"✅ LOGGING COMPLETE")
-                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                             
                         except Exception as log_error:
                             log_to_render(f"❌ LOGGING ERROR: {log_error}", "ERROR")
@@ -760,10 +943,18 @@ async def handle_openai_messages_new(
                         
                         # Send result to OpenAI
                         log_to_render(f"📤 Sending function result to OpenAI...")
+                        log_to_render(f"   Call ID: {function_call_id}")
+                        log_to_render(f"   Result size: {len(str(result))} chars")
+                        
                         delivery_status = await openai_client.send_function_result(function_call_id, result)
                         
+                        log_to_render(f"📬 Delivery status:")
+                        log_to_render(f"   Success: {delivery_status['success']}")
+                        if not delivery_status['success']:
+                            log_to_render(f"   Error: {delivery_status['error']}", "ERROR")
+                        
                         if not delivery_status["success"]:
-                            log_to_render(f"❌ Function result delivery FAILED: {delivery_status['error']}", "ERROR")
+                            log_to_render(f"❌ Function result delivery FAILED", "ERROR")
                             
                             error_message = {
                                 "type": "function_call.delivery_error",
@@ -773,7 +964,7 @@ async def handle_openai_messages_new(
                             await websocket.send_json(error_message)
                         else:
                             log_to_render(f"✅ Function result delivered to OpenAI")
-                            log_to_render(f"⏳ Waiting for model to continue automatically...")
+                            log_to_render(f"⏳ Waiting for model to continue...")
                             
                             await websocket.send_json({
                                 "type": "function_call.completed",
@@ -785,6 +976,7 @@ async def handle_openai_messages_new(
                         
                     except json.JSONDecodeError as e:
                         log_to_render(f"❌ Function args parse error: {e}", "ERROR")
+                        log_to_render(f"   Arguments string: {arguments_str[:500]}", "ERROR")
                         await websocket.send_json({
                             "type": "error",
                             "error": {"code": "function_args_error", "message": str(e)}
@@ -797,7 +989,12 @@ async def handle_openai_messages_new(
                             "error": {"code": "function_execution_error", "message": str(e)}
                         })
                     
+                    # Clear pending
                     pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
+                    
+                    # Update map status
+                    if function_call_id in function_calls_map:
+                        function_calls_map[function_call_id]["status"] = "completed"
 
                 elif msg_type == "response.content_part.added":
                     if "text" in response_data.get("content", {}):
@@ -844,7 +1041,12 @@ async def handle_openai_messages_new(
                 
                 # Response done
                 if msg_type == "response.done":
-                    log_to_render(f"🏁 RESPONSE DONE (events: {event_count}, functions: {function_execution_count})")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log_to_render(f"🏁 RESPONSE DONE")
+                    log_to_render(f"   Total events: {event_count}")
+                    log_to_render(f"   Functions executed: {function_execution_count}")
+                    log_to_render(f"   Function map size: {len(function_calls_map)}")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
                     if interruption_state["is_assistant_speaking"]:
                         interruption_state["is_assistant_speaking"] = False
@@ -855,7 +1057,7 @@ async def handle_openai_messages_new(
                             "timestamp": time.time()
                         })
                     
-                    # Save final transcripts if any
+                    # Save final transcripts
                     if openai_client.db_session and openai_client.conversation_record_id and assistant_transcript:
                         try:
                             conv = openai_client.db_session.query(Conversation).get(
@@ -875,7 +1077,7 @@ async def handle_openai_messages_new(
                 await websocket.send_json(response_data)
 
             except ConnectionClosed as e:
-                log_to_render(f"⚠️ OpenAI connection closed", "WARNING")
+                log_to_render(f"⚠️ OpenAI connection closed: {e}", "WARNING")
                 if await openai_client.reconnect():
                     log_to_render(f"✅ Reconnected to OpenAI")
                     continue
@@ -893,3 +1095,8 @@ async def handle_openai_messages_new(
     except Exception as e:
         log_to_render(f"❌ CRITICAL Handler error: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+    finally:
+        log_to_render(f"📊 Final handler stats:")
+        log_to_render(f"   Total events processed: {event_count}")
+        log_to_render(f"   Functions executed: {function_execution_count}")
+        log_to_render(f"   Function map entries: {len(function_calls_map)}")
