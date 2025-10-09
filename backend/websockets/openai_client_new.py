@@ -1,12 +1,11 @@
 # backend/websockets/openai_client_new.py
 """
-🚀 PRODUCTION VERSION - OpenAI Realtime API Client
+🚀 PRODUCTION VERSION 3.0 - OpenAI Realtime API Client
 Model: gpt-realtime-mini
-Optimized for investor demo with reliable function execution
 
-Critical fixes:
-✅ Fixed double JSON serialization bug in send_function_result
-✅ Removed verbose debug logging
+Critical fixes v3.0:
+✅ Auto response.create after function result (fixes silence bug)
+✅ Fixed double JSON serialization bug
 ✅ Enhanced error handling
 ✅ Performance monitoring
 ✅ Production-ready stability
@@ -127,9 +126,10 @@ def get_ios_optimized_session_config(base_config: Dict[str, Any], user_agent: st
 
 class OpenAIRealtimeClientNew:
     """
-    🚀 PRODUCTION - Client for OpenAI Realtime GA API (gpt-realtime-mini)
+    🚀 PRODUCTION v3.0 - Client for OpenAI Realtime GA API (gpt-realtime-mini)
     
     Key features:
+    - Auto response.create after function result (NEW in v3.0)
     - Fixed double JSON serialization bug
     - Async function calling support (GA API)
     - Reliable error handling
@@ -206,7 +206,7 @@ class OpenAIRealtimeClientNew:
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
             ("OpenAI-Beta", "realtime=v1"),
-            ("User-Agent", "WellcomeAI-Production/1.0")
+            ("User-Agent", "WellcomeAI-Production/3.0")
         ]
         
         try:
@@ -511,23 +511,22 @@ class OpenAIRealtimeClientNew:
             logger.error(f"[REALTIME-CLIENT] Error processing function call: {e}")
             return {"error": str(e)}
 
-    async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, bool]:
         """
-        🚀 PRODUCTION FIX: Send function execution result back to OpenAI.
+        🚀 PRODUCTION v3.0: Send function result + AUTO CREATE RESPONSE
         
-        CRITICAL FIX: Removed double JSON serialization bug.
-        In GA API, model automatically continues after receiving function result.
+        CRITICAL FIX v3.0: After sending function result, automatically trigger response.create
+        This fixes the "assistant silence" bug where model doesn't continue after function execution.
         
         Returns:
-            Dict with success status and payload
+            Dict with success status
         """
         if not self.is_connected or not self.ws:
             error_msg = "Cannot send function result: not connected"
             logger.error(f"[REALTIME-CLIENT] {error_msg}")
             return {
                 "success": False,
-                "error": error_msg,
-                "payload": None
+                "error": error_msg
             }
         
         try:
@@ -535,74 +534,32 @@ class OpenAIRealtimeClientNew:
             
             short_item_id = generate_short_id("func_")
             
-            # 🚀 CRITICAL FIX: Single JSON serialization
-            # OLD (BUGGY): result_json = json.dumps(result), then "output": result_json
-            # NEW (FIXED): "output": json.dumps(result) - serialized once in the final payload
-            
-            payload = {
+            # Step 1: Send function result
+            result_payload = {
                 "type": "conversation.item.create",
                 "event_id": f"funcres_{int(time.time() * 1000)}",
                 "item": {
                     "id": short_item_id,
                     "type": "function_call_output",
                     "call_id": function_call_id,
-                    "output": json.dumps(result)  # ✅ FIXED: Single serialization
+                    "output": json.dumps(result)  # ✅ Single serialization
                 }
             }
             
-            logger.info(f"[REALTIME-CLIENT] Payload prepared, sending to OpenAI...")
-            await self.ws.send(json.dumps(payload))
-            logger.info(f"[REALTIME-CLIENT] ✅ Function result sent: {function_call_id}")
+            logger.info(f"[REALTIME-CLIENT] Sending function_call_output...")
+            await self.ws.send(json.dumps(result_payload))
+            logger.info(f"[REALTIME-CLIENT] ✅ Function result sent")
             
-            # GA API: Model will automatically continue - no manual response.create needed
-            logger.info(f"[REALTIME-CLIENT] Waiting for model to continue automatically (GA behavior)")
-            
-            return {
-                "success": True,
-                "error": None,
-                "payload": payload
-            }
-            
-        except Exception as e:
-            error_msg = f"Error sending function result: {e}"
-            logger.error(f"[REALTIME-CLIENT] {error_msg}")
-            return {
-                "success": False,
-                "error": error_msg,
-                "payload": None
-            }
-
-    async def create_response_after_function(self) -> bool:
-        """
-        ⚠️ LEGACY METHOD - For backward compatibility and edge cases only
-        
-        In GA API (gpt-realtime-mini) this method is NOT needed for normal flow!
-        Model automatically continues after receiving function result.
-        
-        Use ONLY for special cases:
-        - Manual dialog control
-        - Out-of-band responses
-        - Debug and testing
-        
-        ❌ DO NOT call automatically after send_function_result()!
-        This will create duplicate responses and break GA flow.
-        
-        Returns:
-            bool: Success status
-        """
-        if not self.is_connected or not self.ws:
-            logger.error("[REALTIME-CLIENT] Cannot create response: not connected")
-            return False
-            
-        try:
-            logger.warning(f"[REALTIME-CLIENT] ⚠️ Manual response.create called (should be RARE in GA API!)")
+            # 🆕 Step 2: IMMEDIATELY create response (v3.0 FIX)
+            # This is the critical fix that makes assistant respond after function execution
+            logger.info(f"[REALTIME-CLIENT] Creating automatic response after function...")
             
             max_tokens = 200 if self.is_ios else 300
             temperature = 0.6 if self.is_ios else 0.7
             
             response_payload = {
                 "type": "response.create",
-                "event_id": f"resp_manual_{int(time.time() * 1000)}",
+                "event_id": f"resp_auto_{int(time.time() * 1000)}",
                 "response": {
                     "modalities": ["text", "audio"],
                     "voice": self.assistant_config.voice or DEFAULT_VOICE,
@@ -613,14 +570,31 @@ class OpenAIRealtimeClientNew:
             }
             
             await self.ws.send(json.dumps(response_payload))
-            device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-            logger.info(f"[REALTIME-CLIENT] Manual response requested ({device_info})")
+            logger.info(f"[REALTIME-CLIENT] ✅ Auto response.create sent (v3.0 fix)")
             
-            return True
+            return {
+                "success": True,
+                "error": None
+            }
             
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT] Error creating manual response: {e}")
-            return False
+            error_msg = f"Error sending function result: {e}"
+            logger.error(f"[REALTIME-CLIENT] {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg
+            }
+
+    async def create_response_after_function(self) -> bool:
+        """
+        🆕 DEPRECATED in v3.0 - Now called automatically by send_function_result()
+        
+        This method is kept for backward compatibility but is no longer needed.
+        The v3.0 send_function_result() automatically triggers response.create.
+        """
+        logger.warning(f"[REALTIME-CLIENT] create_response_after_function() called but is deprecated in v3.0")
+        logger.warning(f"[REALTIME-CLIENT] Response.create now happens automatically in send_function_result()")
+        return True
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
         """Process and send audio data to OpenAI API."""
