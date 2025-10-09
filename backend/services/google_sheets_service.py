@@ -1,6 +1,7 @@
+# backend/services/google_sheets_service.py
 """
-Google Sheets service для WellcomeAI application.
-Использует сервисный аккаунт из переменной окружения GOOGLE_SERVICE_ACCOUNT_JSON.
+🔍 ENHANCED LOGGING VERSION - Google Sheets service
+Maximum logging for debugging and monitoring
 """
 
 import os
@@ -8,6 +9,7 @@ import json
 import asyncio
 import time
 import traceback
+import sys
 import google.auth.transport.requests
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -20,88 +22,107 @@ from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Загрузка информации о сервисном аккаунте из переменной окружения
+# Force immediate log flushing
+import logging
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True
+)
+
+def log_sheets(message: str, level: str = "INFO"):
+    """Force log to stdout immediately"""
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    log_msg = f"{timestamp} - [GOOGLE-SHEETS] {level} - {message}"
+    print(log_msg, flush=True)
+    if level == "ERROR":
+        logger.error(message)
+    elif level == "WARNING":
+        logger.warning(message)
+    else:
+        logger.info(message)
+
+# Load service account
 try:
     GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if GOOGLE_SERVICE_ACCOUNT_JSON:
         SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
         
-        # Исправление формата private_key - замена \\n на реальные переносы строк
+        # Fix private key format
         if "private_key" in SERVICE_ACCOUNT_INFO:
-            # Удаляем экранирование обратных слешей в приватном ключе
             SERVICE_ACCOUNT_INFO["private_key"] = SERVICE_ACCOUNT_INFO["private_key"].replace('\\n', '\n')
-            logger.info("Формат приватного ключа скорректирован")
+            log_sheets("Private key format corrected")
+        
+        log_sheets(f"Service account loaded: {SERVICE_ACCOUNT_INFO.get('client_email', 'unknown')}")
     else:
-        logger.error("Переменная окружения GOOGLE_SERVICE_ACCOUNT_JSON не найдена")
+        log_sheets("GOOGLE_SERVICE_ACCOUNT_JSON environment variable not found", "ERROR")
         SERVICE_ACCOUNT_INFO = {}
 except json.JSONDecodeError as e:
-    logger.error(f"Ошибка декодирования JSON из переменной окружения: {str(e)}")
-    logger.error(f"Первые 100 символов переменной: {GOOGLE_SERVICE_ACCOUNT_JSON[:100] if GOOGLE_SERVICE_ACCOUNT_JSON else 'None'}")
+    log_sheets(f"JSON decode error: {str(e)}", "ERROR")
     SERVICE_ACCOUNT_INFO = {}
 except Exception as e:
-    logger.error(f"Непредвиденная ошибка при загрузке данных сервисного аккаунта: {str(e)}")
+    log_sheets(f"Unexpected error loading service account: {str(e)}", "ERROR")
     SERVICE_ACCOUNT_INFO = {}
 
 class GoogleSheetsService:
-    """Сервис для работы с Google Sheets"""
+    """Service for Google Sheets with enhanced logging"""
     
     _service = None
     
     @classmethod
     def _get_sheets_service(cls):
-        """
-        Получить сервис Google Sheets API с минимальным логированием
-        
-        Returns:
-            Resource object для взаимодействия с Google Sheets API
-        """
+        """Get Google Sheets API service with detailed logging"""
         if cls._service is not None:
+            log_sheets("Using cached Sheets service")
             return cls._service
             
         try:
-            logger.info("Инициализация Google Sheets сервиса...")
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            log_sheets("🔧 INITIALIZING GOOGLE SHEETS SERVICE")
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
-            # Проверка наличия данных сервисного аккаунта
+            # Check service account data
             if not SERVICE_ACCOUNT_INFO or "private_key" not in SERVICE_ACCOUNT_INFO:
-                logger.error("Отсутствуют необходимые данные сервисного аккаунта")
+                log_sheets("❌ Missing service account data", "ERROR")
                 if SERVICE_ACCOUNT_INFO:
-                    logger.error(f"Доступные ключи: {', '.join(SERVICE_ACCOUNT_INFO.keys())}")
-                raise ValueError("Отсутствуют данные сервисного аккаунта. Проверьте переменную GOOGLE_SERVICE_ACCOUNT_JSON")
+                    log_sheets(f"Available keys: {', '.join(SERVICE_ACCOUNT_INFO.keys())}", "ERROR")
+                raise ValueError("Missing service account data. Check GOOGLE_SERVICE_ACCOUNT_JSON")
             
-            # Логируем информацию о ключе для отладки (без приватного ключа)
+            # Log safe account info
             safe_info = {k: v for k, v in SERVICE_ACCOUNT_INFO.items() if k != "private_key"}
             safe_info["private_key"] = "[HIDDEN]"
-            logger.info(f"Данные сервисного аккаунта: {json.dumps(safe_info)}")
+            log_sheets(f"Service account info: {json.dumps(safe_info, indent=2)}")
             
-            # Создаем учетные данные из загруженного ключа
+            # Create credentials
             try:
+                log_sheets("Creating credentials...")
                 credentials = service_account.Credentials.from_service_account_info(
                     SERVICE_ACCOUNT_INFO,
                     scopes=['https://www.googleapis.com/auth/spreadsheets']
                 )
-                logger.info(f"Учетные данные созданы для: {credentials.service_account_email}")
+                log_sheets(f"✅ Credentials created for: {credentials.service_account_email}")
             except Exception as e:
-                logger.error(f"Ошибка создания учетных данных: {str(e)}")
-                # Попробуем вывести дополнительную информацию о ключе для отладки
-                key_start = SERVICE_ACCOUNT_INFO.get("private_key", "")[:50]
-                key_end = SERVICE_ACCOUNT_INFO.get("private_key", "")[-50:] if SERVICE_ACCOUNT_INFO.get("private_key", "") else ""
-                logger.error(f"Начало приватного ключа: {key_start}...")
-                logger.error(f"Конец приватного ключа: ...{key_end}")
+                log_sheets(f"❌ Credentials creation failed: {str(e)}", "ERROR")
                 raise
             
-            # Получаем токен
+            # Get token
+            log_sheets("Refreshing token...")
             request = google.auth.transport.requests.Request()
             credentials.refresh(request)
-            logger.info("Токен получен успешно!")
+            log_sheets("✅ Token obtained successfully")
             
-            # Создаем сервис
+            # Create service
+            log_sheets("Building Sheets API service...")
             service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
             cls._service = service
-            logger.info("Google Sheets API сервис инициализирован успешно")
+            log_sheets("✅ Google Sheets API service initialized")
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             return service
         except Exception as e:
-            logger.error(f"Ошибка при инициализации Google Sheets API: {str(e)}")
+            log_sheets(f"❌ CRITICAL: Service initialization failed: {str(e)}", "ERROR")
+            log_sheets(f"Traceback: {traceback.format_exc()}", "ERROR")
             raise
     
     @staticmethod
@@ -112,83 +133,82 @@ class GoogleSheetsService:
         function_result: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        Записать диалог в Google таблицу
-        
-        Args:
-            sheet_id: ID Google таблицы
-            user_message: Сообщение пользователя
-            assistant_message: Ответ ассистента
-            function_result: Результат выполнения функции (опционально)
-            
-        Returns:
-            True в случае успеха, False в случае ошибки
+        Log conversation to Google Sheets with detailed logging
         """
         if not sheet_id:
-            logger.warning("[DEBUG-SHEETS] ID таблицы не указан")
+            log_sheets("⚠️ No sheet ID provided", "WARNING")
             return False
         
         try:
-            # Изменено: разрешаем запись, если хотя бы одно из сообщений есть
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            log_sheets("📊 STARTING GOOGLE SHEETS LOGGING")
+            log_sheets(f"   Sheet ID: {sheet_id}")
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Validate messages
             if not user_message and not assistant_message:
-                logger.warning("[DEBUG-SHEETS] Пустые сообщения, запись пропущена")
+                log_sheets("⚠️ Both messages empty, skipping", "WARNING")
                 return False
             
-            # Установка значений по умолчанию, если нет данных
-            user_message = user_message or "(пустое сообщение)"
-            assistant_message = assistant_message or "(пустой ответ)"
+            # Set defaults
+            user_message = user_message or "(empty message)"
+            assistant_message = assistant_message or "(empty response)"
             
-            logger.info(f"[DEBUG-SHEETS] Подготовка записи диалога в таблицу: {sheet_id}")
-            logger.info(f"[DEBUG-SHEETS] Сообщение пользователя ({len(user_message)} символов): '{user_message[:50]}...'")
-            logger.info(f"[DEBUG-SHEETS] Ответ ассистента ({len(assistant_message)} символов): '{assistant_message[:50]}...'")
+            log_sheets(f"📝 User message: {user_message[:100]}... ({len(user_message)} chars)")
+            log_sheets(f"🤖 Assistant message: {assistant_message[:100]}... ({len(assistant_message)} chars)")
             
-            # Подготовка данных для записи
+            # Prepare timestamp
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_sheets(f"🕐 Timestamp: {now}")
             
-            # Подготовка текста результата функции
+            # Prepare function result
             function_text = "none"
             if function_result:
                 try:
-                    # Преобразуем в строку, если это словарь
                     if isinstance(function_result, dict):
                         function_text = json.dumps(function_result, ensure_ascii=False)
+                        log_sheets(f"🔧 Function result (dict): {function_text[:100]}...")
                     else:
                         function_text = str(function_result)
-                    logger.info(f"[DEBUG-SHEETS] Результат функции: {function_text[:50]}...")
+                        log_sheets(f"🔧 Function result (str): {function_text[:100]}...")
                 except Exception as e:
-                    logger.error(f"[DEBUG-SHEETS] Ошибка форматирования результата функции: {str(e)}")
-                    function_text = f"Ошибка форматирования: {str(e)}"
+                    log_sheets(f"⚠️ Function result formatting error: {str(e)}", "WARNING")
+                    function_text = f"Error: {str(e)}"
+            else:
+                log_sheets("🔧 No function result")
             
-            # Данные для записи
+            # Prepare data
             values = [[now, user_message, assistant_message, function_text]]
+            log_sheets(f"📋 Data prepared: {len(values[0])} columns")
             
-            # Вызываем в отдельном потоке, так как это блокирующая операция
+            # Execute in thread pool
             loop = asyncio.get_event_loop()
             
             def append_values():
                 try:
-                    logger.info(f"[DEBUG-SHEETS] Запись диалога в таблицу: {sheet_id}")
+                    log_sheets("🚀 Starting append operation...")
+                    start_time = time.time()
                     
-                    # Добавляем проверку сервисного аккаунта
+                    # Check service account
                     if not SERVICE_ACCOUNT_INFO or "private_key" not in SERVICE_ACCOUNT_INFO:
-                        logger.error("[DEBUG-SHEETS] Отсутствуют необходимые данные сервисного аккаунта")
-                        if SERVICE_ACCOUNT_INFO:
-                            logger.error(f"[DEBUG-SHEETS] Доступные ключи: {', '.join(SERVICE_ACCOUNT_INFO.keys())}")
-                        return False, "Отсутствуют данные сервисного аккаунта"
+                        log_sheets("❌ No service account data", "ERROR")
+                        return False, "No service account data"
                     
-                    # Пытаемся получить сервис
+                    # Get service
                     try:
+                        log_sheets("🔌 Getting Sheets API service...")
                         service = GoogleSheetsService._get_sheets_service()
-                        logger.info("[DEBUG-SHEETS] Сервис Google Sheets API успешно получен")
+                        log_sheets("✅ Sheets service obtained")
                     except Exception as e:
-                        logger.error(f"[DEBUG-SHEETS] Ошибка получения сервиса Sheets API: {str(e)}")
-                        return False, f"Ошибка сервиса: {str(e)}"
+                        log_sheets(f"❌ Failed to get Sheets service: {str(e)}", "ERROR")
+                        return False, f"Service error: {str(e)}"
                     
-                    body = {
-                        'values': values
-                    }
+                    body = {'values': values}
+                    log_sheets(f"📦 Request body prepared")
                     
-                    # Отправляем запрос
+                    # Send request
                     try:
+                        log_sheets(f"📤 Sending append request to sheet: {sheet_id}")
                         result = service.spreadsheets().values().append(
                             spreadsheetId=sheet_id,
                             range='A:D',
@@ -197,183 +217,178 @@ class GoogleSheetsService:
                             body=body
                         ).execute()
                         
-                        logger.info(f"[DEBUG-SHEETS] Диалог успешно записан в таблицу. Ответ API: {result}")
+                        elapsed = time.time() - start_time
+                        log_sheets(f"✅ APPEND SUCCESSFUL (took {elapsed:.3f}s)")
+                        log_sheets(f"📊 API Response: {json.dumps(result, indent=2)}")
+                        
+                        # Log details
+                        updates = result.get('updates', {})
+                        log_sheets(f"   Updated range: {updates.get('updatedRange', 'unknown')}")
+                        log_sheets(f"   Updated rows: {updates.get('updatedRows', 0)}")
+                        log_sheets(f"   Updated columns: {updates.get('updatedColumns', 0)}")
+                        log_sheets(f"   Updated cells: {updates.get('updatedCells', 0)}")
+                        
                         return True, None
                     except HttpError as http_error:
                         status_code = http_error.resp.status if hasattr(http_error, 'resp') else 'unknown'
                         error_content = http_error.content.decode('utf-8') if hasattr(http_error, 'content') else 'unknown'
-                        logger.error(f"[DEBUG-SHEETS] HTTP ошибка {status_code} при записи в таблицу: {str(http_error)}")
-                        logger.error(f"[DEBUG-SHEETS] Содержимое ошибки: {error_content}")
+                        
+                        log_sheets(f"❌ HTTP ERROR {status_code}", "ERROR")
+                        log_sheets(f"   Error content: {error_content}", "ERROR")
                         
                         if status_code == 403:
-                            logger.error("[DEBUG-SHEETS] Доступ запрещен. Проверьте настройки доступа к таблице.")
+                            log_sheets("❌ ACCESS DENIED - Check sheet permissions", "ERROR")
+                            log_sheets("   Make sure the sheet is shared with the service account email", "ERROR")
                         elif status_code == 404:
-                            logger.error("[DEBUG-SHEETS] Таблица не найдена. Проверьте ID таблицы.")
+                            log_sheets("❌ SHEET NOT FOUND - Check sheet ID", "ERROR")
                         
-                        return False, f"HTTP ошибка {status_code}: {str(http_error)}"
+                        return False, f"HTTP {status_code}: {str(http_error)}"
                 except Exception as e:
-                    logger.error(f"[DEBUG-SHEETS] Непредвиденная ошибка при записи в таблицу: {str(e)}")
-                    logger.error(f"[DEBUG-SHEETS] Трассировка: {traceback.format_exc()}")
-                    return False, f"Ошибка: {str(e)}"
+                    log_sheets(f"❌ UNEXPECTED ERROR: {str(e)}", "ERROR")
+                    log_sheets(f"Traceback: {traceback.format_exc()}", "ERROR")
+                    return False, f"Error: {str(e)}"
             
             try:
-                logger.info("[DEBUG-SHEETS] Запуск асинхронной задачи для записи в таблицу")
+                log_sheets("⏳ Executing append in thread pool...")
                 success, error_message = await loop.run_in_executor(None, append_values)
                 
                 if success:
-                    logger.info("[DEBUG-SHEETS] Диалог успешно записан в таблицу")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log_sheets("✅ GOOGLE SHEETS LOGGING SUCCESSFUL")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     return True
                 else:
-                    logger.error(f"[DEBUG-SHEETS] Не удалось записать диалог в таблицу: {error_message}")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "ERROR")
+                    log_sheets(f"❌ GOOGLE SHEETS LOGGING FAILED", "ERROR")
+                    log_sheets(f"   Error: {error_message}", "ERROR")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", "ERROR")
                     
-                    # Локальное логирование при ошибке
-                    logger.info(f"[DEBUG-SHEETS] [ЛОКАЛЬНЫЙ ЛОГ] Пользователь: {user_message[:100]}...")
-                    logger.info(f"[DEBUG-SHEETS] [ЛОКАЛЬНЫЙ ЛОГ] Ассистент: {assistant_message[:100]}...")
+                    # Local log as backup
+                    log_sheets("💾 LOCAL BACKUP LOG:", "WARNING")
+                    log_sheets(f"   User: {user_message[:100]}...", "WARNING")
+                    log_sheets(f"   Assistant: {assistant_message[:100]}...", "WARNING")
+                    log_sheets(f"   Function: {function_text[:100]}...", "WARNING")
                     
-                    # Возвращаем False, чтобы показать ошибку
                     return False
             except Exception as e:
-                logger.error(f"[DEBUG-SHEETS] Ошибка при запуске executor: {str(e)}")
-                logger.error(f"[DEBUG-SHEETS] Трассировка: {traceback.format_exc()}")
+                log_sheets(f"❌ Executor error: {str(e)}", "ERROR")
+                log_sheets(f"Traceback: {traceback.format_exc()}", "ERROR")
                 return False
                 
         except Exception as e:
-            logger.error(f"[DEBUG-SHEETS] Ошибка при логировании диалога: {str(e)}")
-            logger.error(f"[DEBUG-SHEETS] Трассировка: {traceback.format_exc()}")
-            # Возвращаем False, чтобы показать ошибку
+            log_sheets(f"❌ CRITICAL: Logging failed: {str(e)}", "ERROR")
+            log_sheets(f"Traceback: {traceback.format_exc()}", "ERROR")
             return False
     
     @staticmethod
     async def verify_sheet_access(sheet_id: str) -> Dict[str, Any]:
-        """
-        Проверить доступ к Google таблице
-        
-        Args:
-            sheet_id: ID Google таблицы
-            
-        Returns:
-            Dict с статусом и сообщением
-        """
+        """Verify access to Google Sheet with detailed logging"""
         if not sheet_id:
-            return {"success": False, "message": "ID таблицы не указан"}
+            return {"success": False, "message": "No sheet ID provided"}
         
         try:
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            log_sheets("🔍 VERIFYING SHEET ACCESS")
+            log_sheets(f"   Sheet ID: {sheet_id}")
+            log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
             loop = asyncio.get_event_loop()
             
             def verify_access():
                 try:
-                    logger.info(f"Проверка доступа к таблице: {sheet_id}")
-                    
-                    # Получаем сервис
+                    log_sheets("Getting Sheets service...")
                     service = GoogleSheetsService._get_sheets_service()
                     
-                    # Проверяем доступ к метаданным
-                    logger.info("Получение метаданных таблицы...")
+                    log_sheets("Fetching sheet metadata...")
                     sheet = service.spreadsheets().get(
                         spreadsheetId=sheet_id,
                         fields='properties.title'
                     ).execute()
                     
-                    title = sheet.get('properties', {}).get('title', 'Untitled Spreadsheet')
-                    logger.info(f"Метаданные таблицы получены. Название: {title}")
+                    title = sheet.get('properties', {}).get('title', 'Untitled')
+                    log_sheets(f"✅ Sheet found: {title}")
                     
-                    # Проверяем возможность записи
-                    logger.info("Проверка возможности записи...")
-                    test_values = [["ТЕСТ - Проверка доступа (будет удалено)"]]
+                    log_sheets("Testing write access...")
+                    test_values = [["TEST - Access check (will be deleted)"]]
                     
                     append_result = service.spreadsheets().values().append(
                         spreadsheetId=sheet_id,
-                        range='Z:Z',  # Используем отдаленный столбец для теста
+                        range='Z:Z',
                         valueInputOption='RAW',
                         insertDataOption='INSERT_ROWS',
                         body={'values': test_values}
                     ).execute()
                     
-                    logger.info(f"Тестовая запись добавлена")
+                    log_sheets("✅ Write test successful")
                     
-                    # Очищаем тестовую запись
                     update_range = append_result.get('updates', {}).get('updatedRange', 'Z1')
-                    clear_result = service.spreadsheets().values().clear(
+                    service.spreadsheets().values().clear(
                         spreadsheetId=sheet_id,
                         range=update_range,
                         body={}
                     ).execute()
                     
-                    logger.info(f"Тестовая запись удалена")
+                    log_sheets("✅ Test data cleaned up")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log_sheets("✅ SHEET ACCESS VERIFIED")
+                    log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
                     return {
                         "success": True,
-                        "message": f"Успешно подключено к таблице: {title}. Таблица доступна для записи.",
+                        "message": f"Connected to: {title}. Sheet is writable.",
                         "title": title
                     }
                 except HttpError as http_error:
                     status_code = http_error.resp.status if hasattr(http_error, 'resp') else 'unknown'
-                    error_details = f"HTTP ошибка {status_code}: {str(http_error)}"
-                    logger.error(f"HTTP ошибка при проверке доступа: {error_details}")
+                    log_sheets(f"❌ HTTP Error {status_code}: {str(http_error)}", "ERROR")
                     
                     if status_code == 403:
                         return {
                             "success": False,
-                            "message": "Отказано в доступе. Убедитесь, что таблица доступна для редактирования по ссылке."
+                            "message": "Access denied. Share the sheet with the service account."
                         }
                     elif status_code == 404:
                         return {
                             "success": False,
-                            "message": "Таблица не найдена. Пожалуйста, проверьте ID таблицы."
+                            "message": "Sheet not found. Check the sheet ID."
                         }
                     else:
                         return {
                             "success": False,
-                            "message": f"Ошибка доступа к таблице: {error_details}"
+                            "message": f"Error: {str(http_error)}"
                         }
                 except Exception as e:
-                    logger.error(f"Непредвиденная ошибка при проверке доступа: {str(e)}")
+                    log_sheets(f"❌ Error: {str(e)}", "ERROR")
                     return {
                         "success": False,
-                        "message": f"Непредвиденная ошибка: {str(e)}"
+                        "message": f"Error: {str(e)}"
                     }
             
-            try:
-                result = await loop.run_in_executor(None, verify_access)
-                return result
-            except Exception as e:
-                logger.error(f"Ошибка при запуске executor для проверки доступа: {str(e)}")
-                return {
-                    "success": False,
-                    "message": f"Ошибка проверки доступа: {str(e)}"
-                }
+            result = await loop.run_in_executor(None, verify_access)
+            return result
             
         except Exception as e:
-            logger.error(f"Ошибка при проверке доступа к таблице: {str(e)}")
+            log_sheets(f"❌ Verification failed: {str(e)}", "ERROR")
             return {
                 "success": False,
-                "message": f"Ошибка: {str(e)}"
+                "message": f"Error: {str(e)}"
             }
 
     @staticmethod
     async def setup_sheet(sheet_id: str) -> bool:
-        """
-        Настройка заголовков таблицы
-        
-        Args:
-            sheet_id: ID Google таблицы
-            
-        Returns:
-            True в случае успеха, False в случае ошибки
-        """
+        """Setup sheet headers with logging"""
         if not sheet_id:
             return False
             
         try:
+            log_sheets(f"🔧 Setting up sheet: {sheet_id}")
             loop = asyncio.get_event_loop()
             
             def check_and_setup():
                 try:
-                    logger.info(f"Настройка таблицы: {sheet_id}")
                     service = GoogleSheetsService._get_sheets_service()
                     
-                    # Проверяем существующие данные
-                    logger.info("Проверка наличия заголовков...")
+                    log_sheets("Checking for existing headers...")
                     result = service.spreadsheets().values().get(
                         spreadsheetId=sheet_id,
                         range='A1:D1'
@@ -382,37 +397,27 @@ class GoogleSheetsService:
                     values = result.get('values', [])
                     
                     if not values:
-                        logger.info("Заголовки не найдены. Добавление заголовков...")
-                        headers = [["Дата и время", "Пользователь", "Ассистент", "Результат функции"]]
-                        body = {
-                            'values': headers
-                        }
-                        update_result = service.spreadsheets().values().update(
+                        log_sheets("Adding headers...")
+                        headers = [["Timestamp", "User", "Assistant", "Function Result"]]
+                        body = {'values': headers}
+                        service.spreadsheets().values().update(
                             spreadsheetId=sheet_id,
                             range='A1:D1',
                             valueInputOption='RAW',
                             body=body
                         ).execute()
-                        logger.info(f"Заголовки добавлены успешно")
+                        log_sheets("✅ Headers added")
                     else:
-                        logger.info(f"Заголовки уже существуют")
+                        log_sheets("✅ Headers already exist")
                         
                     return True
-                except HttpError as http_error:
-                    status_code = http_error.resp.status if hasattr(http_error, 'resp') else 'unknown'
-                    logger.error(f"HTTP ошибка при настройке таблицы: {status_code} - {str(http_error)}")
-                    return False
                 except Exception as e:
-                    logger.error(f"Непредвиденная ошибка при настройке таблицы: {str(e)}")
+                    log_sheets(f"❌ Setup error: {str(e)}", "ERROR")
                     return False
             
-            try:
-                result = await loop.run_in_executor(None, check_and_setup)
-                return result
-            except Exception as e:
-                logger.error(f"Ошибка при запуске executor для настройки таблицы: {str(e)}")
-                return False
+            result = await loop.run_in_executor(None, check_and_setup)
+            return result
                 
         except Exception as e:
-            logger.error(f"Ошибка при настройке таблицы: {str(e)}")
+            log_sheets(f"❌ Setup failed: {str(e)}", "ERROR")
             return False
