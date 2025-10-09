@@ -1,7 +1,10 @@
 # backend/websockets/handler_realtime_new.py
 """
-🔍 ENHANCED LOGGING VERSION - OpenAI Realtime API Handler
-Maximum logging for production debugging and investor demo monitoring
+🚀 FINAL PRODUCTION VERSION - OpenAI Realtime API Handler
+✅ Fixed: Function execution without .started event
+✅ Enhanced logging for production monitoring
+✅ Immediate function result logging
+✅ Ready for investor demo
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -61,7 +64,7 @@ async def handle_websocket_connection_new(
     db: Session
 ) -> None:
     """
-    🔍 ENHANCED LOGGING - Main WebSocket handler
+    🚀 FINAL PRODUCTION - Main WebSocket handler
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -211,7 +214,7 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Realtime API (GA version with enhanced logging)",
+            "message": "Connected to Realtime API (Production version)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None))
@@ -249,7 +252,7 @@ async def handle_websocket_connection_new(
                     data = json.loads(message["text"])
                     msg_type = data.get("type", "")
 
-                    if msg_type != "ping" and message_count % 10 == 0:  # Log every 10th message
+                    if msg_type != "ping" and message_count % 10 == 0:
                         log_to_render(f"📨 Client message #{message_count}: {msg_type}")
 
                     if msg_type == "ping":
@@ -416,7 +419,8 @@ async def handle_openai_messages_new(
     interruption_state: Dict
 ):
     """
-    🔍 ENHANCED LOGGING - Handle messages from OpenAI
+    🚀 FINAL PRODUCTION - Handle messages from OpenAI
+    ✅ FIXED: Function execution without .started event
     """
     if not openai_client.is_connected or not openai_client.ws:
         log_to_render(f"❌ OpenAI client not connected", "ERROR")
@@ -566,7 +570,7 @@ async def handle_openai_messages_new(
                         "type": "response.text.done"
                     })
                 
-                # 🔍 ENHANCED: Function execution with detailed logging
+                # 🚀 PRODUCTION: Function execution with FIXED logic
                 if msg_type == "response.function_call.started":
                     function_name = response_data.get("function_name")
                     function_call_id = response_data.get("call_id")
@@ -620,17 +624,33 @@ async def handle_openai_messages_new(
                     pending_function_call["arguments_buffer"] += delta
                 
                 elif msg_type == "response.function_call_arguments.done":
-                    arguments_str = response_data.get("arguments", pending_function_call["arguments_buffer"])
-                    function_name = response_data.get("function_name", pending_function_call["name"])
-                    function_call_id = response_data.get("call_id", pending_function_call["call_id"])
+                    # ✅ CRITICAL FIX: Get data from response_data FIRST, then fallback to pending
+                    # This fixes the bug where OpenAI skips .started event
+                    function_name = response_data.get("function_name") or pending_function_call.get("name")
+                    function_call_id = response_data.get("call_id") or pending_function_call.get("call_id")
+                    arguments_str = response_data.get("arguments") or pending_function_call.get("arguments_buffer", "")
                     
                     log_to_render(f"📋 Function arguments received")
+                    log_to_render(f"   Function: {function_name}")
+                    log_to_render(f"   Call ID: {function_call_id}")
                     log_to_render(f"   Arguments: {arguments_str[:200]}...")
                     
+                    # Validate we have all required data
+                    if not function_name:
+                        log_to_render(f"❌ Missing function_name in response", "ERROR")
+                        pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
+                        continue
+                    
+                    if not function_call_id:
+                        log_to_render(f"❌ Missing call_id in response", "ERROR")
+                        pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
+                        continue
+                    
                     normalized_name = normalize_function_name(function_name) or function_name
+                    log_to_render(f"🔄 Normalized: {normalized_name}")
                     
                     if normalized_name and normalized_name not in openai_client.enabled_functions:
-                        log_to_render(f"❌ UNAUTHORIZED function in done: {normalized_name}", "WARNING")
+                        log_to_render(f"❌ UNAUTHORIZED function: {normalized_name}", "WARNING")
                         
                         error_response = {
                             "type": "function_call.error",
@@ -649,136 +669,133 @@ async def handle_openai_messages_new(
                         pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
                         continue
                     
-                    if function_call_id and normalized_name:
+                    # Execute function
+                    try:
+                        arguments = json.loads(arguments_str)
+                        log_to_render(f"✅ Arguments parsed successfully")
+                        
+                        await websocket.send_json({
+                            "type": "function_call.executing",
+                            "function": normalized_name,
+                            "function_call_id": function_call_id,
+                            "arguments": arguments
+                        })
+                        
+                        log_to_render(f"🚀 EXECUTING FUNCTION: {normalized_name}")
+                        start_time = time.time()
+                        
+                        # Execute function
+                        result = await execute_function(
+                            name=normalized_name,
+                            arguments=arguments,
+                            context={
+                                "assistant_config": openai_client.assistant_config,
+                                "client_id": openai_client.client_id,
+                                "db_session": openai_client.db_session
+                            }
+                        )
+                        
+                        execution_time = time.time() - start_time
+                        function_execution_count += 1
+                        
+                        log_to_render(f"✅ FUNCTION EXECUTED SUCCESSFULLY")
+                        log_to_render(f"   Execution time: {execution_time:.3f}s")
+                        log_to_render(f"   Result type: {type(result)}")
+                        log_to_render(f"   Result preview: {str(result)[:200]}...")
+                        
+                        # 🚀 PRODUCTION: Immediate logging
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        log_to_render(f"💾 STARTING IMMEDIATE LOGGING")
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        
                         try:
-                            arguments = json.loads(arguments_str)
-                            log_to_render(f"✅ Arguments parsed successfully")
+                            # Save to database
+                            if openai_client.db_session and openai_client.conversation_record_id:
+                                log_to_render(f"💾 Attempting database save...")
+                                conv = openai_client.db_session.query(Conversation).get(
+                                    uuid.UUID(openai_client.conversation_record_id)
+                                )
+                                if conv:
+                                    function_summary = f"[Function: {normalized_name}] Result: {json.dumps(result, ensure_ascii=False)[:200]}"
+                                    conv.assistant_message = function_summary
+                                    if user_transcript and not conv.user_message:
+                                        conv.user_message = user_transcript
+                                    openai_client.db_session.commit()
+                                    log_to_render(f"✅ DATABASE SAVE SUCCESSFUL")
+                                    log_to_render(f"   Conversation ID: {openai_client.conversation_record_id}")
+                                else:
+                                    log_to_render(f"⚠️ Conversation record not found in DB", "WARNING")
+                            else:
+                                log_to_render(f"⚠️ No DB session or conversation_record_id", "WARNING")
+                            
+                            # Save to Google Sheets
+                            if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
+                                sheet_id = openai_client.assistant_config.google_sheet_id
+                                log_to_render(f"📊 Attempting Google Sheets save...")
+                                log_to_render(f"   Sheet ID: {sheet_id[:20]}...")
+                                
+                                sheets_start = time.time()
+                                sheets_result = await GoogleSheetsService.log_conversation(
+                                    sheet_id=sheet_id,
+                                    user_message=user_transcript or f"[Function call: {normalized_name}]",
+                                    assistant_message=f"[Function executed: {normalized_name}]",
+                                    function_result=result
+                                )
+                                sheets_time = time.time() - sheets_start
+                                
+                                if sheets_result:
+                                    log_to_render(f"✅ GOOGLE SHEETS SAVE SUCCESSFUL (took {sheets_time:.3f}s)")
+                                else:
+                                    log_to_render(f"❌ GOOGLE SHEETS SAVE FAILED (took {sheets_time:.3f}s)", "WARNING")
+                            else:
+                                log_to_render(f"⚠️ Google Sheets not configured", "WARNING")
+                            
+                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            log_to_render(f"✅ LOGGING COMPLETE")
+                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            
+                        except Exception as log_error:
+                            log_to_render(f"❌ LOGGING ERROR: {log_error}", "ERROR")
+                            log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+                        
+                        # Send result to OpenAI
+                        log_to_render(f"📤 Sending function result to OpenAI...")
+                        delivery_status = await openai_client.send_function_result(function_call_id, result)
+                        
+                        if not delivery_status["success"]:
+                            log_to_render(f"❌ Function result delivery FAILED: {delivery_status['error']}", "ERROR")
+                            
+                            error_message = {
+                                "type": "function_call.delivery_error",
+                                "function_call_id": function_call_id,
+                                "error": delivery_status['error']
+                            }
+                            await websocket.send_json(error_message)
+                        else:
+                            log_to_render(f"✅ Function result delivered to OpenAI")
+                            log_to_render(f"⏳ Waiting for model to continue automatically...")
                             
                             await websocket.send_json({
-                                "type": "function_call.executing",
+                                "type": "function_call.completed",
                                 "function": normalized_name,
                                 "function_call_id": function_call_id,
-                                "arguments": arguments
+                                "result": result,
+                                "execution_time": execution_time
                             })
-                            
-                            log_to_render(f"🚀 EXECUTING FUNCTION: {normalized_name}")
-                            start_time = time.time()
-                            
-                            # Execute function
-                            result = await execute_function(
-                                name=normalized_name,
-                                arguments=arguments,
-                                context={
-                                    "assistant_config": openai_client.assistant_config,
-                                    "client_id": openai_client.client_id,
-                                    "db_session": openai_client.db_session
-                                }
-                            )
-                            
-                            execution_time = time.time() - start_time
-                            function_execution_count += 1
-                            
-                            log_to_render(f"✅ FUNCTION EXECUTED SUCCESSFULLY")
-                            log_to_render(f"   Execution time: {execution_time:.3f}s")
-                            log_to_render(f"   Result type: {type(result)}")
-                            log_to_render(f"   Result preview: {str(result)[:200]}...")
-                            
-                            # 🔍 ENHANCED: Immediate logging with detailed output
-                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                            log_to_render(f"💾 STARTING IMMEDIATE LOGGING")
-                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                            
-                            try:
-                                # Save to database
-                                if openai_client.db_session and openai_client.conversation_record_id:
-                                    log_to_render(f"💾 Attempting database save...")
-                                    conv = openai_client.db_session.query(Conversation).get(
-                                        uuid.UUID(openai_client.conversation_record_id)
-                                    )
-                                    if conv:
-                                        function_summary = f"[Function: {normalized_name}] Result: {json.dumps(result, ensure_ascii=False)[:200]}"
-                                        conv.assistant_message = function_summary
-                                        if user_transcript and not conv.user_message:
-                                            conv.user_message = user_transcript
-                                        openai_client.db_session.commit()
-                                        log_to_render(f"✅ DATABASE SAVE SUCCESSFUL")
-                                        log_to_render(f"   Conversation ID: {openai_client.conversation_record_id}")
-                                    else:
-                                        log_to_render(f"⚠️ Conversation record not found in DB", "WARNING")
-                                else:
-                                    log_to_render(f"⚠️ No DB session or conversation_record_id", "WARNING")
-                                
-                                # Save to Google Sheets
-                                if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
-                                    sheet_id = openai_client.assistant_config.google_sheet_id
-                                    log_to_render(f"📊 Attempting Google Sheets save...")
-                                    log_to_render(f"   Sheet ID: {sheet_id[:20]}...")
-                                    log_to_render(f"   User message: {(user_transcript or f'[Function: {normalized_name}]')[:50]}...")
-                                    log_to_render(f"   Assistant message: [Function executed: {normalized_name}]")
-                                    log_to_render(f"   Function result keys: {list(result.keys()) if isinstance(result, dict) else type(result)}")
-                                    
-                                    sheets_start = time.time()
-                                    sheets_result = await GoogleSheetsService.log_conversation(
-                                        sheet_id=sheet_id,
-                                        user_message=user_transcript or f"[Function call: {normalized_name}]",
-                                        assistant_message=f"[Function executed: {normalized_name}]",
-                                        function_result=result
-                                    )
-                                    sheets_time = time.time() - sheets_start
-                                    
-                                    if sheets_result:
-                                        log_to_render(f"✅ GOOGLE SHEETS SAVE SUCCESSFUL (took {sheets_time:.3f}s)")
-                                    else:
-                                        log_to_render(f"❌ GOOGLE SHEETS SAVE FAILED (took {sheets_time:.3f}s)", "WARNING")
-                                else:
-                                    log_to_render(f"⚠️ Google Sheets not configured for this assistant", "WARNING")
-                                
-                                log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                log_to_render(f"✅ LOGGING COMPLETE")
-                                log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                
-                            except Exception as log_error:
-                                log_to_render(f"❌ LOGGING ERROR: {log_error}", "ERROR")
-                                log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
-                            
-                            # Send result to OpenAI
-                            log_to_render(f"📤 Sending function result to OpenAI...")
-                            delivery_status = await openai_client.send_function_result(function_call_id, result)
-                            
-                            if not delivery_status["success"]:
-                                log_to_render(f"❌ Function result delivery FAILED: {delivery_status['error']}", "ERROR")
-                                
-                                error_message = {
-                                    "type": "function_call.delivery_error",
-                                    "function_call_id": function_call_id,
-                                    "error": delivery_status['error']
-                                }
-                                await websocket.send_json(error_message)
-                            else:
-                                log_to_render(f"✅ Function result delivered to OpenAI")
-                                log_to_render(f"⏳ Waiting for model to continue automatically...")
-                                
-                                await websocket.send_json({
-                                    "type": "function_call.completed",
-                                    "function": normalized_name,
-                                    "function_call_id": function_call_id,
-                                    "result": result,
-                                    "execution_time": execution_time
-                                })
-                            
-                        except json.JSONDecodeError as e:
-                            log_to_render(f"❌ Function args parse error: {e}", "ERROR")
-                            await websocket.send_json({
-                                "type": "error",
-                                "error": {"code": "function_args_error", "message": str(e)}
-                            })
-                        except Exception as e:
-                            log_to_render(f"❌ Function execution ERROR: {e}", "ERROR")
-                            log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
-                            await websocket.send_json({
-                                "type": "error",
-                                "error": {"code": "function_execution_error", "message": str(e)}
-                            })
+                        
+                    except json.JSONDecodeError as e:
+                        log_to_render(f"❌ Function args parse error: {e}", "ERROR")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {"code": "function_args_error", "message": str(e)}
+                        })
+                    except Exception as e:
+                        log_to_render(f"❌ Function execution ERROR: {e}", "ERROR")
+                        log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": {"code": "function_execution_error", "message": str(e)}
+                        })
                     
                     pending_function_call = {"name": None, "call_id": None, "arguments_buffer": ""}
 
