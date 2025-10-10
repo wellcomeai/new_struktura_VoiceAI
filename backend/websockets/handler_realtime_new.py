@@ -909,6 +909,7 @@ async def handle_openai_messages_new(
                                 "assistant_config": openai_client.assistant_config,
                                 "client_id": openai_client.client_id,
                                 "db_session": openai_client.db_session
+                                "websocket": websocket
                             }
                         )
                         
