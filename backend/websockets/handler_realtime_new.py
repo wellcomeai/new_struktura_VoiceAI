@@ -4,6 +4,7 @@
 ✅ Fixed: Function name detection from multiple sources
 ✅ Enhanced: Maximum logging for debugging
 ✅ Fixed: conversation.item.created tracking
+✅ Added: Silent screen context handling
 ✅ Ready for production deployment
 """
 
@@ -283,6 +284,34 @@ async def handle_websocket_connection_new(
                             "type": "session.update.ack", 
                             "event_id": data.get("event_id", f"ack_{int(time.time() * 1000)}")
                         })
+                        continue
+
+                    # 🆕 Screen context handler (silent mode)
+                    if msg_type == "screen.context":
+                        log_to_render(f"📸 Screen context received (silent mode)")
+                        
+                        image_data = data.get("image")
+                        is_silent = data.get("silent", True)
+                        
+                        if not image_data:
+                            log_to_render(f"❌ No image data in screen.context", "ERROR")
+                            continue
+                        
+                        image_size_kb = len(image_data) // 1024
+                        log_to_render(f"📸 Image size: {image_size_kb}KB")
+                        log_to_render(f"📸 Silent mode: {is_silent}")
+                        
+                        if openai_client.is_connected:
+                            # Отправляем БЕЗ запроса ответа
+                            success = await openai_client.send_screen_context(image_data, silent=is_silent)
+                            if success:
+                                log_to_render(f"✅ Screen context added to conversation (no response)")
+                                # НЕ отправляем ACK клиенту - работаем тихо
+                            else:
+                                log_to_render(f"❌ Failed to send screen context", "ERROR")
+                        else:
+                            log_to_render(f"❌ OpenAI not connected", "ERROR")
+                        
                         continue
 
                     # Audio processing
