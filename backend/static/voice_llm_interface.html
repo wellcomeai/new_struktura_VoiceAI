@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voicyfy AI - Голосовой ассистент + LLM</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: url('https://i.ibb.co/Cp6wZ9gN/photo-2025-10-10-20-24-16.jpg') center/cover no-repeat fixed;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Blur overlay */
+        .background-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            backdrop-filter: blur(8px);
+            background: rgba(255, 255, 255, 0.1);
+            z-index: 1;
+        }
+
+        /* Main layout */
+        .main-container {
+            position: relative;
+            z-index: 2;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+            letter-spacing: -0.02em;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+        }
+
+        .header-subtitle {
+            font-size: 14px;
+            color: #5a5a5a;
+            margin-left: 10px;
+            text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+        }
+
+        /* Content layout */
+        .content-container {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            min-height: 0;
+        }
+
+        /* Left panel - LLM Results */
+        .llm-panel {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 24px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .llm-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+        }
+
+        .llm-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 24px 32px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .llm-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+        }
+
+        .llm-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a1a;
+            flex: 1;
+        }
+
+        .llm-meta {
+            font-size: 12px;
+            color: #6a6a6a;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        .llm-content {
+            flex: 1;
+            padding: 32px;
+            overflow-y: auto;
+            font-size: 15px;
+            line-height: 1.7;
+            color: #2a2a2a;
+        }
+
+        .llm-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: #6a6a6a;
+        }
+
+        .placeholder-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.6;
+        }
+
+        .placeholder-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #3a3a3a;
+        }
+
+        .placeholder-text {
+            font-size: 16px;
+            max-width: 400px;
+            line-height: 1.6;
+        }
+
+        /* Right panel - Voice Assistant */
+        .voice-panel {
+            flex: 0 0 420px;
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 24px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .voice-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+        }
+
+        .voice-header {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 24px 32px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .voice-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+        }
+
+        .voice-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a1a;
+            flex: 1;
+        }
+
+        .voice-content {
+            flex: 1;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Widget container */
+        .widget-container {
+            flex: 1;
+            position: relative;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+
+        /* Instructions */
+        .instructions {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .instructions-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .instructions-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .instructions-text {
+            font-size: 14px;
+            color: #5a5a5a;
+            line-height: 1.5;
+        }
+
+        /* Content formatting */
+        .llm-content h1, .llm-content h2, .llm-content h3 {
+            margin: 24px 0 12px 0;
+            color: #1a1a1a;
+            font-weight: 600;
+        }
+
+        .llm-content h1 { font-size: 24px; }
+        .llm-content h2 { font-size: 20px; }
+        .llm-content h3 { font-size: 18px; }
+
+        .llm-content p {
+            margin: 16px 0;
+        }
+
+        .llm-content ul, .llm-content ol {
+            margin: 16px 0;
+            padding-left: 24px;
+        }
+
+        .llm-content li {
+            margin: 8px 0;
+        }
+
+        .llm-content code {
+            background: rgba(0, 0, 0, 0.08);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+        }
+
+        .llm-content pre {
+            background: rgba(0, 0, 0, 0.05);
+            padding: 16px;
+            border-radius: 12px;
+            overflow-x: auto;
+            margin: 20px 0;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .llm-content blockquote {
+            border-left: 3px solid #667eea;
+            padding-left: 16px;
+            margin: 20px 0;
+            font-style: italic;
+            color: #4a4a4a;
+        }
+
+        /* Loading animation */
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            justify-content: center;
+            margin: 40px 0;
+        }
+
+        .loading-dot {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: pulse 1.4s infinite ease-in-out;
+        }
+
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes pulse {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive design */
+        @media (max-width: 1024px) {
+            .content-container {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .voice-panel {
+                flex: 0 0 300px;
+                order: -1;
+            }
+
+            .llm-panel {
+                flex: 1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 16px 20px;
+            }
+
+            .content-container {
+                padding: 16px;
+            }
+
+            .llm-content, .voice-content {
+                padding: 24px;
+            }
+
+            .voice-panel {
+                flex: 0 0 280px;
+            }
+        }
+
+        /* Animation classes */
+        .fade-in {
+            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Hide default widget */
+        .wellcome-widget {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="background-overlay"></div>
+    
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-icon">🎤</div>
+            <div class="logo-text">Voicyfy</div>
+            <div class="header-subtitle">Голосовой ассистент + LLM</div>
+        </div>
+
+        <!-- Content Container -->
+        <div class="content-container">
+            <!-- Left Panel - LLM Results -->
+            <div class="llm-panel">
+                <div class="llm-header">
+                    <div class="llm-icon">🤖</div>
+                    <div class="llm-title">Результаты ИИ</div>
+                    <div class="llm-meta" id="llmMeta">Ожидание запроса</div>
+                </div>
+                <div class="llm-content" id="llmContent">
+                    <div class="llm-placeholder">
+                        <span class="placeholder-icon">✨</span>
+                        <div class="placeholder-title">Задайте вопрос голосовому ассистенту</div>
+                        <div class="placeholder-text">
+                            Нажмите на микрофон справа и произнесите ваш вопрос. 
+                            Для сложных задач ассистент автоматически получит развернутый ответ от языковой модели.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Voice Assistant -->
+            <div class="voice-panel">
+                <div class="voice-header">
+                    <div class="voice-icon">🎤</div>
+                    <div class="voice-title">Голосовой ассистент</div>
+                </div>
+                <div class="voice-content">
+                    <!-- Widget will be embedded here -->
+                    <div class="widget-container" id="widgetContainer">
+                        <!-- Виджет будет встроен сюда -->
+                    </div>
+                    
+                    <div class="instructions">
+                        <span class="instructions-icon">💬</span>
+                        <div class="instructions-title">Как использовать</div>
+                        <div class="instructions-text">
+                            Говорите естественно с ассистентом. 
+                            Для анализа, кода, исследований он автоматически обратится к мощной LLM модели.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WellcomeAI Voice Assistant Widget -->
+    <script>
+        // Load widget and embed it in the right panel
+        (function() {
+            var script = document.createElement('script');
+            script.src = 'https://voicyfy.ru/static/widget.js';
+            script.dataset.assistantId = '17c631ce-0db1-4171-a81d-22d91d4cccd7';
+            script.dataset.server = 'https://voicyfy.ru';
+            script.dataset.position = 'inline'; // Custom position for embedding
+            script.dataset.container = 'widgetContainer'; // Target container
+            script.async = true;
+            document.head.appendChild(script);
+
+            // Set up message listener for widget events
+            script.onload = function() {
+                // Listen for messages from widget
+                window.addEventListener('message', function(event) {
+                    if (event.origin !== 'https://voicyfy.ru') return;
+                    
+                    const data = event.data;
+                    console.log('Widget message:', data);
+                    
+                    // Handle different message types
+                    switch(data.type) {
+                        case 'llm_result':
+                            displayLLMResult(data);
+                            break;
+                        case 'function_call.executing':
+                            if (data.function === 'query_llm') {
+                                showProcessingState();
+                            }
+                            break;
+                        case 'function_call.completed':
+                            if (data.function === 'query_llm') {
+                                updateMeta('Выполнено');
+                            }
+                            break;
+                    }
+                });
+
+                // Try to embed widget in container
+                embedWidget();
+            };
+        })();
+
+        // Function to embed widget in right panel
+        function embedWidget() {
+            const container = document.getElementById('widgetContainer');
+            
+            // Wait for widget to load and try to move it
+            setTimeout(() => {
+                const widget = document.querySelector('.wellcome-widget, [data-wellcome-widget]');
+                if (widget && container) {
+                    // Remove any positioning styles
+                    widget.style.position = 'relative';
+                    widget.style.bottom = 'auto';
+                    widget.style.right = 'auto';
+                    widget.style.width = '100%';
+                    widget.style.height = '100%';
+                    widget.style.maxWidth = 'none';
+                    widget.style.maxHeight = 'none';
+                    
+                    // Move widget to container
+                    container.appendChild(widget);
+                    console.log('Widget embedded successfully');
+                } else {
+                    console.log('Widget not found, retrying...');
+                    // Retry after delay
+                    setTimeout(embedWidget, 1000);
+                }
+            }, 500);
+        }
+
+        // Function to display LLM results
+        function displayLLMResult(data) {
+            const llmContent = document.getElementById('llmContent');
+            const llmMeta = document.getElementById('llmMeta');
+
+            // Update meta
+            llmMeta.textContent = data.model || 'GPT-4';
+
+            // Format and display content
+            const formattedContent = formatContent(data.content);
+            
+            llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
+
+            console.log('LLM result displayed');
+        }
+
+        // Function to show processing state
+        function showProcessingState() {
+            const llmContent = document.getElementById('llmContent');
+            const llmMeta = document.getElementById('llmMeta');
+
+            llmMeta.textContent = 'Обработка...';
+
+            llmContent.innerHTML = `
+                <div style="text-align: center; padding: 60px 20px;">
+                    <div class="loading">
+                        <div class="loading-dot"></div>
+                        <div class="loading-dot"></div>
+                        <div class="loading-dot"></div>
+                    </div>
+                    <p style="margin-top: 20px; color: #666; font-size: 16px;">
+                        Обрабатываю ваш запрос с помощью ИИ...
+                    </p>
+                </div>
+            `;
+
+            console.log('Processing state shown');
+        }
+
+        // Function to update meta information
+        function updateMeta(status) {
+            const llmMeta = document.getElementById('llmMeta');
+            llmMeta.textContent = status;
+        }
+
+        // Format content with markdown-like styling
+        function formatContent(content) {
+            if (!content) return '';
+
+            return content
+                // Headers
+                .replace(/### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/# (.*$)/gim, '<h1>$1</h1>')
+                // Bold and italic
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                // Code
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                // Line breaks and paragraphs
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>')
+                // Wrap in paragraphs
+                .replace(/^(.*)$/gm, '<p>$1</p>')
+                // Clean up
+                .replace(/<p><\/p>/g, '')
+                .replace(/<p><br><\/p>/g, '');
+        }
+    </script>
+</body>
+</html>
