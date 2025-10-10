@@ -1,17 +1,16 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 3.0.0 - GA Production (gpt-realtime)
+ * Версия: 3.1.0 - GA Production (gpt-realtime + Screen Context)
  * 
  * ✅ Использует OpenAI Realtime GA API
  * ✅ Model: gpt-realtime-mini
  * ✅ Совместим с handler_realtime_new.py
+ * ✅ Автоматический захват DOM каждые 3 секунды
  * 
- * Изменения от версии 2.2.1:
- * - Убрана отправка session.update от клиента (сервер управляет сессией)
- * - Сервер автоматически преобразует новые события GA в старый формат
- * - Полная обратная совместимость с UI/UX логикой
- * - Премиальный дизайн с Voicyfy интеграцией сохранен
- * - iOS/Android оптимизации сохранены
+ * Изменения от версии 3.0.0:
+ * - Добавлен автоматический мониторинг экрана с html2canvas
+ * - Тихая отправка контекста страницы ассистенту
+ * - Оптимизация изображений для экономии трафика
  */
 
 (function() {
@@ -25,6 +24,7 @@
   const MOBILE_PING_INTERVAL = 10000;
   const CONNECTION_TIMEOUT = 20000;
   const MAX_DEBUG_ITEMS = 10;
+  const SCREEN_CAPTURE_INTERVAL = 3000; // 3 секунды для мониторинга
 
   // Глобальное хранение состояния
   let reconnectAttempts = 0;
@@ -43,6 +43,11 @@
   window.globalAudioContext = null; // Глобальный AudioContext
   window.globalMicStream = null;    // Глобальный поток микрофона
   window.silentAudioBuffer = null;  // Буфер тишины для iOS
+
+  // Состояние мониторинга экрана
+  let screenMonitoringInterval = null;
+  let isScreenMonitoringActive = false;
+  let html2canvasLoaded = false;
 
   // Функция для логирования
   const widgetLog = (message, type = 'info') => {
@@ -203,6 +208,148 @@
   widgetLog(`[GA API] Configuration: Server: ${SERVER_URL}, Assistant: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
   widgetLog(`[GA API] WebSocket URL: ${WS_URL}`);
   widgetLog(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
+
+  // ============= SCREEN CAPTURE FUNCTIONS =============
+  
+  // Загрузка библиотеки html2canvas
+  function loadHtml2Canvas() {
+    return new Promise((resolve, reject) => {
+      if (window.html2canvas) {
+        widgetLog('[GA API SCREEN] html2canvas already loaded');
+        html2canvasLoaded = true;
+        resolve();
+        return;
+      }
+      
+      widgetLog('[GA API SCREEN] Loading html2canvas library...');
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script.onload = () => {
+        widgetLog('[GA API SCREEN] html2canvas loaded successfully');
+        html2canvasLoaded = true;
+        resolve();
+      };
+      script.onerror = (error) => {
+        widgetLog('[GA API SCREEN] Failed to load html2canvas', 'error');
+        reject(error);
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  // Функция автоматического захвата страницы
+  async function capturePageContext() {
+    if (!window.html2canvas || !html2canvasLoaded) {
+      widgetLog('[GA API SCREEN] html2canvas not available', 'warn');
+      return null;
+    }
+    
+    try {
+      widgetLog('[GA API SCREEN] Starting page capture...');
+      
+      // Захватываем body страницы (без виджета)
+      const canvas = await window.html2canvas(document.body, {
+        ignoreElements: (element) => {
+          // Игнорируем сам виджет и его компоненты
+          return element.id === 'wellcomeai-widget-container' || 
+                 element.classList.contains('wellcomeai-widget-container') ||
+                 element.id === 'wellcomeai-widget-styles' ||
+                 element.id === 'font-awesome-css';
+        },
+        scale: 0.5, // Уменьшаем разрешение для экономии трафика
+        logging: false,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: '#ffffff'
+      });
+      
+      // Конвертируем в base64 с сжатием JPEG
+      const imageBase64 = canvas.toDataURL('image/jpeg', 0.6); // JPEG 60% качества
+      
+      const sizeKB = Math.round(imageBase64.length / 1024);
+      widgetLog(`[GA API SCREEN] Page captured successfully, size: ${sizeKB}KB`);
+      
+      return imageBase64;
+      
+    } catch (error) {
+      widgetLog(`[GA API SCREEN] Capture failed: ${error.message}`, 'error');
+      return null;
+    }
+  }
+
+  // Отправка контекста экрана ассистенту
+  async function sendScreenContextToAssistant(websocketConnection) {
+    if (!websocketConnection || websocketConnection.readyState !== WebSocket.OPEN) {
+      widgetLog('[GA API SCREEN] WebSocket not ready for screen context', 'warn');
+      return;
+    }
+    
+    const imageBase64 = await capturePageContext();
+    if (!imageBase64) {
+      return;
+    }
+    
+    try {
+      // Отправляем на сервер БЕЗ prompt (тихий режим)
+      websocketConnection.send(JSON.stringify({
+        type: 'screen.context',  // Новый тип - отличается от screen.capture
+        image: imageBase64,
+        silent: true,  // Флаг что не нужен ответ
+        timestamp: Date.now()
+      }));
+      
+      widgetLog('[GA API SCREEN] Context sent silently to assistant');
+    } catch (error) {
+      widgetLog(`[GA API SCREEN] Failed to send context: ${error.message}`, 'error');
+    }
+  }
+
+  // Запуск автоматического мониторинга
+  function startScreenMonitoring(websocketConnection) {
+    if (isScreenMonitoringActive) {
+      widgetLog('[GA API SCREEN] Monitoring already active');
+      return;
+    }
+    
+    if (!html2canvasLoaded) {
+      widgetLog('[GA API SCREEN] html2canvas not loaded, cannot start monitoring', 'warn');
+      return;
+    }
+    
+    widgetLog(`[GA API SCREEN] Starting automatic screen monitoring (every ${SCREEN_CAPTURE_INTERVAL/1000} seconds)`);
+    isScreenMonitoringActive = true;
+    
+    // Первый захват сразу после небольшой задержки
+    setTimeout(() => {
+      sendScreenContextToAssistant(websocketConnection);
+    }, 1000);
+    
+    // Затем каждые SCREEN_CAPTURE_INTERVAL миллисекунд
+    screenMonitoringInterval = setInterval(() => {
+      if (websocketConnection && 
+          websocketConnection.readyState === WebSocket.OPEN && 
+          !isReconnecting) {
+        sendScreenContextToAssistant(websocketConnection);
+      }
+    }, SCREEN_CAPTURE_INTERVAL);
+  }
+
+  // Остановка мониторинга
+  function stopScreenMonitoring() {
+    if (!isScreenMonitoringActive) {
+      return;
+    }
+    
+    widgetLog('[GA API SCREEN] Stopping screen monitoring');
+    isScreenMonitoringActive = false;
+    
+    if (screenMonitoringInterval) {
+      clearInterval(screenMonitoringInterval);
+      screenMonitoringInterval = null;
+    }
+  }
+
+  // ============= END SCREEN CAPTURE FUNCTIONS =============
 
   // Создаем стили для виджета - ОБНОВЛЕННЫЕ СТИЛИ С VOICYFY
   function createStyles() {
@@ -1544,6 +1691,13 @@
       if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
         startListening();
         updateConnectionStatus('connected', 'Подключено (GA API)');
+        
+        // Запускаем мониторинг экрана если доступен html2canvas
+        if (html2canvasLoaded && !isScreenMonitoringActive) {
+          setTimeout(() => {
+            startScreenMonitoring(websocket);
+          }, 1000);
+        }
       } else if (!isConnected && !isReconnecting) {
         connectWebSocket();
       } else {
@@ -1560,6 +1714,9 @@
     // Закрыть виджет
     function closeWidget() {
       widgetLog("[GA API] Closing widget");
+      
+      // Останавливаем мониторинг экрана
+      stopScreenMonitoring();
       
       stopAllAudioProcessing();
       
@@ -2024,6 +2181,13 @@
           if (isWidgetOpen) {
             updateConnectionStatus('connected', 'Подключено (GA API)');
             startListening();
+            
+            // Запускаем мониторинг экрана если html2canvas загружен
+            if (html2canvasLoaded && !isScreenMonitoringActive) {
+              setTimeout(() => {
+                startScreenMonitoring(websocket);
+              }, 1000);
+            }
           }
         };
         
@@ -2205,6 +2369,9 @@
           isConnected = false;
           isListening = false;
           
+          // Останавливаем мониторинг экрана при разрыве соединения
+          stopScreenMonitoring();
+          
           interruptionState.is_assistant_speaking = false;
           interruptionState.is_user_speaking = false;
           
@@ -2334,6 +2501,8 @@
       }
       
       widgetLog(`[GA API] Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
+      
+      widgetLog(`[GA API SCREEN] Screen monitoring: active=${isScreenMonitoringActive}, html2canvas=${html2canvasLoaded}`);
     }, 2000);
   }
 
@@ -2348,9 +2517,16 @@
     
     createWidgetHTML();
     
+    // Загружаем html2canvas параллельно с основной инициализацией
+    loadHtml2Canvas().then(() => {
+      widgetLog('[GA API SCREEN] html2canvas ready for screen monitoring');
+    }).catch(error => {
+      widgetLog(`[GA API SCREEN] Failed to load html2canvas: ${error}`, 'error');
+    });
+    
     initWidget();
     
-    widgetLog('[GA API] ✅ Widget initialization complete - Production GA version (gpt-realtime-mini)');
+    widgetLog('[GA API] ✅ Widget initialization complete - Production GA version 3.1.0 (gpt-realtime-mini + Screen Context)');
   }
   
   // Проверяем, есть ли уже виджет на странице
