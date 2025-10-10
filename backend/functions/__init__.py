@@ -21,9 +21,9 @@ discover_functions()
 # Явно регистрируем query_llm на случай если автоматика не сработает
 try:
     register_function(
-        name="query_llm",
-        function=query_llm,
-        metadata=query_llm_metadata
+        "query_llm",
+        query_llm,
+        query_llm_metadata
     )
     print("[FUNCTIONS] ✅ query_llm зарегистрирована явно")
 except Exception as e:
