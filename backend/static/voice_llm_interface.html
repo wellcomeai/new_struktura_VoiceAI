@@ -33,6 +33,17 @@
             z-index: 1;
         }
 
+        /* Three.js Canvas */
+        #jarvis-three-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0.3;
+        }
+
         /* Main layout */
         .main-container {
             position: relative;
@@ -44,7 +55,7 @@
 
         /* Header */
         .header {
-            background: rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.25);
             backdrop-filter: blur(20px);
             border-bottom: 1px solid rgba(255, 255, 255, 0.3);
             padding: 20px 30px;
@@ -85,6 +96,55 @@
             margin-left: 10px;
             font-weight: 500;
         }
+
+        /* HUD Frames */
+        .hud-frame {
+            position: fixed;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .hud-frame.active {
+            opacity: 1;
+        }
+
+        .hud-frame::before,
+        .hud-frame::after {
+            content: '';
+            position: absolute;
+            background: rgba(102, 126, 234, 0.6);
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+            animation: line-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes line-glow {
+            0%, 100% {
+                box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+                opacity: 0.6;
+            }
+            50% {
+                box-shadow: 0 0 15px rgba(102, 126, 234, 0.7);
+                opacity: 1;
+            }
+        }
+
+        .hud-tl { top: 20px; left: 20px; }
+        .hud-tl::before { width: 60px; height: 2px; top: 0; left: 0; }
+        .hud-tl::after { width: 2px; height: 60px; top: 0; left: 0; }
+
+        .hud-tr { top: 20px; right: 20px; }
+        .hud-tr::before { width: 60px; height: 2px; top: 0; right: 0; }
+        .hud-tr::after { width: 2px; height: 60px; top: 0; right: 0; }
+
+        .hud-bl { bottom: 20px; left: 20px; }
+        .hud-bl::before { width: 60px; height: 2px; bottom: 0; left: 0; }
+        .hud-bl::after { width: 2px; height: 60px; bottom: 0; left: 0; }
+
+        .hud-br { bottom: 20px; right: 20px; }
+        .hud-br::before { width: 60px; height: 2px; bottom: 0; right: 0; }
+        .hud-br::after { width: 2px; height: 60px; bottom: 0; right: 0; }
 
         /* Content layout */
         .content-container {
@@ -296,6 +356,16 @@
             color: #2563eb;
         }
 
+        .voice-status.interrupted {
+            background: rgba(249, 115, 22, 0.15);
+            color: #ea580c;
+        }
+
+        .voice-status.connecting {
+            background: rgba(234, 179, 8, 0.15);
+            color: #ca8a04;
+        }
+
         .status-dot {
             width: 6px;
             height: 6px;
@@ -376,6 +446,15 @@
             animation: pulse-sphere-slow 1.5s ease-in-out infinite;
         }
 
+        .jarvis-sphere.interrupted {
+            background: radial-gradient(circle at 30% 30%, rgba(249, 115, 22, 0.25), transparent 70%);
+            border-color: rgba(249, 115, 22, 0.6);
+            box-shadow: 
+                inset 0 0 40px rgba(249, 115, 22, 0.2),
+                0 0 60px rgba(249, 115, 22, 0.4);
+            animation: pulse-interrupted 0.5s ease-in-out 3;
+        }
+
         @keyframes pulse-sphere {
             0%, 100% {
                 transform: scale(1);
@@ -392,20 +471,25 @@
         }
 
         @keyframes pulse-sphere-fast {
-            0%, 100% {
-                transform: scale(1);
-            }
-            50% {
-                transform: scale(1.08);
-            }
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
         }
 
         @keyframes pulse-sphere-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+
+        @keyframes pulse-interrupted {
             0%, 100% {
-                transform: scale(1);
+                box-shadow: 
+                    inset 0 0 40px rgba(249, 115, 22, 0.2),
+                    0 0 60px rgba(249, 115, 22, 0.4);
             }
             50% {
-                transform: scale(1.03);
+                box-shadow: 
+                    inset 0 0 60px rgba(249, 115, 22, 0.4),
+                    0 0 100px rgba(249, 115, 22, 0.8);
             }
         }
 
@@ -414,6 +498,7 @@
             color: #667eea;
             filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.6));
             transition: all 0.3s ease;
+            z-index: 10;
         }
 
         .jarvis-sphere.listening .jarvis-icon {
@@ -428,6 +513,10 @@
         .jarvis-sphere.processing .jarvis-icon {
             color: #a855f7;
             animation: icon-rotate 2s linear infinite;
+        }
+
+        .jarvis-sphere.interrupted .jarvis-icon {
+            color: #f97316;
         }
 
         @keyframes icon-pulse {
@@ -446,6 +535,7 @@
             width: 100%;
             height: 100%;
             pointer-events: none;
+            z-index: 5;
         }
 
         .viz-bar {
@@ -470,6 +560,11 @@
             box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
         }
 
+        .jarvis-sphere.interrupted .viz-bar {
+            background: linear-gradient(to top, transparent, #f97316, transparent);
+            box-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
+        }
+
         /* Instructions */
         .instructions {
             margin-top: 32px;
@@ -491,6 +586,64 @@
             font-size: 13px;
             color: #5a5a5a;
             line-height: 1.5;
+        }
+
+        /* Loader overlay */
+        .loader-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loader-overlay.active {
+            display: flex;
+        }
+
+        .connection-rings {
+            width: 100px;
+            height: 100px;
+            position: relative;
+        }
+
+        .connection-ring {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 3px solid transparent;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .connection-ring:nth-child(2) {
+            width: 70%;
+            height: 70%;
+            top: 15%;
+            left: 15%;
+            border-top-color: #764ba2;
+            animation-duration: 1s;
+            animation-direction: reverse;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loader-text {
+            color: #667eea;
+            margin-top: 30px;
+            font-size: 16px;
+            font-weight: 500;
+            letter-spacing: 2px;
         }
 
         /* Content formatting */
@@ -552,6 +705,11 @@
         .llm-content strong {
             color: #667eea;
             font-weight: 600;
+        }
+
+        .llm-content em {
+            color: #764ba2;
+            font-style: italic;
         }
 
         .llm-content a {
@@ -669,6 +827,16 @@
                 width: 180px;
                 height: 180px;
             }
+
+            .hud-tl::before, .hud-tr::before,
+            .hud-bl::before, .hud-br::before {
+                width: 40px;
+            }
+
+            .hud-tl::after, .hud-tr::after,
+            .hud-bl::after, .hud-br::after {
+                height: 40px;
+            }
         }
 
         @media (max-width: 768px) {
@@ -692,17 +860,53 @@
                 display: none;
             }
         }
+
+        @media (max-width: 480px) {
+            .jarvis-container {
+                width: 160px;
+                height: 160px;
+            }
+
+            .jarvis-sphere {
+                width: 150px;
+                height: 150px;
+            }
+
+            .jarvis-icon {
+                font-size: 32px;
+            }
+
+            .voice-panel {
+                flex: 0 0 280px;
+            }
+        }
     </style>
 </head>
 <body>
+    <canvas id="jarvis-three-canvas"></canvas>
     <div class="background-overlay"></div>
     
     <div class="main-container">
+        <!-- HUD Frames -->
+        <div class="hud-frame hud-tl" id="hudTL"></div>
+        <div class="hud-frame hud-tr" id="hudTR"></div>
+        <div class="hud-frame hud-bl" id="hudBL"></div>
+        <div class="hud-frame hud-br" id="hudBR"></div>
+
         <!-- Header -->
         <div class="header">
             <div class="logo-icon">🎤</div>
             <div class="logo-text">JARVIS AI</div>
             <div class="header-subtitle">Голосовой ассистент + LLM</div>
+        </div>
+
+        <!-- Loader Overlay -->
+        <div class="loader-overlay" id="loader">
+            <div class="connection-rings">
+                <div class="connection-ring"></div>
+                <div class="connection-ring"></div>
+            </div>
+            <div class="loader-text">ПОДКЛЮЧЕНИЕ...</div>
         </div>
 
         <!-- Content Container -->
@@ -731,9 +935,9 @@
                 <div class="voice-header">
                     <div class="voice-icon">🎤</div>
                     <div class="voice-title">JARVIS</div>
-                    <div class="voice-status connected" id="voiceStatus">
+                    <div class="voice-status connecting" id="voiceStatus">
                         <span class="status-dot"></span>
-                        <span id="statusText">Готов</span>
+                        <span id="statusText">Подключение...</span>
                     </div>
                 </div>
                 <div class="voice-content">
@@ -762,11 +966,22 @@
             'use strict';
 
             const DEBUG_MODE = true;
+            const MAX_RECONNECT_ATTEMPTS = 5;
+            const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
+            const PING_INTERVAL = 15000;
+            const MOBILE_PING_INTERVAL = 10000;
+
             const ASSISTANT_ID = "17c631ce-0db1-4171-a81d-22d91d4cccd7";
             const SERVER_URL = "https://voicyfy.ru";
             
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            const isAndroid = /Android/i.test(navigator.userAgent);
+
+            window.audioInitialized = false;
+            window.globalAudioContext = null;
+            window.globalMicStream = null;
+            window.silentAudioBuffer = null;
 
             const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
 
@@ -777,33 +992,59 @@
             let isPlayingAudio = false;
             let audioChunksBuffer = [];
             let audioPlaybackQueue = [];
+            let reconnectAttempts = 0;
+            let pingInterval = null;
+            let lastPingTime = Date.now();
+            let lastPongTime = Date.now();
+            let isReconnecting = false;
+
+            let hasAudioData = false;
+            let audioDataStartTime = 0;
+            const minimumAudioLength = 300;
+
+            let assistantAudioAnalyzer = null;
+            let assistantAudioSource = null;
+            let assistantVisualizationInterval = null;
+
+            // LLM State
             let isProcessingLLM = false;
             let llmStartTime = 0;
-
-            window.audioInitialized = false;
-            window.globalAudioContext = null;
-            window.globalMicStream = null;
 
             const interruptionState = {
                 is_assistant_speaking: false,
                 is_user_speaking: false,
+                last_speech_start: 0,
+                last_speech_stop: 0,
+                interruption_count: 0,
+                last_interruption_time: 0,
                 current_audio_elements: []
             };
 
             const AUDIO_CONFIG = {
                 silenceThreshold: 0.01,
                 silenceDuration: 300,
+                bufferCheckInterval: 50,
                 soundDetectionThreshold: 0.02,
                 amplificationFactor: isMobile ? 2.0 : 1.0
             };
 
             // DOM Elements
+            const loader = document.getElementById('loader');
             const jarvisSphere = document.getElementById('jarvisSphere');
             const circularViz = document.getElementById('circularViz');
             const llmContent = document.getElementById('llmContent');
             const llmMeta = document.getElementById('llmMeta');
             const voiceStatus = document.getElementById('voiceStatus');
             const statusText = document.getElementById('statusText');
+            const hudFrames = [
+                document.getElementById('hudTL'),
+                document.getElementById('hudTR'),
+                document.getElementById('hudBL'),
+                document.getElementById('hudBR')
+            ];
+
+            let threeScene, threeCamera, threeRenderer, threeParticles;
+            let threeInitialized = false;
 
             function log(message, type = 'info') {
                 if (DEBUG_MODE || type === 'error') {
@@ -818,11 +1059,11 @@
                 }
             }
 
-            log('🚀 JARVIS AI Interface Starting...');
+            log(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
 
             // LLM Functions
-            function showLLMLoading() {
-                log('⏳ Showing LLM loading state');
+            function showLLMLoading(query = 'Processing...') {
+                log(`⏳ Showing LLM loading: ${query}`);
                 llmContent.innerHTML = `
                     <div class="loading-container">
                         <div class="loading">
@@ -863,6 +1104,8 @@
 
             function displayLLMContent(content, model = 'GPT-4') {
                 log('✅ Displaying LLM content');
+                log(`Content length: ${content.length} chars`);
+                
                 const formattedContent = formatMarkdown(content);
                 llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
                 llmMeta.textContent = model;
@@ -874,9 +1117,8 @@
                 voiceStatus.className = `voice-status ${className}`;
             }
 
-            // Event Handlers
             function handleFunctionExecuting(data) {
-                log(`🔧 Function executing: ${data.function}`);
+                log(`🔧 Function executing: ${data.function || 'unknown'}`);
                 
                 if (data.function === 'query_llm') {
                     isProcessingLLM = true;
@@ -885,13 +1127,15 @@
                     jarvisSphere.classList.add('processing');
                     jarvisSphere.classList.remove('listening', 'speaking');
                     
-                    showLLMLoading();
+                    showLLMLoading(data.arguments?.query || 'Processing...');
+                    
                     updateStatus('processing', 'AI анализирует...', 'processing');
                 }
             }
 
             function handleLLMResult(data) {
                 log('✅ LLM Result received');
+                log('Data structure:', JSON.stringify(data, null, 2));
                 
                 const content = data.content 
                     || data.response 
@@ -899,11 +1143,13 @@
                     || data.result?.answer
                     || '';
                 
-                const model = data.model || data.result?.model || 'GPT-4';
+                const model = data.model 
+                    || data.result?.model 
+                    || 'GPT-4';
                 
                 if (!content) {
                     log('⚠️ Empty LLM content', 'warn');
-                    llmContent.innerHTML = '<p style="color: #ef4444;">Ошибка: контент не получен</p>';
+                    llmContent.innerHTML = '<p style="color: #ef4444;">Error: No content received from AI</p>';
                     return;
                 }
                 
@@ -912,7 +1158,7 @@
                 const processingTime = ((Date.now() - llmStartTime) / 1000).toFixed(1);
                 log(`Processing time: ${processingTime}s`);
                 
-                updateStatus('connected', 'Готов к разговору', 'connected');
+                updateStatus('connected', `Анализ завершен (${processingTime}s)`, 'connected');
                 
                 setTimeout(() => {
                     isProcessingLLM = false;
@@ -921,23 +1167,279 @@
             }
 
             function handleFunctionCompleted(data) {
-                log(`✅ Function completed: ${data.function}`);
+                log(`✅ Function completed: ${data.function || 'unknown'}`);
                 
-                if (data.function === 'query_llm' && isProcessingLLM && data.result) {
-                    log('📦 Using fallback from function_call.completed');
-                    
-                    const content = data.result.response || data.result.answer || data.result || '';
-                    const model = data.result.model || 'GPT-4';
-                    
-                    if (content && typeof content === 'string') {
-                        displayLLMContent(content, model);
-                        isProcessingLLM = false;
-                        jarvisSphere.classList.remove('processing');
+                if (data.function === 'query_llm') {
+                    if (isProcessingLLM && data.result) {
+                        log('📦 Using fallback from function_call.completed');
+                        
+                        const content = data.result.response 
+                            || data.result.answer 
+                            || data.result
+                            || '';
+                        
+                        const model = data.result.model || 'GPT-4';
+                        
+                        if (content && typeof content === 'string') {
+                            displayLLMContent(content, model);
+                            isProcessingLLM = false;
+                            jarvisSphere.classList.remove('processing');
+                        }
                     }
+                    
+                    updateStatus('connected', 'Готов к разговору', 'connected');
                 }
             }
 
-            // Visualizer
+            function updateConnectionStatus(status, message) {
+                updateStatus(status, message, status);
+            }
+
+            function handleInterruptionEvent(eventData) {
+                log(`Получено событие перебивания: ${JSON.stringify(eventData)}`);
+                
+                interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
+                interruptionState.last_interruption_time = eventData.timestamp || Date.now();
+                
+                stopAllAudioPlayback();
+                switchToListeningMode();
+                
+                jarvisSphere.classList.remove('speaking', 'listening', 'processing');
+                jarvisSphere.classList.add('interrupted');
+                
+                setTimeout(() => {
+                    jarvisSphere.classList.remove('interrupted');
+                    if (!interruptionState.is_assistant_speaking) {
+                        jarvisSphere.classList.add('listening');
+                    }
+                }, 1000);
+                
+                updateStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`, 'interrupted');
+            }
+
+            function handleSpeechStarted(eventData) {
+                log(`Пользователь начал говорить: ${JSON.stringify(eventData)}`);
+                interruptionState.is_user_speaking = true;
+                interruptionState.last_speech_start = Date.now();
+                
+                if (interruptionState.is_assistant_speaking) {
+                    stopAllAudioPlayback();
+                    jarvisSphere.classList.add('interrupted');
+                    updateStatus('interrupted', 'Перебивание', 'interrupted');
+                }
+                
+                jarvisSphere.classList.remove('speaking', 'processing');
+                jarvisSphere.classList.add('listening');
+            }
+
+            function handleSpeechStopped(eventData) {
+                log(`Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
+                interruptionState.is_user_speaking = false;
+                interruptionState.last_speech_stop = Date.now();
+                
+                setTimeout(() => {
+                    jarvisSphere.classList.remove('interrupted');
+                    if (!interruptionState.is_assistant_speaking && !isProcessingLLM) {
+                        jarvisSphere.classList.remove('listening');
+                    }
+                }, 500);
+            }
+
+            function handleAssistantSpeechStarted(eventData) {
+                log(`Ассистент начал говорить: ${JSON.stringify(eventData)}`);
+                interruptionState.is_assistant_speaking = true;
+                jarvisSphere.classList.remove('listening', 'interrupted', 'processing');
+                jarvisSphere.classList.add('speaking');
+                updateStatus('speaking', 'Ассистент говорит', 'speaking');
+            }
+
+            function handleAssistantSpeechEnded(eventData) {
+                log(`Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
+                interruptionState.is_assistant_speaking = false;
+                jarvisSphere.classList.remove('speaking');
+                stopAssistantVisualization();
+                
+                if (isConnected && !isReconnecting && !isProcessingLLM) {
+                    setTimeout(() => {
+                        if (!isListening && !isPlayingAudio) {
+                            startListening();
+                        }
+                    }, 500);
+                }
+                
+                updateStatus('connected', 'Готов к разговору', 'connected');
+            }
+
+            function stopAllAudioPlayback() {
+                log('Остановка всех аудио воспроизведений');
+                
+                isPlayingAudio = false;
+                interruptionState.is_assistant_speaking = false;
+                
+                stopAssistantVisualization();
+                
+                if (interruptionState.current_audio_elements) {
+                    interruptionState.current_audio_elements.forEach(audio => {
+                        try {
+                            audio.pause();
+                            audio.currentTime = 0;
+                            if (audio.src && audio.src.startsWith('blob:')) {
+                                URL.revokeObjectURL(audio.src);
+                            }
+                        } catch (e) {}
+                    });
+                }
+                
+                interruptionState.current_audio_elements = [];
+                audioPlaybackQueue = [];
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        websocket.send(JSON.stringify({
+                            type: "audio_playback.stopped",
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) {}
+                }
+            }
+
+            function switchToListeningMode() {
+                log('Переключение в режим прослушивания');
+                
+                if (isListening) return;
+                
+                interruptionState.is_user_speaking = true;
+                jarvisSphere.classList.remove('speaking', 'interrupted', 'processing');
+                jarvisSphere.classList.add('listening');
+                
+                if (isConnected && !isReconnecting) {
+                    setTimeout(() => {
+                        if (!isListening && !isPlayingAudio) {
+                            startListening();
+                        }
+                    }, 100);
+                }
+            }
+
+            function createCircleTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                
+                const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 64, 64);
+                
+                const texture = new THREE.Texture(canvas);
+                texture.needsUpdate = true;
+                return texture;
+            }
+
+            function initThreeJS() {
+                try {
+                    const canvas = document.getElementById('jarvis-three-canvas');
+                    if (!canvas) return;
+
+                    threeScene = new THREE.Scene();
+                    threeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+                    threeCamera.position.z = 500;
+
+                    threeRenderer = new THREE.WebGLRenderer({
+                        canvas: canvas,
+                        alpha: true,
+                        antialias: !isMobile
+                    });
+                    threeRenderer.setSize(window.innerWidth, window.innerHeight);
+                    threeRenderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+
+                    const particleCount = isMobile ? 800 : 1500;
+                    const positions = new Float32Array(particleCount * 3);
+                    const colors = new Float32Array(particleCount * 3);
+                    const sizes = new Float32Array(particleCount);
+
+                    const colorPalette = [
+                        new THREE.Color(0x667eea),
+                        new THREE.Color(0x764ba2),
+                        new THREE.Color(0x8b5cf6),
+                        new THREE.Color(0x7c3aed),
+                        new THREE.Color(0x6366f1)
+                    ];
+
+                    for (let i = 0; i < particleCount; i++) {
+                        const i3 = i * 3;
+                        positions[i3] = (Math.random() - 0.5) * 2000;
+                        positions[i3 + 1] = (Math.random() - 0.5) * 2000;
+                        positions[i3 + 2] = (Math.random() - 0.5) * 1500;
+
+                        const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                        colors[i3] = color.r;
+                        colors[i3 + 1] = color.g;
+                        colors[i3 + 2] = color.b;
+
+                        const distance = Math.abs(positions[i3 + 2]);
+                        sizes[i] = (1 - distance / 1500) * 4 + 0.5;
+                    }
+
+                    const particleGeometry = new THREE.BufferGeometry();
+                    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+                    const circleTexture = createCircleTexture();
+
+                    const particleMaterial = new THREE.PointsMaterial({
+                        size: isMobile ? 2 : 3,
+                        vertexColors: true,
+                        transparent: true,
+                        opacity: 0.6,
+                        sizeAttenuation: true,
+                        blending: THREE.AdditiveBlending,
+                        map: circleTexture
+                    });
+
+                    threeParticles = new THREE.Points(particleGeometry, particleMaterial);
+                    threeScene.add(threeParticles);
+
+                    threeInitialized = true;
+                    animateThreeJS();
+
+                } catch (error) {
+                    log(`Ошибка Three.JS: ${error.message}`, 'error');
+                }
+            }
+
+            function animateThreeJS() {
+                if (!threeInitialized) return;
+                requestAnimationFrame(animateThreeJS);
+
+                if (threeParticles) {
+                    threeParticles.rotation.y += 0.0002;
+                    threeParticles.rotation.x += 0.0001;
+
+                    const positions = threeParticles.geometry.attributes.position.array;
+                    for (let i = 0; i < positions.length; i += 3) {
+                        positions[i + 1] += Math.sin(Date.now() * 0.0001 + i) * 0.05;
+                        if (positions[i + 1] > 1000) positions[i + 1] = -1000;
+                        if (positions[i + 1] < -1000) positions[i + 1] = 1000;
+                    }
+                    threeParticles.geometry.attributes.position.needsUpdate = true;
+                }
+
+                threeRenderer.render(threeScene, threeCamera);
+            }
+
+            window.addEventListener('resize', function() {
+                if (!threeInitialized) return;
+                threeCamera.aspect = window.innerWidth / window.innerHeight;
+                threeCamera.updateProjectionMatrix();
+                threeRenderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
             function createCircularVisualizer() {
                 const barCount = isMobile ? 40 : 60;
                 const angleStep = 360 / barCount;
@@ -947,6 +1449,7 @@
                     bar.className = 'viz-bar';
                     bar.style.transform = `rotate(${i * angleStep}deg) translateY(-140px)`;
                     bar.style.height = '20px';
+                    bar.style.setProperty('--bar-height', '20px');
                     circularViz.appendChild(bar);
                 }
             }
@@ -967,15 +1470,65 @@
                     const multiplier = isMobile ? 300 : 200;
                     const height = 20 + Math.min(80, Math.floor(average * multiplier));
                     bars[i].style.height = `${height}px`;
+                    bars[i].style.setProperty('--bar-height', `${height}px`);
                 }
             }
 
             function resetCircularVisualization() {
                 const bars = circularViz.querySelectorAll('.viz-bar');
-                bars.forEach(bar => bar.style.height = '20px');
+                bars.forEach(bar => {
+                    bar.style.height = '20px';
+                    bar.style.setProperty('--bar-height', '20px');
+                });
             }
 
-            // Audio Functions
+            function startAssistantVisualization(audioElement) {
+                if (!window.globalAudioContext || !audioElement) return;
+                
+                try {
+                    if (!assistantAudioSource) {
+                        assistantAudioSource = window.globalAudioContext.createMediaElementSource(audioElement);
+                        assistantAudioAnalyzer = window.globalAudioContext.createAnalyser();
+                        assistantAudioAnalyzer.fftSize = 256;
+                        assistantAudioSource.connect(assistantAudioAnalyzer);
+                        assistantAudioAnalyzer.connect(window.globalAudioContext.destination);
+                    }
+                    
+                    const bufferLength = assistantAudioAnalyzer.frequencyBinCount;
+                    const dataArray = new Uint8Array(bufferLength);
+                    
+                    function updateAssistantViz() {
+                        if (!interruptionState.is_assistant_speaking) {
+                            stopAssistantVisualization();
+                            return;
+                        }
+                        
+                        assistantAudioAnalyzer.getByteTimeDomainData(dataArray);
+                        
+                        const floatData = new Float32Array(bufferLength);
+                        for (let i = 0; i < bufferLength; i++) {
+                            floatData[i] = (dataArray[i] - 128) / 128.0;
+                        }
+                        
+                        updateCircularVisualization(floatData);
+                        assistantVisualizationInterval = requestAnimationFrame(updateAssistantViz);
+                    }
+                    
+                    updateAssistantViz();
+                    
+                } catch (error) {
+                    log(`Ошибка создания визуализации ассистента: ${error.message}`, 'error');
+                }
+            }
+
+            function stopAssistantVisualization() {
+                if (assistantVisualizationInterval) {
+                    cancelAnimationFrame(assistantVisualizationInterval);
+                    assistantVisualizationInterval = null;
+                }
+                resetCircularVisualization();
+            }
+
             function arrayBufferToBase64(buffer) {
                 const bytes = new Uint8Array(buffer);
                 let binary = '';
@@ -1051,14 +1604,16 @@
                             sampleRate: 24000,
                             latencyHint: 'interactive'
                         });
+                        log(`AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
                     }
 
                     if (window.globalAudioContext.state === 'suspended') {
                         await window.globalAudioContext.resume();
+                        log('AudioContext активирован');
                     }
 
                     if (!window.globalMicStream) {
-                        window.globalMicStream = await navigator.mediaDevices.getUserMedia({
+                        const constraints = {
                             audio: {
                                 echoCancellation: true,
                                 noiseSuppression: true,
@@ -1066,11 +1621,38 @@
                                 sampleRate: 24000,
                                 channelCount: 1
                             }
+                        };
+
+                        window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+                        log('Микрофон активирован');
+
+                        window.globalMicStream.getAudioTracks().forEach(track => {
+                            track.onended = () => {
+                                log('Поток микрофона завершен');
+                                window.globalMicStream = null;
+                            };
                         });
                     }
 
+                    if (isIOS && !window.silentAudioBuffer) {
+                        try {
+                            window.silentAudioBuffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
+                            const silentSource = window.globalAudioContext.createBufferSource();
+                            silentSource.buffer = window.silentAudioBuffer;
+                            silentSource.connect(window.globalAudioContext.destination);
+                            silentSource.start(0);
+                            log('iOS: Буфер тишины воспроизведен');
+                        } catch (iosError) {
+                            log(`Ошибка буфера тишины: ${iosError.message}`, 'warn');
+                        }
+                    }
+
+                    if (isMobile && window.globalAudioContext.state !== 'running') {
+                        await window.globalAudioContext.resume();
+                    }
+
                     window.audioInitialized = true;
-                    log('Инициализация аудио завершена');
+                    log('Инициализация аудио завершена успешно');
                     return true;
 
                 } catch (error) {
@@ -1084,10 +1666,12 @@
                     isPlayingAudio = false;
                     interruptionState.is_assistant_speaking = false;
                     jarvisSphere.classList.remove('speaking');
-                    resetCircularVisualization();
+                    stopAssistantVisualization();
                     
                     if (!isProcessingLLM) {
-                        setTimeout(() => startListening(), 400);
+                        setTimeout(() => {
+                            startListening();
+                        }, 400);
                     }
                     return;
                 }
@@ -1096,7 +1680,6 @@
                 interruptionState.is_assistant_speaking = true;
                 jarvisSphere.classList.add('speaking');
                 jarvisSphere.classList.remove('listening', 'processing');
-                updateStatus('speaking', 'Говорю...', 'speaking');
                 
                 const audioBase64 = audioPlaybackQueue.shift();
                 
@@ -1112,13 +1695,50 @@
                     const audioUrl = URL.createObjectURL(blob);
                     
                     const audio = new Audio();
-                    audio.src = audioUrl;
                     audio.playsInline = true;
+                    audio.muted = false;
+                    audio.volume = 1.0;
+                    audio.preload = 'auto';
+                    audio.src = audioUrl;
+                    audio.crossOrigin = 'anonymous';
                     
+                    interruptionState.current_audio_elements = interruptionState.current_audio_elements || [];
                     interruptionState.current_audio_elements.push(audio);
+                    
+                    audio.oncanplay = function() {
+                        if (!interruptionState.is_assistant_speaking) {
+                            URL.revokeObjectURL(audioUrl);
+                            playNextAudio();
+                            return;
+                        }
+                        
+                        if (isIOS && window.globalAudioContext && window.globalAudioContext.state === 'suspended') {
+                            window.globalAudioContext.resume().then(() => {
+                                audio.play().then(() => {
+                                    startAssistantVisualization(audio);
+                                }).catch(err => {
+                                    log(`Ошибка воспроизведения: ${err.message}`, 'error');
+                                    URL.revokeObjectURL(audioUrl);
+                                    playNextAudio();
+                                });
+                            });
+                        } else {
+                            audio.play().then(() => {
+                                startAssistantVisualization(audio);
+                            }).catch(err => {
+                                log(`Ошибка воспроизведения: ${err.message}`, 'error');
+                                URL.revokeObjectURL(audioUrl);
+                                playNextAudio();
+                            });
+                        }
+                    };
                     
                     audio.onended = function() {
                         URL.revokeObjectURL(audioUrl);
+                        const index = interruptionState.current_audio_elements.indexOf(audio);
+                        if (index > -1) {
+                            interruptionState.current_audio_elements.splice(index, 1);
+                        }
                         playNextAudio();
                     };
                     
@@ -1127,44 +1747,96 @@
                         playNextAudio();
                     };
                     
-                    audio.play();
+                    audio.load();
                     
                 } catch (error) {
-                    log(`Ошибка воспроизведения: ${error.message}`, 'error');
+                    log(`Ошибка создания аудио: ${error.message}`, 'error');
                     playNextAudio();
                 }
             }
 
             function addAudioToPlaybackQueue(audioBase64) {
                 if (!audioBase64 || typeof audioBase64 !== 'string') return;
+                
                 audioPlaybackQueue.push(audioBase64);
-                if (!isPlayingAudio) playNextAudio();
+                
+                if (!isPlayingAudio) {
+                    playNextAudio();
+                }
             }
 
             async function startListening() {
-                if (!isConnected || isPlayingAudio || isListening || isProcessingLLM) return;
+                if (!isConnected || isPlayingAudio || isReconnecting || isListening || isProcessingLLM) {
+                    log(`Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}, isProcessingLLM=${isProcessingLLM}`);
+                    return;
+                }
                 
-                if (!window.audioInitialized) {
+                if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
+                    log('Аудио не инициализировано', 'warn');
                     const success = await initializeAudio();
-                    if (!success) return;
+                    if (!success) {
+                        log('Не удалось инициализировать аудио', 'error');
+                        return;
+                    }
                 }
                 
                 isListening = true;
                 log('Начинаем прослушивание');
                 
-                jarvisSphere.classList.add('listening');
-                jarvisSphere.classList.remove('speaking', 'processing');
-                updateStatus('connected', 'Слушаю...', 'connected');
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({
+                        type: "input_audio_buffer.clear",
+                        event_id: `clear_${Date.now()}`
+                    }));
+                }
                 
-                if (!audioProcessor && window.globalAudioContext && window.globalMicStream) {
+                if (window.globalAudioContext.state === 'suspended') {
+                    try {
+                        await window.globalAudioContext.resume();
+                    } catch (error) {
+                        log(`Не удалось возобновить AudioContext: ${error}`, 'error');
+                        isListening = false;
+                        return;
+                    }
+                }
+                
+                if (!audioProcessor) {
                     const bufferSize = 2048;
                     audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
                     
+                    let isSilent = true;
+                    let silenceStartTime = Date.now();
+                    let lastCommitTime = 0;
+                    let hasSentAudioInCurrentSegment = false;
+                    
                     audioProcessor.onaudioprocess = function(e) {
-                        if (isListening && websocket && websocket.readyState === WebSocket.OPEN) {
+                        if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
                             const inputBuffer = e.inputBuffer;
                             let inputData = inputBuffer.getChannelData(0);
                             
+                            if (inputData.length === 0) return;
+                            
+                            let maxAmplitude = 0;
+                            for (let i = 0; i < inputData.length; i++) {
+                                maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+                            }
+                            
+                            if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
+                                const amplifiedData = new Float32Array(inputData.length);
+                                const gainFactor = AUDIO_CONFIG.amplificationFactor;
+                                
+                                for (let i = 0; i < inputData.length; i++) {
+                                    amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gainFactor));
+                                }
+                                
+                                inputData = amplifiedData;
+                                maxAmplitude = 0;
+                                for (let i = 0; i < inputData.length; i++) {
+                                    maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+                                }
+                            }
+                            
+                            const hasSound = maxAmplitude > AUDIO_CONFIG.soundDetectionThreshold;
                             updateCircularVisualization(inputData);
                             
                             const pcm16Data = new Int16Array(inputData.length);
@@ -1173,13 +1845,52 @@
                             }
                             
                             try {
-                                websocket.send(JSON.stringify({
+                                const message = JSON.stringify({
                                     type: "input_audio_buffer.append",
                                     event_id: `audio_${Date.now()}`,
                                     audio: arrayBufferToBase64(pcm16Data.buffer)
-                                }));
+                                });
+                                
+                                websocket.send(message);
+                                hasSentAudioInCurrentSegment = true;
+                                
+                                if (!hasAudioData && hasSound) {
+                                    hasAudioData = true;
+                                    audioDataStartTime = Date.now();
+                                    log("Начало записи аудиоданных");
+                                }
+                                
                             } catch (error) {
                                 log(`Ошибка отправки аудио: ${error.message}`, "error");
+                            }
+                            
+                            const now = Date.now();
+                            
+                            if (hasSound) {
+                                isSilent = false;
+                                silenceStartTime = now;
+                                
+                                if (!jarvisSphere.classList.contains('listening') && 
+                                    !jarvisSphere.classList.contains('speaking') &&
+                                    !jarvisSphere.classList.contains('processing')) {
+                                    jarvisSphere.classList.add('listening');
+                                }
+                            } else if (!isSilent) {
+                                const silenceDuration = now - silenceStartTime;
+                                
+                                if (silenceDuration > AUDIO_CONFIG.silenceDuration) {
+                                    isSilent = true;
+                                    
+                                    if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
+                                        setTimeout(() => {
+                                            if (isSilent && isListening && !isReconnecting) {
+                                                commitAudioBuffer();
+                                                lastCommitTime = Date.now();
+                                                hasSentAudioInCurrentSegment = false;
+                                            }
+                                        }, 100);
+                                    }
+                                }
                             }
                         }
                     };
@@ -1192,12 +1903,74 @@
                     audioProcessor.connect(gainNode);
                     gainNode.connect(window.globalAudioContext.destination);
                 }
+                
+                hasAudioData = false;
+                audioDataStartTime = 0;
+                
+                if (!isPlayingAudio && !isProcessingLLM) {
+                    jarvisSphere.classList.add('listening');
+                    jarvisSphere.classList.remove('speaking', 'processing');
+                }
+                
+                log("Прослушивание начато успешно");
+            }
+
+            function commitAudioBuffer() {
+                if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
+                
+                if (!hasAudioData) {
+                    return;
+                }
+                
+                const audioLength = Date.now() - audioDataStartTime;
+                if (audioLength < minimumAudioLength) {
+                    setTimeout(() => {
+                        if (isListening && hasAudioData && !isReconnecting) {
+                            sendCommitBuffer();
+                        }
+                    }, minimumAudioLength - audioLength + 50);
+                    return;
+                }
+                
+                sendCommitBuffer();
+            }
+            
+            function sendCommitBuffer() {
+                const audioLength = Date.now() - audioDataStartTime;
+                if (audioLength < 100) {
+                    hasAudioData = false;
+                    audioDataStartTime = 0;
+                    return;
+                }
+                
+                jarvisSphere.classList.remove('listening');
+                
+                websocket.send(JSON.stringify({
+                    type: "input_audio_buffer.commit",
+                    event_id: `commit_${Date.now()}`
+                }));
+                
+                hasAudioData = false;
+                audioDataStartTime = 0;
             }
 
             async function connectWebSocket() {
                 try {
-                    log('Подключение к WebSocket...');
-                    updateStatus('connecting', 'Подключение...', 'processing');
+                    loader.classList.add('active');
+                    log('Подключение...');
+                    
+                    isReconnecting = true;
+                    
+                    if (websocket) {
+                        try {
+                            websocket.close();
+                        } catch (e) {}
+                    }
+                    
+                    if (pingInterval) {
+                        clearInterval(pingInterval);
+                        pingInterval = null;
+                    }
                     
                     websocket = new WebSocket(WS_URL);
                     websocket.binaryType = 'arraybuffer';
@@ -1205,94 +1978,207 @@
                     websocket.onopen = function() {
                         log('WebSocket подключен');
                         isConnected = true;
+                        isReconnecting = false;
+                        reconnectAttempts = 0;
+                        loader.classList.remove('active');
+                        
+                        hudFrames.forEach(frame => frame.classList.add('active'));
                         updateStatus('connected', 'Готов', 'connected');
                         
-                        setTimeout(() => startListening(), 500);
+                        setTimeout(() => {
+                            startListening();
+                        }, 500);
+                        
+                        const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
+                        pingInterval = setInterval(() => {
+                            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                                websocket.send(JSON.stringify({ type: "ping" }));
+                            }
+                        }, pingIntervalTime);
                     };
                     
                     websocket.onmessage = function(event) {
                         try {
                             if (event.data instanceof Blob || !event.data) return;
 
-                            const data = JSON.parse(event.data);
-                            
-                            if (data.type === 'function_call.executing') {
-                                handleFunctionExecuting(data);
-                                return;
-                            }
-                            
-                            if (data.type === 'llm_result') {
-                                handleLLMResult(data);
-                                return;
-                            }
-                            
-                            if (data.type === 'function_call.completed') {
-                                handleFunctionCompleted(data);
-                                return;
-                            }
-                            
-                            if (data.type === 'response.audio.delta') {
-                                if (data.delta) audioChunksBuffer.push(data.delta);
-                                return;
-                            }
-                            
-                            if (data.type === 'response.audio.done') {
-                                if (audioChunksBuffer.length > 0) {
-                                    const fullAudio = audioChunksBuffer.join('');
-                                    addAudioToPlaybackQueue(fullAudio);
-                                    audioChunksBuffer = [];
+                            try {
+                                const data = JSON.parse(event.data);
+                                lastPongTime = Date.now();
+                                
+                                // LLM Event Handlers
+                                if (data.type === 'function_call.executing') {
+                                    handleFunctionExecuting(data);
+                                    return;
                                 }
-                                return;
-                            }
-                            
-                            if (data.type === 'response.done') {
-                                if (!isPlayingAudio && !isProcessingLLM) {
-                                    setTimeout(() => startListening(), 400);
+                                
+                                if (data.type === 'llm_result') {
+                                    handleLLMResult(data);
+                                    return;
                                 }
-                                return;
+                                
+                                if (data.type === 'function_call.completed') {
+                                    handleFunctionCompleted(data);
+                                    return;
+                                }
+                                
+                                // Original event handlers
+                                if (data.type === 'conversation.interrupted') {
+                                    handleInterruptionEvent(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'speech.started') {
+                                    handleSpeechStarted(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'speech.stopped') {
+                                    handleSpeechStopped(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'assistant.speech.started') {
+                                    handleAssistantSpeechStarted(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'assistant.speech.ended') {
+                                    handleAssistantSpeechEnded(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.cancelled') {
+                                    log('Ответ отменен');
+                                    stopAllAudioPlayback();
+                                    jarvisSphere.classList.remove('speaking', 'processing');
+                                    jarvisSphere.classList.add('interrupted');
+                                    
+                                    setTimeout(() => {
+                                        jarvisSphere.classList.remove('interrupted');
+                                        if (!interruptionState.is_assistant_speaking && !isProcessingLLM) {
+                                            switchToListeningMode();
+                                        }
+                                    }, 500);
+                                    return;
+                                }
+                                
+                                if (data.type === 'error') {
+                                    if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
+                                        if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                                            setTimeout(() => { 
+                                                startListening(); 
+                                            }, 500);
+                                        }
+                                        return;
+                                    }
+                                    
+                                    log(`Ошибка API: ${JSON.stringify(data.error)}`, 'error');
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.audio.delta') {
+                                    if (data.delta) {
+                                        audioChunksBuffer.push(data.delta);
+                                    }
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.audio.done') {
+                                    if (audioChunksBuffer.length > 0) {
+                                        const fullAudio = audioChunksBuffer.join('');
+                                        addAudioToPlaybackQueue(fullAudio);
+                                        audioChunksBuffer = [];
+                                    }
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.done') {
+                                    if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                                        setTimeout(() => {
+                                            startListening();
+                                        }, 400);
+                                    }
+                                    return;
+                                }
+                                
+                            } catch (parseError) {
+                                if (event.data === 'pong') {
+                                    lastPongTime = Date.now();
+                                    return;
+                                }
                             }
-                            
-                        } catch (parseError) {
-                            // Ignore
+                        } catch (generalError) {
+                            log(`Ошибка обработки: ${generalError.message}`, "error");
+                        }
+                    };
+                    
+                    websocket.onclose = function(event) {
+                        log(`WebSocket закрыт: ${event.code}`);
+                        isConnected = false;
+                        isListening = false;
+                        
+                        if (pingInterval) {
+                            clearInterval(pingInterval);
+                            pingInterval = null;
+                        }
+                        
+                        if (event.code === 1000 || event.code === 1001) {
+                            return;
+                        }
+                        
+                        const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+                        if (reconnectAttempts < maxAttempts) {
+                            reconnectAttempts++;
+                            const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
+                            log(`Переподключение через ${delay}ms (попытка ${reconnectAttempts}/${maxAttempts})`);
+                            updateStatus('connecting', 'Переподключение...', 'connecting');
+                            setTimeout(() => {
+                                connectWebSocket();
+                            }, delay);
+                        } else {
+                            log('Достигнут лимит попыток переподключения', 'error');
+                            updateStatus('connecting', 'Ошибка подключения', 'connecting');
                         }
                     };
                     
                     websocket.onerror = function(error) {
                         log(`WebSocket ошибка: ${error}`, 'error');
-                        updateStatus('disconnected', 'Ошибка', 'connected');
                     };
                     
-                    websocket.onclose = function() {
-                        log('WebSocket закрыт');
-                        isConnected = false;
-                        isListening = false;
-                        updateStatus('disconnected', 'Отключено', 'connected');
-                    };
+                    return true;
                     
                 } catch (error) {
                     log(`Ошибка подключения: ${error}`, 'error');
+                    isReconnecting = false;
+                    return false;
                 }
             }
 
             // Click handler
             jarvisSphere.addEventListener('click', async function() {
                 if (!window.audioInitialized) {
+                    log('Инициализация аудио по клику');
                     const success = await initializeAudio();
-                    if (!success) return;
+                    if (!success) {
+                        return;
+                    }
                 }
                 
-                if (!isConnected) {
-                    connectWebSocket();
-                } else if (!isListening && !isPlayingAudio && !isProcessingLLM) {
-                    startListening();
+                if (!isListening && !isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                    if (isConnected) {
+                        startListening();
+                    } else {
+                        connectWebSocket();
+                    }
                 }
             });
 
             // Initialize
-            window.addEventListener('load', function() {
-                log('✅ JARVIS AI Interface loaded');
+            window.addEventListener('load', async function() {
+                log('🚀 JARVIS AI Interface Starting...');
                 createCircularVisualizer();
-                connectWebSocket();
+                initThreeJS();
+                await connectWebSocket();
             });
 
         })();
