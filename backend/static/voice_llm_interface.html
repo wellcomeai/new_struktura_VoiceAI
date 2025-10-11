@@ -1135,15 +1135,34 @@
 
             function handleLLMResult(data) {
                 log('✅ LLM Result received');
-                log('Data structure:', JSON.stringify(data, null, 2));
                 console.log('🔍 RAW DATA:', data);
                 
-                const content = data.full_response
-                    || data.result?.full_response
-                    || data.response 
-                    || data.result?.response 
-                    || data.result?.answer
-                    || '';
+                let content = '';
+                
+                // Парсим content если это строка с Python dict
+                if (typeof data.content === 'string') {
+                    try {
+                        // Заменяем одинарные кавычки на двойные для валидного JSON
+                        const jsonStr = data.content.replace(/'/g, '"');
+                        const parsed = JSON.parse(jsonStr);
+                        content = parsed.full_response || '';
+                        log(`✅ Parsed content from string: ${content.length} chars`);
+                    } catch (e) {
+                        log(`⚠️ Failed to parse content as JSON: ${e.message}`, 'warn');
+                        // Fallback: может быть это уже просто текст
+                        content = data.content;
+                    }
+                }
+                
+                // Fallback варианты если парсинг не сработал
+                if (!content) {
+                    content = data.full_response
+                        || data.result?.full_response
+                        || data.response 
+                        || data.result?.response 
+                        || data.result?.answer
+                        || '';
+                }
                 
                 const model = data.model 
                     || data.result?.model 
@@ -1175,12 +1194,25 @@
                     if (isProcessingLLM && data.result) {
                         log('📦 Using fallback from function_call.completed');
                         
-                        const content = data.result.response 
-                            || data.result.answer 
-                            || data.result
-                            || '';
+                        let content = '';
                         
-                        const model = data.result.model || 'GPT-4';
+                        // Парсим result если это строка
+                        if (typeof data.result === 'string') {
+                            try {
+                                const jsonStr = data.result.replace(/'/g, '"');
+                                const parsed = JSON.parse(jsonStr);
+                                content = parsed.full_response || '';
+                            } catch (e) {
+                                content = data.result;
+                            }
+                        } else {
+                            content = data.result?.full_response
+                                || data.result?.response 
+                                || data.result?.answer 
+                                || '';
+                        }
+                        
+                        const model = data.result?.model || 'GPT-4';
                         
                         if (content && typeof content === 'string') {
                             displayLLMContent(content, model);
