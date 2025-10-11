@@ -1136,6 +1136,7 @@
             function handleLLMResult(data) {
                 log('✅ LLM Result received');
                 log('Data structure:', JSON.stringify(data, null, 2));
+                console.log('🔍 RAW DATA:', data);
                 
                 const content = data.full_response
                     || data.result?.full_response
