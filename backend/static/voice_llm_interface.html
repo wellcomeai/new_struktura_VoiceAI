@@ -1137,7 +1137,8 @@
                 log('✅ LLM Result received');
                 log('Data structure:', JSON.stringify(data, null, 2));
                 
-                const content = data.full_response 
+                const content = data.full_response
+                    || data.result?.full_response
                     || data.response 
                     || data.result?.response 
                     || data.result?.answer
