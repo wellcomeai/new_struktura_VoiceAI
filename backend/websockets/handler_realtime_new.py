@@ -1,10 +1,11 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 PRODUCTION VERSION 2.0 - OpenAI Realtime API Handler
+🚀 PRODUCTION VERSION 2.1 - OpenAI Realtime API Handler
 ✅ Fixed: Function name detection from multiple sources
 ✅ Enhanced: Maximum logging for debugging
 ✅ Fixed: conversation.item.created tracking
 ✅ Added: Silent screen context handling
+✅ NEW: LLM result display for query_llm function
 ✅ Ready for production deployment
 """
 
@@ -68,7 +69,7 @@ async def handle_websocket_connection_new(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v2.0 - Main WebSocket handler with enhanced logging
+    🚀 PRODUCTION v2.1 - Main WebSocket handler with enhanced logging
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -232,7 +233,7 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Realtime API (Production v2.0)",
+            "message": "Connected to Realtime API (Production v2.1)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
@@ -469,9 +470,10 @@ async def handle_openai_messages_new(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v2.0 - Handle messages from OpenAI
+    🚀 PRODUCTION v2.1 - Handle messages from OpenAI
     ✅ FIXED: Multiple sources for function name detection
     ✅ ENHANCED: Maximum logging for debugging
+    ✅ NEW: LLM result display for query_llm function
     """
     if not openai_client.is_connected or not openai_client.ws:
         log_to_render(f"❌ OpenAI client not connected", "ERROR")
@@ -683,7 +685,7 @@ async def handle_openai_messages_new(
                         "type": "response.text.done"
                     })
                 
-                # 🚀 PRODUCTION v2.0: Enhanced function execution
+                # 🚀 PRODUCTION v2.1: Enhanced function execution
                 if msg_type == "response.function_call.started":
                     function_name = response_data.get("function_name") or response_data.get("name")
                     function_call_id = response_data.get("call_id")
@@ -923,6 +925,36 @@ async def handle_openai_messages_new(
                         log_to_render(f"   Result type: {type(result)}")
                         log_to_render(f"   Result preview: {str(result)[:300]}...")
                         log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        
+                        # 🆕 v2.1 FIX: Send llm_result for query_llm function
+                        if normalized_name == "query_llm":
+                            log_to_render(f"🎯 QUERY_LLM detected - sending llm_result to frontend")
+                            
+                            # Extract response content from result
+                            llm_response_content = ""
+                            llm_model = "gpt-4"
+                            
+                            if isinstance(result, dict):
+                                llm_response_content = result.get("response", result.get("answer", str(result)))
+                                llm_model = result.get("model", "gpt-4")
+                            else:
+                                llm_response_content = str(result)
+                            
+                            log_to_render(f"📤 Sending llm_result event:")
+                            log_to_render(f"   Content length: {len(llm_response_content)}")
+                            log_to_render(f"   Model: {llm_model}")
+                            
+                            # Send llm_result to frontend for display in left panel
+                            await websocket.send_json({
+                                "type": "llm_result",
+                                "content": llm_response_content,
+                                "model": llm_model,
+                                "function": normalized_name,
+                                "execution_time": execution_time,
+                                "timestamp": time.time()
+                            })
+                            
+                            log_to_render(f"✅ llm_result sent to frontend for display")
                         
                         # 🚀 PRODUCTION: Immediate logging
                         log_to_render(f"💾 STARTING IMMEDIATE LOGGING")
