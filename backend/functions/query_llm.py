@@ -132,29 +132,16 @@ class QueryLLMFunction(FunctionBase):
             llm_result = response.choices[0].message.content
             
             logger.info(f"[QUERY_LLM] LLM response received: {len(llm_result)} characters")
+            logger.info(f"[QUERY_LLM] Preparing result for handler (no direct WebSocket send)")
             
-            # Отправляем результат на фронтенд через WebSocket
-            websocket = context.get("websocket") if context else None
-            if websocket:
-                try:
-                    await websocket.send_json({
-                        "type": "llm_result",
-                        "content": llm_result,
-                        "prompt": prompt,
-                        "model": model,
-                        "timestamp": asyncio.get_event_loop().time()
-                    })
-                    logger.info(f"[QUERY_LLM] Result sent to frontend via WebSocket")
-                except Exception as ws_error:
-                    logger.error(f"[QUERY_LLM] WebSocket send error: {ws_error}")
-            
-            # Возвращаем краткий ответ для голосового агента
+            # Возвращаем результат для обработки в handler_realtime_new.py
+            # WebSocket отправку делает handler, а не функция (избегаем дублирования)
             return {
                 "result": f"Запрос выполнен! Развернутый ответ выведен на экран слева. Обработано {len(llm_result)} символов.",
                 "status": "success",
                 "model_used": model,
                 "response_length": len(llm_result),
-                "full_response": llm_result  # Добавляем полный ответ для логирования
+                "full_response": llm_result  # handler_realtime_new.py будет отправлять это на фронтенд
             }
             
         except Exception as e:
