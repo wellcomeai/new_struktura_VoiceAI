@@ -40,7 +40,7 @@ class QueryLLMFunction(FunctionBase):
                 "model": {
                     "type": "string", 
                     "description": "Модель для использования (gpt-4, gpt-3.5-turbo)",
-                    "default": "gpt-4"
+                    "default": "gpt-4-mini"
                 }
             },
             "required": ["prompt"]
