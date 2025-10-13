@@ -1102,7 +1102,7 @@
                     .replace(/<\/ul><ul>/g, '');
             }
 
-            function displayLLMContent(content, model = 'GPT-4') {
+            function displayLLMContent(content, model = 'GPT-4o-mini') {
                 log('✅ Displaying LLM content');
                 log(`Content length: ${content.length} chars`);
                 
@@ -1135,38 +1135,44 @@
 
             function handleLLMResult(data) {
                 log('✅ LLM Result received');
-                console.log('🔍 RAW DATA:', data);
+                console.log('🔍 RAW DATA FULL:', JSON.stringify(data, null, 2));
                 
                 let content = '';
                 
-                // Парсим content если это строка с Python dict
-                if (typeof data.content === 'string') {
+                // Вариант 1: data.content - это готовый текст
+                if (typeof data.content === 'string' && !data.content.startsWith('{')) {
+                    content = data.content;
+                    log(`✅ Content is plain text: ${content.length} chars`);
+                }
+                // Вариант 2: data.content - это JSON-строка
+                else if (typeof data.content === 'string') {
                     try {
-                        // Заменяем одинарные кавычки на двойные для валидного JSON
+                        // Пробуем парсить как JSON (с заменой ' на ")
                         const jsonStr = data.content.replace(/'/g, '"');
                         const parsed = JSON.parse(jsonStr);
-                        content = parsed.full_response || '';
-                        log(`✅ Parsed content from string: ${content.length} chars`);
+                        content = parsed.full_response || parsed.response || parsed.answer || '';
+                        log(`✅ Parsed content from JSON string: ${content.length} chars`);
                     } catch (e) {
-                        log(`⚠️ Failed to parse content as JSON: ${e.message}`, 'warn');
-                        // Fallback: может быть это уже просто текст
+                        log(`⚠️ Failed to parse as JSON, using as plain text`, 'warn');
                         content = data.content;
                     }
                 }
+                // Вариант 3: data уже объект с full_response
+                else if (data.full_response) {
+                    content = data.full_response;
+                    log(`✅ Direct full_response: ${content.length} chars`);
+                }
                 
-                // Fallback варианты если парсинг не сработал
+                // Fallback варианты
                 if (!content) {
-                    content = data.full_response
-                        || data.result?.full_response
+                    content = data.result?.full_response
                         || data.response 
                         || data.result?.response 
                         || data.result?.answer
                         || '';
                 }
                 
-                const model = data.model 
-                    || data.result?.model 
-                    || 'GPT-4';
+                const model = data.model || data.result?.model || 'GPT-4o-mini';
                 
                 if (!content) {
                     log('⚠️ Empty LLM content', 'warn');
@@ -1190,37 +1196,8 @@
             function handleFunctionCompleted(data) {
                 log(`✅ Function completed: ${data.function || 'unknown'}`);
                 
+                // Только обновление статуса, БЕЗ обработки query_llm
                 if (data.function === 'query_llm') {
-                    if (isProcessingLLM && data.result) {
-                        log('📦 Using fallback from function_call.completed');
-                        
-                        let content = '';
-                        
-                        // Парсим result если это строка
-                        if (typeof data.result === 'string') {
-                            try {
-                                const jsonStr = data.result.replace(/'/g, '"');
-                                const parsed = JSON.parse(jsonStr);
-                                content = parsed.full_response || '';
-                            } catch (e) {
-                                content = data.result;
-                            }
-                        } else {
-                            content = data.result?.full_response
-                                || data.result?.response 
-                                || data.result?.answer 
-                                || '';
-                        }
-                        
-                        const model = data.result?.model || 'GPT-4';
-                        
-                        if (content && typeof content === 'string') {
-                            displayLLMContent(content, model);
-                            isProcessingLLM = false;
-                            jarvisSphere.classList.remove('processing');
-                        }
-                    }
-                    
                     updateStatus('connected', 'Готов к разговору', 'connected');
                 }
             }
