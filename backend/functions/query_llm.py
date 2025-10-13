@@ -60,7 +60,7 @@ class QueryLLMFunction(FunctionBase):
         """
         try:
             prompt = arguments.get("prompt")
-            model = arguments.get("model", "gpt-4")
+            model = arguments.get("model", "gpt-4o-mini")
             
             if not prompt:
                 error_msg = "Prompt is required"
