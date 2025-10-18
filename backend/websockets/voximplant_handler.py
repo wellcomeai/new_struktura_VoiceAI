@@ -21,7 +21,7 @@ from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.user import User
 from backend.models.conversation import Conversation
-from backend.websockets.openai_client import OpenAIRealtimeClient
+from backend.websockets.openai_client_new import OpenAIRealtimeClientNew
 from backend.utils.audio_utils import base64_to_audio_buffer
 from backend.services.user_service import UserService
 from backend.services.google_sheets_service import GoogleSheetsService
