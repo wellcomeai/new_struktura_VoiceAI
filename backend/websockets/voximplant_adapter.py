@@ -135,7 +135,7 @@ class VoximplantAdapter:
             
             # Запускаем обработчик ассистента в отдельной задаче
             assistant_task = asyncio.create_task(
-                handle_websocket_connection(self.server_ws, self.assistant_id, self.db)
+                handle_websocket_connection_new(self.server_ws, self.assistant_id, self.db)
             )
             self.background_tasks.append(assistant_task)
             
