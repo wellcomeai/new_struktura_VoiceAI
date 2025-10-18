@@ -43,7 +43,7 @@ class VoximplantProtocolHandler:
         self.client_id = str(uuid.uuid4())
         
         # OpenAI клиент
-        self.openai_client: Optional[OpenAIRealtimeClient] = None
+        self.openai_client: Optional[OpenAIRealtimeClientNew] = None
         
         # Состояние соединения
         self.is_connected = False
