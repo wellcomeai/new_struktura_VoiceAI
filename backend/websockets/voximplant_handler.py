@@ -108,7 +108,7 @@ class VoximplantProtocolHandler:
                 return
             
             # Создаем и подключаем OpenAI клиент
-            self.openai_client = OpenAIRealtimeClient(
+            self.openai_client = OpenAIRealtimeClientNew(
                 api_key=api_key,
                 assistant_config=assistant,
                 client_id=self.client_id,
