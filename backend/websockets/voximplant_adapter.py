@@ -131,7 +131,7 @@ class VoximplantAdapter:
             self.server_ws, self.assistant_ws = self.create_websocket_pair()
             
             # Импортируем обработчик здесь, чтобы избежать циклических импортов
-            from backend.websockets.handler import handle_websocket_connection
+            from backend.websockets.handler_realtime_new import handle_websocket_connection_new
             
             # Запускаем обработчик ассистента в отдельной задаче
             assistant_task = asyncio.create_task(
