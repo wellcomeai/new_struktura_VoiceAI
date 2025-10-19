@@ -2,6 +2,7 @@
 """
 🔍 ENHANCED LOGGING VERSION - Google Sheets service
 Maximum logging for debugging and monitoring
+✅ v2.0: Added Conversation ID tracking
 """
 
 import os
@@ -66,7 +67,7 @@ except Exception as e:
     SERVICE_ACCOUNT_INFO = {}
 
 class GoogleSheetsService:
-    """Service for Google Sheets with enhanced logging"""
+    """Service for Google Sheets with enhanced logging and Conversation ID tracking"""
     
     _service = None
     
@@ -130,10 +131,21 @@ class GoogleSheetsService:
         sheet_id: str,
         user_message: str,
         assistant_message: str,
-        function_result: Optional[Dict[str, Any]] = None
+        function_result: Optional[Dict[str, Any]] = None,
+        conversation_id: Optional[str] = None  # 🆕 v2.0: Added conversation ID
     ) -> bool:
         """
         Log conversation to Google Sheets with detailed logging
+        
+        Args:
+            sheet_id: Google Sheet ID
+            user_message: User's message
+            assistant_message: Assistant's response
+            function_result: Optional function execution result
+            conversation_id: Optional unique conversation identifier (UUID)
+        
+        Returns:
+            bool: Success status
         """
         if not sheet_id:
             log_sheets("⚠️ No sheet ID provided", "WARNING")
@@ -141,8 +153,10 @@ class GoogleSheetsService:
         
         try:
             log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            log_sheets("📊 STARTING GOOGLE SHEETS LOGGING")
+            log_sheets("📊 STARTING GOOGLE SHEETS LOGGING v2.0")
             log_sheets(f"   Sheet ID: {sheet_id}")
+            if conversation_id:
+                log_sheets(f"   Conversation ID: {conversation_id}")
             log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             # Validate messages
@@ -177,8 +191,13 @@ class GoogleSheetsService:
             else:
                 log_sheets("🔧 No function result")
             
-            # Prepare data
-            values = [[now, user_message, assistant_message, function_text]]
+            # 🆕 v2.0: Add conversation ID to data
+            conversation_id_str = conversation_id or ""
+            if conversation_id_str:
+                log_sheets(f"🔑 Conversation ID: {conversation_id_str}")
+            
+            # Prepare data (5 columns now)
+            values = [[now, user_message, assistant_message, function_text, conversation_id_str]]
             log_sheets(f"📋 Data prepared: {len(values[0])} columns")
             
             # Execute in thread pool
@@ -206,12 +225,12 @@ class GoogleSheetsService:
                     body = {'values': values}
                     log_sheets(f"📦 Request body prepared")
                     
-                    # Send request
+                    # Send request (updated range to A:E for 5 columns)
                     try:
                         log_sheets(f"📤 Sending append request to sheet: {sheet_id}")
                         result = service.spreadsheets().values().append(
                             spreadsheetId=sheet_id,
-                            range='A:D',
+                            range='A:E',  # 🆕 v2.0: Changed from A:D to A:E
                             valueInputOption='RAW',
                             insertDataOption='INSERT_ROWS',
                             body=body
@@ -268,6 +287,8 @@ class GoogleSheetsService:
                     log_sheets(f"   User: {user_message[:100]}...", "WARNING")
                     log_sheets(f"   Assistant: {assistant_message[:100]}...", "WARNING")
                     log_sheets(f"   Function: {function_text[:100]}...", "WARNING")
+                    if conversation_id_str:
+                        log_sheets(f"   Conversation ID: {conversation_id_str}", "WARNING")
                     
                     return False
             except Exception as e:
@@ -376,7 +397,7 @@ class GoogleSheetsService:
 
     @staticmethod
     async def setup_sheet(sheet_id: str) -> bool:
-        """Setup sheet headers with logging"""
+        """Setup sheet headers with logging (v2.0: 5 columns)"""
         if not sheet_id:
             return False
             
@@ -391,22 +412,23 @@ class GoogleSheetsService:
                     log_sheets("Checking for existing headers...")
                     result = service.spreadsheets().values().get(
                         spreadsheetId=sheet_id,
-                        range='A1:D1'
+                        range='A1:E1'  # 🆕 v2.0: Changed from A1:D1 to A1:E1
                     ).execute()
                     
                     values = result.get('values', [])
                     
                     if not values:
                         log_sheets("Adding headers...")
-                        headers = [["Timestamp", "User", "Assistant", "Function Result"]]
+                        # 🆕 v2.0: Added "Conversation ID" column
+                        headers = [["Timestamp", "User", "Assistant", "Function Result", "Conversation ID"]]
                         body = {'values': headers}
                         service.spreadsheets().values().update(
                             spreadsheetId=sheet_id,
-                            range='A1:D1',
+                            range='A1:E1',  # 🆕 v2.0: Changed from A1:D1 to A1:E1
                             valueInputOption='RAW',
                             body=body
                         ).execute()
-                        log_sheets("✅ Headers added")
+                        log_sheets("✅ Headers added (5 columns)")
                     else:
                         log_sheets("✅ Headers already exist")
                         
