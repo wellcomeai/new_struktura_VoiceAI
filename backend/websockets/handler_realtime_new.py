@@ -1,6 +1,6 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 PRODUCTION VERSION 2.3 - OpenAI Realtime API Handler
+🚀 PRODUCTION VERSION 2.4 - OpenAI Realtime API Handler
 ✅ Fixed: Function name detection from multiple sources
 ✅ Enhanced: Maximum logging for debugging
 ✅ Fixed: conversation.item.created tracking
@@ -8,6 +8,7 @@
 ✅ NEW: Fast LLM result display for query_llm function (no duplicate)
 ✅ PERFORMANCE: Instant llm_result display (17s vs 45s)
 ✅ v2.3: Enhanced Google Sheets logging diagnostics
+✅ v2.4: Added logging for regular dialogs (not only functions)
 ✅ Ready for production deployment
 """
 
@@ -71,7 +72,7 @@ async def handle_websocket_connection_new(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v2.3 - Main WebSocket handler with enhanced logging and fast LLM display
+    🚀 PRODUCTION v2.4 - Main WebSocket handler with enhanced logging and fast LLM display
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -235,7 +236,7 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Realtime API (Production v2.3)",
+            "message": "Connected to Realtime API (Production v2.4)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
@@ -472,12 +473,13 @@ async def handle_openai_messages_new(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v2.3 - Handle messages from OpenAI
+    🚀 PRODUCTION v2.4 - Handle messages from OpenAI
     ✅ FIXED: Multiple sources for function name detection
     ✅ ENHANCED: Maximum logging for debugging
     ✅ NEW: Fast LLM result display for query_llm function (NO duplicate)
     ✅ PERFORMANCE: Instant llm_result display
     ✅ v2.3: Enhanced Google Sheets diagnostics
+    ✅ v2.4: Logging for regular dialogs
     """
     if not openai_client.is_connected or not openai_client.ws:
         log_to_render(f"❌ OpenAI client not connected", "ERROR")
@@ -689,7 +691,7 @@ async def handle_openai_messages_new(
                         "type": "response.text.done"
                     })
                 
-                # 🚀 PRODUCTION v2.3: Enhanced function execution with FAST LLM display
+                # 🚀 PRODUCTION v2.4: Enhanced function execution with FAST LLM display
                 if msg_type == "response.function_call.started":
                     function_name = response_data.get("function_name") or response_data.get("name")
                     function_call_id = response_data.get("call_id")
@@ -930,7 +932,7 @@ async def handle_openai_messages_new(
                         log_to_render(f"   Result preview: {str(result)[:300]}...")
                         log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                         
-                        # 🚀 v2.3 PERFORMANCE FIX: Send llm_result IMMEDIATELY for query_llm
+                        # 🚀 v2.4 PERFORMANCE FIX: Send llm_result IMMEDIATELY for query_llm
                         if normalized_name == "query_llm":
                             log_to_render(f"⚡ QUERY_LLM SPEED OPTIMIZATION - sending llm_result IMMEDIATELY")
                             
@@ -939,7 +941,6 @@ async def handle_openai_messages_new(
                             llm_model = "gpt-4"
                             
                             if isinstance(result, dict):
-                                # v2.3 FIX: Extract full_response correctly
                                 llm_response_content = result.get("full_response", result.get("response", result.get("answer", str(result))))
                                 llm_model = result.get("model_used", result.get("model", "gpt-4"))
                             else:
@@ -962,8 +963,8 @@ async def handle_openai_messages_new(
                             
                             log_to_render(f"🎯 llm_result sent IMMEDIATELY - user sees result in {execution_time:.1f}s!")
                         
-                        # 🚀 PRODUCTION v2.3: Enhanced logging with diagnostics
-                        log_to_render(f"💾 STARTING BACKGROUND LOGGING v2.3")
+                        # 🚀 PRODUCTION v2.4: Enhanced logging with diagnostics
+                        log_to_render(f"💾 STARTING BACKGROUND LOGGING v2.4")
                         
                         try:
                             # Save to database
@@ -983,9 +984,9 @@ async def handle_openai_messages_new(
                                 else:
                                     log_to_render(f"⚠️ Conversation record not found", "WARNING")
                             
-                            # 🆕 v2.3: Enhanced Google Sheets diagnostics
+                            # 🆕 v2.4: Enhanced Google Sheets diagnostics (FUNCTION CALLS)
                             log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                            log_to_render(f"🔍 GOOGLE SHEETS DIAGNOSTICS v2.3")
+                            log_to_render(f"🔍 GOOGLE SHEETS DIAGNOSTICS v2.4 (Function Call)")
                             log_to_render(f"   assistant_config exists: {openai_client.assistant_config is not None}")
                             
                             if openai_client.assistant_config:
@@ -1028,7 +1029,7 @@ async def handle_openai_messages_new(
                                 log_to_render(f"   Reason: assistant_config={openai_client.assistant_config is not None}, "
                                             f"google_sheet_id={getattr(openai_client.assistant_config, 'google_sheet_id', None) if openai_client.assistant_config else 'N/A'}")
                             
-                            log_to_render(f"✅ BACKGROUND LOGGING COMPLETE v2.3")
+                            log_to_render(f"✅ BACKGROUND LOGGING COMPLETE v2.4")
                             
                         except Exception as log_error:
                             log_to_render(f"❌ LOGGING ERROR: {log_error}", "ERROR")
@@ -1150,7 +1151,7 @@ async def handle_openai_messages_new(
                             "timestamp": time.time()
                         })
                     
-                    # Save final transcripts
+                    # Save final transcripts to DB
                     if openai_client.db_session and openai_client.conversation_record_id and assistant_transcript:
                         try:
                             conv = openai_client.db_session.query(Conversation).get(
@@ -1165,6 +1166,48 @@ async def handle_openai_messages_new(
                                 log_to_render(f"💾 Final transcripts saved to DB")
                         except Exception as e:
                             log_to_render(f"❌ DB save error: {e}", "ERROR")
+                    
+                    # 🆕 v2.4: Log REGULAR DIALOGS to Google Sheets (not just functions)
+                    if user_transcript and assistant_transcript:
+                        log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        log_to_render(f"🔍 GOOGLE SHEETS DIAGNOSTICS v2.4 (Regular Dialog)")
+                        log_to_render(f"   assistant_config exists: {openai_client.assistant_config is not None}")
+                        
+                        if openai_client.assistant_config:
+                            has_sheet_id = hasattr(openai_client.assistant_config, 'google_sheet_id')
+                            sheet_id_value = getattr(openai_client.assistant_config, 'google_sheet_id', None)
+                            
+                            log_to_render(f"   google_sheet_id: {sheet_id_value}")
+                            log_to_render(f"   conversation_record_id: {openai_client.conversation_record_id}")
+                            log_to_render(f"   user_transcript: {user_transcript[:50]}")
+                            log_to_render(f"   assistant_transcript: {assistant_transcript[:50]}")
+                            log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                            
+                            if sheet_id_value:
+                                log_to_render(f"🟢 Logging regular dialog to Google Sheets...")
+                                
+                                try:
+                                    sheets_start = time.time()
+                                    sheets_result = await GoogleSheetsService.log_conversation(
+                                        sheet_id=sheet_id_value,
+                                        user_message=user_transcript,
+                                        assistant_message=assistant_transcript,
+                                        function_result=None,
+                                        conversation_id=openai_client.conversation_record_id
+                                    )
+                                    sheets_time = time.time() - sheets_start
+                                    
+                                    if sheets_result:
+                                        log_to_render(f"✅ Regular dialog logged to Sheets ({sheets_time:.3f}s)")
+                                    else:
+                                        log_to_render(f"❌ Failed to log regular dialog ({sheets_time:.3f}s)", "WARNING")
+                                except Exception as e:
+                                    log_to_render(f"❌ Sheets logging error: {e}", "ERROR")
+                                    log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+                            else:
+                                log_to_render(f"🔴 No google_sheet_id - skipping regular dialog logging", "WARNING")
+                        else:
+                            log_to_render(f"❌ assistant_config is None!", "ERROR")
                 
                 # Forward all other messages to client
                 await websocket.send_json(response_data)
