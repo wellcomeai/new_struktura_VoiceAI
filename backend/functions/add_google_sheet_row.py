@@ -94,7 +94,7 @@ class AddGoogleSheetRowFunction(FunctionBase):
                 try:
                     logger.info("[ADD_GOOGLE_SHEET_ROW] 🔧 Получаем Sheets service...")
                     
-                    # Используем ваш GoogleSheetsService
+                    # Используем ваш GoogleSheetsService (он сам знает про Service Account)
                     service = GoogleSheetsService._get_sheets_service()
                     
                     logger.info("[ADD_GOOGLE_SHEET_ROW] ✅ Service получен")
@@ -197,4 +197,3 @@ class AddGoogleSheetRowFunction(FunctionBase):
                 "success": False,
                 "error": f"Критическая ошибка: {str(e)}"
             }
-SERVICE_ACCOUNT_INFO['client_email']
