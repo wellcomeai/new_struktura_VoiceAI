@@ -1716,6 +1716,65 @@
                 </div>
               </div>
             </div>
+            
+            <!-- Функция: add_google_sheet_row (НОВАЯ) -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-add_google_sheet_row" id="function-add_google_sheet_row">
+                <span>Добавление строки в Google Таблицу</span>
+              </label>
+              
+              <div id="add-sheet-row-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "add_google_sheet_row",
+  "description": "Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL Google Таблицы"
+      },
+      "row_to_append": {
+        "type": "string",
+        "description": "Данные для добавления, разделенные ;; (например: 'Иван Петров;;ivan@mail.com;;+79991234567')"
+      },
+      "sheet_name": {
+        "type": "string",
+        "description": "Название листа (опционально, по умолчанию первый лист)"
+      }
+    },
+    "required": ["url", "row_to_append"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию add_google_sheet_row для записи данных в Google Таблицы.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь просит записать/сохранить информацию в таблицу</li>
+                    <li>Нужно добавить контактные данные, заявку или бронирование</li>
+                    <li>Требуется логировать действия пользователя</li>
+                    <li>Пользователь хочет оставить feedback или заполнить форму</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "url": "https://docs.google.com/spreadsheets/d/ABC123XYZ/edit",
+  "row_to_append": "Иван Петров;;ivan@mail.com;;+79991234567;;Консультация",
+  "sheet_name": "Заявки"
+}</pre>
+                  <p><strong>Важно:</strong></p>
+                  <ul>
+                    <li>Данные разделяются символами <code>;;</code> (двойной точкой с запятой)</li>
+                    <li>Количество значений должно соответствовать количеству колонок в таблице</li>
+                    <li>Таблица должна быть расшарена на сервисный аккаунт с правами редактора</li>
+                    <li>Если sheet_name не указан, запись идет на первый лист таблицы</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1854,6 +1913,16 @@
       if (googleDocCheckbox && googleDocInfo) {
         googleDocCheckbox.addEventListener('change', function() {
           googleDocInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // Добавляем обработчик для чекбокса функции add_google_sheet_row (НОВАЯ ФУНКЦИЯ)
+      const addSheetRowCheckbox = document.getElementById('function-add_google_sheet_row');
+      const addSheetRowInfo = document.getElementById('add-sheet-row-info');
+
+      if (addSheetRowCheckbox && addSheetRowInfo) {
+        addSheetRowCheckbox.addEventListener('change', function() {
+          addSheetRowInfo.style.display = this.checked ? 'block' : 'none';
         });
       }
       
@@ -2200,6 +2269,13 @@
             googleDocInfo.style.display = isGoogleDocEnabled ? 'block' : 'none';
           }
           
+          // Установка состояния чекбокса add_google_sheet_row (НОВАЯ ФУНКЦИЯ)
+          if (addSheetRowCheckbox) {
+            const isAddSheetRowEnabled = functions.some(func => func.name === 'add_google_sheet_row');
+            addSheetRowCheckbox.checked = isAddSheetRowEnabled;
+            addSheetRowInfo.style.display = isAddSheetRowEnabled ? 'block' : 'none';
+          }
+          
           debugLog('Форма успешно заполнена');
         },
         
@@ -2245,6 +2321,14 @@
             enabledFunctions.push({
               name: "read_google_doc",
               description: "Читает текст из публичного Google Документа по ссылке"
+            });
+          }
+          
+          // Проверяем состояние функции add_google_sheet_row (НОВАЯ ФУНКЦИЯ)
+          if (addSheetRowCheckbox && addSheetRowCheckbox.checked) {
+            enabledFunctions.push({
+              name: "add_google_sheet_row",
+              description: "Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования."
             });
           }
           
