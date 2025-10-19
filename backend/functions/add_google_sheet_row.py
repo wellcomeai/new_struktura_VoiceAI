@@ -99,9 +99,10 @@ class AddGoogleSheetRowFunction(FunctionBase):
                     
                     logger.info("[ADD_GOOGLE_SHEET_ROW] ✅ Service получен")
                     
-                    # Определяем диапазон для добавления
+                    # ✅ ИСПРАВЛЕНО: Определяем диапазон с кавычками для кириллицы
                     if sheet_name:
-                        range_notation = f"{sheet_name}!A:Z"
+                        # Одинарные кавычки для поддержки кириллицы и спецсимволов
+                        range_notation = f"'{sheet_name}'!A:Z"
                     else:
                         range_notation = "A:Z"  # Первый лист, все колонки
                     
