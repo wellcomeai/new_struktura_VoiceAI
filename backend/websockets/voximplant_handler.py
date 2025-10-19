@@ -702,7 +702,8 @@ class VoximplantProtocolHandler:
                             sheet_id=assistant_config.google_sheet_id,
                             user_message=self.user_transcript,
                             assistant_message=self.assistant_transcript,
-                            function_result=self.function_result
+                            function_result=self.function_result,
+                            conversation_id=self.openai_client.conversation_record_id
                         )
                         logger.info("[VOX-v2] Разговор записан в Google Sheets")
                     except Exception as e:
