@@ -992,7 +992,8 @@ async def handle_openai_messages_new(
                                     sheet_id=sheet_id,
                                     user_message=user_transcript or f"[Function call: {normalized_name}]",
                                     assistant_message=f"[Function executed: {normalized_name}]",
-                                    function_result=result
+                                    function_result=result,
+                                    conversation_id=openai_client.conversation_record_id
                                 )
                                 sheets_time = time.time() - sheets_start
                                 
