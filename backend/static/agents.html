@@ -1348,56 +1348,56 @@
             </div>
             
             <div class="form-section">
-  <div class="form-group">
-    <label>Голос ассистента</label>
-    <div class="voice-options">
-      <label class="voice-option selected">
-        <input type="radio" name="voice" value="alloy" checked>
-        <span>Alloy</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="echo">
-        <span>Echo</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="fable">
-        <span>Fable</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="onyx">
-        <span>Onyx</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="nova">
-        <span>Nova</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="shimmer">
-        <span>Shimmer</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="ash">
-        <span>Ash</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="ballad">
-        <span>Ballad</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="coral">
-        <span>Coral</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="sage">
-        <span>Sage</span>
-      </label>
-      <label class="voice-option">
-        <input type="radio" name="voice" value="verse">
-        <span>Verse</span>
-      </label>
-    </div>
-  </div>
-</div>
+              <div class="form-group">
+                <label>Голос ассистента</label>
+                <div class="voice-options">
+                  <label class="voice-option selected">
+                    <input type="radio" name="voice" value="alloy" checked>
+                    <span>Alloy</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="echo">
+                    <span>Echo</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="fable">
+                    <span>Fable</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="onyx">
+                    <span>Onyx</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="nova">
+                    <span>Nova</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="shimmer">
+                    <span>Shimmer</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="ash">
+                    <span>Ash</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="ballad">
+                    <span>Ballad</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="coral">
+                    <span>Coral</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="sage">
+                    <span>Sage</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="verse">
+                    <span>Verse</span>
+                  </label>
+                </div>
+              </div>
+            </div>
             
             <div class="form-footer">
               <button type="button" class="btn btn-outline" id="cancel-button">Отмена</button>
@@ -1515,6 +1515,7 @@
             <h3 style="margin-bottom: 1rem;">Функции ассистента</h3>
             <p>Включите необходимые функции для вашего ассистента:</p>
             
+            <!-- Функция: send_webhook -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-send_webhook" id="function-send_webhook">
@@ -1523,8 +1524,7 @@
               
               <div id="webhook-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
                 <h4>Информация о функции:</h4>
-                <pre class="function-schema">
-{
+                <pre class="function-schema">{
   "name": "send_webhook",
   "description": "Отправляет данные на внешний вебхук (например, для n8n)",
   "parameters": {
@@ -1545,8 +1545,7 @@
     },
     "required": ["url", "event"]
   }
-}
-                </pre>
+}</pre>
                 
                 <h4>Пример использования в промпте:</h4>
                 <div class="prompt-example">
@@ -1559,8 +1558,7 @@
                     <li>payload: объект с релевантными данными</li>
                   </ul>
                   <p>Пример вызова:</p>
-                  <pre>
-{
+                  <pre>{
   "url": "https://n8n.example.com/webhook/123",
   "event": "booking",
   "payload": {
@@ -1573,6 +1571,7 @@
               </div>
             </div>
             
+            <!-- Функция: search_pinecone -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-search_pinecone" id="function-search_pinecone">
@@ -1581,8 +1580,7 @@
               
               <div id="pinecone-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
                 <h4>Информация о функции:</h4>
-                <pre class="function-schema">
-{
+                <pre class="function-schema">{
   "name": "search_pinecone",
   "description": "Ищет похожие документы в Pinecone векторной базе данных",
   "parameters": {
@@ -1604,8 +1602,7 @@
     },
     "required": ["namespace", "query"]
   }
-}
-                </pre>
+}</pre>
                 
                 <h4>Пример использования в промпте:</h4>
                 <div class="prompt-example">
@@ -1619,12 +1616,103 @@
                   </ul>
                   <p>После получения результатов используй их для формирования более информативного ответа.</p>
                   <p>Пример вызова:</p>
-                  <pre>
-{
+                  <pre>{
   "namespace": "my_namespace",
   "query": "Как работает векторный поиск?",
   "top_k": 5
 }</pre>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: query_llm (НОВАЯ) -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-query_llm" id="function-query_llm">
+                <span>Запрос к текстовой LLM модели</span>
+              </label>
+              
+              <div id="query-llm-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "query_llm",
+  "description": "Отправляет сложные запросы к текстовой LLM модели для получения развернутых ответов",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "Текст запроса или задачи для LLM модели"
+      },
+      "model": {
+        "type": "string",
+        "description": "Модель для использования (gpt-4, gpt-3.5-turbo)",
+        "default": "gpt-4o-mini"
+      }
+    },
+    "required": ["prompt"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию query_llm для делегирования сложных задач текстовой модели ChatGPT.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь просит написать длинный текст (статью, письмо, код)</li>
+                    <li>Нужен детальный анализ или исследование</li>
+                    <li>Требуется структурированный ответ с множеством деталей</li>
+                    <li>Задача требует глубокого reasoning или пошагового решения</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "prompt": "Напиши подробную статью о преимуществах искусственного интеллекта в медицине",
+  "model": "gpt-4o-mini"
+}</pre>
+                  <p><strong>Важно:</strong> После получения ответа от LLM, ты можешь озвучить краткое резюме пользователю, а полный текст будет показан на экране.</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: read_google_doc (НОВАЯ) -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-read_google_doc" id="function-read_google_doc">
+                <span>Чтение Google Документов</span>
+              </label>
+              
+              <div id="google-doc-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "read_google_doc",
+  "description": "Читает текст из публичного Google Документа по ссылке",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "Ссылка на Google Документ (должен быть публичным или доступным по ссылке)"
+      }
+    },
+    "required": ["url"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию read_google_doc для чтения содержимого Google Документов.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь дает ссылку на Google Document</li>
+                    <li>Нужно прочитать инструкцию или документацию из Google Docs</li>
+                    <li>Требуется проанализировать содержимое документа</li>
+                    <li>Пользователь просит резюмировать или обработать текст из документа</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "url": "https://docs.google.com/document/d/ABC123XYZ/edit"
+}</pre>
+                  <p><strong>Важно:</strong> Документ должен быть публичным или доступным по ссылке. После получения текста ты можешь отвечать на вопросы о его содержимом.</p>
                 </div>
               </div>
             </div>
@@ -1746,6 +1834,26 @@
       if (pineconeCheckbox && pineconeInfo) {
         pineconeCheckbox.addEventListener('change', function() {
           pineconeInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // Добавляем обработчик для чекбокса функции query_llm (НОВАЯ ФУНКЦИЯ)
+      const queryLlmCheckbox = document.getElementById('function-query_llm');
+      const queryLlmInfo = document.getElementById('query-llm-info');
+
+      if (queryLlmCheckbox && queryLlmInfo) {
+        queryLlmCheckbox.addEventListener('change', function() {
+          queryLlmInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // Добавляем обработчик для чекбокса функции read_google_doc (НОВАЯ ФУНКЦИЯ)
+      const googleDocCheckbox = document.getElementById('function-read_google_doc');
+      const googleDocInfo = document.getElementById('google-doc-info');
+
+      if (googleDocCheckbox && googleDocInfo) {
+        googleDocCheckbox.addEventListener('change', function() {
+          googleDocInfo.style.display = this.checked ? 'block' : 'none';
         });
       }
       
@@ -2078,6 +2186,20 @@
             pineconeInfo.style.display = isPineconeEnabled ? 'block' : 'none';
           }
           
+          // Установка состояния чекбокса query_llm (НОВАЯ ФУНКЦИЯ)
+          if (queryLlmCheckbox) {
+            const isQueryLlmEnabled = functions.some(func => func.name === 'query_llm');
+            queryLlmCheckbox.checked = isQueryLlmEnabled;
+            queryLlmInfo.style.display = isQueryLlmEnabled ? 'block' : 'none';
+          }
+          
+          // Установка состояния чекбокса read_google_doc (НОВАЯ ФУНКЦИЯ)
+          if (googleDocCheckbox) {
+            const isGoogleDocEnabled = functions.some(func => func.name === 'read_google_doc');
+            googleDocCheckbox.checked = isGoogleDocEnabled;
+            googleDocInfo.style.display = isGoogleDocEnabled ? 'block' : 'none';
+          }
+          
           debugLog('Форма успешно заполнена');
         },
         
@@ -2107,6 +2229,22 @@
             enabledFunctions.push({
               name: "search_pinecone",
               description: "Ищет похожие документы в Pinecone векторной базе данных"
+            });
+          }
+          
+          // Проверяем состояние функции query_llm (НОВАЯ ФУНКЦИЯ)
+          if (queryLlmCheckbox && queryLlmCheckbox.checked) {
+            enabledFunctions.push({
+              name: "query_llm",
+              description: "Отправляет сложные запросы к текстовой LLM модели для получения развернутых ответов"
+            });
+          }
+          
+          // Проверяем состояние функции read_google_doc (НОВАЯ ФУНКЦИЯ)
+          if (googleDocCheckbox && googleDocCheckbox.checked) {
+            enabledFunctions.push({
+              name: "read_google_doc",
+              description: "Читает текст из публичного Google Документа по ссылке"
             });
           }
           
