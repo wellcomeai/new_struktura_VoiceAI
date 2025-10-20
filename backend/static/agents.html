@@ -1775,6 +1775,78 @@
                 </div>
               </div>
             </div>
+            
+            <!-- Функция: hangup_call (НОВАЯ) -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-hangup_call" id="function-hangup_call">
+                <span>Завершение звонка</span>
+              </label>
+              
+              <div id="hangup-call-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "hangup_call",
+  "description": "Завершить текущий звонок когда разговор естественно завершен или по просьбе пользователя",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Причина завершения звонка",
+        "enum": [
+          "conversation_completed",
+          "user_request",
+          "time_limit_reached",
+          "technical_issue",
+          "emergency"
+        ]
+      },
+      "farewell_message": {
+        "type": "string",
+        "description": "Прощальное сообщение перед завершением звонка (опционально)",
+        "maxLength": 200
+      }
+    },
+    "required": ["reason"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию hangup_call для завершения телефонного разговора.</p>
+                  <p><strong>⚠️ Важно:</strong> Эта функция работает только при телефонных звонках через Voximplant!</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь поблагодарил и завершил разговор</li>
+                    <li>Пользователь прямо попросил завершить звонок ("до свидания", "спасибо, все")</li>
+                    <li>Разговор достиг естественного завершения</li>
+                    <li>Превышено время разговора</li>
+                    <li>Возникли технические проблемы</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "reason": "conversation_completed",
+  "farewell_message": "До свидания! Хорошего дня!"
+}</pre>
+                  <p><strong>Причины завершения (reason):</strong></p>
+                  <ul>
+                    <li><code>conversation_completed</code> - разговор естественно завершен</li>
+                    <li><code>user_request</code> - по просьбе пользователя</li>
+                    <li><code>time_limit_reached</code> - превышен лимит времени</li>
+                    <li><code>technical_issue</code> - техническая проблема</li>
+                    <li><code>emergency</code> - экстренное завершение</li>
+                  </ul>
+                  <p><strong>Примеры прощальных сообщений:</strong></p>
+                  <ul>
+                    <li>"До свидания! Хорошего дня!"</li>
+                    <li>"Спасибо за обращение! До встречи!"</li>
+                    <li>"Всего доброго!"</li>
+                    <li>"Обращайтесь еще!"</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1923,6 +1995,16 @@
       if (addSheetRowCheckbox && addSheetRowInfo) {
         addSheetRowCheckbox.addEventListener('change', function() {
           addSheetRowInfo.style.display = this.checked ? 'block' : 'none';
+        });
+      }
+      
+      // Добавляем обработчик для чекбокса функции hangup_call (НОВАЯ ФУНКЦИЯ)
+      const hangupCallCheckbox = document.getElementById('function-hangup_call');
+      const hangupCallInfo = document.getElementById('hangup-call-info');
+
+      if (hangupCallCheckbox && hangupCallInfo) {
+        hangupCallCheckbox.addEventListener('change', function() {
+          hangupCallInfo.style.display = this.checked ? 'block' : 'none';
         });
       }
       
@@ -2276,6 +2358,13 @@
             addSheetRowInfo.style.display = isAddSheetRowEnabled ? 'block' : 'none';
           }
           
+          // Установка состояния чекбокса hangup_call (НОВАЯ ФУНКЦИЯ)
+          if (hangupCallCheckbox) {
+            const isHangupCallEnabled = functions.some(func => func.name === 'hangup_call');
+            hangupCallCheckbox.checked = isHangupCallEnabled;
+            hangupCallInfo.style.display = isHangupCallEnabled ? 'block' : 'none';
+          }
+          
           debugLog('Форма успешно заполнена');
         },
         
@@ -2329,6 +2418,14 @@
             enabledFunctions.push({
               name: "add_google_sheet_row",
               description: "Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования."
+            });
+          }
+          
+          // Проверяем состояние функции hangup_call (НОВАЯ ФУНКЦИЯ)
+          if (hangupCallCheckbox && hangupCallCheckbox.checked) {
+            enabledFunctions.push({
+              name: "hangup_call",
+              description: "Завершить текущий звонок когда разговор естественно завершен или по просьбе пользователя"
             });
           }
           
