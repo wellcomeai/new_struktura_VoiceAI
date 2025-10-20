@@ -684,6 +684,7 @@ async def verify_google_sheet(
 @router.post("/start-outbound-call")
 async def start_outbound_call(
     request_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
