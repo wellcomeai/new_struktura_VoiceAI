@@ -22,7 +22,7 @@ from backend.services.user_service import UserService
 from backend.functions import get_function_definitions, get_enabled_functions, normalize_function_name, execute_function
 # Добавляем импорт сервиса для работы с Google Sheets
 from backend.services.google_sheets_service import GoogleSheetsService
-from backend.api.auth import get_current_user
+
 logger = get_logger(__name__)
 
 # Create router
@@ -683,9 +683,7 @@ async def verify_google_sheet(
 # НОВЫЙ ЭНДПОИНТ: Запуск исходящих звонков
 @router.post("/start-outbound-call")
 async def start_outbound_call(
-    request_data: Dict[str, Any],
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    request_data: Dict[str, Any]
 ):
     """
     Запуск исходящего звонка через Voximplant API.
