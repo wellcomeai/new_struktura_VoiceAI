@@ -683,7 +683,7 @@ async def verify_google_sheet(
 # НОВЫЙ ЭНДПОИНТ: Запуск исходящих звонков
 @router.post("/start-outbound-call")
 async def start_outbound_call(
-    request_data: Dict[str, Any]
+    request_data: Dict[str, Any] = Body(...)
 ):
     """
     Запуск исходящего звонка через Voximplant API.
