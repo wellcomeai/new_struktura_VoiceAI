@@ -169,7 +169,7 @@ async def get_assistant_config(
                 "temperature": 0.7,
                 "functions": [],
                 "log_enabled": False,
-                "google_sheet_id": None, # Используем google_sheet_id вместо log_url
+                "google_sheet_id": None,
                 "assistant_id": assistant_id,
                 "assistant_name": "Тестовый ассистент (ID не найден)",
                 "error": "assistant_not_found"
@@ -200,7 +200,7 @@ async def get_assistant_config(
                                 "temperature": assistant.temperature or 0.7,
                                 "functions": [],
                                 "log_enabled": False,
-                                "google_sheet_id": None, # Используем google_sheet_id вместо log_url
+                                "google_sheet_id": None,
                                 "assistant_id": str(assistant.id),
                                 "assistant_name": assistant.name,
                                 "error": "subscription_expired"
@@ -224,7 +224,7 @@ async def get_assistant_config(
         # Формируем определения функций в формате OpenAI Realtime API
         functions = build_functions_for_openai(assistant.functions)
         
-        # Определяем настройки логирования - ИЗМЕНЕНО: проверяем google_sheet_id
+        # Определяем настройки логирования
         log_enabled = False
         google_sheet_id = None
         
@@ -232,7 +232,6 @@ async def get_assistant_config(
             log_enabled = assistant.log_enabled
         if hasattr(assistant, 'google_sheet_id'):
             google_sheet_id = assistant.google_sheet_id
-            # Логируем найденный ID таблицы для отладки
             logger.info(f"[VOXIMPLANT] Найден ID Google Sheet: {google_sheet_id}")
         
         # Получаем приветственное сообщение
@@ -251,7 +250,7 @@ async def get_assistant_config(
             "temperature": assistant.temperature or 0.7,
             "functions": functions,
             "log_enabled": log_enabled,
-            "google_sheet_id": google_sheet_id, # Используем google_sheet_id вместо log_url
+            "google_sheet_id": google_sheet_id,
             "assistant_id": str(assistant.id),
             "assistant_name": assistant.name
         }
@@ -281,7 +280,7 @@ async def get_assistant_config(
             "temperature": 0.7,
             "functions": [],
             "log_enabled": False,
-            "google_sheet_id": None, # Используем google_sheet_id вместо log_url
+            "google_sheet_id": None,
             "assistant_id": assistant_id,
             "assistant_name": "Тестовый ассистент (ошибка)",
             "error": str(e)
@@ -565,7 +564,7 @@ async def log_conversation_data(
                     AssistantConfig.id.cast(str) == assistant_id
                 ).first()
             
-            # Проверяем google_sheet_id вместо log_url
+            # Проверяем google_sheet_id
             if assistant and hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
                 # Используем google_sheet_id для таблицы
                 log_sheet_id = assistant.google_sheet_id
@@ -650,7 +649,7 @@ async def verify_google_sheet(
             # Настраиваем заголовки таблицы
             setup_result = await GoogleSheetsService.setup_sheet(sheet_id)
             
-            # Сохраняем google_sheet_id вместо log_url
+            # Сохраняем google_sheet_id
             if assistant_id != "new":
                 try:
                     assistant_uuid = uuid.UUID(assistant_id)
@@ -680,3 +679,84 @@ async def verify_google_sheet(
             "success": False,
             "message": f"Ошибка: {str(e)}"
         }
+
+# НОВЫЙ ЭНДПОИНТ: Запуск исходящих звонков
+@router.post("/start-outbound-call")
+async def start_outbound_call(
+    request_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """
+    Запуск исходящего звонка через Voximplant API.
+    Принимает credentials пользователя и параметры звонка из запроса.
+    """
+    try:
+        import httpx
+        
+        # Получаем credentials из запроса
+        account_id = request_data.get("account_id")
+        api_key = request_data.get("api_key")
+        rule_id = request_data.get("rule_id")
+        script_custom_data = request_data.get("script_custom_data")
+        
+        if not account_id or not api_key:
+            logger.warning("[VOXIMPLANT] Не указаны Voximplant credentials")
+            raise HTTPException(
+                status_code=400, 
+                detail="Не указаны Voximplant credentials (account_id и api_key)"
+            )
+        
+        if not rule_id or not script_custom_data:
+            logger.warning("[VOXIMPLANT] Не указаны обязательные параметры для звонка")
+            raise HTTPException(
+                status_code=400, 
+                detail="Не указаны обязательные параметры (rule_id и script_custom_data)"
+            )
+        
+        # Формируем запрос к Voximplant API
+        voximplant_url = "https://api.voximplant.com/platform_api/StartScenarios"
+        
+        params = {
+            "account_id": account_id,
+            "api_key": api_key,
+            "rule_id": rule_id,
+            "script_custom_data": script_custom_data
+        }
+        
+        logger.info(f"[VOXIMPLANT] Запуск исходящего звонка, rule_id: {rule_id}")
+        
+        # Отправляем запрос к Voximplant API
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                voximplant_url,
+                data=params,
+                timeout=30.0
+            )
+            
+            result = response.json()
+            
+            if result.get("result"):
+                logger.info(f"[VOXIMPLANT] Исходящий звонок успешно запущен: {result.get('call_session_history_id')}")
+                return {
+                    "success": True,
+                    "message": "Звонок успешно запущен",
+                    "call_session_history_id": result.get("call_session_history_id"),
+                    "media_session_access_url": result.get("media_session_access_url")
+                }
+            else:
+                error_msg = "Неизвестная ошибка"
+                if result.get("error"):
+                    error_msg = result["error"].get("msg", error_msg)
+                
+                logger.error(f"[VOXIMPLANT] Ошибка Voximplant API: {error_msg}")
+                return {
+                    "success": False,
+                    "message": f"Ошибка Voximplant API: {error_msg}"
+                }
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[VOXIMPLANT] Ошибка запуска исходящего звонка: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
