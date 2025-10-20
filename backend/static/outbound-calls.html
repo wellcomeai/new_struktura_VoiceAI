@@ -1071,6 +1071,8 @@
           
           // Отправляем запрос к Voximplant API через наш бэкенд
           const response = await api.post('/voximplant/start-outbound-call', {
+            account_id: document.getElementById('account-id').value,
+            api_key: document.getElementById('api-key').value,
             rule_id: ruleId,
             script_custom_data: scriptCustomData
           });
