@@ -1,9 +1,9 @@
-# backend/websockets/voximplant_handler.py - ВЕРСИЯ 2.1 ИСПРАВЛЕННАЯ
+# backend/websockets/voximplant_handler.py - ВЕРСИЯ 2.1 с логированием номера телефона
 
 """
-Voximplant WebSocket handler - Version 2.1 Optimized
+Voximplant WebSocket handler - Version 2.1 with Caller Number Logging
 Direct integration with proper protocol support.
-Улучшена обработка соединений и исправлены ошибки закрытия WebSocket.
+Улучшена обработка соединений и добавлено логирование номера телефона.
 """
 
 import asyncio
@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 class VoximplantProtocolHandler:
     """
     Оптимизированный обработчик v2.1 для прямой интеграции Voximplant с OpenAI.
-    Исправлена обработка закрытия соединений и остановки задач.
+    Включает логирование номера телефона звонящего в Google Sheets.
     """
     
     def __init__(self, websocket: WebSocket, assistant_id: str, db: Session):
@@ -41,6 +41,9 @@ class VoximplantProtocolHandler:
         self.assistant_id = assistant_id
         self.db = db
         self.client_id = str(uuid.uuid4())
+        
+        # 🆕 v2.1: Caller information
+        self.caller_number = "unknown"
         
         # OpenAI клиент
         self.openai_client: Optional[OpenAIRealtimeClientNew] = None
@@ -83,14 +86,14 @@ class VoximplantProtocolHandler:
         self.audio_bytes_received = 0
         self._audio_sent_count = 0
         
-        logger.info(f"[VOX-v2] Создан оптимизированный обработчик для {assistant_id}")
+        logger.info(f"[VOX-v2.1] Создан оптимизированный обработчик для {assistant_id}")
 
     async def start(self):
         """Запуск обработчика с оптимизированной архитектурой."""
         try:
             await self.websocket.accept()
             self.is_connected = True
-            logger.info("[VOX-v2] WebSocket соединение принято")
+            logger.info("[VOX-v2.1] WebSocket соединение принято")
             
             # Загружаем конфигурацию ассистента
             assistant = await self._load_assistant_config()
@@ -132,8 +135,8 @@ class VoximplantProtocolHandler:
             await self._start_message_handlers()
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка запуска: {e}")
-            logger.error(f"[VOX-v2] Трассировка: {traceback.format_exc()}")
+            logger.error(f"[VOX-v2.1] Ошибка запуска: {e}")
+            logger.error(f"[VOX-v2.1] Трассировка: {traceback.format_exc()}")
             await self._send_error("server_error", str(e))
         finally:
             await self.cleanup()
@@ -167,21 +170,19 @@ class VoximplantProtocolHandler:
                 try:
                     await asyncio.wait(pending, timeout=2.0)
                 except Exception as e:
-                    logger.error(f"[VOX-v2] Ошибка ожидания отмены задач: {e}")
+                    logger.error(f"[VOX-v2.1] Ошибка ожидания отмены задач: {e}")
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка в обработчике сообщений: {e}")
-            self.connection_closed = True  # Устанавливаем флаг при ошибке
-        finally:
-            # Гарантируем установку флага закрытия соединения
+            logger.error(f"[VOX-v2.1] Ошибка в обработчике сообщений: {e}")
             self.connection_closed = True
-            logger.info("[VOX-v2] Обработчики сообщений завершены")
+        finally:
+            self.connection_closed = True
+            logger.info("[VOX-v2.1] Обработчики сообщений завершены")
 
     async def _handle_voximplant_messages(self):
         """Обработка сообщений от Voximplant."""
         try:
             while self.is_connected and not self.connection_closed and not self.websocket_closed:
                 try:
-                    # Дополнительная проверка перед вызовом receive
                     if self.connection_closed or self.websocket_closed:
                         break
                         
@@ -191,33 +192,30 @@ class VoximplantProtocolHandler:
                         data = json.loads(message["text"])
                         await self._process_voximplant_message(data)
                     elif "bytes" in message:
-                        # v2.0: Обрабатываем сырые байты как fallback
                         await self._process_raw_audio_fallback(message["bytes"])
                         
                 except WebSocketDisconnect:
-                    logger.info("[VOX-v2] WebSocket отключен")
+                    logger.info("[VOX-v2.1] WebSocket отключен")
                     self.connection_closed = True
                     self.websocket_closed = True
                     break
                 except ConnectionClosed:
-                    logger.info("[VOX-v2] Соединение закрыто")
+                    logger.info("[VOX-v2.1] Соединение закрыто")
                     self.connection_closed = True
                     self.websocket_closed = True
                     break
                 except json.JSONDecodeError as e:
-                    logger.error(f"[VOX-v2] Ошибка JSON: {e}")
+                    logger.error(f"[VOX-v2.1] Ошибка JSON: {e}")
                 except Exception as e:
-                    logger.error(f"[VOX-v2] Ошибка обработки: {e}")
-                    # Если ошибка связана с закрытым соединением - завершаем
+                    logger.error(f"[VOX-v2.1] Ошибка обработки: {e}")
                     if "disconnect message" in str(e) or "receive" in str(e):
-                        logger.warning("[VOX-v2] Обнаружена ошибка закрытого соединения, завершаем обработку")
+                        logger.warning("[VOX-v2.1] Обнаружена ошибка закрытого соединения, завершаем обработку")
                         self.connection_closed = True
                         self.websocket_closed = True
                         break
         finally:
-            # Устанавливаем флаг закрытия соединения
             self.connection_closed = True
-            logger.info("[VOX-v2] Обработчик сообщений Voximplant завершен")
+            logger.info("[VOX-v2.1] Обработчик сообщений Voximplant завершен")
 
     async def _process_voximplant_message(self, data: Dict[str, Any]):
         """Обработка конкретного сообщения от Voximplant."""
@@ -235,7 +233,7 @@ class VoximplantProtocolHandler:
             await self._handle_call_ended(data)
             
         elif msg_type == "audio_ready":
-            logger.info(f"[VOX-v2] Аудио готово: {data.get('format')}")
+            logger.info(f"[VOX-v2.1] Аудио готово: {data.get('format')}")
             
         # Обработка событий протокола медиа-стриминга
         elif event == "start":
@@ -263,7 +261,11 @@ class VoximplantProtocolHandler:
         caller = data.get("caller_number", "unknown")
         call_id = data.get("call_id", "unknown")
         
-        logger.info(f"[VOX-v2] Звонок начат: {caller}, ID: {call_id}")
+        # 🆕 v2.1: Save caller number for logging
+        self.caller_number = caller
+        
+        logger.info(f"[VOX-v2.1] Звонок начат: {caller}, ID: {call_id}")
+        logger.info(f"[VOX-v2.1] 📞 Сохранен номер телефона: {self.caller_number}")
         
         # Создаем запись в БД
         if self.db and self.openai_client:
@@ -284,9 +286,9 @@ class VoximplantProtocolHandler:
                 self.db.commit()
                 self.db.refresh(conv)
                 self.openai_client.conversation_record_id = str(conv.id)
-                logger.info(f"[VOX-v2] Создана запись разговора: {conv.id}")
+                logger.info(f"[VOX-v2.1] Создана запись разговора: {conv.id}")
             except Exception as e:
-                logger.error(f"[VOX-v2] Ошибка создания записи: {e}")
+                logger.error(f"[VOX-v2.1] Ошибка создания записи: {e}")
 
     async def _handle_stream_start(self, data: Dict[str, Any]):
         """Обработка начала аудио-стрима."""
@@ -300,7 +302,7 @@ class VoximplantProtocolHandler:
         self.sample_rate = media_format.get("sampleRate", 16000)
         self.channels = media_format.get("channels", 1)
         
-        logger.info(f"[VOX-v2] Начало стрима: {self.encoding}, {self.sample_rate}Hz, {self.channels}ch")
+        logger.info(f"[VOX-v2.1] Начало стрима: {self.encoding}, {self.sample_rate}Hz, {self.channels}ch")
         
         self.stream_started = True
         self.stream_start_time = time.time()
@@ -342,7 +344,7 @@ class VoximplantProtocolHandler:
                 asyncio.create_task(self._auto_commit_audio())
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка обработки аудио: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка обработки аудио: {e}")
 
     async def _process_raw_audio_fallback(self, audio_bytes: bytes):
         """Fallback для обработки сырых аудио данных (совместимость с v1.0)."""
@@ -368,7 +370,7 @@ class VoximplantProtocolHandler:
                 asyncio.create_task(self._auto_commit_audio())
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка обработки сырого аудио: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка обработки сырого аудио: {e}")
 
     async def _auto_commit_audio(self):
         """Автоматический коммит аудио после паузы."""
@@ -389,9 +391,9 @@ class VoximplantProtocolHandler:
                 # Коммитим если соединение активно
                 if not self.connection_closed and self.openai_client.is_connected:
                     await self.openai_client.commit_audio()
-                    logger.info("[VOX-v2] Автокоммит аудио")
+                    logger.info("[VOX-v2.1] Автокоммит аудио")
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка в автокоммите: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка в автокоммите: {e}")
 
     async def _handle_openai_messages(self):
         """Обработка сообщений от OpenAI."""
@@ -407,14 +409,13 @@ class VoximplantProtocolHandler:
                 await self._process_openai_message(message)
                 
         except ConnectionClosed:
-            logger.info("[VOX-v2] Соединение с OpenAI закрыто")
+            logger.info("[VOX-v2.1] Соединение с OpenAI закрыто")
             self.connection_closed = True
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка обработки OpenAI: {e}")
-            # Устанавливаем флаг закрытия соединения при ошибке
+            logger.error(f"[VOX-v2.1] Ошибка обработки OpenAI: {e}")
             self.connection_closed = True
         finally:
-            logger.info("[VOX-v2] Обработчик сообщений OpenAI завершен")
+            logger.info("[VOX-v2.1] Обработчик сообщений OpenAI завершен")
 
     async def _process_openai_message(self, message: Dict[str, Any]):
         """Обработка сообщения от OpenAI."""
@@ -435,16 +436,16 @@ class VoximplantProtocolHandler:
                     audio_bytes = base64.b64decode(delta)
                     await self._send_audio_to_voximplant(audio_bytes)
                 except Exception as e:
-                    logger.error(f"[VOX-v2] Ошибка отправки аудио: {e}")
+                    logger.error(f"[VOX-v2.1] Ошибка отправки аудио: {e}")
                     
         # Транскрипции для логирования
         elif msg_type == "conversation.item.input_audio_transcription.completed":
             self.user_transcript = message.get("transcript", "")
-            logger.info(f"[VOX-v2] 👤 User: {self.user_transcript}")
+            logger.info(f"[VOX-v2.1] 👤 User: {self.user_transcript}")
             
         elif msg_type == "response.audio_transcript.done":
             self.assistant_transcript = message.get("transcript", "")
-            logger.info(f"[VOX-v2] 🤖 Assistant: {self.assistant_transcript}")
+            logger.info(f"[VOX-v2.1] 🤖 Assistant: {self.assistant_transcript}")
             
         # События функций
         elif msg_type == "response.function_call_arguments.done":
@@ -492,7 +493,7 @@ class VoximplantProtocolHandler:
             
             # Периодическое логирование
             if self._audio_sent_count % 50 == 0:
-                logger.info(f"[VOX-v2] ➡️ Отправлено аудио: {self._audio_sent_count} пакетов")
+                logger.info(f"[VOX-v2.1] ➡️ Отправлено аудио: {self._audio_sent_count} пакетов")
 
     async def _start_audio_stream(self):
         """Начало аудио стрима в Voximplant."""
@@ -517,7 +518,7 @@ class VoximplantProtocolHandler:
         }
         
         await self._send_message(message)
-        logger.info("[VOX-v2] Начат аудио стрим в Voximplant")
+        logger.info("[VOX-v2.1] Начат аудио стрим в Voximplant")
 
     async def _handle_function_call(self, message: Dict[str, Any]):
         """Обработка вызова функции."""
@@ -567,7 +568,7 @@ class VoximplantProtocolHandler:
             })
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка выполнения функции: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка выполнения функции: {e}")
 
     async def _handle_interruption(self):
         """Обработка перебивания."""
@@ -582,14 +583,14 @@ class VoximplantProtocolHandler:
             "timestamp": time.time()
         })
         
-        logger.info("[VOX-v2] Перебивание обработано")
+        logger.info("[VOX-v2.1] Перебивание обработано")
 
     async def _handle_repeat_last_response(self):
         """Обработка запроса на повторение последнего ответа."""
         if self.connection_closed or not self.openai_client:
             return
             
-        logger.info("[VOX-v2] Запрос на повторение последнего ответа")
+        logger.info("[VOX-v2.1] Запрос на повторение последнего ответа")
         
         # Отправляем специальное сообщение в OpenAI
         try:
@@ -600,11 +601,11 @@ class VoximplantProtocolHandler:
                 "timestamp": time.time()
             })
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка повторения ответа: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка повторения ответа: {e}")
 
     async def _handle_call_ended(self, data: Dict[str, Any]):
         """Обработка завершения звонка."""
-        logger.info(f"[VOX-v2] Звонок завершен: {data.get('call_id')}")
+        logger.info(f"[VOX-v2.1] Звонок завершен: {data.get('call_id')}")
         
         # Останавливаем стрим
         if self.stream_started:
@@ -620,7 +621,7 @@ class VoximplantProtocolHandler:
         duration = media_info.get("duration", 0)
         bytes_sent = media_info.get("bytesSent", 0)
         
-        logger.info(f"[VOX-v2] Стрим остановлен: {duration}s, {bytes_sent} bytes")
+        logger.info(f"[VOX-v2.1] Стрим остановлен: {duration}s, {bytes_sent} bytes")
         
         self.stream_started = False
 
@@ -662,9 +663,9 @@ class VoximplantProtocolHandler:
             
             await self._send_message(message)
             self.stream_started = False
-            logger.info("[VOX-v2] Аудио стрим остановлен")
+            logger.info("[VOX-v2.1] Аудио стрим остановлен")
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка остановки аудио стрима: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка остановки аудио стрима: {e}")
             self.stream_started = False
 
     async def _log_conversation(self):
@@ -686,12 +687,13 @@ class VoximplantProtocolHandler:
                             **(conv.metadata or {}),
                             "duration": int(time.time() - self.start_time),
                             "audio_packets": self.audio_packets_received,
-                            "audio_bytes": self.audio_bytes_received
+                            "audio_bytes": self.audio_bytes_received,
+                            "caller_number": self.caller_number  # 🆕 v2.1: Add to metadata
                         }
                         self.db.commit()
-                        logger.info("[VOX-v2] Разговор сохранен в БД")
+                        logger.info("[VOX-v2.1] Разговор сохранен в БД")
                 except Exception as e:
-                    logger.error(f"[VOX-v2] Ошибка сохранения в БД: {e}")
+                    logger.error(f"[VOX-v2.1] Ошибка сохранения в БД: {e}")
             
             # Логируем в Google Sheets
             if self.openai_client and self.openai_client.assistant_config:
@@ -703,18 +705,19 @@ class VoximplantProtocolHandler:
                             user_message=self.user_transcript,
                             assistant_message=self.assistant_transcript,
                             function_result=self.function_result,
-                            conversation_id=self.openai_client.conversation_record_id
+                            conversation_id=self.openai_client.conversation_record_id,
+                            caller_number=self.caller_number  # 🆕 v2.1: Add caller number
                         )
-                        logger.info("[VOX-v2] Разговор записан в Google Sheets")
+                        logger.info(f"[VOX-v2.1] Разговор записан в Google Sheets с номером: {self.caller_number}")
                     except Exception as e:
-                        logger.error(f"[VOX-v2] Ошибка записи в Google Sheets: {e}")
+                        logger.error(f"[VOX-v2.1] Ошибка записи в Google Sheets: {e}")
             
             # Сбрасываем транскрипции
             self.user_transcript = ""
             self.assistant_transcript = ""
             self.function_result = None
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка логирования разговора: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка логирования разговора: {e}")
 
     async def _send_message(self, message: Dict[str, Any]):
         """Отправка сообщения в Voximplant."""
@@ -724,15 +727,15 @@ class VoximplantProtocolHandler:
         try:
             await self.websocket.send_text(json.dumps(message))
         except WebSocketDisconnect:
-            logger.warning("[VOX-v2] WebSocket отключен при отправке сообщения")
+            logger.warning("[VOX-v2.1] WebSocket отключен при отправке сообщения")
             self.websocket_closed = True
             self.connection_closed = True
         except ConnectionClosed:
-            logger.warning("[VOX-v2] Соединение закрыто при отправке сообщения")
+            logger.warning("[VOX-v2.1] Соединение закрыто при отправке сообщения")
             self.websocket_closed = True
             self.connection_closed = True
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка отправки: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка отправки: {e}")
             if "disconnect message" in str(e) or "receive" in str(e):
                 self.websocket_closed = True
                 self.connection_closed = True
@@ -753,13 +756,13 @@ class VoximplantProtocolHandler:
                 await self.websocket.close(code=1008)
                 self.websocket_closed = True
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка отправки сообщения об ошибке: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка отправки сообщения об ошибке: {e}")
             self.websocket_closed = True
             self.connection_closed = True
 
     async def cleanup(self):
         """Очистка ресурсов."""
-        logger.info("[VOX-v2] Начало очистки")
+        logger.info("[VOX-v2.1] Начало очистки")
         
         # Первым делом устанавливаем флаги закрытия
         self.is_connected = False
@@ -768,14 +771,15 @@ class VoximplantProtocolHandler:
         # Логируем статистику
         if self.audio_packets_received > 0:
             duration = self.audio_bytes_received / (self.sample_rate * 2)
-            logger.info(f"[VOX-v2] ✅ Статистика: {self.audio_packets_received} пакетов, {duration:.1f} сек")
+            logger.info(f"[VOX-v2.1] ✅ Статистика: {self.audio_packets_received} пакетов, {duration:.1f} сек")
+            logger.info(f"[VOX-v2.1] 📞 Номер звонившего: {self.caller_number}")
         
         # Останавливаем стрим если активен
         if self.stream_started:
             try:
                 await self._stop_audio_stream()
             except Exception as e:
-                logger.error(f"[VOX-v2] Ошибка остановки стрима: {e}")
+                logger.error(f"[VOX-v2.1] Ошибка остановки стрима: {e}")
         
         # Отменяем фоновые задачи с таймаутом
         try:
@@ -788,14 +792,14 @@ class VoximplantProtocolHandler:
             if pending_tasks:
                 await asyncio.wait(pending_tasks, timeout=2.0)
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка при отмене задач: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка при отмене задач: {e}")
         
         # Закрываем OpenAI клиент
         if self.openai_client:
             try:
                 await self.openai_client.close()
             except Exception as e:
-                logger.error(f"[VOX-v2] Ошибка закрытия OpenAI клиента: {e}")
+                logger.error(f"[VOX-v2.1] Ошибка закрытия OpenAI клиента: {e}")
         
         # Закрываем WebSocket с обработкой ошибок
         if not self.websocket_closed:
@@ -804,9 +808,9 @@ class VoximplantProtocolHandler:
                     await self.websocket.close(code=1000)
                     self.websocket_closed = True
             except Exception as e:
-                logger.error(f"[VOX-v2] Ошибка закрытия WebSocket: {e}")
+                logger.error(f"[VOX-v2.1] Ошибка закрытия WebSocket: {e}")
         
-        logger.info("[VOX-v2] Очистка завершена")
+        logger.info("[VOX-v2.1] Очистка завершена")
 
     async def _load_assistant_config(self) -> Optional[AssistantConfig]:
         """Загрузка конфигурации ассистента."""
@@ -833,7 +837,7 @@ class VoximplantProtocolHandler:
             return assistant
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка загрузки ассистента: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка загрузки ассистента: {e}")
             await self._send_error("server_error", "Ошибка загрузки ассистента")
             return None
 
@@ -859,7 +863,7 @@ class VoximplantProtocolHandler:
             return True
             
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка проверки подписки: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка проверки подписки: {e}")
             return True
 
     async def _get_api_key(self, assistant: AssistantConfig) -> Optional[str]:
@@ -871,7 +875,7 @@ class VoximplantProtocolHandler:
                     return user.openai_api_key
             return None
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка получения API ключа: {e}")
+            logger.error(f"[VOX-v2.1] Ошибка получения API ключа: {e}")
             return None
 
 
@@ -883,7 +887,7 @@ async def handle_voximplant_websocket_with_protocol(
 ):
     """
     Точка входа для оптимизированного Voximplant WebSocket обработчика v2.1.
-    Исправлена обработка закрытия соединений и предотвращены ошибки повторного вызова receive().
+    Включает логирование номера телефона звонящего.
     """
     handler = None
     try:
@@ -895,14 +899,14 @@ async def handle_voximplant_websocket_with_protocol(
             handler = VoximplantProtocolHandler(websocket, assistant_id, handler_db)
             await handler.start()
         except Exception as e:
-            logger.error(f"[VOX-v2] Ошибка в обработчике: {e}")
-            logger.error(f"[VOX-v2] Трассировка: {traceback.format_exc()}")
+            logger.error(f"[VOX-v2.1] Ошибка в обработчике: {e}")
+            logger.error(f"[VOX-v2.1] Трассировка: {traceback.format_exc()}")
         finally:
             handler_db.close()
             
     except Exception as e:
-        logger.error(f"[VOX-v2] Критическая ошибка: {e}")
-        logger.error(f"[VOX-v2] Трассировка: {traceback.format_exc()}")
+        logger.error(f"[VOX-v2.1] Критическая ошибка: {e}")
+        logger.error(f"[VOX-v2.1] Трассировка: {traceback.format_exc()}")
         
         try:
             if not handler:
@@ -931,8 +935,3 @@ async def handle_voximplant_websocket_with_protocol(
                 await websocket.close()
             except:
                 pass
-
-
-# Для обратной совместимости - оставляем старые названия
-SimpleVoximplantHandler = VoximplantProtocolHandler
-handle_voximplant_websocket_simple = handle_voximplant_websocket_with_protocol
