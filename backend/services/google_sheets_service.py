@@ -2,7 +2,7 @@
 """
 🔍 ENHANCED LOGGING VERSION - Google Sheets service
 Maximum logging for debugging and monitoring
-✅ v2.0: Added Conversation ID tracking
+✅ v2.1: Added Caller Number tracking (6 columns)
 """
 
 import os
@@ -67,7 +67,7 @@ except Exception as e:
     SERVICE_ACCOUNT_INFO = {}
 
 class GoogleSheetsService:
-    """Service for Google Sheets with enhanced logging and Conversation ID tracking"""
+    """Service for Google Sheets with enhanced logging and Caller Number tracking"""
     
     _service = None
     
@@ -133,7 +133,7 @@ class GoogleSheetsService:
         assistant_message: str,
         function_result: Optional[Dict[str, Any]] = None,
         conversation_id: Optional[str] = None,
-        caller_number: Optional[str] = None
+        caller_number: Optional[str] = None  # 🆕 v2.1: Added caller number
     ) -> bool:
         """
         Log conversation to Google Sheets with detailed logging
@@ -144,6 +144,7 @@ class GoogleSheetsService:
             assistant_message: Assistant's response
             function_result: Optional function execution result
             conversation_id: Optional unique conversation identifier (UUID)
+            caller_number: Optional caller phone number (for Voximplant calls)
         
         Returns:
             bool: Success status
@@ -154,10 +155,12 @@ class GoogleSheetsService:
         
         try:
             log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            log_sheets("📊 STARTING GOOGLE SHEETS LOGGING v2.0")
+            log_sheets("📊 STARTING GOOGLE SHEETS LOGGING v2.1")
             log_sheets(f"   Sheet ID: {sheet_id}")
             if conversation_id:
                 log_sheets(f"   Conversation ID: {conversation_id}")
+            if caller_number:
+                log_sheets(f"   Caller Number: {caller_number}")
             log_sheets("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             # Validate messages
@@ -192,13 +195,18 @@ class GoogleSheetsService:
             else:
                 log_sheets("🔧 No function result")
             
-            # 🆕 v2.0: Add conversation ID to data
+            # Prepare conversation ID
             conversation_id_str = conversation_id or ""
             if conversation_id_str:
                 log_sheets(f"🔑 Conversation ID: {conversation_id_str}")
             
-            # Prepare data (5 columns now)
-            values = [[now, user_message, assistant_message, function_text, conversation_id_str]]
+            # 🆕 v2.1: Prepare caller number
+            caller_number_str = caller_number or ""
+            if caller_number_str:
+                log_sheets(f"📞 Caller Number: {caller_number_str}")
+            
+            # Prepare data (6 columns now)
+            values = [[now, user_message, assistant_message, function_text, conversation_id_str, caller_number_str]]
             log_sheets(f"📋 Data prepared: {len(values[0])} columns")
             
             # Execute in thread pool
@@ -226,12 +234,12 @@ class GoogleSheetsService:
                     body = {'values': values}
                     log_sheets(f"📦 Request body prepared")
                     
-                    # Send request (updated range to A:E for 5 columns)
+                    # Send request (updated range to A:F for 6 columns)
                     try:
                         log_sheets(f"📤 Sending append request to sheet: {sheet_id}")
                         result = service.spreadsheets().values().append(
                             spreadsheetId=sheet_id,
-                            range='A:E',  # 🆕 v2.0: Changed from A:D to A:E
+                            range='A:F',  # 🆕 v2.1: Changed from A:E to A:F (6 columns)
                             valueInputOption='RAW',
                             insertDataOption='INSERT_ROWS',
                             body=body
@@ -290,6 +298,8 @@ class GoogleSheetsService:
                     log_sheets(f"   Function: {function_text[:100]}...", "WARNING")
                     if conversation_id_str:
                         log_sheets(f"   Conversation ID: {conversation_id_str}", "WARNING")
+                    if caller_number_str:
+                        log_sheets(f"   Caller Number: {caller_number_str}", "WARNING")
                     
                     return False
             except Exception as e:
@@ -398,7 +408,7 @@ class GoogleSheetsService:
 
     @staticmethod
     async def setup_sheet(sheet_id: str) -> bool:
-        """Setup sheet headers with logging (v2.0: 5 columns)"""
+        """Setup sheet headers with logging (v2.1: 6 columns)"""
         if not sheet_id:
             return False
             
@@ -413,23 +423,23 @@ class GoogleSheetsService:
                     log_sheets("Checking for existing headers...")
                     result = service.spreadsheets().values().get(
                         spreadsheetId=sheet_id,
-                        range='A1:E1'  # 🆕 v2.0: Changed from A1:D1 to A1:E1
+                        range='A1:F1'  # 🆕 v2.1: Changed from A1:E1 to A1:F1 (6 columns)
                     ).execute()
                     
                     values = result.get('values', [])
                     
                     if not values:
                         log_sheets("Adding headers...")
-                        # 🆕 v2.0: Added "Conversation ID" column
-                        headers = [["Timestamp", "User", "Assistant", "Function Result", "Conversation ID"]]
+                        # 🆕 v2.1: Added "Caller Number" column
+                        headers = [["Timestamp", "User", "Assistant", "Function Result", "Conversation ID", "Caller Number"]]
                         body = {'values': headers}
                         service.spreadsheets().values().update(
                             spreadsheetId=sheet_id,
-                            range='A1:E1',  # 🆕 v2.0: Changed from A1:D1 to A1:E1
+                            range='A1:F1',  # 🆕 v2.1: Changed from A1:E1 to A1:F1 (6 columns)
                             valueInputOption='RAW',
                             body=body
                         ).execute()
-                        log_sheets("✅ Headers added (5 columns)")
+                        log_sheets("✅ Headers added (6 columns)")
                     else:
                         log_sheets("✅ Headers already exist")
                         
