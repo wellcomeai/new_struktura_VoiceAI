@@ -935,3 +935,6 @@ async def handle_voximplant_websocket_with_protocol(
                 await websocket.close()
             except:
                 pass
+
+SimpleVoximplantHandler = VoximplantProtocolHandler
+handle_voximplant_websocket_simple = handle_voximplant_websocket_with_protocol
