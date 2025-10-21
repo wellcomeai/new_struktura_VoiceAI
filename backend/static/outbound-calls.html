@@ -29,6 +29,8 @@
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-md: 0.5rem;
       --radius-lg: 1rem;
+      --success-green: #10b981;
+      --error-red: #ef4444;
     }
     
     * {
@@ -285,12 +287,17 @@
     }
     
     .btn-success {
-      background-color: #10b981;
+      background-color: var(--success-green);
       color: var(--white);
     }
     
     .btn-success:hover {
       background-color: #059669;
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     
     /* Контейнер для содержимого */
@@ -349,6 +356,12 @@
       box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
     }
     
+    textarea.form-control {
+      resize: vertical;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      line-height: 1.5;
+    }
+    
     .form-helper {
       margin-top: 0.5rem;
       font-size: 0.875rem;
@@ -380,11 +393,11 @@
     }
     
     .notification-success {
-      border-left: 4px solid #10b981;
+      border-left: 4px solid var(--success-green);
     }
     
     .notification-error {
-      border-left: 4px solid #ef4444;
+      border-left: 4px solid var(--error-red);
     }
     
     .notification-info {
@@ -396,11 +409,11 @@
     }
     
     .notification-success .notification-icon {
-      color: #10b981;
+      color: var(--success-green);
     }
     
     .notification-error .notification-icon {
-      color: #ef4444;
+      color: var(--error-red);
     }
     
     .notification-info .notification-icon {
@@ -496,30 +509,107 @@
       font-family: monospace;
     }
     
-    /* Статус звонка */
-    .call-status {
-      padding: 1rem;
-      border-radius: var(--radius-md);
-      margin-top: 1rem;
-      display: none;
-    }
-    
-    .call-status.success {
-      background-color: #d1fae5;
-      border: 1px solid #10b981;
-      color: #065f46;
-    }
-    
-    .call-status.error {
-      background-color: #fee2e2;
-      border: 1px solid #ef4444;
-      color: #991b1b;
-    }
-    
-    .call-status.info {
+    /* Прогресс-бар и лог */
+    .progress-container {
       background-color: var(--bg-blue-light);
-      border: 1px solid var(--primary-blue);
-      color: var(--primary-blue-dark);
+      border: 1px solid var(--primary-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+      font-weight: 500;
+    }
+    
+    .progress-bar-container {
+      width: 100%;
+      height: 6px;
+      background-color: var(--white);
+      border-radius: 3px;
+      overflow: hidden;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary-blue), var(--primary-blue-light));
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 3px;
+    }
+    
+    .current-call {
+      margin-top: 0.75rem;
+      padding: 0.5rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .current-call i {
+      color: var(--primary-blue);
+    }
+    
+    .calls-log {
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background-color: var(--white);
+    }
+    
+    .log-entry {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    
+    .log-entry.success {
+      background-color: #f0fdf4;
+    }
+    
+    .log-entry.error {
+      background-color: #fef2f2;
+    }
+    
+    .log-icon {
+      font-size: 1rem;
+    }
+    
+    .log-entry.success .log-icon {
+      color: var(--success-green);
+    }
+    
+    .log-entry.error .log-icon {
+      color: var(--error-red);
+    }
+    
+    .log-phone {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .log-message {
+      color: var(--text-gray);
+      flex: 1;
     }
     
     /* Мобильная адаптация */
@@ -692,21 +782,21 @@
     <div class="content-container">
       <!-- Инструкции -->
       <div class="instructions">
-        <h4>Как настроить исходящие звонки:</h4>
+        <h4>📋 Как запустить массовый обзвон:</h4>
         <ol>
-          <li>Создайте сценарий исходящих звонков в Voximplant</li>
-          <li>Привяжите сценарий к правилу (Rule) и скопируйте Rule ID</li>
-          <li>Выберите вашего голосового ассистента</li>
-          <li>Укажите номер телефона для звонка и ваш Caller ID</li>
-          <li>Нажмите "Запустить звонок"</li>
+          <li>Введите Voximplant Account ID и API Key</li>
+          <li>Укажите Rule ID вашего сценария</li>
+          <li>Выберите голосового ассистента</li>
+          <li>Введите номера для обзвона (каждый с новой строки)</li>
+          <li>Укажите Caller ID и нажмите "Запустить обзвон"</li>
         </ol>
       </div>
       
       <!-- Форма запуска звонка -->
       <div class="card">
         <div class="card-header">
-          <h2 class="card-title">Запуск исходящего звонка</h2>
-          <p class="card-description">Заполните форму для запуска звонка через Voximplant</p>
+          <h2 class="card-title">Массовый обзвон</h2>
+          <p class="card-description">Запустите обзвон нескольких номеров с интервалом 1 секунда</p>
         </div>
         
         <form id="outbound-call-form">
@@ -766,18 +856,18 @@
             </p>
           </div>
           
-          <!-- Номер телефона -->
+          <!-- Номера телефонов - TEXTAREA -->
           <div class="form-group">
-            <label for="phone-number">Номер телефона (куда звоним) *</label>
-            <input 
-              type="tel" 
-              id="phone-number" 
+            <label for="phone-numbers">Номера телефонов (каждый с новой строки) *</label>
+            <textarea 
+              id="phone-numbers" 
               class="form-control" 
-              placeholder="+79001234567"
+              rows="6"
+              placeholder="+79001234567&#10;+79009876543&#10;+79001111111"
               required
-            >
+            ></textarea>
             <p class="form-helper">
-              Номер в международном формате (например: +79001234567)
+              Введите номера в международном формате, каждый с новой строки (максимум 50 номеров)
             </p>
           </div>
           
@@ -796,13 +886,30 @@
             </p>
           </div>
           
-          <!-- Кнопка запуска -->
-          <button type="submit" class="btn btn-success" style="width: 100%; padding: 1rem; font-size: 1rem;">
-            <i class="fas fa-phone"></i> Запустить звонок
-          </button>
+          <!-- Прогресс-бар -->
+          <div id="call-progress-container" class="progress-container" style="display: none;">
+            <div class="progress-header">
+              <span><i class="fas fa-chart-line"></i> Прогресс обзвона</span>
+              <span id="progress-text">0 / 0</span>
+            </div>
+            <div class="progress-bar-container">
+              <div id="progress-bar" class="progress-bar"></div>
+            </div>
+            <div id="current-calling" class="current-call">
+              <i class="fas fa-phone-volume"></i>
+              <span>Ожидание...</span>
+            </div>
+          </div>
           
-          <!-- Статус звонка -->
-          <div id="call-status" class="call-status"></div>
+          <!-- Лог звонков -->
+          <div id="calls-log" class="calls-log" style="display: none;">
+            <!-- Логи появятся здесь -->
+          </div>
+          
+          <!-- Кнопка запуска -->
+          <button type="submit" class="btn btn-success" id="start-calls-btn" style="width: 100%; padding: 1rem; font-size: 1rem; margin-top: 1rem;">
+            <i class="fas fa-phone"></i> Запустить обзвон
+          </button>
         </form>
       </div>
       
@@ -814,14 +921,14 @@
         
         <div style="color: var(--text-gray); line-height: 1.6;">
           <p style="margin-bottom: 1rem;">
-            <strong>Что происходит при запуске звонка:</strong>
+            <strong>Что происходит при запуске обзвона:</strong>
           </p>
           <ol style="padding-left: 1.5rem; margin-bottom: 1rem;">
-            <li style="margin-bottom: 0.5rem;">Отправляется HTTP запрос к Voximplant API</li>
-            <li style="margin-bottom: 0.5rem;">Запускается сценарий по указанному Rule ID</li>
+            <li style="margin-bottom: 0.5rem;">Система запускает звонки последовательно с интервалом 1 секунда</li>
+            <li style="margin-bottom: 0.5rem;">Для каждого номера отправляется HTTP запрос к Voximplant API</li>
             <li style="margin-bottom: 0.5rem;">Сценарий запрашивает конфигурацию ассистента с вашего сервера</li>
-            <li style="margin-bottom: 0.5rem;">Совершается звонок на указанный номер</li>
             <li style="margin-bottom: 0.5rem;">Голосовой ассистент ведет разговор согласно настройкам</li>
+            <li style="margin-bottom: 0.5rem;">Результаты каждого звонка отображаются в логе</li>
           </ol>
           
           <p style="margin-top: 1.5rem;">
@@ -853,7 +960,6 @@
       // Элементы
       const form = document.getElementById('outbound-call-form');
       const assistantsList = document.getElementById('assistants-list');
-      const callStatus = document.getElementById('call-status');
       const notification = document.getElementById('notification');
       const notificationMessage = document.getElementById('notification-message');
       const notificationClose = document.getElementById('notification-close');
@@ -865,6 +971,14 @@
       const userDropdown = document.getElementById('user-dropdown');
       const userEmailDisplay = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
+      
+      // Элементы прогресс-бара
+      const progressContainer = document.getElementById('call-progress-container');
+      const progressBar = document.getElementById('progress-bar');
+      const progressText = document.getElementById('progress-text');
+      const currentCalling = document.getElementById('current-calling');
+      const callsLog = document.getElementById('calls-log');
+      const startBtn = document.getElementById('start-calls-btn');
       
       let selectedAssistantId = null;
       
@@ -960,10 +1074,23 @@
         }, 300);
       }
       
-      function showCallStatus(message, type) {
-        callStatus.className = `call-status ${type}`;
-        callStatus.innerHTML = `<i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i> ${message}`;
-        callStatus.style.display = 'block';
+      function addLogEntry(phoneNumber, status, message) {
+        const logEntry = document.createElement('div');
+        logEntry.className = `log-entry ${status}`;
+        
+        const icon = status === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle';
+        
+        logEntry.innerHTML = `
+          <i class="fas ${icon} log-icon"></i>
+          <span class="log-phone">${phoneNumber}</span>
+          <span class="log-message">${message}</span>
+        `;
+        
+        callsLog.insertBefore(logEntry, callsLog.firstChild);
+      }
+      
+      function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
       }
       
       // Загрузка списка ассистентов
@@ -1045,57 +1172,114 @@
         }
       }
       
-      // Обработчик отправки формы
+      // Обработчик отправки формы - МАССОВЫЙ ОБЗВОН
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const ruleId = document.getElementById('rule-id').value;
-        const phoneNumber = document.getElementById('phone-number').value;
-        const callerId = document.getElementById('caller-id').value;
+        // Получаем номера из textarea
+        const phoneNumbersText = document.getElementById('phone-numbers').value;
+        const phoneNumbers = phoneNumbersText
+          .split('\n')
+          .map(num => num.trim())
+          .filter(num => num.length > 0);
+        
+        // Валидация
+        if (phoneNumbers.length === 0) {
+          showNotification('Введите хотя бы один номер телефона', 'error');
+          return;
+        }
+        
+        if (phoneNumbers.length > 50) {
+          showNotification('Максимум 50 номеров за один раз', 'error');
+          return;
+        }
         
         if (!selectedAssistantId) {
           showNotification('Выберите голосового ассистента', 'error');
           return;
         }
         
-        try {
-          setLoading(true);
-          showCallStatus('Запуск звонка...', 'info');
+        // Получаем данные из формы
+        const accountId = document.getElementById('account-id').value;
+        const apiKey = document.getElementById('api-key').value;
+        const ruleId = document.getElementById('rule-id').value;
+        const callerId = document.getElementById('caller-id').value;
+        
+        // Показываем прогресс
+        progressContainer.style.display = 'block';
+        callsLog.style.display = 'block';
+        callsLog.innerHTML = '';
+        startBtn.disabled = true;
+        
+        progressBar.style.width = '0%';
+        progressText.textContent = `0 / ${phoneNumbers.length}`;
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
+        showNotification(`Запускаем обзвон ${phoneNumbers.length} номеров...`, 'info');
+        
+        // Запускаем обзвон с таймаутом 1 секунда
+        for (let i = 0; i < phoneNumbers.length; i++) {
+          const phoneNumber = phoneNumbers[i];
+          const progress = Math.round(((i + 1) / phoneNumbers.length) * 100);
           
-          // Формируем данные для отправки в Voximplant
-          const scriptCustomData = JSON.stringify({
-            phone_number: phoneNumber,
-            assistant_id: selectedAssistantId,
-            caller_id: callerId
-          });
+          // Обновляем прогресс
+          progressBar.style.width = `${progress}%`;
+          progressText.textContent = `${i + 1} / ${phoneNumbers.length}`;
+          currentCalling.innerHTML = `
+            <i class="fas fa-phone-volume"></i>
+            <span>Звоним: <strong>${phoneNumber}</strong></span>
+          `;
           
-          // Отправляем запрос к Voximplant API через наш бэкенд
-          const response = await api.post('/voximplant/start-outbound-call', {
-            account_id: document.getElementById('account-id').value,
-            api_key: document.getElementById('api-key').value,
-            rule_id: ruleId,
-            script_custom_data: scriptCustomData
-          });
-          
-          if (response.success) {
-            showCallStatus('Звонок успешно запущен! ID сессии: ' + response.call_session_history_id, 'success');
-            showNotification('Звонок успешно запущен!', 'success');
-            
-            // Очищаем форму
-            form.reset();
-            selectedAssistantId = null;
-            document.querySelectorAll('.assistant-option').forEach(opt => {
-              opt.classList.remove('selected');
+          try {
+            // Формируем данные
+            const scriptCustomData = JSON.stringify({
+              phone_number: phoneNumber,
+              assistant_id: selectedAssistantId,
+              caller_id: callerId
             });
-          } else {
-            showCallStatus('Ошибка запуска звонка: ' + response.message, 'error');
-            showNotification(response.message || 'Ошибка при запуске звонка', 'error');
+            
+            // Отправляем запрос
+            const response = await api.post('/voximplant/start-outbound-call', {
+              account_id: accountId,
+              api_key: apiKey,
+              rule_id: ruleId,
+              script_custom_data: scriptCustomData
+            });
+            
+            if (response.success) {
+              successCount++;
+              addLogEntry(phoneNumber, 'success', `✓ Успешно запущен (ID: ${response.call_session_history_id || 'N/A'})`);
+            } else {
+              errorCount++;
+              addLogEntry(phoneNumber, 'error', `✗ Ошибка: ${response.message || 'Неизвестная ошибка'}`);
+            }
+          } catch (error) {
+            errorCount++;
+            addLogEntry(phoneNumber, 'error', `✗ Ошибка: ${error.message || 'Неизвестная ошибка'}`);
           }
-        } catch (error) {
-          showCallStatus('Ошибка: ' + error.message, 'error');
-          showNotification(error.message || 'Ошибка при запуске звонка', 'error');
-        } finally {
-          setLoading(false);
+          
+          // Задержка 1 секунда перед следующим звонком (кроме последнего)
+          if (i < phoneNumbers.length - 1) {
+            await sleep(1000);
+          }
+        }
+        
+        // Завершение
+        currentCalling.innerHTML = `
+          <i class="fas fa-check-circle" style="color: var(--success-green);"></i>
+          <span><strong>Обзвон завершен!</strong> Успешно: ${successCount}, Ошибок: ${errorCount}</span>
+        `;
+        
+        startBtn.disabled = false;
+        
+        if (errorCount === 0) {
+          showNotification(`Все ${successCount} звонков успешно запущены!`, 'success');
+        } else if (successCount > 0) {
+          showNotification(`Завершено: ${successCount} успешно, ${errorCount} с ошибками`, 'info');
+        } else {
+          showNotification(`Обзвон завершен с ошибками (${errorCount})`, 'error');
         }
       });
       
