@@ -132,7 +132,8 @@ class GoogleSheetsService:
         user_message: str,
         assistant_message: str,
         function_result: Optional[Dict[str, Any]] = None,
-        conversation_id: Optional[str] = None  # 🆕 v2.0: Added conversation ID
+        conversation_id: Optional[str] = None,
+        caller_number: Optional[str] = None
     ) -> bool:
         """
         Log conversation to Google Sheets with detailed logging
