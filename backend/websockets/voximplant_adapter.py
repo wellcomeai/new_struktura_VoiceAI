@@ -1,4 +1,4 @@
-# backend/websockets/voximplant_adapter.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# backend/websockets/voximplant_adapter.py - v2.1 с логированием номера телефона
 
 import asyncio
 import json
@@ -16,6 +16,7 @@ from backend.models.conversation import Conversation
 from backend.models.user import User
 from backend.utils.audio_utils import base64_to_audio_buffer, audio_buffer_to_base64
 from backend.services.user_service import UserService
+from backend.services.google_sheets_service import GoogleSheetsService  # 🆕 ДОБАВЛЕНО
 
 logger = get_logger(__name__)
 
@@ -74,8 +75,8 @@ class MockWebSocket:
 
 class VoximplantAdapter:
     """
-    ИСПРАВЛЕННЫЙ адаптер для интеграции Voximplant с ассистентом.
-    Правильно обрабатывает PCM16 аудио и двустороннюю передачу.
+    Адаптер для интеграции Voximplant с ассистентом v2.1
+    Правильно обрабатывает PCM16 аудио и логирует номер телефона.
     """
     
     def __init__(self, voximplant_ws: WebSocket, assistant_id: str, db: Session):
@@ -87,30 +88,39 @@ class VoximplantAdapter:
         self.assistant_ws = None
         self.server_ws = None
         
-        # ✅ ИСПРАВЛЕНО: Правильные параметры для PCM16
+        # 🆕 v2.1: Caller information
+        self.caller_number = "unknown"
+        self.call_id = "unknown"
+        
+        # Правильные параметры для PCM16
         self.audio_buffer = bytearray()
         self.last_audio_time = time.time()
         self.audio_chunk_size = 1280  # 40мс при 16kHz, 16bit mono = 1280 байт
         self.sample_rate = 16000  # 16kHz как ожидает OpenAI
         self.is_assistant_speaking = False
         
+        # 🆕 v2.1: Транскрипции для логирования
+        self.user_transcript = ""
+        self.assistant_transcript = ""
+        self.function_result = None
+        
         # Задачи для фонового выполнения
         self.background_tasks = []
         
-        logger.info(f"[VOXIMPLANT] Создан адаптер для assistant_id={assistant_id}, client_id={self.client_id}")
-        logger.info(f"[VOXIMPLANT] Аудио настройки: PCM16, {self.sample_rate}Hz, chunk_size={self.audio_chunk_size}")
+        logger.info(f"[VOXIMPLANT-v2.1] Создан адаптер для assistant_id={assistant_id}, client_id={self.client_id}")
+        logger.info(f"[VOXIMPLANT-v2.1] Аудио настройки: PCM16, {self.sample_rate}Hz, chunk_size={self.audio_chunk_size}")
 
     async def start(self):
         """Запускает адаптер и устанавливает соединения"""
         try:
             await self.voximplant_ws.accept()
             self.is_connected = True
-            logger.info(f"[VOXIMPLANT] WebSocket соединение принято от Voximplant")
+            logger.info(f"[VOXIMPLANT-v2.1] WebSocket соединение принято от Voximplant")
             
             # Создаем внутреннее соединение с обработчиком ассистента
             await self.create_internal_connection()
             
-            # ✅ ИСПРАВЛЕНО: Отправляем правильный статус подключения
+            # Отправляем правильный статус подключения
             await self.send_to_voximplant({
                 "type": "connection_status",
                 "status": "connected",
@@ -121,7 +131,7 @@ class VoximplantAdapter:
             await self.handle_voximplant_messages()
             
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка запуска адаптера: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка запуска адаптера: {e}")
             await self.cleanup()
 
     async def create_internal_connection(self):
@@ -143,10 +153,10 @@ class VoximplantAdapter:
             response_task = asyncio.create_task(self.handle_assistant_responses())
             self.background_tasks.append(response_task)
             
-            logger.info(f"[VOXIMPLANT] Внутреннее соединение с ассистентом установлено")
+            logger.info(f"[VOXIMPLANT-v2.1] Внутреннее соединение с ассистентом установлено")
             
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка создания внутреннего соединения: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка создания внутреннего соединения: {e}")
             raise
 
     def create_websocket_pair(self):
@@ -168,14 +178,14 @@ class VoximplantAdapter:
                         data = json.loads(message["text"])
                         await self.handle_text_message(data)
                     except json.JSONDecodeError:
-                        logger.warning(f"[VOXIMPLANT] Некорректный JSON: {message['text'][:100]}")
+                        logger.warning(f"[VOXIMPLANT-v2.1] Некорректный JSON: {message['text'][:100]}")
                 elif "bytes" in message:
                     await self.handle_audio_message(message["bytes"])
                     
         except WebSocketDisconnect:
-            logger.info(f"[VOXIMPLANT] Соединение закрыто")
+            logger.info(f"[VOXIMPLANT-v2.1] Соединение закрыто")
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка обработки сообщений: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка обработки сообщений: {e}")
         finally:
             await self.cleanup()
 
@@ -183,32 +193,29 @@ class VoximplantAdapter:
         """Обрабатывает текстовые сообщения от Voximplant"""
         msg_type = data.get("type", "")
         
-        # ✅ ИСПРАВЛЕНО: Детальное логирование для отладки
         if msg_type:
-            logger.info(f"[VOXIMPLANT] Получено сообщение: {msg_type}")
+            logger.info(f"[VOXIMPLANT-v2.1] Получено сообщение: {msg_type}")
         else:
-            logger.warning(f"[VOXIMPLANT] Получено сообщение без типа: {data}")
-            return  # Игнорируем сообщения без типа
+            logger.warning(f"[VOXIMPLANT-v2.1] Получено сообщение без типа: {data}")
+            return
         
         if msg_type == "call_started":
-            caller_number = data.get("caller_number", "unknown")
-            call_id = data.get("call_id", "unknown")
+            # 🆕 v2.1: Сохраняем номер телефона и call_id
+            self.caller_number = data.get("caller_number", "unknown")
+            self.call_id = data.get("call_id", "unknown")
             
-            logger.info(f"[VOXIMPLANT] Звонок начат: caller={caller_number}, call_id={call_id}")
-            
-            # ✅ ИСПРАВЛЕНО: Не отправляем session.update - это делает сам обработчик
-            # Просто логируем начало звонка
+            logger.info(f"[VOXIMPLANT-v2.1] Звонок начат: caller={self.caller_number}, call_id={self.call_id}")
+            logger.info(f"[VOXIMPLANT-v2.1] 📞 Сохранен номер телефона: {self.caller_number}")
             
         elif msg_type == "audio_ready":
-            # ✅ НОВОЕ: Обрабатываем уведомление о готовности аудио
             audio_format = data.get("format", "pcm16")
             sample_rate = data.get("sample_rate", 16000)
             channels = data.get("channels", 1)
             
-            logger.info(f"[VOXIMPLANT] Аудио готово: {audio_format}, {sample_rate}Hz, {channels} канал(ов)")
+            logger.info(f"[VOXIMPLANT-v2.1] Аудио готово: {audio_format}, {sample_rate}Hz, {channels} канал(ов)")
             
         elif msg_type == "call_ended":
-            logger.info(f"[VOXIMPLANT] Звонок завершен: {data.get('call_id')}")
+            logger.info(f"[VOXIMPLANT-v2.1] Звонок завершен: {self.call_id}")
             await self.cleanup()
             
         elif msg_type == "interruption.manual":
@@ -220,12 +227,10 @@ class VoximplantAdapter:
             
         elif msg_type == "microphone.state":
             mic_enabled = data.get("enabled", True)
-            logger.info(f"[VOXIMPLANT] Микрофон: {'включен' if mic_enabled else 'выключен'}")
+            logger.info(f"[VOXIMPLANT-v2.1] Микрофон: {'включен' if mic_enabled else 'выключен'}")
 
     async def handle_audio_message(self, audio_data: bytes):
-        """
-        ✅ ИСПРАВЛЕНО: Правильная обработка PCM16 аудио данных от Voximplant
-        """
+        """Правильная обработка PCM16 аудио данных от Voximplant"""
         try:
             # Voximplant отправляет PCM16 data с частотой 16kHz
             self.audio_buffer.extend(audio_data)
@@ -236,7 +241,7 @@ class VoximplantAdapter:
                 chunk = bytes(self.audio_buffer[:self.audio_chunk_size])
                 self.audio_buffer = self.audio_buffer[self.audio_chunk_size:]
                 
-                # ✅ ИСПРАВЛЕНО: Конвертируем PCM16 в base64 для OpenAI
+                # Конвертируем PCM16 в base64 для OpenAI
                 audio_b64 = audio_buffer_to_base64(chunk)
                 
                 # Отправляем в формате OpenAI Realtime API
@@ -250,16 +255,12 @@ class VoximplantAdapter:
             asyncio.create_task(self.auto_commit_audio())
             
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка обработки аудио: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка обработки аудио: {e}")
 
     async def auto_commit_audio(self):
-        """
-        ✅ ИСПРАВЛЕНО: Автоматически коммитит аудио буфер после паузы
-        """
-        # Ждем паузу для определения конца речи (для 16kHz увеличиваем паузу)
+        """Автоматически коммитит аудио буфер после паузы"""
         await asyncio.sleep(0.6)
         
-        # Если после паузы нет нового аудио - коммитим буфер
         if time.time() - self.last_audio_time >= 0.5:
             await self.send_to_assistant({
                 "type": "input_audio_buffer.commit",
@@ -277,17 +278,16 @@ class VoximplantAdapter:
                         response = json.loads(message["text"])
                         await self.handle_assistant_response(response)
                     elif "bytes" in message:
-                        # ✅ ИСПРАВЛЕНО: Аудио от ассистента - отправляем в Voximplant
                         await self.send_audio_to_voximplant(message["bytes"])
                         
                 except asyncio.TimeoutError:
                     continue
                 except Exception as e:
-                    logger.error(f"[VOXIMPLANT] Ошибка чтения ответа ассистента: {e}")
+                    logger.error(f"[VOXIMPLANT-v2.1] Ошибка чтения ответа ассистента: {e}")
                     break
                     
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка обработки ответов ассистента: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка обработки ответов ассистента: {e}")
 
     async def handle_assistant_response(self, response: dict):
         """Обрабатывает конкретный ответ от ассистента"""
@@ -303,18 +303,35 @@ class VoximplantAdapter:
         ]:
             await self.send_to_voximplant(response)
         
-        # ✅ ИСПРАВЛЕНО: Специальная обработка аудио событий
+        # Специальная обработка аудио событий
         elif msg_type == "response.audio.delta":
             delta_audio = response.get("delta", "")
             if delta_audio:
                 try:
-                    # Декодируем base64 аудио от OpenAI
                     audio_bytes = base64_to_audio_buffer(delta_audio)
                     await self.send_audio_to_voximplant(audio_bytes)
                 except Exception as e:
-                    logger.error(f"[VOXIMPLANT] Ошибка отправки аудио: {e}")
+                    logger.error(f"[VOXIMPLANT-v2.1] Ошибка отправки аудио: {e}")
         
-        # ✅ ИСПРАВЛЕНО: Отслеживание состояния речи ассистента
+        # 🆕 v2.1: Сохраняем транскрипции для логирования
+        elif msg_type == "conversation.item.input_audio_transcription.completed":
+            self.user_transcript = response.get("transcript", "")
+            logger.info(f"[VOXIMPLANT-v2.1] 👤 User: {self.user_transcript}")
+            
+        elif msg_type == "response.audio_transcript.done":
+            self.assistant_transcript = response.get("transcript", "")
+            logger.info(f"[VOXIMPLANT-v2.1] 🤖 Assistant: {self.assistant_transcript}")
+        
+        # 🆕 v2.1: Сохраняем результат функции
+        elif msg_type == "response.function_call_arguments.done":
+            function_name = response.get("name", "")
+            logger.info(f"[VOXIMPLANT-v2.1] 🔧 Function called: {function_name}")
+        
+        # 🆕 v2.1: При завершении ответа - логируем в Google Sheets
+        elif msg_type == "response.done":
+            await self.log_conversation()
+        
+        # Отслеживание состояния речи ассистента
         elif msg_type == "assistant.speech.started":
             self.is_assistant_speaking = True
             await self.send_to_voximplant({
@@ -331,7 +348,6 @@ class VoximplantAdapter:
                 "timestamp": time.time()
             })
             
-        # ✅ НОВОЕ: Обработка событий перебивания
         elif msg_type in ["conversation.interrupted", "response.cancelled"]:
             self.is_assistant_speaking = False
             await self.send_to_voximplant({
@@ -339,13 +355,46 @@ class VoximplantAdapter:
                 "timestamp": time.time()
             })
 
+    async def log_conversation(self):
+        """🆕 v2.1: Логирование разговора в Google Sheets"""
+        try:
+            # Получаем конфигурацию ассистента для доступа к google_sheet_id
+            assistant = self.db.query(AssistantConfig).filter(
+                AssistantConfig.id == uuid.UUID(self.assistant_id)
+            ).first()
+            
+            if not assistant:
+                logger.warning(f"[VOXIMPLANT-v2.1] Ассистент {self.assistant_id} не найден для логирования")
+                return
+            
+            if not hasattr(assistant, 'google_sheet_id') or not assistant.google_sheet_id:
+                logger.info(f"[VOXIMPLANT-v2.1] Google Sheet ID не настроен для ассистента {self.assistant_id}")
+                return
+            
+            # Логируем в Google Sheets с номером телефона
+            await GoogleSheetsService.log_conversation(
+                sheet_id=assistant.google_sheet_id,
+                user_message=self.user_transcript,
+                assistant_message=self.assistant_transcript,
+                function_result=self.function_result,
+                conversation_id=self.call_id,  # Используем call_id как conversation_id
+                caller_number=self.caller_number  # 🆕 Передаем номер телефона
+            )
+            
+            logger.info(f"[VOXIMPLANT-v2.1] ✅ Разговор записан в Google Sheets с номером: {self.caller_number}")
+            
+            # Сбрасываем транскрипции
+            self.user_transcript = ""
+            self.assistant_transcript = ""
+            self.function_result = None
+            
+        except Exception as e:
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка логирования в Google Sheets: {e}")
+
     async def send_audio_to_voximplant(self, audio_bytes: bytes):
-        """
-        ✅ НОВОЕ: Отправляет аудио данные в Voximplant в правильном формате
-        """
+        """Отправляет аудио данные в Voximplant в правильном формате"""
         try:
             if self.is_connected and audio_bytes:
-                # Отправляем аудио как бинарные данные
                 await self.voximplant_ws.send_bytes(audio_bytes)
                 
                 # Периодическое логирование для отладки
@@ -354,11 +403,11 @@ class VoximplantAdapter:
                 else:
                     self._audio_log_counter = 1
                     
-                if self._audio_log_counter % 50 == 0:  # Логируем каждый 50-й пакет
-                    logger.info(f"[VOXIMPLANT] Отправлено аудио пакетов: {self._audio_log_counter}, размер: {len(audio_bytes)} байт")
+                if self._audio_log_counter % 50 == 0:
+                    logger.info(f"[VOXIMPLANT-v2.1] Отправлено аудио пакетов: {self._audio_log_counter}, размер: {len(audio_bytes)} байт")
                     
         except Exception as e:
-            logger.error(f"[VOXIMPLANT] Ошибка отправки аудио в Voximplant: {e}")
+            logger.error(f"[VOXIMPLANT-v2.1] Ошибка отправки аудио в Voximplant: {e}")
 
     async def send_to_assistant(self, message: dict):
         """Отправляет сообщение ассистенту"""
@@ -366,7 +415,7 @@ class VoximplantAdapter:
             try:
                 await self.assistant_ws.send_json(message)
             except Exception as e:
-                logger.error(f"[VOXIMPLANT] Ошибка отправки сообщения ассистенту: {e}")
+                logger.error(f"[VOXIMPLANT-v2.1] Ошибка отправки сообщения ассистенту: {e}")
 
     async def send_to_voximplant(self, message: dict):
         """Отправляет сообщение в Voximplant"""
@@ -374,11 +423,12 @@ class VoximplantAdapter:
             try:
                 await self.voximplant_ws.send_text(json.dumps(message))
             except Exception as e:
-                logger.error(f"[VOXIMPLANT] Ошибка отправки сообщения в Voximplant: {e}")
+                logger.error(f"[VOXIMPLANT-v2.1] Ошибка отправки сообщения в Voximplant: {e}")
 
     async def cleanup(self):
         """Очищает ресурсы"""
-        logger.info(f"[VOXIMPLANT] Начало очистки адаптера для client_id={self.client_id}")
+        logger.info(f"[VOXIMPLANT-v2.1] Начало очистки адаптера для client_id={self.client_id}")
+        logger.info(f"[VOXIMPLANT-v2.1] 📞 Номер звонившего: {self.caller_number}")
         
         self.is_connected = False
         self.is_assistant_speaking = False
@@ -392,7 +442,7 @@ class VoximplantAdapter:
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    logger.error(f"[VOXIMPLANT] Ошибка при отмене задачи: {e}")
+                    logger.error(f"[VOXIMPLANT-v2.1] Ошибка при отмене задачи: {e}")
         
         # Закрываем внутренние WebSocket соединения
         if self.assistant_ws and not self.assistant_ws.is_closed:
@@ -401,12 +451,12 @@ class VoximplantAdapter:
         if self.server_ws and not self.server_ws.is_closed:
             await self.server_ws.close()
             
-        logger.info(f"[VOXIMPLANT] Адаптер очищен для client_id={self.client_id}")
+        logger.info(f"[VOXIMPLANT-v2.1] Адаптер очищен для client_id={self.client_id}")
 
 
 async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, db: Session):
     """
-    ✅ ИСПРАВЛЕННАЯ основная функция для обработки WebSocket соединений от Voximplant.
+    Основная функция для обработки WebSocket соединений от Voximplant v2.1
     """
     adapter = None
     try:
@@ -415,7 +465,7 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
             assistant = db.query(AssistantConfig).filter(AssistantConfig.is_public.is_(True)).first()
             if not assistant:
                 assistant = db.query(AssistantConfig).first()
-            logger.info(f"[VOXIMPLANT] Использование ассистента {assistant.id if assistant else 'None'} для демо")
+            logger.info(f"[VOXIMPLANT-v2.1] Использование ассистента {assistant.id if assistant else 'None'} для демо")
         else:
             try:
                 uuid_obj = uuid.UUID(assistant_id)
@@ -424,7 +474,7 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
                 assistant = db.query(AssistantConfig).filter(AssistantConfig.id.cast(str) == assistant_id).first()
 
         if not assistant:
-            logger.error(f"[VOXIMPLANT] Ассистент {assistant_id} не найден")
+            logger.error(f"[VOXIMPLANT-v2.1] Ассистент {assistant_id} не найден")
             await websocket.accept()
             await websocket.send_text(json.dumps({
                 "type": "error",
@@ -433,17 +483,16 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
             await websocket.close(code=1008)
             return
 
-        # ✅ ИСПРАВЛЕНО: Проверяем подписку пользователя с дополнительной проверкой сессии БД
+        # Проверяем подписку пользователя
         if assistant.user_id and not assistant.is_public:
             try:
-                # Обновляем сессию БД перед запросом
                 db.refresh(assistant)
                 user = db.query(User).get(assistant.user_id)
                 if user and not user.is_admin and user.email != "well96well@gmail.com":
                     subscription_status = await UserService.check_subscription_status(db, str(user.id))
                     
                     if not subscription_status["active"]:
-                        logger.warning(f"[VOXIMPLANT] Доступ заблокирован для пользователя {user.id} - подписка истекла")
+                        logger.warning(f"[VOXIMPLANT-v2.1] Доступ заблокирован для пользователя {user.id} - подписка истекла")
                         
                         await websocket.accept()
                         await websocket.send_text(json.dumps({
@@ -458,25 +507,23 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
                         await websocket.close(code=1008)
                         return
             except Exception as db_error:
-                logger.error(f"[VOXIMPLANT] Ошибка проверки подписки: {db_error}")
-                # Продолжаем работу без проверки подписки в случае ошибки БД
+                logger.error(f"[VOXIMPLANT-v2.1] Ошибка проверки подписки: {db_error}")
 
-        # ✅ ИСПРАВЛЕНО: Создаем копию сессии БД для адаптера
+        # Создаем копию сессии БД для адаптера
         try:
             from backend.db.session import SessionLocal
             adapter_db = SessionLocal()
             
-            # Создаем и запускаем исправленный адаптер
+            # Создаем и запускаем адаптер
             adapter = VoximplantAdapter(websocket, assistant_id, adapter_db)
             await adapter.start()
             
         finally:
-            # Закрываем сессию БД адаптера
             if 'adapter_db' in locals():
                 adapter_db.close()
         
     except Exception as e:
-        logger.error(f"[VOXIMPLANT] Ошибка обработки WebSocket: {e}")
+        logger.error(f"[VOXIMPLANT-v2.1] Ошибка обработки WebSocket: {e}")
         
         try:
             if not adapter:
