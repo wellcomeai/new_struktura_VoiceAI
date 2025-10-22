@@ -2323,7 +2323,8 @@
           document.getElementById('google-sheet-id').value = agent.google_sheet_id || '';
           
           // Заполняем приветственное сообщение
-          document.getElementById('greeting-message').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
+          // Используем ?? вместо || чтобы пустая строка "" не заменялась на дефолт
+          document.getElementById('greeting-message').value = agent.greeting_message ?? 'Здравствуйте! Чем я могу вам помочь?';
           
           // Выбор голоса
           const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice}"]`);
