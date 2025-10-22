@@ -32,6 +32,7 @@ class AssistantBase(BaseModel):
     voice: str = Field("alloy", description="Voice for the assistant")
     language: str = Field("ru", description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
+    greeting_message: Optional[str] = Field("Здравствуйте! Чем я могу вам помочь?", description="Приветственное сообщение ассистента")  # ✅ НОВОЕ ПОЛЕ
     functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
     
     @validator('voice')
@@ -54,6 +55,7 @@ class AssistantUpdate(BaseModel):
     voice: Optional[str] = Field(None, description="Voice for the assistant")
     language: Optional[str] = Field(None, description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
+    greeting_message: Optional[str] = Field(None, description="Приветственное сообщение ассистента")  # ✅ НОВОЕ ПОЛЕ
     functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
     is_active: Optional[bool] = Field(None, description="Whether the assistant is active")
     is_public: Optional[bool] = Field(None, description="Whether the assistant is public")
