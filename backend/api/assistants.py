@@ -127,6 +127,7 @@ async def get_assistant(
             voice=assistant.voice,
             language=assistant.language,
             google_sheet_id=assistant.google_sheet_id,
+            greeting_message=assistant.greeting_message,  # ✅ ИСПРАВЛЕНО: Добавлено поле
             functions=assistant.functions,
             is_active=assistant.is_active,
             is_public=assistant.is_public,
