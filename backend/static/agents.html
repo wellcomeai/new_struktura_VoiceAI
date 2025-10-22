@@ -1303,6 +1303,20 @@
                 <label for="agent-description">Описание (опционально)</label>
                 <textarea id="agent-description" class="form-control" placeholder="Описание вашего голосового ассистента"></textarea>
               </div>
+              
+              <div class="form-group">
+                <label for="greeting-message">Приветственное сообщение</label>
+                <input 
+                  type="text" 
+                  id="greeting-message" 
+                  class="form-control" 
+                  placeholder="Здравствуйте! Чем я могу вам помочь?" 
+                  maxlength="200"
+                >
+                <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  Эта фраза будет первым, что скажет ассистент при звонке. Максимум 200 символов.
+                </p>
+              </div>
             </div>
             
             <div class="form-section">
@@ -2308,6 +2322,9 @@
           // Заполняем поле Google Sheet ID
           document.getElementById('google-sheet-id').value = agent.google_sheet_id || '';
           
+          // Заполняем приветственное сообщение
+          document.getElementById('greeting-message').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
+          
           // Выбор голоса
           const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice}"]`);
           if (voiceInput) {
@@ -2375,7 +2392,8 @@
             description: document.getElementById('agent-description').value,
             system_prompt: document.getElementById('system-prompt').value,
             voice: document.querySelector('input[name="voice"]:checked')?.value || 'alloy',
-            google_sheet_id: document.getElementById('google-sheet-id').value || null
+            google_sheet_id: document.getElementById('google-sheet-id').value || null,
+            greeting_message: document.getElementById('greeting-message').value || 'Здравствуйте! Чем я могу вам помочь?'
           };
           
           // Добавляем данные о функциях
@@ -2641,6 +2659,7 @@
         document.getElementById('agent-description').value = '';
         document.getElementById('system-prompt').value = 'Ты умный голосовой помощник. Отвечай на вопросы пользователя коротко, информативно и с небольшой ноткой юмора, когда это уместно. Стремись быть полезным и предоставлять точную информацию.';
         document.getElementById('google-sheet-id').value = '';
+        document.getElementById('greeting-message').value = 'Здравствуйте! Чем я могу вам помочь?';
           
         // Выбираем голос по умолчанию
         const voiceInput = document.querySelector('input[name="voice"][value="alloy"]');
