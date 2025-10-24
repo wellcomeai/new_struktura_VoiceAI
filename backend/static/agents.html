@@ -1028,12 +1028,46 @@
       overflow: hidden;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-color);
+      position: relative;
+      min-height: 400px;
+    }
+
+    /* Placeholder для изображения */
+    .jarvis-image-placeholder {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-md);
+      transition: opacity 0.3s ease;
+    }
+
+    .jarvis-image-placeholder i {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 0.75rem;
+    }
+
+    .jarvis-image-placeholder span {
+      color: var(--text-gray);
+      font-size: 0.875rem;
     }
 
     .jarvis-image-container img {
       width: 100%;
       height: auto;
       display: block;
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .jarvis-image-container img.loaded {
+      opacity: 1;
     }
 
     /* Мобильная адаптация */
@@ -1502,7 +1536,22 @@
             </div>
             
             <div class="jarvis-image-container">
-              <img src="https://i.ibb.co/d4G1t4X5/image.png" alt="JARVIS Assistant" border="0">
+              <!-- Placeholder пока изображение грузится -->
+              <div class="jarvis-image-placeholder" id="jarvis-placeholder">
+                <i class="fas fa-robot"></i>
+                <span>Загрузка изображения...</span>
+              </div>
+              
+              <!-- Само изображение с отложенной загрузкой -->
+              <img 
+                src="https://i.ibb.co/d4G1t4X5/image.png" 
+                alt="JARVIS Assistant" 
+                loading="lazy"
+                width="1200"
+                height="800"
+                onload="this.classList.add('loaded'); document.getElementById('jarvis-placeholder').style.opacity='0'"
+                onerror="document.getElementById('jarvis-placeholder').innerHTML='<i class=\'fas fa-exclamation-triangle\'></i><span>Не удалось загрузить изображение</span>'"
+              >
             </div>
           </div>
           
