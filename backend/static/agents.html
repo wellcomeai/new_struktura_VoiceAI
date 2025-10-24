@@ -1006,7 +1006,7 @@
       margin-bottom: 0.5rem;
     }
 
-    /* Стили для карточки JARVIS */
+    /* Стили для карточки JARVIS - ПРОСТАЯ ВЕРСИЯ */
     .jarvis-card {
       margin-bottom: 1rem;
     }
@@ -1028,46 +1028,12 @@
       overflow: hidden;
       border-radius: var(--radius-md);
       border: 1px solid var(--border-color);
-      position: relative;
-      min-height: 400px;
-    }
-
-    /* Placeholder для изображения */
-    .jarvis-image-placeholder {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      border-radius: var(--radius-md);
-      transition: opacity 0.3s ease;
-    }
-
-    .jarvis-image-placeholder i {
-      font-size: 3rem;
-      color: var(--text-light);
-      margin-bottom: 0.75rem;
-    }
-
-    .jarvis-image-placeholder span {
-      color: var(--text-gray);
-      font-size: 0.875rem;
     }
 
     .jarvis-image-container img {
       width: 100%;
       height: auto;
       display: block;
-      position: relative;
-      z-index: 1;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    }
-
-    .jarvis-image-container img.loaded {
-      opacity: 1;
     }
 
     /* Мобильная адаптация */
@@ -1522,7 +1488,7 @@
             </div>
           </div>
           
-          <!-- Карточка JARVIS -->
+          <!-- Карточка JARVIS - ПРОСТАЯ ВЕРСИЯ -->
           <div class="form-section jarvis-card">
             <h3 style="margin-bottom: 1rem;">Код для JARVIS</h3>
             <p class="jarvis-description">
@@ -1536,21 +1502,10 @@
             </div>
             
             <div class="jarvis-image-container">
-              <!-- Placeholder пока изображение грузится -->
-              <div class="jarvis-image-placeholder" id="jarvis-placeholder">
-                <i class="fas fa-robot"></i>
-                <span>Загрузка изображения...</span>
-              </div>
-              
-              <!-- Само изображение с отложенной загрузкой -->
               <img 
                 src="https://i.ibb.co/d4G1t4X5/image.png" 
                 alt="JARVIS Assistant" 
                 loading="lazy"
-                width="1200"
-                height="800"
-                onload="this.classList.add('loaded'); document.getElementById('jarvis-placeholder').style.opacity='0'"
-                onerror="document.getElementById('jarvis-placeholder').innerHTML='<i class=\'fas fa-exclamation-triangle\'></i><span>Не удалось загрузить изображение</span>'"
               >
             </div>
           </div>
@@ -1688,7 +1643,7 @@
               </div>
             </div>
             
-            <!-- Функция: query_llm (НОВАЯ) -->
+            <!-- Функция: query_llm -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-query_llm" id="function-query_llm">
@@ -1737,7 +1692,7 @@
               </div>
             </div>
             
-            <!-- Функция: read_google_doc (НОВАЯ) -->
+            <!-- Функция: read_google_doc -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-read_google_doc" id="function-read_google_doc">
@@ -1780,7 +1735,7 @@
               </div>
             </div>
             
-            <!-- Функция: add_google_sheet_row (НОВАЯ) -->
+            <!-- Функция: add_google_sheet_row -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-add_google_sheet_row" id="function-add_google_sheet_row">
@@ -1839,7 +1794,7 @@
               </div>
             </div>
             
-            <!-- Функция: hangup_call (НОВАЯ) -->
+            <!-- Функция: hangup_call -->
             <div class="form-group">
               <label class="function-option">
                 <input type="checkbox" name="function-hangup_call" id="function-hangup_call">
