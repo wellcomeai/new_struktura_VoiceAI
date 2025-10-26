@@ -3,7 +3,8 @@ Authentication service for WellcomeAI application.
 Handles user authentication operations with partner referral system.
 """
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timedelta, timezone
@@ -11,9 +12,16 @@ from typing import Dict, Any, Optional
 import re
 
 from backend.core.logging import get_logger
-from backend.core.security import hash_password, verify_password, create_jwt_token as create_access_token
+from backend.core.security import (
+    hash_password, 
+    verify_password, 
+    create_jwt_token as create_access_token,
+    decode_jwt_token,
+    security
+)
 from backend.models.user import User
 from backend.schemas.auth import LoginRequest, RegisterRequest
+from backend.db.session import get_db
 
 logger = get_logger(__name__)
 
@@ -378,3 +386,43 @@ class AuthService:
         # 3. Store reset token in database
         
         return True
+    
+    @staticmethod
+    async def get_current_user(
+        db: Session = Depends(get_db),
+        credentials: HTTPAuthorizationCredentials = Depends(security)
+    ) -> User:
+        """
+        Get current authenticated user from JWT token
+        
+        Args:
+            db: Database session
+            credentials: HTTP Authorization credentials
+            
+        Returns:
+            User object
+            
+        Raises:
+            HTTPException: If user not found or token invalid
+        """
+        # Decode token and get user_id
+        token_data = decode_jwt_token(credentials.credentials)
+        user_id = token_data["sub"]
+        
+        # Get user from database
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.warning(f"❌ User not found: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        if not user.is_active:
+            logger.warning(f"❌ User inactive: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is inactive"
+            )
+        
+        return user
