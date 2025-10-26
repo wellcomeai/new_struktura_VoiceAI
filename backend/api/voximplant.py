@@ -1,8 +1,9 @@
-# backend/api/voximplant.py - Production Version 2.1
+# backend/api/voximplant.py - Production Version 2.2
 
 """
 Voximplant API endpoints для WellcomeAI, обновленные для гибкой архитектуры.
 🆕 v2.1: Enhanced logging with caller_number and conversation_id tracking
+🆕 v2.2: Added database persistence for conversations
 """
 
 from fastapi import APIRouter, WebSocket, Depends, Query, HTTPException, status, Header, Body
@@ -23,6 +24,8 @@ from backend.services.user_service import UserService
 from backend.functions import get_function_definitions, get_enabled_functions, normalize_function_name, execute_function
 # Добавляем импорт сервиса для работы с Google Sheets
 from backend.services.google_sheets_service import GoogleSheetsService
+# 🆕 v2.2: Добавляем импорт ConversationService для сохранения в БД
+from backend.services.conversation_service import ConversationService
 
 logger = get_logger(__name__)
 
@@ -526,22 +529,22 @@ async def voximplant_transcript_webhook(
             "message": f"Error processing transcript: {str(e)}"
         }
 
-# 🆕 v2.1: Обновленный эндпоинт для внешнего логирования с полной поддержкой
+# 🆕 v2.2: Обновленный эндпоинт для внешнего логирования с сохранением в БД
 @router.post("/log")
 async def log_conversation_data(
     request_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
     """
-    Эндпоинт для логирования данных разговора из Voximplant в Google Sheets.
-    🆕 v2.1: Принимает и логирует номер телефона (caller_number) и conversation_id
+    Эндпоинт для логирования данных разговора из Voximplant.
+    🆕 v2.2: Сохраняет данные И в Google Sheets И в БД
     
     Формат запроса:
     {
         "assistant_id": "uuid",
         "chat_id": "string",
         "call_id": "string",
-        "caller_number": "string",  // 🆕 v2.1: Номер телефона звонящего
+        "caller_number": "string",  // Номер телефона звонящего
         "type": "conversation",
         "data": {
             "user_message": "string",
@@ -554,28 +557,28 @@ async def log_conversation_data(
         assistant_id = request_data.get("assistant_id")
         chat_id = request_data.get("chat_id")
         call_id = request_data.get("call_id")
-        caller_number = request_data.get("caller_number")  # 🆕 v2.1: Получаем номер телефона
+        caller_number = request_data.get("caller_number")
         data_type = request_data.get("type", "general")
         data = request_data.get("data", {})
         
-        logger.info(f"[VOXIMPLANT-v2.1] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(f"[VOXIMPLANT-v2.1] 📥 Получены данные для логирования:")
-        logger.info(f"[VOXIMPLANT-v2.1]   📋 Тип: {data_type}")
-        logger.info(f"[VOXIMPLANT-v2.1]   💬 Chat ID: {chat_id}")
-        logger.info(f"[VOXIMPLANT-v2.1]   📞 Call ID: {call_id}")
-        logger.info(f"[VOXIMPLANT-v2.1]   📱 Caller Number: {caller_number}")  # 🆕 v2.1
-        logger.info(f"[VOXIMPLANT-v2.1] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v2.2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v2.2] 📥 Получены данные для логирования:")
+        logger.info(f"[VOXIMPLANT-v2.2]   📋 Тип: {data_type}")
+        logger.info(f"[VOXIMPLANT-v2.2]   💬 Chat ID: {chat_id}")
+        logger.info(f"[VOXIMPLANT-v2.2]   📞 Call ID: {call_id}")
+        logger.info(f"[VOXIMPLANT-v2.2]   📱 Caller Number: {caller_number}")
+        logger.info(f"[VOXIMPLANT-v2.2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         if not assistant_id or not (chat_id or call_id):
-            logger.warning("[VOXIMPLANT-v2.1] ❌ Отсутствуют обязательные параметры")
+            logger.warning("[VOXIMPLANT-v2.2] ❌ Отсутствуют обязательные параметры")
             return {
                 "success": False,
                 "message": "Missing required parameters (assistant_id and chat_id/call_id)"
             }
         
-        # Если тип данных - разговор, пытаемся записать в Google Sheets
+        # Если тип данных - разговор, сохраняем и в Sheets и в БД
         if data_type == "conversation":
-            # Получаем ассистента для получения ID таблицы
+            # Получаем ассистента
             try:
                 assistant_uuid = uuid.UUID(assistant_id)
                 assistant = db.query(AssistantConfig).get(assistant_uuid)
@@ -584,74 +587,111 @@ async def log_conversation_data(
                     AssistantConfig.id.cast(str) == assistant_id
                 ).first()
             
-            # Проверяем google_sheet_id
-            if assistant and hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
-                log_sheet_id = assistant.google_sheet_id
-                logger.info(f"[VOXIMPLANT-v2.1] 📊 Найден ID Google Sheet: {log_sheet_id}")
-                
-                # Получаем одну пару вопрос-ответ для записи
-                user_message = data.get("user_message", "")
-                assistant_message = data.get("assistant_message", "")
-                function_result = data.get("function_result")
-                
-                # Логируем длину сообщений для отладки
-                logger.info(f"[VOXIMPLANT-v2.1] 📏 Длина сообщения пользователя: {len(user_message)} символов")
-                logger.info(f"[VOXIMPLANT-v2.1] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
-                
-                if not user_message and not assistant_message:
-                    logger.warning("[VOXIMPLANT-v2.1] ⚠️ Пустые сообщения для логирования, пропускаем")
-                    return {
-                        "success": False,
-                        "message": "Empty messages, logging skipped"
-                    }
-                
-                # 🆕 v2.1: Определяем conversation_id (приоритет - call_id, fallback - chat_id)
-                conversation_id = call_id or chat_id
-                
-                # 🆕 v2.1: Определяем caller_number (используем переданный или "unknown")
-                caller_phone = caller_number if caller_number else "unknown"
-                
-                logger.info(f"[VOXIMPLANT-v2.1] 🔑 Данные для записи:")
-                logger.info(f"[VOXIMPLANT-v2.1]   🆔 Conversation ID: {conversation_id}")
-                logger.info(f"[VOXIMPLANT-v2.1]   📞 Caller Number: {caller_phone}")
-                logger.info(f"[VOXIMPLANT-v2.1]   📄 Sheet ID: {log_sheet_id}")
-                
-                # 🆕 v2.1: Запись в Google Sheets - теперь с 6 колонками!
-                sheet_result = await GoogleSheetsService.log_conversation(
-                    sheet_id=log_sheet_id,
-                    user_message=user_message,
-                    assistant_message=assistant_message,
-                    function_result=function_result,
-                    conversation_id=conversation_id,      # 🆕 v2.1: ID сессии (5-я колонка)
-                    caller_number=caller_phone            # 🆕 v2.1: Номер телефона (6-я колонка)
-                )
-                
-                if sheet_result:
-                    logger.info(f"[VOXIMPLANT-v2.1] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    logger.info(f"[VOXIMPLANT-v2.1] ✅ Данные успешно записаны в Google Sheets!")
-                    logger.info(f"[VOXIMPLANT-v2.1]   📞 Номер: {caller_phone}")
-                    logger.info(f"[VOXIMPLANT-v2.1]   🆔 Сессия: {conversation_id}")
-                    logger.info(f"[VOXIMPLANT-v2.1]   📊 Sheet ID: {log_sheet_id}")
-                    logger.info(f"[VOXIMPLANT-v2.1] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    return {
-                        "success": True,
-                        "message": "Conversation pair logged successfully with caller number and conversation ID",
-                        "caller_number": caller_phone,
-                        "conversation_id": conversation_id,
-                        "sheet_id": log_sheet_id
-                    }
-                else:
-                    logger.error(f"[VOXIMPLANT-v2.1] ❌ Ошибка записи в Google Sheets: {log_sheet_id}")
-                    return {
-                        "success": False,
-                        "message": "Failed to log to Google Sheets"
-                    }
-            else:
-                logger.info(f"[VOXIMPLANT-v2.1] ⚠️ Google Sheets логирование не настроено для ассистента {assistant_id}")
+            if not assistant:
+                logger.error(f"[VOXIMPLANT-v2.2] ❌ Ассистент не найден: {assistant_id}")
                 return {
                     "success": False,
-                    "message": "Google Sheets logging not configured for this assistant"
+                    "message": "Assistant not found"
                 }
+            
+            # Получаем данные сообщений
+            user_message = data.get("user_message", "")
+            assistant_message = data.get("assistant_message", "")
+            function_result = data.get("function_result")
+            
+            # Логируем длину сообщений
+            logger.info(f"[VOXIMPLANT-v2.2] 📏 Длина сообщения пользователя: {len(user_message)} символов")
+            logger.info(f"[VOXIMPLANT-v2.2] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
+            
+            if not user_message and not assistant_message:
+                logger.warning("[VOXIMPLANT-v2.2] ⚠️ Пустые сообщения для логирования, пропускаем")
+                return {
+                    "success": False,
+                    "message": "Empty messages, logging skipped"
+                }
+            
+            # Определяем conversation_id (приоритет - call_id, fallback - chat_id)
+            conversation_id = call_id or chat_id
+            caller_phone = caller_number if caller_number else "unknown"
+            
+            logger.info(f"[VOXIMPLANT-v2.2] 🔑 Данные для записи:")
+            logger.info(f"[VOXIMPLANT-v2.2]   🆔 Conversation ID: {conversation_id}")
+            logger.info(f"[VOXIMPLANT-v2.2]   📞 Caller Number: {caller_phone}")
+            
+            # 🆕 v2.2: СОХРАНЕНИЕ В БД через ConversationService
+            logger.info(f"[VOXIMPLANT-v2.2] 💾 Сохранение в БД...")
+            db_result = None
+            try:
+                db_result = await ConversationService.save_conversation(
+                    db=db,
+                    assistant_id=assistant_id,
+                    user_message=user_message,
+                    assistant_message=assistant_message,
+                    session_id=conversation_id,
+                    caller_number=caller_phone,
+                    client_info={
+                        "call_id": call_id,
+                        "chat_id": chat_id,
+                        "source": "voximplant"
+                    },
+                    audio_duration=None,  # Можно добавить если передается
+                    tokens_used=0  # Можно добавить если передается
+                )
+                
+                if db_result:
+                    logger.info(f"[VOXIMPLANT-v2.2] ✅ Сохранено в БД: {db_result.id}")
+                else:
+                    logger.warning(f"[VOXIMPLANT-v2.2] ⚠️ Не удалось сохранить в БД")
+                    
+            except Exception as db_error:
+                logger.error(f"[VOXIMPLANT-v2.2] ❌ Ошибка сохранения в БД: {db_error}")
+                logger.error(f"[VOXIMPLANT-v2.2] Traceback: {traceback.format_exc()}")
+                # Продолжаем выполнение - Google Sheets всё равно попытаемся записать
+            
+            # СОХРАНЕНИЕ В GOOGLE SHEETS (оригинальная логика)
+            sheets_result = False
+            if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
+                log_sheet_id = assistant.google_sheet_id
+                logger.info(f"[VOXIMPLANT-v2.2] 📊 Найден ID Google Sheet: {log_sheet_id}")
+                
+                try:
+                    sheets_result = await GoogleSheetsService.log_conversation(
+                        sheet_id=log_sheet_id,
+                        user_message=user_message,
+                        assistant_message=assistant_message,
+                        function_result=function_result,
+                        conversation_id=conversation_id,
+                        caller_number=caller_phone
+                    )
+                    
+                    if sheets_result:
+                        logger.info(f"[VOXIMPLANT-v2.2] ✅ Данные записаны в Google Sheets")
+                    else:
+                        logger.error(f"[VOXIMPLANT-v2.2] ❌ Ошибка записи в Google Sheets")
+                        
+                except Exception as sheets_error:
+                    logger.error(f"[VOXIMPLANT-v2.2] ❌ Ошибка Google Sheets: {sheets_error}")
+                    logger.error(f"[VOXIMPLANT-v2.2] Traceback: {traceback.format_exc()}")
+            else:
+                logger.info(f"[VOXIMPLANT-v2.2] ⚠️ Google Sheets логирование не настроено")
+            
+            # Формируем ответ
+            logger.info(f"[VOXIMPLANT-v2.2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"[VOXIMPLANT-v2.2] 📊 РЕЗУЛЬТАТЫ ЛОГИРОВАНИЯ:")
+            logger.info(f"[VOXIMPLANT-v2.2]   💾 БД: {'✅ ДА' if db_result else '❌ НЕТ'}")
+            logger.info(f"[VOXIMPLANT-v2.2]   📊 Sheets: {'✅ ДА' if sheets_result else '❌ НЕТ'}")
+            logger.info(f"[VOXIMPLANT-v2.2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            return {
+                "success": bool(db_result) or sheets_result,
+                "message": "Conversation logged successfully" if (db_result or sheets_result) else "Failed to log conversation",
+                "saved_to": {
+                    "database": bool(db_result),
+                    "google_sheets": sheets_result
+                },
+                "conversation_id": str(db_result.id) if db_result else conversation_id,
+                "caller_number": caller_phone
+            }
         
         return {
             "success": True,
@@ -659,8 +699,8 @@ async def log_conversation_data(
         }
         
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v2.1] ❌ Ошибка логирования: {e}")
-        logger.error(f"[VOXIMPLANT-v2.1] Трассировка: {traceback.format_exc()}")
+        logger.error(f"[VOXIMPLANT-v2.2] ❌ Ошибка логирования: {e}")
+        logger.error(f"[VOXIMPLANT-v2.2] Трассировка: {traceback.format_exc()}")
         return {
             "success": False,
             "message": f"Error logging data: {str(e)}"
