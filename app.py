@@ -1,6 +1,7 @@
 """
 FastAPI application initialization for WellcomeAI.
 This file configures all application components: routes, middleware, logging, etc.
+🆕 v2.0: Added Conversations API support
 """
 import os
 import asyncio
@@ -19,7 +20,7 @@ from backend.core.logging import setup_logging, get_logger
 from backend.api import (
     auth, users, assistants, files, websocket, healthcheck, 
     subscriptions, subscription_logs, admin, partners, 
-    knowledge_base, payments, voximplant, elevenlabs
+    knowledge_base, payments, voximplant, elevenlabs, conversations  # 🆕 ДОБАВЛЕНО: conversations
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -137,8 +138,9 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["Knowledge Base"])
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])
-app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])  # ✅ ДОБАВЛЕНО: ElevenLabs роутер
+app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
+app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])  # 🆕 ДОБАВЛЕНО: Conversations роутер
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
 def ensure_static_directories():
@@ -312,6 +314,9 @@ def check_and_fix_all_missing_columns():
                 'elevenlabs_api_key': 'VARCHAR NULL',
                 # Добавляйте сюда другие колонки которые могут отсутствовать
             },
+            'conversations': {
+                'caller_number': 'VARCHAR(50) NULL',  # 🆕 v2.0: Добавлена проверка caller_number
+            },
             'assistant_configs': {
                 # Добавьте если нужно
             },
@@ -385,7 +390,7 @@ async def startup_event():
                 # Шаг 2: Создаем базовые таблицы
                 create_tables(engine)
                 
-                # Шаг 3: Комплексная проверка и исправление схемы
+                # Шаг 3: Комплексная проверка и исправление схемы (🆕 включает caller_number)
                 check_and_fix_all_missing_columns()
                 
                 # Шаг 4: Создаем таблицы ElevenLabs и проверяем колонки
@@ -456,6 +461,16 @@ async def startup_event():
             logger.info(f"   Voice generation endpoint: {settings.HOST_URL}/api/elevenlabs/generate")
         except Exception as e:
             logger.error(f"❌ Error initializing ElevenLabs integration: {str(e)}")
+        
+        # 🆕 ДОБАВЛЕНО: Логирование инициализации Conversations API
+        try:
+            logger.info("💬 Conversations API initialized")
+            logger.info(f"   List endpoint: {settings.HOST_URL}/api/conversations")
+            logger.info(f"   Detail endpoint: {settings.HOST_URL}/api/conversations/{{id}}")
+            logger.info(f"   Stats endpoint: {settings.HOST_URL}/api/conversations/stats")
+            logger.info(f"   By caller endpoint: {settings.HOST_URL}/api/conversations/by-caller/{{phone}}")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Conversations API: {str(e)}")
         
         logger.info("✅ Application started successfully")
         
