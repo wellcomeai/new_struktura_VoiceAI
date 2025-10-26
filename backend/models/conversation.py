@@ -1,6 +1,8 @@
+# backend/models/conversation.py
 """
 Conversation model for WellcomeAI application.
 Represents chat interactions between users and assistants.
+🆕 v2.0: Added caller_number field for Voximplant integration
 """
 
 import uuid
@@ -15,6 +17,7 @@ from .base import Base, BaseModel
 class Conversation(Base, BaseModel):
     """
     Conversation model representing chat interactions with assistants.
+    🆕 v2.0: Extended with caller_number support
     """
     __tablename__ = "conversations"
 
@@ -23,6 +26,7 @@ class Conversation(Base, BaseModel):
     session_id = Column(String, nullable=True, index=True)  # Group related messages
     user_message = Column(Text, nullable=True)
     assistant_message = Column(Text, nullable=True)
+    caller_number = Column(String(50), nullable=True, index=True)  # 🆕 v2.0: Phone number for Voximplant calls
     duration_seconds = Column(Float, nullable=True)
     client_info = Column(JSON, nullable=True)  # Browser, IP, etc.
     tokens_used = Column(Integer, default=0)  # Token usage for this conversation
