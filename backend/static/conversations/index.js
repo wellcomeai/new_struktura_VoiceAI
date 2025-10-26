@@ -2,6 +2,12 @@
 /**
  * Модуль для работы с карточками диалогов
  * Загружает и отображает историю диалогов с ассистентами
+ * 
+ * ИСПРАВЛЕНИЯ:
+ * - Правильный редирект на /static/index.html вместо несуществующего login.html
+ * - Добавлена проверка подписки
+ * - Обработка 401/403 ошибок (протухший токен)
+ * - Показ предупреждения об истекшей подписке
  */
 
 // ============================================================================
@@ -23,6 +29,7 @@ let currentFilters = {
   date_from: null,
   date_to: null
 };
+let subscriptionStatus = null; // 🆕 Добавлено: статус подписки
 
 // ============================================================================
 // API FUNCTIONS
@@ -37,18 +44,93 @@ function getToken() {
 
 /**
  * Проверка авторизации
+ * 🆕 ИСПРАВЛЕНО: Редирект на правильный файл
  */
 function checkAuth() {
   const token = getToken();
   if (!token) {
-    window.location.href = '/static/login.html';
+    // Перенаправляем на главную страницу (там форма входа)
+    window.location.href = '/static/index.html';
     return false;
   }
   return true;
 }
 
 /**
+ * 🆕 ДОБАВЛЕНО: Обработка ошибок API
+ */
+function handleApiError(response) {
+  if (response.status === 401 || response.status === 403) {
+    // Токен протух или невалиден
+    console.log('Token expired or invalid, redirecting to login');
+    localStorage.removeItem('access_token');
+    window.location.href = '/static/index.html';
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 🆕 ДОБАВЛЕНО: Проверка статуса подписки
+ */
+async function checkSubscription() {
+  const token = getToken();
+  
+  try {
+    const response = await fetch(`${API_BASE}/api/subscriptions/my-subscription`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (!response.ok) {
+      if (handleApiError(response)) return null;
+      throw new Error('Failed to check subscription');
+    }
+    
+    const data = await response.json();
+    subscriptionStatus = data;
+    
+    // Показываем предупреждение если подписка неактивна
+    if (!data.active && !data.is_trial) {
+      showSubscriptionWarning();
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('Error checking subscription:', error);
+    return null;
+  }
+}
+
+/**
+ * 🆕 ДОБАВЛЕНО: Показать предупреждение о подписке
+ */
+function showSubscriptionWarning() {
+  const warningHtml = `
+    <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 1rem; margin-bottom: 1.5rem; border-radius: 0.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <i class="fas fa-exclamation-triangle" style="color: #f59e0b; font-size: 1.25rem;"></i>
+        <div>
+          <strong style="color: #92400e;">Подписка истекла</strong>
+          <p style="color: #92400e; margin: 0.25rem 0 0 0; font-size: 0.875rem;">
+            Для продолжения работы с ассистентами необходимо продлить подписку.
+            <a href="/static/settings.html" style="color: #2563eb; text-decoration: underline;">Перейти к настройкам</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  const container = document.querySelector('.content-container');
+  if (container && container.firstChild) {
+    container.insertAdjacentHTML('afterbegin', warningHtml);
+  }
+}
+
+/**
  * Получить список диалогов
+ * 🆕 ИСПРАВЛЕНО: Добавлена обработка ошибок
  */
 async function fetchConversations(offset = 0) {
   const token = getToken();
@@ -84,7 +166,11 @@ async function fetchConversations(offset = 0) {
     }
   });
   
+  // 🆕 ДОБАВЛЕНО: Обработка ошибок авторизации
   if (!response.ok) {
+    if (handleApiError(response)) {
+      throw new Error('Unauthorized');
+    }
     throw new Error('Failed to fetch conversations');
   }
   
@@ -93,6 +179,7 @@ async function fetchConversations(offset = 0) {
 
 /**
  * Получить детали диалога
+ * 🆕 ИСПРАВЛЕНО: Добавлена обработка ошибок
  */
 async function fetchConversationDetail(conversationId) {
   const token = getToken();
@@ -103,7 +190,11 @@ async function fetchConversationDetail(conversationId) {
     }
   });
   
+  // 🆕 ДОБАВЛЕНО: Обработка ошибок авторизации
   if (!response.ok) {
+    if (handleApiError(response)) {
+      throw new Error('Unauthorized');
+    }
     throw new Error('Failed to fetch conversation detail');
   }
   
@@ -112,6 +203,7 @@ async function fetchConversationDetail(conversationId) {
 
 /**
  * Получить список ассистентов для фильтра
+ * 🆕 ИСПРАВЛЕНО: Добавлена обработка ошибок
  */
 async function fetchAssistants() {
   const token = getToken();
@@ -122,7 +214,11 @@ async function fetchAssistants() {
     }
   });
   
+  // 🆕 ДОБАВЛЕНО: Обработка ошибок авторизации
   if (!response.ok) {
+    if (handleApiError(response)) {
+      throw new Error('Unauthorized');
+    }
     throw new Error('Failed to fetch assistants');
   }
   
@@ -374,7 +470,10 @@ async function openConversationDetail(conversationId) {
     
   } catch (error) {
     console.error('Error loading conversation detail:', error);
-    alert('Ошибка загрузки деталей диалога');
+    // 🆕 УЛУЧШЕНО: Не показываем alert если редирект на login
+    if (error.message !== 'Unauthorized') {
+      alert('Ошибка загрузки деталей диалога');
+    }
   } finally {
     loading.style.display = 'none';
   }
@@ -625,7 +724,10 @@ async function loadConversations() {
     
   } catch (error) {
     console.error('Error loading conversations:', error);
-    alert('Ошибка загрузки диалогов');
+    // 🆕 УЛУЧШЕНО: Не показываем alert если редирект на login
+    if (error.message !== 'Unauthorized') {
+      alert('Ошибка загрузки диалогов');
+    }
   } finally {
     loading.style.display = 'none';
   }
@@ -640,6 +742,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!checkAuth()) {
     return;
   }
+  
+  // 🆕 ДОБАВЛЕНО: Проверка подписки
+  await checkSubscription();
   
   // Загрузка данных
   await loadAssistantFilter();
@@ -659,3 +764,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+// ============================================================================
+// LOGOUT FUNCTION
+// ============================================================================
+
+/**
+ * 🆕 ДОБАВЛЕНО: Выход из системы
+ */
+function logout() {
+  // Удаляем токен
+  localStorage.removeItem('access_token');
+  
+  // Перенаправляем на главную страницу
+  window.location.href = '/static/index.html';
+}
+
+// Экспортируем для использования в HTML (onclick="logout()")
+window.logout = logout;
