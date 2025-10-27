@@ -553,10 +553,11 @@
     .modal {
       background-color: var(--white);
       border-radius: var(--radius-lg);
-      max-width: 700px;
+      max-width: 800px;
       width: 100%;
       max-height: 90vh;
-      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
       box-shadow: var(--shadow-lg);
       animation: slide-up 0.3s ease;
     }
@@ -571,12 +572,25 @@
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
+      flex-shrink: 0;
+    }
+    
+    .modal-header-content {
+      flex: 1;
     }
     
     .modal-title {
       font-size: 1.25rem;
       font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    .modal-subtitle {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
     }
     
     .modal-close {
@@ -592,6 +606,7 @@
       justify-content: center;
       border-radius: var(--radius-md);
       transition: all 0.2s;
+      flex-shrink: 0;
     }
     
     .modal-close:hover {
@@ -599,15 +614,127 @@
       color: var(--text-dark);
     }
     
-    .modal-body {
+    /* 🆕 Telegram-style chat */
+    .chat-container {
+      flex: 1;
+      overflow-y: auto;
       padding: 1.5rem;
+      background-color: #f0f2f5;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
     }
     
-    .detail-section {
-      margin-bottom: 1.5rem;
+    .message {
+      display: flex;
+      gap: 0.75rem;
+      max-width: 70%;
+      animation: message-appear 0.2s ease;
     }
     
-    .detail-label {
+    @keyframes message-appear {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .message.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    
+    .message.assistant {
+      align-self: flex-start;
+    }
+    
+    .message-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    
+    .message.user .message-avatar {
+      background: linear-gradient(135deg, var(--primary-blue-light), var(--primary-blue));
+      color: var(--white);
+    }
+    
+    .message.assistant .message-avatar {
+      background-color: #95a5a6;
+      color: var(--white);
+    }
+    
+    .message-bubble {
+      padding: 0.75rem 1rem;
+      border-radius: 1rem;
+      word-wrap: break-word;
+      line-height: 1.5;
+      font-size: 0.9rem;
+    }
+    
+    .message.user .message-bubble {
+      background-color: var(--primary-blue);
+      color: var(--white);
+      border-bottom-right-radius: 0.25rem;
+    }
+    
+    .message.assistant .message-bubble {
+      background-color: var(--white);
+      color: var(--text-dark);
+      border-bottom-left-radius: 0.25rem;
+      border: 1px solid var(--border-color);
+    }
+    
+    .message-time {
+      font-size: 0.7rem;
+      margin-top: 0.25rem;
+      text-align: right;
+    }
+    
+    .message.user .message-time {
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .message.assistant .message-time {
+      color: var(--text-light);
+    }
+    
+    .modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-light);
+      flex-shrink: 0;
+    }
+    
+    .footer-info {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+    
+    .footer-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .footer-item i {
+      color: var(--primary-blue);
+    }
+    
+    .functions-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .functions-title {
       font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -616,34 +743,22 @@
       margin-bottom: 0.5rem;
     }
     
-    .detail-content {
-      background-color: var(--bg-light);
-      padding: 1rem;
+    .function-item {
+      font-size: 0.85rem;
+      padding: 0.5rem;
+      background-color: var(--white);
       border-radius: var(--radius-md);
-      font-size: 0.9rem;
-      line-height: 1.6;
-      color: var(--text-dark);
-      white-space: pre-wrap;
-    }
-    
-    .detail-row {
-      display: flex;
-      gap: 1rem;
-      margin-bottom: 1rem;
-    }
-    
-    .detail-col {
-      flex: 1;
+      margin-bottom: 0.25rem;
     }
     
     .stat-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.5rem 1rem;
+      padding: 0.35rem 0.75rem;
       background-color: var(--bg-blue-light);
       border-radius: var(--radius-md);
-      font-size: 0.875rem;
+      font-size: 0.8rem;
       color: var(--primary-blue);
       font-weight: 500;
     }
@@ -777,6 +892,18 @@
       .modal {
         margin: 1rem;
         max-height: calc(100vh - 2rem);
+      }
+      
+      .message {
+        max-width: 85%;
+      }
+      
+      .modal-subtitle {
+        font-size: 0.75rem;
+      }
+      
+      .footer-info {
+        font-size: 0.75rem;
       }
     }
 
@@ -945,11 +1072,21 @@
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
       <div class="modal-header">
-        <h2 class="modal-title">Детали диалога</h2>
+        <div class="modal-header-content">
+          <h2 class="modal-title" id="modal-title">Диалог</h2>
+          <div class="modal-subtitle" id="modal-subtitle">
+            <!-- Метаданные загрузятся динамически -->
+          </div>
+        </div>
         <button class="modal-close" id="modal-close">&times;</button>
       </div>
-      <div class="modal-body" id="modal-body">
-        <!-- Контент загрузится динамически -->
+      
+      <div class="chat-container" id="chat-container">
+        <!-- Сообщения загрузятся динамически -->
+      </div>
+      
+      <div class="modal-footer" id="modal-footer">
+        <!-- Футер загрузится динамически -->
       </div>
     </div>
   </div>
@@ -982,7 +1119,10 @@
       const paginationInfo = document.getElementById('pagination-info');
       const pagination = document.getElementById('pagination');
       const modalOverlay = document.getElementById('modal-overlay');
-      const modalBody = document.getElementById('modal-body');
+      const modalTitle = document.getElementById('modal-title');
+      const modalSubtitle = document.getElementById('modal-subtitle');
+      const chatContainer = document.getElementById('chat-container');
+      const modalFooter = document.getElementById('modal-footer');
       const modalClose = document.getElementById('modal-close');
       const notification = document.getElementById('notification');
       const notificationMessage = document.getElementById('notification-message');
@@ -1101,6 +1241,11 @@
         } else {
           return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
         }
+      }
+      
+      function formatTime(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
       }
       
       function formatDuration(seconds) {
@@ -1261,84 +1406,99 @@
         nextBtn.disabled = currentPage >= totalPages - 1;
       }
       
-      // Открытие детального просмотра
+      // 🆕 Открытие детального просмотра с полным диалогом
       async function openConversationDetail(conversationId) {
         try {
           setLoading(true);
           
-          const conversation = await api.get(`/conversations/${conversationId}?include_functions=true`);
+          const dialog = await api.get(`/conversations/${conversationId}?include_functions=true`);
           
-          const assistant = getAssistantById(conversation.assistant_id);
-          const assistantName = assistant ? assistant.name : 'Неизвестный ассистент';
+          // Заголовок
+          modalTitle.textContent = dialog.assistant_name;
           
-          const callerInfo = conversation.caller_number 
-            ? `<span class="stat-badge">
-                <i class="fas fa-phone"></i> ${conversation.caller_number}
-              </span>`
-            : `<span class="stat-badge">
-                <i class="fas fa-globe"></i> Web чат
-              </span>`;
+          // Подзаголовок с метаданными
+          const callerBadge = dialog.caller_number 
+            ? `<span class="stat-badge"><i class="fas fa-phone"></i> ${dialog.caller_number}</span>`
+            : `<span class="stat-badge"><i class="fas fa-globe"></i> Web чат</span>`;
           
-          let functionsHtml = '';
-          if (conversation.function_calls && conversation.function_calls.length > 0) {
-            functionsHtml = `
-              <div class="detail-section">
-                <div class="detail-label">Вызовы функций (${conversation.function_calls.length})</div>
-                ${conversation.function_calls.map(fc => `
-                  <div class="detail-content" style="margin-bottom: 0.5rem;">
+          modalSubtitle.innerHTML = `
+            ${callerBadge}
+            <span class="stat-badge">
+              <i class="fas fa-calendar"></i> ${formatDate(dialog.created_at)}
+            </span>
+            ${dialog.total_duration ? `
+              <span class="stat-badge">
+                <i class="fas fa-clock"></i> ${formatDuration(dialog.total_duration)}
+              </span>
+            ` : ''}
+            <span class="stat-badge">
+              <i class="fas fa-comments"></i> ${dialog.total_messages} сообщений
+            </span>
+          `;
+          
+          // 🆕 Telegram-style chat
+          chatContainer.innerHTML = '';
+          
+          if (dialog.messages && dialog.messages.length > 0) {
+            dialog.messages.forEach(msg => {
+              const messageDiv = document.createElement('div');
+              messageDiv.className = `message ${msg.type}`;
+              
+              const avatarIcon = msg.type === 'user' ? '👤' : '🤖';
+              
+              messageDiv.innerHTML = `
+                <div class="message-avatar">${avatarIcon}</div>
+                <div>
+                  <div class="message-bubble">
+                    ${msg.text}
+                  </div>
+                  <div class="message-time">${msg.timestamp ? formatTime(msg.timestamp) : ''}</div>
+                </div>
+              `;
+              
+              chatContainer.appendChild(messageDiv);
+            });
+            
+            // Авто-скролл вниз
+            setTimeout(() => {
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 100);
+          } else {
+            chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
+          }
+          
+          // Футер с токенами и функциями
+          let footerHtml = `
+            <div class="footer-info">
+              <div class="footer-item">
+                <i class="fas fa-brain"></i>
+                <span>${dialog.total_tokens || 0} токенов использовано</span>
+              </div>
+            </div>
+          `;
+          
+          if (dialog.function_calls && dialog.function_calls.length > 0) {
+            footerHtml += `
+              <div class="functions-section">
+                <div class="functions-title">Вызовы функций (${dialog.function_calls.length})</div>
+                ${dialog.function_calls.map(fc => `
+                  <div class="function-item">
                     <strong>${fc.function_name}</strong>
-                    <div style="font-size: 0.85rem; color: var(--text-gray); margin-top: 0.25rem;">
-                      Статус: ${fc.status || 'success'}
-                    </div>
+                    <span style="color: var(--text-light); font-size: 0.8rem; margin-left: 0.5rem;">
+                      ${fc.status || 'success'}
+                    </span>
                   </div>
                 `).join('')}
               </div>
             `;
           }
           
-          modalBody.innerHTML = `
-            <div class="detail-section">
-              <div class="detail-label">Ассистент</div>
-              <div style="font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem;">
-                ${assistantName}
-              </div>
-              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                ${callerInfo}
-                <span class="stat-badge">
-                  <i class="fas fa-calendar"></i> ${formatDate(conversation.created_at)}
-                </span>
-                ${conversation.duration_seconds ? `
-                  <span class="stat-badge">
-                    <i class="fas fa-clock"></i> ${formatDuration(conversation.duration_seconds)}
-                  </span>
-                ` : ''}
-                <span class="stat-badge">
-                  <i class="fas fa-brain"></i> ${conversation.tokens_used || 0} токенов
-                </span>
-              </div>
-            </div>
-            
-            ${conversation.user_message ? `
-              <div class="detail-section">
-                <div class="detail-label">Сообщение пользователя</div>
-                <div class="detail-content">${conversation.user_message}</div>
-              </div>
-            ` : ''}
-            
-            ${conversation.assistant_message ? `
-              <div class="detail-section">
-                <div class="detail-label">Ответ ассистента</div>
-                <div class="detail-content">${conversation.assistant_message}</div>
-              </div>
-            ` : ''}
-            
-            ${functionsHtml}
-          `;
+          modalFooter.innerHTML = footerHtml;
           
           modalOverlay.classList.add('show');
           
         } catch (error) {
-          showNotification(error.message || 'Ошибка при загрузке деталей', 'error');
+          showNotification(error.message || 'Ошибка при загрузке диалога', 'error');
         } finally {
           setLoading(false);
         }
