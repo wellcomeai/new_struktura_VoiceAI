@@ -1347,6 +1347,7 @@
     </div>
     
     <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
       <a href="/static/dashboard.html" class="sidebar-nav-item active">
         <i class="fas fa-home"></i> Дашборд
       </a>
@@ -1358,6 +1359,9 @@
       </a>
       <a href="/static/outbound-calls.html" class="sidebar-nav-item locked-feature" id="outbound-nav-item">
         <i class="fas fa-phone-alt"></i> Исходящие звонки
+      </a>
+      <a href="/static/conversations.html" class="sidebar-nav-item locked-feature" id="conversations-nav-item">
+        <i class="fas fa-comments"></i> Диалоги
       </a>
       
       <div class="sidebar-section">Аккаунт</div>
@@ -1696,6 +1700,8 @@
       const hasKeyNotice = document.getElementById('has-key-notice');
       const agentsNavItem = document.getElementById('agents-nav-item');
       const knowledgeNavItem = document.getElementById('knowledge-nav-item');
+      const outboundNavItem = document.getElementById('outbound-nav-item');
+      const conversationsNavItem = document.getElementById('conversations-nav-item');
       const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
       const contentContainer = document.getElementById('content-container');
       
@@ -1837,7 +1843,7 @@
           apiKeyStatus.style.display = 'flex';
           apiKeyForm.style.display = 'none';
           
-          const lockedFeatures = [agentsNavItem, knowledgeNavItem];
+          const lockedFeatures = [agentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
           lockedFeatures.forEach(element => {
             if (element) element.classList.remove('locked-feature');
           });
@@ -1853,8 +1859,10 @@
           apiKeyStatus.style.display = 'none';
           apiKeyForm.style.display = 'flex';
           
-          agentsNavItem.classList.add('locked-feature');
-          knowledgeNavItem.classList.add('locked-feature');
+          const lockedFeatures = [agentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
+          lockedFeatures.forEach(element => {
+            if (element) element.classList.add('locked-feature');
+          });
         },
         
         // Режим просмотра API ключа
@@ -2322,67 +2330,66 @@
       paymentModalOverlay.addEventListener('click', hidePaymentModal);
       
       // Обработчик оплаты
-      // Обработчик оплаты - ФИНАЛЬНАЯ ВЕРСИЯ
-async function handlePayment() {
-  try {
-    showPaymentLoading();
-    
-    console.log('🚀 Создаем платеж через API...');
-    
-    const response = await api.post('/payments/create-payment', {
-      plan_code: 'start'
-    });
-    
-    console.log('📦 Ответ API:', response);
-    
-    if (response.payment_url && response.form_params) {
-      console.log('✅ Данные платежа получены, создаем форму...');
-      
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = response.payment_url;
-      form.style.display = 'none';
-      
-      Object.keys(response.form_params).forEach(key => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = key;
-        input.value = response.form_params[key];
-        form.appendChild(input);
-        
-        console.log(`📝 Добавлен параметр: ${key} = ${response.form_params[key]}`);
-      });
-      
-      document.body.appendChild(form);
-      
-      console.log('🌐 Перенаправляем на Robokassa:', response.payment_url);
-      
-      ui.showNotification('Перенаправляем на страницу оплаты...', 'info');
-      
-      setTimeout(() => {
-        form.submit();
-      }, 1000);
-      
-      hidePaymentModal();
-      
-    } else {
-      console.error('❌ Некорректный ответ сервера:', response);
-      throw new Error('Некорректный ответ сервера - отсутствуют данные для оплаты');
-    }
-    
-  } catch (error) {
-    console.error('❌ Ошибка создания платежа:', error);
-    
-    let errorMessage = 'Ошибка при создании платежа. Попробуйте позже.';
-    
-    if (error.message) {
-      errorMessage = error.message;
-    }
-    
-    ui.showNotification(errorMessage, 'error');
-    hidePaymentModal();
-  }
-}
+      async function handlePayment() {
+        try {
+          showPaymentLoading();
+          
+          console.log('🚀 Создаем платеж через API...');
+          
+          const response = await api.post('/payments/create-payment', {
+            plan_code: 'start'
+          });
+          
+          console.log('📦 Ответ API:', response);
+          
+          if (response.payment_url && response.form_params) {
+            console.log('✅ Данные платежа получены, создаем форму...');
+            
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = response.payment_url;
+            form.style.display = 'none';
+            
+            Object.keys(response.form_params).forEach(key => {
+              const input = document.createElement('input');
+              input.type = 'hidden';
+              input.name = key;
+              input.value = response.form_params[key];
+              form.appendChild(input);
+              
+              console.log(`📝 Добавлен параметр: ${key} = ${response.form_params[key]}`);
+            });
+            
+            document.body.appendChild(form);
+            
+            console.log('🌐 Перенаправляем на Robokassa:', response.payment_url);
+            
+            ui.showNotification('Перенаправляем на страницу оплаты...', 'info');
+            
+            setTimeout(() => {
+              form.submit();
+            }, 1000);
+            
+            hidePaymentModal();
+            
+          } else {
+            console.error('❌ Некорректный ответ сервера:', response);
+            throw new Error('Некорректный ответ сервера - отсутствуют данные для оплаты');
+          }
+          
+        } catch (error) {
+          console.error('❌ Ошибка создания платежа:', error);
+          
+          let errorMessage = 'Ошибка при создании платежа. Попробуйте позже.';
+          
+          if (error.message) {
+            errorMessage = error.message;
+          }
+          
+          ui.showNotification(errorMessage, 'error');
+          hidePaymentModal();
+        }
+      }
 
       paymentPayBtn.addEventListener('click', handlePayment);
       renewSubscriptionBtn.addEventListener('click', async function() {
