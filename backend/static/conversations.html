@@ -356,6 +356,7 @@
       cursor: pointer;
       transition: all 0.2s;
       box-shadow: var(--shadow-sm);
+      position: relative;
     }
     
     .conversation-card:hover {
@@ -369,6 +370,7 @@
       align-items: center;
       gap: 1rem;
       margin-bottom: 1rem;
+      position: relative;
     }
     
     .assistant-avatar {
@@ -402,6 +404,36 @@
     .conversation-date {
       font-size: 0.8rem;
       color: var(--text-light);
+    }
+    
+    /* 🆕 Кнопка удаления */
+    .btn-delete {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: none;
+      border: none;
+      color: var(--text-light);
+      cursor: pointer;
+      padding: 0.5rem;
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      z-index: 10;
+    }
+    
+    .btn-delete:hover {
+      background-color: var(--error-red);
+      color: var(--white);
+      transform: scale(1.1);
+    }
+    
+    .btn-delete:active {
+      transform: scale(0.95);
     }
     
     .caller-info {
@@ -1190,6 +1222,10 @@
         
         get(endpoint) {
           return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        delete(endpoint) {
+          return this.fetch(endpoint, { method: 'DELETE' });
         }
       };
       
@@ -1259,6 +1295,35 @@
         return assistants.find(a => a.id === id);
       }
       
+      // 🆕 Функция удаления диалога
+      async function deleteConversation(event, conversationId) {
+        event.stopPropagation(); // Не открывать модалку при клике на кнопку
+        
+        if (!confirm('Вы уверены, что хотите удалить этот диалог? Это действие необратимо.')) {
+          return;
+        }
+        
+        try {
+          setLoading(true);
+          
+          await api.delete(`/conversations/${conversationId}`);
+          
+          showNotification('Диалог успешно удален', 'success');
+          
+          // Перезагружаем список диалогов
+          loadConversations();
+          
+        } catch (error) {
+          console.error('Error deleting conversation:', error);
+          showNotification(error.message || 'Ошибка при удалении диалога', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      // Делаем функцию глобальной для onclick
+      window.deleteConversation = deleteConversation;
+      
       function createConversationCard(conversation) {
         const assistant = getAssistantById(conversation.assistant_id);
         const assistantName = assistant ? assistant.name : 'Неизвестный ассистент';
@@ -1291,6 +1356,9 @@
               <div class="assistant-name">${assistantName}</div>
               <div class="conversation-date">${formatDate(conversation.created_at)}</div>
             </div>
+            <button class="btn-delete" onclick="deleteConversation(event, '${conversation.id}')" title="Удалить диалог">
+              <i class="fas fa-trash"></i>
+            </button>
           </div>
           
           ${callerDisplay}
