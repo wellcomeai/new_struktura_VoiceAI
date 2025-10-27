@@ -2,7 +2,7 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 1.0 - Production Ready
+Version: 1.1 - Fixed routing (removed duplicate prefix)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/conversations")
+@router.get("/")  # ✅ ИСПРАВЛЕНО: было /conversations
 async def get_conversations(
     assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
     caller_number: Optional[str] = Query(None, description="Фильтр по номеру телефона"),
@@ -112,7 +112,7 @@ async def get_conversations(
         )
 
 
-@router.get("/conversations/{conversation_id}")
+@router.get("/{conversation_id}")  # ✅ ИСПРАВЛЕНО: было /conversations/{conversation_id}
 async def get_conversation_detail(
     conversation_id: str,
     include_functions: bool = Query(True, description="Включить логи вызовов функций"),
@@ -182,7 +182,7 @@ async def get_conversation_detail(
         )
 
 
-@router.get("/conversations/stats")
+@router.get("/stats")  # ✅ ИСПРАВЛЕНО: было /conversations/stats
 async def get_conversations_stats(
     assistant_id: Optional[str] = Query(None, description="Статистика по конкретному ассистенту"),
     days: int = Query(30, ge=1, le=365, description="За сколько дней (1-365)"),
@@ -230,7 +230,7 @@ async def get_conversations_stats(
         )
 
 
-@router.get("/conversations/by-caller/{caller_number}")
+@router.get("/by-caller/{caller_number}")  # ✅ ИСПРАВЛЕНО: было /conversations/by-caller/{caller_number}
 async def get_conversations_by_caller(
     caller_number: str,
     assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
