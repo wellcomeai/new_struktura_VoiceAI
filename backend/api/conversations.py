@@ -2,7 +2,7 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 1.1 - Fixed routing (removed duplicate prefix)
+Version: 1.2 - Full dialog support with session grouping
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -15,6 +15,8 @@ from backend.db.session import get_db
 from backend.services.conversation_service import ConversationService
 from backend.services.auth_service import AuthService
 from backend.models.user import User
+from backend.models.conversation import Conversation
+from backend.models.assistant import AssistantConfig
 
 logger = get_logger(__name__)
 
@@ -22,7 +24,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.get("/")  # ✅ ИСПРАВЛЕНО: было /conversations
+@router.get("/")
 async def get_conversations(
     assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
     caller_number: Optional[str] = Query(None, description="Фильтр по номеру телефона"),
@@ -112,7 +114,7 @@ async def get_conversations(
         )
 
 
-@router.get("/{conversation_id}")  # ✅ ИСПРАВЛЕНО: было /conversations/{conversation_id}
+@router.get("/{conversation_id}")
 async def get_conversation_detail(
     conversation_id: str,
     include_functions: bool = Query(True, description="Включить логи вызовов функций"),
@@ -120,30 +122,41 @@ async def get_conversation_detail(
     db: Session = Depends(get_db)
 ):
     """
-    Получить детали конкретного диалога.
+    Получить ПОЛНЫЙ диалог (все сообщения из сессии).
+    
+    🆕 v1.2: Загружает ВСЕ сообщения из session_id для отображения чата
     
     Требуется авторизация. Можно получить только свои диалоги.
     
     **Параметры:**
-    - conversation_id: UUID диалога
+    - conversation_id: UUID любого сообщения из диалога
     - include_functions: Включить список вызванных функций (по умолчанию true)
     
     **Возвращает:**
-    - Полную информацию о диалоге
-    - Список вызванных функций (если include_functions=true)
-    - Детали: user_message, assistant_message, caller_number, timestamps и т.д.
+    - messages: Массив всех сообщений из сессии (отсортировано по времени)
+    - assistant_id: ID ассистента
+    - assistant_name: Имя ассистента
+    - session_id: ID сессии
+    - caller_number: Номер телефона (если есть)
+    - total_tokens: Сумма токенов
+    - total_duration: Сумма длительности
+    - function_calls: Все вызовы функций из сессии
     """
     try:
-        logger.info(f"[CONVERSATIONS-API] Get conversation detail: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API] Get full dialog for conversation: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
-        logger.info(f"   Include functions: {include_functions}")
         
-        # Получаем детали диалога
-        conversation = ConversationService.get_conversation_detail(
-            db=db,
-            conversation_id=conversation_id,
-            include_functions=include_functions
-        )
+        # Получаем исходное сообщение
+        from uuid import UUID
+        try:
+            conv_uuid = UUID(conversation_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid conversation ID format"
+            )
+        
+        conversation = db.query(Conversation).filter(Conversation.id == conv_uuid).first()
         
         if not conversation:
             logger.warning(f"Conversation not found: {conversation_id}")
@@ -152,11 +165,9 @@ async def get_conversation_detail(
                 detail="Conversation not found"
             )
         
-        # Проверяем что диалог принадлежит пользователю
-        # (через ассистента)
-        from backend.models.assistant import AssistantConfig
+        # Проверяем права доступа
         assistant = db.query(AssistantConfig).filter(
-            AssistantConfig.id == conversation['assistant_id']
+            AssistantConfig.id == conversation.assistant_id
         ).first()
         
         if not assistant or str(assistant.user_id) != str(current_user.id):
@@ -166,23 +177,100 @@ async def get_conversation_detail(
                 detail="Access denied: this conversation doesn't belong to you"
             )
         
-        logger.info(f"✅ Conversation detail returned")
-        if include_functions and 'function_calls' in conversation:
-            logger.info(f"   Function calls: {len(conversation['function_calls'])}")
+        # 🆕 Загружаем ВСЕ сообщения из этой сессии
+        session_id = conversation.session_id
         
-        return conversation
+        all_messages = db.query(Conversation).filter(
+            Conversation.session_id == session_id,
+            Conversation.assistant_id == conversation.assistant_id
+        ).order_by(Conversation.created_at.asc()).all()  # Сортировка по времени
+        
+        logger.info(f"   Found {len(all_messages)} messages in session {session_id}")
+        
+        # Формируем массив сообщений
+        messages = []
+        total_tokens = 0
+        total_duration = 0
+        
+        for msg in all_messages:
+            # User message
+            if msg.user_message:
+                messages.append({
+                    "id": str(msg.id),
+                    "type": "user",
+                    "text": msg.user_message,
+                    "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                })
+            
+            # Assistant message
+            if msg.assistant_message:
+                messages.append({
+                    "id": str(msg.id),
+                    "type": "assistant",
+                    "text": msg.assistant_message,
+                    "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                })
+            
+            # Суммируем метрики
+            total_tokens += msg.tokens_used or 0
+            total_duration += msg.duration_seconds or 0
+        
+        # Загружаем function calls если нужно
+        function_calls = []
+        if include_functions:
+            from backend.models.function_log import FunctionLog
+            
+            # Собираем все ID сообщений из сессии
+            message_ids = [msg.id for msg in all_messages]
+            
+            logs = db.query(FunctionLog).filter(
+                FunctionLog.conversation_id.in_(message_ids)
+            ).order_by(FunctionLog.created_at).all()
+            
+            function_calls = [
+                {
+                    "id": str(log.id),
+                    "function_name": log.function_name,
+                    "arguments": log.arguments,
+                    "result": log.result,
+                    "status": log.status,
+                    "created_at": log.created_at.isoformat() if log.created_at else None
+                }
+                for log in logs
+            ]
+            
+            logger.info(f"   Found {len(function_calls)} function calls")
+        
+        # Формируем ответ
+        result = {
+            "session_id": session_id,
+            "assistant_id": str(conversation.assistant_id),
+            "assistant_name": assistant.name,
+            "caller_number": conversation.caller_number,
+            "created_at": all_messages[0].created_at.isoformat() if all_messages else None,
+            "messages": messages,
+            "total_messages": len(messages),
+            "total_tokens": total_tokens,
+            "total_duration": total_duration,
+            "function_calls": function_calls if include_functions else []
+        }
+        
+        logger.info(f"✅ Full dialog returned: {len(messages)} messages")
+        
+        return result
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Error getting conversation detail: {e}")
+        logger.error(f"   Traceback: ", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get conversation detail: {str(e)}"
         )
 
 
-@router.get("/stats")  # ✅ ИСПРАВЛЕНО: было /conversations/stats
+@router.get("/stats")
 async def get_conversations_stats(
     assistant_id: Optional[str] = Query(None, description="Статистика по конкретному ассистенту"),
     days: int = Query(30, ge=1, le=365, description="За сколько дней (1-365)"),
@@ -230,7 +318,7 @@ async def get_conversations_stats(
         )
 
 
-@router.get("/by-caller/{caller_number}")  # ✅ ИСПРАВЛЕНО: было /conversations/by-caller/{caller_number}
+@router.get("/by-caller/{caller_number}")
 async def get_conversations_by_caller(
     caller_number: str,
     assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
