@@ -2,13 +2,15 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 1.2 - Full dialog support with session grouping
+Version: 1.3 - Added session grouping endpoint
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc, case
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
 
 from backend.core.logging import get_logger
 from backend.db.session import get_db
@@ -17,11 +19,192 @@ from backend.services.auth_service import AuthService
 from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
+from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+
+@router.get("/sessions")
+async def get_conversation_sessions(
+    assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
+    caller_number: Optional[str] = Query(None, description="Фильтр по номеру телефона"),
+    date_from: Optional[str] = Query(None, description="Фильтр: диалоги после даты (ISO format)"),
+    date_to: Optional[str] = Query(None, description="Фильтр: диалоги до даты (ISO format)"),
+    limit: int = Query(50, ge=1, le=100, description="Количество записей (макс 100)"),
+    offset: int = Query(0, ge=0, description="Смещение для пагинации"),
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🆕 v1.3: Получить список СЕССИЙ (группированных диалогов).
+    
+    Каждая сессия = одна карточка диалога на фронте.
+    Группирует все сообщения по session_id.
+    
+    Требуется авторизация.
+    
+    **Фильтры:**
+    - assistant_id: Показать только диалоги конкретного ассистента
+    - caller_number: Показать диалоги с конкретным номером телефона
+    - date_from/date_to: Временной диапазон
+    
+    **Пагинация:**
+    - limit: Количество записей на странице (1-100)
+    - offset: Смещение (для следующих страниц)
+    
+    **Возвращает:**
+    - conversations: Список сессий (группированных диалогов)
+    - total: Общее количество сессий
+    - page: Текущая страница
+    - page_size: Размер страницы
+    """
+    try:
+        logger.info(f"[CONVERSATIONS-API] Get sessions request from user {current_user.id}")
+        logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
+                   f"date_from={date_from}, date_to={date_to}")
+        logger.info(f"   Pagination: limit={limit}, offset={offset}")
+        
+        # Парсим даты если указаны
+        date_from_parsed = None
+        date_to_parsed = None
+        
+        if date_from:
+            try:
+                date_from_parsed = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+            except ValueError:
+                logger.warning(f"Invalid date_from format: {date_from}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid date_from format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
+                )
+        
+        if date_to:
+            try:
+                date_to_parsed = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+            except ValueError:
+                logger.warning(f"Invalid date_to format: {date_to}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid date_to format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
+                )
+        
+        # Подзапрос для preview (первое непустое сообщение)
+        preview_subquery = (
+            db.query(
+                Conversation.session_id,
+                func.coalesce(
+                    func.nullif(func.min(Conversation.user_message), ''),
+                    func.nullif(func.min(Conversation.assistant_message), '')
+                ).label('preview')
+            )
+            .group_by(Conversation.session_id)
+            .subquery()
+        )
+        
+        # Основной запрос - группировка по session_id
+        query = (
+            db.query(
+                Conversation.session_id,
+                Conversation.assistant_id,
+                Conversation.caller_number,
+                func.count(Conversation.id).label('messages_count'),
+                func.min(Conversation.created_at).label('created_at'),
+                func.max(Conversation.created_at).label('updated_at'),
+                func.sum(Conversation.tokens_used).label('total_tokens'),
+                func.sum(Conversation.duration_seconds).label('total_duration'),
+                preview_subquery.c.preview
+            )
+            .outerjoin(
+                preview_subquery,
+                Conversation.session_id == preview_subquery.c.session_id
+            )
+            .group_by(
+                Conversation.session_id,
+                Conversation.assistant_id,
+                Conversation.caller_number,
+                preview_subquery.c.preview
+            )
+        )
+        
+        # Фильтр по assistant
+        if assistant_id:
+            try:
+                assistant_uuid = UUID(assistant_id)
+                query = query.filter(Conversation.assistant_id == assistant_uuid)
+            except ValueError:
+                logger.warning(f"Invalid assistant_id format: {assistant_id}")
+                return {
+                    "conversations": [],
+                    "total": 0,
+                    "page": 0,
+                    "page_size": limit
+                }
+        
+        # Фильтр по пользователю (только свои ассистенты)
+        query = query.join(AssistantConfig).filter(
+            AssistantConfig.user_id == current_user.id
+        )
+        
+        # Фильтр по номеру телефона
+        if caller_number:
+            query = query.filter(Conversation.caller_number == caller_number)
+        
+        # Фильтр по датам (используем created_at первого сообщения в сессии)
+        if date_from_parsed:
+            query = query.having(func.min(Conversation.created_at) >= date_from_parsed)
+        if date_to_parsed:
+            query = query.having(func.max(Conversation.created_at) <= date_to_parsed)
+        
+        # Подсчет общего количества
+        from sqlalchemy import select
+        count_query = select(func.count()).select_from(query.subquery())
+        total = db.execute(count_query).scalar()
+        
+        # Сортировка и пагинация
+        sessions = (
+            query.order_by(desc(func.max(Conversation.created_at)))
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+        
+        logger.info(f"✅ Found {len(sessions)} sessions (total: {total})")
+        
+        # Форматируем результат в формате совместимом с фронтом
+        conversations = []
+        for s in sessions:
+            conversations.append({
+                "id": s.session_id,  # session_id используется как ID карточки
+                "session_id": s.session_id,
+                "assistant_id": str(s.assistant_id),
+                "caller_number": s.caller_number,
+                "messages_count": s.messages_count,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                "user_message": (s.preview or "")[:200],  # Preview для карточки
+                "assistant_message": "",  # Оставляем пустым
+                "tokens_used": s.total_tokens or 0,
+                "duration_seconds": s.total_duration or 0
+            })
+        
+        return {
+            "conversations": conversations,
+            "total": total,
+            "page": offset // limit if limit > 0 else 0,
+            "page_size": limit
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting sessions: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get conversation sessions: {str(e)}"
+        )
 
 
 @router.get("/")
@@ -38,6 +221,9 @@ async def get_conversations(
 ):
     """
     Получить список диалогов с фильтрами и пагинацией.
+    
+    ⚠️ DEPRECATED: Используйте /sessions для группировки по сессиям.
+    Этот endpoint возвращает отдельные записи сообщений.
     
     Требуется авторизация.
     
@@ -129,7 +315,7 @@ async def get_conversation_detail(
     Требуется авторизация. Можно получить только свои диалоги.
     
     **Параметры:**
-    - conversation_id: UUID любого сообщения из диалога
+    - conversation_id: UUID любого сообщения из диалога ИЛИ session_id
     - include_functions: Включить список вызванных функций (по умолчанию true)
     
     **Возвращает:**
@@ -143,20 +329,23 @@ async def get_conversation_detail(
     - function_calls: Все вызовы функций из сессии
     """
     try:
-        logger.info(f"[CONVERSATIONS-API] Get full dialog for conversation: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API] Get full dialog for: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
-        # Получаем исходное сообщение
-        from uuid import UUID
-        try:
-            conv_uuid = UUID(conversation_id)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid conversation ID format"
-            )
+        # Пробуем найти по session_id напрямую (для нового API /sessions)
+        conversation = db.query(Conversation).filter(
+            Conversation.session_id == conversation_id
+        ).first()
         
-        conversation = db.query(Conversation).filter(Conversation.id == conv_uuid).first()
+        # Если не нашли, пробуем как UUID conversation_id
+        if not conversation:
+            try:
+                conv_uuid = UUID(conversation_id)
+                conversation = db.query(Conversation).filter(
+                    Conversation.id == conv_uuid
+                ).first()
+            except ValueError:
+                pass
         
         if not conversation:
             logger.warning(f"Conversation not found: {conversation_id}")
@@ -218,8 +407,6 @@ async def get_conversation_detail(
         # Загружаем function calls если нужно
         function_calls = []
         if include_functions:
-            from backend.models.function_log import FunctionLog
-            
             # Собираем все ID сообщений из сессии
             message_ids = [msg.id for msg in all_messages]
             
