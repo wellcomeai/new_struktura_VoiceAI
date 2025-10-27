@@ -2,7 +2,7 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 1.3 - Added session grouping endpoint
+Version: 1.4 - Added delete conversation endpoint
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -454,6 +454,115 @@ async def get_conversation_detail(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get conversation detail: {str(e)}"
+        )
+
+
+@router.delete("/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🆕 v1.4: Удалить диалог (всю сессию со всеми сообщениями).
+    
+    Удаляет ВСЕ сообщения из session_id и связанные FunctionLog записи.
+    
+    Требуется авторизация. Можно удалить только свои диалоги.
+    
+    **Параметры:**
+    - conversation_id: UUID любого сообщения из диалога ИЛИ session_id
+    
+    **Возвращает:**
+    - message: Сообщение об успешном удалении
+    - deleted_messages: Количество удаленных сообщений
+    - deleted_functions: Количество удаленных логов функций
+    """
+    try:
+        logger.info(f"[CONVERSATIONS-API] Delete conversation request: {conversation_id}")
+        logger.info(f"   User: {current_user.id}")
+        
+        # Пробуем найти по session_id напрямую
+        conversation = db.query(Conversation).filter(
+            Conversation.session_id == conversation_id
+        ).first()
+        
+        # Если не нашли, пробуем как UUID conversation_id
+        if not conversation:
+            try:
+                conv_uuid = UUID(conversation_id)
+                conversation = db.query(Conversation).filter(
+                    Conversation.id == conv_uuid
+                ).first()
+            except ValueError:
+                pass
+        
+        if not conversation:
+            logger.warning(f"Conversation not found: {conversation_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+        
+        # Проверяем права доступа
+        assistant = db.query(AssistantConfig).filter(
+            AssistantConfig.id == conversation.assistant_id
+        ).first()
+        
+        if not assistant or str(assistant.user_id) != str(current_user.id):
+            logger.warning(f"Access denied: conversation {conversation_id} doesn't belong to user {current_user.id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: this conversation doesn't belong to you"
+            )
+        
+        session_id = conversation.session_id
+        
+        # Получаем все сообщения из сессии для подсчета
+        all_messages = db.query(Conversation).filter(
+            Conversation.session_id == session_id,
+            Conversation.assistant_id == conversation.assistant_id
+        ).all()
+        
+        message_ids = [msg.id for msg in all_messages]
+        messages_count = len(message_ids)
+        
+        logger.info(f"   Found {messages_count} messages to delete in session {session_id}")
+        
+        # Удаляем связанные FunctionLog записи
+        deleted_functions = 0
+        if message_ids:
+            deleted_functions = db.query(FunctionLog).filter(
+                FunctionLog.conversation_id.in_(message_ids)
+            ).delete(synchronize_session=False)
+            logger.info(f"   Deleted {deleted_functions} function logs")
+        
+        # Удаляем ВСЕ сообщения из сессии
+        deleted_messages = db.query(Conversation).filter(
+            Conversation.session_id == session_id,
+            Conversation.assistant_id == conversation.assistant_id
+        ).delete(synchronize_session=False)
+        
+        db.commit()
+        
+        logger.info(f"✅ Successfully deleted conversation session {session_id}")
+        logger.info(f"   Deleted {deleted_messages} messages and {deleted_functions} function logs")
+        
+        return {
+            "message": "Conversation deleted successfully",
+            "session_id": session_id,
+            "deleted_messages": deleted_messages,
+            "deleted_functions": deleted_functions
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error deleting conversation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete conversation: {str(e)}"
         )
 
 
