@@ -1352,7 +1352,7 @@
           const assistantId = assistantFilter.value;
           const offset = currentPage * perPage;
           
-          let url = `/conversations?limit=${perPage}&offset=${offset}`;
+          let url = `/conversations/sessions?limit=${perPage}&offset=${offset}`;
           if (assistantId) {
             url += `&assistant_id=${assistantId}`;
           }
