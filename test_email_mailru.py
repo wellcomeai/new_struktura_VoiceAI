@@ -3,8 +3,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Твои данные
-EMAIL_USERNAME = "voicyfy-notifications@mail.ru"  # 👈 Твой Mail.ru
-EMAIL_PASSWORD = "AbCdEfGhIjKlMnOp"  # 👈 Пароль для внешнего приложения
+EMAIL_USERNAME = "voicyfy@mail.ru"  # 👈 Твой Mail.ru
+EMAIL_PASSWORD = "n7zy3sgtN4i1xfWkERPD"  # 👈 Пароль для внешнего приложения
 TO_EMAIL = "well96well@gmail.com"  # 👈 Твоя личная почта для теста
 
 def test_mailru_smtp():
