@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ✅ PRODUCTION READY: Email Verification с Вариантом А -->
+<!-- ✅ PRODUCTION READY: Email Verification с UX улучшениями -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -49,6 +49,67 @@
       color: var(--text-dark);
       min-height: 100vh;
       overflow-x: hidden;
+    }
+
+    /* ✅ Inline Notification Styles */
+    .inline-notification {
+      padding: 1rem 1.5rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 500;
+      animation: slideInDown 0.3s ease-out;
+      box-shadow: var(--shadow-md);
+    }
+
+    .inline-notification.loading {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+    }
+
+    .inline-notification.success {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+    }
+
+    .inline-notification.error {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+    }
+
+    .inline-notification.warning {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: white;
+    }
+
+    .inline-notification i {
+      font-size: 1.25rem;
+    }
+
+    .inline-notification .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes slideInDown {
+      from {
+        opacity: 0;
+        transform: translateY(-20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     /* ✅ Email Verification Styles */
@@ -185,17 +246,6 @@
       font-weight: 600;
     }
 
-    @keyframes slideInDown {
-      from {
-        transform: translateY(-100%);
-        opacity: 0;
-      }
-      to {
-        transform: translateY(0);
-        opacity: 1;
-      }
-    }
-
     .partner-welcome-modal {
       position: fixed;
       top: 0;
@@ -277,6 +327,7 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 0.5rem;
       border: none;
     }
     
@@ -285,10 +336,25 @@
       color: var(--white);
     }
     
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       background-color: var(--primary-blue-dark);
       transform: translateY(-2px);
       box-shadow: var(--shadow-md);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-primary .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
     }
     
     .btn-outline {
@@ -1280,6 +1346,8 @@
           <form id="login-form" class="auth-form">
             <h2 class="auth-title">Вход в аккаунт</h2>
             
+            <div id="login-notification-container"></div>
+            
             <div class="form-group">
               <label for="login-email">Email</label>
               <input type="email" id="login-email" class="form-control" placeholder="your@email.com" required>
@@ -1290,7 +1358,7 @@
               <input type="password" id="login-password" class="form-control" placeholder="••••••••" required>
             </div>
             
-            <button type="submit" class="btn btn-primary" style="width: 100%;">Войти</button>
+            <button type="submit" id="login-submit-button" class="btn btn-primary" style="width: 100%;">Войти</button>
             
             <div class="auth-footer">
               <p>Еще нет аккаунта? <a href="#register" class="switch-auth" data-tab="register">Зарегистрироваться</a></p>
@@ -1301,6 +1369,7 @@
             <h2 class="auth-title">Создайте аккаунт</h2>
             
             <div id="referral-notification-container"></div>
+            <div id="register-notification-container"></div>
             
             <div class="form-group">
               <label for="register-email">Email</label>
@@ -1328,6 +1397,8 @@
                 <i class="fas fa-envelope"></i>
                 Код подтверждения отправлен на <strong id="verification-email"></strong>
               </div>
+              
+              <div id="verification-notification-container"></div>
               
               <div class="code-input-container">
                 <label for="verification-code">Введите 6-значный код</label>
@@ -1515,7 +1586,44 @@
   
   <script>
     // ========================================
-    // ✅ API CLIENT - MUST BE DECLARED FIRST
+    // ✅ UTILITY FUNCTIONS - Inline Notifications
+    // ========================================
+    function showInlineNotification(containerId, type, message, iconClass = null) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      
+      let icon = '';
+      if (type === 'loading') {
+        icon = '<div class="spinner"></div>';
+      } else if (iconClass) {
+        icon = `<i class="${iconClass}"></i>`;
+      } else {
+        const defaultIcons = {
+          success: 'fas fa-check-circle',
+          error: 'fas fa-exclamation-circle',
+          warning: 'fas fa-exclamation-triangle',
+          info: 'fas fa-info-circle'
+        };
+        icon = `<i class="${defaultIcons[type] || defaultIcons.info}"></i>`;
+      }
+      
+      container.innerHTML = `
+        <div class="inline-notification ${type}">
+          ${icon}
+          <span>${message}</span>
+        </div>
+      `;
+    }
+    
+    function clearInlineNotification(containerId) {
+      const container = document.getElementById(containerId);
+      if (container) {
+        container.innerHTML = '';
+      }
+    }
+
+    // ========================================
+    // ✅ API CLIENT
     // ========================================
     const api = {
       baseUrl: '/api',
@@ -1606,7 +1714,7 @@
         // Set email in notification
         document.getElementById('verification-email').textContent = email;
         
-        // ✅ Update notice message if provided (for "account exists" scenario)
+        // Update notice message if provided (for "account exists" scenario)
         if (message) {
           const noticeElement = document.getElementById('verification-notice');
           noticeElement.className = 'verification-notice warning';
@@ -1666,9 +1774,15 @@
         const code = document.getElementById('verification-code').value.trim();
         
         if (code.length !== 6 || !/^\d{6}$/.test(code)) {
-          alert('Введите 6-значный код');
+          showInlineNotification('verification-notification-container', 'error', 'Введите 6-значный код');
           return;
         }
+        
+        // Show loading in button
+        const verifyButton = document.getElementById('verify-button');
+        const originalText = verifyButton.innerHTML;
+        verifyButton.disabled = true;
+        verifyButton.innerHTML = '<div class="spinner"></div> Проверяем...';
         
         try {
           const response = await api.verifyEmail({
@@ -1681,25 +1795,31 @@
           // Save token
           localStorage.setItem('auth_token', response.data.token);
           
-          // Show success and redirect
-          alert('✅ Email подтвержден! Перенаправление...');
+          // ✅ Show success notification WITHOUT alert
+          showInlineNotification('verification-notification-container', 'success', 'Email подтвержден! Переходим в dashboard...');
+          
+          // ✅ Redirect immediately without waiting
           setTimeout(() => {
             window.location.href = '/static/dashboard.html';
-          }, 1000);
+          }, 500);
           
         } catch (error) {
           console.error('❌ Verification error:', error);
+          
+          // Restore button
+          verifyButton.disabled = false;
+          verifyButton.innerHTML = originalText;
           
           // Decrease attempts
           this.attempts--;
           this.updateAttemptsDisplay();
           
           if (this.attempts === 0) {
-            alert('❌ Исчерпаны попытки ввода кода. Запросите новый код.');
+            showInlineNotification('verification-notification-container', 'error', 'Исчерпаны попытки ввода кода. Запросите новый код.');
             document.getElementById('verification-code').disabled = true;
             document.getElementById('verify-button').disabled = true;
           } else {
-            alert(`❌ Неверный код. Осталось попыток: ${this.attempts}`);
+            showInlineNotification('verification-notification-container', 'error', `Неверный код. Осталось попыток: ${this.attempts}`);
             document.getElementById('verification-code').value = '';
             document.getElementById('verification-code').focus();
           }
@@ -1707,6 +1827,11 @@
       }
 
       async resendCode() {
+        const resendButton = document.getElementById('resend-button');
+        const originalText = resendButton.innerHTML;
+        resendButton.disabled = true;
+        resendButton.innerHTML = '<div class="spinner"></div> Отправка...';
+        
         try {
           await api.resendVerificationCode({ email: this.userEmail });
           
@@ -1722,15 +1847,18 @@
           // Start timer again
           this.startResendTimer();
           
-          alert('✅ Новый код отправлен на email!');
+          showInlineNotification('verification-notification-container', 'success', 'Новый код отправлен на email!');
           
         } catch (error) {
           console.error('❌ Resend error:', error);
           
+          resendButton.disabled = false;
+          resendButton.innerHTML = originalText;
+          
           if (error.message.includes('wait') || error.message.includes('подождите')) {
-            alert('⏳ Подождите перед повторной отправкой');
+            showInlineNotification('verification-notification-container', 'warning', 'Подождите перед повторной отправкой');
           } else {
-            alert('❌ Ошибка отправки кода. Попробуйте позже.');
+            showInlineNotification('verification-notification-container', 'error', 'Ошибка отправки кода. Попробуйте позже.');
           }
         }
       }
@@ -1862,6 +1990,10 @@
         forms.forEach(form => {
           form.classList.toggle('active', form.id === `${tabId}-form`);
         });
+        
+        // Clear notifications when switching tabs
+        clearInlineNotification('register-notification-container');
+        clearInlineNotification('login-notification-container');
       }
       
       tabs.forEach(tab => {
@@ -1886,9 +2018,10 @@
       });
       
       // ========================================
-      // ✅ REGISTRATION HANDLER (Variant A)
+      // ✅ REGISTRATION HANDLER (with UX improvements)
       // ========================================
       const registerForm = document.getElementById('register-form');
+      const registerButton = document.getElementById('register-submit-button');
       
       registerForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -1897,6 +2030,14 @@
         const password = document.getElementById('register-password').value;
         const firstName = document.getElementById('register-name').value;
         const companyName = document.getElementById('register-company').value;
+        
+        // ✅ UX IMPROVEMENT: Show loading notification immediately
+        showInlineNotification('register-notification-container', 'loading', 'Отправляем код верификации на email...');
+        
+        // Disable button with spinner
+        const originalButtonText = registerButton.innerHTML;
+        registerButton.disabled = true;
+        registerButton.innerHTML = '<div class="spinner"></div> Отправка...';
         
         try {
           const referralData = ReferralTracker.getReferralData();
@@ -1917,7 +2058,10 @@
           
           console.log('✅ Registration response:', data);
           
-          // ✅ VARIANT A: Check if this is "account exists but not verified" scenario
+          // ✅ Update notification to success
+          showInlineNotification('register-notification-container', 'success', 'Код отправлен! Проверьте email.');
+          
+          // Check if this is "account exists but not verified" scenario
           if (data.message && data.message.includes('exists but not verified')) {
             console.log('🔄 Account exists but not verified - showing verification');
             
@@ -1927,10 +2071,10 @@
               'Аккаунт уже существует. Новый код верификации отправлен на email!'
             );
             
-            return; // Stop here, don't proceed further
+            return;
           }
           
-          // ✅ Normal new registration flow
+          // Normal new registration flow
           if (data.verification_required && data.verification_sent) {
             // Show verification section
             emailVerification.showVerificationSection(email);
@@ -1944,7 +2088,7 @@
             ReferralTracker.clearReferralData();
             
           } else if (data.token) {
-            // Old flow (if verification disabled) - should not happen in production
+            // Old flow (if verification disabled)
             localStorage.setItem('auth_token', data.token);
             window.location.href = '/static/dashboard.html';
           }
@@ -1952,12 +2096,16 @@
         } catch (error) {
           console.error('❌ Registration error:', error);
           
-          // ✅ Handle "Email already registered" for verified users
+          // Restore button
+          registerButton.disabled = false;
+          registerButton.innerHTML = originalButtonText;
+          
+          // Handle "Email already registered" for verified users
           if (error.message.includes('already registered')) {
-            alert('❌ Email уже зарегистрирован и подтверждён.\n\nПожалуйста, войдите в аккаунт.');
-            switchTab('login');
+            showInlineNotification('register-notification-container', 'error', 'Email уже зарегистрирован и подтверждён. Войдите в аккаунт.');
+            setTimeout(() => switchTab('login'), 2000);
           } else {
-            alert(error.message || 'Ошибка регистрации');
+            showInlineNotification('register-notification-container', 'error', error.message || 'Ошибка регистрации');
           }
         }
       });
@@ -1981,9 +2129,10 @@
       });
       
       // ========================================
-      // ✅ LOGIN HANDLER
+      // ✅ LOGIN HANDLER (with UX improvements)
       // ========================================
       const loginForm = document.getElementById('login-form');
+      const loginButton = document.getElementById('login-submit-button');
       
       loginForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -1991,22 +2140,37 @@
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
         
+        // Show loading
+        const originalButtonText = loginButton.innerHTML;
+        loginButton.disabled = true;
+        loginButton.innerHTML = '<div class="spinner"></div> Вход...';
+        showInlineNotification('login-notification-container', 'loading', 'Выполняется вход...');
+        
         try {
           const data = await api.login({ email, password });
           
           localStorage.setItem('auth_token', data.token);
-          window.location.href = '/static/dashboard.html';
+          
+          showInlineNotification('login-notification-container', 'success', 'Успешный вход! Переходим...');
+          
+          setTimeout(() => {
+            window.location.href = '/static/dashboard.html';
+          }, 500);
           
         } catch (error) {
           console.error('❌ Login error:', error);
           
-          // ✅ Check for unverified email
+          // Restore button
+          loginButton.disabled = false;
+          loginButton.innerHTML = originalButtonText;
+          
+          // Check for unverified email
           if (error.message.includes('not verified') || error.message.includes('не подтвержден')) {
-            alert('⚠️ Email не подтверждён!\n\nПроверьте почту для кода верификации, или запросите новый код через форму регистрации.');
+            showInlineNotification('login-notification-container', 'warning', 'Email не подтверждён! Проверьте почту для кода верификации.');
           } else if (error.message.includes('Invalid') || error.message.includes('password')) {
-            alert('❌ Неверный email или пароль');
+            showInlineNotification('login-notification-container', 'error', 'Неверный email или пароль');
           } else {
-            alert(error.message || 'Ошибка входа');
+            showInlineNotification('login-notification-container', 'error', error.message || 'Ошибка входа');
           }
         }
       });
