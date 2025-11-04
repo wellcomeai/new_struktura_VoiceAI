@@ -1,6 +1,7 @@
 """
 Authentication service for WellcomeAI application.
 Handles user authentication operations with partner referral system.
+✅ ОБНОВЛЕНО: Добавлено поле email_verified в ответы
 """
 
 from fastapi import HTTPException, status, Depends
@@ -65,7 +66,7 @@ class AuthService:
             password_hash = hash_password(user_data.password)
             logger.info(f"✅ Password hashed for user: {user_data.email}")
             
-            # Create new user
+            # Create new user (email_verified=False by default for new users)
             user = User(
                 email=user_data.email,
                 password_hash=password_hash,
@@ -74,7 +75,8 @@ class AuthService:
                 company_name=user_data.company_name,
                 subscription_plan="free",
                 is_active=True,
-                is_trial=True
+                is_trial=True,
+                email_verified=False  # ✅ New users must verify email
             )
             
             db.add(user)
@@ -134,16 +136,13 @@ class AuthService:
                 logger.error(f"❌ Error activating trial subscription: {str(sub_error)}")
                 # Не прерываем регистрацию, но логируем ошибку
             
-            # Generate access token - ИСПРАВЛЕНО
-            token = create_access_token(str(user.id))
-            logger.info(f"✅ Access token generated for user: {user.email}")
+            # ❌ НЕ ГЕНЕРИРУЕМ ТОКЕН - пользователь должен сначала подтвердить email
+            # token = create_access_token(str(user.id))
             
-            # Prepare base response
+            # Prepare base response (WITHOUT TOKEN)
             response = {
                 "success": True,
-                "message": "Registration successful",
-                "token": token,
-                "token_type": "bearer",
+                "message": "Registration successful! Please verify your email.",
                 "user": {
                     "id": str(user.id),
                     "email": user.email,
@@ -152,14 +151,15 @@ class AuthService:
                     "company_name": user.company_name,
                     "subscription_plan": user.subscription_plan,
                     "is_trial": user.is_trial,
-                    "created_at": user.created_at
+                    "email_verified": user.email_verified,  # ✅ ДОБАВЛЕНО
+                    "created_at": user.created_at.isoformat() if user.created_at else None
                 }
             }
             
             # 🎉 Добавляем информацию о партнерской программе если есть
             if partner_bonus_info:
                 response["referral_info"] = partner_bonus_info
-                response["message"] = "Регистрация завершена! Вы были приглашены партнером."
+                response["message"] = "Регистрация завершена! Проверьте email для подтверждения."
                 
                 # Дополнительная информация для фронтенда
                 response["partner_program"] = {
@@ -180,6 +180,7 @@ class AuthService:
             logger.info(f"🎯 Registration completed successfully for: {user.email}")
             logger.info(f"   Referral processed: {referral_processed}")
             logger.info(f"   Trial activated: Trial subscription")
+            logger.info(f"   Email verified: {user.email_verified}")
             
             return response
             
@@ -212,6 +213,8 @@ class AuthService:
     async def login(db: Session, login_data: LoginRequest) -> Dict[str, Any]:
         """
         Authenticate a user and generate a token
+        
+        ✅ ОБНОВЛЕНО: Добавлено поле email_verified в ответ
         
         Args:
             db: Database session
@@ -252,7 +255,7 @@ class AuthService:
             user.last_login = datetime.now(timezone.utc)
             db.commit()
             
-            # Generate access token - ИСПРАВЛЕНО
+            # Generate access token
             token = create_access_token(str(user.id))
             
             logger.info(f"✅ Login successful for user: {login_data.email}")
@@ -291,7 +294,8 @@ class AuthService:
                     "subscription_plan": user.subscription_plan,
                     "is_trial": user.is_trial,
                     "is_admin": user.is_admin,
-                    "last_login": user.last_login,
+                    "email_verified": user.email_verified,  # ✅ ДОБАВЛЕНО
+                    "last_login": user.last_login.isoformat() if user.last_login else None,
                     "subscription_status": subscription_status,
                     "partner_info": partner_info
                 }
@@ -386,6 +390,21 @@ class AuthService:
         # 3. Store reset token in database
         
         return True
+    
+    @staticmethod
+    def create_access_token(data: dict) -> str:
+        """
+        Create JWT access token
+        
+        ✅ HELPER METHOD для генерации токенов
+        
+        Args:
+            data: Data to encode in token (must contain 'sub' key with user_id)
+            
+        Returns:
+            JWT token string
+        """
+        return create_access_token(data)
     
     @staticmethod
     async def get_current_user(
