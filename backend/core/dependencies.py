@@ -1,6 +1,7 @@
 """
 FastAPI dependencies for WellcomeAI application.
 Contains reusable dependency functions that can be used across API endpoints.
+✅ FIXED: UUID conversion for database queries
 """
 
 from fastapi import Depends, HTTPException, status
@@ -25,26 +26,47 @@ async def get_current_user(
 ) -> User:
     """
     Get the current user from the database
+    ✅ FIXED: Properly converts string user_id to UUID
     
     Args:
-        user_id: User ID from token
+        user_id: User ID from token (string)
         db: Database session
         
     Returns:
         User object
         
     Raises:
-        HTTPException: If user not found
+        HTTPException: If user not found or invalid ID format
     """
     try:
-        user = db.query(User).filter(User.id == user_id).first()
+        # ✅ ИСПРАВЛЕНИЕ: Конвертируем строку в UUID
+        user_uuid = uuid.UUID(user_id)
+        user = db.query(User).filter(User.id == user_uuid).first()
+        
         if not user:
             logger.warning(f"User not found: {user_id}")
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        logger.debug(f"✅ User retrieved: {user.email} (ID: {user_id})")
         return user
-    except ValueError:
-        logger.error(f"Invalid user ID format: {user_id}")
-        raise HTTPException(status_code=400, detail="Invalid user ID format")
+        
+    except ValueError as e:
+        logger.error(f"Invalid user ID format: {user_id} - {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_current_user: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve user information"
+        )
 
 async def get_assistant_by_id(
     assistant_id: str,
@@ -52,26 +74,48 @@ async def get_assistant_by_id(
 ) -> AssistantConfig:
     """
     Get an assistant by ID
+    ✅ FIXED: Properly converts string assistant_id to UUID
     
     Args:
-        assistant_id: Assistant ID
+        assistant_id: Assistant ID (string)
         db: Database session
         
     Returns:
         AssistantConfig object
         
     Raises:
-        HTTPException: If assistant not found
+        HTTPException: If assistant not found or invalid ID format
     """
     try:
-        assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
+        # ✅ ИСПРАВЛЕНИЕ: Конвертируем строку в UUID
+        assistant_uuid = uuid.UUID(assistant_id)
+        assistant = db.query(AssistantConfig).filter(
+            AssistantConfig.id == assistant_uuid
+        ).first()
+        
         if not assistant:
             logger.warning(f"Assistant not found: {assistant_id}")
-            raise HTTPException(status_code=404, detail="Assistant not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assistant not found"
+            )
+        
         return assistant
-    except ValueError:
-        logger.error(f"Invalid assistant ID format: {assistant_id}")
-        raise HTTPException(status_code=400, detail="Invalid assistant ID format")
+        
+    except ValueError as e:
+        logger.error(f"Invalid assistant ID format: {assistant_id} - {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid assistant ID format"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_assistant_by_id: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve assistant"
+        )
 
 async def check_admin_access(
     current_user: User = Depends(get_current_user)
@@ -89,6 +133,7 @@ async def check_admin_access(
         HTTPException: If user doesn't have admin access
     """
     if not current_user.is_admin:
+        logger.warning(f"Admin access denied for user: {current_user.email}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
