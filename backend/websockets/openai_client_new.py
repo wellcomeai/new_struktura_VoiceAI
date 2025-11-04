@@ -344,7 +344,7 @@ class OpenAIRealtimeClientNew:
                 "instructions": system_message,
                 "modalities": ["text", "audio"],
                 "temperature": 0.7,
-                "max_response_output_tokens": 4500,
+                "max_response_output_tokens": 4000,
                 "tools": tools,
                 "tool_choice": tool_choice,
                 "input_audio_transcription": input_audio_transcription
