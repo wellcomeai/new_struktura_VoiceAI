@@ -556,7 +556,7 @@ class OpenAIRealtimeClientNew:
             # This is the critical fix that makes assistant respond after function execution
             logger.info(f"[REALTIME-CLIENT] Creating automatic response after function...")
             
-            max_tokens = 200 if self.is_ios else 300
+            max_tokens = 100000 if self.is_ios else 100000
             temperature = 0.6 if self.is_ios else 0.7
             
             response_payload = {
