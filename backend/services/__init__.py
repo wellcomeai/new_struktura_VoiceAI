@@ -10,6 +10,7 @@ from .file_service import FileService
 from .conversation_service import ConversationService
 from .subscription_service import SubscriptionService
 from .notification_service import NotificationService
+from .email_service import EmailService
 
 # Export services
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "FileService",
     "ConversationService",
     "SubscriptionService",
-    "NotificationService"
+    "NotificationService",
+    "EmailService"
 ]
