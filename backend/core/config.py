@@ -2,7 +2,7 @@
 
 """
 Configuration settings for the WellcomeAI application.
-ИСПРАВЛЕННАЯ ВЕРСИЯ - добавлены правильные валидаторы для Robokassa
+ОБНОВЛЕНО: Добавлены настройки Email для верификации
 """
 
 import os
@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     SUBSCRIPTION_PRICE: float = 1490.0  # Цена подписки в рублях
     SUBSCRIPTION_DURATION_DAYS: int = 30  # Длительность подписки в днях
     
+    # ✅ НОВОЕ: Email settings для верификации
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "voicyfy@mail.ru")
+    EMAIL_HOST: str = os.getenv("EMAIL_HOST", "smtp.mail.ru")
+    EMAIL_PORT: int = int(os.getenv("EMAIL_PORT", "465"))
+    EMAIL_USERNAME: str = os.getenv("EMAIL_USERNAME", "voicyfy@mail.ru")
+    EMAIL_PASSWORD: str = os.getenv("EMAIL_PASSWORD", "")
+    EMAIL_USE_SSL: bool = os.getenv("EMAIL_USE_SSL", "True") == "True"
+    EMAIL_USE_TLS: bool = os.getenv("EMAIL_USE_TLS", "False") == "True"
+    
+    # ✅ НОВОЕ: Email verification settings
+    VERIFICATION_CODE_LENGTH: int = 6
+    VERIFICATION_CODE_EXPIRY_MINUTES: int = 10
+    VERIFICATION_MAX_ATTEMPTS: int = 3
+    VERIFICATION_RESEND_COOLDOWN_SECONDS: int = 60
+    
     # ✅ ИСПРАВЛЕНО: Улучшенные validators с детальными проверками
     @validator("HOST_URL")
     def validate_host_url(cls, v):
@@ -100,6 +115,13 @@ class Settings(BaseSettings):
     def validate_database_url(cls, v):
         if not v and not cls.__dict__.get('DEBUG', False):
             raise ValueError("DATABASE_URL must be set in production mode")
+        return v
+    
+    @validator("EMAIL_PASSWORD")
+    def validate_email_password(cls, v):
+        """Проверяем, что EMAIL_PASSWORD задан"""
+        if not v:
+            print("⚠️ WARNING: EMAIL_PASSWORD is not set - email verification will not work!")
         return v
     
     @validator("ROBOKASSA_MERCHANT_LOGIN")
@@ -214,6 +236,13 @@ class Settings(BaseSettings):
 try:
     settings = Settings()
     print("✅ Configuration loaded successfully")
+    
+    # Проверяем Email настройки
+    if settings.EMAIL_PASSWORD:
+        print(f"📧 Email configured: {settings.EMAIL_FROM} via {settings.EMAIL_HOST}:{settings.EMAIL_PORT}")
+    else:
+        print("⚠️ Email not configured - verification emails will not work")
+        
 except Exception as e:
     print(f"❌ Configuration error: {str(e)}")
     print("Please check your .env file and fix the configuration issues.")
