@@ -1,7 +1,7 @@
 # backend/api/auth.py
 """
 Authentication API endpoints for WellcomeAI application.
-✅ ОБНОВЛЕНО: Добавлена интеграция с email верификацией
+✅ PRODUCTION READY: Email verification с обработкой "застревания"
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,6 +14,7 @@ from backend.schemas.auth import LoginRequest, RegisterRequest, Token
 from backend.schemas.user import UserResponse
 from backend.services.auth_service import AuthService
 from backend.services.email_service import EmailService
+from backend.models.user import User
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -33,7 +34,7 @@ async def register(
     """
     Register a new user account.
     
-    ✅ ОБНОВЛЕНО: Автоматически отправляет код верификации на email
+    ✅ ВАРИАНТ A: Если email существует но не подтвержден - отправить новый код
     
     Args:
         user_data: User registration data with email, password, and optional profile info
@@ -45,7 +46,50 @@ async def register(
     try:
         logger.info(f"📝 Registration request for: {user_data.email}")
         
-        # 1. Create user account (email_verified=False by default)
+        # ✅ ВАРИАНТ A: Проверяем существует ли пользователь
+        existing_user = db.query(User).filter(User.email == user_data.email).first()
+        
+        if existing_user:
+            # Если email УЖЕ ПОДТВЕРЖДЕН - ошибка
+            if existing_user.email_verified:
+                logger.warning(f"❌ Registration blocked: Email already verified - {user_data.email}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered. Please login."
+                )
+            
+            # ✅ Email НЕ ПОДТВЕРЖДЕН - отправляем новый код
+            logger.info(f"🔄 User exists but not verified. Resending code to: {user_data.email}")
+            
+            try:
+                verification_result = await EmailService.send_verification_code(
+                    db=db,
+                    user_id=str(existing_user.id),  # ✅ UUID → String
+                    user_email=existing_user.email
+                )
+                
+                return {
+                    "success": True,
+                    "message": "Account exists but not verified. New verification code sent!",
+                    "user": {
+                        "id": str(existing_user.id),
+                        "email": existing_user.email,
+                        "email_verified": existing_user.email_verified
+                    },
+                    "verification_required": True,
+                    "verification_sent": True,
+                    "expires_in_minutes": verification_result.get("expires_in_minutes", 10),
+                    "max_attempts": verification_result.get("max_attempts", 3)
+                }
+                
+            except Exception as email_error:
+                logger.error(f"Failed to resend verification email: {email_error}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to send verification code. Please try again later."
+                )
+        
+        # ✅ Новый пользователь - создаем аккаунт
         result = await AuthService.register(db, user_data)
         
         user_id = result.get("user", {}).get("id")
@@ -60,32 +104,33 @@ async def register(
         
         logger.info(f"✅ User created: {user_email} (ID: {user_id})")
         
-        # 2. ✅ НОВОЕ: Автоматически отправить код верификации
+        # ✅ Автоматически отправить код верификации
         try:
             verification_result = await EmailService.send_verification_code(
                 db=db,
-                user_id=user_id,
+                user_id=user_id,  # ✅ Уже строка из auth_service
                 user_email=user_email
             )
             
             logger.info(f"✅ Verification code sent to {user_email}")
             
-            # 3. Вернуть ответ БЕЗ токена (токен дадим после верификации)
+            # Вернуть ответ БЕЗ токена (токен дадим после верификации)
             return {
                 "success": True,
                 "message": "Registration successful! Check your email for verification code.",
                 "user": result.get("user"),
-                "verification_required": True,  # ✅ Флаг для фронтенда
+                "verification_required": True,
                 "verification_sent": True,
                 "expires_in_minutes": verification_result.get("expires_in_minutes", 10),
-                "max_attempts": verification_result.get("max_attempts", 3)
+                "max_attempts": verification_result.get("max_attempts", 3),
+                "referral_info": result.get("referral_info"),  # Партнерская программа
+                "partner_program": result.get("partner_program")
             }
             
         except Exception as email_error:
             logger.error(f"Failed to send verification email: {email_error}")
             
             # Даже если email не отправился, регистрация прошла успешно
-            # Пользователь может запросить код повторно через /email-verification/resend
             return {
                 "success": True,
                 "message": "Registration successful! Please request verification code.",
@@ -140,7 +185,7 @@ async def login(
                 detail="Login failed - invalid response"
             )
         
-        # 2. ✅ НОВОЕ: Проверяем email_verified
+        # 2. ✅ Проверяем email_verified
         if not user.get("email_verified", False):
             logger.warning(f"Login blocked: Email not verified for {login_data.email}")
             
