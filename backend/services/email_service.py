@@ -2,14 +2,16 @@
 """
 Email service for WellcomeAI application.
 Handles email verification codes and SMTP operations.
+✅ PRODUCTION READY: UUID handling + timezone consistency
 """
 
 import smtplib
 import random
+import uuid
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -26,7 +28,7 @@ logger = get_logger(__name__)
 class EmailService:
     """Service for handling email verification and SMTP operations"""
     
-    # ✅ ИСПРАВЛЕНО: Email configuration from settings
+    # Email configuration from settings
     SMTP_HOST = settings.EMAIL_HOST
     SMTP_PORT = settings.EMAIL_PORT
     SMTP_USERNAME = settings.EMAIL_USERNAME
@@ -36,11 +38,33 @@ class EmailService:
     FROM_EMAIL = settings.EMAIL_FROM
     FROM_NAME = "Voicyfy"
     
-    # ✅ ИСПРАВЛЕНО: Verification settings from config
+    # Verification settings from config
     CODE_LENGTH = settings.VERIFICATION_CODE_LENGTH
     CODE_EXPIRY_MINUTES = settings.VERIFICATION_CODE_EXPIRY_MINUTES
     MAX_ATTEMPTS = settings.VERIFICATION_MAX_ATTEMPTS
     RESEND_COOLDOWN_SECONDS = settings.VERIFICATION_RESEND_COOLDOWN_SECONDS
+    
+    @staticmethod
+    def _ensure_uuid(user_id: Union[str, uuid.UUID]) -> uuid.UUID:
+        """
+        ✅ HELPER: Convert string to UUID if needed
+        
+        Args:
+            user_id: User ID as string or UUID
+            
+        Returns:
+            UUID object
+        """
+        if isinstance(user_id, uuid.UUID):
+            return user_id
+        try:
+            return uuid.UUID(user_id)
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid UUID format: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
     
     @classmethod
     def _generate_verification_code(cls) -> str:
@@ -169,7 +193,6 @@ class EmailService:
             # Connect to SMTP server and send
             logger.info(f"Connecting to SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT} (SSL={cls.SMTP_USE_SSL}, TLS={cls.SMTP_USE_TLS})")
             
-            # ✅ ИСПРАВЛЕНО: Поддержка SSL и TLS
             if cls.SMTP_USE_SSL:
                 # Use SSL (port 465)
                 with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT) as server:
@@ -219,15 +242,17 @@ class EmailService:
     async def send_verification_code(
         cls, 
         db: Session, 
-        user_id: str, 
+        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
         user_email: str
     ) -> Dict[str, Any]:
         """
         Generate and send verification code to user's email.
         
+        ✅ UUID HANDLING: Accepts both string and UUID objects
+        
         Args:
             db: Database session
-            user_id: User UUID
+            user_id: User UUID (string or UUID object)
             user_email: User's email address
         
         Returns:
@@ -237,8 +262,11 @@ class EmailService:
             HTTPException: If user not found or send fails
         """
         try:
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
             # Verify user exists
-            user = db.query(User).filter(User.id == user_id).first()
+            user = db.query(User).filter(User.id == user_uuid).first()
             if not user:
                 logger.error(f"User not found: {user_id}")
                 raise HTTPException(
@@ -261,7 +289,7 @@ class EmailService:
             
             # Create verification record
             verification = EmailVerification.create_verification_code(
-                user_id=user_id,
+                user_id=user_uuid,  # ✅ Use UUID object
                 code=code,
                 expiration_minutes=cls.CODE_EXPIRY_MINUTES
             )
@@ -300,7 +328,7 @@ class EmailService:
     async def resend_verification_code(
         cls, 
         db: Session, 
-        user_id: str, 
+        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
         user_email: str
     ) -> Dict[str, Any]:
         """
@@ -308,7 +336,7 @@ class EmailService:
         
         Args:
             db: Database session
-            user_id: User UUID
+            user_id: User UUID (string or UUID object)
             user_email: User's email address
         
         Returns:
@@ -318,19 +346,21 @@ class EmailService:
             HTTPException: If cooldown not passed or send fails
         """
         try:
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
             # Get most recent verification code
-            last_verification = EmailVerification.get_active_code_for_user(db, user_id)
+            last_verification = EmailVerification.get_active_code_for_user(db, user_uuid)
             
             # Check cooldown period
             if last_verification:
-                time_since_last = datetime.now(timezone.utc) - last_verification.created_at
-                
-                # Ensure created_at is timezone-aware
+                # ✅ Ensure timezone awareness
                 created_at = last_verification.created_at
                 if created_at.tzinfo is None:
                     created_at = created_at.replace(tzinfo=timezone.utc)
                 
-                time_since_last = datetime.now(timezone.utc) - created_at
+                now = datetime.now(timezone.utc)
+                time_since_last = now - created_at
                 
                 if time_since_last.total_seconds() < cls.RESEND_COOLDOWN_SECONDS:
                     remaining_seconds = cls.RESEND_COOLDOWN_SECONDS - int(time_since_last.total_seconds())
@@ -343,7 +373,7 @@ class EmailService:
             
             # Send new code
             logger.info(f"Resending verification code to {user_email}")
-            return await cls.send_verification_code(db, user_id, user_email)
+            return await cls.send_verification_code(db, user_uuid, user_email)
             
         except HTTPException:
             raise
@@ -359,7 +389,7 @@ class EmailService:
     async def verify_code(
         cls, 
         db: Session, 
-        user_id: str, 
+        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
         code: str
     ) -> Dict[str, Any]:
         """
@@ -367,7 +397,7 @@ class EmailService:
         
         Args:
             db: Database session
-            user_id: User UUID
+            user_id: User UUID (string or UUID object)
             code: 6-digit verification code
         
         Returns:
@@ -377,8 +407,11 @@ class EmailService:
             HTTPException: If code invalid, expired, or max attempts reached
         """
         try:
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
             # Get user
-            user = db.query(User).filter(User.id == user_id).first()
+            user = db.query(User).filter(User.id == user_uuid).first()
             if not user:
                 logger.error(f"User not found: {user_id}")
                 raise HTTPException(
@@ -396,7 +429,7 @@ class EmailService:
                 }
             
             # Get active verification code
-            verification = EmailVerification.get_active_code_for_user(db, user_id)
+            verification = EmailVerification.get_active_code_for_user(db, user_uuid)
             
             if not verification:
                 logger.warning(f"No active verification code for user {user_id}")
@@ -474,14 +507,14 @@ class EmailService:
     async def get_verification_status(
         cls, 
         db: Session, 
-        user_id: str
+        user_id: Union[str, uuid.UUID]  # ✅ Accept both types
     ) -> Dict[str, Any]:
         """
         Get user's email verification status.
         
         Args:
             db: Database session
-            user_id: User UUID
+            user_id: User UUID (string or UUID object)
         
         Returns:
             Dictionary with verification status
@@ -490,7 +523,10 @@ class EmailService:
             HTTPException: If user not found
         """
         try:
-            user = db.query(User).filter(User.id == user_id).first()
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
+            user = db.query(User).filter(User.id == user_uuid).first()
             if not user:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -498,7 +534,7 @@ class EmailService:
                 )
             
             # Get active verification code if exists
-            active_verification = EmailVerification.get_active_code_for_user(db, user_id)
+            active_verification = EmailVerification.get_active_code_for_user(db, user_uuid)
             
             status_data = {
                 "email_verified": user.email_verified,
