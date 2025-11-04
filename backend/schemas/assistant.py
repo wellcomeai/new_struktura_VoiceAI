@@ -67,7 +67,7 @@ class AssistantUpdate(BaseModel):
         """Validate voice is one of the supported voices"""
         if v is None:
             return v
-        allowed_voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
+        allowed_voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "cedar", "marin"]
         if v not in allowed_voices:
             raise ValueError(f'Voice must be one of {", ".join(allowed_voices)}')
         return v
