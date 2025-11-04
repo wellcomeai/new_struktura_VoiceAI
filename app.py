@@ -2,6 +2,7 @@
 FastAPI application initialization for WellcomeAI.
 This file configures all application components: routes, middleware, logging, etc.
 🆕 v2.0: Added Conversations API support
+✅ v2.1: Added Email Verification API support
 """
 import os
 import asyncio
@@ -20,7 +21,8 @@ from backend.core.logging import setup_logging, get_logger
 from backend.api import (
     auth, users, assistants, files, websocket, healthcheck, 
     subscriptions, subscription_logs, admin, partners, 
-    knowledge_base, payments, voximplant, elevenlabs, conversations  # 🆕 ДОБАВЛЕНО: conversations
+    knowledge_base, payments, voximplant, elevenlabs, conversations,
+    email_verification  # ✅ ДОБАВЛЕНО: email_verification
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -140,7 +142,8 @@ app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])
 app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
-app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])  # 🆕 ДОБАВЛЕНО: Conversations роутер
+app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
+app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])  # ✅ ДОБАВЛЕНО
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
 def ensure_static_directories():
@@ -312,10 +315,10 @@ def check_and_fix_all_missing_columns():
         schema_fixes = {
             'users': {
                 'elevenlabs_api_key': 'VARCHAR NULL',
-                # Добавляйте сюда другие колонки которые могут отсутствовать
+                'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',  # ✅ ДОБАВЛЕНО: email_verified
             },
             'conversations': {
-                'caller_number': 'VARCHAR(50) NULL',  # 🆕 v2.0: Добавлена проверка caller_number
+                'caller_number': 'VARCHAR(50) NULL',
             },
             'assistant_configs': {
                 # Добавьте если нужно
@@ -364,6 +367,32 @@ def check_and_fix_all_missing_columns():
     except Exception as e:
         logger.error(f"❌ Error in comprehensive schema check: {str(e)}")
 
+# ✅ НОВАЯ ФУНКЦИЯ: Создание таблицы email_verifications
+def create_email_verification_table():
+    """
+    Create email_verifications table if it doesn't exist
+    """
+    try:
+        from backend.models.email_verification import EmailVerification
+        from backend.models.base import Base
+        from sqlalchemy import inspect
+        
+        logger.info("📧 Checking email_verifications table...")
+        
+        inspector = inspect(engine)
+        
+        if not inspector.has_table('email_verifications'):
+            logger.info("➕ Creating email_verifications table...")
+            EmailVerification.__table__.create(engine)
+            logger.info("✅ email_verifications table created successfully")
+        else:
+            logger.info("✅ email_verifications table already exists")
+            
+    except Exception as e:
+        logger.error(f"❌ Error creating email_verifications table: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
 # При старте приложения
 @app.on_event("startup")
 async def startup_event():
@@ -390,11 +419,14 @@ async def startup_event():
                 # Шаг 2: Создаем базовые таблицы
                 create_tables(engine)
                 
-                # Шаг 3: Комплексная проверка и исправление схемы (🆕 включает caller_number)
+                # Шаг 3: Комплексная проверка и исправление схемы
                 check_and_fix_all_missing_columns()
                 
                 # Шаг 4: Создаем таблицы ElevenLabs и проверяем колонки
                 create_elevenlabs_tables()
+                
+                # ✅ Шаг 5: НОВОЕ - Создаем таблицу email_verifications
+                create_email_verification_table()
                 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
@@ -443,6 +475,16 @@ async def startup_event():
                 logger.info("🔄 Subscription checker started (development mode)")
         except Exception as e:
             logger.error(f"❌ Error starting subscription checker: {str(e)}")
+        
+        # ✅ ДОБАВЛЕНО: Логирование инициализации Email Verification
+        try:
+            logger.info("📧 Email Verification API initialized")
+            logger.info(f"   Send code: {settings.HOST_URL}/api/email-verification/send")
+            logger.info(f"   Resend code: {settings.HOST_URL}/api/email-verification/resend")
+            logger.info(f"   Verify code: {settings.HOST_URL}/api/email-verification/verify")
+            logger.info(f"   Status: {settings.HOST_URL}/api/email-verification/status/{{email}}")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Email Verification: {str(e)}")
         
         # ✅ ДОБАВЛЕНО: Логирование инициализации Voximplant интеграции
         try:
