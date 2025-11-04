@@ -1,6 +1,7 @@
 """
 Модель пользователя для приложения WellcomeAI.
 Представляет пользователя с данными аутентификации и профиля.
+✅ ОБНОВЛЕНО: Добавлено поле email_verified для верификации email
 """
 
 import uuid
@@ -31,6 +32,7 @@ class User(Base, BaseModel):
     google_sheets_token = Column(JSON, nullable=True)
     google_sheets_authorized = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    email_verified = Column(Boolean, default=False, nullable=False, index=True)  # ✅ НОВОЕ ПОЛЕ
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -46,7 +48,7 @@ class User(Base, BaseModel):
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
-    elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")  # ✅ ДОБАВЛЕНО: ElevenLabs отношение
+    elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")
    
     def __repr__(self):
         """Строковое представление пользователя"""
@@ -68,7 +70,7 @@ class User(Base, BaseModel):
         # Удаляем конфиденциальные данные
         data.pop("password_hash", None)
         data.pop("openai_api_key", None)
-        data.pop("elevenlabs_api_key", None)  # ✅ ДОБАВЛЕНО: Исключаем ElevenLabs API key
+        data.pop("elevenlabs_api_key", None)
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -97,3 +99,11 @@ class User(Base, BaseModel):
             return True
             
         return False
+    
+    def is_email_verified(self):
+        """✅ НОВЫЙ МЕТОД: Проверить, подтверждён ли email пользователя"""
+        return self.email_verified
+    
+    def needs_email_verification(self):
+        """✅ НОВЫЙ МЕТОД: Проверить, требуется ли верификация email"""
+        return not self.email_verified
