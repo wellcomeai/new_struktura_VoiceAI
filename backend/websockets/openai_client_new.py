@@ -116,7 +116,7 @@ def get_ios_optimized_session_config(base_config: Dict[str, Any], user_agent: st
         ios_config["input_audio_format"] = "pcm16"
         ios_config["output_audio_format"] = "pcm16"
         
-        ios_config["max_response_output_tokens"] = 300
+        ios_config["max_response_output_tokens"] = 4500
         ios_config["temperature"] = 0.6
         
         logger.info(f"[REALTIME-CLIENT] Applied iOS optimizations")
