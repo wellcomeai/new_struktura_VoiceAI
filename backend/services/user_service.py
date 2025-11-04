@@ -1,6 +1,7 @@
 """
 User service for WellcomeAI application.
 Handles user account management operations.
+✅ PRODUCTION-READY VERSION - Исправлена логика получения subscription_plan
 """
 
 from fastapi import HTTPException, status
@@ -11,9 +12,9 @@ from datetime import datetime, timedelta, timezone
 
 from backend.core.logging import get_logger
 from backend.models.user import User
-from backend.models.assistant import AssistantConfig  # Правильный импорт модели
-from backend.models.file import File  # Добавлен импорт для файлов
-from backend.models.subscription import SubscriptionPlan # Добавлен импорт для подписок
+from backend.models.assistant import AssistantConfig
+from backend.models.file import File
+from backend.models.subscription import SubscriptionPlan
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
 logger = get_logger(__name__)
@@ -36,19 +37,66 @@ class UserService:
         Raises:
             HTTPException: If user not found
         """
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            logger.warning(f"User not found: {user_id}")
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                logger.warning(f"User not found: {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            return user
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting user by ID {user_id}: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve user"
             )
-        return user
+    
+    @staticmethod
+    def _get_subscription_plan_code(user: User, db: Session) -> str:
+        """
+        ✅ HELPER: Безопасное получение кода плана подписки
+        
+        Приоритет:
+        1. Из связи subscription_plan_rel (если есть subscription_plan_id)
+        2. Из текстового поля subscription_plan (legacy)
+        3. Fallback на "free"
+        """
+        try:
+            # Вариант 1: Получаем из связи с таблицей subscription_plans
+            if user.subscription_plan_id:
+                try:
+                    plan = db.query(SubscriptionPlan).filter(
+                        SubscriptionPlan.id == user.subscription_plan_id
+                    ).first()
+                    
+                    if plan and plan.code:
+                        logger.debug(f"Got subscription plan from relation: {plan.code}")
+                        return plan.code
+                except Exception as e:
+                    logger.warning(f"Failed to get plan from relation: {str(e)}")
+            
+            # Вариант 2: Используем старое текстовое поле (legacy)
+            if user.subscription_plan:
+                logger.debug(f"Using legacy subscription_plan field: {user.subscription_plan}")
+                return user.subscription_plan
+            
+            # Вариант 3: Fallback на бесплатный план
+            logger.debug("No subscription plan found, using 'free' as fallback")
+            return "free"
+            
+        except Exception as e:
+            logger.error(f"Error getting subscription plan code: {str(e)}")
+            return "free"  # Безопасный fallback
     
     @staticmethod
     async def get_user_profile(db: Session, user_id: str) -> UserResponse:
         """
-        Get user profile information
+        ✅ ИСПРАВЛЕНО: Get user profile information
+        Безопасная обработка subscription_plan с fallback логикой
         
         Args:
             db: Database session
@@ -57,26 +105,45 @@ class UserService:
         Returns:
             UserResponse with user profile information
         """
-        user = await UserService.get_user_by_id(db, user_id)
-        
-        return UserResponse(
-            id=str(user.id),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            company_name=user.company_name,
-            subscription_plan=user.subscription_plan,
-            openai_api_key=user.openai_api_key,  # Включаем API ключ в ответ
-            has_api_key=bool(user.openai_api_key),
-            google_sheets_authorized=user.google_sheets_authorized,
-            created_at=user.created_at,
-            updated_at=user.updated_at
-        )
+        try:
+            user = await UserService.get_user_by_id(db, user_id)
+            
+            # ✅ Безопасно получаем код плана подписки
+            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
+            
+            return UserResponse(
+                id=str(user.id),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                company_name=user.company_name,
+                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
+                openai_api_key=user.openai_api_key,
+                has_api_key=bool(user.openai_api_key),
+                google_sheets_authorized=user.google_sheets_authorized,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+                is_trial=user.is_trial if user.is_trial is not None else True,
+                is_admin=user.is_admin if user.is_admin is not None else False,
+                subscription_end_date=user.subscription_end_date
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in get_user_profile for user {user_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve user profile"
+            )
     
     @staticmethod
     async def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
         """
-        Get detailed user information including usage stats
+        ✅ ИСПРАВЛЕНО: Get detailed user information including usage stats
+        Безопасная обработка subscription_plan и подсчет статистики
         
         Args:
             db: Database session
@@ -85,40 +152,111 @@ class UserService:
         Returns:
             UserDetailResponse with detailed user information
         """
-        user = await UserService.get_user_by_id(db, user_id)
-        
-        # Count user's assistants - исправленный код
-        total_assistants = db.query(AssistantConfig).filter(
-            AssistantConfig.user_id == user.id
-        ).count()
-        
-        # Get total conversations count
-        total_conversations = 0
-        for assistant in user.assistants:
-            total_conversations += assistant.total_conversations
-        
-        return UserDetailResponse(
-            id=str(user.id),
-            email=user.email,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            company_name=user.company_name,
-            subscription_plan=user.subscription_plan,
-            openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
-            has_api_key=bool(user.openai_api_key),
-            google_sheets_authorized=user.google_sheets_authorized,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-            total_assistants=total_assistants,
-            total_conversations=total_conversations,
-            usage_tokens=user.usage_tokens,
-            last_login=user.last_login
-        )
+        try:
+            user = await UserService.get_user_by_id(db, user_id)
+            
+            # ✅ Безопасно получаем код плана подписки
+            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
+            
+            # Count user's assistants
+            total_assistants = db.query(AssistantConfig).filter(
+                AssistantConfig.user_id == user.id
+            ).count()
+            
+            # Get total conversations count (безопасно)
+            total_conversations = 0
+            try:
+                for assistant in user.assistants:
+                    if hasattr(assistant, 'total_conversations') and assistant.total_conversations:
+                        total_conversations += assistant.total_conversations
+            except Exception as e:
+                logger.warning(f"Could not count conversations: {str(e)}")
+            
+            # Получаем название плана и максимальное количество ассистентов
+            subscription_plan_name = None
+            max_assistants = 1
+            days_left = None
+            
+            try:
+                if user.subscription_plan_id:
+                    plan = db.query(SubscriptionPlan).filter(
+                        SubscriptionPlan.id == user.subscription_plan_id
+                    ).first()
+                    
+                    if plan:
+                        subscription_plan_name = plan.name
+                        # Определяем max_assistants в зависимости от кода плана
+                        if plan.code == "free":
+                            max_assistants = 1
+                        elif plan.code == "start":
+                            max_assistants = 3
+                        elif plan.code == "pro":
+                            max_assistants = 10
+                        else:
+                            max_assistants = plan.max_assistants or 1
+                
+                # Вычисляем оставшиеся дни
+                if user.subscription_end_date:
+                    now = datetime.now(timezone.utc)
+                    end_date = user.subscription_end_date
+                    
+                    # Нормализуем таймзону
+                    if end_date.tzinfo is None:
+                        end_date = end_date.replace(tzinfo=timezone.utc)
+                    
+                    if end_date > now:
+                        delta = end_date - now
+                        days_left = delta.days
+                    else:
+                        days_left = 0
+                        
+            except Exception as e:
+                logger.warning(f"Could not get subscription details: {str(e)}")
+            
+            # Админы имеют неограниченный доступ
+            if user.is_admin or user.email == "well96well@gmail.com":
+                max_assistants = 10
+                days_left = 999
+            
+            return UserDetailResponse(
+                id=str(user.id),
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                company_name=user.company_name,
+                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
+                openai_api_key=user.openai_api_key,
+                has_api_key=bool(user.openai_api_key),
+                google_sheets_authorized=user.google_sheets_authorized,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+                total_assistants=total_assistants,
+                total_conversations=total_conversations,
+                usage_tokens=user.usage_tokens or 0,
+                last_login=user.last_login,
+                is_trial=user.is_trial if user.is_trial is not None else True,
+                is_admin=user.is_admin if user.is_admin is not None else False,
+                subscription_end_date=user.subscription_end_date,
+                subscription_plan_name=subscription_plan_name,
+                days_left=days_left,
+                max_assistants=max_assistants
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in get_user_details for user {user_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve user details"
+            )
     
     @staticmethod
     async def update_user(db: Session, user_id: str, user_data: UserUpdate) -> UserResponse:
         """
-        Update user information
+        ✅ Update user information
         
         Args:
             db: Database session
@@ -144,17 +282,23 @@ class UserService:
             
             # Явно обрабатываем случай с API ключом
             if 'openai_api_key' in update_data:
-                # Разрешаем пустую строку или None
-                user.openai_api_key = update_data.pop('openai_api_key')
+                # Разрешаем пустую строку или None (удаление ключа)
+                api_key = update_data.pop('openai_api_key')
+                user.openai_api_key = api_key if api_key else None
+                logger.info(f"Updated OpenAI API key for user {user_id}")
             
             # Обновляем остальные поля
             for key, value in update_data.items():
-                setattr(user, key, value)
+                if hasattr(user, key):
+                    setattr(user, key, value)
             
             db.commit()
             db.refresh(user)
             
             logger.info(f"User updated successfully: {user_id}")
+            
+            # ✅ Безопасно получаем код плана подписки
+            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
             
             return UserResponse(
                 id=str(user.id),
@@ -162,12 +306,15 @@ class UserService:
                 first_name=user.first_name,
                 last_name=user.last_name,
                 company_name=user.company_name,
-                subscription_plan=user.subscription_plan,
-                openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
+                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
+                openai_api_key=user.openai_api_key,
                 has_api_key=bool(user.openai_api_key),
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
-                updated_at=user.updated_at
+                updated_at=user.updated_at,
+                is_trial=user.is_trial if user.is_trial is not None else True,
+                is_admin=user.is_admin if user.is_admin is not None else False,
+                subscription_end_date=user.subscription_end_date
             )
             
         except IntegrityError as e:
@@ -182,6 +329,8 @@ class UserService:
         except Exception as e:
             db.rollback()
             logger.error(f"Unexpected error during user update: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Update failed due to server error"
@@ -208,6 +357,8 @@ class UserService:
             logger.info(f"User deactivated: {user_id}")
             return True
             
+        except HTTPException:
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Error deactivating user: {str(e)}")
@@ -229,6 +380,9 @@ class UserService:
         try:
             user = await UserService.get_user_by_id(db, user_id)
             
+            if user.usage_tokens is None:
+                user.usage_tokens = 0
+            
             user.usage_tokens += token_count
             db.commit()
             
@@ -241,7 +395,7 @@ class UserService:
     @staticmethod
     async def check_subscription_status(db: Session, user_id: str) -> Dict[str, Any]:
         """
-        Проверить статус подписки пользователя
+        ✅ ИСПРАВЛЕНО: Проверить статус подписки пользователя
         
         Args:
             db: Сессия базы данных
@@ -258,21 +412,22 @@ class UserService:
                 return {
                     "active": True,
                     "is_trial": False,
-                    "days_left": None,
+                    "days_left": 999,
                     "max_assistants": 10,
                     "current_assistants": 0,
-                    "features": ["all"]
+                    "features": ["all"],
+                    "is_admin": True
                 }
-                
-            # ✅ ИСПРАВЛЕННАЯ ЛОГИКА: проверяем активность подписки
+            
+            # Проверяем активность подписки
             now = datetime.now(timezone.utc)
             
             # Нормализуем дату окончания подписки
             subscription_end_date = user.subscription_end_date
             if subscription_end_date and subscription_end_date.tzinfo is None:
                 subscription_end_date = subscription_end_date.replace(tzinfo=timezone.utc)
-                
-            # ✅ ВАЖНО: подписка активна если:
+            
+            # ✅ Подписка активна если:
             # 1. Есть дата окончания И она больше текущего времени
             # 2. И пользователь находится в триале ИЛИ имеет план подписки
             has_active_subscription = (
@@ -282,29 +437,40 @@ class UserService:
             )
             
             # Получаем максимальное количество ассистентов из плана подписки
-            max_assistants = 1  # Default для неактивной подписки
-
+            max_assistants = 1  # Default
+            
             if has_active_subscription and user.subscription_plan_id:
-                plan = db.query(SubscriptionPlan).get(user.subscription_plan_id)
-                if plan:
-                    if plan.code == "free":
-                        max_assistants = 1  # Тестовый период
-                    else:
-                        max_assistants = 3  # Оплаченный период
-            elif has_active_subscription:
-                # Если подписка активна, но план не найден - даем базовый лимит
-                max_assistants = 1
+                try:
+                    plan = db.query(SubscriptionPlan).filter(
+                        SubscriptionPlan.id == user.subscription_plan_id
+                    ).first()
+                    
+                    if plan:
+                        if plan.code == "free":
+                            max_assistants = 1
+                        elif plan.code == "start":
+                            max_assistants = 3
+                        elif plan.code == "pro":
+                            max_assistants = 10
+                        else:
+                            max_assistants = plan.max_assistants or 1
+                except Exception as e:
+                    logger.warning(f"Could not get plan details: {str(e)}")
             
             # Вычисляем, сколько дней осталось
-            days_left = None
+            days_left = 0
             if subscription_end_date and has_active_subscription:
                 delta = subscription_end_date - now
                 days_left = max(0, delta.days)
             
             # Получаем текущее количество ассистентов
-            current_assistants = db.query(AssistantConfig).filter(
-                AssistantConfig.user_id == user.id
-            ).count()
+            current_assistants = 0
+            try:
+                current_assistants = db.query(AssistantConfig).filter(
+                    AssistantConfig.user_id == user.id
+                ).count()
+            except Exception as e:
+                logger.warning(f"Could not count assistants: {str(e)}")
             
             return {
                 "active": has_active_subscription,
@@ -312,11 +478,17 @@ class UserService:
                 "days_left": days_left,
                 "max_assistants": max_assistants,
                 "current_assistants": current_assistants,
-                "features": ["basic"]
+                "features": ["basic"] if has_active_subscription else [],
+                "is_admin": False
             }
             
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error checking subscription status: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
             # Возвращаем статус неактивной подписки в случае ошибки
             return {
                 "active": False,
@@ -324,9 +496,11 @@ class UserService:
                 "days_left": 0,
                 "max_assistants": 1,
                 "current_assistants": 0,
-                "features": ["basic"]
+                "features": [],
+                "is_admin": False,
+                "error": str(e)
             }
-
+    
     @staticmethod
     async def set_subscription_plan(db: Session, user_id: str, plan_code: str, duration_days: int) -> User:
         """
@@ -345,16 +519,20 @@ class UserService:
             user = await UserService.get_user_by_id(db, user_id)
             
             # Находим план подписки по коду
-            subscription_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
+            subscription_plan = db.query(SubscriptionPlan).filter(
+                SubscriptionPlan.code == plan_code
+            ).first()
+            
             if not subscription_plan:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Subscription plan with code {plan_code} not found"
+                    detail=f"Subscription plan with code '{plan_code}' not found"
                 )
             
             # Устанавливаем даты начала и окончания подписки
-            now = datetime.now(timezone.utc)  # Используем UTC для согласованности
+            now = datetime.now(timezone.utc)
             user.subscription_plan_id = subscription_plan.id
+            user.subscription_plan = plan_code  # ✅ Обновляем и legacy поле
             user.subscription_start_date = now
             user.subscription_end_date = now + timedelta(days=duration_days)
             
@@ -365,7 +543,7 @@ class UserService:
             db.commit()
             db.refresh(user)
             
-            logger.info(f"Set subscription plan {plan_code} for user {user_id} for {duration_days} days")
+            logger.info(f"Set subscription plan '{plan_code}' for user {user_id} for {duration_days} days")
             
             return user
             
@@ -374,6 +552,8 @@ class UserService:
         except Exception as e:
             db.rollback()
             logger.error(f"Error setting subscription plan: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to set subscription plan"
