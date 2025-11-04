@@ -26,18 +26,21 @@ logger = get_logger(__name__)
 class EmailService:
     """Service for handling email verification and SMTP operations"""
     
-    # Email configuration from settings
-    SMTP_HOST = "smtp.mail.ru"
-    SMTP_PORT = 465  # SSL port
-    SMTP_USERNAME = settings.ROBOKASSA_MERCHANT_LOGIN if hasattr(settings, 'EMAIL_USERNAME') else None
-    SMTP_PASSWORD = settings.ROBOKASSA_PASSWORD_1 if hasattr(settings, 'EMAIL_PASSWORD') else None
+    # ✅ ИСПРАВЛЕНО: Email configuration from settings
+    SMTP_HOST = settings.EMAIL_HOST
+    SMTP_PORT = settings.EMAIL_PORT
+    SMTP_USERNAME = settings.EMAIL_USERNAME
+    SMTP_PASSWORD = settings.EMAIL_PASSWORD
+    SMTP_USE_SSL = settings.EMAIL_USE_SSL
+    SMTP_USE_TLS = settings.EMAIL_USE_TLS
+    FROM_EMAIL = settings.EMAIL_FROM
     FROM_NAME = "Voicyfy"
     
-    # Verification settings
-    CODE_LENGTH = 6
-    CODE_EXPIRY_MINUTES = 10
-    MAX_ATTEMPTS = 3
-    RESEND_COOLDOWN_SECONDS = 60
+    # ✅ ИСПРАВЛЕНО: Verification settings from config
+    CODE_LENGTH = settings.VERIFICATION_CODE_LENGTH
+    CODE_EXPIRY_MINUTES = settings.VERIFICATION_CODE_EXPIRY_MINUTES
+    MAX_ATTEMPTS = settings.VERIFICATION_MAX_ATTEMPTS
+    RESEND_COOLDOWN_SECONDS = settings.VERIFICATION_RESEND_COOLDOWN_SECONDS
     
     @classmethod
     def _generate_verification_code(cls) -> str:
@@ -131,7 +134,7 @@ class EmailService:
     @classmethod
     def _send_email_smtp(cls, to_email: str, subject: str, html_content: str) -> bool:
         """
-        Send email via Mail.ru SMTP.
+        Send email via Mail.ru SMTP with SSL/TLS support.
         
         Args:
             to_email: Recipient email address
@@ -155,7 +158,7 @@ class EmailService:
             
             # Create message
             msg = MIMEMultipart('alternative')
-            msg['From'] = f"{cls.FROM_NAME} <{cls.SMTP_USERNAME}>"
+            msg['From'] = f"{cls.FROM_NAME} <{cls.FROM_EMAIL}>"
             msg['To'] = to_email
             msg['Subject'] = subject
             
@@ -164,14 +167,29 @@ class EmailService:
             msg.attach(html_part)
             
             # Connect to SMTP server and send
-            logger.info(f"Connecting to Mail.ru SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT}")
+            logger.info(f"Connecting to SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT} (SSL={cls.SMTP_USE_SSL}, TLS={cls.SMTP_USE_TLS})")
             
-            with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT) as server:
-                logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
-                server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
-                
-                logger.info(f"Sending email to {to_email}")
-                server.send_message(msg)
+            # ✅ ИСПРАВЛЕНО: Поддержка SSL и TLS
+            if cls.SMTP_USE_SSL:
+                # Use SSL (port 465)
+                with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                    server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    
+                    logger.info(f"Sending email to {to_email}")
+                    server.send_message(msg)
+            else:
+                # Use STARTTLS (port 587) or no encryption (port 25)
+                with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+                    if cls.SMTP_USE_TLS:
+                        logger.info("Starting TLS...")
+                        server.starttls()
+                    
+                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                    server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    
+                    logger.info(f"Sending email to {to_email}")
+                    server.send_message(msg)
             
             logger.info(f"✅ Email sent successfully to {to_email}")
             return True
