@@ -2,6 +2,7 @@
 """
 Email verification API endpoints for WellcomeAI application.
 Handles sending, resending, and verifying email verification codes.
+✅ FIXED: Correct JWT token generation using user UUID
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,7 +14,6 @@ from typing import Dict, Any
 from backend.core.logging import get_logger
 from backend.db.session import get_db
 from backend.services.email_service import EmailService
-from backend.services.auth_service import AuthService
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -237,6 +237,7 @@ async def verify_email_code(
 ):
     """
     Verify the email confirmation code.
+    ✅ FIXED: Uses correct JWT token generation with user UUID
     
     User has 3 attempts to enter the correct code.
     Code expires after 10 minutes.
@@ -246,7 +247,7 @@ async def verify_email_code(
         db: Database session
     
     Returns:
-        Success message with user data if code is valid
+        Success message with JWT token and user data if code is valid
     
     Raises:
         HTTPException: If code invalid, expired, or max attempts reached
@@ -267,9 +268,11 @@ async def verify_email_code(
         if result.get("success"):
             logger.info(f"✅ Email verified successfully for {request.email}")
             
-            # Generate new JWT token for verified user
-            from backend.services.auth_service import AuthService
-            token = AuthService.create_access_token(data={"sub": request.email})
+            # ✅ ИСПРАВЛЕНИЕ: Используем правильную функцию для создания JWT
+            from backend.core.security import create_jwt_token
+            token = create_jwt_token(user.id)  # Передаем UUID напрямую
+            
+            logger.info(f"🎟️ JWT token generated for user {user.id}")
             
             return VerificationResponse(
                 success=True,
