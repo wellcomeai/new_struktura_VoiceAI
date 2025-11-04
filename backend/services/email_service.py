@@ -2,7 +2,7 @@
 """
 Email service for WellcomeAI application.
 Handles email verification codes and SMTP operations.
-✅ PRODUCTION READY: UUID handling + timezone consistency
+✅ PRODUCTION READY: UUID handling + timezone consistency + JWT token generation
 """
 
 import smtplib
@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
+from backend.core.security import create_jwt_token as create_access_token  # ✅ ДОБАВЛЕНО
 from backend.models.email_verification import EmailVerification
 from backend.models.user import User
 
@@ -242,7 +243,7 @@ class EmailService:
     async def send_verification_code(
         cls, 
         db: Session, 
-        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
+        user_id: Union[str, uuid.UUID],
         user_email: str
     ) -> Dict[str, Any]:
         """
@@ -289,7 +290,7 @@ class EmailService:
             
             # Create verification record
             verification = EmailVerification.create_verification_code(
-                user_id=user_uuid,  # ✅ Use UUID object
+                user_id=user_uuid,
                 code=code,
                 expiration_minutes=cls.CODE_EXPIRY_MINUTES
             )
@@ -328,7 +329,7 @@ class EmailService:
     async def resend_verification_code(
         cls, 
         db: Session, 
-        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
+        user_id: Union[str, uuid.UUID],
         user_email: str
     ) -> Dict[str, Any]:
         """
@@ -389,11 +390,12 @@ class EmailService:
     async def verify_code(
         cls, 
         db: Session, 
-        user_id: Union[str, uuid.UUID],  # ✅ Accept both types
+        user_id: Union[str, uuid.UUID],
         code: str
     ) -> Dict[str, Any]:
         """
         Verify the entered code and update user's email_verified status.
+        ✅ PRODUCTION: Generates and returns JWT token after successful verification
         
         Args:
             db: Database session
@@ -401,7 +403,7 @@ class EmailService:
             code: 6-digit verification code
         
         Returns:
-            Dictionary with success status and user data
+            Dictionary with success status, JWT token, and user data
         
         Raises:
             HTTPException: If code invalid, expired, or max attempts reached
@@ -422,9 +424,14 @@ class EmailService:
             # Check if already verified
             if user.email_verified:
                 logger.info(f"User {user.email} already verified")
+                
+                # ✅ Generate token even if already verified (for re-login scenarios)
+                token = create_access_token(str(user.id))
+                
                 return {
                     "success": True,
                     "message": "Email already verified",
+                    "token": token,
                     "user": user.to_dict()
                 }
             
@@ -481,14 +488,19 @@ class EmailService:
             # Update user's email_verified status
             user.email_verified = True
             
+            # ✅ КРИТИЧЕСКИ ВАЖНО: Генерируем JWT токен
+            token = create_access_token(str(user.id))
+            logger.info(f"✅ JWT token generated for user {user.email}")
+            
             db.commit()
             db.refresh(user)
             
-            logger.info(f"✅ User {user.email} email verified successfully")
+            logger.info(f"✅ User {user.email} email verified successfully and token issued")
             
             return {
                 "success": True,
                 "message": "Email verified successfully",
+                "token": token,  # ✅ ДОБАВЛЕН ТОКЕН
                 "user": user.to_dict()
             }
             
@@ -507,7 +519,7 @@ class EmailService:
     async def get_verification_status(
         cls, 
         db: Session, 
-        user_id: Union[str, uuid.UUID]  # ✅ Accept both types
+        user_id: Union[str, uuid.UUID]
     ) -> Dict[str, Any]:
         """
         Get user's email verification status.
