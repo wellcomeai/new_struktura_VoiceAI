@@ -1,560 +1,594 @@
+# backend/services/email_service.py
 """
-User service for WellcomeAI application.
-Handles user account management operations.
-✅ PRODUCTION-READY VERSION - Исправлена логика получения subscription_plan
+Email service for WellcomeAI application.
+Handles email verification codes and SMTP operations.
+✅ PRODUCTION READY: UUID handling + timezone consistency + JWT token generation
 """
 
-from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from typing import List, Optional, Dict, Any
+import smtplib
+import random
+import uuid
 from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Optional, Dict, Any, Union
+
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 
 from backend.core.logging import get_logger
+from backend.core.config import settings
+from backend.core.security import create_jwt_token as create_access_token  # ✅ ДОБАВЛЕНО
+from backend.models.email_verification import EmailVerification
 from backend.models.user import User
-from backend.models.assistant import AssistantConfig
-from backend.models.file import File
-from backend.models.subscription import SubscriptionPlan
-from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
+# Initialize logger
 logger = get_logger(__name__)
 
-class UserService:
-    """Service for user operations"""
+
+class EmailService:
+    """Service for handling email verification and SMTP operations"""
+    
+    # Email configuration from settings
+    SMTP_HOST = settings.EMAIL_HOST
+    SMTP_PORT = settings.EMAIL_PORT
+    SMTP_USERNAME = settings.EMAIL_USERNAME
+    SMTP_PASSWORD = settings.EMAIL_PASSWORD
+    SMTP_USE_SSL = settings.EMAIL_USE_SSL
+    SMTP_USE_TLS = settings.EMAIL_USE_TLS
+    FROM_EMAIL = settings.EMAIL_FROM
+    FROM_NAME = "Voicyfy"
+    
+    # Verification settings from config
+    CODE_LENGTH = settings.VERIFICATION_CODE_LENGTH
+    CODE_EXPIRY_MINUTES = settings.VERIFICATION_CODE_EXPIRY_MINUTES
+    MAX_ATTEMPTS = settings.VERIFICATION_MAX_ATTEMPTS
+    RESEND_COOLDOWN_SECONDS = settings.VERIFICATION_RESEND_COOLDOWN_SECONDS
     
     @staticmethod
-    async def get_user_by_id(db: Session, user_id: str) -> User:
+    def _ensure_uuid(user_id: Union[str, uuid.UUID]) -> uuid.UUID:
         """
-        Get user by ID
+        ✅ HELPER: Convert string to UUID if needed
+        
+        Args:
+            user_id: User ID as string or UUID
+            
+        Returns:
+            UUID object
+        """
+        if isinstance(user_id, uuid.UUID):
+            return user_id
+        try:
+            return uuid.UUID(user_id)
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Invalid UUID format: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid user ID format"
+            )
+    
+    @classmethod
+    def _generate_verification_code(cls) -> str:
+        """
+        Generate a random 6-digit verification code.
+        
+        Returns:
+            6-digit string code
+        """
+        return ''.join([str(random.randint(0, 9)) for _ in range(cls.CODE_LENGTH)])
+    
+    @classmethod
+    def _create_verification_email_html(cls, code: str, user_email: str) -> str:
+        """
+        Create HTML email template for verification code.
+        
+        Args:
+            code: 6-digit verification code
+            user_email: User's email address
+        
+        Returns:
+            HTML email content
+        """
+        return f"""
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Подтверждение Email - Voicyfy</title>
+        </head>
+        <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f8fafc;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+                <!-- Header -->
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h1 style="color: #2563eb; font-size: 28px; margin: 0;">Voicyfy</h1>
+                    <p style="color: #64748b; font-size: 16px; margin: 10px 0 0 0;">
+                        Ваш голосовой ИИ. Говорит. Слушает. Понимает.
+                    </p>
+                </div>
+                
+                <!-- Main Content -->
+                <div style="background: white; border-radius: 12px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <h2 style="color: #0f172a; font-size: 24px; margin: 0 0 20px 0;">
+                        Подтверждение Email
+                    </h2>
+                    
+                    <p style="color: #64748b; font-size: 16px; line-height: 1.6; margin: 0 0 30px 0;">
+                        Здравствуйте! Вы регистрируетесь на платформе Voicyfy. 
+                        Для завершения регистрации введите код подтверждения:
+                    </p>
+                    
+                    <!-- Verification Code Box -->
+                    <div style="background: linear-gradient(135deg, #4a86e8, #2563eb); border-radius: 8px; padding: 30px; text-align: center; margin: 30px 0;">
+                        <div style="font-size: 42px; font-weight: 700; color: white; letter-spacing: 8px; font-family: 'Courier New', monospace;">
+                            {code}
+                        </div>
+                    </div>
+                    
+                    <!-- Important Info -->
+                    <div style="background: #eff6ff; border-left: 4px solid #2563eb; padding: 15px 20px; margin: 30px 0; border-radius: 4px;">
+                        <p style="color: #1e40af; font-size: 14px; margin: 0; line-height: 1.6;">
+                            <strong>⏰ Важно:</strong> Код действителен <strong>10 минут</strong>. 
+                            У вас есть <strong>3 попытки</strong> для ввода.
+                        </p>
+                    </div>
+                    
+                    <p style="color: #64748b; font-size: 14px; line-height: 1.6; margin: 20px 0 0 0;">
+                        Если вы не регистрировались на Voicyfy, просто проигнорируйте это письмо.
+                    </p>
+                </div>
+                
+                <!-- Footer -->
+                <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+                    <p style="color: #94a3b8; font-size: 14px; margin: 0 0 10px 0;">
+                        С уважением, команда Voicyfy
+                    </p>
+                    <p style="color: #cbd5e1; font-size: 12px; margin: 0;">
+                        ИП Шишкин Валерий Сергеевич | ИНН: 385101159652
+                    </p>
+                    <p style="color: #cbd5e1; font-size: 12px; margin: 5px 0 0 0;">
+                        <a href="https://t.me/voicyfy" style="color: #2563eb; text-decoration: none;">Telegram</a> | 
+                        <a href="mailto:well96well@gmail.com" style="color: #2563eb; text-decoration: none;">Поддержка</a>
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+    
+    @classmethod
+    def _send_email_smtp(cls, to_email: str, subject: str, html_content: str) -> bool:
+        """
+        Send email via Mail.ru SMTP with SSL/TLS support.
+        
+        Args:
+            to_email: Recipient email address
+            subject: Email subject
+            html_content: HTML email content
+        
+        Returns:
+            True if sent successfully, False otherwise
+        
+        Raises:
+            HTTPException: If SMTP configuration is missing or send fails
+        """
+        try:
+            # Check SMTP configuration
+            if not cls.SMTP_USERNAME or not cls.SMTP_PASSWORD:
+                logger.error("SMTP credentials not configured in settings")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Email service not configured"
+                )
+            
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['From'] = f"{cls.FROM_NAME} <{cls.FROM_EMAIL}>"
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            
+            # Attach HTML content
+            html_part = MIMEText(html_content, 'html', 'utf-8')
+            msg.attach(html_part)
+            
+            # Connect to SMTP server and send
+            logger.info(f"Connecting to SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT} (SSL={cls.SMTP_USE_SSL}, TLS={cls.SMTP_USE_TLS})")
+            
+            if cls.SMTP_USE_SSL:
+                # Use SSL (port 465)
+                with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                    server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    
+                    logger.info(f"Sending email to {to_email}")
+                    server.send_message(msg)
+            else:
+                # Use STARTTLS (port 587) or no encryption (port 25)
+                with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+                    if cls.SMTP_USE_TLS:
+                        logger.info("Starting TLS...")
+                        server.starttls()
+                    
+                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                    server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    
+                    logger.info(f"Sending email to {to_email}")
+                    server.send_message(msg)
+            
+            logger.info(f"✅ Email sent successfully to {to_email}")
+            return True
+            
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP authentication failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email authentication failed"
+            )
+        
+        except smtplib.SMTPException as e:
+            logger.error(f"SMTP error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email sending failed"
+            )
+        
+        except Exception as e:
+            logger.error(f"Unexpected error sending email: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email sending failed"
+            )
+    
+    @classmethod
+    async def send_verification_code(
+        cls, 
+        db: Session, 
+        user_id: Union[str, uuid.UUID],
+        user_email: str
+    ) -> Dict[str, Any]:
+        """
+        Generate and send verification code to user's email.
+        
+        ✅ UUID HANDLING: Accepts both string and UUID objects
         
         Args:
             db: Database session
-            user_id: User ID
-            
+            user_id: User UUID (string or UUID object)
+            user_email: User's email address
+        
         Returns:
-            User object
-            
+            Dictionary with success status and message
+        
         Raises:
-            HTTPException: If user not found
+            HTTPException: If user not found or send fails
         """
         try:
-            user = db.query(User).filter(User.id == user_id).first()
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
+            # Verify user exists
+            user = db.query(User).filter(User.id == user_uuid).first()
             if not user:
-                logger.warning(f"User not found: {user_id}")
+                logger.error(f"User not found: {user_id}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="User not found"
                 )
-            return user
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting user by ID {user_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve user"
-            )
-    
-    @staticmethod
-    def _get_subscription_plan_code(user: User, db: Session) -> str:
-        """
-        ✅ HELPER: Безопасное получение кода плана подписки
-        
-        Приоритет:
-        1. Из связи subscription_plan_rel (если есть subscription_plan_id)
-        2. Из текстового поля subscription_plan (legacy)
-        3. Fallback на "free"
-        """
-        try:
-            # Вариант 1: Получаем из связи с таблицей subscription_plans
-            if user.subscription_plan_id:
-                try:
-                    plan = db.query(SubscriptionPlan).filter(
-                        SubscriptionPlan.id == user.subscription_plan_id
-                    ).first()
-                    
-                    if plan and plan.code:
-                        logger.debug(f"Got subscription plan from relation: {plan.code}")
-                        return plan.code
-                except Exception as e:
-                    logger.warning(f"Failed to get plan from relation: {str(e)}")
             
-            # Вариант 2: Используем старое текстовое поле (legacy)
-            if user.subscription_plan:
-                logger.debug(f"Using legacy subscription_plan field: {user.subscription_plan}")
-                return user.subscription_plan
-            
-            # Вариант 3: Fallback на бесплатный план
-            logger.debug("No subscription plan found, using 'free' as fallback")
-            return "free"
-            
-        except Exception as e:
-            logger.error(f"Error getting subscription plan code: {str(e)}")
-            return "free"  # Безопасный fallback
-    
-    @staticmethod
-    async def get_user_profile(db: Session, user_id: str) -> UserResponse:
-        """
-        ✅ ИСПРАВЛЕНО: Get user profile information
-        Безопасная обработка subscription_plan с fallback логикой
-        
-        Args:
-            db: Database session
-            user_id: User ID
-            
-        Returns:
-            UserResponse with user profile information
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            # ✅ Безопасно получаем код плана подписки
-            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
-            
-            return UserResponse(
-                id=str(user.id),
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                company_name=user.company_name,
-                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
-                openai_api_key=user.openai_api_key,
-                has_api_key=bool(user.openai_api_key),
-                google_sheets_authorized=user.google_sheets_authorized,
-                created_at=user.created_at,
-                updated_at=user.updated_at,
-                is_trial=user.is_trial if user.is_trial is not None else True,
-                is_admin=user.is_admin if user.is_admin is not None else False,
-                subscription_end_date=user.subscription_end_date
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in get_user_profile for user {user_id}: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve user profile"
-            )
-    
-    @staticmethod
-    async def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
-        """
-        ✅ ИСПРАВЛЕНО: Get detailed user information including usage stats
-        Безопасная обработка subscription_plan и подсчет статистики
-        
-        Args:
-            db: Database session
-            user_id: User ID
-            
-        Returns:
-            UserDetailResponse with detailed user information
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            # ✅ Безопасно получаем код плана подписки
-            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
-            
-            # Count user's assistants
-            total_assistants = db.query(AssistantConfig).filter(
-                AssistantConfig.user_id == user.id
-            ).count()
-            
-            # Get total conversations count (безопасно)
-            total_conversations = 0
-            try:
-                for assistant in user.assistants:
-                    if hasattr(assistant, 'total_conversations') and assistant.total_conversations:
-                        total_conversations += assistant.total_conversations
-            except Exception as e:
-                logger.warning(f"Could not count conversations: {str(e)}")
-            
-            # Получаем название плана и максимальное количество ассистентов
-            subscription_plan_name = None
-            max_assistants = 1
-            days_left = None
-            
-            try:
-                if user.subscription_plan_id:
-                    plan = db.query(SubscriptionPlan).filter(
-                        SubscriptionPlan.id == user.subscription_plan_id
-                    ).first()
-                    
-                    if plan:
-                        subscription_plan_name = plan.name
-                        # Определяем max_assistants в зависимости от кода плана
-                        if plan.code == "free":
-                            max_assistants = 1
-                        elif plan.code == "start":
-                            max_assistants = 3
-                        elif plan.code == "pro":
-                            max_assistants = 10
-                        else:
-                            max_assistants = plan.max_assistants or 1
-                
-                # Вычисляем оставшиеся дни
-                if user.subscription_end_date:
-                    now = datetime.now(timezone.utc)
-                    end_date = user.subscription_end_date
-                    
-                    # Нормализуем таймзону
-                    if end_date.tzinfo is None:
-                        end_date = end_date.replace(tzinfo=timezone.utc)
-                    
-                    if end_date > now:
-                        delta = end_date - now
-                        days_left = delta.days
-                    else:
-                        days_left = 0
-                        
-            except Exception as e:
-                logger.warning(f"Could not get subscription details: {str(e)}")
-            
-            # Админы имеют неограниченный доступ
-            if user.is_admin or user.email == "well96well@gmail.com":
-                max_assistants = 10
-                days_left = 999
-            
-            return UserDetailResponse(
-                id=str(user.id),
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                company_name=user.company_name,
-                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
-                openai_api_key=user.openai_api_key,
-                has_api_key=bool(user.openai_api_key),
-                google_sheets_authorized=user.google_sheets_authorized,
-                created_at=user.created_at,
-                updated_at=user.updated_at,
-                total_assistants=total_assistants,
-                total_conversations=total_conversations,
-                usage_tokens=user.usage_tokens or 0,
-                last_login=user.last_login,
-                is_trial=user.is_trial if user.is_trial is not None else True,
-                is_admin=user.is_admin if user.is_admin is not None else False,
-                subscription_end_date=user.subscription_end_date,
-                subscription_plan_name=subscription_plan_name,
-                days_left=days_left,
-                max_assistants=max_assistants
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in get_user_details for user {user_id}: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve user details"
-            )
-    
-    @staticmethod
-    async def update_user(db: Session, user_id: str, user_data: UserUpdate) -> UserResponse:
-        """
-        ✅ Update user information
-        
-        Args:
-            db: Database session
-            user_id: User ID
-            user_data: Updated user data
-            
-        Returns:
-            Updated UserResponse
-            
-        Raises:
-            HTTPException: If update fails
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            # Update only provided fields - совместимость с Pydantic v1 и v2
-            if hasattr(user_data, 'dict'):
-                # Pydantic v1
-                update_data = user_data.dict(exclude_unset=True)
-            else:
-                # Pydantic v2
-                update_data = user_data.model_dump(exclude_unset=True)
-            
-            # Явно обрабатываем случай с API ключом
-            if 'openai_api_key' in update_data:
-                # Разрешаем пустую строку или None (удаление ключа)
-                api_key = update_data.pop('openai_api_key')
-                user.openai_api_key = api_key if api_key else None
-                logger.info(f"Updated OpenAI API key for user {user_id}")
-            
-            # Обновляем остальные поля
-            for key, value in update_data.items():
-                if hasattr(user, key):
-                    setattr(user, key, value)
-            
-            db.commit()
-            db.refresh(user)
-            
-            logger.info(f"User updated successfully: {user_id}")
-            
-            # ✅ Безопасно получаем код плана подписки
-            subscription_plan_code = UserService._get_subscription_plan_code(user, db)
-            
-            return UserResponse(
-                id=str(user.id),
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                company_name=user.company_name,
-                subscription_plan=subscription_plan_code,  # ✅ Используем безопасный метод
-                openai_api_key=user.openai_api_key,
-                has_api_key=bool(user.openai_api_key),
-                google_sheets_authorized=user.google_sheets_authorized,
-                created_at=user.created_at,
-                updated_at=user.updated_at,
-                is_trial=user.is_trial if user.is_trial is not None else True,
-                is_admin=user.is_admin if user.is_admin is not None else False,
-                subscription_end_date=user.subscription_end_date
-            )
-            
-        except IntegrityError as e:
-            db.rollback()
-            logger.error(f"Database integrity error during user update: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Update failed due to database constraint"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Unexpected error during user update: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Update failed due to server error"
-            )
-    
-    @staticmethod
-    async def deactivate_user(db: Session, user_id: str) -> bool:
-        """
-        Deactivate a user account
-        
-        Args:
-            db: Database session
-            user_id: User ID
-            
-        Returns:
-            True if deactivation was successful
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            user.is_active = False
-            db.commit()
-            
-            logger.info(f"User deactivated: {user_id}")
-            return True
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error deactivating user: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to deactivate user"
-            )
-    
-    @staticmethod
-    async def add_usage_tokens(db: Session, user_id: str, token_count: int) -> None:
-        """
-        Add usage tokens to a user's account
-        
-        Args:
-            db: Database session
-            user_id: User ID
-            token_count: Number of tokens to add
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            if user.usage_tokens is None:
-                user.usage_tokens = 0
-            
-            user.usage_tokens += token_count
-            db.commit()
-            
-            logger.debug(f"Added {token_count} tokens to user {user_id}, total: {user.usage_tokens}")
-            
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error adding usage tokens: {str(e)}")
-    
-    @staticmethod
-    async def check_subscription_status(db: Session, user_id: str) -> Dict[str, Any]:
-        """
-        ✅ ИСПРАВЛЕНО: Проверить статус подписки пользователя
-        
-        Args:
-            db: Сессия базы данных
-            user_id: ID пользователя
-            
-        Returns:
-            Словарь с информацией о статусе подписки
-        """
-        try:
-            user = await UserService.get_user_by_id(db, user_id)
-            
-            # Администраторы всегда имеют активную подписку
-            if user.is_admin or user.email == "well96well@gmail.com":
+            # Check if user already verified
+            if user.email_verified:
+                logger.info(f"User {user_email} already verified")
                 return {
-                    "active": True,
-                    "is_trial": False,
-                    "days_left": 999,
-                    "max_assistants": 10,
-                    "current_assistants": 0,
-                    "features": ["all"],
-                    "is_admin": True
+                    "success": True,
+                    "message": "Email already verified",
+                    "already_verified": True
                 }
             
-            # Проверяем активность подписки
-            now = datetime.now(timezone.utc)
+            # Generate new verification code
+            code = cls._generate_verification_code()
+            logger.info(f"Generated verification code for {user_email}: {code[:2]}****")
             
-            # Нормализуем дату окончания подписки
-            subscription_end_date = user.subscription_end_date
-            if subscription_end_date and subscription_end_date.tzinfo is None:
-                subscription_end_date = subscription_end_date.replace(tzinfo=timezone.utc)
-            
-            # ✅ Подписка активна если:
-            # 1. Есть дата окончания И она больше текущего времени
-            # 2. И пользователь находится в триале ИЛИ имеет план подписки
-            has_active_subscription = (
-                subscription_end_date is not None and
-                subscription_end_date > now and
-                (user.is_trial or user.subscription_plan_id is not None)
+            # Create verification record
+            verification = EmailVerification.create_verification_code(
+                user_id=user_uuid,
+                code=code,
+                expiration_minutes=cls.CODE_EXPIRY_MINUTES
             )
             
-            # Получаем максимальное количество ассистентов из плана подписки
-            max_assistants = 1  # Default
+            db.add(verification)
+            db.commit()
+            db.refresh(verification)
             
-            if has_active_subscription and user.subscription_plan_id:
-                try:
-                    plan = db.query(SubscriptionPlan).filter(
-                        SubscriptionPlan.id == user.subscription_plan_id
-                    ).first()
-                    
-                    if plan:
-                        if plan.code == "free":
-                            max_assistants = 1
-                        elif plan.code == "start":
-                            max_assistants = 3
-                        elif plan.code == "pro":
-                            max_assistants = 10
-                        else:
-                            max_assistants = plan.max_assistants or 1
-                except Exception as e:
-                    logger.warning(f"Could not get plan details: {str(e)}")
+            logger.info(f"Created verification record for user {user_id}")
             
-            # Вычисляем, сколько дней осталось
-            days_left = 0
-            if subscription_end_date and has_active_subscription:
-                delta = subscription_end_date - now
-                days_left = max(0, delta.days)
+            # Create and send email
+            html_content = cls._create_verification_email_html(code, user_email)
+            subject = f"Код подтверждения Voicyfy: {code}"
             
-            # Получаем текущее количество ассистентов
-            current_assistants = 0
-            try:
-                current_assistants = db.query(AssistantConfig).filter(
-                    AssistantConfig.user_id == user.id
-                ).count()
-            except Exception as e:
-                logger.warning(f"Could not count assistants: {str(e)}")
+            cls._send_email_smtp(user_email, subject, html_content)
             
             return {
-                "active": has_active_subscription,
-                "is_trial": user.is_trial and has_active_subscription,
-                "days_left": days_left,
-                "max_assistants": max_assistants,
-                "current_assistants": current_assistants,
-                "features": ["basic"] if has_active_subscription else [],
-                "is_admin": False
+                "success": True,
+                "message": "Verification code sent successfully",
+                "expires_in_minutes": cls.CODE_EXPIRY_MINUTES,
+                "max_attempts": cls.MAX_ATTEMPTS
             }
             
         except HTTPException:
             raise
+        
         except Exception as e:
-            logger.error(f"Error checking subscription status: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            
-            # Возвращаем статус неактивной подписки в случае ошибки
-            return {
-                "active": False,
-                "is_trial": False,
-                "days_left": 0,
-                "max_assistants": 1,
-                "current_assistants": 0,
-                "features": [],
-                "is_admin": False,
-                "error": str(e)
-            }
+            db.rollback()
+            logger.error(f"Error sending verification code: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send verification code"
+            )
     
-    @staticmethod
-    async def set_subscription_plan(db: Session, user_id: str, plan_code: str, duration_days: int) -> User:
+    @classmethod
+    async def resend_verification_code(
+        cls, 
+        db: Session, 
+        user_id: Union[str, uuid.UUID],
+        user_email: str
+    ) -> Dict[str, Any]:
         """
-        Установить план подписки для пользователя
+        Resend verification code with cooldown check.
         
         Args:
-            db: Сессия базы данных
-            user_id: ID пользователя
-            plan_code: Код плана подписки
-            duration_days: Продолжительность подписки в днях
-            
+            db: Database session
+            user_id: User UUID (string or UUID object)
+            user_email: User's email address
+        
         Returns:
-            Обновленный объект пользователя
+            Dictionary with success status and message
+        
+        Raises:
+            HTTPException: If cooldown not passed or send fails
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
             
-            # Находим план подписки по коду
-            subscription_plan = db.query(SubscriptionPlan).filter(
-                SubscriptionPlan.code == plan_code
-            ).first()
+            # Get most recent verification code
+            last_verification = EmailVerification.get_active_code_for_user(db, user_uuid)
             
-            if not subscription_plan:
+            # Check cooldown period
+            if last_verification:
+                # ✅ Ensure timezone awareness
+                created_at = last_verification.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                
+                now = datetime.now(timezone.utc)
+                time_since_last = now - created_at
+                
+                if time_since_last.total_seconds() < cls.RESEND_COOLDOWN_SECONDS:
+                    remaining_seconds = cls.RESEND_COOLDOWN_SECONDS - int(time_since_last.total_seconds())
+                    logger.warning(f"Resend cooldown active for user {user_id}: {remaining_seconds}s remaining")
+                    
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"Please wait {remaining_seconds} seconds before requesting a new code"
+                    )
+            
+            # Send new code
+            logger.info(f"Resending verification code to {user_email}")
+            return await cls.send_verification_code(db, user_uuid, user_email)
+            
+        except HTTPException:
+            raise
+        
+        except Exception as e:
+            logger.error(f"Error resending verification code: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to resend verification code"
+            )
+    
+    @classmethod
+    async def verify_code(
+        cls, 
+        db: Session, 
+        user_id: Union[str, uuid.UUID],
+        code: str
+    ) -> Dict[str, Any]:
+        """
+        Verify the entered code and update user's email_verified status.
+        ✅ PRODUCTION: Generates and returns JWT token after successful verification
+        
+        Args:
+            db: Database session
+            user_id: User UUID (string or UUID object)
+            code: 6-digit verification code
+        
+        Returns:
+            Dictionary with success status, JWT token, and user data
+        
+        Raises:
+            HTTPException: If code invalid, expired, or max attempts reached
+        """
+        try:
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
+            # Get user
+            user = db.query(User).filter(User.id == user_uuid).first()
+            if not user:
+                logger.error(f"User not found: {user_id}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Subscription plan with code '{plan_code}' not found"
+                    detail="User not found"
                 )
             
-            # Устанавливаем даты начала и окончания подписки
-            now = datetime.now(timezone.utc)
-            user.subscription_plan_id = subscription_plan.id
-            user.subscription_plan = plan_code  # ✅ Обновляем и legacy поле
-            user.subscription_start_date = now
-            user.subscription_end_date = now + timedelta(days=duration_days)
+            # Check if already verified
+            if user.email_verified:
+                logger.info(f"User {user.email} already verified")
+                
+                # ✅ Generate token even if already verified (for re-login scenarios)
+                token = create_access_token(str(user.id))
+                
+                return {
+                    "success": True,
+                    "message": "Email already verified",
+                    "token": token,
+                    "user": user.to_dict()
+                }
             
-            # Если бесплатный план, то это пробный период
-            user.is_trial = plan_code == "free"
+            # Get active verification code
+            verification = EmailVerification.get_active_code_for_user(db, user_uuid)
             
-            # Сохраняем изменения
+            if not verification:
+                logger.warning(f"No active verification code for user {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No active verification code found. Please request a new code."
+                )
+            
+            # Check if expired
+            if verification.is_expired:
+                logger.warning(f"Verification code expired for user {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Verification code has expired. Please request a new code."
+                )
+            
+            # Check max attempts
+            if verification.attempts >= cls.MAX_ATTEMPTS:
+                logger.warning(f"Max verification attempts reached for user {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Maximum verification attempts exceeded. Please request a new code."
+                )
+            
+            # Increment attempts
+            verification.increment_attempts()
+            
+            # Verify code
+            if verification.code != code:
+                db.commit()
+                
+                remaining_attempts = cls.MAX_ATTEMPTS - verification.attempts
+                logger.warning(
+                    f"Invalid verification code for user {user_id}. "
+                    f"Attempts: {verification.attempts}/{cls.MAX_ATTEMPTS}"
+                )
+                
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid verification code. {remaining_attempts} attempts remaining."
+                )
+            
+            # ✅ CODE VERIFIED SUCCESSFULLY!
+            logger.info(f"✅ Verification code verified successfully for user {user.email}")
+            
+            # Mark verification as used
+            verification.mark_as_used()
+            
+            # Update user's email_verified status
+            user.email_verified = True
+            
+            # ✅ КРИТИЧЕСКИ ВАЖНО: Генерируем JWT токен
+            token = create_access_token(str(user.id))
+            logger.info(f"✅ JWT token generated for user {user.email}")
+            
             db.commit()
             db.refresh(user)
             
-            logger.info(f"Set subscription plan '{plan_code}' for user {user_id} for {duration_days} days")
+            logger.info(f"✅ User {user.email} email verified successfully and token issued")
             
-            return user
+            return {
+                "success": True,
+                "message": "Email verified successfully",
+                "token": token,  # ✅ ДОБАВЛЕН ТОКЕН
+                "user": user.to_dict()
+            }
             
         except HTTPException:
             raise
+        
         except Exception as e:
             db.rollback()
-            logger.error(f"Error setting subscription plan: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
+            logger.error(f"Error verifying code: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to set subscription plan"
+                detail="Failed to verify code"
             )
+    
+    @classmethod
+    async def get_verification_status(
+        cls, 
+        db: Session, 
+        user_id: Union[str, uuid.UUID]
+    ) -> Dict[str, Any]:
+        """
+        Get user's email verification status.
+        
+        Args:
+            db: Database session
+            user_id: User UUID (string or UUID object)
+        
+        Returns:
+            Dictionary with verification status
+        
+        Raises:
+            HTTPException: If user not found
+        """
+        try:
+            # ✅ Convert to UUID if string
+            user_uuid = cls._ensure_uuid(user_id)
+            
+            user = db.query(User).filter(User.id == user_uuid).first()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            
+            # Get active verification code if exists
+            active_verification = EmailVerification.get_active_code_for_user(db, user_uuid)
+            
+            status_data = {
+                "email_verified": user.email_verified,
+                "email": user.email,
+                "has_active_code": active_verification is not None
+            }
+            
+            if active_verification:
+                status_data.update({
+                    "code_expires_in_seconds": active_verification.time_remaining_seconds,
+                    "attempts_remaining": cls.MAX_ATTEMPTS - active_verification.attempts,
+                    "max_attempts": cls.MAX_ATTEMPTS
+                })
+            
+            return status_data
+            
+        except HTTPException:
+            raise
+        
+        except Exception as e:
+            logger.error(f"Error getting verification status: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get verification status"
+            )
+    
+    @classmethod
+    async def cleanup_expired_codes(cls, db: Session) -> int:
+        """
+        Clean up expired verification codes from database.
+        
+        Args:
+            db: Database session
+        
+        Returns:
+            Number of codes deleted
+        """
+        try:
+            deleted_count = EmailVerification.cleanup_expired_codes(db)
+            logger.info(f"Cleaned up {deleted_count} expired verification codes")
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up expired codes: {e}")
+            return 0
