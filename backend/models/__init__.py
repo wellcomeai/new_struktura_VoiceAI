@@ -1,7 +1,7 @@
 """
 Database models module for WellcomeAI application.
 This module contains SQLAlchemy ORM models that represent database tables.
-ОБНОВЛЕННАЯ ВЕРСИЯ с полным отслеживанием подписок.
+✅ ОБНОВЛЕНО: Добавлена модель EmailVerification для верификации email
 """
 
 from .base import Base, engine, create_tables_with_full_tracking
@@ -20,23 +20,28 @@ from .elevenlabs import ElevenLabsAgent, ElevenLabsConversation
 
 from .function_log import FunctionLog
 
+# ✅ НОВОЕ: Импортируем модель для верификации email
+from .email_verification import EmailVerification
+
 # Export specific models
 __all__ = [
     "Base", 
     "engine", 
-    "create_tables_with_full_tracking",  # Обновленная функция
+    "create_tables_with_full_tracking",
     "User", 
     "AssistantConfig", 
     "Conversation", 
     "File",
     "Integration",
     "PineconeConfig",
-    # ✅ НОВЫЕ МОДЕЛИ для полного отслеживания
+    # Модели для полного отслеживания подписок
     "SubscriptionPlan",
     "SubscriptionLog", 
     "PaymentTransaction",
-    # ✅ ДОБАВЛЕНО: ElevenLabs модели
+    # ElevenLabs модели
     "ElevenLabsAgent",
     "ElevenLabsConversation",
-    "FunctionLog"
+    "FunctionLog",
+    # ✅ НОВОЕ: Email верификация
+    "EmailVerification"
 ]
