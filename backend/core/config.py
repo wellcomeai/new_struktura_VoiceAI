@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     
     # Audio settings
     DEFAULT_VOICE: str = "alloy"
-    AVAILABLE_VOICES: list = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"]
+    AVAILABLE_VOICES: list = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "onyx", "nova", "fable", "marin", "cedar"]
     
     # Path settings
     STATIC_DIR: str = os.path.join(os.getcwd(), "static")
