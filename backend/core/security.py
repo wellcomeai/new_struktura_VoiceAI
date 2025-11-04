@@ -1,6 +1,9 @@
+# backend/core/security.py - ПОЛНЫЙ ФАЙЛ С ЛОГИРОВАНИЕМ
+
 """
 Security utilities for WellcomeAI application.
 Handles JWT token creation/validation, password hashing, and user authentication.
+✅ FIXED: Added detailed logging for debugging
 """
 
 import jwt
@@ -49,14 +52,16 @@ def create_jwt_token(
             algorithm=settings.JWT_ALGORITHM
         )
         
+        logger.info(f"✅ JWT token created for user: {str(user_id)[:8]}...")
         return encoded_jwt
     except Exception as e:
-        logger.error(f"Error creating JWT token: {str(e)}")
+        logger.error(f"❌ Error creating JWT token: {str(e)}")
         raise
 
 def decode_jwt_token(token: str) -> Dict[str, Any]:
     """
     Decode and validate a JWT token
+    ✅ FIXED: Added detailed logging
     
     Args:
         token: The JWT token to decode
@@ -68,6 +73,8 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
         HTTPException: If the token is invalid or expired
     """
     try:
+        logger.debug(f"🔍 Decoding JWT token: {token[:20]}...")
+        
         payload = jwt.decode(
             token, 
             settings.JWT_SECRET_KEY, 
@@ -78,16 +85,33 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
         exp = payload.get("exp")
         
         if user_id is None:
-            logger.warning("Invalid token: missing user ID")
-            raise HTTPException(status_code=401, detail="Invalid token: missing user ID")
-            
+            logger.warning("❌ Invalid token: missing user ID")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user ID"
+            )
+        
+        logger.debug(f"✅ Token decoded successfully for user: {user_id[:8]}...")
         return {"sub": user_id, "exp": exp}
+        
     except jwt.ExpiredSignatureError:
-        logger.warning("Token expired")
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.PyJWTError as e:
-        logger.warning(f"Invalid token: {str(e)}")
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+        logger.warning("❌ Token expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired"
+        )
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"❌ Invalid token format: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"❌ Unexpected error decoding token: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Failed to decode token"
+        )
 
 def hash_password(password: str) -> str:
     """
@@ -119,6 +143,7 @@ async def get_current_user_id(
 ) -> str:
     """
     FastAPI dependency to get current user ID from token
+    ✅ FIXED: Added detailed logging and error handling
     
     Args:
         credentials: HTTP Authorization credentials
@@ -129,5 +154,30 @@ async def get_current_user_id(
     Raises:
         HTTPException: If token is invalid
     """
-    token_data = decode_jwt_token(credentials.credentials)
-    return token_data["sub"]
+    try:
+        logger.debug(f"🔐 Extracting user ID from token...")
+        
+        if not credentials or not credentials.credentials:
+            logger.warning("❌ No credentials provided")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No authentication credentials provided"
+            )
+        
+        token = credentials.credentials
+        logger.debug(f"📝 Token received: {token[:30]}...")
+        
+        token_data = decode_jwt_token(token)
+        user_id = token_data["sub"]
+        
+        logger.debug(f"✅ User ID extracted: {user_id[:8]}...")
+        return user_id
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in get_current_user_id: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed"
+        )
