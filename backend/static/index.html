@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ✅ PRODUCTION READY: Email Verification Integrated -->
+<!-- ✅ PRODUCTION READY: Email Verification с Вариантом А -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -51,7 +51,7 @@
       overflow-x: hidden;
     }
 
-    /* ✅ НОВОЕ: Email Verification Styles */
+    /* ✅ Email Verification Styles */
     .verification-section {
       margin-top: 1.5rem;
       padding: 1.5rem;
@@ -73,6 +73,10 @@
 
     .verification-notice i {
       margin-right: 0.5rem;
+    }
+
+    .verification-notice.warning {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
     }
 
     .code-input-container {
@@ -1320,7 +1324,7 @@
             
             <!-- ✅ EMAIL VERIFICATION SECTION -->
             <div id="verification-section" class="verification-section" style="display: none;">
-              <div class="verification-notice">
+              <div id="verification-notice" class="verification-notice">
                 <i class="fas fa-envelope"></i>
                 Код подтверждения отправлен на <strong id="verification-email"></strong>
               </div>
@@ -1510,7 +1514,77 @@
   </div>
   
   <script>
+    // ========================================
+    // ✅ API CLIENT - MUST BE DECLARED FIRST
+    // ========================================
+    const api = {
+      baseUrl: '/api',
+      
+      async fetch(endpoint, options = {}) {
+        const token = localStorage.getItem('auth_token');
+        
+        if (token) {
+          options.headers = {
+            ...options.headers,
+            'Authorization': `Bearer ${token}`
+          };
+        }
+        
+        if (options.body && typeof options.body !== 'string') {
+          options.headers = {
+            ...options.headers,
+            'Content-Type': 'application/json'
+          };
+          options.body = JSON.stringify(options.body);
+        }
+        
+        try {
+          const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+          const data = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(data.detail || data.message || 'API Error');
+          }
+          
+          return data;
+        } catch (error) {
+          console.error('API Error:', error);
+          throw error;
+        }
+      },
+      
+      register(userData) {
+        return this.fetch('/auth/register', {
+          method: 'POST',
+          body: userData
+        });
+      },
+      
+      login(credentials) {
+        return this.fetch('/auth/login', {
+          method: 'POST',
+          body: credentials
+        });
+      },
+      
+      verifyEmail(data) {
+        return this.fetch('/email-verification/verify', {
+          method: 'POST',
+          body: data
+        });
+      },
+      
+      resendVerificationCode(data) {
+        return this.fetch('/email-verification/resend', {
+          method: 'POST',
+          body: data
+        });
+      }
+    };
+
+    // ========================================
     // ✅ EMAIL VERIFICATION CLASS
+    // ========================================
     class EmailVerification {
       constructor() {
         this.attempts = 3;
@@ -1519,7 +1593,7 @@
         this.userEmail = null;
       }
 
-      showVerificationSection(email) {
+      showVerificationSection(email, message = null) {
         this.userEmail = email;
         
         // Hide register button
@@ -1531,6 +1605,13 @@
         
         // Set email in notification
         document.getElementById('verification-email').textContent = email;
+        
+        // ✅ Update notice message if provided (for "account exists" scenario)
+        if (message) {
+          const noticeElement = document.getElementById('verification-notice');
+          noticeElement.className = 'verification-notice warning';
+          noticeElement.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
+        }
         
         // Start resend timer
         this.startResendTimer();
@@ -1655,10 +1736,9 @@
       }
     }
 
-    // Create global instance
-    const emailVerification = new EmailVerification();
-
-    // REFERRAL TRACKER CLASS
+    // ========================================
+    // ✅ REFERRAL TRACKER CLASS
+    // ========================================
     class ReferralTracker {
       static init() {
         console.log('🔗 Initializing Referral Tracker...');
@@ -1758,11 +1838,17 @@
       }
     }
 
+    // ========================================
+    // ✅ MAIN APPLICATION LOGIC
+    // ========================================
     document.addEventListener('DOMContentLoaded', function() {
-      // Initialize Referral Tracker
+      // Initialize global instances
+      const emailVerification = new EmailVerification();
       ReferralTracker.init();
       
-      // Tab switching
+      // ========================================
+      // TAB SWITCHING
+      // ========================================
       const tabs = document.querySelectorAll('.auth-tab');
       const forms = document.querySelectorAll('.auth-form');
       const switchLinks = document.querySelectorAll('.switch-auth');
@@ -1799,74 +1885,9 @@
         document.querySelector('.auth-section').scrollIntoView({ behavior: 'smooth' });
       });
       
-      // API CLIENT
-      const api = {
-        baseUrl: '/api',
-        
-        async fetch(endpoint, options = {}) {
-          const token = localStorage.getItem('auth_token');
-          
-          if (token) {
-            options.headers = {
-              ...options.headers,
-              'Authorization': `Bearer ${token}`
-            };
-          }
-          
-          if (options.body && typeof options.body !== 'string') {
-            options.headers = {
-              ...options.headers,
-              'Content-Type': 'application/json'
-            };
-            options.body = JSON.stringify(options.body);
-          }
-          
-          try {
-            const response = await fetch(`${this.baseUrl}${endpoint}`, options);
-            const data = await response.json();
-            
-            if (!response.ok) {
-              throw new Error(data.detail || data.message || 'API Error');
-            }
-            
-            return data;
-          } catch (error) {
-            console.error('API Error:', error);
-            throw error;
-          }
-        },
-        
-        register(userData) {
-          return this.fetch('/auth/register', {
-            method: 'POST',
-            body: userData
-          });
-        },
-        
-        login(credentials) {
-          return this.fetch('/auth/login', {
-            method: 'POST',
-            body: credentials
-          });
-        },
-        
-        // ✅ Email verification endpoints
-        verifyEmail(data) {
-          return this.fetch('/email-verification/verify', {
-            method: 'POST',
-            body: data
-          });
-        },
-        
-        resendVerificationCode(data) {
-          return this.fetch('/email-verification/resend', {
-            method: 'POST',
-            body: data
-          });
-        }
-      };
-      
-      // ✅ UPDATED REGISTRATION HANDLER
+      // ========================================
+      // ✅ REGISTRATION HANDLER (Variant A)
+      // ========================================
       const registerForm = document.getElementById('register-form');
       
       registerForm.addEventListener('submit', async function(e) {
@@ -1896,7 +1917,20 @@
           
           console.log('✅ Registration response:', data);
           
-          // ✅ Check if verification required
+          // ✅ VARIANT A: Check if this is "account exists but not verified" scenario
+          if (data.message && data.message.includes('exists but not verified')) {
+            console.log('🔄 Account exists but not verified - showing verification');
+            
+            // Show verification section with warning message
+            emailVerification.showVerificationSection(
+              email,
+              'Аккаунт уже существует. Новый код верификации отправлен на email!'
+            );
+            
+            return; // Stop here, don't proceed further
+          }
+          
+          // ✅ Normal new registration flow
           if (data.verification_required && data.verification_sent) {
             // Show verification section
             emailVerification.showVerificationSection(email);
@@ -1909,19 +1943,28 @@
             // Clear referral data
             ReferralTracker.clearReferralData();
             
-          } else {
-            // Old flow (if verification disabled)
+          } else if (data.token) {
+            // Old flow (if verification disabled) - should not happen in production
             localStorage.setItem('auth_token', data.token);
             window.location.href = '/static/dashboard.html';
           }
           
         } catch (error) {
           console.error('❌ Registration error:', error);
-          alert(error.message || 'Ошибка регистрации');
+          
+          // ✅ Handle "Email already registered" for verified users
+          if (error.message.includes('already registered')) {
+            alert('❌ Email уже зарегистрирован и подтверждён.\n\nПожалуйста, войдите в аккаунт.');
+            switchTab('login');
+          } else {
+            alert(error.message || 'Ошибка регистрации');
+          }
         }
       });
       
+      // ========================================
       // ✅ VERIFICATION HANDLERS
+      // ========================================
       document.getElementById('verify-button').addEventListener('click', () => {
         emailVerification.verifyCode();
       });
@@ -1930,14 +1973,16 @@
         emailVerification.resendCode();
       });
       
-      // ✅ Enter key for verification
+      // Enter key for verification
       document.getElementById('verification-code').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
           emailVerification.verifyCode();
         }
       });
       
-      // ✅ UPDATED LOGIN HANDLER
+      // ========================================
+      // ✅ LOGIN HANDLER
+      // ========================================
       const loginForm = document.getElementById('login-form');
       
       loginForm.addEventListener('submit', async function(e) {
@@ -1953,16 +1998,22 @@
           window.location.href = '/static/dashboard.html';
           
         } catch (error) {
+          console.error('❌ Login error:', error);
+          
           // ✅ Check for unverified email
           if (error.message.includes('not verified') || error.message.includes('не подтвержден')) {
-            alert('⚠️ Email не подтвержден!\n\nПроверьте почту или запросите новый код верификации.');
+            alert('⚠️ Email не подтверждён!\n\nПроверьте почту для кода верификации, или запросите новый код через форму регистрации.');
+          } else if (error.message.includes('Invalid') || error.message.includes('password')) {
+            alert('❌ Неверный email или пароль');
           } else {
-            alert(error.message || 'Ошибка входа. Проверьте email и пароль.');
+            alert(error.message || 'Ошибка входа');
           }
         }
       });
       
-      // Check if already authenticated
+      // ========================================
+      // CHECK IF ALREADY AUTHENTICATED
+      // ========================================
       function checkAuth() {
         const token = localStorage.getItem('auth_token');
         
