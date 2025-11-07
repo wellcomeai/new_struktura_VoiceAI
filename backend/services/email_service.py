@@ -3,6 +3,7 @@
 Email service for WellcomeAI application.
 Handles email verification codes and SMTP operations.
 ✅ PRODUCTION READY: UUID handling + timezone consistency + JWT token generation
+✅ FIXED: Added timeout=30 to prevent connection issues on Render
 """
 
 import smtplib
@@ -160,6 +161,7 @@ class EmailService:
     def _send_email_smtp(cls, to_email: str, subject: str, html_content: str) -> bool:
         """
         Send email via Mail.ru SMTP with SSL/TLS support.
+        ✅ FIXED: Added timeout=30 to prevent connection timeouts on cloud hosting
         
         Args:
             to_email: Recipient email address
@@ -175,11 +177,14 @@ class EmailService:
         try:
             # Check SMTP configuration
             if not cls.SMTP_USERNAME or not cls.SMTP_PASSWORD:
-                logger.error("SMTP credentials not configured in settings")
+                logger.error("❌ SMTP credentials not configured in settings")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Email service not configured"
                 )
+            
+            logger.info(f"📧 Preparing email to {to_email}")
+            logger.info(f"📧 Subject: {subject}")
             
             # Create message
             msg = MIMEMultipart('alternative')
@@ -191,52 +196,65 @@ class EmailService:
             html_part = MIMEText(html_content, 'html', 'utf-8')
             msg.attach(html_part)
             
+            logger.info(f"📧 Message created. From: {cls.FROM_EMAIL}, To: {to_email}")
+            
             # Connect to SMTP server and send
-            logger.info(f"Connecting to SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT} (SSL={cls.SMTP_USE_SSL}, TLS={cls.SMTP_USE_TLS})")
+            logger.info(f"🔌 Connecting to SMTP: {cls.SMTP_HOST}:{cls.SMTP_PORT} (SSL={cls.SMTP_USE_SSL}, TLS={cls.SMTP_USE_TLS})")
             
             if cls.SMTP_USE_SSL:
-                # Use SSL (port 465)
-                with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT) as server:
-                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                # ✅ FIXED: Use SSL (port 465) with explicit 30-second timeout
+                logger.info("🔌 Creating SMTP_SSL connection with 30s timeout...")
+                with smtplib.SMTP_SSL(cls.SMTP_HOST, cls.SMTP_PORT, timeout=30) as server:
+                    logger.info(f"✅ Connected! Authenticating as {cls.SMTP_USERNAME}")
                     server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    logger.info("✅ Authenticated successfully!")
                     
-                    logger.info(f"Sending email to {to_email}")
+                    logger.info(f"📧 Sending email to {to_email}...")
                     server.send_message(msg)
+                    logger.info("✅ send_message() completed successfully!")
             else:
-                # Use STARTTLS (port 587) or no encryption (port 25)
-                with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT) as server:
+                # ✅ FIXED: Use STARTTLS (port 587) with explicit 30-second timeout
+                logger.info("🔌 Creating SMTP connection with 30s timeout...")
+                with smtplib.SMTP(cls.SMTP_HOST, cls.SMTP_PORT, timeout=30) as server:
                     if cls.SMTP_USE_TLS:
-                        logger.info("Starting TLS...")
+                        logger.info("🔐 Starting TLS...")
                         server.starttls()
+                        logger.info("✅ TLS started!")
                     
-                    logger.info(f"Authenticating as {cls.SMTP_USERNAME}")
+                    logger.info(f"✅ Connected! Authenticating as {cls.SMTP_USERNAME}")
                     server.login(cls.SMTP_USERNAME, cls.SMTP_PASSWORD)
+                    logger.info("✅ Authenticated successfully!")
                     
-                    logger.info(f"Sending email to {to_email}")
+                    logger.info(f"📧 Sending email to {to_email}...")
                     server.send_message(msg)
+                    logger.info("✅ send_message() completed successfully!")
             
-            logger.info(f"✅ Email sent successfully to {to_email}")
+            logger.info(f"✅✅✅ Email sent successfully to {to_email}")
             return True
             
         except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP authentication failed: {e}")
+            logger.error(f"❌ SMTP authentication failed: {e}")
+            logger.error(f"❌ Username: {cls.SMTP_USERNAME}")
+            logger.error(f"❌ Password length: {len(cls.SMTP_PASSWORD) if cls.SMTP_PASSWORD else 0}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Email authentication failed"
             )
         
         except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {e}")
+            logger.error(f"❌ SMTP error: {type(e).__name__}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Email sending failed"
+                detail=f"Email sending failed: {str(e)}"
             )
         
         except Exception as e:
-            logger.error(f"Unexpected error sending email: {e}")
+            logger.error(f"❌ Unexpected error sending email: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Email sending failed"
+                detail=f"Email sending failed: {str(e)}"
             )
     
     @classmethod
@@ -322,7 +340,7 @@ class EmailService:
             logger.error(f"Error sending verification code: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to send verification code"
+                detail="Failed to send verification code. Please try again later."
             )
     
     @classmethod
