@@ -3,6 +3,7 @@ WebSocket module for WellcomeAI application.
 Handles real-time communication with clients.
 
 🆕 Now includes GA Realtime API support (gpt-realtime model)
+🧪 Experimental: Streaming TTS with sentence detection
 """
 
 # 📌 Старые обработчики (Beta API)
@@ -12,6 +13,11 @@ from .openai_client import OpenAIRealtimeClient
 # 🆕 НОВЫЕ обработчики (GA API)
 from .handler_realtime_new import handle_websocket_connection_new
 from .openai_client_new import OpenAIRealtimeClientNew
+
+# 🧪 ЭКСПЕРИМЕНТАЛЬНЫЕ обработчики (Streaming TTS + Sentence Detection)
+from .handler_realtime_streaming import handle_websocket_connection_streaming
+from .openai_client_streaming import OpenAIRealtimeClientStreaming
+from .sentence_detector import StreamingSentenceDetector
 
 # 📞 Voximplant интеграция
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
@@ -30,6 +36,11 @@ __all__ = [
     # 🆕 GA API (новая версия для тестирования)
     "handle_websocket_connection_new",
     "OpenAIRealtimeClientNew",
+    
+    # 🧪 Streaming TTS (экспериментальная версия)
+    "handle_websocket_connection_streaming",
+    "OpenAIRealtimeClientStreaming",
+    "StreamingSentenceDetector",
     
     # Voximplant
     "VoximplantAdapter",
