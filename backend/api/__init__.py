@@ -2,6 +2,7 @@
 API module for WellcomeAI application.
 Contains FastAPI route definitions for all endpoints.
 ✅ ОБНОВЛЕНО: Добавлен роутер email_verification
+🧪 ЭКСПЕРИМЕНТАЛЬНО: Добавлен роутер websocket_streaming
 """
 
 from fastapi import APIRouter
@@ -11,6 +12,7 @@ from .users import router as users_router
 from .assistants import router as assistants_router
 from .files import router as files_router
 from .websocket import router as websocket_router
+from .websocket_streaming import router as websocket_streaming_router  # 🧪 НОВОЕ
 from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
@@ -20,7 +22,7 @@ from .voximplant import router as voximplant_router
 from .elevenlabs import router as elevenlabs_router
 from .partners import router as partners_router
 from .conversations import router as conversations_router
-from .email_verification import router as email_verification_router  # ✅ НОВОЕ
+from .email_verification import router as email_verification_router
 
 # Create a main API router
 api_router = APIRouter()
@@ -31,6 +33,7 @@ api_router.include_router(users_router, tags=["Users"])
 api_router.include_router(assistants_router, tags=["Assistants"])
 api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
+api_router.include_router(websocket_streaming_router, tags=["WebSocket Streaming (Experimental)"])  # 🧪 НОВОЕ
 api_router.include_router(subscriptions_router, tags=["Subscriptions"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(knowledge_base_router)
@@ -40,7 +43,7 @@ api_router.include_router(voximplant_router, prefix="/voximplant", tags=["Voximp
 api_router.include_router(elevenlabs_router, prefix="/elevenlabs", tags=["ElevenLabs"])
 api_router.include_router(partners_router, prefix="/partners", tags=["Partners"])
 api_router.include_router(conversations_router, tags=["Conversations"])
-api_router.include_router(email_verification_router, prefix="/email-verification", tags=["Email Verification"])  # ✅ НОВОЕ
+api_router.include_router(email_verification_router, prefix="/email-verification", tags=["Email Verification"])
 
 # Export all routers for use in app.py
 __all__ = [
@@ -50,6 +53,7 @@ __all__ = [
     "assistants_router",
     "files_router",
     "websocket_router",
+    "websocket_streaming_router",  # 🧪 НОВОЕ
     "subscriptions_router",
     "admin_router",
     "knowledge_base_router",
@@ -59,5 +63,5 @@ __all__ = [
     "elevenlabs_router",
     "partners_router",
     "conversations_router",
-    "email_verification_router"  # ✅ НОВОЕ
+    "email_verification_router"
 ]
