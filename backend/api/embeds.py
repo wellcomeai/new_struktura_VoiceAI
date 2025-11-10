@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
 
-from backend.db.session import get_db  # ✅ ИСПРАВЛЕНО
+from backend.db.session import get_db
 from backend.models.embed_config import EmbedConfig
 from backend.models.assistant import AssistantConfig
 from backend.models.user import User
-from backend.api.dependencies import get_current_user
+from backend.core.dependencies import get_current_user  # ✅ ИСПРАВЛЕНО: было backend.api.dependencies
 
 router = APIRouter(prefix="/api/embeds", tags=["Embeds"])
 
