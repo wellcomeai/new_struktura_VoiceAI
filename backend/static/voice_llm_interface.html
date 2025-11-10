@@ -29,6 +29,183 @@
             overflow: hidden;
         }
 
+        /* Config Panel Styles */
+        .config-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border-bottom: 2px solid var(--primary-color);
+            padding: 20px 30px;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .config-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .config-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .config-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .config-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .config-subtitle {
+            color: #6a6a6a;
+            font-size: 14px;
+        }
+
+        .config-form {
+            display: flex;
+            align-items: end;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 8px;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 15px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            border-radius: 12px;
+            background: white;
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .form-select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .config-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .success-message {
+            position: fixed;
+            top: 120px;
+            right: 30px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(34, 197, 94, 0.3);
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .success-message.show {
+            display: flex;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Adjust main container when config panel is visible */
+        body.config-mode .main-container {
+            padding-top: 140px;
+        }
+
         /* Blur overlay */
         .background-overlay {
             position: fixed;
@@ -764,10 +941,64 @@
             .header-subtitle {
                 display: none;
             }
+
+            .config-panel {
+                padding: 15px 20px;
+            }
+
+            .config-form {
+                flex-direction: column;
+            }
+
+            .config-actions {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- ============================================================ -->
+    <!-- CONFIG PANEL (показывается только в режиме настройки) -->
+    <!-- ============================================================ -->
+    <div class="config-panel" id="configPanel" style="display: none;">
+        <div class="config-container">
+            <div class="config-header">
+                <div class="config-icon">⚙️</div>
+                <div>
+                    <div class="config-title">Настройка встраиваемого ассистента</div>
+                    <div class="config-subtitle">Выберите ассистента и скопируйте HTML код для встраивания на ваш сайт</div>
+                </div>
+            </div>
+            
+            <div class="config-form">
+                <div class="form-group">
+                    <label class="form-label">Ассистент:</label>
+                    <select class="form-select" id="assistantSelect">
+                        <option value="">Загрузка списка...</option>
+                    </select>
+                </div>
+                
+                <div class="config-actions">
+                    <button class="btn btn-primary" id="saveBtn" onclick="saveConfig()">
+                        <i class="fas fa-save"></i> Сохранить и тестировать
+                    </button>
+                    <button class="btn btn-success" id="copyBtn" onclick="copyHTMLCode()" disabled>
+                        <i class="fas fa-code"></i> Скопировать HTML код
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Message -->
+    <div class="success-message" id="successMessage">
+        <i class="fas fa-check-circle" style="font-size: 20px;"></i>
+        <span id="successText">Успешно!</span>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MAIN INTERFACE -->
+    <!-- ============================================================ -->
     <canvas id="jarvis-three-canvas"></canvas>
     <div class="background-overlay"></div>
     
@@ -845,48 +1076,14 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        (function() {
+        // ============================================================================
+        // WAIT FOR DOM TO BE READY
+        // ============================================================================
+        document.addEventListener('DOMContentLoaded', function() {
             'use strict';
 
             // ============================================================================
-            // CONFIGURATION FROM URL PARAMETERS
-            // ============================================================================
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            
-            // ✅ КРИТИЧНО: Получаем assistant_id из URL (подставляется сервером)
-            let ASSISTANT_ID = urlParams.get('assistant');
-            
-            // ✅ Получаем кастомные настройки если есть
-            let CUSTOM_SETTINGS = {};
-            const settingsParam = urlParams.get('settings');
-            if (settingsParam) {
-                try {
-                    CUSTOM_SETTINGS = JSON.parse(decodeURIComponent(settingsParam));
-                } catch (e) {
-                    console.warn('[EMBED] Failed to parse custom settings:', e);
-                }
-            }
-
-            // ✅ Проверка конфигурации
-            if (!ASSISTANT_ID) {
-                showError(
-                    'Отсутствует ID ассистента',
-                    'Не удалось определить конфигурацию ассистента. Проверьте правильность embed-кода.'
-                );
-                return;
-            }
-
-            console.log('[EMBED] Loaded configuration:', {
-                assistant_id: ASSISTANT_ID,
-                custom_settings: CUSTOM_SETTINGS
-            });
-
-            // ✅ Применяем кастомизацию
-            applyCustomSettings(CUSTOM_SETTINGS);
-
-            // ============================================================================
-            // CONSTANTS & CONFIGURATION
+            // CONFIGURATION
             // ============================================================================
             
             const DEBUG_MODE = false;
@@ -902,15 +1099,185 @@
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
             const isAndroid = /Android/i.test(navigator.userAgent);
 
+            // ============================================================================
+            // CONFIG MODE DETECTION
+            // ============================================================================
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const isConfigMode = urlParams.has('config') || window.location.pathname.includes('/config');
+            
+            // ✅ ASSISTANT_ID - может быть null в режиме настройки
+            let ASSISTANT_ID = urlParams.get('assistant') || null;
+            
+            console.log('[EMBED] Mode:', isConfigMode ? 'CONFIG' : 'EMBEDDED');
+            console.log('[EMBED] Assistant ID:', ASSISTANT_ID);
+
+            // ============================================================================
+            // SHOW/HIDE CONFIG PANEL
+            // ============================================================================
+            
+            const configPanel = document.getElementById('configPanel');
+            const assistantSelect = document.getElementById('assistantSelect');
+            const saveBtn = document.getElementById('saveBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const successMessage = document.getElementById('successMessage');
+
+            if (isConfigMode) {
+                configPanel.style.display = 'block';
+                document.body.classList.add('config-mode');
+                loadAssistantsList();
+            } else {
+                if (!ASSISTANT_ID) {
+                    showError(
+                        'Отсутствует ID ассистента',
+                        'Не удалось определить конфигурацию ассистента. Проверьте правильность URL.'
+                    );
+                    return;
+                }
+            }
+
+            // ============================================================================
+            // CONFIG PANEL FUNCTIONS
+            // ============================================================================
+            
+            async function loadAssistantsList() {
+                try {
+                    const response = await fetch(`${SERVER_URL}/api/assistants`, {
+                        headers: {
+                            'Authorization': `Bearer ${getAuthToken()}`
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to load assistants');
+                    }
+                    
+                    const data = await response.json();
+                    const assistants = data.assistants || data;
+                    
+                    assistantSelect.innerHTML = '<option value="">-- Выберите ассистента --</option>';
+                    
+                    assistants.forEach(assistant => {
+                        const option = document.createElement('option');
+                        option.value = assistant.id;
+                        option.textContent = assistant.name || assistant.id;
+                        assistantSelect.appendChild(option);
+                    });
+                    
+                } catch (error) {
+                    console.error('[CONFIG] Error loading assistants:', error);
+                    assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+                }
+            }
+            
+            function getAuthToken() {
+                // ✅ Получаем токен из localStorage или cookies
+                return localStorage.getItem('auth_token') || 
+                       document.cookie.split('; ').find(row => row.startsWith('auth_token='))?.split('=')[1] ||
+                       '';
+            }
+            
+            window.saveConfig = function() {
+                const selectedAssistantId = assistantSelect.value;
+                
+                if (!selectedAssistantId) {
+                    alert('❌ Пожалуйста, выберите ассистента!');
+                    return;
+                }
+                
+                // Применяем выбранный assistant_id
+                ASSISTANT_ID = selectedAssistantId;
+                
+                // Включаем кнопку копирования
+                copyBtn.disabled = false;
+                
+                // Показываем уведомление
+                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
+                
+                // Переподключаем WebSocket с новым assistant_id
+                if (websocket) {
+                    websocket.close();
+                }
+                connectWebSocket();
+            };
+            
+            window.copyHTMLCode = function() {
+                if (!ASSISTANT_ID) {
+                    alert('❌ Сначала сохраните конфигурацию!');
+                    return;
+                }
+                
+                try {
+                    // Получаем весь HTML документа
+                    let html = document.documentElement.outerHTML;
+                    
+                    // Удаляем панель настройки
+                    html = html.replace(
+                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
+                        '<!-- MAIN INTERFACE -->'
+                    );
+                    
+                    // Удаляем success message
+                    html = html.replace(
+                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
+                        ''
+                    );
+                    
+                    // Удаляем класс config-mode
+                    html = html.replace('class="config-mode"', '');
+                    
+                    // Подставляем assistant_id в URL параметры
+                    html = html.replace(
+                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
+                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
+                    );
+                    
+                    // Удаляем логику определения config режима
+                    html = html.replace(
+                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
+                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
+                    );
+                    
+                    // Копируем в буфер обмена
+                    navigator.clipboard.writeText(html).then(() => {
+                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    }).catch(err => {
+                        // Fallback для старых браузеров
+                        const textarea = document.createElement('textarea');
+                        textarea.value = html;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    });
+                    
+                } catch (error) {
+                    console.error('[CONFIG] Error copying HTML:', error);
+                    alert('❌ Ошибка при копировании кода: ' + error.message);
+                }
+            };
+            
+            function showSuccess(message) {
+                const successText = document.getElementById('successText');
+                successText.textContent = message;
+                successMessage.classList.add('show');
+                
+                setTimeout(() => {
+                    successMessage.classList.remove('show');
+                }, 3000);
+            }
+
+            // ============================================================================
+            // GLOBALS
+            // ============================================================================
+
             window.audioInitialized = false;
             window.globalAudioContext = null;
             window.globalMicStream = null;
             window.silentAudioBuffer = null;
-
-            // ✅ WebSocket URL с правильным assistant_id
-            const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
-
-            console.log('[EMBED] WebSocket URL:', WS_URL);
 
             let websocket = null;
             let isConnected = false;
@@ -973,57 +1340,6 @@
             let threeInitialized = false;
 
             // ============================================================================
-            // CUSTOM SETTINGS APPLICATION
-            // ============================================================================
-            
-            function applyCustomSettings(settings) {
-                if (!settings || Object.keys(settings).length === 0) return;
-
-                try {
-                    // Применяем primary color
-                    if (settings.primary_color) {
-                        document.documentElement.style.setProperty('--primary-color', settings.primary_color);
-                    }
-
-                    // Применяем header text
-                    if (settings.header_text) {
-                        const headerTitle = document.getElementById('headerTitle');
-                        if (headerTitle) {
-                            headerTitle.textContent = settings.header_text;
-                        }
-                    }
-
-                    // Скрываем лого если нужно
-                    if (settings.show_logo === false) {
-                        const logoIcon = document.querySelector('.logo-icon');
-                        if (logoIcon) {
-                            logoIcon.style.display = 'none';
-                        }
-                    }
-
-                    console.log('[EMBED] Custom settings applied:', settings);
-                } catch (e) {
-                    console.error('[EMBED] Error applying custom settings:', e);
-                }
-            }
-
-            // ============================================================================
-            // ERROR HANDLING
-            // ============================================================================
-            
-            function showError(title, text) {
-                const errorTitle = document.getElementById('errorTitle');
-                const errorText = document.getElementById('errorText');
-                
-                if (errorTitle) errorTitle.textContent = title;
-                if (errorText) errorText.textContent = text;
-                
-                errorContainer.classList.add('active');
-                
-                console.error('[EMBED] Error:', title, text);
-            }
-
-            // ============================================================================
             // UTILITY FUNCTIONS
             // ============================================================================
             
@@ -1040,8 +1356,20 @@
                 }
             }
 
+            function showError(title, text) {
+                const errorTitle = document.getElementById('errorTitle');
+                const errorText = document.getElementById('errorText');
+                
+                if (errorTitle) errorTitle.textContent = title;
+                if (errorText) errorText.textContent = text;
+                
+                errorContainer.classList.add('active');
+                
+                console.error('[EMBED] Error:', title, text);
+            }
+
             // ============================================================================
-            // LLM FUNCTIONS (из оригинального файла)
+            // LLM FUNCTIONS
             // ============================================================================
             
             function showLLMLoading(query = 'Processing...') {
@@ -1164,7 +1492,7 @@
             }
 
             // ============================================================================
-            // THREE.JS BACKGROUND (упрощенная версия)
+            // THREE.JS BACKGROUND
             // ============================================================================
             
             function createCircleTexture() {
@@ -1328,7 +1656,7 @@
             }
 
             // ============================================================================
-            // AUDIO FUNCTIONS (полный набор из оригинального файла)
+            // AUDIO FUNCTIONS
             // ============================================================================
             
             function arrayBufferToBase64(buffer) {
@@ -1783,7 +2111,24 @@
             // ============================================================================
             
             async function connectWebSocket() {
+                // ✅ В режиме конфигурации без assistant_id не подключаемся
+                if (isConfigMode && !ASSISTANT_ID) {
+                    log('Config mode without assistant_id - waiting for configuration');
+                    updateStatus('connecting', 'Выберите ассистента', 'connecting');
+                    return;
+                }
+
+                if (!ASSISTANT_ID) {
+                    showError(
+                        'Отсутствует ID ассистента',
+                        'Не удалось определить конфигурацию ассистента.'
+                    );
+                    return;
+                }
+
                 try {
+                    const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+                    
                     log('Подключение к WebSocket...');
                     log(`URL: ${WS_URL}`);
                     
@@ -1973,17 +2318,19 @@
             // INITIALIZATION
             // ============================================================================
             
-            window.addEventListener('load', async function() {
-                log('🚀 Voice AI Assistant Starting...');
-                log(`Assistant ID: ${ASSISTANT_ID}`);
-                log(`Server URL: ${SERVER_URL}`);
-                
-                createCircularVisualizer();
-                initThreeJS();
-                await connectWebSocket();
-            });
-
-        })();
+            log('🚀 Voice AI Assistant Starting...');
+            log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
+            log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
+            log(`Server URL: ${SERVER_URL}`);
+            
+            createCircularVisualizer();
+            initThreeJS();
+            
+            // Подключаемся только если НЕ config режим или если уже выбран assistant
+            if (!isConfigMode || ASSISTANT_ID) {
+                connectWebSocket();
+            }
+        });
     </script>
 </body>
 </html>
