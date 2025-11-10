@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS AI - Голосовой ассистент + LLM</title>
+    <title>Voice AI Assistant</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -11,6 +11,14 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --background: rgba(255, 255, 255, 0.95);
+            --text-color: #1a1a1a;
+            --border-color: rgba(255, 255, 255, 0.3);
         }
 
         body {
@@ -57,7 +65,7 @@
         .header {
             background: rgba(255, 255, 255, 0.25);
             backdrop-filter: blur(20px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            border-bottom: 1px solid var(--border-color);
             padding: 20px 30px;
             display: flex;
             align-items: center;
@@ -69,7 +77,7 @@
         .logo-icon {
             width: 40px;
             height: 40px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             border-radius: 10px;
             display: flex;
             align-items: center;
@@ -83,7 +91,7 @@
             font-family: 'Orbitron', monospace;
             font-size: 28px;
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -114,7 +122,7 @@
         .hud-frame::after {
             content: '';
             position: absolute;
-            background: rgba(102, 126, 234, 0.6);
+            background: var(--primary-color);
             box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
             animation: line-glow 3s ease-in-out infinite;
         }
@@ -158,9 +166,9 @@
         /* Left panel - LLM Results */
         .llm-panel {
             flex: 1;
-            background: rgba(255, 255, 255, 0.3);
+            background: var(--background);
             backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--border-color);
             border-radius: 24px;
             box-shadow: 
                 0 8px 32px rgba(0, 0, 0, 0.08),
@@ -193,7 +201,7 @@
         .llm-icon {
             width: 32px;
             height: 32px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -206,7 +214,7 @@
         .llm-title {
             font-size: 18px;
             font-weight: 600;
-            color: #1a1a1a;
+            color: var(--text-color);
             flex: 1;
         }
 
@@ -225,7 +233,7 @@
             overflow-y: auto;
             font-size: 15px;
             line-height: 1.7;
-            color: #2a2a2a;
+            color: var(--text-color);
         }
 
         .llm-content::-webkit-scrollbar {
@@ -279,9 +287,9 @@
         /* Right panel - Voice Assistant */
         .voice-panel {
             flex: 0 0 480px;
-            background: rgba(255, 255, 255, 0.3);
+            background: var(--background);
             backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--border-color);
             border-radius: 24px;
             box-shadow: 
                 0 8px 32px rgba(0, 0, 0, 0.08),
@@ -314,7 +322,7 @@
         .voice-icon {
             width: 32px;
             height: 32px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -327,7 +335,7 @@
         .voice-title {
             font-size: 18px;
             font-weight: 600;
-            color: #1a1a1a;
+            color: var(--text-color);
             flex: 1;
         }
 
@@ -364,6 +372,11 @@
         .voice-status.connecting {
             background: rgba(234, 179, 8, 0.15);
             color: #ca8a04;
+        }
+
+        .voice-status.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
         }
 
         .status-dot {
@@ -406,7 +419,7 @@
             background: radial-gradient(circle at 30% 30%, rgba(102, 126, 234, 0.15), transparent 70%),
                         radial-gradient(circle at 70% 70%, rgba(118, 75, 162, 0.1), transparent 60%);
             backdrop-filter: blur(10px);
-            border: 2px solid rgba(102, 126, 234, 0.3);
+            border: 2px solid var(--primary-color);
             box-shadow: 
                 inset 0 0 40px rgba(102, 126, 234, 0.1),
                 0 0 40px rgba(102, 126, 234, 0.2),
@@ -495,14 +508,13 @@
 
         .jarvis-icon {
             font-size: 64px;
-            color: #667eea;
+            color: var(--primary-color);
             filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.6));
             transition: all 0.3s ease;
             z-index: 10;
         }
 
         .jarvis-sphere.listening .jarvis-icon {
-            color: #667eea;
             animation: icon-pulse 2s ease-in-out infinite;
         }
 
@@ -541,7 +553,7 @@
         .viz-bar {
             position: absolute;
             width: 3px;
-            background: linear-gradient(to top, transparent, #667eea, transparent);
+            background: linear-gradient(to top, transparent, var(--primary-color), transparent);
             border-radius: 2px;
             bottom: 50%;
             left: 50%;
@@ -560,11 +572,6 @@
             box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
         }
 
-        .jarvis-sphere.interrupted .viz-bar {
-            background: linear-gradient(to top, transparent, #f97316, transparent);
-            box-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
-        }
-
         /* Instructions */
         .instructions {
             margin-top: 32px;
@@ -578,7 +585,7 @@
         .instructions-title {
             font-size: 14px;
             font-weight: 600;
-            color: #1a1a1a;
+            color: var(--text-color);
             margin-bottom: 8px;
         }
 
@@ -588,68 +595,92 @@
             line-height: 1.5;
         }
 
-        /* Loader overlay */
-        .loader-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
+        /* Error message */
+        .error-container {
             display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 400px;
+            z-index: 1000;
+        }
+
+        .error-container.active {
+            display: block;
+        }
+
+        .error-icon {
+            font-size: 64px;
+            color: #ef4444;
+            margin-bottom: 20px;
+        }
+
+        .error-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+        }
+
+        .error-text {
+            font-size: 16px;
+            color: #6a6a6a;
+            line-height: 1.6;
+        }
+
+        /* Loading animation */
+        .loading-container {
+            display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 9999;
+            padding: 60px 20px;
         }
 
-        .loader-overlay.active {
-            display: flex;
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 20px;
         }
 
-        .connection-rings {
-            width: 100px;
-            height: 100px;
-            position: relative;
-        }
-
-        .connection-ring {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border: 3px solid transparent;
-            border-top-color: #667eea;
+        .loading-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--primary-color);
             border-radius: 50%;
-            animation: spin 1.5s linear infinite;
+            animation: pulse-loading 1.4s infinite ease-in-out;
         }
 
-        .connection-ring:nth-child(2) {
-            width: 70%;
-            height: 70%;
-            top: 15%;
-            left: 15%;
-            border-top-color: #764ba2;
-            animation-duration: 1s;
-            animation-direction: reverse;
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes pulse-loading {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .loader-text {
-            color: #667eea;
-            margin-top: 30px;
+        .loading-text {
+            color: #6a6a6a;
             font-size: 16px;
-            font-weight: 500;
-            letter-spacing: 2px;
         }
 
         /* Content formatting */
         .llm-content h1, .llm-content h2, .llm-content h3 {
             margin: 24px 0 12px 0;
-            color: #1a1a1a;
+            color: var(--text-color);
             font-weight: 600;
         }
 
@@ -676,7 +707,7 @@
             border-radius: 4px;
             font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
             font-size: 13px;
-            color: #764ba2;
+            color: var(--secondary-color);
         }
 
         .llm-content pre {
@@ -691,151 +722,29 @@
         .llm-content pre code {
             background: none;
             padding: 0;
-            color: #2a2a2a;
-        }
-
-        .llm-content blockquote {
-            border-left: 3px solid #667eea;
-            padding-left: 16px;
-            margin: 20px 0;
-            font-style: italic;
-            color: #4a4a4a;
+            color: var(--text-color);
         }
 
         .llm-content strong {
-            color: #667eea;
+            color: var(--primary-color);
             font-weight: 600;
         }
 
-        .llm-content em {
-            color: #764ba2;
-            font-style: italic;
-        }
-
-        .llm-content a {
-            color: #667eea;
-            text-decoration: none;
-            border-bottom: 1px solid rgba(102, 126, 234, 0.3);
-            transition: all 0.2s ease;
-        }
-
-        .llm-content a:hover {
-            border-bottom-color: #667eea;
-        }
-
-        /* Loading animation */
-        .loading-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 60px 20px;
-        }
-
-        .loading {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 20px;
-        }
-
-        .loading-dot {
-            width: 10px;
-            height: 10px;
-            background: #667eea;
-            border-radius: 50%;
-            animation: pulse-loading 1.4s infinite ease-in-out;
-        }
-
-        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
-        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes pulse-loading {
-            0%, 80%, 100% {
-                transform: scale(0);
-                opacity: 0.5;
-            }
-            40% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        .loading-text {
-            color: #6a6a6a;
-            font-size: 16px;
-        }
-
-        /* Animation classes */
-        .fade-in {
-            animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Responsive design */
+        /* Responsive */
         @media (max-width: 1200px) {
             .voice-panel {
                 flex: 0 0 400px;
-            }
-
-            .jarvis-container {
-                width: 260px;
-                height: 260px;
-            }
-
-            .jarvis-sphere {
-                width: 240px;
-                height: 240px;
-            }
-
-            .jarvis-icon {
-                font-size: 48px;
             }
         }
 
         @media (max-width: 1024px) {
             .content-container {
                 flex-direction: column;
-                gap: 16px;
             }
 
             .voice-panel {
                 flex: 0 0 320px;
                 order: -1;
-            }
-
-            .llm-panel {
-                flex: 1;
-            }
-
-            .jarvis-container {
-                width: 200px;
-                height: 200px;
-            }
-
-            .jarvis-sphere {
-                width: 180px;
-                height: 180px;
-            }
-
-            .hud-tl::before, .hud-tr::before,
-            .hud-bl::before, .hud-br::before {
-                width: 40px;
-            }
-
-            .hud-tl::after, .hud-tr::after,
-            .hud-bl::after, .hud-br::after {
-                height: 40px;
             }
         }
 
@@ -848,36 +757,12 @@
                 padding: 16px;
             }
 
-            .llm-content, .voice-content {
-                padding: 24px;
-            }
-
             .logo-text {
                 font-size: 24px;
             }
 
             .header-subtitle {
                 display: none;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .jarvis-container {
-                width: 160px;
-                height: 160px;
-            }
-
-            .jarvis-sphere {
-                width: 150px;
-                height: 150px;
-            }
-
-            .jarvis-icon {
-                font-size: 32px;
-            }
-
-            .voice-panel {
-                flex: 0 0 280px;
             }
         }
     </style>
@@ -896,17 +781,15 @@
         <!-- Header -->
         <div class="header">
             <div class="logo-icon">🎤</div>
-            <div class="logo-text">JARVIS AI</div>
-            <div class="header-subtitle">Голосовой ассистент + LLM</div>
+            <div class="logo-text" id="headerTitle">JARVIS AI</div>
+            <div class="header-subtitle" id="headerSubtitle">Голосовой ассистент + LLM</div>
         </div>
 
-        <!-- Loader Overlay -->
-        <div class="loader-overlay" id="loader">
-            <div class="connection-rings">
-                <div class="connection-ring"></div>
-                <div class="connection-ring"></div>
-            </div>
-            <div class="loader-text">ПОДКЛЮЧЕНИЕ...</div>
+        <!-- Error Container -->
+        <div class="error-container" id="errorContainer">
+            <div class="error-icon">⚠️</div>
+            <div class="error-title" id="errorTitle">Ошибка конфигурации</div>
+            <div class="error-text" id="errorText">Не удалось загрузить настройки ассистента</div>
         </div>
 
         <!-- Content Container -->
@@ -965,14 +848,55 @@
         (function() {
             'use strict';
 
-            const DEBUG_MODE = true;
+            // ============================================================================
+            // CONFIGURATION FROM URL PARAMETERS
+            // ============================================================================
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // ✅ КРИТИЧНО: Получаем assistant_id из URL (подставляется сервером)
+            let ASSISTANT_ID = urlParams.get('assistant');
+            
+            // ✅ Получаем кастомные настройки если есть
+            let CUSTOM_SETTINGS = {};
+            const settingsParam = urlParams.get('settings');
+            if (settingsParam) {
+                try {
+                    CUSTOM_SETTINGS = JSON.parse(decodeURIComponent(settingsParam));
+                } catch (e) {
+                    console.warn('[EMBED] Failed to parse custom settings:', e);
+                }
+            }
+
+            // ✅ Проверка конфигурации
+            if (!ASSISTANT_ID) {
+                showError(
+                    'Отсутствует ID ассистента',
+                    'Не удалось определить конфигурацию ассистента. Проверьте правильность embed-кода.'
+                );
+                return;
+            }
+
+            console.log('[EMBED] Loaded configuration:', {
+                assistant_id: ASSISTANT_ID,
+                custom_settings: CUSTOM_SETTINGS
+            });
+
+            // ✅ Применяем кастомизацию
+            applyCustomSettings(CUSTOM_SETTINGS);
+
+            // ============================================================================
+            // CONSTANTS & CONFIGURATION
+            // ============================================================================
+            
+            const DEBUG_MODE = false;
             const MAX_RECONNECT_ATTEMPTS = 5;
             const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
             const PING_INTERVAL = 15000;
             const MOBILE_PING_INTERVAL = 10000;
 
-            const ASSISTANT_ID = "17c631ce-0db1-4171-a81d-22d91d4cccd7";
-            const SERVER_URL = "https://voicyfy.ru";
+            // ✅ Определяем SERVER_URL из текущего location
+            const SERVER_URL = `${window.location.protocol}//${window.location.host}`;
             
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -983,7 +907,10 @@
             window.globalMicStream = null;
             window.silentAudioBuffer = null;
 
+            // ✅ WebSocket URL с правильным assistant_id
             const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+
+            console.log('[EMBED] WebSocket URL:', WS_URL);
 
             let websocket = null;
             let isConnected = false;
@@ -1006,7 +933,6 @@
             let assistantAudioSource = null;
             let assistantVisualizationInterval = null;
 
-            // LLM State
             let isProcessingLLM = false;
             let llmStartTime = 0;
 
@@ -1029,13 +955,13 @@
             };
 
             // DOM Elements
-            const loader = document.getElementById('loader');
             const jarvisSphere = document.getElementById('jarvisSphere');
             const circularViz = document.getElementById('circularViz');
             const llmContent = document.getElementById('llmContent');
             const llmMeta = document.getElementById('llmMeta');
             const voiceStatus = document.getElementById('voiceStatus');
             const statusText = document.getElementById('statusText');
+            const errorContainer = document.getElementById('errorContainer');
             const hudFrames = [
                 document.getElementById('hudTL'),
                 document.getElementById('hudTR'),
@@ -1046,9 +972,64 @@
             let threeScene, threeCamera, threeRenderer, threeParticles;
             let threeInitialized = false;
 
+            // ============================================================================
+            // CUSTOM SETTINGS APPLICATION
+            // ============================================================================
+            
+            function applyCustomSettings(settings) {
+                if (!settings || Object.keys(settings).length === 0) return;
+
+                try {
+                    // Применяем primary color
+                    if (settings.primary_color) {
+                        document.documentElement.style.setProperty('--primary-color', settings.primary_color);
+                    }
+
+                    // Применяем header text
+                    if (settings.header_text) {
+                        const headerTitle = document.getElementById('headerTitle');
+                        if (headerTitle) {
+                            headerTitle.textContent = settings.header_text;
+                        }
+                    }
+
+                    // Скрываем лого если нужно
+                    if (settings.show_logo === false) {
+                        const logoIcon = document.querySelector('.logo-icon');
+                        if (logoIcon) {
+                            logoIcon.style.display = 'none';
+                        }
+                    }
+
+                    console.log('[EMBED] Custom settings applied:', settings);
+                } catch (e) {
+                    console.error('[EMBED] Error applying custom settings:', e);
+                }
+            }
+
+            // ============================================================================
+            // ERROR HANDLING
+            // ============================================================================
+            
+            function showError(title, text) {
+                const errorTitle = document.getElementById('errorTitle');
+                const errorText = document.getElementById('errorText');
+                
+                if (errorTitle) errorTitle.textContent = title;
+                if (errorText) errorText.textContent = text;
+                
+                errorContainer.classList.add('active');
+                
+                console.error('[EMBED] Error:', title, text);
+            }
+
+            // ============================================================================
+            // UTILITY FUNCTIONS
+            // ============================================================================
+            
             function log(message, type = 'info') {
                 if (DEBUG_MODE || type === 'error') {
-                    const prefix = '[JARVIS]';
+                    const prefix = '[EMBED]';
                     if (type === 'error') {
                         console.error(`${prefix} ERROR:`, message);
                     } else if (type === 'warn') {
@@ -1059,9 +1040,10 @@
                 }
             }
 
-            log(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
-
-            // LLM Functions
+            // ============================================================================
+            // LLM FUNCTIONS (из оригинального файла)
+            // ============================================================================
+            
             function showLLMLoading(query = 'Processing...') {
                 log(`⏳ Showing LLM loading: ${query}`);
                 llmContent.innerHTML = `
@@ -1091,20 +1073,12 @@
                     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
                     .replace(/^\* (.+)$/gim, '<li>$1</li>')
                     .replace(/^- (.+)$/gim, '<li>$1</li>')
-                    .replace(/^(\d+)\. (.+)$/gim, '<li>$2</li>')
-                    .replace(/^> (.+)$/gim, '<blockquote>$1</blockquote>')
                     .replace(/\n\n/g, '</p><p>')
-                    .replace(/\n/g, '<br>')
-                    .split('</p><p>')
-                    .map(para => para.match(/^<(h[1-6]|pre|ul|ol|blockquote)/) ? para : `<p>${para}</p>`)
-                    .join('</p><p>')
-                    .replace(/<p><\/p>/g, '')
-                    .replace(/<\/ul><ul>/g, '');
+                    .replace(/\n/g, '<br>');
             }
 
             function displayLLMContent(content, model = 'GPT-4o-mini') {
                 log('✅ Displaying LLM content');
-                log(`Content length: ${content.length} chars`);
                 
                 const formattedContent = formatMarkdown(content);
                 llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
@@ -1135,35 +1109,23 @@
 
             function handleLLMResult(data) {
                 log('✅ LLM Result received');
-                console.log('🔍 RAW DATA FULL:', JSON.stringify(data, null, 2));
                 
                 let content = '';
                 
-                // Вариант 1: data.content - это готовый текст
                 if (typeof data.content === 'string' && !data.content.startsWith('{')) {
                     content = data.content;
-                    log(`✅ Content is plain text: ${content.length} chars`);
-                }
-                // Вариант 2: data.content - это JSON-строка
-                else if (typeof data.content === 'string') {
+                } else if (typeof data.content === 'string') {
                     try {
-                        // Пробуем парсить как JSON (с заменой ' на ")
                         const jsonStr = data.content.replace(/'/g, '"');
                         const parsed = JSON.parse(jsonStr);
                         content = parsed.full_response || parsed.response || parsed.answer || '';
-                        log(`✅ Parsed content from JSON string: ${content.length} chars`);
                     } catch (e) {
-                        log(`⚠️ Failed to parse as JSON, using as plain text`, 'warn');
                         content = data.content;
                     }
-                }
-                // Вариант 3: data уже объект с full_response
-                else if (data.full_response) {
+                } else if (data.full_response) {
                     content = data.full_response;
-                    log(`✅ Direct full_response: ${content.length} chars`);
                 }
                 
-                // Fallback варианты
                 if (!content) {
                     content = data.result?.full_response
                         || data.response 
@@ -1196,142 +1158,15 @@
             function handleFunctionCompleted(data) {
                 log(`✅ Function completed: ${data.function || 'unknown'}`);
                 
-                // Только обновление статуса, БЕЗ обработки query_llm
                 if (data.function === 'query_llm') {
                     updateStatus('connected', 'Готов к разговору', 'connected');
                 }
             }
 
-            function updateConnectionStatus(status, message) {
-                updateStatus(status, message, status);
-            }
-
-            function handleInterruptionEvent(eventData) {
-                log(`Получено событие перебивания: ${JSON.stringify(eventData)}`);
-                
-                interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
-                interruptionState.last_interruption_time = eventData.timestamp || Date.now();
-                
-                stopAllAudioPlayback();
-                switchToListeningMode();
-                
-                jarvisSphere.classList.remove('speaking', 'listening', 'processing');
-                jarvisSphere.classList.add('interrupted');
-                
-                setTimeout(() => {
-                    jarvisSphere.classList.remove('interrupted');
-                    if (!interruptionState.is_assistant_speaking) {
-                        jarvisSphere.classList.add('listening');
-                    }
-                }, 1000);
-                
-                updateStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`, 'interrupted');
-            }
-
-            function handleSpeechStarted(eventData) {
-                log(`Пользователь начал говорить: ${JSON.stringify(eventData)}`);
-                interruptionState.is_user_speaking = true;
-                interruptionState.last_speech_start = Date.now();
-                
-                if (interruptionState.is_assistant_speaking) {
-                    stopAllAudioPlayback();
-                    jarvisSphere.classList.add('interrupted');
-                    updateStatus('interrupted', 'Перебивание', 'interrupted');
-                }
-                
-                jarvisSphere.classList.remove('speaking', 'processing');
-                jarvisSphere.classList.add('listening');
-            }
-
-            function handleSpeechStopped(eventData) {
-                log(`Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
-                interruptionState.is_user_speaking = false;
-                interruptionState.last_speech_stop = Date.now();
-                
-                setTimeout(() => {
-                    jarvisSphere.classList.remove('interrupted');
-                    if (!interruptionState.is_assistant_speaking && !isProcessingLLM) {
-                        jarvisSphere.classList.remove('listening');
-                    }
-                }, 500);
-            }
-
-            function handleAssistantSpeechStarted(eventData) {
-                log(`Ассистент начал говорить: ${JSON.stringify(eventData)}`);
-                interruptionState.is_assistant_speaking = true;
-                jarvisSphere.classList.remove('listening', 'interrupted', 'processing');
-                jarvisSphere.classList.add('speaking');
-                updateStatus('speaking', 'Ассистент говорит', 'speaking');
-            }
-
-            function handleAssistantSpeechEnded(eventData) {
-                log(`Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
-                interruptionState.is_assistant_speaking = false;
-                jarvisSphere.classList.remove('speaking');
-                stopAssistantVisualization();
-                
-                if (isConnected && !isReconnecting && !isProcessingLLM) {
-                    setTimeout(() => {
-                        if (!isListening && !isPlayingAudio) {
-                            startListening();
-                        }
-                    }, 500);
-                }
-                
-                updateStatus('connected', 'Готов к разговору', 'connected');
-            }
-
-            function stopAllAudioPlayback() {
-                log('Остановка всех аудио воспроизведений');
-                
-                isPlayingAudio = false;
-                interruptionState.is_assistant_speaking = false;
-                
-                stopAssistantVisualization();
-                
-                if (interruptionState.current_audio_elements) {
-                    interruptionState.current_audio_elements.forEach(audio => {
-                        try {
-                            audio.pause();
-                            audio.currentTime = 0;
-                            if (audio.src && audio.src.startsWith('blob:')) {
-                                URL.revokeObjectURL(audio.src);
-                            }
-                        } catch (e) {}
-                    });
-                }
-                
-                interruptionState.current_audio_elements = [];
-                audioPlaybackQueue = [];
-                
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    try {
-                        websocket.send(JSON.stringify({
-                            type: "audio_playback.stopped",
-                            timestamp: Date.now()
-                        }));
-                    } catch (e) {}
-                }
-            }
-
-            function switchToListeningMode() {
-                log('Переключение в режим прослушивания');
-                
-                if (isListening) return;
-                
-                interruptionState.is_user_speaking = true;
-                jarvisSphere.classList.remove('speaking', 'interrupted', 'processing');
-                jarvisSphere.classList.add('listening');
-                
-                if (isConnected && !isReconnecting) {
-                    setTimeout(() => {
-                        if (!isListening && !isPlayingAudio) {
-                            startListening();
-                        }
-                    }, 100);
-                }
-            }
-
+            // ============================================================================
+            // THREE.JS BACKGROUND (упрощенная версия)
+            // ============================================================================
+            
             function createCircleTexture() {
                 const canvas = document.createElement('canvas');
                 canvas.width = 64;
@@ -1376,9 +1211,7 @@
                     const colorPalette = [
                         new THREE.Color(0x667eea),
                         new THREE.Color(0x764ba2),
-                        new THREE.Color(0x8b5cf6),
-                        new THREE.Color(0x7c3aed),
-                        new THREE.Color(0x6366f1)
+                        new THREE.Color(0x8b5cf6)
                     ];
 
                     for (let i = 0; i < particleCount; i++) {
@@ -1451,6 +1284,10 @@
                 threeRenderer.setSize(window.innerWidth, window.innerHeight);
             });
 
+            // ============================================================================
+            // VISUALIZER
+            // ============================================================================
+            
             function createCircularVisualizer() {
                 const barCount = isMobile ? 40 : 60;
                 const angleStep = 360 / barCount;
@@ -1460,7 +1297,6 @@
                     bar.className = 'viz-bar';
                     bar.style.transform = `rotate(${i * angleStep}deg) translateY(-140px)`;
                     bar.style.height = '20px';
-                    bar.style.setProperty('--bar-height', '20px');
                     circularViz.appendChild(bar);
                 }
             }
@@ -1481,7 +1317,6 @@
                     const multiplier = isMobile ? 300 : 200;
                     const height = 20 + Math.min(80, Math.floor(average * multiplier));
                     bars[i].style.height = `${height}px`;
-                    bars[i].style.setProperty('--bar-height', `${height}px`);
                 }
             }
 
@@ -1489,57 +1324,13 @@
                 const bars = circularViz.querySelectorAll('.viz-bar');
                 bars.forEach(bar => {
                     bar.style.height = '20px';
-                    bar.style.setProperty('--bar-height', '20px');
                 });
             }
 
-            function startAssistantVisualization(audioElement) {
-                if (!window.globalAudioContext || !audioElement) return;
-                
-                try {
-                    if (!assistantAudioSource) {
-                        assistantAudioSource = window.globalAudioContext.createMediaElementSource(audioElement);
-                        assistantAudioAnalyzer = window.globalAudioContext.createAnalyser();
-                        assistantAudioAnalyzer.fftSize = 256;
-                        assistantAudioSource.connect(assistantAudioAnalyzer);
-                        assistantAudioAnalyzer.connect(window.globalAudioContext.destination);
-                    }
-                    
-                    const bufferLength = assistantAudioAnalyzer.frequencyBinCount;
-                    const dataArray = new Uint8Array(bufferLength);
-                    
-                    function updateAssistantViz() {
-                        if (!interruptionState.is_assistant_speaking) {
-                            stopAssistantVisualization();
-                            return;
-                        }
-                        
-                        assistantAudioAnalyzer.getByteTimeDomainData(dataArray);
-                        
-                        const floatData = new Float32Array(bufferLength);
-                        for (let i = 0; i < bufferLength; i++) {
-                            floatData[i] = (dataArray[i] - 128) / 128.0;
-                        }
-                        
-                        updateCircularVisualization(floatData);
-                        assistantVisualizationInterval = requestAnimationFrame(updateAssistantViz);
-                    }
-                    
-                    updateAssistantViz();
-                    
-                } catch (error) {
-                    log(`Ошибка создания визуализации ассистента: ${error.message}`, 'error');
-                }
-            }
-
-            function stopAssistantVisualization() {
-                if (assistantVisualizationInterval) {
-                    cancelAnimationFrame(assistantVisualizationInterval);
-                    assistantVisualizationInterval = null;
-                }
-                resetCircularVisualization();
-            }
-
+            // ============================================================================
+            // AUDIO FUNCTIONS (полный набор из оригинального файла)
+            // ============================================================================
+            
             function arrayBufferToBase64(buffer) {
                 const bytes = new Uint8Array(buffer);
                 let binary = '';
@@ -1658,16 +1449,16 @@
                         }
                     }
 
-                    if (isMobile && window.globalAudioContext.state !== 'running') {
-                        await window.globalAudioContext.resume();
-                    }
-
                     window.audioInitialized = true;
                     log('Инициализация аудио завершена успешно');
                     return true;
 
                 } catch (error) {
                     log(`Ошибка инициализации аудио: ${error.message}`, 'error');
+                    showError(
+                        'Ошибка доступа к микрофону',
+                        'Разрешите доступ к микрофону в настройках браузера для работы голосового ассистента.'
+                    );
                     return false;
                 }
             }
@@ -1677,7 +1468,6 @@
                     isPlayingAudio = false;
                     interruptionState.is_assistant_speaking = false;
                     jarvisSphere.classList.remove('speaking');
-                    stopAssistantVisualization();
                     
                     if (!isProcessingLLM) {
                         setTimeout(() => {
@@ -1725,18 +1515,14 @@
                         
                         if (isIOS && window.globalAudioContext && window.globalAudioContext.state === 'suspended') {
                             window.globalAudioContext.resume().then(() => {
-                                audio.play().then(() => {
-                                    startAssistantVisualization(audio);
-                                }).catch(err => {
+                                audio.play().catch(err => {
                                     log(`Ошибка воспроизведения: ${err.message}`, 'error');
                                     URL.revokeObjectURL(audioUrl);
                                     playNextAudio();
                                 });
                             });
                         } else {
-                            audio.play().then(() => {
-                                startAssistantVisualization(audio);
-                            }).catch(err => {
+                            audio.play().catch(err => {
                                 log(`Ошибка воспроизведения: ${err.message}`, 'error');
                                 URL.revokeObjectURL(audioUrl);
                                 playNextAudio();
@@ -1776,17 +1562,45 @@
                 }
             }
 
+            function stopAllAudioPlayback() {
+                log('Остановка всех аудио воспроизведений');
+                
+                isPlayingAudio = false;
+                interruptionState.is_assistant_speaking = false;
+                
+                if (interruptionState.current_audio_elements) {
+                    interruptionState.current_audio_elements.forEach(audio => {
+                        try {
+                            audio.pause();
+                            audio.currentTime = 0;
+                            if (audio.src && audio.src.startsWith('blob:')) {
+                                URL.revokeObjectURL(audio.src);
+                            }
+                        } catch (e) {}
+                    });
+                }
+                
+                interruptionState.current_audio_elements = [];
+                audioPlaybackQueue = [];
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        websocket.send(JSON.stringify({
+                            type: "audio_playback.stopped",
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) {}
+                }
+            }
+
             async function startListening() {
                 if (!isConnected || isPlayingAudio || isReconnecting || isListening || isProcessingLLM) {
-                    log(`Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}, isProcessingLLM=${isProcessingLLM}`);
                     return;
                 }
                 
                 if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
-                    log('Аудио не инициализировано', 'warn');
                     const success = await initializeAudio();
                     if (!success) {
-                        log('Не удалось инициализировать аудио', 'error');
                         return;
                     }
                 }
@@ -1868,7 +1682,6 @@
                                 if (!hasAudioData && hasSound) {
                                     hasAudioData = true;
                                     audioDataStartTime = Date.now();
-                                    log("Начало записи аудиоданных");
                                 }
                                 
                             } catch (error) {
@@ -1965,10 +1778,14 @@
                 audioDataStartTime = 0;
             }
 
+            // ============================================================================
+            // WEBSOCKET CONNECTION
+            // ============================================================================
+            
             async function connectWebSocket() {
                 try {
-                    loader.classList.add('active');
-                    log('Подключение...');
+                    log('Подключение к WebSocket...');
+                    log(`URL: ${WS_URL}`);
                     
                     isReconnecting = true;
                     
@@ -1991,7 +1808,6 @@
                         isConnected = true;
                         isReconnecting = false;
                         reconnectAttempts = 0;
-                        loader.classList.remove('active');
                         
                         hudFrames.forEach(frame => frame.classList.add('active'));
                         updateStatus('connected', 'Готов', 'connected');
@@ -2032,61 +1848,7 @@
                                     return;
                                 }
                                 
-                                // Original event handlers
-                                if (data.type === 'conversation.interrupted') {
-                                    handleInterruptionEvent(data);
-                                    return;
-                                }
-                                
-                                if (data.type === 'speech.started') {
-                                    handleSpeechStarted(data);
-                                    return;
-                                }
-                                
-                                if (data.type === 'speech.stopped') {
-                                    handleSpeechStopped(data);
-                                    return;
-                                }
-                                
-                                if (data.type === 'assistant.speech.started') {
-                                    handleAssistantSpeechStarted(data);
-                                    return;
-                                }
-                                
-                                if (data.type === 'assistant.speech.ended') {
-                                    handleAssistantSpeechEnded(data);
-                                    return;
-                                }
-                                
-                                if (data.type === 'response.cancelled') {
-                                    log('Ответ отменен');
-                                    stopAllAudioPlayback();
-                                    jarvisSphere.classList.remove('speaking', 'processing');
-                                    jarvisSphere.classList.add('interrupted');
-                                    
-                                    setTimeout(() => {
-                                        jarvisSphere.classList.remove('interrupted');
-                                        if (!interruptionState.is_assistant_speaking && !isProcessingLLM) {
-                                            switchToListeningMode();
-                                        }
-                                    }, 500);
-                                    return;
-                                }
-                                
-                                if (data.type === 'error') {
-                                    if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                                        if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
-                                            setTimeout(() => { 
-                                                startListening(); 
-                                            }, 500);
-                                        }
-                                        return;
-                                    }
-                                    
-                                    log(`Ошибка API: ${JSON.stringify(data.error)}`, 'error');
-                                    return;
-                                }
-                                
+                                // Audio events
                                 if (data.type === 'response.audio.delta') {
                                     if (data.delta) {
                                         audioChunksBuffer.push(data.delta);
@@ -2109,6 +1871,22 @@
                                             startListening();
                                         }, 400);
                                     }
+                                    return;
+                                }
+                                
+                                if (data.type === 'error') {
+                                    log(`OpenAI API Error: ${JSON.stringify(data.error)}`, 'error');
+                                    
+                                    if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
+                                        if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                                            setTimeout(() => { 
+                                                startListening(); 
+                                            }, 500);
+                                        }
+                                        return;
+                                    }
+                                    
+                                    updateStatus('error', 'Ошибка API', 'error');
                                     return;
                                 }
                                 
@@ -2148,7 +1926,11 @@
                             }, delay);
                         } else {
                             log('Достигнут лимит попыток переподключения', 'error');
-                            updateStatus('connecting', 'Ошибка подключения', 'connecting');
+                            updateStatus('error', 'Ошибка подключения', 'error');
+                            showError(
+                                'Ошибка подключения',
+                                'Не удалось подключиться к серверу. Пожалуйста, обновите страницу.'
+                            );
                         }
                     };
                     
@@ -2165,7 +1947,10 @@
                 }
             }
 
-            // Click handler
+            // ============================================================================
+            // CLICK HANDLER
+            // ============================================================================
+            
             jarvisSphere.addEventListener('click', async function() {
                 if (!window.audioInitialized) {
                     log('Инициализация аудио по клику');
@@ -2184,9 +1969,15 @@
                 }
             });
 
-            // Initialize
+            // ============================================================================
+            // INITIALIZATION
+            // ============================================================================
+            
             window.addEventListener('load', async function() {
-                log('🚀 JARVIS AI Interface Starting...');
+                log('🚀 Voice AI Assistant Starting...');
+                log(`Assistant ID: ${ASSISTANT_ID}`);
+                log(`Server URL: ${SERVER_URL}`);
+                
                 createCircularVisualizer();
                 initThreeJS();
                 await connectWebSocket();
