@@ -12,7 +12,6 @@ from .users import router as users_router
 from .assistants import router as assistants_router
 from .files import router as files_router
 from .websocket import router as websocket_router
-from .websocket_streaming import router as websocket_streaming_router  # 🧪 НОВОЕ
 from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
@@ -54,7 +53,6 @@ __all__ = [
     "assistants_router",
     "files_router",
     "websocket_router",
-    "websocket_streaming_router",  # 🧪 НОВОЕ
     "subscriptions_router",
     "admin_router",
     "knowledge_base_router",
