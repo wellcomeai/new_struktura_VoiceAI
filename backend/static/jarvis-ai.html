@@ -1847,6 +1847,7 @@
             let lastPingTime = Date.now();
             let lastPongTime = Date.now();
             let isReconnecting = false;
+            let assistantsLoaded = false;  // 🆕 Флаг для предотвращения множественных загрузок
 
             let hasAudioData = false;
             let audioDataStartTime = 0;
@@ -2667,6 +2668,13 @@
             // ============================================================================
 
             async function loadAssistantsList() {
+                // 🆕 Защита от множественных вызовов
+                if (assistantsLoaded) {
+                    console.log('[ASSISTANT] Already loaded, skipping...');
+                    return;
+                }
+                assistantsLoaded = true;
+
                 console.log('[ASSISTANT] Loading assistants list...');
 
                 const dropdown = document.getElementById('assistantDropdown');
@@ -2675,6 +2683,7 @@
                 if (!token) {
                     console.error('[ASSISTANT] No auth token found');
                     dropdown.innerHTML = '<option value="">Ошибка: не авторизован</option>';
+                    assistantsLoaded = false;  // Сбросим флаг при ошибке
                     return;
                 }
 
@@ -2743,6 +2752,10 @@
                             websocket = null;
                         }
 
+                        // 🆕 Сброс reconnect счётчика
+                        reconnectAttempts = 0;
+                        isReconnecting = false;
+
                         // Clear conversation history
                         historyManager.clear();
                         console.log('[ASSISTANT] Cleared conversation history');
@@ -2780,6 +2793,7 @@
                 } catch (error) {
                     console.error('[ASSISTANT] Error loading assistants:', error);
                     dropdown.innerHTML = '<option value="">Ошибка загрузки</option>';
+                    assistantsLoaded = false;  // Сбросим флаг при ошибке
                 }
             }
 
@@ -2792,6 +2806,12 @@
                 if (!ASSISTANT_ID) {
                     log('No assistant_id - waiting for selection');
                     updateStatus('connecting', 'Выберите ассистента из списка', 'connecting');
+                    return;
+                }
+
+                // 🆕 Защита от множественных одновременных подключений
+                if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
+                    console.log('[WS] Already connecting or connected, skipping...');
                     return;
                 }
 
