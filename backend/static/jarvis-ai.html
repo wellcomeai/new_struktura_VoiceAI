@@ -1,0 +1,2903 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS AI - Wellcome AI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --background: rgba(255, 255, 255, 0.95);
+            --text-color: #1a1a1a;
+            --border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: url('https://i.ibb.co/N6BsLQr3/image.png') center/cover no-repeat fixed;
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* Sidebar Styles */
+        .sidebar {
+            width: 260px;
+            background-color: #ffffff;
+            border-right: 1px solid #e2e8f0;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            z-index: 1001;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #0f172a;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .logo-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-nav {
+            padding: 1.5rem 0;
+            flex-grow: 1;
+        }
+
+        .sidebar-nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .sidebar-nav-item.active {
+            background-color: #eff6ff;
+            color: #2563eb;
+            border-left-color: #2563eb;
+            font-weight: 500;
+        }
+
+        .sidebar-nav-item:hover {
+            background-color: #eff6ff;
+            color: #2563eb;
+        }
+
+        .sidebar-nav-item i {
+            margin-right: 0.75rem;
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-section {
+            padding: 0 1.5rem;
+            margin-bottom: 0.75rem;
+            margin-top: 1.5rem;
+            color: #94a3b8;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .locked-feature {
+            opacity: 0.6;
+            cursor: not-allowed;
+            position: relative;
+        }
+
+        .locked-feature::after {
+            content: "🔒";
+            font-size: 0.875rem;
+            position: absolute;
+            right: 1.5rem;
+        }
+
+        .beta-badge {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-left: 8px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-secondary {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        /* Config Panel Styles */
+        .config-panel {
+            display: none; /* Hide config panel in LK version */
+        }
+        .config-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            border-bottom: 2px solid var(--primary-color);
+            padding: 20px 30px;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .config-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .config-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .config-icon {
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .config-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .config-subtitle {
+            color: #6a6a6a;
+            font-size: 14px;
+        }
+
+        .config-form {
+            display: flex;
+            align-items: end;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 8px;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 15px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            border-radius: 12px;
+            background: white;
+            color: var(--text-color);
+            font-family: 'Inter', sans-serif;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .form-select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .config-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .success-message {
+            position: fixed;
+            top: 120px;
+            right: 30px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(34, 197, 94, 0.3);
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+        }
+
+        .success-message.show {
+            display: flex;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Adjust main container when config panel is visible */
+        body.config-mode .main-container {
+            padding-top: 140px;
+        }
+
+        /* Blur overlay */
+        .background-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.15);
+            z-index: 1;
+        }
+
+        /* Three.js Canvas */
+        #jarvis-three-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0.3;
+        }
+
+        /* Main layout */
+        .main-container {
+            position: relative;
+            z-index: 2;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            margin-left: 260px; /* Offset for sidebar */
+            flex: 1;
+        }
+
+        /* Header */
+        .header {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 20px 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            box-shadow: 0 2px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .logo-text {
+            font-family: 'Orbitron', monospace;
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.02em;
+        }
+
+        .header-subtitle {
+            font-size: 14px;
+            color: #5a5a5a;
+            margin-left: 10px;
+            font-weight: 500;
+        }
+
+        /* HUD Frames */
+        .hud-frame {
+            position: fixed;
+            pointer-events: none;
+            z-index: 50;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .hud-frame.active {
+            opacity: 1;
+        }
+
+        .hud-frame::before,
+        .hud-frame::after {
+            content: '';
+            position: absolute;
+            background: var(--primary-color);
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+            animation: line-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes line-glow {
+            0%, 100% {
+                box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+                opacity: 0.6;
+            }
+            50% {
+                box-shadow: 0 0 15px rgba(102, 126, 234, 0.7);
+                opacity: 1;
+            }
+        }
+
+        .hud-tl { top: 20px; left: 20px; }
+        .hud-tl::before { width: 60px; height: 2px; top: 0; left: 0; }
+        .hud-tl::after { width: 2px; height: 60px; top: 0; left: 0; }
+
+        .hud-tr { top: 20px; right: 20px; }
+        .hud-tr::before { width: 60px; height: 2px; top: 0; right: 0; }
+        .hud-tr::after { width: 2px; height: 60px; top: 0; right: 0; }
+
+        .hud-bl { bottom: 20px; left: 20px; }
+        .hud-bl::before { width: 60px; height: 2px; bottom: 0; left: 0; }
+        .hud-bl::after { width: 2px; height: 60px; bottom: 0; left: 0; }
+
+        .hud-br { bottom: 20px; right: 20px; }
+        .hud-br::before { width: 60px; height: 2px; bottom: 0; right: 0; }
+        .hud-br::after { width: 2px; height: 60px; bottom: 0; right: 0; }
+
+        /* Content layout */
+        .content-container {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            min-height: 0;
+        }
+
+        /* Left panel - LLM Results */
+        .llm-panel {
+            flex: 1;
+            background: var(--background);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .llm-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+        }
+
+        .llm-header {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 24px 32px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .llm-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .llm-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            flex: 1;
+        }
+
+        .llm-meta {
+            font-size: 12px;
+            color: #6a6a6a;
+            background: rgba(102, 126, 234, 0.1);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .llm-content {
+            flex: 1;
+            padding: 32px;
+            overflow-y: auto;
+            font-size: 15px;
+            line-height: 1.7;
+            color: var(--text-color);
+        }
+
+        .llm-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .llm-content::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.03);
+            border-radius: 4px;
+        }
+
+        .llm-content::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.3);
+            border-radius: 4px;
+        }
+
+        .llm-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(102, 126, 234, 0.5);
+        }
+
+        .llm-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            color: #6a6a6a;
+        }
+
+        .placeholder-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.6;
+        }
+
+        .placeholder-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #3a3a3a;
+        }
+
+        .placeholder-text {
+            font-size: 16px;
+            max-width: 500px;
+            line-height: 1.6;
+            color: #6a6a6a;
+        }
+
+        /* Right panel - Voice Assistant */
+        .voice-panel {
+            flex: 0 0 480px;
+            background: var(--background);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .voice-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+        }
+
+        .voice-header {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 24px 32px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .voice-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 16px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .voice-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-color);
+            flex: 1;
+        }
+
+        .voice-status {
+            font-size: 12px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .voice-status.connected {
+            background: rgba(34, 197, 94, 0.15);
+            color: #16a34a;
+        }
+
+        .voice-status.processing {
+            background: rgba(168, 85, 247, 0.15);
+            color: #9333ea;
+        }
+
+        .voice-status.speaking {
+            background: rgba(59, 130, 246, 0.15);
+            color: #2563eb;
+        }
+
+        .voice-status.interrupted {
+            background: rgba(249, 115, 22, 0.15);
+            color: #ea580c;
+        }
+
+        .voice-status.connecting {
+            background: rgba(234, 179, 8, 0.15);
+            color: #ca8a04;
+        }
+
+        .voice-status.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #dc2626;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.2); }
+        }
+
+        .voice-content {
+            flex: 1;
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        /* JARVIS Sphere */
+        .jarvis-container {
+            position: relative;
+            width: 320px;
+            height: 320px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .jarvis-sphere {
+            width: 280px;
+            height: 280px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, rgba(102, 126, 234, 0.15), transparent 70%),
+                        radial-gradient(circle at 70% 70%, rgba(118, 75, 162, 0.1), transparent 60%);
+            backdrop-filter: blur(10px);
+            border: 2px solid var(--primary-color);
+            box-shadow: 
+                inset 0 0 40px rgba(102, 126, 234, 0.1),
+                0 0 40px rgba(102, 126, 234, 0.2),
+                0 8px 32px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.5s ease;
+            cursor: pointer;
+        }
+
+        .jarvis-sphere.listening {
+            background: radial-gradient(circle at 30% 30%, rgba(102, 126, 234, 0.25), transparent 70%);
+            border-color: rgba(102, 126, 234, 0.6);
+            box-shadow: 
+                inset 0 0 40px rgba(102, 126, 234, 0.2),
+                0 0 60px rgba(102, 126, 234, 0.4);
+            animation: pulse-sphere 2s ease-in-out infinite;
+        }
+
+        .jarvis-sphere.speaking {
+            background: radial-gradient(circle at 30% 30%, rgba(34, 197, 94, 0.25), transparent 70%);
+            border-color: rgba(34, 197, 94, 0.6);
+            box-shadow: 
+                inset 0 0 40px rgba(34, 197, 94, 0.2),
+                0 0 60px rgba(34, 197, 94, 0.4);
+            animation: pulse-sphere-fast 1s ease-in-out infinite;
+        }
+
+        .jarvis-sphere.processing {
+            background: radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.25), transparent 70%);
+            border-color: rgba(168, 85, 247, 0.6);
+            box-shadow: 
+                inset 0 0 40px rgba(168, 85, 247, 0.2),
+                0 0 60px rgba(168, 85, 247, 0.4);
+            animation: pulse-sphere-slow 1.5s ease-in-out infinite;
+        }
+
+        .jarvis-sphere.interrupted {
+            background: radial-gradient(circle at 30% 30%, rgba(249, 115, 22, 0.25), transparent 70%);
+            border-color: rgba(249, 115, 22, 0.6);
+            box-shadow: 
+                inset 0 0 40px rgba(249, 115, 22, 0.2),
+                0 0 60px rgba(249, 115, 22, 0.4);
+            animation: pulse-interrupted 0.5s ease-in-out 3;
+        }
+
+        @keyframes pulse-sphere {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 
+                    inset 0 0 40px rgba(102, 126, 234, 0.2),
+                    0 0 60px rgba(102, 126, 234, 0.4);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 
+                    inset 0 0 60px rgba(102, 126, 234, 0.3),
+                    0 0 80px rgba(102, 126, 234, 0.6);
+            }
+        }
+
+        @keyframes pulse-sphere-fast {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        @keyframes pulse-sphere-slow {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+
+        @keyframes pulse-interrupted {
+            0%, 100% {
+                box-shadow: 
+                    inset 0 0 40px rgba(249, 115, 22, 0.2),
+                    0 0 60px rgba(249, 115, 22, 0.4);
+            }
+            50% {
+                box-shadow: 
+                    inset 0 0 60px rgba(249, 115, 22, 0.4),
+                    0 0 100px rgba(249, 115, 22, 0.8);
+            }
+        }
+
+        .jarvis-icon {
+            font-size: 64px;
+            color: var(--primary-color);
+            filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.6));
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        .jarvis-sphere.listening .jarvis-icon {
+            animation: icon-pulse 2s ease-in-out infinite;
+        }
+
+        .jarvis-sphere.speaking .jarvis-icon {
+            color: #22c55e;
+        }
+
+        .jarvis-sphere.processing .jarvis-icon {
+            color: #a855f7;
+            animation: icon-rotate 2s linear infinite;
+        }
+
+        .jarvis-sphere.interrupted .jarvis-icon {
+            color: #f97316;
+        }
+
+        @keyframes icon-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        @keyframes icon-rotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Visualizer */
+        .circular-visualizer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .viz-bar {
+            position: absolute;
+            width: 3px;
+            background: linear-gradient(to top, transparent, var(--primary-color), transparent);
+            border-radius: 2px;
+            bottom: 50%;
+            left: 50%;
+            transform-origin: bottom center;
+            transition: height 0.1s ease;
+            box-shadow: 0 0 8px rgba(102, 126, 234, 0.6);
+        }
+
+        .jarvis-sphere.speaking .viz-bar {
+            background: linear-gradient(to top, transparent, #22c55e, transparent);
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+        }
+
+        .jarvis-sphere.processing .viz-bar {
+            background: linear-gradient(to top, transparent, #a855f7, transparent);
+            box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);
+        }
+
+        /* Instructions */
+        .instructions {
+            margin-top: 32px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            max-width: 360px;
+        }
+
+        .instructions-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 8px;
+        }
+
+        .instructions-text {
+            font-size: 13px;
+            color: #5a5a5a;
+            line-height: 1.5;
+        }
+
+        /* Error message */
+        .error-container {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 400px;
+            z-index: 1000;
+        }
+
+        .error-container.active {
+            display: block;
+        }
+
+        .error-icon {
+            font-size: 64px;
+            color: #ef4444;
+            margin-bottom: 20px;
+        }
+
+        .error-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 12px;
+        }
+
+        .error-text {
+            font-size: 16px;
+            color: #6a6a6a;
+            line-height: 1.6;
+        }
+
+        /* Loading animation */
+        .loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+        }
+
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+
+        .loading-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--primary-color);
+            border-radius: 50%;
+            animation: pulse-loading 1.4s infinite ease-in-out;
+        }
+
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes pulse-loading {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .loading-text {
+            color: #6a6a6a;
+            font-size: 16px;
+        }
+
+        /* Content formatting */
+        .llm-content h1, .llm-content h2, .llm-content h3 {
+            margin: 24px 0 12px 0;
+            color: var(--text-color);
+            font-weight: 600;
+        }
+
+        .llm-content h1 { font-size: 24px; }
+        .llm-content h2 { font-size: 20px; }
+        .llm-content h3 { font-size: 18px; }
+
+        .llm-content p {
+            margin: 16px 0;
+        }
+
+        .llm-content ul, .llm-content ol {
+            margin: 16px 0;
+            padding-left: 24px;
+        }
+
+        .llm-content li {
+            margin: 8px 0;
+        }
+
+        .llm-content code {
+            background: rgba(102, 126, 234, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            color: var(--secondary-color);
+        }
+
+        .llm-content pre {
+            background: rgba(0, 0, 0, 0.05);
+            padding: 16px;
+            border-radius: 12px;
+            overflow-x: auto;
+            margin: 20px 0;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .llm-content pre code {
+            background: none;
+            padding: 0;
+            color: var(--text-color);
+        }
+
+        .llm-content strong {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .voice-panel {
+                flex: 0 0 400px;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .content-container {
+                flex-direction: column;
+            }
+
+            .voice-panel {
+                flex: 0 0 320px;
+                order: -1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 16px 20px;
+            }
+
+            .content-container {
+                padding: 16px;
+            }
+
+            .logo-text {
+                font-size: 24px;
+            }
+
+            .header-subtitle {
+                display: none;
+            }
+
+            .config-panel {
+                padding: 15px 20px;
+            }
+
+            .config-form {
+                flex-direction: column;
+            }
+
+            .config-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- ============================================================ -->
+    <!-- SIDEBAR NAVIGATION -->
+    <!-- ============================================================ -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <a href="/static/dashboard.html" class="sidebar-logo">
+                <div class="logo-icon">
+                    <i class="fas fa-microphone" style="color: var(--primary-color);"></i>
+                </div>
+                <span>Wellcome AI</span>
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">Основное</div>
+            <a href="/static/dashboard.html" class="sidebar-nav-item">
+                <i class="fas fa-home"></i> Дашборд
+            </a>
+            <a href="/static/agents.html" class="sidebar-nav-item locked-feature" id="agents-nav-item">
+                <i class="fas fa-robot"></i> Мои агенты
+            </a>
+            <a href="/static/knowledge-base.html" class="sidebar-nav-item locked-feature" id="knowledge-nav-item">
+                <i class="fas fa-book"></i> База знаний
+            </a>
+            <a href="/static/outbound-calls.html" class="sidebar-nav-item locked-feature" id="outbound-nav-item">
+                <i class="fas fa-phone-alt"></i> Исходящие звонки
+            </a>
+            <a href="/static/conversations.html" class="sidebar-nav-item locked-feature" id="conversations-nav-item">
+                <i class="fas fa-comments"></i> Диалоги
+            </a>
+            <a href="/static/jarvis-ai.html" class="sidebar-nav-item active">
+                <i class="fas fa-brain"></i> JARVIS AI
+                <span class="beta-badge">BETA</span>
+            </a>
+
+            <div class="sidebar-section">Аккаунт</div>
+            <a href="/static/settings.html" class="sidebar-nav-item">
+                <i class="fas fa-gear"></i> Настройки
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button class="btn btn-secondary" style="width: 100%;" id="logout-button">
+                <i class="fas fa-sign-out-alt"></i> Выйти
+            </button>
+        </div>
+    </aside>
+
+    <!-- ============================================================ -->
+    <!-- CONFIG PANEL (показывается только в режиме настройки) -->
+    <!-- ============================================================ -->
+    <div class="config-panel" id="configPanel" style="display: none;">
+        <div class="config-container">
+            <div class="config-header">
+                <div class="config-icon">⚙️</div>
+                <div>
+                    <div class="config-title">Настройка встраиваемого ассистента</div>
+                    <div class="config-subtitle">Выберите ассистента и скопируйте HTML код для встраивания на ваш сайт</div>
+                </div>
+            </div>
+            
+            <div class="config-form">
+                <div class="form-group">
+                    <label class="form-label">Ассистент:</label>
+                    <select class="form-select" id="assistantSelect">
+                        <option value="">Загрузка списка...</option>
+                    </select>
+                </div>
+                
+                <div class="config-actions">
+                    <button class="btn btn-primary" id="saveBtn" onclick="saveConfig()">
+                        <i class="fas fa-save"></i> Сохранить и тестировать
+                    </button>
+                    <button class="btn btn-success" id="copyBtn" onclick="copyHTMLCode()" disabled>
+                        <i class="fas fa-code"></i> Скопировать HTML код
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Message -->
+    <div class="success-message" id="successMessage">
+        <i class="fas fa-check-circle" style="font-size: 20px;"></i>
+        <span id="successText">Успешно!</span>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MAIN INTERFACE -->
+    <!-- ============================================================ -->
+    <canvas id="jarvis-three-canvas"></canvas>
+    <div class="background-overlay"></div>
+    
+    <div class="main-container">
+        <!-- HUD Frames -->
+        <div class="hud-frame hud-tl" id="hudTL"></div>
+        <div class="hud-frame hud-tr" id="hudTR"></div>
+        <div class="hud-frame hud-bl" id="hudBL"></div>
+        <div class="hud-frame hud-br" id="hudBR"></div>
+
+        <!-- Header -->
+        <div class="header">
+            <div class="logo-icon">🎤</div>
+            <div class="logo-text" id="headerTitle">JARVIS AI</div>
+            <div class="header-subtitle" id="headerSubtitle">Голосовой ассистент + LLM</div>
+        </div>
+
+        <!-- Error Container -->
+        <div class="error-container" id="errorContainer">
+            <div class="error-icon">⚠️</div>
+            <div class="error-title" id="errorTitle">Ошибка конфигурации</div>
+            <div class="error-text" id="errorText">Не удалось загрузить настройки ассистента</div>
+        </div>
+
+        <!-- Content Container -->
+        <div class="content-container">
+            <!-- Left Panel - LLM Results -->
+            <div class="llm-panel">
+                <div class="llm-header">
+                    <div class="llm-icon">🤖</div>
+                    <div class="llm-title">Результаты ИИ</div>
+                    <div class="llm-meta" id="llmMeta">Ожидание запроса</div>
+                </div>
+                <div class="llm-content" id="llmContent">
+                    <div class="llm-placeholder">
+                        <span class="placeholder-icon">✨</span>
+                        <div class="placeholder-title">Задайте вопрос голосовому ассистенту</div>
+                        <div class="placeholder-text">
+                            Нажмите на сферу JARVIS справа и произнесите ваш вопрос. 
+                            Для сложных задач ассистент автоматически получит развернутый ответ от языковой модели.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Voice Assistant -->
+            <div class="voice-panel">
+                <div class="voice-header">
+                    <div class="voice-icon">🎤</div>
+                    <div class="voice-title">JARVIS</div>
+                    <div class="voice-status connecting" id="voiceStatus">
+                        <span class="status-dot"></span>
+                        <span id="statusText">Подключение...</span>
+                    </div>
+                </div>
+                <div class="voice-content">
+                    <div class="jarvis-container">
+                        <div class="jarvis-sphere" id="jarvisSphere">
+                            <i class="fas fa-microphone jarvis-icon"></i>
+                            <div class="circular-visualizer" id="circularViz"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="instructions">
+                        <div class="instructions-title">Как использовать</div>
+                        <div class="instructions-text">
+                            Нажмите на сферу и говорите естественно с ассистентом. 
+                            Для анализа, кода и исследований он автоматически обратится к мощной LLM модели.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // ============================================================================
+        // CONVERSATION HISTORY MANAGER (localStorage)
+        // ============================================================================
+
+        class ConversationHistoryManager {
+            constructor() {
+                this.sessionId = this.getOrCreateSessionId();
+                this.storageKey = `wellcome_conversation_${this.sessionId}`;
+                this.history = this.load();
+
+                console.log(`[HISTORY] 📝 Initialized with session: ${this.sessionId}`);
+                console.log(`[HISTORY] 📚 Loaded ${this.history.length} messages`);
+            }
+
+            getOrCreateSessionId() {
+                // Проверяем sessionStorage (живет пока вкладка открыта)
+                let sessionId = sessionStorage.getItem('wellcome_session_id');
+
+                if (!sessionId) {
+                    // Генерируем новый
+                    sessionId = crypto.randomUUID();
+                    sessionStorage.setItem('wellcome_session_id', sessionId);
+                    console.log(`[HISTORY] 🆕 Created new session: ${sessionId}`);
+                }
+
+                return sessionId;
+            }
+
+            load() {
+                try {
+                    const stored = localStorage.getItem(this.storageKey);
+
+                    if (stored) {
+                        const data = JSON.parse(stored);
+
+                        // Проверяем свежесть (не старше 7 дней)
+                        if (data.timestamp) {
+                            const ageMs = Date.now() - data.timestamp;
+                            const ageDays = ageMs / (1000 * 60 * 60 * 24);
+
+                            if (ageDays < 7) {
+                                console.log(`[HISTORY] ✅ Loaded ${data.messages.length} messages (${ageDays.toFixed(1)} days old)`);
+                                return data.messages;
+                            } else {
+                                console.log(`[HISTORY] 🗑️ History expired (${ageDays.toFixed(1)} days old)`);
+                                localStorage.removeItem(this.storageKey);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[HISTORY] ❌ Error loading:', e);
+                }
+
+                // Default history
+                console.log('[HISTORY] 🆕 Starting fresh conversation');
+                return [
+                    {
+                        role: "system",
+                        content: "Ты профессиональный ассистент. Отвечай подробно и структурированно. Используй markdown для форматирования."
+                    }
+                ];
+            }
+
+            save() {
+                try {
+                    const data = {
+                        messages: this.history,
+                        timestamp: Date.now()
+                    };
+
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+
+                    // Статистика
+                    const sizeBytes = new Blob([JSON.stringify(data)]).size;
+                    const sizeKB = (sizeBytes / 1024).toFixed(2);
+
+                    console.log(`[HISTORY] 💾 Saved ${this.history.length} messages (${sizeKB} KB)`);
+
+                } catch (e) {
+                    console.error('[HISTORY] ❌ Error saving:', e);
+
+                    // Если переполнение - очищаем старые сообщения
+                    if (e.name === 'QuotaExceededError') {
+                        console.warn('[HISTORY] ⚠️ Storage quota exceeded, truncating...');
+                        this.truncate(20);  // оставляем только 20 последних
+                        this.save();  // пробуем снова
+                    }
+                }
+            }
+
+            addUserMessage(content) {
+                this.history.push({
+                    role: "user",
+                    content: content
+                });
+                this.truncate();
+                this.save();
+
+                console.log(`[HISTORY] ➕ User message added (total: ${this.history.length})`);
+            }
+
+            addAssistantMessage(content) {
+                this.history.push({
+                    role: "assistant",
+                    content: content
+                });
+                this.truncate();
+                this.save();
+
+                console.log(`[HISTORY] ➕ Assistant message added (total: ${this.history.length})`);
+            }
+
+            getMessages() {
+                return [...this.history];  // возвращаем копию
+            }
+
+            truncate(maxMessages = 50) {
+                if (this.history.length > maxMessages) {
+                    // Всегда сохраняем system prompt
+                    const system = this.history[0];
+                    const recent = this.history.slice(-(maxMessages - 1));
+                    this.history = [system, ...recent];
+
+                    console.log(`[HISTORY] ✂️ Truncated to ${maxMessages} messages`);
+                }
+            }
+
+            clear() {
+                this.history = [
+                    {
+                        role: "system",
+                        content: "Ты профессиональный ассистент. Отвечай подробно и структурированно."
+                    }
+                ];
+                this.save();
+
+                console.log('[HISTORY] 🗑️ History cleared');
+            }
+
+            getStats() {
+                const userMsgs = this.history.filter(m => m.role === 'user').length;
+                const assistantMsgs = this.history.filter(m => m.role === 'assistant').length;
+                const sizeBytes = new Blob([JSON.stringify(this.history)]).size;
+
+                return {
+                    totalMessages: this.history.length,
+                    userMessages: userMsgs,
+                    assistantMessages: assistantMsgs,
+                    storageSizeKB: (sizeBytes / 1024).toFixed(2),
+                    sessionId: this.sessionId
+                };
+            }
+        }
+
+        // ============================================================================
+        // LLM HTTP STREAMING CLIENT
+        // ============================================================================
+
+        class LLMStreamingClient {
+            constructor(serverUrl) {
+                this.serverUrl = serverUrl;
+                this.isStreaming = false;
+                this.currentController = null;
+
+                console.log(`[LLM-CLIENT] 🚀 Initialized with server: ${serverUrl}`);
+            }
+
+            async streamQuery(messages, sessionId, onChunk, onComplete, onError) {
+                if (this.isStreaming) {
+                    console.warn('[LLM-CLIENT] ⚠️ Already streaming, ignoring request');
+                    return;
+                }
+
+                this.isStreaming = true;
+                this.currentController = new AbortController();
+
+                console.log(`[LLM-CLIENT] 🚀 Starting stream (session: ${sessionId})`);
+                console.log(`[LLM-CLIENT] 📝 Sending ${messages.length} messages`);
+
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/llm/stream`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            messages: messages,
+                            session_id: sessionId,
+                            model: 'gpt-4o-mini',
+                            max_tokens: 2000,
+                            temperature: 0.7
+                        }),
+                        signal: this.currentController.signal
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    // Читаем stream
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullResponse = "";
+                    let chunkCount = 0;
+                    const startTime = Date.now();
+                    let firstChunkTime = null;
+
+                    while (true) {
+                        const {done, value} = await reader.read();
+
+                        if (done) {
+                            console.log('[LLM-CLIENT] ✅ Stream complete');
+                            break;
+                        }
+
+                        // Декодируем chunk
+                        const chunk = decoder.decode(value, {stream: true});
+                        fullResponse += chunk;
+                        chunkCount++;
+
+                        // Логируем первый chunk (latency)
+                        if (chunkCount === 1) {
+                            firstChunkTime = Date.now();
+                            const latency = (firstChunkTime - startTime) / 1000;
+                            console.log(`[LLM-CLIENT] ⚡ First chunk in ${latency.toFixed(2)}s`);
+                        }
+
+                        // Отправляем chunk в callback
+                        if (onChunk) {
+                            onChunk(chunk, fullResponse);
+                        }
+                    }
+
+                    // Завершено
+                    const totalTime = (Date.now() - startTime) / 1000;
+                    const charsPerSec = fullResponse.length / totalTime;
+
+                    console.log(
+                        `[LLM-CLIENT] 📊 Stats: ${chunkCount} chunks, ` +
+                        `${fullResponse.length} chars, ${totalTime.toFixed(2)}s, ` +
+                        `${charsPerSec.toFixed(0)} chars/sec`
+                    );
+
+                    if (onComplete) {
+                        onComplete(fullResponse);
+                    }
+
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('[LLM-CLIENT] 🛑 Stream aborted');
+                    } else {
+                        console.error('[LLM-CLIENT] ❌ Error:', error);
+                        if (onError) {
+                            onError(error);
+                        }
+                    }
+                } finally {
+                    this.isStreaming = false;
+                    this.currentController = null;
+                }
+            }
+
+            abort() {
+                if (this.currentController) {
+                    console.log('[LLM-CLIENT] 🛑 Aborting stream...');
+                    this.currentController.abort();
+                }
+            }
+        }
+
+        // ============================================================================
+        // GLOBAL INSTANCES
+        // ============================================================================
+
+        let historyManager = null;
+        let llmClient = null;
+
+        // ============================================================================
+        // WAIT FOR DOM TO BE READY
+        // ============================================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            'use strict';
+
+            // ============================================================================
+            // AUTHENTICATION CHECK
+            // ============================================================================
+            (function checkAuth() {
+                const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+
+                if (!token) {
+                    console.log('[AUTH] No token found, redirecting to login');
+                    window.location.href = '/static/index.html';
+                    return;
+                }
+
+                // Verify token with backend
+                fetch('/api/users/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Invalid token');
+                    }
+                    return response.json();
+                })
+                .then(user => {
+                    console.log('[AUTH] ✅ User authenticated:', user.email);
+                    // Token is valid, continue
+                })
+                .catch(error => {
+                    console.error('[AUTH] ❌ Auth failed:', error);
+                    localStorage.removeItem('auth_token');
+                    sessionStorage.removeItem('auth_token');
+                    window.location.href = '/static/index.html';
+                });
+            })();
+
+            // Logout button handler
+            document.getElementById('logout-button').addEventListener('click', function() {
+                localStorage.removeItem('auth_token');
+                sessionStorage.removeItem('auth_token');
+                window.location.href = '/static/index.html';
+            });
+
+            // ============================================================================
+            // CONFIGURATION
+            // ============================================================================
+            
+            const DEBUG_MODE = false;
+            const MAX_RECONNECT_ATTEMPTS = 5;
+            const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
+            const PING_INTERVAL = 15000;
+            const MOBILE_PING_INTERVAL = 10000;
+
+            // ✅ Определяем SERVER_URL из текущего location
+            const SERVER_URL = `${window.location.protocol}//${window.location.host}`;
+
+            // ✅ НОВОЕ: Инициализация history manager и LLM client
+            historyManager = new ConversationHistoryManager();
+            llmClient = new LLMStreamingClient(SERVER_URL);
+
+            console.log('[INIT] 📊 History stats:', historyManager.getStats());
+
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            const isAndroid = /Android/i.test(navigator.userAgent);
+
+            // ============================================================================
+            // CONFIG MODE DETECTION
+            // ============================================================================
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const isConfigMode = urlParams.has('config') || window.location.pathname.includes('/config');
+            
+            // ✅ ASSISTANT_ID - может быть null в режиме настройки
+            let ASSISTANT_ID = urlParams.get('assistant') || null;
+            
+            console.log('[EMBED] Mode:', isConfigMode ? 'CONFIG' : 'EMBEDDED');
+            console.log('[EMBED] Assistant ID:', ASSISTANT_ID);
+
+            // ============================================================================
+            // SHOW/HIDE CONFIG PANEL
+            // ============================================================================
+            
+            const configPanel = document.getElementById('configPanel');
+            const assistantSelect = document.getElementById('assistantSelect');
+            const saveBtn = document.getElementById('saveBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const successMessage = document.getElementById('successMessage');
+
+            if (isConfigMode) {
+                configPanel.style.display = 'block';
+                document.body.classList.add('config-mode');
+                loadAssistantsList();
+            } else {
+                if (!ASSISTANT_ID) {
+                    showError(
+                        'Отсутствует ID ассистента',
+                        'Не удалось определить конфигурацию ассистента. Проверьте правильность URL.'
+                    );
+                    return;
+                }
+            }
+
+            // ============================================================================
+            // CONFIG PANEL FUNCTIONS
+            // ============================================================================
+            
+            async function loadAssistantsList() {
+                try {
+                    const response = await fetch(`${SERVER_URL}/api/assistants`, {
+                        headers: {
+                            'Authorization': `Bearer ${getAuthToken()}`
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to load assistants');
+                    }
+                    
+                    const data = await response.json();
+                    const assistants = data.assistants || data;
+                    
+                    assistantSelect.innerHTML = '<option value="">-- Выберите ассистента --</option>';
+                    
+                    assistants.forEach(assistant => {
+                        const option = document.createElement('option');
+                        option.value = assistant.id;
+                        option.textContent = assistant.name || assistant.id;
+                        assistantSelect.appendChild(option);
+                    });
+                    
+                } catch (error) {
+                    console.error('[CONFIG] Error loading assistants:', error);
+                    assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+                }
+            }
+            
+            function getAuthToken() {
+                // ✅ Получаем токен из localStorage или cookies
+                return localStorage.getItem('auth_token') || 
+                       document.cookie.split('; ').find(row => row.startsWith('auth_token='))?.split('=')[1] ||
+                       '';
+            }
+            
+            window.saveConfig = function() {
+                const selectedAssistantId = assistantSelect.value;
+                
+                if (!selectedAssistantId) {
+                    alert('❌ Пожалуйста, выберите ассистента!');
+                    return;
+                }
+                
+                // Применяем выбранный assistant_id
+                ASSISTANT_ID = selectedAssistantId;
+                
+                // Включаем кнопку копирования
+                copyBtn.disabled = false;
+                
+                // Показываем уведомление
+                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
+                
+                // Переподключаем WebSocket с новым assistant_id
+                if (websocket) {
+                    websocket.close();
+                }
+                connectWebSocket();
+            };
+            
+            window.copyHTMLCode = function() {
+                if (!ASSISTANT_ID) {
+                    alert('❌ Сначала сохраните конфигурацию!');
+                    return;
+                }
+                
+                try {
+                    // Получаем весь HTML документа
+                    let html = document.documentElement.outerHTML;
+                    
+                    // Удаляем панель настройки
+                    html = html.replace(
+                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
+                        '<!-- MAIN INTERFACE -->'
+                    );
+                    
+                    // Удаляем success message
+                    html = html.replace(
+                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
+                        ''
+                    );
+                    
+                    // Удаляем класс config-mode
+                    html = html.replace('class="config-mode"', '');
+                    
+                    // Подставляем assistant_id в URL параметры
+                    html = html.replace(
+                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
+                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
+                    );
+                    
+                    // Удаляем логику определения config режима
+                    html = html.replace(
+                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
+                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
+                    );
+                    
+                    // Копируем в буфер обмена
+                    navigator.clipboard.writeText(html).then(() => {
+                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    }).catch(err => {
+                        // Fallback для старых браузеров
+                        const textarea = document.createElement('textarea');
+                        textarea.value = html;
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    });
+                    
+                } catch (error) {
+                    console.error('[CONFIG] Error copying HTML:', error);
+                    alert('❌ Ошибка при копировании кода: ' + error.message);
+                }
+            };
+            
+            function showSuccess(message) {
+                const successText = document.getElementById('successText');
+                successText.textContent = message;
+                successMessage.classList.add('show');
+                
+                setTimeout(() => {
+                    successMessage.classList.remove('show');
+                }, 3000);
+            }
+
+            // ============================================================================
+            // GLOBALS
+            // ============================================================================
+
+            window.audioInitialized = false;
+            window.globalAudioContext = null;
+            window.globalMicStream = null;
+            window.silentAudioBuffer = null;
+
+            let websocket = null;
+            let isConnected = false;
+            let isListening = false;
+            let audioProcessor = null;
+            let isPlayingAudio = false;
+            let audioChunksBuffer = [];
+            let audioPlaybackQueue = [];
+            let reconnectAttempts = 0;
+            let pingInterval = null;
+            let lastPingTime = Date.now();
+            let lastPongTime = Date.now();
+            let isReconnecting = false;
+
+            let hasAudioData = false;
+            let audioDataStartTime = 0;
+            const minimumAudioLength = 300;
+
+            let assistantAudioAnalyzer = null;
+            let assistantAudioSource = null;
+            let assistantVisualizationInterval = null;
+
+            let isProcessingLLM = false;
+            let llmStartTime = 0;
+
+            const interruptionState = {
+                is_assistant_speaking: false,
+                is_user_speaking: false,
+                last_speech_start: 0,
+                last_speech_stop: 0,
+                interruption_count: 0,
+                last_interruption_time: 0,
+                current_audio_elements: []
+            };
+
+            const AUDIO_CONFIG = {
+                silenceThreshold: 0.01,
+                silenceDuration: 300,
+                bufferCheckInterval: 50,
+                soundDetectionThreshold: 0.02,
+                amplificationFactor: isMobile ? 2.0 : 1.0
+            };
+
+            // DOM Elements
+            const jarvisSphere = document.getElementById('jarvisSphere');
+            const circularViz = document.getElementById('circularViz');
+            const llmContent = document.getElementById('llmContent');
+            const llmMeta = document.getElementById('llmMeta');
+            const voiceStatus = document.getElementById('voiceStatus');
+            const statusText = document.getElementById('statusText');
+            const errorContainer = document.getElementById('errorContainer');
+            const hudFrames = [
+                document.getElementById('hudTL'),
+                document.getElementById('hudTR'),
+                document.getElementById('hudBL'),
+                document.getElementById('hudBR')
+            ];
+
+            let threeScene, threeCamera, threeRenderer, threeParticles;
+            let threeInitialized = false;
+
+            // ============================================================================
+            // UTILITY FUNCTIONS
+            // ============================================================================
+            
+            function log(message, type = 'info') {
+                if (DEBUG_MODE || type === 'error') {
+                    const prefix = '[EMBED]';
+                    if (type === 'error') {
+                        console.error(`${prefix} ERROR:`, message);
+                    } else if (type === 'warn') {
+                        console.warn(`${prefix} WARNING:`, message);
+                    } else {
+                        console.log(`${prefix}`, message);
+                    }
+                }
+            }
+
+            function showError(title, text) {
+                const errorTitle = document.getElementById('errorTitle');
+                const errorText = document.getElementById('errorText');
+                
+                if (errorTitle) errorTitle.textContent = title;
+                if (errorText) errorText.textContent = text;
+                
+                errorContainer.classList.add('active');
+                
+                console.error('[EMBED] Error:', title, text);
+            }
+
+            // ============================================================================
+            // LLM FUNCTIONS
+            // ============================================================================
+            
+            function showLLMLoading(query = 'Processing...') {
+                log(`⏳ Showing LLM loading: ${query}`);
+                llmContent.innerHTML = `
+                    <div class="loading-container">
+                        <div class="loading">
+                            <div class="loading-dot"></div>
+                            <div class="loading-dot"></div>
+                            <div class="loading-dot"></div>
+                        </div>
+                        <div class="loading-text">Обрабатываю запрос с помощью ИИ...</div>
+                    </div>
+                `;
+            }
+
+            function formatMarkdown(text) {
+                if (!text) return '<p>Нет контента</p>';
+
+                return text
+                    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+                    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                    .replace(/`([^`]+)`/g, '<code>$1</code>')
+                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+                    .replace(/^\* (.+)$/gim, '<li>$1</li>')
+                    .replace(/^- (.+)$/gim, '<li>$1</li>')
+                    .replace(/\n\n/g, '</p><p>')
+                    .replace(/\n/g, '<br>');
+            }
+
+            function displayLLMContent(content, model = 'GPT-4o-mini') {
+                log('✅ Displaying LLM content');
+                
+                const formattedContent = formatMarkdown(content);
+                llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
+                llmMeta.textContent = model;
+                llmContent.scrollTop = 0;
+            }
+
+            function updateStatus(status, text, className) {
+                statusText.textContent = text;
+                voiceStatus.className = `voice-status ${className}`;
+            }
+
+            function handleFunctionExecuting(data) {
+                log(`🔧 Function executing: ${data.function || 'unknown'}`);
+                
+                if (data.function === 'query_llm') {
+                    isProcessingLLM = true;
+                    llmStartTime = Date.now();
+                    
+                    jarvisSphere.classList.add('processing');
+                    jarvisSphere.classList.remove('listening', 'speaking');
+                    
+                    showLLMLoading(data.arguments?.query || 'Processing...');
+                    
+                    updateStatus('processing', 'AI анализирует...', 'processing');
+                }
+            }
+
+            function handleLLMResult(data) {
+                log('✅ LLM Result received');
+                
+                let content = '';
+                
+                if (typeof data.content === 'string' && !data.content.startsWith('{')) {
+                    content = data.content;
+                } else if (typeof data.content === 'string') {
+                    try {
+                        const jsonStr = data.content.replace(/'/g, '"');
+                        const parsed = JSON.parse(jsonStr);
+                        content = parsed.full_response || parsed.response || parsed.answer || '';
+                    } catch (e) {
+                        content = data.content;
+                    }
+                } else if (data.full_response) {
+                    content = data.full_response;
+                }
+                
+                if (!content) {
+                    content = data.result?.full_response
+                        || data.response 
+                        || data.result?.response 
+                        || data.result?.answer
+                        || '';
+                }
+                
+                const model = data.model || data.result?.model || 'GPT-4o-mini';
+                
+                if (!content) {
+                    log('⚠️ Empty LLM content', 'warn');
+                    llmContent.innerHTML = '<p style="color: #ef4444;">Error: No content received from AI</p>';
+                    return;
+                }
+                
+                displayLLMContent(content, model);
+                
+                const processingTime = ((Date.now() - llmStartTime) / 1000).toFixed(1);
+                log(`Processing time: ${processingTime}s`);
+                
+                updateStatus('connected', `Анализ завершен (${processingTime}s)`, 'connected');
+                
+                setTimeout(() => {
+                    isProcessingLLM = false;
+                    jarvisSphere.classList.remove('processing');
+                }, 2000);
+            }
+
+            function handleFunctionCompleted(data) {
+                log(`✅ Function completed: ${data.function || 'unknown'}`);
+                
+                if (data.function === 'query_llm') {
+                    updateStatus('connected', 'Готов к разговору', 'connected');
+                }
+            }
+
+            // ============================================================================
+            // THREE.JS BACKGROUND
+            // ============================================================================
+            
+            function createCircleTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                
+                const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.5)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, 64, 64);
+                
+                const texture = new THREE.Texture(canvas);
+                texture.needsUpdate = true;
+                return texture;
+            }
+
+            function initThreeJS() {
+                try {
+                    const canvas = document.getElementById('jarvis-three-canvas');
+                    if (!canvas) return;
+
+                    threeScene = new THREE.Scene();
+                    threeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+                    threeCamera.position.z = 500;
+
+                    threeRenderer = new THREE.WebGLRenderer({
+                        canvas: canvas,
+                        alpha: true,
+                        antialias: !isMobile
+                    });
+                    threeRenderer.setSize(window.innerWidth, window.innerHeight);
+                    threeRenderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+
+                    const particleCount = isMobile ? 800 : 1500;
+                    const positions = new Float32Array(particleCount * 3);
+                    const colors = new Float32Array(particleCount * 3);
+                    const sizes = new Float32Array(particleCount);
+
+                    const colorPalette = [
+                        new THREE.Color(0x667eea),
+                        new THREE.Color(0x764ba2),
+                        new THREE.Color(0x8b5cf6)
+                    ];
+
+                    for (let i = 0; i < particleCount; i++) {
+                        const i3 = i * 3;
+                        positions[i3] = (Math.random() - 0.5) * 2000;
+                        positions[i3 + 1] = (Math.random() - 0.5) * 2000;
+                        positions[i3 + 2] = (Math.random() - 0.5) * 1500;
+
+                        const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                        colors[i3] = color.r;
+                        colors[i3 + 1] = color.g;
+                        colors[i3 + 2] = color.b;
+
+                        const distance = Math.abs(positions[i3 + 2]);
+                        sizes[i] = (1 - distance / 1500) * 4 + 0.5;
+                    }
+
+                    const particleGeometry = new THREE.BufferGeometry();
+                    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+                    const circleTexture = createCircleTexture();
+
+                    const particleMaterial = new THREE.PointsMaterial({
+                        size: isMobile ? 2 : 3,
+                        vertexColors: true,
+                        transparent: true,
+                        opacity: 0.6,
+                        sizeAttenuation: true,
+                        blending: THREE.AdditiveBlending,
+                        map: circleTexture
+                    });
+
+                    threeParticles = new THREE.Points(particleGeometry, particleMaterial);
+                    threeScene.add(threeParticles);
+
+                    threeInitialized = true;
+                    animateThreeJS();
+
+                } catch (error) {
+                    log(`Ошибка Three.JS: ${error.message}`, 'error');
+                }
+            }
+
+            function animateThreeJS() {
+                if (!threeInitialized) return;
+                requestAnimationFrame(animateThreeJS);
+
+                if (threeParticles) {
+                    threeParticles.rotation.y += 0.0002;
+                    threeParticles.rotation.x += 0.0001;
+
+                    const positions = threeParticles.geometry.attributes.position.array;
+                    for (let i = 0; i < positions.length; i += 3) {
+                        positions[i + 1] += Math.sin(Date.now() * 0.0001 + i) * 0.05;
+                        if (positions[i + 1] > 1000) positions[i + 1] = -1000;
+                        if (positions[i + 1] < -1000) positions[i + 1] = 1000;
+                    }
+                    threeParticles.geometry.attributes.position.needsUpdate = true;
+                }
+
+                threeRenderer.render(threeScene, threeCamera);
+            }
+
+            window.addEventListener('resize', function() {
+                if (!threeInitialized) return;
+                threeCamera.aspect = window.innerWidth / window.innerHeight;
+                threeCamera.updateProjectionMatrix();
+                threeRenderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // ============================================================================
+            // VISUALIZER
+            // ============================================================================
+            
+            function createCircularVisualizer() {
+                const barCount = isMobile ? 40 : 60;
+                const angleStep = 360 / barCount;
+                
+                for (let i = 0; i < barCount; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'viz-bar';
+                    bar.style.transform = `rotate(${i * angleStep}deg) translateY(-140px)`;
+                    bar.style.height = '20px';
+                    circularViz.appendChild(bar);
+                }
+            }
+
+            function updateCircularVisualization(audioData) {
+                const bars = circularViz.querySelectorAll('.viz-bar');
+                const step = Math.floor(audioData.length / bars.length);
+                
+                for (let i = 0; i < bars.length; i++) {
+                    let sum = 0;
+                    for (let j = 0; j < step; j++) {
+                        const index = i * step + j;
+                        if (index < audioData.length) {
+                            sum += Math.abs(audioData[index]);
+                        }
+                    }
+                    const average = sum / step;
+                    const multiplier = isMobile ? 300 : 200;
+                    const height = 20 + Math.min(80, Math.floor(average * multiplier));
+                    bars[i].style.height = `${height}px`;
+                }
+            }
+
+            function resetCircularVisualization() {
+                const bars = circularViz.querySelectorAll('.viz-bar');
+                bars.forEach(bar => {
+                    bar.style.height = '20px';
+                });
+            }
+
+            // ============================================================================
+            // AUDIO FUNCTIONS
+            // ============================================================================
+            
+            function arrayBufferToBase64(buffer) {
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return btoa(binary);
+            }
+
+            function base64ToArrayBuffer(base64) {
+                try {
+                    const binaryString = atob(base64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    return bytes.buffer;
+                } catch (e) {
+                    log(`Ошибка декодирования base64: ${e.message}`, 'error');
+                    return new ArrayBuffer(0);
+                }
+            }
+
+            function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
+                const wavHeader = new ArrayBuffer(44);
+                const view = new DataView(wavHeader);
+                
+                view.setUint8(0, 'R'.charCodeAt(0));
+                view.setUint8(1, 'I'.charCodeAt(0));
+                view.setUint8(2, 'F'.charCodeAt(0));
+                view.setUint8(3, 'F'.charCodeAt(0));
+                view.setUint32(4, 36 + pcmBuffer.byteLength, true);
+                view.setUint8(8, 'W'.charCodeAt(0));
+                view.setUint8(9, 'A'.charCodeAt(0));
+                view.setUint8(10, 'V'.charCodeAt(0));
+                view.setUint8(11, 'E'.charCodeAt(0));
+                view.setUint8(12, 'f'.charCodeAt(0));
+                view.setUint8(13, 'm'.charCodeAt(0));
+                view.setUint8(14, 't'.charCodeAt(0));
+                view.setUint8(15, ' '.charCodeAt(0));
+                view.setUint32(16, 16, true);
+                view.setUint16(20, 1, true);
+                view.setUint16(22, 1, true);
+                view.setUint32(24, sampleRate, true);
+                view.setUint32(28, sampleRate * 2, true);
+                view.setUint16(32, 2, true);
+                view.setUint16(34, 16, true);
+                view.setUint8(36, 'd'.charCodeAt(0));
+                view.setUint8(37, 'a'.charCodeAt(0));
+                view.setUint8(38, 't'.charCodeAt(0));
+                view.setUint8(39, 'a'.charCodeAt(0));
+                view.setUint32(40, pcmBuffer.byteLength, true);
+                
+                const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
+                const wavBytes = new Uint8Array(wavBuffer);
+                wavBytes.set(new Uint8Array(wavHeader), 0);
+                wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
+                
+                return wavBuffer;
+            }
+
+            async function initializeAudio() {
+                log('Начало инициализации аудио');
+                
+                try {
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error("Браузер не поддерживает доступ к микрофону");
+                    }
+
+                    if (!window.globalAudioContext) {
+                        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                        window.globalAudioContext = new AudioContextClass({
+                            sampleRate: 24000,
+                            latencyHint: 'interactive'
+                        });
+                        log(`AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
+                    }
+
+                    if (window.globalAudioContext.state === 'suspended') {
+                        await window.globalAudioContext.resume();
+                        log('AudioContext активирован');
+                    }
+
+                    if (!window.globalMicStream) {
+                        const constraints = {
+                            audio: {
+                                echoCancellation: true,
+                                noiseSuppression: true,
+                                autoGainControl: true,
+                                sampleRate: 24000,
+                                channelCount: 1
+                            }
+                        };
+
+                        window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+                        log('Микрофон активирован');
+
+                        window.globalMicStream.getAudioTracks().forEach(track => {
+                            track.onended = () => {
+                                log('Поток микрофона завершен');
+                                window.globalMicStream = null;
+                            };
+                        });
+                    }
+
+                    if (isIOS && !window.silentAudioBuffer) {
+                        try {
+                            window.silentAudioBuffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
+                            const silentSource = window.globalAudioContext.createBufferSource();
+                            silentSource.buffer = window.silentAudioBuffer;
+                            silentSource.connect(window.globalAudioContext.destination);
+                            silentSource.start(0);
+                            log('iOS: Буфер тишины воспроизведен');
+                        } catch (iosError) {
+                            log(`Ошибка буфера тишины: ${iosError.message}`, 'warn');
+                        }
+                    }
+
+                    window.audioInitialized = true;
+                    log('Инициализация аудио завершена успешно');
+                    return true;
+
+                } catch (error) {
+                    log(`Ошибка инициализации аудио: ${error.message}`, 'error');
+                    showError(
+                        'Ошибка доступа к микрофону',
+                        'Разрешите доступ к микрофону в настройках браузера для работы голосового ассистента.'
+                    );
+                    return false;
+                }
+            }
+
+            function playNextAudio() {
+                if (audioPlaybackQueue.length === 0) {
+                    isPlayingAudio = false;
+                    interruptionState.is_assistant_speaking = false;
+                    jarvisSphere.classList.remove('speaking');
+                    
+                    if (!isProcessingLLM) {
+                        setTimeout(() => {
+                            startListening();
+                        }, 400);
+                    }
+                    return;
+                }
+                
+                isPlayingAudio = true;
+                interruptionState.is_assistant_speaking = true;
+                jarvisSphere.classList.add('speaking');
+                jarvisSphere.classList.remove('listening', 'processing');
+                
+                const audioBase64 = audioPlaybackQueue.shift();
+                
+                try {
+                    const audioData = base64ToArrayBuffer(audioBase64);
+                    if (audioData.byteLength === 0) {
+                        playNextAudio();
+                        return;
+                    }
+                    
+                    const wavBuffer = createWavFromPcm(audioData);
+                    const blob = new Blob([wavBuffer], { type: 'audio/wav' });
+                    const audioUrl = URL.createObjectURL(blob);
+                    
+                    const audio = new Audio();
+                    audio.playsInline = true;
+                    audio.muted = false;
+                    audio.volume = 1.0;
+                    audio.preload = 'auto';
+                    audio.src = audioUrl;
+                    audio.crossOrigin = 'anonymous';
+                    
+                    interruptionState.current_audio_elements = interruptionState.current_audio_elements || [];
+                    interruptionState.current_audio_elements.push(audio);
+                    
+                    audio.oncanplay = function() {
+                        if (!interruptionState.is_assistant_speaking) {
+                            URL.revokeObjectURL(audioUrl);
+                            playNextAudio();
+                            return;
+                        }
+                        
+                        if (isIOS && window.globalAudioContext && window.globalAudioContext.state === 'suspended') {
+                            window.globalAudioContext.resume().then(() => {
+                                audio.play().catch(err => {
+                                    log(`Ошибка воспроизведения: ${err.message}`, 'error');
+                                    URL.revokeObjectURL(audioUrl);
+                                    playNextAudio();
+                                });
+                            });
+                        } else {
+                            audio.play().catch(err => {
+                                log(`Ошибка воспроизведения: ${err.message}`, 'error');
+                                URL.revokeObjectURL(audioUrl);
+                                playNextAudio();
+                            });
+                        }
+                    };
+                    
+                    audio.onended = function() {
+                        URL.revokeObjectURL(audioUrl);
+                        const index = interruptionState.current_audio_elements.indexOf(audio);
+                        if (index > -1) {
+                            interruptionState.current_audio_elements.splice(index, 1);
+                        }
+                        playNextAudio();
+                    };
+                    
+                    audio.onerror = function() {
+                        URL.revokeObjectURL(audioUrl);
+                        playNextAudio();
+                    };
+                    
+                    audio.load();
+                    
+                } catch (error) {
+                    log(`Ошибка создания аудио: ${error.message}`, 'error');
+                    playNextAudio();
+                }
+            }
+
+            function addAudioToPlaybackQueue(audioBase64) {
+                if (!audioBase64 || typeof audioBase64 !== 'string') return;
+                
+                audioPlaybackQueue.push(audioBase64);
+                
+                if (!isPlayingAudio) {
+                    playNextAudio();
+                }
+            }
+
+            function stopAllAudioPlayback() {
+                log('Остановка всех аудио воспроизведений');
+                
+                isPlayingAudio = false;
+                interruptionState.is_assistant_speaking = false;
+                
+                if (interruptionState.current_audio_elements) {
+                    interruptionState.current_audio_elements.forEach(audio => {
+                        try {
+                            audio.pause();
+                            audio.currentTime = 0;
+                            if (audio.src && audio.src.startsWith('blob:')) {
+                                URL.revokeObjectURL(audio.src);
+                            }
+                        } catch (e) {}
+                    });
+                }
+                
+                interruptionState.current_audio_elements = [];
+                audioPlaybackQueue = [];
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        websocket.send(JSON.stringify({
+                            type: "audio_playback.stopped",
+                            timestamp: Date.now()
+                        }));
+                    } catch (e) {}
+                }
+            }
+
+            async function startListening() {
+                if (!isConnected || isPlayingAudio || isReconnecting || isListening || isProcessingLLM) {
+                    return;
+                }
+                
+                if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
+                    const success = await initializeAudio();
+                    if (!success) {
+                        return;
+                    }
+                }
+                
+                isListening = true;
+                log('Начинаем прослушивание');
+                
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({
+                        type: "input_audio_buffer.clear",
+                        event_id: `clear_${Date.now()}`
+                    }));
+                }
+                
+                if (window.globalAudioContext.state === 'suspended') {
+                    try {
+                        await window.globalAudioContext.resume();
+                    } catch (error) {
+                        log(`Не удалось возобновить AudioContext: ${error}`, 'error');
+                        isListening = false;
+                        return;
+                    }
+                }
+                
+                if (!audioProcessor) {
+                    const bufferSize = 2048;
+                    audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
+                    
+                    let isSilent = true;
+                    let silenceStartTime = Date.now();
+                    let lastCommitTime = 0;
+                    let hasSentAudioInCurrentSegment = false;
+                    
+                    audioProcessor.onaudioprocess = function(e) {
+                        if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
+                            const inputBuffer = e.inputBuffer;
+                            let inputData = inputBuffer.getChannelData(0);
+                            
+                            if (inputData.length === 0) return;
+                            
+                            let maxAmplitude = 0;
+                            for (let i = 0; i < inputData.length; i++) {
+                                maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+                            }
+                            
+                            if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
+                                const amplifiedData = new Float32Array(inputData.length);
+                                const gainFactor = AUDIO_CONFIG.amplificationFactor;
+                                
+                                for (let i = 0; i < inputData.length; i++) {
+                                    amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gainFactor));
+                                }
+                                
+                                inputData = amplifiedData;
+                                maxAmplitude = 0;
+                                for (let i = 0; i < inputData.length; i++) {
+                                    maxAmplitude = Math.max(maxAmplitude, Math.abs(inputData[i]));
+                                }
+                            }
+                            
+                            const hasSound = maxAmplitude > AUDIO_CONFIG.soundDetectionThreshold;
+                            updateCircularVisualization(inputData);
+                            
+                            const pcm16Data = new Int16Array(inputData.length);
+                            for (let i = 0; i < inputData.length; i++) {
+                                pcm16Data[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
+                            }
+                            
+                            try {
+                                const message = JSON.stringify({
+                                    type: "input_audio_buffer.append",
+                                    event_id: `audio_${Date.now()}`,
+                                    audio: arrayBufferToBase64(pcm16Data.buffer)
+                                });
+                                
+                                websocket.send(message);
+                                hasSentAudioInCurrentSegment = true;
+                                
+                                if (!hasAudioData && hasSound) {
+                                    hasAudioData = true;
+                                    audioDataStartTime = Date.now();
+                                }
+                                
+                            } catch (error) {
+                                log(`Ошибка отправки аудио: ${error.message}`, "error");
+                            }
+                            
+                            const now = Date.now();
+                            
+                            if (hasSound) {
+                                isSilent = false;
+                                silenceStartTime = now;
+                                
+                                if (!jarvisSphere.classList.contains('listening') && 
+                                    !jarvisSphere.classList.contains('speaking') &&
+                                    !jarvisSphere.classList.contains('processing')) {
+                                    jarvisSphere.classList.add('listening');
+                                }
+                            } else if (!isSilent) {
+                                const silenceDuration = now - silenceStartTime;
+                                
+                                if (silenceDuration > AUDIO_CONFIG.silenceDuration) {
+                                    isSilent = true;
+                                    
+                                    if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
+                                        setTimeout(() => {
+                                            if (isSilent && isListening && !isReconnecting) {
+                                                commitAudioBuffer();
+                                                lastCommitTime = Date.now();
+                                                hasSentAudioInCurrentSegment = false;
+                                            }
+                                        }, 100);
+                                    }
+                                }
+                            }
+                        }
+                    };
+                    
+                    const streamSource = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
+                    streamSource.connect(audioProcessor);
+                    
+                    const gainNode = window.globalAudioContext.createGain();
+                    gainNode.gain.value = 0;
+                    audioProcessor.connect(gainNode);
+                    gainNode.connect(window.globalAudioContext.destination);
+                }
+                
+                hasAudioData = false;
+                audioDataStartTime = 0;
+                
+                if (!isPlayingAudio && !isProcessingLLM) {
+                    jarvisSphere.classList.add('listening');
+                    jarvisSphere.classList.remove('speaking', 'processing');
+                }
+                
+                log("Прослушивание начато успешно");
+            }
+
+            function commitAudioBuffer() {
+                if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
+                
+                if (!hasAudioData) {
+                    return;
+                }
+                
+                const audioLength = Date.now() - audioDataStartTime;
+                if (audioLength < minimumAudioLength) {
+                    setTimeout(() => {
+                        if (isListening && hasAudioData && !isReconnecting) {
+                            sendCommitBuffer();
+                        }
+                    }, minimumAudioLength - audioLength + 50);
+                    return;
+                }
+                
+                sendCommitBuffer();
+            }
+            
+            function sendCommitBuffer() {
+                const audioLength = Date.now() - audioDataStartTime;
+                if (audioLength < 100) {
+                    hasAudioData = false;
+                    audioDataStartTime = 0;
+                    return;
+                }
+                
+                jarvisSphere.classList.remove('listening');
+                
+                websocket.send(JSON.stringify({
+                    type: "input_audio_buffer.commit",
+                    event_id: `commit_${Date.now()}`
+                }));
+                
+                hasAudioData = false;
+                audioDataStartTime = 0;
+            }
+
+            // ============================================================================
+            // WEBSOCKET CONNECTION
+            // ============================================================================
+            
+            async function connectWebSocket() {
+                // ✅ В режиме конфигурации без assistant_id не подключаемся
+                if (isConfigMode && !ASSISTANT_ID) {
+                    log('Config mode without assistant_id - waiting for configuration');
+                    updateStatus('connecting', 'Выберите ассистента', 'connecting');
+                    return;
+                }
+
+                if (!ASSISTANT_ID) {
+                    showError(
+                        'Отсутствует ID ассистента',
+                        'Не удалось определить конфигурацию ассистента.'
+                    );
+                    return;
+                }
+
+                try {
+                    const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
+                    const wsUrlWithSession = `${WS_URL}?session=${historyManager.sessionId}`;
+
+                    log('Подключение к WebSocket...');
+                    log(`URL: ${wsUrlWithSession}`);
+                    console.log(`[WS] 🔗 Connecting with session: ${historyManager.sessionId}`);
+
+                    isReconnecting = true;
+
+                    if (websocket) {
+                        try {
+                            websocket.close();
+                        } catch (e) {}
+                    }
+
+                    if (pingInterval) {
+                        clearInterval(pingInterval);
+                        pingInterval = null;
+                    }
+
+                    websocket = new WebSocket(wsUrlWithSession);
+                    websocket.binaryType = 'arraybuffer';
+                    
+                    websocket.onopen = function() {
+                        log('WebSocket подключен');
+                        isConnected = true;
+                        isReconnecting = false;
+                        reconnectAttempts = 0;
+                        
+                        hudFrames.forEach(frame => frame.classList.add('active'));
+                        updateStatus('connected', 'Готов', 'connected');
+                        
+                        setTimeout(() => {
+                            startListening();
+                        }, 500);
+                        
+                        const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
+                        pingInterval = setInterval(() => {
+                            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                                websocket.send(JSON.stringify({ type: "ping" }));
+                            }
+                        }, pingIntervalTime);
+                    };
+                    
+                    websocket.onmessage = function(event) {
+                        try {
+                            if (event.data instanceof Blob || !event.data) return;
+
+                            try {
+                                const data = JSON.parse(event.data);
+                                lastPongTime = Date.now();
+
+                                // 🆕 НОВОЕ: Обработка trigger события для LLM streaming
+                                if (data.type === 'llm_query.trigger') {
+                                    console.log('[WS] 🎯 LLM query triggered:', data.query);
+
+                                    // Добавляем вопрос в localStorage историю
+                                    historyManager.addUserMessage(data.query);
+
+                                    // Показываем loading
+                                    showLLMLoading(data.query);
+
+                                    // Запускаем HTTP streaming
+                                    llmClient.streamQuery(
+                                        historyManager.getMessages(),
+                                        historyManager.sessionId,
+
+                                        // onChunk callback - рендерим в реальном времени
+                                        (chunk, fullText) => {
+                                            llmContent.innerHTML = formatMarkdown(fullText);
+                                            llmContent.scrollTop = llmContent.scrollHeight;
+                                        },
+
+                                        // onComplete callback - сохраняем ответ
+                                        (fullResponse) => {
+                                            historyManager.addAssistantMessage(fullResponse);
+                                            llmMeta.textContent = 'gpt-4o-mini';
+                                            updateStatus('connected', 'Готов к разговору', 'connected');
+
+                                            console.log('[LLM] ✅ Query completed');
+                                            console.log('[LLM] 📊 Stats:', historyManager.getStats());
+                                        },
+
+                                        // onError callback
+                                        (error) => {
+                                            console.error('[LLM] ❌ Error:', error);
+                                            llmContent.innerHTML = `
+                                                <p style="color: #ef4444;">
+                                                    ❌ Ошибка при получении ответа: ${error.message}
+                                                </p>
+                                            `;
+                                        }
+                                    );
+
+                                    return;
+                                }
+
+                                // LLM Event Handlers
+                                if (data.type === 'function_call.executing') {
+                                    handleFunctionExecuting(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'llm_result') {
+                                    handleLLMResult(data);
+                                    return;
+                                }
+                                
+                                if (data.type === 'function_call.completed') {
+                                    handleFunctionCompleted(data);
+                                    return;
+                                }
+                                
+                                // Audio events
+                                if (data.type === 'response.audio.delta') {
+                                    if (data.delta) {
+                                        audioChunksBuffer.push(data.delta);
+                                    }
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.audio.done') {
+                                    if (audioChunksBuffer.length > 0) {
+                                        const fullAudio = audioChunksBuffer.join('');
+                                        addAudioToPlaybackQueue(fullAudio);
+                                        audioChunksBuffer = [];
+                                    }
+                                    return;
+                                }
+                                
+                                if (data.type === 'response.done') {
+                                    if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                                        setTimeout(() => {
+                                            startListening();
+                                        }, 400);
+                                    }
+                                    return;
+                                }
+                                
+                                if (data.type === 'error') {
+                                    log(`OpenAI API Error: ${JSON.stringify(data.error)}`, 'error');
+                                    
+                                    if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
+                                        if (!isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                                            setTimeout(() => { 
+                                                startListening(); 
+                                            }, 500);
+                                        }
+                                        return;
+                                    }
+                                    
+                                    updateStatus('error', 'Ошибка API', 'error');
+                                    return;
+                                }
+                                
+                            } catch (parseError) {
+                                if (event.data === 'pong') {
+                                    lastPongTime = Date.now();
+                                    return;
+                                }
+                            }
+                        } catch (generalError) {
+                            log(`Ошибка обработки: ${generalError.message}`, "error");
+                        }
+                    };
+                    
+                    websocket.onclose = function(event) {
+                        log(`WebSocket закрыт: ${event.code}`);
+                        isConnected = false;
+                        isListening = false;
+                        
+                        if (pingInterval) {
+                            clearInterval(pingInterval);
+                            pingInterval = null;
+                        }
+                        
+                        if (event.code === 1000 || event.code === 1001) {
+                            return;
+                        }
+                        
+                        const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+                        if (reconnectAttempts < maxAttempts) {
+                            reconnectAttempts++;
+                            const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
+                            log(`Переподключение через ${delay}ms (попытка ${reconnectAttempts}/${maxAttempts})`);
+                            updateStatus('connecting', 'Переподключение...', 'connecting');
+                            setTimeout(() => {
+                                connectWebSocket();
+                            }, delay);
+                        } else {
+                            log('Достигнут лимит попыток переподключения', 'error');
+                            updateStatus('error', 'Ошибка подключения', 'error');
+                            showError(
+                                'Ошибка подключения',
+                                'Не удалось подключиться к серверу. Пожалуйста, обновите страницу.'
+                            );
+                        }
+                    };
+                    
+                    websocket.onerror = function(error) {
+                        log(`WebSocket ошибка: ${error}`, 'error');
+                    };
+                    
+                    return true;
+                    
+                } catch (error) {
+                    log(`Ошибка подключения: ${error}`, 'error');
+                    isReconnecting = false;
+                    return false;
+                }
+            }
+
+            // ============================================================================
+            // CLICK HANDLER
+            // ============================================================================
+            
+            jarvisSphere.addEventListener('click', async function() {
+                if (!window.audioInitialized) {
+                    log('Инициализация аудио по клику');
+                    const success = await initializeAudio();
+                    if (!success) {
+                        return;
+                    }
+                }
+                
+                if (!isListening && !isPlayingAudio && !isReconnecting && !isProcessingLLM) {
+                    if (isConnected) {
+                        startListening();
+                    } else {
+                        connectWebSocket();
+                    }
+                }
+            });
+
+            // ============================================================================
+            // INITIALIZATION
+            // ============================================================================
+            
+            log('🚀 Voice AI Assistant Starting...');
+            log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
+            log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
+            log(`Server URL: ${SERVER_URL}`);
+            
+            createCircularVisualizer();
+            initThreeJS();
+            
+            // Подключаемся только если НЕ config режим или если уже выбран assistant
+            if (!isConfigMode || ASSISTANT_ID) {
+                connectWebSocket();
+            }
+        });
+    </script>
+</body>
+</html>
