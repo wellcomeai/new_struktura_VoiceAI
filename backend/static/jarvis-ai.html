@@ -121,19 +121,6 @@
             border-top: 1px solid #e2e8f0;
         }
 
-        .locked-feature {
-            opacity: 0.6;
-            cursor: not-allowed;
-            position: relative;
-        }
-
-        .locked-feature::after {
-            content: "🔒";
-            font-size: 0.875rem;
-            position: absolute;
-            right: 1.5rem;
-        }
-
         .beta-badge {
             background: linear-gradient(135deg, #f093fb, #f5576c);
             color: white;
@@ -144,6 +131,47 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-left: 8px;
+        }
+
+        /* Assistant Selector Dropdown */
+        .assistant-selector {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .assistant-selector label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+            white-space: nowrap;
+        }
+
+        .assistant-dropdown {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+            color: #1e293b;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .assistant-dropdown:hover {
+            border-color: #94a3b8;
+        }
+
+        .assistant-dropdown:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
 
         .btn {
@@ -1121,16 +1149,16 @@
             <a href="/static/dashboard.html" class="sidebar-nav-item">
                 <i class="fas fa-home"></i> Дашборд
             </a>
-            <a href="/static/agents.html" class="sidebar-nav-item locked-feature" id="agents-nav-item">
+            <a href="/static/agents.html" class="sidebar-nav-item">
                 <i class="fas fa-robot"></i> Мои агенты
             </a>
-            <a href="/static/knowledge-base.html" class="sidebar-nav-item locked-feature" id="knowledge-nav-item">
+            <a href="/static/knowledge-base.html" class="sidebar-nav-item">
                 <i class="fas fa-book"></i> База знаний
             </a>
-            <a href="/static/outbound-calls.html" class="sidebar-nav-item locked-feature" id="outbound-nav-item">
+            <a href="/static/outbound-calls.html" class="sidebar-nav-item">
                 <i class="fas fa-phone-alt"></i> Исходящие звонки
             </a>
-            <a href="/static/conversations.html" class="sidebar-nav-item locked-feature" id="conversations-nav-item">
+            <a href="/static/conversations.html" class="sidebar-nav-item">
                 <i class="fas fa-comments"></i> Диалоги
             </a>
             <a href="/static/jarvis-ai.html" class="sidebar-nav-item active">
@@ -1208,6 +1236,14 @@
             <div class="logo-icon">🎤</div>
             <div class="logo-text" id="headerTitle">JARVIS AI</div>
             <div class="header-subtitle" id="headerSubtitle">Голосовой ассистент + LLM</div>
+        </div>
+
+        <!-- Assistant Selector -->
+        <div class="assistant-selector" style="max-width: 1200px; margin: 20px auto 0;">
+            <label for="assistantDropdown">Выберите ассистента:</label>
+            <select id="assistantDropdown" class="assistant-dropdown">
+                <option value="">Загрузка...</option>
+            </select>
         </div>
 
         <!-- Error Container -->
@@ -2627,22 +2663,135 @@
             }
 
             // ============================================================================
-            // WEBSOCKET CONNECTION
+            // ASSISTANT MANAGEMENT
             // ============================================================================
-            
-            async function connectWebSocket() {
-                // ✅ В режиме конфигурации без assistant_id не подключаемся
-                if (isConfigMode && !ASSISTANT_ID) {
-                    log('Config mode without assistant_id - waiting for configuration');
-                    updateStatus('connecting', 'Выберите ассистента', 'connecting');
+
+            async function loadAssistantsList() {
+                console.log('[ASSISTANT] Loading assistants list...');
+
+                const dropdown = document.getElementById('assistantDropdown');
+                const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+
+                if (!token) {
+                    console.error('[ASSISTANT] No auth token found');
+                    dropdown.innerHTML = '<option value="">Ошибка: не авторизован</option>';
                     return;
                 }
 
+                try {
+                    // Fetch assistants from API
+                    const response = await fetch('/api/assistants/', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const assistants = await response.json();
+                    console.log(`[ASSISTANT] Loaded ${assistants.length} assistants`);
+
+                    // Clear dropdown
+                    dropdown.innerHTML = '';
+
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Выберите ассистента...';
+                    dropdown.appendChild(defaultOption);
+
+                    // Add assistants
+                    assistants.forEach(assistant => {
+                        const option = document.createElement('option');
+                        option.value = assistant.id;
+                        option.textContent = `${assistant.name}${assistant.is_default ? ' (по умолчанию)' : ''}`;
+                        dropdown.appendChild(option);
+                    });
+
+                    // Load saved selection from localStorage
+                    const savedAssistantId = localStorage.getItem('selected_assistant_id');
+                    if (savedAssistantId) {
+                        dropdown.value = savedAssistantId;
+                        ASSISTANT_ID = savedAssistantId;
+                        console.log(`[ASSISTANT] Restored saved selection: ${savedAssistantId}`);
+                    } else if (assistants.length > 0) {
+                        // If no saved selection, select first assistant or default
+                        const defaultAssistant = assistants.find(a => a.is_default) || assistants[0];
+                        dropdown.value = defaultAssistant.id;
+                        ASSISTANT_ID = defaultAssistant.id;
+                        localStorage.setItem('selected_assistant_id', defaultAssistant.id);
+                        console.log(`[ASSISTANT] Auto-selected: ${defaultAssistant.name}`);
+                    }
+
+                    // Setup change handler
+                    dropdown.addEventListener('change', async (e) => {
+                        const newAssistantId = e.target.value;
+
+                        if (!newAssistantId) {
+                            console.log('[ASSISTANT] No assistant selected');
+                            return;
+                        }
+
+                        console.log(`[ASSISTANT] Switching to: ${newAssistantId}`);
+
+                        // Disconnect current WebSocket
+                        if (websocket) {
+                            console.log('[ASSISTANT] Closing existing WebSocket...');
+                            websocket.close();
+                            websocket = null;
+                        }
+
+                        // Clear conversation history
+                        historyManager.clear();
+                        console.log('[ASSISTANT] Cleared conversation history');
+
+                        // Clear LLM display
+                        const llmContent = document.getElementById('llmContent');
+                        llmContent.innerHTML = `
+                            <div class="llm-placeholder">
+                                <span class="placeholder-icon">✨</span>
+                                <div class="placeholder-title">Задайте вопрос голосовому ассистенту</div>
+                                <div class="placeholder-text">
+                                    Нажмите на сферу JARVIS справа и произнесите ваш вопрос.
+                                    Для сложных задач ассистент автоматически получит развернутый ответ от языковой модели.
+                                </div>
+                            </div>
+                        `;
+
+                        // Update ASSISTANT_ID
+                        ASSISTANT_ID = newAssistantId;
+                        localStorage.setItem('selected_assistant_id', newAssistantId);
+
+                        // Reconnect WebSocket
+                        updateStatus('connecting', 'Подключение к новому ассистенту...', 'connecting');
+                        await connectWebSocket();
+
+                        console.log('[ASSISTANT] ✅ Successfully switched assistant');
+                    });
+
+                    // Auto-connect if we have an assistant selected
+                    if (ASSISTANT_ID) {
+                        console.log('[ASSISTANT] Auto-connecting to selected assistant...');
+                        await connectWebSocket();
+                    }
+
+                } catch (error) {
+                    console.error('[ASSISTANT] Error loading assistants:', error);
+                    dropdown.innerHTML = '<option value="">Ошибка загрузки</option>';
+                }
+            }
+
+            // ============================================================================
+            // WEBSOCKET CONNECTION
+            // ============================================================================
+
+            async function connectWebSocket() {
+                // ✅ Проверяем наличие assistant_id перед подключением
                 if (!ASSISTANT_ID) {
-                    showError(
-                        'Отсутствует ID ассистента',
-                        'Не удалось определить конфигурацию ассистента.'
-                    );
+                    log('No assistant_id - waiting for selection');
+                    updateStatus('connecting', 'Выберите ассистента из списка', 'connecting');
                     return;
                 }
 
@@ -2884,19 +3033,17 @@
             // ============================================================================
             // INITIALIZATION
             // ============================================================================
-            
+
             log('🚀 Voice AI Assistant Starting...');
             log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
             log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
             log(`Server URL: ${SERVER_URL}`);
-            
+
             createCircularVisualizer();
             initThreeJS();
-            
-            // Подключаемся только если НЕ config режим или если уже выбран assistant
-            if (!isConfigMode || ASSISTANT_ID) {
-                connectWebSocket();
-            }
+
+            // ✅ Загружаем список ассистентов (автоматически подключится к выбранному)
+            loadAssistantsList();
         });
     </script>
 </body>
