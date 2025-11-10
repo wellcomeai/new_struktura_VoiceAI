@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
 
-from backend.core.database import get_db
+from backend.db.session import get_db  # ✅ ИСПРАВЛЕНО
 from backend.models.embed_config import EmbedConfig
 from backend.models.assistant import AssistantConfig
 from backend.models.user import User
@@ -138,7 +138,7 @@ async def update_embed_config(
 # 🌐 PUBLIC ENDPOINT (Отдача HTML страницы)
 # ==================================================================================
 
-@router.get("/{embed_code}", response_class=HTMLResponse)
+@router.get("/embed/{embed_code}", response_class=HTMLResponse)
 async def serve_embed_page(
     embed_code: str,
     db: Session = Depends(get_db)
@@ -192,11 +192,5 @@ async def serve_embed_page(
         'const ASSISTANT_ID = "17c631ce-0db1-4171-a81d-22d91d4cccd7";',
         f'const ASSISTANT_ID = "{assistant_id}";'
     )
-    
-    # 🔥 ПОДСТАНОВКА SERVER_URL (если нужно)
-    # html_content = html_content.replace(
-    #     'const SERVER_URL = "https://voicyfy.ru";',
-    #     f'const SERVER_URL = "{request.base_url.scheme}://{request.host}";'
-    # )
     
     return HTMLResponse(content=html_content)
