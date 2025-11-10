@@ -22,7 +22,7 @@ from .function_log import FunctionLog
 
 # ✅ НОВОЕ: Импортируем модель для верификации email
 from .email_verification import EmailVerification
-
+from .embed_config import EmbedConfig
 # Export specific models
 __all__ = [
     "Base", 
@@ -43,5 +43,6 @@ __all__ = [
     "ElevenLabsConversation",
     "FunctionLog",
     # ✅ НОВОЕ: Email верификация
-    "EmailVerification"
+    "EmailVerification",
+    "EmbedConfig"
 ]
