@@ -3,6 +3,7 @@ FastAPI application initialization for WellcomeAI.
 This file configures all application components: routes, middleware, logging, etc.
 🆕 v2.0: Added Conversations API support
 ✅ v2.1: Added Email Verification API support
+✅ v2.2: Added Embeds API support (embeddable pages)
 """
 import os
 import asyncio
@@ -22,7 +23,8 @@ from backend.api import (
     auth, users, assistants, files, websocket, healthcheck, 
     subscriptions, subscription_logs, admin, partners, 
     knowledge_base, payments, voximplant, elevenlabs, conversations,
-    email_verification  # ✅ ДОБАВЛЕНО: email_verification
+    email_verification,  # ✅ Email Verification
+    embeds  # ✅ НОВОЕ: Embeds API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -51,7 +53,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
     description="API for managing personalized voice assistants based on OpenAI",
-    version="1.0.0",
+    version="2.2.0",  # ✅ Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
@@ -96,7 +98,7 @@ if PSUTIL_AVAILABLE:
     async def monitor_resources(request: Request, call_next):
         """Monitor memory usage for each request"""
         # Пропускаем health checks и статику
-        if request.url.path in ["/health", "/api/health"] or request.url.path.startswith("/static"):
+        if request.url.path in ["/health", "/api/health"] or request.url.path.startswith("/static") or request.url.path.startswith("/embed"):
             return await call_next(request)
         
         try:
@@ -143,7 +145,8 @@ app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplan
 app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
-app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])  # ✅ ДОБАВЛЕНО
+app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
+app.include_router(embeds.router, tags=["Embeds"])  # ✅ НОВОЕ: Embeds API (без prefix - есть /api/embeds в роутере и /embed/{code} для публичного доступа)
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
 def ensure_static_directories():
@@ -271,27 +274,6 @@ def create_elevenlabs_tables():
             else:
                 logger.info(f"✅ Table {table_name} already exists")
         
-        # ✅ ФИНАЛЬНАЯ ПРОВЕРКА
-        logger.info("🔍 Final verification...")
-        
-        # Проверяем что колонка elevenlabs_api_key создалась
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(text("""
-                    SELECT column_name, data_type, is_nullable 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'users' AND column_name = 'elevenlabs_api_key'
-                """))
-                
-                row = result.fetchone()
-                if row:
-                    logger.info(f"✅ Column elevenlabs_api_key verified: {row[1]}, nullable: {row[2]}")
-                else:
-                    logger.error("❌ Column elevenlabs_api_key not found after creation attempt")
-                    
-        except Exception as verify_error:
-            logger.error(f"❌ Error during final verification: {str(verify_error)}")
-        
         logger.info("✅ ElevenLabs tables and columns setup completed")
         
     except Exception as e:
@@ -315,7 +297,7 @@ def check_and_fix_all_missing_columns():
         schema_fixes = {
             'users': {
                 'elevenlabs_api_key': 'VARCHAR NULL',
-                'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',  # ✅ ДОБАВЛЕНО: email_verified
+                'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
                 'caller_number': 'VARCHAR(50) NULL',
@@ -393,12 +375,101 @@ def create_email_verification_table():
         if not settings.PRODUCTION:
             raise
 
+# ✅ НОВАЯ ФУНКЦИЯ: Создание таблицы embed_configs
+def create_embed_configs_table():
+    """
+    Create embed_configs table if it doesn't exist
+    
+    This table stores configurations for embeddable pages.
+    """
+    try:
+        from backend.models.embed_config import EmbedConfig
+        from backend.models.base import Base
+        from sqlalchemy import inspect, text
+        
+        logger.info("🎨 Checking embed_configs table...")
+        
+        inspector = inspect(engine)
+        
+        if not inspector.has_table('embed_configs'):
+            logger.info("➕ Creating embed_configs table...")
+            EmbedConfig.__table__.create(engine)
+            logger.info("✅ embed_configs table created successfully")
+            
+            # ✅ Создаем функцию генерации кодов и триггер
+            logger.info("➕ Creating embed_code generator function and trigger...")
+            
+            try:
+                with engine.connect() as conn:
+                    trans = conn.begin()
+                    try:
+                        # Функция генерации кода
+                        conn.execute(text("""
+                            CREATE OR REPLACE FUNCTION generate_embed_code() 
+                            RETURNS TEXT AS $$
+                            DECLARE
+                                new_code TEXT;
+                                code_exists BOOLEAN;
+                            BEGIN
+                                LOOP
+                                    new_code := 'w_' || substr(md5(random()::text || clock_timestamp()::text), 1, 12);
+                                    SELECT EXISTS(SELECT 1 FROM embed_configs WHERE embed_code = new_code) INTO code_exists;
+                                    EXIT WHEN NOT code_exists;
+                                END LOOP;
+                                RETURN new_code;
+                            END;
+                            $$ LANGUAGE plpgsql;
+                        """))
+                        
+                        # Триггер функция
+                        conn.execute(text("""
+                            CREATE OR REPLACE FUNCTION set_embed_code() 
+                            RETURNS TRIGGER AS $$
+                            BEGIN
+                                IF NEW.embed_code IS NULL OR NEW.embed_code = '' THEN
+                                    NEW.embed_code := generate_embed_code();
+                                END IF;
+                                RETURN NEW;
+                            END;
+                            $$ LANGUAGE plpgsql;
+                        """))
+                        
+                        # Триггер
+                        conn.execute(text("""
+                            DROP TRIGGER IF EXISTS trigger_set_embed_code ON embed_configs;
+                        """))
+                        
+                        conn.execute(text("""
+                            CREATE TRIGGER trigger_set_embed_code
+                            BEFORE INSERT ON embed_configs
+                            FOR EACH ROW
+                            EXECUTE FUNCTION set_embed_code();
+                        """))
+                        
+                        trans.commit()
+                        logger.info("✅ Embed code generator and trigger created successfully")
+                        
+                    except Exception as e:
+                        trans.rollback()
+                        logger.error(f"❌ Failed to create generator/trigger: {str(e)}")
+                        
+            except Exception as conn_error:
+                logger.error(f"❌ Connection error creating functions: {str(conn_error)}")
+                
+        else:
+            logger.info("✅ embed_configs table already exists")
+            
+    except Exception as e:
+        logger.error(f"❌ Error creating embed_configs table: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
 # При старте приложения
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application...")
+        logger.info("🚀 Starting WellcomeAI application v2.2...")
         
         # ✅ ИСПРАВЛЕНО: Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
@@ -425,8 +496,11 @@ async def startup_event():
                 # Шаг 4: Создаем таблицы ElevenLabs и проверяем колонки
                 create_elevenlabs_tables()
                 
-                # ✅ Шаг 5: НОВОЕ - Создаем таблицу email_verifications
+                # Шаг 5: Создаем таблицу email_verifications
                 create_email_verification_table()
+                
+                # ✅ Шаг 6: НОВОЕ - Создаем таблицу embed_configs
+                create_embed_configs_table()
                 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
@@ -504,7 +578,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing ElevenLabs integration: {str(e)}")
         
-        # 🆕 ДОБАВЛЕНО: Логирование инициализации Conversations API
+        # ДОБАВЛЕНО: Логирование инициализации Conversations API
         try:
             logger.info("💬 Conversations API initialized")
             logger.info(f"   List endpoint: {settings.HOST_URL}/api/conversations")
@@ -514,7 +588,18 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Conversations API: {str(e)}")
         
-        logger.info("✅ Application started successfully")
+        # ✅ НОВОЕ: Логирование инициализации Embeds API
+        try:
+            logger.info("🎨 Embeds API initialized")
+            logger.info(f"   Create embed: POST {settings.HOST_URL}/api/embeds")
+            logger.info(f"   List user embeds: GET {settings.HOST_URL}/api/embeds/user/me")
+            logger.info(f"   Public embed page: GET {settings.HOST_URL}/embed/{{embed_code}}")
+            logger.info(f"   Example: {settings.HOST_URL}/embed/w_abc123def456")
+            logger.info("   Usage: <iframe src='https://voicyfy.ru/embed/w_YOUR_CODE' width='100%' height='800px'></iframe>")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Embeds API: {str(e)}")
+        
+        logger.info("✅ Application started successfully (v2.2 with Embeds)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
@@ -530,7 +615,7 @@ async def root():
 # Health check для Render
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "wellcome-ai"}
+    return {"status": "healthy", "service": "wellcome-ai", "version": "2.2.0"}
 
 # При выключении приложения
 @app.on_event("shutdown")
