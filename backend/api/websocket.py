@@ -35,6 +35,7 @@ router = APIRouter()
 async def websocket_endpoint(
     websocket: WebSocket,
     assistant_id: str,
+    session: str = Query(None),  # 🆕 НОВОЕ: session_id из query параметра
     db: Session = Depends(get_db)
 ):
     """
@@ -62,10 +63,16 @@ async def websocket_endpoint(
     """
     client_id = id(websocket)
     logger.info(f"[GA-API] New WebSocket connection from client {client_id} for assistant {assistant_id}")
+    logger.info(f"[GA-API] Session ID: {session}")  # 🆕 НОВОЕ
     logger.info(f"[GA-API] Using Realtime GA API (model: gpt-realtime-mini)")
-    
+
     try:
-        await handle_websocket_connection_new(websocket, assistant_id, db)
+        await handle_websocket_connection_new(
+            websocket,
+            assistant_id,
+            db,
+            session_id=session  # 🆕 НОВОЕ: передаем session_id
+        )
     except WebSocketDisconnect:
         logger.info(f"[GA-API] Client {client_id} disconnected normally")
     except Exception as e:
@@ -92,6 +99,7 @@ async def websocket_endpoint(
 @router.websocket("/ws/demo")
 async def demo_websocket_endpoint(
     websocket: WebSocket,
+    session: str = Query(None),  # 🆕 НОВОЕ
     db: Session = Depends(get_db)
 ):
     """
@@ -117,9 +125,14 @@ async def demo_websocket_endpoint(
     
     # Use a hardcoded demo assistant ID
     demo_assistant_id = "demo"
-    
+
     try:
-        await handle_websocket_connection_new(websocket, demo_assistant_id, db)
+        await handle_websocket_connection_new(
+            websocket,
+            demo_assistant_id,
+            db,
+            session_id=session  # 🆕 НОВОЕ
+        )
     except WebSocketDisconnect:
         logger.info(f"[GA-API-DEMO] Demo client {client_id} disconnected normally")
     except Exception as e:

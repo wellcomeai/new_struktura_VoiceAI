@@ -6,6 +6,7 @@
 
 import openai
 import asyncio
+import time  # 🆕 НОВОЕ
 from typing import Dict, Any
 
 from backend.core.config import settings
@@ -49,104 +50,72 @@ class QueryLLMFunction(FunctionBase):
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Отправляет запрос к ChatGPT API и возвращает результат
-        
+        Prepare LLM query for client-side HTTP streaming.
+
+        НОВАЯ ЛОГИКА:
+        - Не вызываем OpenAI напрямую (экономим время)
+        - Отправляем trigger событие клиенту через WebSocket
+        - Клиент делает HTTP запрос к /api/llm/stream с историей из localStorage
+        - История управляется клиентом, сервер её НЕ хранит
+
         Args:
-            arguments: Словарь с параметрами функции (prompt, model)
-            context: Контекст с websocket и другими данными
-        
+            arguments: Function arguments with 'prompt'
+            context: Execution context with websocket and session_id
+
         Returns:
-            Dict с результатом выполнения
+            Success status (actual LLM response goes via HTTP streaming)
         """
         try:
             prompt = arguments.get("prompt")
-            model = arguments.get("model", "gpt-4o-mini")
-            
+
             if not prompt:
                 error_msg = "Prompt is required"
                 logger.error(f"[QUERY_LLM] {error_msg}")
                 return {"error": error_msg, "status": "error"}
-            
-            logger.info(f"[QUERY_LLM] Executing query: {prompt[:100]}...")
-            
-            # Получаем API ключ из контекста или настроек
-            api_key = None
-            
-            if context and "assistant_config" in context:
-                assistant_config = context["assistant_config"]
-                
-                # Пытаемся получить API ключ пользователя
-                if hasattr(assistant_config, "user_id") and assistant_config.user_id:
-                    from backend.models.user import User
-                    db_session = context.get("db_session")
-                    
-                    if db_session:
-                        try:
-                            user = db_session.query(User).get(assistant_config.user_id)
-                            if user and user.openai_api_key:
-                                api_key = user.openai_api_key
-                                logger.info(f"[QUERY_LLM] Using user's OpenAI API key")
-                            else:
-                                api_key = settings.OPENAI_API_KEY
-                                logger.info(f"[QUERY_LLM] Using system OpenAI API key")
-                        except Exception as e:
-                            logger.error(f"[QUERY_LLM] Error getting user API key: {e}")
-                            api_key = settings.OPENAI_API_KEY
-                    else:
-                        api_key = settings.OPENAI_API_KEY
-                else:
-                    api_key = settings.OPENAI_API_KEY
+
+            logger.info(f"[QUERY_LLM] 🚀 Preparing LLM query: {prompt[:100]}...")
+
+            # Получаем session_id из контекста
+            session_id = context.get("session_id") if context else None
+
+            if not session_id:
+                logger.warning("[QUERY_LLM] ⚠️ No session_id in context")
             else:
-                api_key = settings.OPENAI_API_KEY
-            
-            if not api_key:
-                error_msg = "OpenAI API key not found"
-                logger.error(f"[QUERY_LLM] {error_msg}")
-                return {"error": error_msg, "status": "error"}
-            
-            # Создаем клиент OpenAI
-            client = openai.AsyncOpenAI(api_key=api_key)
-            
-            # Формируем запрос к ChatGPT
-            messages = [
-                {
-                    "role": "system", 
-                    "content": "Ты профессиональный ассистент. Отвечай подробно и структурированно. Используй markdown для форматирования."
-                },
-                {
-                    "role": "user", 
-                    "content": prompt
+                logger.info(f"[QUERY_LLM] Session ID: {session_id}")
+
+            # Получаем WebSocket из контекста
+            websocket = context.get("websocket") if context else None
+
+            if websocket:
+                # 🆕 Отправляем trigger событие клиенту
+                await websocket.send_json({
+                    "type": "llm_query.trigger",
+                    "query": prompt,
+                    "session_id": session_id,
+                    "timestamp": time.time()
+                })
+
+                logger.info(f"[QUERY_LLM] ✅ Trigger event sent to client")
+                logger.info(f"[QUERY_LLM] 📱 Client will handle HTTP streaming with localStorage history")
+            else:
+                logger.error("[QUERY_LLM] ❌ No WebSocket in context")
+                return {
+                    "error": "WebSocket not available",
+                    "status": "error"
                 }
-            ]
-            
-            logger.info(f"[QUERY_LLM] Sending request to {model}...")
-            
-            # Отправляем запрос
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=2000,
-                temperature=0.7
-            )
-            
-            llm_result = response.choices[0].message.content
-            
-            logger.info(f"[QUERY_LLM] LLM response received: {len(llm_result)} characters")
-            logger.info(f"[QUERY_LLM] Preparing result for handler (no direct WebSocket send)")
-            
-            # Возвращаем результат для обработки в handler_realtime_new.py
-            # WebSocket отправку делает handler, а не функция (избегаем дублирования)
+
+            # Возвращаем успех
+            # Реальный ответ LLM придет через отдельный HTTP streaming endpoint
             return {
-                "result": f"Запрос выполнен! Развернутый ответ выведен на экран слева. Обработано {len(llm_result)} символов.",
-                "status": "success",
-                "model_used": model,
-                "response_length": len(llm_result),
-                "full_response": llm_result  # handler_realtime_new.py будет отправлять это на фронтенд
+                "status": "triggered",
+                "result": "LLM query triggered. Client will stream response via HTTP.",
+                "session_id": session_id,
+                "query": prompt[:50] + "..." if len(prompt) > 50 else prompt
             }
-            
+
         except Exception as e:
-            error_msg = f"Error executing LLM query: {str(e)}"
-            logger.error(f"[QUERY_LLM] {error_msg}")
+            error_msg = f"Error preparing LLM query: {str(e)}"
+            logger.error(f"[QUERY_LLM] ❌ {error_msg}")
             return {
                 "error": error_msg,
                 "status": "error"

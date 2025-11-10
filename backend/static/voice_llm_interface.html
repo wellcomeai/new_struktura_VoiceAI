@@ -1077,6 +1077,283 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         // ============================================================================
+        // CONVERSATION HISTORY MANAGER (localStorage)
+        // ============================================================================
+
+        class ConversationHistoryManager {
+            constructor() {
+                this.sessionId = this.getOrCreateSessionId();
+                this.storageKey = `wellcome_conversation_${this.sessionId}`;
+                this.history = this.load();
+
+                console.log(`[HISTORY] 📝 Initialized with session: ${this.sessionId}`);
+                console.log(`[HISTORY] 📚 Loaded ${this.history.length} messages`);
+            }
+
+            getOrCreateSessionId() {
+                // Проверяем sessionStorage (живет пока вкладка открыта)
+                let sessionId = sessionStorage.getItem('wellcome_session_id');
+
+                if (!sessionId) {
+                    // Генерируем новый
+                    sessionId = crypto.randomUUID();
+                    sessionStorage.setItem('wellcome_session_id', sessionId);
+                    console.log(`[HISTORY] 🆕 Created new session: ${sessionId}`);
+                }
+
+                return sessionId;
+            }
+
+            load() {
+                try {
+                    const stored = localStorage.getItem(this.storageKey);
+
+                    if (stored) {
+                        const data = JSON.parse(stored);
+
+                        // Проверяем свежесть (не старше 7 дней)
+                        if (data.timestamp) {
+                            const ageMs = Date.now() - data.timestamp;
+                            const ageDays = ageMs / (1000 * 60 * 60 * 24);
+
+                            if (ageDays < 7) {
+                                console.log(`[HISTORY] ✅ Loaded ${data.messages.length} messages (${ageDays.toFixed(1)} days old)`);
+                                return data.messages;
+                            } else {
+                                console.log(`[HISTORY] 🗑️ History expired (${ageDays.toFixed(1)} days old)`);
+                                localStorage.removeItem(this.storageKey);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[HISTORY] ❌ Error loading:', e);
+                }
+
+                // Default history
+                console.log('[HISTORY] 🆕 Starting fresh conversation');
+                return [
+                    {
+                        role: "system",
+                        content: "Ты профессиональный ассистент. Отвечай подробно и структурированно. Используй markdown для форматирования."
+                    }
+                ];
+            }
+
+            save() {
+                try {
+                    const data = {
+                        messages: this.history,
+                        timestamp: Date.now()
+                    };
+
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+
+                    // Статистика
+                    const sizeBytes = new Blob([JSON.stringify(data)]).size;
+                    const sizeKB = (sizeBytes / 1024).toFixed(2);
+
+                    console.log(`[HISTORY] 💾 Saved ${this.history.length} messages (${sizeKB} KB)`);
+
+                } catch (e) {
+                    console.error('[HISTORY] ❌ Error saving:', e);
+
+                    // Если переполнение - очищаем старые сообщения
+                    if (e.name === 'QuotaExceededError') {
+                        console.warn('[HISTORY] ⚠️ Storage quota exceeded, truncating...');
+                        this.truncate(20);  // оставляем только 20 последних
+                        this.save();  // пробуем снова
+                    }
+                }
+            }
+
+            addUserMessage(content) {
+                this.history.push({
+                    role: "user",
+                    content: content
+                });
+                this.truncate();
+                this.save();
+
+                console.log(`[HISTORY] ➕ User message added (total: ${this.history.length})`);
+            }
+
+            addAssistantMessage(content) {
+                this.history.push({
+                    role: "assistant",
+                    content: content
+                });
+                this.truncate();
+                this.save();
+
+                console.log(`[HISTORY] ➕ Assistant message added (total: ${this.history.length})`);
+            }
+
+            getMessages() {
+                return [...this.history];  // возвращаем копию
+            }
+
+            truncate(maxMessages = 50) {
+                if (this.history.length > maxMessages) {
+                    // Всегда сохраняем system prompt
+                    const system = this.history[0];
+                    const recent = this.history.slice(-(maxMessages - 1));
+                    this.history = [system, ...recent];
+
+                    console.log(`[HISTORY] ✂️ Truncated to ${maxMessages} messages`);
+                }
+            }
+
+            clear() {
+                this.history = [
+                    {
+                        role: "system",
+                        content: "Ты профессиональный ассистент. Отвечай подробно и структурированно."
+                    }
+                ];
+                this.save();
+
+                console.log('[HISTORY] 🗑️ History cleared');
+            }
+
+            getStats() {
+                const userMsgs = this.history.filter(m => m.role === 'user').length;
+                const assistantMsgs = this.history.filter(m => m.role === 'assistant').length;
+                const sizeBytes = new Blob([JSON.stringify(this.history)]).size;
+
+                return {
+                    totalMessages: this.history.length,
+                    userMessages: userMsgs,
+                    assistantMessages: assistantMsgs,
+                    storageSizeKB: (sizeBytes / 1024).toFixed(2),
+                    sessionId: this.sessionId
+                };
+            }
+        }
+
+        // ============================================================================
+        // LLM HTTP STREAMING CLIENT
+        // ============================================================================
+
+        class LLMStreamingClient {
+            constructor(serverUrl) {
+                this.serverUrl = serverUrl;
+                this.isStreaming = false;
+                this.currentController = null;
+
+                console.log(`[LLM-CLIENT] 🚀 Initialized with server: ${serverUrl}`);
+            }
+
+            async streamQuery(messages, sessionId, onChunk, onComplete, onError) {
+                if (this.isStreaming) {
+                    console.warn('[LLM-CLIENT] ⚠️ Already streaming, ignoring request');
+                    return;
+                }
+
+                this.isStreaming = true;
+                this.currentController = new AbortController();
+
+                console.log(`[LLM-CLIENT] 🚀 Starting stream (session: ${sessionId})`);
+                console.log(`[LLM-CLIENT] 📝 Sending ${messages.length} messages`);
+
+                try {
+                    const response = await fetch(`${this.serverUrl}/api/llm/stream`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            messages: messages,
+                            session_id: sessionId,
+                            model: 'gpt-4o-mini',
+                            max_tokens: 2000,
+                            temperature: 0.7
+                        }),
+                        signal: this.currentController.signal
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    // Читаем stream
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullResponse = "";
+                    let chunkCount = 0;
+                    const startTime = Date.now();
+                    let firstChunkTime = null;
+
+                    while (true) {
+                        const {done, value} = await reader.read();
+
+                        if (done) {
+                            console.log('[LLM-CLIENT] ✅ Stream complete');
+                            break;
+                        }
+
+                        // Декодируем chunk
+                        const chunk = decoder.decode(value, {stream: true});
+                        fullResponse += chunk;
+                        chunkCount++;
+
+                        // Логируем первый chunk (latency)
+                        if (chunkCount === 1) {
+                            firstChunkTime = Date.now();
+                            const latency = (firstChunkTime - startTime) / 1000;
+                            console.log(`[LLM-CLIENT] ⚡ First chunk in ${latency.toFixed(2)}s`);
+                        }
+
+                        // Отправляем chunk в callback
+                        if (onChunk) {
+                            onChunk(chunk, fullResponse);
+                        }
+                    }
+
+                    // Завершено
+                    const totalTime = (Date.now() - startTime) / 1000;
+                    const charsPerSec = fullResponse.length / totalTime;
+
+                    console.log(
+                        `[LLM-CLIENT] 📊 Stats: ${chunkCount} chunks, ` +
+                        `${fullResponse.length} chars, ${totalTime.toFixed(2)}s, ` +
+                        `${charsPerSec.toFixed(0)} chars/sec`
+                    );
+
+                    if (onComplete) {
+                        onComplete(fullResponse);
+                    }
+
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        console.log('[LLM-CLIENT] 🛑 Stream aborted');
+                    } else {
+                        console.error('[LLM-CLIENT] ❌ Error:', error);
+                        if (onError) {
+                            onError(error);
+                        }
+                    }
+                } finally {
+                    this.isStreaming = false;
+                    this.currentController = null;
+                }
+            }
+
+            abort() {
+                if (this.currentController) {
+                    console.log('[LLM-CLIENT] 🛑 Aborting stream...');
+                    this.currentController.abort();
+                }
+            }
+        }
+
+        // ============================================================================
+        // GLOBAL INSTANCES
+        // ============================================================================
+
+        let historyManager = null;
+        let llmClient = null;
+
+        // ============================================================================
         // WAIT FOR DOM TO BE READY
         // ============================================================================
         document.addEventListener('DOMContentLoaded', function() {
@@ -1094,7 +1371,13 @@
 
             // ✅ Определяем SERVER_URL из текущего location
             const SERVER_URL = `${window.location.protocol}//${window.location.host}`;
-            
+
+            // ✅ НОВОЕ: Инициализация history manager и LLM client
+            historyManager = new ConversationHistoryManager();
+            llmClient = new LLMStreamingClient(SERVER_URL);
+
+            console.log('[INIT] 📊 History stats:', historyManager.getStats());
+
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
             const isAndroid = /Android/i.test(navigator.userAgent);
@@ -2128,24 +2411,26 @@
 
                 try {
                     const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
-                    
+                    const wsUrlWithSession = `${WS_URL}?session=${historyManager.sessionId}`;
+
                     log('Подключение к WebSocket...');
-                    log(`URL: ${WS_URL}`);
-                    
+                    log(`URL: ${wsUrlWithSession}`);
+                    console.log(`[WS] 🔗 Connecting with session: ${historyManager.sessionId}`);
+
                     isReconnecting = true;
-                    
+
                     if (websocket) {
                         try {
                             websocket.close();
                         } catch (e) {}
                     }
-                    
+
                     if (pingInterval) {
                         clearInterval(pingInterval);
                         pingInterval = null;
                     }
-                    
-                    websocket = new WebSocket(WS_URL);
+
+                    websocket = new WebSocket(wsUrlWithSession);
                     websocket.binaryType = 'arraybuffer';
                     
                     websocket.onopen = function() {
@@ -2176,7 +2461,52 @@
                             try {
                                 const data = JSON.parse(event.data);
                                 lastPongTime = Date.now();
-                                
+
+                                // 🆕 НОВОЕ: Обработка trigger события для LLM streaming
+                                if (data.type === 'llm_query.trigger') {
+                                    console.log('[WS] 🎯 LLM query triggered:', data.query);
+
+                                    // Добавляем вопрос в localStorage историю
+                                    historyManager.addUserMessage(data.query);
+
+                                    // Показываем loading
+                                    showLLMLoading(data.query);
+
+                                    // Запускаем HTTP streaming
+                                    llmClient.streamQuery(
+                                        historyManager.getMessages(),
+                                        historyManager.sessionId,
+
+                                        // onChunk callback - рендерим в реальном времени
+                                        (chunk, fullText) => {
+                                            llmContent.innerHTML = formatMarkdown(fullText);
+                                            llmContent.scrollTop = llmContent.scrollHeight;
+                                        },
+
+                                        // onComplete callback - сохраняем ответ
+                                        (fullResponse) => {
+                                            historyManager.addAssistantMessage(fullResponse);
+                                            llmMeta.textContent = 'gpt-4o-mini';
+                                            updateStatus('connected', 'Готов к разговору', 'connected');
+
+                                            console.log('[LLM] ✅ Query completed');
+                                            console.log('[LLM] 📊 Stats:', historyManager.getStats());
+                                        },
+
+                                        // onError callback
+                                        (error) => {
+                                            console.error('[LLM] ❌ Error:', error);
+                                            llmContent.innerHTML = `
+                                                <p style="color: #ef4444;">
+                                                    ❌ Ошибка при получении ответа: ${error.message}
+                                                </p>
+                                            `;
+                                        }
+                                    );
+
+                                    return;
+                                }
+
                                 // LLM Event Handlers
                                 if (data.type === 'function_call.executing') {
                                     handleFunctionExecuting(data);

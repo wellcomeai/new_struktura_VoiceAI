@@ -31,6 +31,7 @@ from websockets.exceptions import ConnectionClosed
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
+from backend.services.llm_streaming.session_manager import session_manager
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
 from backend.models.elevenlabs import ElevenLabsAgent
@@ -74,10 +75,17 @@ def log_to_render(message: str, level: str = "INFO"):
 async def handle_websocket_connection_new(
     websocket: WebSocket,
     assistant_id: str,
-    db: Session
+    db: Session,
+    session_id: str = None  # 🆕 НОВОЕ
 ) -> None:
     """
     🚀 PRODUCTION v2.8 - Main WebSocket handler with enhanced logging and fast LLM display
+
+    Args:
+        websocket: FastAPI WebSocket
+        assistant_id: Assistant configuration ID
+        db: Database session
+        session_id: Client session ID for LLM streaming  # 🆕 НОВОЕ
     """
     client_id = str(uuid.uuid4())
     openai_client = None
@@ -87,6 +95,7 @@ async def handle_websocket_connection_new(
     log_to_render(f"🚀 NEW CONNECTION INITIATED")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
+    log_to_render(f"   Session ID: {session_id}")  # 🆕 НОВОЕ
     log_to_render(f"   Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
@@ -98,6 +107,17 @@ async def handle_websocket_connection_new(
     try:
         await websocket.accept()
         log_to_render(f"✅ WebSocket accepted for client {client_id}")
+
+        # 🆕 НОВОЕ: Регистрируем WebSocket в session manager
+        if session_id:
+            session_manager.register_session(
+                session_id=session_id,
+                websocket=websocket,
+                assistant_id=assistant_id
+            )
+            log_to_render(f"[HANDLER-NEW] 📝 Session registered: {session_id}")
+        else:
+            log_to_render(f"[HANDLER-NEW] ⚠️ No session_id provided")
 
         # Check for ElevenLabs agents
         elevenlabs_agent = db.query(ElevenLabsAgent).filter(
@@ -463,9 +483,14 @@ async def handle_websocket_connection_new(
         except:
             pass
     finally:
+        # 🆕 НОВОЕ: Убираем из session manager
+        if session_id:
+            session_manager.unregister_session(session_id)
+            log_to_render(f"[HANDLER-NEW] 🗑️ Session unregistered: {session_id}")
+
         if openai_client:
             await openai_client.close()
-        
+
         conns = active_connections_new.get(assistant_id, [])
         if websocket in conns:
             conns.remove(websocket)
@@ -926,7 +951,8 @@ async def handle_openai_messages_new(
                                 "assistant_config": openai_client.assistant_config,
                                 "client_id": openai_client.client_id,
                                 "db_session": openai_client.db_session,
-                                "websocket": websocket
+                                "websocket": websocket,
+                                "session_id": session_id  # 🆕 НОВОЕ
                             }
                         )
                         
