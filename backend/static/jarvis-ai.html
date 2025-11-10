@@ -373,11 +373,6 @@
             }
         }
 
-        /* Adjust main container when config panel is visible */
-        body.config-mode .main-container {
-            padding-top: 140px;
-        }
-
         /* Blur overlay */
         .background-overlay {
             position: fixed;
@@ -1656,175 +1651,10 @@
             const isAndroid = /Android/i.test(navigator.userAgent);
 
             // ============================================================================
-            // CONFIG MODE DETECTION
+            // ASSISTANT ID (устанавливается в loadAssistantsList)
             // ============================================================================
-            
-            const urlParams = new URLSearchParams(window.location.search);
-            const isConfigMode = urlParams.has('config') || window.location.pathname.includes('/config');
-            
-            // ✅ ASSISTANT_ID - может быть null в режиме настройки
-            let ASSISTANT_ID = urlParams.get('assistant') || null;
-            
-            console.log('[EMBED] Mode:', isConfigMode ? 'CONFIG' : 'EMBEDDED');
-            console.log('[EMBED] Assistant ID:', ASSISTANT_ID);
 
-            // ============================================================================
-            // SHOW/HIDE CONFIG PANEL
-            // ============================================================================
-            
-            const configPanel = document.getElementById('configPanel');
-            const assistantSelect = document.getElementById('assistantSelect');
-            const saveBtn = document.getElementById('saveBtn');
-            const copyBtn = document.getElementById('copyBtn');
-            const successMessage = document.getElementById('successMessage');
-
-            if (isConfigMode) {
-                configPanel.style.display = 'block';
-                document.body.classList.add('config-mode');
-                loadAssistantsList();
-            } else {
-                if (!ASSISTANT_ID) {
-                    showError(
-                        'Отсутствует ID ассистента',
-                        'Не удалось определить конфигурацию ассистента. Проверьте правильность URL.'
-                    );
-                    return;
-                }
-            }
-
-            // ============================================================================
-            // CONFIG PANEL FUNCTIONS
-            // ============================================================================
-            
-            async function loadAssistantsList() {
-                try {
-                    const response = await fetch(`${SERVER_URL}/api/assistants`, {
-                        headers: {
-                            'Authorization': `Bearer ${getAuthToken()}`
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error('Failed to load assistants');
-                    }
-                    
-                    const data = await response.json();
-                    const assistants = data.assistants || data;
-                    
-                    assistantSelect.innerHTML = '<option value="">-- Выберите ассистента --</option>';
-                    
-                    assistants.forEach(assistant => {
-                        const option = document.createElement('option');
-                        option.value = assistant.id;
-                        option.textContent = assistant.name || assistant.id;
-                        assistantSelect.appendChild(option);
-                    });
-                    
-                } catch (error) {
-                    console.error('[CONFIG] Error loading assistants:', error);
-                    assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
-                }
-            }
-            
-            function getAuthToken() {
-                // ✅ Получаем токен из localStorage или cookies
-                return localStorage.getItem('auth_token') || 
-                       document.cookie.split('; ').find(row => row.startsWith('auth_token='))?.split('=')[1] ||
-                       '';
-            }
-            
-            window.saveConfig = function() {
-                const selectedAssistantId = assistantSelect.value;
-                
-                if (!selectedAssistantId) {
-                    alert('❌ Пожалуйста, выберите ассистента!');
-                    return;
-                }
-                
-                // Применяем выбранный assistant_id
-                ASSISTANT_ID = selectedAssistantId;
-                
-                // Включаем кнопку копирования
-                copyBtn.disabled = false;
-                
-                // Показываем уведомление
-                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
-                
-                // Переподключаем WebSocket с новым assistant_id
-                if (websocket) {
-                    websocket.close();
-                }
-                connectWebSocket();
-            };
-            
-            window.copyHTMLCode = function() {
-                if (!ASSISTANT_ID) {
-                    alert('❌ Сначала сохраните конфигурацию!');
-                    return;
-                }
-                
-                try {
-                    // Получаем весь HTML документа
-                    let html = document.documentElement.outerHTML;
-                    
-                    // Удаляем панель настройки
-                    html = html.replace(
-                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
-                        '<!-- MAIN INTERFACE -->'
-                    );
-                    
-                    // Удаляем success message
-                    html = html.replace(
-                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
-                        ''
-                    );
-                    
-                    // Удаляем класс config-mode
-                    html = html.replace('class="config-mode"', '');
-                    
-                    // Подставляем assistant_id в URL параметры
-                    html = html.replace(
-                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
-                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
-                    );
-                    
-                    // Удаляем логику определения config режима
-                    html = html.replace(
-                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
-                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
-                    );
-                    
-                    // Копируем в буфер обмена
-                    navigator.clipboard.writeText(html).then(() => {
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
-                    }).catch(err => {
-                        // Fallback для старых браузеров
-                        const textarea = document.createElement('textarea');
-                        textarea.value = html;
-                        textarea.style.position = 'fixed';
-                        textarea.style.opacity = '0';
-                        document.body.appendChild(textarea);
-                        textarea.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(textarea);
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
-                    });
-                    
-                } catch (error) {
-                    console.error('[CONFIG] Error copying HTML:', error);
-                    alert('❌ Ошибка при копировании кода: ' + error.message);
-                }
-            };
-            
-            function showSuccess(message) {
-                const successText = document.getElementById('successText');
-                successText.textContent = message;
-                successMessage.classList.add('show');
-                
-                setTimeout(() => {
-                    successMessage.classList.remove('show');
-                }, 3000);
-            }
+            let ASSISTANT_ID = null;
 
             // ============================================================================
             // GLOBALS
@@ -2809,12 +2639,6 @@
                     return;
                 }
 
-                // 🆕 Защита от множественных одновременных подключений
-                if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
-                    console.log('[WS] Already connecting or connected, skipping...');
-                    return;
-                }
-
                 try {
                     const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
                     const wsUrlWithSession = `${WS_URL}?session=${historyManager.sessionId}`;
@@ -3055,8 +2879,6 @@
             // ============================================================================
 
             log('🚀 Voice AI Assistant Starting...');
-            log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
-            log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
             log(`Server URL: ${SERVER_URL}`);
 
             createCircularVisualizer();
