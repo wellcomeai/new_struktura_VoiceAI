@@ -24,6 +24,7 @@ from .partners import router as partners_router
 from .conversations import router as conversations_router
 from .email_verification import router as email_verification_router
 from .embeds import router as embeds_router
+from .llm_streaming import router as llm_streaming_router
 
 # Create a main API router
 api_router = APIRouter()
@@ -45,7 +46,7 @@ api_router.include_router(partners_router, prefix="/partners", tags=["Partners"]
 api_router.include_router(conversations_router, tags=["Conversations"])
 api_router.include_router(email_verification_router, prefix="/email-verification", tags=["Email Verification"])
 api_router.include_router(embeds_router, tags=["Embeds"])
-
+api_router.include_router(llm_streaming_router, tags=["LLM Streaming"])
 # Export all routers for use in app.py
 __all__ = [
     "api_router",
@@ -64,5 +65,6 @@ __all__ = [
     "partners_router",
     "conversations_router",
     "email_verification_router",
-    "embeds_router"
+    "embeds_router",
+    "llm_streaming_router"
 ]
