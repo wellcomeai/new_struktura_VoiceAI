@@ -1575,8 +1575,14 @@
         // GLOBAL INSTANCES
         // ============================================================================
 
-        let historyManager = null;
-        let llmClient = null;
+        let historyManager = null;  // 🗑️ DEPRECATED: Will be removed in favor of Assistants API
+        let llmClient = null;  // 🗑️ DEPRECATED: Will be removed in favor of WebSocket streaming
+
+        // 🆕 NEW: Assistants API Thread Management
+        let currentThreadId = sessionStorage.getItem('jarvis_thread_id');
+        let currentLLMResponse = '';
+
+        console.log(`[THREAD] ${currentThreadId ? `♻️  Using existing thread: ${currentThreadId}` : '🆕 No thread yet, will create on first query'}`);
 
         // ============================================================================
         // WAIT FOR DOM TO BE READY
@@ -2587,8 +2593,13 @@
                         isReconnecting = false;
 
                         // Clear conversation history
-                        historyManager.clear();
-                        console.log('[ASSISTANT] Cleared conversation history');
+                        if (historyManager) {
+                            historyManager.clear();
+                            console.log('[ASSISTANT] Cleared conversation history');
+                        }
+
+                        // 🆕 NEW: Clear Assistants API thread
+                        clearThread();
 
                         // Clear LLM display
                         const llmContent = document.getElementById('llmContent');
@@ -2628,6 +2639,34 @@
             }
 
             // ============================================================================
+            // 🆕 ASSISTANTS API HELPERS
+            // ============================================================================
+
+            function appendLLMChunk(chunk) {
+                currentLLMResponse += chunk;
+                llmContent.innerHTML = formatMarkdown(currentLLMResponse);
+                llmContent.scrollTop = llmContent.scrollHeight;
+            }
+
+            function resetLLMResponse() {
+                currentLLMResponse = '';
+                llmContent.innerHTML = '<p style="color: #64748b; font-style: italic;">Ожидание ответа...</p>';
+            }
+
+            function saveThreadId(threadId) {
+                currentThreadId = threadId;
+                sessionStorage.setItem('jarvis_thread_id', threadId);
+                console.log(`[THREAD] 💾 Saved: ${threadId}`);
+            }
+
+            function clearThread() {
+                currentThreadId = null;
+                sessionStorage.removeItem('jarvis_thread_id');
+                currentLLMResponse = '';
+                console.log('[THREAD] 🗑️  Cleared');
+            }
+
+            // ============================================================================
             // WEBSOCKET CONNECTION
             // ============================================================================
 
@@ -2641,11 +2680,16 @@
 
                 try {
                     const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
-                    const wsUrlWithSession = `${WS_URL}?session=${historyManager.sessionId}`;
+
+                    // 🆕 NEW: Add both session and thread parameters
+                    const sessionId = historyManager ? historyManager.sessionId : crypto.randomUUID();
+                    const wsUrlWithSession = currentThreadId
+                        ? `${WS_URL}?session=${sessionId}&thread=${currentThreadId}`
+                        : `${WS_URL}?session=${sessionId}`;
 
                     log('Подключение к WebSocket...');
                     log(`URL: ${wsUrlWithSession}`);
-                    console.log(`[WS] 🔗 Connecting with session: ${historyManager.sessionId}`);
+                    console.log(`[WS] 🔗 Connecting with session: ${sessionId}${currentThreadId ? ` and thread: ${currentThreadId}` : ''}`);
 
                     isReconnecting = true;
 
@@ -2692,48 +2736,63 @@
                                 const data = JSON.parse(event.data);
                                 lastPongTime = Date.now();
 
-                                // 🆕 НОВОЕ: Обработка trigger события для LLM streaming
+                                // 🗑️ DEPRECATED: Old HTTP streaming trigger (kept for backward compatibility)
                                 if (data.type === 'llm_query.trigger') {
-                                    console.log('[WS] 🎯 LLM query triggered:', data.query);
+                                    console.log('[WS] ⚠️  llm_query.trigger is deprecated, will be removed');
+                                    // Keep old logic for now, but it should not be triggered anymore
+                                    if (historyManager && llmClient) {
+                                        historyManager.addUserMessage(data.query);
+                                        showLLMLoading(data.query);
+                                        llmClient.streamQuery(
+                                            historyManager.getMessages(),
+                                            historyManager.sessionId,
+                                            (chunk, fullText) => {
+                                                llmContent.innerHTML = formatMarkdown(fullText);
+                                                llmContent.scrollTop = llmContent.scrollHeight;
+                                            },
+                                            (fullResponse) => {
+                                                historyManager.addAssistantMessage(fullResponse);
+                                                llmMeta.textContent = 'gpt-4o-mini';
+                                                updateStatus('connected', 'Готов к разговору', 'connected');
+                                            },
+                                            (error) => {
+                                                llmContent.innerHTML = `<p style="color: #ef4444;">❌ Ошибка: ${error.message}</p>`;
+                                            }
+                                        );
+                                    }
+                                    return;
+                                }
 
-                                    // Добавляем вопрос в localStorage историю
-                                    historyManager.addUserMessage(data.query);
+                                // 🆕 NEW: Assistants API - Thread created
+                                if (data.type === 'thread_created') {
+                                    console.log('[THREAD] ✅ Created:', data.thread_id);
+                                    saveThreadId(data.thread_id);
+                                    return;
+                                }
 
-                                    // Показываем loading
-                                    showLLMLoading(data.query);
+                                // 🆕 NEW: Assistants API - LLM response chunk
+                                if (data.type === 'llm_response_chunk') {
+                                    appendLLMChunk(data.chunk);
+                                    return;
+                                }
 
-                                    // Запускаем HTTP streaming
-                                    llmClient.streamQuery(
-                                        historyManager.getMessages(),
-                                        historyManager.sessionId,
+                                // 🆕 NEW: Assistants API - LLM response complete
+                                if (data.type === 'llm_response_complete') {
+                                    console.log('[LLM] ✅ Response complete');
+                                    llmMeta.textContent = 'gpt-4o-mini (via Assistants API)';
+                                    updateStatus('connected', 'Готов к разговору', 'connected');
+                                    return;
+                                }
 
-                                        // onChunk callback - рендерим в реальном времени
-                                        (chunk, fullText) => {
-                                            llmContent.innerHTML = formatMarkdown(fullText);
-                                            llmContent.scrollTop = llmContent.scrollHeight;
-                                        },
-
-                                        // onComplete callback - сохраняем ответ
-                                        (fullResponse) => {
-                                            historyManager.addAssistantMessage(fullResponse);
-                                            llmMeta.textContent = 'gpt-4o-mini';
-                                            updateStatus('connected', 'Готов к разговору', 'connected');
-
-                                            console.log('[LLM] ✅ Query completed');
-                                            console.log('[LLM] 📊 Stats:', historyManager.getStats());
-                                        },
-
-                                        // onError callback
-                                        (error) => {
-                                            console.error('[LLM] ❌ Error:', error);
-                                            llmContent.innerHTML = `
-                                                <p style="color: #ef4444;">
-                                                    ❌ Ошибка при получении ответа: ${error.message}
-                                                </p>
-                                            `;
-                                        }
-                                    );
-
+                                // 🆕 NEW: Assistants API - LLM error
+                                if (data.type === 'llm_error') {
+                                    console.error('[LLM] ❌ Error:', data.error);
+                                    llmContent.innerHTML = `
+                                        <p style="color: #ef4444;">
+                                            ❌ Ошибка при получении ответа: ${data.error}
+                                        </p>
+                                    `;
+                                    updateStatus('connected', 'Ошибка LLM', 'error');
                                     return;
                                 }
 

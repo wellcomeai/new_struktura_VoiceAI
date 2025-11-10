@@ -609,6 +609,17 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing LLM Streaming API: {str(e)}")
 
+        # 🆕 НОВОЕ: Инициализация OpenAI Assistant
+        try:
+            from backend.services.openai_assistant import get_or_create_assistant
+
+            assistant_id = await get_or_create_assistant()
+            logger.info("🤖 OpenAI Assistants API initialized")
+            logger.info(f"   Assistant ID: {assistant_id}")
+            logger.info("   Features: Threads management, streaming responses, server-side context")
+        except Exception as e:
+            logger.error(f"❌ Error initializing OpenAI Assistant: {str(e)}")
+
         logger.info("✅ Application started successfully (v2.2 with Embeds)")
         
     except Exception as e:

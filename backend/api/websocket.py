@@ -36,27 +36,31 @@ async def websocket_endpoint(
     websocket: WebSocket,
     assistant_id: str,
     session: str = Query(None),  # 🆕 НОВОЕ: session_id из query параметра
+    thread: str = Query(None),  # 🆕 НОВОЕ: thread_id из query параметра для Assistants API
     db: Session = Depends(get_db)
 ):
     """
     🏭 PRODUCTION WebSocket endpoint for real-time communication with assistants.
-    
+
     ✅ NOW USES: OpenAI Realtime GA API
     ✅ MODEL: gpt-realtime-mini
     ✅ VERSION: 3.0.0
-    
+
     Key features:
     - Optimized VAD settings for fast interruption
     - iOS/Android device-specific optimizations
     - Improved audio handling and playback
     - Server-managed session configuration
     - Automatic event format conversion for backward compatibility
-    
+    - OpenAI Assistants API with Thread management
+
     Args:
         websocket: WebSocket connection
         assistant_id: Assistant ID to connect to
+        session: Session ID for voice conversation
+        thread: Thread ID for LLM context (OpenAI Assistants API)
         db: Database session dependency
-        
+
     Raises:
         WebSocketDisconnect: When client disconnects
         Exception: For any server-side errors
@@ -64,6 +68,7 @@ async def websocket_endpoint(
     client_id = id(websocket)
     logger.info(f"[GA-API] New WebSocket connection from client {client_id} for assistant {assistant_id}")
     logger.info(f"[GA-API] Session ID: {session}")  # 🆕 НОВОЕ
+    logger.info(f"[GA-API] Thread ID: {thread}")  # 🆕 НОВОЕ
     logger.info(f"[GA-API] Using Realtime GA API (model: gpt-realtime-mini)")
 
     try:
@@ -71,7 +76,8 @@ async def websocket_endpoint(
             websocket,
             assistant_id,
             db,
-            session_id=session  # 🆕 НОВОЕ: передаем session_id
+            session_id=session,  # 🆕 НОВОЕ: передаем session_id
+            thread_id=thread  # 🆕 НОВОЕ: передаем thread_id
         )
     except WebSocketDisconnect:
         logger.info(f"[GA-API] Client {client_id} disconnected normally")
@@ -100,21 +106,24 @@ async def websocket_endpoint(
 async def demo_websocket_endpoint(
     websocket: WebSocket,
     session: str = Query(None),  # 🆕 НОВОЕ
+    thread: str = Query(None),  # 🆕 НОВОЕ: thread_id из query параметра для Assistants API
     db: Session = Depends(get_db)
 ):
     """
     🏭 PRODUCTION Demo WebSocket endpoint for the demo assistant.
-    
+
     ✅ NOW USES: OpenAI Realtime GA API
     ✅ MODEL: gpt-realtime-mini
-    
+
     This endpoint allows users to test the voice assistant without authentication.
     Uses a public demo assistant configuration.
-    
+
     Args:
         websocket: WebSocket connection
+        session: Session ID for voice conversation
+        thread: Thread ID for LLM context (OpenAI Assistants API)
         db: Database session dependency
-        
+
     Raises:
         WebSocketDisconnect: When client disconnects
         Exception: For any server-side errors
@@ -122,7 +131,7 @@ async def demo_websocket_endpoint(
     client_id = id(websocket)
     logger.info(f"[GA-API-DEMO] New demo WebSocket connection from client {client_id}")
     logger.info(f"[GA-API-DEMO] Using Realtime GA API (model: gpt-realtime-mini)")
-    
+
     # Use a hardcoded demo assistant ID
     demo_assistant_id = "demo"
 
@@ -131,7 +140,8 @@ async def demo_websocket_endpoint(
             websocket,
             demo_assistant_id,
             db,
-            session_id=session  # 🆕 НОВОЕ
+            session_id=session,  # 🆕 НОВОЕ
+            thread_id=thread  # 🆕 НОВОЕ: передаем thread_id
         )
     except WebSocketDisconnect:
         logger.info(f"[GA-API-DEMO] Demo client {client_id} disconnected normally")
