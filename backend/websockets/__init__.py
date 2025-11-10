@@ -14,15 +14,6 @@ from .openai_client import OpenAIRealtimeClient
 from .handler_realtime_new import handle_websocket_connection_new
 from .openai_client_new import OpenAIRealtimeClientNew
 
-# 🧪 ЭКСПЕРИМЕНТАЛЬНЫЕ обработчики (Streaming TTS + Sentence Detection + ElevenLabs)
-from .handler_realtime_streaming import (
-    handle_websocket_connection_streaming,
-    handle_websocket_connection_streaming_openai_tts,
-    handle_websocket_connection_streaming_elevenlabs_tts
-)
-from .openai_client_streaming import OpenAIRealtimeClientStreaming
-from .sentence_detector import StreamingSentenceDetector
-
 # 📞 Voximplant интеграция
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
 from .voximplant_handler import (
