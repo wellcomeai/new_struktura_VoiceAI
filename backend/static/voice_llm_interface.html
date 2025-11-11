@@ -3,7 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice AI Assistant</title>
+    <title>JARVIS AI | Voicyfy</title>
+
+    <!-- Favicon и PWA -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="description" content="JARVIS AI - Голосовой ассистент с интеграцией LLM">
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -158,6 +168,43 @@
             .sidebar-overlay.show {
                 display: block;
             }
+        }
+
+        /* Скрываем config panel в embed режиме */
+        body.embed-mode .config-panel {
+            display: none;
+        }
+
+        body.embed-mode .main-container {
+            padding-top: 0;
+        }
+
+        /* Кнопка копирования в LLM панели */
+        .copy-button {
+            background: none;
+            border: none;
+            color: var(--text-gray);
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .copy-button:hover {
+            background-color: var(--bg-light);
+            color: var(--primary-blue);
+        }
+
+        .copy-button:active {
+            transform: scale(0.95);
+        }
+
+        .copy-button.copied {
+            color: #22c55e;
         }
 
         /* Config Panel Styles - теперь всегда видим */
@@ -1267,6 +1314,10 @@
                     <div class="llm-icon">🤖</div>
                     <div class="llm-title">Результаты ИИ</div>
                     <div class="llm-meta" id="llmMeta">Ожидание запроса</div>
+                    <button class="copy-button" id="copyLlmButton" onclick="copyLLMResponse()" style="display: none;">
+                        <i class="fas fa-copy"></i>
+                        <span id="copyButtonText">Копировать</span>
+                    </button>
                 </div>
                 <div class="llm-content" id="llmContent">
                     <div class="llm-placeholder">
@@ -1400,12 +1451,29 @@
             
             function getAuthToken() {
                 // ✅ Получаем токен из localStorage или cookies
-                return localStorage.getItem('auth_token') || 
+                return localStorage.getItem('auth_token') ||
                        document.cookie.split('; ').find(row => row.startsWith('auth_token='))?.split('=')[1] ||
                        '';
             }
-            
-            window.saveConfig = function() {
+
+            // Функция показа/скрытия индикатора загрузки
+            function setLoading(isLoading) {
+                const saveBtn = document.getElementById('saveBtn');
+                const testBtn = document.getElementById('testBtn');
+                const copyBtn = document.getElementById('copyBtn');
+
+                if (isLoading) {
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
+                    testBtn.disabled = true;
+                    copyBtn.disabled = true;
+                } else {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+                }
+            }
+
+            window.saveConfig = async function() {
                 const selectedAssistantId = assistantSelect.value;
 
                 if (!selectedAssistantId) {
@@ -1413,21 +1481,56 @@
                     return;
                 }
 
-                // Применяем выбранный assistant_id
-                ASSISTANT_ID = selectedAssistantId;
+                try {
+                    setLoading(true);
 
-                // Включаем кнопки тестирования и копирования
-                testBtn.disabled = false;
-                copyBtn.disabled = false;
+                    // Создаем embed конфигурацию через API
+                    const response = await fetch(`${SERVER_URL}/api/embeds`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${getAuthToken()}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            assistant_id: selectedAssistantId,
+                            custom_name: 'JARVIS AI Widget'
+                        })
+                    });
 
-                // Показываем уведомление
-                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to create embed config');
+                    }
 
-                // Переподключаем WebSocket с новым assistant_id
-                if (websocket) {
-                    websocket.close();
+                    const data = await response.json();
+
+                    // Сохраняем данные для кнопки "Копировать"
+                    window.currentEmbedCode = data.embed_code;
+                    window.currentEmbedUrl = data.embed_url;
+                    window.currentIframeCode = data.iframe_code;
+
+                    // Применяем assistant_id для тестирования
+                    ASSISTANT_ID = selectedAssistantId;
+
+                    // Включаем кнопки
+                    testBtn.disabled = false;
+                    copyBtn.disabled = false;
+
+                    // Показываем успех с embed кодом
+                    showSuccess(`✅ Сохранено! Embed код: ${data.embed_code}`);
+
+                    // Переподключаем WebSocket для тестирования
+                    if (websocket) {
+                        websocket.close();
+                    }
+                    connectWebSocket();
+
+                } catch (error) {
+                    console.error('[CONFIG] Save error:', error);
+                    alert('❌ Ошибка сохранения: ' + error.message);
+                } finally {
+                    setLoading(false);
                 }
-                connectWebSocket();
             };
 
             window.testAgent = function() {
@@ -1446,61 +1549,43 @@
             };
             
             window.copyHTMLCode = function() {
-                if (!ASSISTANT_ID) {
+                if (!window.currentEmbedUrl) {
                     alert('❌ Сначала сохраните конфигурацию!');
                     return;
                 }
-                
+
                 try {
-                    // Получаем весь HTML документа
-                    let html = document.documentElement.outerHTML;
-                    
-                    // Удаляем панель настройки
-                    html = html.replace(
-                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
-                        '<!-- MAIN INTERFACE -->'
-                    );
-                    
-                    // Удаляем success message
-                    html = html.replace(
-                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
-                        ''
-                    );
-                    
-                    // Удаляем класс config-mode
-                    html = html.replace('class="config-mode"', '');
-                    
-                    // Подставляем assistant_id в URL параметры
-                    html = html.replace(
-                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
-                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
-                    );
-                    
-                    // Удаляем логику определения config режима
-                    html = html.replace(
-                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
-                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
-                    );
-                    
-                    // Копируем в буфер обмена
-                    navigator.clipboard.writeText(html).then(() => {
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    // Готовый iframe код для вставки
+                    const embedCode = `<!-- Voicyfy JARVIS AI Widget -->
+<iframe
+    src="${window.currentEmbedUrl}"
+    width="100%"
+    height="800px"
+    frameborder="0"
+    allow="microphone"
+    style="border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
+</iframe>
+<!-- Embed code: ${window.currentEmbedCode} -->`;
+
+                    // Копируем в буфер
+                    navigator.clipboard.writeText(embedCode).then(() => {
+                        showSuccess('✅ Iframe код скопирован! Вставьте на ваш сайт');
                     }).catch(err => {
                         // Fallback для старых браузеров
                         const textarea = document.createElement('textarea');
-                        textarea.value = html;
+                        textarea.value = embedCode;
                         textarea.style.position = 'fixed';
                         textarea.style.opacity = '0';
                         document.body.appendChild(textarea);
                         textarea.select();
                         document.execCommand('copy');
                         document.body.removeChild(textarea);
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                        showSuccess('✅ Iframe код скопирован!');
                     });
-                    
+
                 } catch (error) {
-                    console.error('[CONFIG] Error copying HTML:', error);
-                    alert('❌ Ошибка при копировании кода: ' + error.message);
+                    console.error('[CONFIG] Copy error:', error);
+                    alert('❌ Ошибка копирования: ' + error.message);
                 }
             };
             
@@ -1649,13 +1734,61 @@
                     .replace(/\n/g, '<br>');
             }
 
+            // Функция копирования ответа ИИ
+            let currentLLMContent = '';
+
+            function copyLLMResponse() {
+                if (!currentLLMContent) {
+                    showSuccess('❌ Нет контента для копирования', 'error');
+                    return;
+                }
+
+                const copyButton = document.getElementById('copyLlmButton');
+                const copyButtonText = document.getElementById('copyButtonText');
+                const copyIcon = copyButton.querySelector('i');
+
+                try {
+                    // Копируем текст без HTML тегов
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = currentLLMContent;
+                    const plainText = tempDiv.textContent || tempDiv.innerText || '';
+
+                    navigator.clipboard.writeText(plainText).then(() => {
+                        // Анимация успеха
+                        copyButton.classList.add('copied');
+                        copyIcon.className = 'fas fa-check';
+                        copyButtonText.textContent = 'Скопировано!';
+
+                        setTimeout(() => {
+                            copyButton.classList.remove('copied');
+                            copyIcon.className = 'fas fa-copy';
+                            copyButtonText.textContent = 'Копировать';
+                        }, 2000);
+
+                    }).catch(err => {
+                        showSuccess('❌ Ошибка копирования', 'error');
+                    });
+
+                } catch (error) {
+                    console.error('[COPY] Error:', error);
+                    showSuccess('❌ Ошибка копирования', 'error');
+                }
+            }
+
             function displayLLMContent(content, model = 'GPT-4o-mini') {
                 log('✅ Displaying LLM content');
-                
+
                 const formattedContent = formatMarkdown(content);
                 llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
                 llmMeta.textContent = model;
                 llmContent.scrollTop = 0;
+
+                // Сохраняем контент и показываем кнопку копирования
+                currentLLMContent = formattedContent;
+                const copyButton = document.getElementById('copyLlmButton');
+                if (copyButton) {
+                    copyButton.style.display = 'flex';
+                }
             }
 
             function updateStatus(status, text, className) {
@@ -2575,8 +2708,17 @@
             createCircularVisualizer();
             initThreeJS();
 
-            // Подключаемся только если уже выбран assistant
-            if (ASSISTANT_ID) {
+            // Определяем режим работы и инициализируем соответственно
+            if (!ASSISTANT_ID) {
+                // Режим настройки - показываем config panel и понятное состояние
+                document.body.classList.remove('embed-mode');
+                updateStatus('connecting', 'Выберите и сохраните ассистента', 'connecting');
+                if (jarvisSphere) {
+                    jarvisSphere.classList.remove('listening', 'speaking', 'processing');
+                }
+            } else {
+                // Embed режим - скрываем config panel и подключаемся
+                document.body.classList.add('embed-mode');
                 connectWebSocket();
             }
         });
