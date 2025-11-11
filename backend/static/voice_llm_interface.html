@@ -206,6 +206,24 @@
             padding-top: 140px;
         }
 
+        /* Embed mode - hide UI elements */
+        body.embed-mode .config-panel {
+            display: none;
+        }
+
+        body.embed-mode .main-container {
+            padding-top: 0;
+        }
+
+        body.embed-mode .sidebar {
+            display: none;
+        }
+
+        body.embed-mode .main-container {
+            margin-left: 0;
+            width: 100%;
+        }
+
         /* Blur overlay */
         .background-overlay {
             position: fixed;
@@ -1177,86 +1195,95 @@
                        '';
             }
             
-            window.saveConfig = function() {
+            window.saveConfig = async function() {
                 const selectedAssistantId = assistantSelect.value;
-                
+
                 if (!selectedAssistantId) {
                     alert('❌ Пожалуйста, выберите ассистента!');
                     return;
                 }
-                
-                // Применяем выбранный assistant_id
-                ASSISTANT_ID = selectedAssistantId;
-                
-                // Включаем кнопку копирования
-                copyBtn.disabled = false;
-                
-                // Показываем уведомление
-                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
-                
-                // Переподключаем WebSocket с новым assistant_id
-                if (websocket) {
-                    websocket.close();
+
+                try {
+                    // ✅ Создаём embed конфигурацию через API
+                    const response = await fetch('/api/embeds/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${getAuthToken()}`
+                        },
+                        body: JSON.stringify({
+                            assistant_id: selectedAssistantId
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Ошибка создания embed конфигурации');
+                    }
+
+                    const data = await response.json();
+
+                    // ✅ Сохраняем embed данные для копирования
+                    window.currentEmbedCode = data.embed_code;
+                    window.currentEmbedUrl = data.embed_url;
+
+                    // Применяем выбранный assistant_id
+                    ASSISTANT_ID = selectedAssistantId;
+
+                    // Включаем кнопку копирования
+                    copyBtn.disabled = false;
+
+                    // Показываем уведомление
+                    showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
+
+                    // Переподключаем WebSocket с новым assistant_id
+                    if (websocket) {
+                        websocket.close();
+                    }
+                    connectWebSocket();
+                } catch (error) {
+                    console.error('[CONFIG] Save error:', error);
+                    alert('❌ Ошибка сохранения: ' + error.message);
                 }
-                connectWebSocket();
             };
             
             window.copyHTMLCode = function() {
-                if (!ASSISTANT_ID) {
+                if (!window.currentEmbedUrl) {
                     alert('❌ Сначала сохраните конфигурацию!');
                     return;
                 }
-                
+
                 try {
-                    // Получаем весь HTML документа
-                    let html = document.documentElement.outerHTML;
-                    
-                    // Удаляем панель настройки
-                    html = html.replace(
-                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
-                        '<!-- MAIN INTERFACE -->'
-                    );
-                    
-                    // Удаляем success message
-                    html = html.replace(
-                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
-                        ''
-                    );
-                    
-                    // Удаляем класс config-mode
-                    html = html.replace('class="config-mode"', '');
-                    
-                    // Подставляем assistant_id в URL параметры
-                    html = html.replace(
-                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
-                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
-                    );
-                    
-                    // Удаляем логику определения config режима
-                    html = html.replace(
-                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
-                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
-                    );
-                    
-                    // Копируем в буфер обмена
-                    navigator.clipboard.writeText(html).then(() => {
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    // ✅ Правильный путь с /api/embeds/embed/
+                    const embedCode = `<!-- Voicyfy JARVIS AI Widget -->
+<iframe
+    src="https://voicyfy.ru/api/embeds/embed/${window.currentEmbedCode}"
+    width="100%"
+    height="800px"
+    frameborder="0"
+    allow="microphone"
+    style="border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
+</iframe>
+<!-- Embed code: ${window.currentEmbedCode} -->`;
+
+                    // Копируем в буфер
+                    navigator.clipboard.writeText(embedCode).then(() => {
+                        showSuccess('✅ Iframe код скопирован! Вставьте на ваш сайт');
                     }).catch(err => {
                         // Fallback для старых браузеров
                         const textarea = document.createElement('textarea');
-                        textarea.value = html;
+                        textarea.value = embedCode;
                         textarea.style.position = 'fixed';
                         textarea.style.opacity = '0';
                         document.body.appendChild(textarea);
                         textarea.select();
                         document.execCommand('copy');
                         document.body.removeChild(textarea);
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                        showSuccess('✅ Iframe код скопирован!');
                     });
-                    
+
                 } catch (error) {
-                    console.error('[CONFIG] Error copying HTML:', error);
-                    alert('❌ Ошибка при копировании кода: ' + error.message);
+                    console.error('[CONFIG] Copy error:', error);
+                    alert('❌ Ошибка копирования: ' + error.message);
                 }
             };
             
@@ -2322,12 +2349,27 @@
             log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
             log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
             log(`Server URL: ${SERVER_URL}`);
-            
+
             createCircularVisualizer();
             initThreeJS();
-            
-            // Подключаемся только если НЕ config режим или если уже выбран assistant
-            if (!isConfigMode || ASSISTANT_ID) {
+
+            // Определяем режим работы и инициализируем соответственно
+            if (!ASSISTANT_ID) {
+                // Режим настройки - показываем config panel
+                document.body.classList.remove('embed-mode');
+                updateStatus('connecting', 'Выберите и сохраните ассистента', 'connecting');
+                if (jarvisSphere) {
+                    jarvisSphere.classList.remove('listening', 'speaking', 'processing');
+                }
+            } else {
+                // Embed режим - скрываем UI и автоподключаемся
+                document.body.classList.add('embed-mode');
+
+                // ✅ Скрываем header в embed режиме
+                const header = document.querySelector('.header');
+                if (header) header.style.display = 'none';
+
+                // ✅ Автоматически подключаемся
                 connectWebSocket();
             }
         });

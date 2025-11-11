@@ -56,12 +56,19 @@ class EmbedConfig(Base, BaseModel):
     
     def get_embed_url(self, base_url: str = "https://voicyfy.ru") -> str:
         """Get full embed URL"""
-        return f"{base_url}/embed/{self.embed_code}"
-    
+        return f"{base_url}/api/embeds/embed/{self.embed_code}"
+
     def get_iframe_code(self, width: str = "100%", height: str = "800px") -> str:
         """Get ready-to-use iframe HTML code"""
         url = self.get_embed_url()
-        return f'<iframe src="{url}" width="{width}" height="{height}" frameborder="0" allow="microphone"></iframe>'
+        return f'''<iframe
+    src="{url}"
+    width="{width}"
+    height="{height}"
+    frameborder="0"
+    allow="microphone"
+    style="border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
+</iframe>'''
     
     def increment_views(self, db_session):
         """Increment view counter"""

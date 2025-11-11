@@ -180,17 +180,24 @@ async def serve_embed_page(
     # ✅ ЧИТАЕМ HTML из файла и подставляем assistant_id
     import os
     from pathlib import Path
-    
+
     # Путь к шаблону
     template_path = Path(__file__).parent.parent / "static" / "voice_llm_interface.html"
-    
+
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
-    
-    # 🔥 ПОДСТАНОВКА assistant_id
+
+    # 🔥 ПРАВИЛЬНАЯ ПОДСТАНОВКА assistant_id
+    # Заменяем строку где определяется ASSISTANT_ID
     html_content = html_content.replace(
-        'const ASSISTANT_ID = "17c631ce-0db1-4171-a81d-22d91d4cccd7";',
-        f'const ASSISTANT_ID = "{assistant_id}";'
+        'let ASSISTANT_ID = urlParams.get(\'assistant\') || null;',
+        f'let ASSISTANT_ID = "{assistant_id}";'
     )
-    
+
+    # ✅ Включаем embed режим (скрываем UI)
+    html_content = html_content.replace(
+        '<body>',
+        '<body class="embed-mode">'
+    )
+
     return HTMLResponse(content=html_content)
