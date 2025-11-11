@@ -296,11 +296,12 @@
 
         .llm-content {
             flex: 1;
-            padding: 32px;
+            padding: 24px 32px;
             overflow-y: auto;
-            font-size: 15px;
-            line-height: 1.7;
+            font-size: 14px;
+            line-height: 1.6;
             color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
         }
 
         .llm-content::-webkit-scrollbar {
@@ -744,57 +745,277 @@
             font-size: 16px;
         }
 
-        /* Content formatting */
+        /* Content formatting - ChatGPT style */
         .llm-content h1, .llm-content h2, .llm-content h3 {
-            margin: 24px 0 12px 0;
+            margin: 20px 0 12px 0;
             color: var(--text-color);
             font-weight: 600;
+            line-height: 1.3;
         }
 
-        .llm-content h1 { font-size: 24px; }
-        .llm-content h2 { font-size: 20px; }
-        .llm-content h3 { font-size: 18px; }
+        .llm-content h1 { font-size: 1.75em; }
+        .llm-content h2 { font-size: 1.5em; }
+        .llm-content h3 { font-size: 1.25em; }
+
+        .llm-content h1:first-child,
+        .llm-content h2:first-child,
+        .llm-content h3:first-child {
+            margin-top: 0;
+        }
 
         .llm-content p {
-            margin: 16px 0;
+            margin: 12px 0;
+            line-height: 1.6;
+        }
+
+        .llm-content p:first-child {
+            margin-top: 0;
+        }
+
+        .llm-content p:last-child {
+            margin-bottom: 0;
         }
 
         .llm-content ul, .llm-content ol {
-            margin: 16px 0;
-            padding-left: 24px;
+            margin: 12px 0;
+            padding-left: 28px;
         }
 
         .llm-content li {
-            margin: 8px 0;
+            margin: 6px 0;
+            line-height: 1.6;
+        }
+
+        .llm-content li > p {
+            margin: 4px 0;
         }
 
         .llm-content code {
-            background: rgba(102, 126, 234, 0.1);
+            background: rgba(102, 126, 234, 0.08);
             padding: 2px 6px;
             border-radius: 4px;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-            font-size: 13px;
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+            font-size: 0.9em;
             color: var(--secondary-color);
         }
 
         .llm-content pre {
-            background: rgba(0, 0, 0, 0.05);
-            padding: 16px;
-            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.04);
+            padding: 14px;
+            border-radius: 8px;
             overflow-x: auto;
-            margin: 20px 0;
-            border: 1px solid rgba(0, 0, 0, 0.1);
+            margin: 16px 0;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            line-height: 1.5;
         }
 
         .llm-content pre code {
             background: none;
             padding: 0;
             color: var(--text-color);
+            font-size: 13px;
         }
 
         .llm-content strong {
-            color: var(--primary-color);
+            color: var(--text-color);
             font-weight: 600;
+        }
+
+        .llm-content a {
+            color: var(--primary-color);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s ease;
+        }
+
+        .llm-content a:hover {
+            border-bottom-color: var(--primary-color);
+        }
+
+        .llm-content blockquote {
+            border-left: 3px solid var(--primary-color);
+            padding-left: 16px;
+            margin: 16px 0;
+            color: #5a5a5a;
+            font-style: italic;
+        }
+
+        /* Burger Menu */
+        .burger-menu-btn {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            padding: 8px;
+            gap: 4px;
+        }
+
+        .burger-menu-btn:hover {
+            border-color: var(--primary-color);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .burger-menu-btn span {
+            width: 20px;
+            height: 2px;
+            background: var(--primary-color);
+            border-radius: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .burger-menu-btn.active span:nth-child(1) {
+            transform: rotate(45deg) translate(5px, 5px);
+        }
+
+        .burger-menu-btn.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .burger-menu-btn.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(5px, -5px);
+        }
+
+        /* Navigation Panel */
+        .nav-panel {
+            position: fixed;
+            top: 0;
+            left: -300px;
+            width: 280px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+            z-index: 9999;
+            transition: left 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-panel.open {
+            left: 0;
+        }
+
+        .nav-panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9998;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .nav-panel-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .nav-panel-header {
+            padding: 24px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .nav-panel-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-panel-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary-color);
+            font-size: 18px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-panel-close:hover {
+            background: rgba(102, 126, 234, 0.2);
+        }
+
+        .nav-panel-content {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: 24px;
+        }
+
+        .nav-section-title {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6a6a6a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
+            padding: 0 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            color: var(--text-color);
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            margin-bottom: 4px;
+            font-size: 15px;
+        }
+
+        .nav-link:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: var(--primary-color);
+        }
+
+        .nav-link.active {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            font-weight: 600;
+        }
+
+        .nav-link i {
+            margin-right: 12px;
+            width: 20px;
+            text-align: center;
+        }
+
+        .nav-beta-badge {
+            margin-left: auto;
+            font-size: 10px;
+            padding: 3px 8px;
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+            border-radius: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         /* Responsive */
@@ -847,6 +1068,49 @@
     </style>
 </head>
 <body>
+    <!-- Navigation Panel Overlay -->
+    <div class="nav-panel-overlay" id="navPanelOverlay" onclick="toggleNavPanel()"></div>
+
+    <!-- Navigation Panel -->
+    <nav class="nav-panel" id="navPanel">
+        <div class="nav-panel-header">
+            <div class="nav-panel-title">Навигация</div>
+            <button class="nav-panel-close" onclick="toggleNavPanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="nav-panel-content">
+            <div class="nav-section">
+                <div class="nav-section-title">Основное</div>
+                <a href="/static/dashboard.html" class="nav-link">
+                    <i class="fas fa-home"></i> Дашборд
+                </a>
+                <a href="/static/agents.html" class="nav-link">
+                    <i class="fas fa-robot"></i> Мои агенты
+                </a>
+                <a href="/static/knowledge-base.html" class="nav-link">
+                    <i class="fas fa-book"></i> База знаний
+                </a>
+                <a href="/static/outbound-calls.html" class="nav-link">
+                    <i class="fas fa-phone-alt"></i> Исходящие звонки
+                </a>
+                <a href="/static/conversations.html" class="nav-link">
+                    <i class="fas fa-comments"></i> Диалоги
+                </a>
+                <a href="/static/voice_llm_interface.html" class="nav-link active">
+                    <i class="fas fa-brain"></i> JARVIS AI
+                    <span class="nav-beta-badge">Beta</span>
+                </a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Аккаунт</div>
+                <a href="/static/settings.html" class="nav-link">
+                    <i class="fas fa-gear"></i> Настройки
+                </a>
+            </div>
+        </div>
+    </nav>
+
     <!-- ============================================================ -->
     <!-- MAIN INTERFACE -->
     <!-- ============================================================ -->
@@ -862,6 +1126,13 @@
 
         <!-- Header -->
         <div class="header">
+            <!-- Бургер-меню -->
+            <button class="burger-menu-btn" id="burgerMenuBtn" onclick="toggleNavPanel()">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+
             <div class="logo-icon">🎤</div>
             <div class="logo-text">JARVIS AI</div>
 
@@ -1203,6 +1474,31 @@
 
             // Делаем функцию глобальной для onclick
             window.copyLLMContent = copyLLMContent;
+
+            // ============================================================================
+            // NAVIGATION PANEL FUNCTIONS
+            // ============================================================================
+
+            function toggleNavPanel() {
+                const navPanel = document.getElementById('navPanel');
+                const navOverlay = document.getElementById('navPanelOverlay');
+                const burgerBtn = document.getElementById('burgerMenuBtn');
+
+                const isOpen = navPanel.classList.contains('open');
+
+                if (isOpen) {
+                    navPanel.classList.remove('open');
+                    navOverlay.classList.remove('active');
+                    burgerBtn.classList.remove('active');
+                } else {
+                    navPanel.classList.add('open');
+                    navOverlay.classList.add('active');
+                    burgerBtn.classList.add('active');
+                }
+            }
+
+            // Делаем функцию глобальной для onclick
+            window.toggleNavPanel = toggleNavPanel;
 
             // ============================================================================
             // LLM FUNCTIONS
@@ -2170,14 +2466,9 @@
             // Загружаем список ассистентов
             loadAssistantsList();
 
-            // Подключаемся только если есть ASSISTANT_ID
-            if (ASSISTANT_ID) {
-                log('Auto-connecting to assistant...');
-                connectWebSocket();
-            } else {
-                log('Waiting for assistant selection...');
-                updateStatus('connecting', 'Выберите ассистента', 'connecting');
-            }
+            // НЕ подключаемся автоматически - ждем явного выбора пользователя
+            log('Waiting for assistant selection...');
+            updateStatus('connecting', '👈 Выберите ассистента для начала', 'connecting');
         });
     </script>
 </body>
