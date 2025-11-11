@@ -103,6 +103,18 @@
             padding: 8px;
         }
 
+        @keyframes pulse-attention {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 4px 16px rgba(102, 126, 234, 0.6);
+                border-color: #ef4444;
+            }
+        }
+
         .logo-icon {
             width: 40px;
             height: 40px;
@@ -1431,12 +1443,14 @@
                     copyBtn.style.display = 'none';
                 }
 
-                updateStatus('connecting', 'Переподключение...', 'connecting');
+                // Сбрасываем состояние подключения
+                isConnected = false;
+                isListening = false;
 
-                // Переподключаемся через небольшую задержку
-                setTimeout(() => {
-                    connectWebSocket();
-                }, 500);
+                // Обновляем статус - просим нажать на сферу
+                updateStatus('connecting', '👆 Нажмите на сферу для начала разговора', 'connecting');
+
+                log('✅ Assistant selected. Click on sphere to connect.');
             }
 
             // Делаем функцию глобальной для onclick
@@ -2433,8 +2447,25 @@
             // ============================================================================
             // CLICK HANDLER
             // ============================================================================
-            
+
             jarvisSphere.addEventListener('click', async function() {
+                // Проверяем, выбран ли ассистент
+                if (!ASSISTANT_ID) {
+                    log('No assistant selected', 'warn');
+                    updateStatus('connecting', '⚠️ Сначала выберите ассистента', 'connecting');
+
+                    // Привлекаем внимание к селектору
+                    const selector = document.getElementById('assistantSelector');
+                    if (selector) {
+                        selector.style.animation = 'pulse-attention 0.5s ease 3';
+                        setTimeout(() => {
+                            selector.style.animation = '';
+                        }, 1500);
+                    }
+                    return;
+                }
+
+                // Инициализируем аудио при первом клике
                 if (!window.audioInitialized) {
                     log('Инициализация аудио по клику');
                     const success = await initializeAudio();
@@ -2442,12 +2473,24 @@
                         return;
                     }
                 }
-                
+
+                // Логика работы в зависимости от состояния
                 if (!isListening && !isPlayingAudio && !isReconnecting && !isProcessingLLM) {
                     if (isConnected) {
+                        // Если уже подключены - начинаем слушать
                         startListening();
                     } else {
-                        connectWebSocket();
+                        // Если не подключены - подключаемся сначала
+                        log('Connecting to WebSocket...');
+                        updateStatus('connecting', 'Подключение...', 'connecting');
+                        await connectWebSocket();
+
+                        // После успешного подключения автоматически начинаем слушать
+                        if (isConnected) {
+                            setTimeout(() => {
+                                startListening();
+                            }, 500);
+                        }
                     }
                 }
             });
