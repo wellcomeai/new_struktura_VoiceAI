@@ -4,6 +4,7 @@ API module for WellcomeAI application.
 Contains FastAPI route definitions for all endpoints.
 ✅ ОБНОВЛЕНО: Добавлен роутер email_verification
 ✅ ОБНОВЛЕНО: Добавлен роутер embeds
+✅ ОБНОВЛЕНО: Добавлен роутер gemini_ws для Google Gemini Live API
 """
 
 from fastapi import APIRouter
@@ -13,6 +14,7 @@ from .users import router as users_router
 from .assistants import router as assistants_router
 from .files import router as files_router
 from .websocket import router as websocket_router
+from .gemini_ws import router as gemini_ws_router  # ✅ НОВОЕ
 from .subscriptions import router as subscriptions_router
 from .admin import router as admin_router
 from .knowledge_base import router as knowledge_base_router
@@ -35,6 +37,7 @@ api_router.include_router(users_router, tags=["Users"])
 api_router.include_router(assistants_router, tags=["Assistants"])
 api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
+api_router.include_router(gemini_ws_router, tags=["Gemini WebSocket"])  # ✅ НОВОЕ
 api_router.include_router(subscriptions_router, tags=["Subscriptions"])
 api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 api_router.include_router(knowledge_base_router)
@@ -47,6 +50,7 @@ api_router.include_router(conversations_router, tags=["Conversations"])
 api_router.include_router(email_verification_router, prefix="/email-verification", tags=["Email Verification"])
 api_router.include_router(embeds_router, tags=["Embeds"])
 api_router.include_router(llm_streaming_router, tags=["LLM Streaming"])
+
 # Export all routers for use in app.py
 __all__ = [
     "api_router",
@@ -55,6 +59,7 @@ __all__ = [
     "assistants_router",
     "files_router",
     "websocket_router",
+    "gemini_ws_router",  # ✅ НОВОЕ
     "subscriptions_router",
     "admin_router",
     "knowledge_base_router",
