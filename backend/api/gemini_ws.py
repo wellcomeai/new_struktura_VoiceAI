@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 import traceback
 
 from backend.core.logging import get_logger
-from backend.core.database import get_db
+from backend.db.session import get_db
 from backend.websockets import handle_gemini_websocket_connection
 
 logger = get_logger(__name__)
