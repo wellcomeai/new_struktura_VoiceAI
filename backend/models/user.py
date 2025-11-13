@@ -2,6 +2,7 @@
 Модель пользователя для приложения WellcomeAI.
 Представляет пользователя с данными аутентификации и профиля.
 ✅ ОБНОВЛЕНО: Добавлено поле email_verified для верификации email
+✅ ОБНОВЛЕНО: Добавлено поле gemini_api_key для Google Gemini API
 """
 
 import uuid
@@ -25,14 +26,15 @@ class User(Base, BaseModel):
     last_name = Column(String, nullable=True)
     company_name = Column(String, nullable=True)
     openai_api_key = Column(String, nullable=True)
-    elevenlabs_api_key = Column(String, nullable=True)  # ✅ ДОБАВЛЕНО: ElevenLabs API key
+    elevenlabs_api_key = Column(String, nullable=True)
+    gemini_api_key = Column(String, nullable=True)  # ✅ НОВОЕ: Google Gemini API key
     subscription_plan = Column(String, default="free")
     usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
     google_sheets_token = Column(JSON, nullable=True)
     google_sheets_authorized = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    email_verified = Column(Boolean, default=False, nullable=False, index=True)  # ✅ НОВОЕ ПОЛЕ
+    email_verified = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -46,6 +48,7 @@ class User(Base, BaseModel):
 
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
+    gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ НОВОЕ
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
     elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")
@@ -71,6 +74,7 @@ class User(Base, BaseModel):
         data.pop("password_hash", None)
         data.pop("openai_api_key", None)
         data.pop("elevenlabs_api_key", None)
+        data.pop("gemini_api_key", None)  # ✅ НОВОЕ
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -89,6 +93,10 @@ class User(Base, BaseModel):
         """Проверить, настроен ли ключ ElevenLabs API у пользователя"""
         return bool(self.elevenlabs_api_key)
     
+    def has_gemini_api_key(self):
+        """✅ НОВЫЙ МЕТОД: Проверить, настроен ли ключ Gemini API у пользователя"""
+        return bool(self.gemini_api_key)
+    
     def has_active_subscription(self):
         """Проверить, активна ли подписка пользователя"""
         if self.is_admin:
@@ -101,9 +109,9 @@ class User(Base, BaseModel):
         return False
     
     def is_email_verified(self):
-        """✅ НОВЫЙ МЕТОД: Проверить, подтверждён ли email пользователя"""
+        """Проверить, подтверждён ли email пользователя"""
         return self.email_verified
     
     def needs_email_verification(self):
-        """✅ НОВЫЙ МЕТОД: Проверить, требуется ли верификация email"""
+        """Проверить, требуется ли верификация email"""
         return not self.email_verified
