@@ -1295,24 +1295,24 @@
           </form>
         </div>
         
-        <!-- Таб тестирования -->
+        <!-- Таб тестирования - ОБНОВЛЕННАЯ ВЕРСИЯ -->
         <div class="tab-content" id="testing-tab">
           <div class="card testing-section">
             <div class="card-header">
               <h3 style="margin-bottom: 1rem;">Тестирование голосового ассистента</h3>
+              <p style="color: var(--text-gray); margin: 0;">
+                Нажмите на фиолетовый круг справа внизу для начала разговора
+              </p>
             </div>
             
             <div class="testing-container">
-              <div class="testing-placeholder">
-                <div class="testing-placeholder-icon">
-                  <i class="fas fa-flask"></i>
+              <div style="padding: 2rem; text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">
+                  <i class="fas fa-sparkles" style="color: #8B5CF6;"></i>
                 </div>
-                <h3 class="testing-placeholder-title">Виджет будет позже</h3>
-                <p class="testing-placeholder-text">
-                  Функция тестирования в разработке. Скоро вы сможете протестировать вашего Gemini ассистента прямо на этой странице.
-                </p>
-                <p style="color: var(--text-gray); font-size: 0.875rem;">
-                  А пока используйте код встраивания на вкладке "Встраивание" для интеграции на ваш сайт.
+                <h3 style="margin-bottom: 0.5rem;">Живой тест Gemini ассистента</h3>
+                <p style="color: var(--text-gray);">
+                  Виджет загружен на этой странице. Нажмите на круг справа внизу →
                 </p>
               </div>
             </div>
@@ -1722,6 +1722,11 @@
       <div class="loading-spinner"></div>
     </div>
   </main>
+
+  <!-- ЖИВОЙ ДЕМО ВИДЖЕТ (только если агент выбран) -->
+  <div id="demo-widget-container" style="display: none;">
+    <script id="demo-widget-script"></script>
+  </div>
   
   <!-- JavaScript -->
   <script>
@@ -1821,6 +1826,54 @@
       document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.toggle('active', content.id === `${tabId}-tab`);
       });
+      
+      // Автозагрузка виджета на вкладке тестирования
+      if (tabId === 'testing' && currentAgentId) {
+        setTimeout(() => loadDemoWidget(currentAgentId), 500);
+      } else {
+        loadDemoWidget(null); // Выгрузка виджета
+      }
+    }
+    
+    // ============================================================================
+    // ФУНКЦИЯ ЗАГРУЗКИ ДЕМО ВИДЖЕТА
+    // ============================================================================
+    
+    function loadDemoWidget(assistantId) {
+      const container = document.getElementById('demo-widget-container');
+      const scriptEl = document.getElementById('demo-widget-script');
+      
+      // Очистка старого виджета
+      scriptEl.innerHTML = '';
+      container.style.display = 'none';
+      
+      // Удаление старого виджета из DOM
+      const oldWidget = document.getElementById('gemini-voice-widget');
+      if (oldWidget) oldWidget.remove();
+      
+      if (!assistantId) {
+        console.log('[DEMO-WIDGET] Widget unloaded');
+        return;
+      }
+      
+      console.log('[DEMO-WIDGET] Loading widget for assistant:', assistantId);
+      
+      // Загрузка нового виджета
+      container.style.display = 'block';
+      const script = document.createElement('script');
+      script.src = '/static/gemini-widget.js';
+      script.dataset.assistantId = assistantId;
+      script.dataset.server = window.location.origin;
+      script.dataset.position = 'bottom-right';
+      script.async = true;
+      script.onload = () => {
+        console.log('[DEMO-WIDGET] Widget loaded successfully');
+      };
+      script.onerror = () => {
+        console.error('[DEMO-WIDGET] Failed to load widget');
+        showNotification('Ошибка загрузки виджета', 'error');
+      };
+      document.head.appendChild(script);
     }
     
     // ============================================================================
@@ -2098,6 +2151,9 @@
       document.getElementById('create-new-agent-btn').style.display = 'inline-flex';
       
       currentAgentId = null;
+      
+      // Выгрузка виджета
+      loadDemoWidget(null);
     }
     
     function initCreateMode() {
