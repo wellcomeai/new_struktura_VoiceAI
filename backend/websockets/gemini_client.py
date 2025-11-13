@@ -1,6 +1,6 @@
 """
-🚀 PRODUCTION VERSION 1.0 - Google Gemini Live API Client
-Model: gemini-2.5-flash-native-audio-preview-09-2025
+🚀 PRODUCTION VERSION 1.1 - Google Gemini Live API Client
+Model: gemini-2.0-flash-live-preview-04-09
 
 Features:
 ✅ Native audio I/O (PCM 16kHz input, 24kHz output)
@@ -12,6 +12,7 @@ Features:
 ✅ Reconnection logic
 ✅ Performance monitoring
 ✅ Production-ready stability
+✅ FIXED: Correct WebSocket endpoint for Live API
 """
 
 import asyncio
@@ -21,6 +22,7 @@ import base64
 import time
 import websockets
 import re
+import traceback
 from websockets.exceptions import ConnectionClosed
 from typing import Optional, List, Dict, Any, Union, AsyncGenerator
 
@@ -76,7 +78,7 @@ def generate_short_id(prefix: str = "") -> str:
 
 class GeminiLiveClient:
     """
-    🚀 PRODUCTION v1.0 - Client for Google Gemini Live API
+    🚀 PRODUCTION v1.1 - Client for Google Gemini Live API
     
     Key features:
     - Native audio processing (16kHz input, 24kHz output)
@@ -105,9 +107,9 @@ class GeminiLiveClient:
         self.ws = None
         self.is_connected = False
         
-        # Model and URL
-        self.model = "gemini-2.5-flash-native-audio-preview-09-2025"
-        self.base_url = f"wss://generativelanguage.googleapis.com/v1beta/models/{self.model}:streamGenerateContent"
+        # ✅ FIXED: Correct WebSocket endpoint for Gemini Live API
+        self.model = "gemini-2.0-flash-live-preview-04-09"
+        self.base_url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
         self.gemini_url = f"{self.base_url}?key={self.api_key}"
         
         self.session_id = str(uuid.uuid4())
@@ -150,22 +152,36 @@ class GeminiLiveClient:
     async def connect(self) -> bool:
         """Establish WebSocket connection to Gemini Live API."""
         if not self.api_key:
-            logger.error("[GEMINI-CLIENT] Google API key not provided")
+            logger.error("[GEMINI-CLIENT] ❌ Google API key not provided")
             return False
 
+        logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[GEMINI-CLIENT] 🔌 CONNECTION ATTEMPT")
+        logger.info(f"[GEMINI-CLIENT] Model: {self.model}")
+        logger.info(f"[GEMINI-CLIENT] Endpoint: {self.base_url}")
+        logger.info(f"[GEMINI-CLIENT] API Key: {self.api_key[:15]}...{self.api_key[-8:]}")
+        logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
         try:
+            logger.info(f"[GEMINI-CLIENT] Opening WebSocket connection (timeout: 30s)...")
+            
             self.ws = await asyncio.wait_for(
                 websockets.connect(
                     self.gemini_url,
                     max_size=15*1024*1024,
                     ping_interval=30,
                     ping_timeout=120,
-                    close_timeout=15
+                    close_timeout=15,
+                    extra_headers={
+                        'User-Agent': 'Voicyfy/1.1'
+                    }
                 ),
                 timeout=30
             )
+            
             self.is_connected = True
-            logger.info(f"[GEMINI-CLIENT] ✅ Connected to Gemini Live API (model: {self.model})")
+            logger.info(f"[GEMINI-CLIENT] ✅ WebSocket CONNECTED successfully")
+            logger.info(f"[GEMINI-CLIENT] Model: {self.model}")
 
             # Get settings
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -191,17 +207,57 @@ class GeminiLiveClient:
                 system_message=system_message,
                 functions=functions
             ):
-                logger.error("[GEMINI-CLIENT] Failed to setup session")
+                logger.error("[GEMINI-CLIENT] ❌ Failed to setup session")
                 await self.close()
                 return False
 
-            logger.info(f"[GEMINI-CLIENT] Session initialized successfully")
+            logger.info(f"[GEMINI-CLIENT] ✅ Session initialized successfully")
             return True
+            
         except asyncio.TimeoutError:
-            logger.error(f"[GEMINI-CLIENT] Connection timeout")
+            logger.error(f"[GEMINI-CLIENT] ❌ CONNECTION TIMEOUT (30s)")
+            logger.error(f"[GEMINI-CLIENT] Возможные причины:")
+            logger.error(f"[GEMINI-CLIENT]   1. Google API недоступен из вашей страны/сервера")
+            logger.error(f"[GEMINI-CLIENT]   2. Требуется VPN/proxy")
+            logger.error(f"[GEMINI-CLIENT]   3. Проблемы с сетью")
+            logger.error(f"[GEMINI-CLIENT]   4. Firewall блокирует WebSocket")
             return False
+            
+        except websockets.exceptions.InvalidStatusCode as e:
+            logger.error(f"[GEMINI-CLIENT] ❌ INVALID HTTP STATUS: {e.status_code}")
+            
+            if hasattr(e, 'headers'):
+                logger.error(f"[GEMINI-CLIENT] Response headers: {dict(e.headers)}")
+            
+            if e.status_code == 400:
+                logger.error(f"[GEMINI-CLIENT] ⚠️ BAD REQUEST - проверьте формат запроса")
+            elif e.status_code == 401:
+                logger.error(f"[GEMINI-CLIENT] ⚠️ UNAUTHORIZED - проверьте API ключ")
+                logger.error(f"[GEMINI-CLIENT]   Ключ: {self.api_key[:20]}...")
+            elif e.status_code == 403:
+                logger.error(f"[GEMINI-CLIENT] ⚠️ FORBIDDEN - нет доступа к Live API")
+                logger.error(f"[GEMINI-CLIENT]   Проверьте, что API ключ имеет доступ к Gemini Live API")
+            elif e.status_code == 404:
+                logger.error(f"[GEMINI-CLIENT] ⚠️ NOT FOUND - неверный endpoint или модель")
+                logger.error(f"[GEMINI-CLIENT]   Endpoint: {self.base_url}")
+                logger.error(f"[GEMINI-CLIENT]   Model: {self.model}")
+            elif e.status_code >= 500:
+                logger.error(f"[GEMINI-CLIENT] ⚠️ SERVER ERROR на стороне Google")
+            
+            return False
+            
+        except OSError as e:
+            logger.error(f"[GEMINI-CLIENT] ❌ NETWORK ERROR: {e}")
+            if hasattr(e, 'errno'):
+                logger.error(f"[GEMINI-CLIENT] Error code: {e.errno}")
+            logger.error(f"[GEMINI-CLIENT] Возможно требуется VPN/proxy для доступа к Google API")
+            return False
+            
         except Exception as e:
-            logger.error(f"[GEMINI-CLIENT] Failed to connect: {e}")
+            logger.error(f"[GEMINI-CLIENT] ❌ UNEXPECTED ERROR: {type(e).__name__}")
+            logger.error(f"[GEMINI-CLIENT] Message: {str(e)}")
+            logger.error(f"[GEMINI-CLIENT] Traceback:")
+            logger.error(traceback.format_exc())
             return False
 
     async def reconnect(self) -> bool:
@@ -290,9 +346,10 @@ class GeminiLiveClient:
             }
             logger.info(f"[GEMINI-CLIENT] Thinking mode enabled (budget: {thinking_budget})")
         
-        # Build setup payload
+        # ✅ FIXED: Build correct setup payload for Live API
         setup_payload = {
             "setup": {
+                "model": f"models/{self.model}",  # ← CRITICAL: Add model here!
                 "generation_config": generation_config,
                 "system_instruction": system_instruction
             }
@@ -307,10 +364,19 @@ class GeminiLiveClient:
             setup_payload["setup"]["thinking_config"] = thinking_config
         
         try:
+            logger.info(f"[GEMINI-CLIENT] Sending setup message...")
+            logger.info(f"[GEMINI-CLIENT] Setup payload keys: {list(setup_payload['setup'].keys())}")
+            
             await self.ws.send(json.dumps(setup_payload))
-            logger.info(f"[GEMINI-CLIENT] ✅ Session setup sent (tools: {len(tools)}, thinking: {bool(thinking_config)})")
+            
+            logger.info(f"[GEMINI-CLIENT] ✅ Session setup sent successfully")
+            logger.info(f"[GEMINI-CLIENT]   Model: {self.model}")
+            logger.info(f"[GEMINI-CLIENT]   Voice: {voice}")
+            logger.info(f"[GEMINI-CLIENT]   Tools: {len(tools)}")
+            logger.info(f"[GEMINI-CLIENT]   Thinking: {bool(thinking_config)}")
         except Exception as e:
-            logger.error(f"[GEMINI-CLIENT] Error sending setup: {e}")
+            logger.error(f"[GEMINI-CLIENT] ❌ Error sending setup: {e}")
+            logger.error(traceback.format_exc())
             return False
 
         # Create conversation record
