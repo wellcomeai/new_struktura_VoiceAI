@@ -3,11 +3,12 @@
 REST API endpoints for Google Gemini assistants management.
 Handles CRUD operations for Gemini Live API voice assistants.
 
-🚀 PRODUCTION VERSION 1.0
+🚀 PRODUCTION VERSION 1.1
 ✅ Complete CRUD operations
 ✅ Authorization validation
 ✅ Subscription validation
 ✅ Error handling
+✅ Fixed routing (removed duplicate prefix)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -168,7 +169,7 @@ async def verify_assistant_access(
 # API ENDPOINTS
 # ============================================================================
 
-@router.get("/gemini-assistants", response_model=List[GeminiAssistantResponse])
+@router.get("", response_model=List[GeminiAssistantResponse])
 async def get_gemini_assistants(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -223,7 +224,7 @@ async def get_gemini_assistants(
         )
 
 
-@router.get("/gemini-assistants/{assistant_id}", response_model=GeminiAssistantResponse)
+@router.get("/{assistant_id}", response_model=GeminiAssistantResponse)
 async def get_gemini_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
@@ -281,7 +282,7 @@ async def get_gemini_assistant(
         )
 
 
-@router.post("/gemini-assistants", response_model=GeminiAssistantResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=GeminiAssistantResponse, status_code=status.HTTP_201_CREATED)
 async def create_gemini_assistant(
     assistant_data: GeminiAssistantCreate,
     db: Session = Depends(get_db),
@@ -367,7 +368,7 @@ async def create_gemini_assistant(
         )
 
 
-@router.put("/gemini-assistants/{assistant_id}", response_model=GeminiAssistantResponse)
+@router.put("/{assistant_id}", response_model=GeminiAssistantResponse)
 async def update_gemini_assistant(
     assistant_id: str,
     assistant_data: GeminiAssistantUpdate,
@@ -445,7 +446,7 @@ async def update_gemini_assistant(
         )
 
 
-@router.delete("/gemini-assistants/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_gemini_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
@@ -486,7 +487,7 @@ async def delete_gemini_assistant(
         )
 
 
-@router.get("/gemini-assistants/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
+@router.get("/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
 async def get_gemini_embed_code(
     assistant_id: str,
     db: Session = Depends(get_db),
@@ -551,7 +552,7 @@ async def get_gemini_embed_code(
         )
 
 
-@router.post("/gemini-assistants/{assistant_id}/verify-sheet")
+@router.post("/{assistant_id}/verify-sheet")
 async def verify_gemini_google_sheet(
     assistant_id: str,
     sheet_data: dict,
