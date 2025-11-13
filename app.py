@@ -5,6 +5,7 @@ This file configures all application components: routes, middleware, logging, et
 ✅ v2.1: Added Email Verification API support
 ✅ v2.2: Added Embeds API support (embeddable pages)
 ✅ v2.3: Added Google Gemini Live API support
+✅ v2.4: Added Gemini Assistants CRUD API support
 """
 import os
 import asyncio
@@ -26,7 +27,8 @@ from backend.api import (
     knowledge_base, payments, voximplant, elevenlabs, conversations,
     email_verification,
     embeds,
-    gemini_ws  # ✅ НОВОЕ: Gemini WebSocket API
+    gemini_ws,  # ✅ Gemini WebSocket API
+    gemini_assistants  # ✅ НОВОЕ: Gemini Assistants CRUD API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -55,12 +57,15 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
     description="API for managing personalized voice assistants based on OpenAI and Google Gemini",
-    version="2.3.0",  # ✅ Обновлена версия
+    version="2.4.0",  # ✅ Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
 
-# ✅ ДОБАВЛЕНО: Обработчики ошибок для продакшена
+# ============================================================================
+# EXCEPTION HANDLERS
+# ============================================================================
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     return JSONResponse(
@@ -83,6 +88,10 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={"message": "Internal server error"}
     )
 
+# ============================================================================
+# MIDDLEWARE
+# ============================================================================
+
 # Setup CORS
 origins = settings.CORS_ORIGINS.split(",") if isinstance(settings.CORS_ORIGINS, str) else settings.CORS_ORIGINS
 app.add_middleware(
@@ -94,7 +103,7 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# ✅ ДОБАВЛЕНО: Middleware для мониторинга ресурсов (только если psutil доступен)
+# Resource monitoring middleware (optional, requires psutil)
 if PSUTIL_AVAILABLE:
     @app.middleware("http")
     async def monitor_resources(request: Request, call_next):
@@ -131,13 +140,18 @@ if PSUTIL_AVAILABLE:
 else:
     logger.warning("psutil not available - memory monitoring disabled")
 
+# ============================================================================
+# ROUTE REGISTRATION
+# ============================================================================
+
 # Подключаем все API роутеры
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
+app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])  # ✅ НОВОЕ
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
-app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # ✅ НОВОЕ: Gemini WebSocket
+app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])
 app.include_router(healthcheck.router, tags=["Health"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(subscription_logs.router, prefix="/api/subscription-logs", tags=["Subscription Logs"])
@@ -151,7 +165,10 @@ app.include_router(conversations.router, prefix="/api/conversations", tags=["Con
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
 app.include_router(embeds.router, tags=["Embeds"])
 
-# ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
+# ============================================================================
+# STATIC FILES
+# ============================================================================
+
 def ensure_static_directories():
     """Ensure static directories exist"""
     try:
@@ -180,7 +197,10 @@ try:
 except Exception as e:
     logger.error(f"Error mounting static files: {e}")
 
-# ✅ УЛУЧШЕНО: Функция для запуска Alembic миграций
+# ============================================================================
+# DATABASE INITIALIZATION FUNCTIONS
+# ============================================================================
+
 def run_migrations():
     """Run database migrations"""
     try:
@@ -199,7 +219,7 @@ def run_migrations():
         if not settings.PRODUCTION:
             raise
 
-# ✅ ОБНОВЛЕНО: Функция создания таблиц ElevenLabs с автоматической проверкой колонок
+
 def create_elevenlabs_tables():
     """
     Create ElevenLabs tables and automatically add missing columns
@@ -214,13 +234,12 @@ def create_elevenlabs_tables():
         # Создаем таблицы ElevenLabs
         Base.metadata.create_all(engine)
         
-        # ✅ АВТОМАТИЧЕСКАЯ ПРОВЕРКА И СОЗДАНИЕ НЕДОСТАЮЩИХ КОЛОНОК
+        # Автоматическая проверка и создание недостающих колонок
         inspector = inspect(engine)
         
         # Список колонок которые должны быть в таблице users
         required_columns = {
             'elevenlabs_api_key': 'VARCHAR NULL',
-            # Добавьте другие колонки если нужно
         }
         
         # Проверяем таблицу users
@@ -238,16 +257,15 @@ def create_elevenlabs_tables():
                         
                         try:
                             with engine.connect() as conn:
-                                # Создаем транзакцию для безопасности
                                 trans = conn.begin()
                                 try:
-                                    # Добавляем колонку
                                     conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_definition}"))
                                     trans.commit()
                                     logger.info(f"✅ Successfully added column: {column_name}")
                                 except Exception as e:
                                     trans.rollback()
-                                    logger.error(f"❌ Failed to add column {column_name}: {str(e)}")
+                                    if "already exists" not in str(e).lower():
+                                        logger.error(f"❌ Failed to add column {column_name}: {str(e)}")
                                     
                         except Exception as conn_error:
                             logger.error(f"❌ Connection error adding column {column_name}: {str(conn_error)}")
@@ -260,7 +278,7 @@ def create_elevenlabs_tables():
         except Exception as table_error:
             logger.error(f"❌ Error checking users table: {str(table_error)}")
         
-        # ✅ ПРОВЕРЯЕМ ДРУГИЕ ВОЗМОЖНЫЕ НЕДОСТАЮЩИЕ ТАБЛИЦЫ
+        # Проверяем другие возможные недостающие таблицы
         required_tables = {
             'elevenlabs_agents': ElevenLabsAgent,
             'elevenlabs_conversations': ElevenLabsConversation,
@@ -284,7 +302,7 @@ def create_elevenlabs_tables():
         if not settings.PRODUCTION:
             raise
 
-# ✅ НОВАЯ ФУНКЦИЯ: Создание таблиц Gemini
+
 def create_gemini_tables():
     """
     Create Gemini assistant tables and check missing columns
@@ -352,7 +370,7 @@ def create_gemini_tables():
         if not settings.PRODUCTION:
             raise
 
-# ✅ ДОПОЛНИТЕЛЬНАЯ ФУНКЦИЯ: Проверка и исправление всех недостающих колонок
+
 def check_and_fix_all_missing_columns():
     """
     Comprehensive check and fix for all missing columns across all tables
@@ -368,7 +386,7 @@ def check_and_fix_all_missing_columns():
         schema_fixes = {
             'users': {
                 'elevenlabs_api_key': 'VARCHAR NULL',
-                'gemini_api_key': 'VARCHAR NULL',  # ✅ НОВОЕ
+                'gemini_api_key': 'VARCHAR NULL',
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
@@ -405,7 +423,6 @@ def check_and_fix_all_missing_columns():
                                 logger.info(f"✅ Successfully added {table_name}.{column_name}")
                             except Exception as e:
                                 trans.rollback()
-                                # Проверяем возможные причины ошибки
                                 if "already exists" in str(e).lower():
                                     logger.info(f"ℹ️  Column {table_name}.{column_name} already exists")
                                 else:
@@ -421,7 +438,7 @@ def check_and_fix_all_missing_columns():
     except Exception as e:
         logger.error(f"❌ Error in comprehensive schema check: {str(e)}")
 
-# ✅ НОВАЯ ФУНКЦИЯ: Создание таблицы email_verifications
+
 def create_email_verification_table():
     """
     Create email_verifications table if it doesn't exist
@@ -447,7 +464,7 @@ def create_email_verification_table():
         if not settings.PRODUCTION:
             raise
 
-# ✅ НОВАЯ ФУНКЦИЯ: Создание таблицы embed_configs
+
 def create_embed_configs_table():
     """
     Create embed_configs table if it doesn't exist
@@ -468,7 +485,7 @@ def create_embed_configs_table():
             EmbedConfig.__table__.create(engine)
             logger.info("✅ embed_configs table created successfully")
             
-            # ✅ Создаем функцию генерации кодов и триггер
+            # Создаем функцию генерации кодов и триггер
             logger.info("➕ Creating embed_code generator function and trigger...")
             
             try:
@@ -536,14 +553,17 @@ def create_embed_configs_table():
         if not settings.PRODUCTION:
             raise
 
-# При старте приложения
+# ============================================================================
+# APPLICATION LIFECYCLE EVENTS
+# ============================================================================
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application v2.3...")
+        logger.info("🚀 Starting WellcomeAI application v2.4...")
         
-        # ✅ ИСПРАВЛЕНО: Простая проверка блокировки для Render
+        # Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
         migration_completed = False
         
@@ -574,7 +594,7 @@ async def startup_event():
                 # Шаг 6: Создаем таблицу embed_configs
                 create_embed_configs_table()
                 
-                # ✅ Шаг 7: НОВОЕ - Создаем таблицы Gemini
+                # Шаг 7: Создаем таблицы Gemini
                 create_gemini_tables()
                 
                 migration_completed = True
@@ -605,14 +625,12 @@ async def startup_event():
                 except Exception as e:
                     logger.error(f"Error removing lock file: {e}")
         
-        # ✅ ИСПРАВЛЕНО: Запуск планировщика только в одном процессе
+        # Запуск планировщика только в одном процессе
         try:
-            # Запускаем планировщик только в одном процессе
             worker_id = os.environ.get("APP_WORKER_ID", "0")
             
             # Для Gunicorn проверяем переменную окружения
             if os.environ.get("SERVER_SOFTWARE", "").startswith("gunicorn"):
-                # В Gunicorn запускаем только в первом worker
                 if worker_id == "0" or not os.environ.get("GUNICORN_WORKER_ID"):
                     asyncio.create_task(start_subscription_checker())
                     logger.info(f"🔄 Subscription checker started in worker {worker_id}")
@@ -625,7 +643,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error starting subscription checker: {str(e)}")
         
-        # ✅ ДОБАВЛЕНО: Логирование инициализации Email Verification
+        # Логирование инициализации Email Verification
         try:
             logger.info("📧 Email Verification API initialized")
             logger.info(f"   Send code: {settings.HOST_URL}/api/email-verification/send")
@@ -635,7 +653,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Email Verification: {str(e)}")
         
-        # ✅ ДОБАВЛЕНО: Логирование инициализации Voximplant интеграции
+        # Логирование инициализации Voximplant интеграции
         try:
             logger.info("📞 Voximplant integration initialized")
             logger.info(f"   WebSocket endpoint: {settings.HOST_URL}/api/voximplant/ws/{{assistant_id}}")
@@ -644,7 +662,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Voximplant integration: {str(e)}")
         
-        # ✅ ДОБАВЛЕНО: Логирование инициализации ElevenLabs интеграции
+        # Логирование инициализации ElevenLabs интеграции
         try:
             logger.info("🎙️ ElevenLabs integration initialized")
             logger.info(f"   API endpoints: {settings.HOST_URL}/api/elevenlabs/")
@@ -653,7 +671,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing ElevenLabs integration: {str(e)}")
         
-        # ДОБАВЛЕНО: Логирование инициализации Conversations API
+        # Логирование инициализации Conversations API
         try:
             logger.info("💬 Conversations API initialized")
             logger.info(f"   List endpoint: {settings.HOST_URL}/api/conversations")
@@ -663,7 +681,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Conversations API: {str(e)}")
         
-        # ✅ НОВОЕ: Логирование инициализации Embeds API
+        # Логирование инициализации Embeds API
         try:
             logger.info("🎨 Embeds API initialized")
             logger.info(f"   Create embed: POST {settings.HOST_URL}/api/embeds")
@@ -674,7 +692,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Embeds API: {str(e)}")
         
-        # ✅ НОВОЕ: Логирование инициализации Gemini Live API
+        # Логирование инициализации Gemini Live API
         try:
             logger.info("🤖 Google Gemini Live API initialized")
             logger.info(f"   WebSocket endpoint: {settings.HOST_URL}/ws/gemini/{{assistant_id}}")
@@ -691,25 +709,57 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Gemini Live API: {str(e)}")
         
-        logger.info("✅ Application started successfully (v2.3 with Gemini Live API)")
+        # ✅ НОВОЕ: Логирование инициализации Gemini Assistants API
+        try:
+            logger.info("🤖 Gemini Assistants CRUD API initialized")
+            logger.info(f"   List: GET {settings.HOST_URL}/api/gemini-assistants")
+            logger.info(f"   Get: GET {settings.HOST_URL}/api/gemini-assistants/{{id}}")
+            logger.info(f"   Create: POST {settings.HOST_URL}/api/gemini-assistants")
+            logger.info(f"   Update: PUT {settings.HOST_URL}/api/gemini-assistants/{{id}}")
+            logger.info(f"   Delete: DELETE {settings.HOST_URL}/api/gemini-assistants/{{id}}")
+            logger.info(f"   Embed code: GET {settings.HOST_URL}/api/gemini-assistants/{{id}}/embed-code")
+            logger.info(f"   Verify Sheet: POST {settings.HOST_URL}/api/gemini-assistants/{{id}}/verify-sheet")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Gemini Assistants API: {str(e)}")
+        
+        logger.info("✅ Application started successfully (v2.4 with Gemini Assistants)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
         if not settings.PRODUCTION:
             raise
 
-# Главная страница (редирект на frontend)
+# ============================================================================
+# ROOT ROUTES
+# ============================================================================
+
 @app.get("/")
 async def root():
+    """Redirect to main page"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/static/index.html")
 
-# Health check для Render
+
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "wellcome-ai", "version": "2.3.0"}
+    """Health check for deployment platforms"""
+    return {
+        "status": "healthy",
+        "service": "wellcome-ai",
+        "version": "2.4.0",
+        "features": {
+            "openai_realtime": True,
+            "gemini_live": True,
+            "gemini_assistants_crud": True,
+            "elevenlabs": True,
+            "voximplant": True,
+            "embeds": True,
+            "email_verification": True
+        }
+    }
 
-# При выключении приложения
+
 @app.on_event("shutdown")
 async def shutdown_event():
+    """Application shutdown event"""
     logger.info("🛑 Application stopped")
