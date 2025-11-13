@@ -4,6 +4,7 @@ This file configures all application components: routes, middleware, logging, et
 🆕 v2.0: Added Conversations API support
 ✅ v2.1: Added Email Verification API support
 ✅ v2.2: Added Embeds API support (embeddable pages)
+✅ v2.3: Added Google Gemini Live API support
 """
 import os
 import asyncio
@@ -23,8 +24,9 @@ from backend.api import (
     auth, users, assistants, files, websocket, healthcheck, 
     subscriptions, subscription_logs, admin, partners, 
     knowledge_base, payments, voximplant, elevenlabs, conversations,
-    email_verification,  # ✅ Email Verification
-    embeds  # ✅ НОВОЕ: Embeds API
+    email_verification,
+    embeds,
+    gemini_ws  # ✅ НОВОЕ: Gemini WebSocket API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -52,8 +54,8 @@ logger = get_logger(__name__)
 # Create and configure FastAPI application
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
-    description="API for managing personalized voice assistants based on OpenAI",
-    version="2.2.0",  # ✅ Обновлена версия
+    description="API for managing personalized voice assistants based on OpenAI and Google Gemini",
+    version="2.3.0",  # ✅ Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
@@ -135,6 +137,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
+app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # ✅ НОВОЕ: Gemini WebSocket
 app.include_router(healthcheck.router, tags=["Health"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(subscription_logs.router, prefix="/api/subscription-logs", tags=["Subscription Logs"])
@@ -146,7 +149,7 @@ app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLab
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
-app.include_router(embeds.router, tags=["Embeds"])  # ✅ НОВОЕ: Embeds API (без prefix - есть /api/embeds в роутере и /embed/{code} для публичного доступа)
+app.include_router(embeds.router, tags=["Embeds"])
 
 # ✅ ИСПРАВЛЕНО: Создание директорий для статики с обработкой ошибок
 def ensure_static_directories():
@@ -281,6 +284,74 @@ def create_elevenlabs_tables():
         if not settings.PRODUCTION:
             raise
 
+# ✅ НОВАЯ ФУНКЦИЯ: Создание таблиц Gemini
+def create_gemini_tables():
+    """
+    Create Gemini assistant tables and check missing columns
+    """
+    try:
+        from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+        
+        logger.info("🤖 Creating Gemini tables and checking missing columns...")
+        
+        # Создаем таблицы Gemini
+        Base.metadata.create_all(engine)
+        
+        inspector = inspect(engine)
+        
+        # Проверяем таблицу users для gemini_api_key
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+                
+                if 'gemini_api_key' not in existing_columns:
+                    logger.info("➕ Adding gemini_api_key column to users table...")
+                    
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                conn.execute(text("ALTER TABLE users ADD COLUMN gemini_api_key VARCHAR NULL"))
+                                trans.commit()
+                                logger.info("✅ Successfully added gemini_api_key column")
+                            except Exception as e:
+                                trans.rollback()
+                                if "already exists" not in str(e).lower():
+                                    logger.error(f"❌ Failed to add gemini_api_key: {str(e)}")
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error: {str(conn_error)}")
+                else:
+                    logger.info("✅ Column gemini_api_key already exists")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+        
+        # Проверяем таблицы Gemini
+        required_tables = {
+            'gemini_assistant_configs': GeminiAssistantConfig,
+            'gemini_conversations': GeminiConversation,
+        }
+        
+        for table_name, model_class in required_tables.items():
+            if not inspector.has_table(table_name):
+                logger.info(f"➕ Creating missing table: {table_name}")
+                try:
+                    model_class.__table__.create(engine)
+                    logger.info(f"✅ Successfully created table: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create table {table_name}: {str(e)}")
+            else:
+                logger.info(f"✅ Table {table_name} already exists")
+        
+        logger.info("✅ Gemini tables and columns setup completed")
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating Gemini tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
 # ✅ ДОПОЛНИТЕЛЬНАЯ ФУНКЦИЯ: Проверка и исправление всех недостающих колонок
 def check_and_fix_all_missing_columns():
     """
@@ -297,6 +368,7 @@ def check_and_fix_all_missing_columns():
         schema_fixes = {
             'users': {
                 'elevenlabs_api_key': 'VARCHAR NULL',
+                'gemini_api_key': 'VARCHAR NULL',  # ✅ НОВОЕ
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
@@ -469,7 +541,7 @@ def create_embed_configs_table():
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application v2.2...")
+        logger.info("🚀 Starting WellcomeAI application v2.3...")
         
         # ✅ ИСПРАВЛЕНО: Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
@@ -499,8 +571,11 @@ async def startup_event():
                 # Шаг 5: Создаем таблицу email_verifications
                 create_email_verification_table()
                 
-                # ✅ Шаг 6: НОВОЕ - Создаем таблицу embed_configs
+                # Шаг 6: Создаем таблицу embed_configs
                 create_embed_configs_table()
+                
+                # ✅ Шаг 7: НОВОЕ - Создаем таблицы Gemini
+                create_gemini_tables()
                 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
@@ -599,7 +674,24 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Embeds API: {str(e)}")
         
-        logger.info("✅ Application started successfully (v2.2 with Embeds)")
+        # ✅ НОВОЕ: Логирование инициализации Gemini Live API
+        try:
+            logger.info("🤖 Google Gemini Live API initialized")
+            logger.info(f"   WebSocket endpoint: {settings.HOST_URL}/ws/gemini/{{assistant_id}}")
+            logger.info(f"   Model: gemini-2.5-flash-native-audio-preview-09-2025")
+            logger.info(f"   Health check: {settings.HOST_URL}/gemini/health")
+            logger.info(f"   Info: {settings.HOST_URL}/gemini/info")
+            logger.info("   Features:")
+            logger.info("     - Real-time audio (16kHz in, 24kHz out)")
+            logger.info("     - Automatic VAD (voice activity detection)")
+            logger.info("     - Manual function calling")
+            logger.info("     - Thinking mode (configurable)")
+            logger.info("     - Screen context support")
+            logger.info("     - 30 HD voices, 24 languages")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Gemini Live API: {str(e)}")
+        
+        logger.info("✅ Application started successfully (v2.3 with Gemini Live API)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
@@ -615,7 +707,7 @@ async def root():
 # Health check для Render
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "wellcome-ai", "version": "2.2.0"}
+    return {"status": "healthy", "service": "wellcome-ai", "version": "2.3.0"}
 
 # При выключении приложения
 @app.on_event("shutdown")
