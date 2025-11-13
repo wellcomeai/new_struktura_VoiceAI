@@ -36,8 +36,7 @@ api_router = APIRouter()
 # Подключаем все роутеры
 api_router.include_router(auth_router, tags=["Authentication"])
 api_router.include_router(users_router, tags=["Users"])
-api_router.include_router(gemini_assistants_router, prefix="/gemini-assistants", tags=["Gemini Assistants"])
-api_router.include_router(gemini_assistants_router, tags=["Gemini Assistants"])  # ✅ НОВОЕ
+api_router.include_router(gemini_assistants_router, prefix="/gemini-assistants", tags=["Gemini Assistants"])  # ✅ ИСПРАВЛЕНО: убран дубликат
 api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
 api_router.include_router(gemini_ws_router, tags=["Gemini WebSocket"])
