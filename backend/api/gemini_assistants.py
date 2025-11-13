@@ -21,7 +21,7 @@ from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.gemini_assistant import GeminiAssistantConfig
-from backend.api.dependencies import get_current_user
+from backend.core.dependencies import get_current_user
 
 logger = get_logger(__name__)
 
