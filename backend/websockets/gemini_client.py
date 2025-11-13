@@ -108,7 +108,7 @@ class GeminiLiveClient:
         self.is_connected = False
         
         # ✅ FIXED: Correct WebSocket endpoint for Gemini Live API
-        self.model = "gemini-2.5-flash-native-audio-dialog"
+        self.model = "gemini-2.5-flash-native-audio-preview-09-2025"
         self.base_url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
         self.gemini_url = f"{self.base_url}?key={self.api_key}"
         
