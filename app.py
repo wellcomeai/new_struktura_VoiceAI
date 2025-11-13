@@ -598,7 +598,28 @@ async def startup_event():
             logger.info("   Usage: <iframe src='https://voicyfy.ru/embed/w_YOUR_CODE' width='100%' height='800px'></iframe>")
         except Exception as e:
             logger.error(f"❌ Error initializing Embeds API: {str(e)}")
-        
+
+        # 🆕 НОВОЕ: Логирование инициализации LLM Streaming API
+        try:
+            logger.info("🧠 LLM Streaming API initialized")
+            logger.info(f"   Stream endpoint: POST {settings.HOST_URL}/api/llm/stream")
+            logger.info(f"   Models: GET {settings.HOST_URL}/api/llm/models")
+            logger.info(f"   Status: GET {settings.HOST_URL}/api/llm/status")
+            logger.info("   Features: Real-time streaming, localStorage history, < 2s latency")
+        except Exception as e:
+            logger.error(f"❌ Error initializing LLM Streaming API: {str(e)}")
+
+        # 🆕 НОВОЕ: Инициализация OpenAI Assistant
+        try:
+            from backend.services.openai_assistant import get_or_create_assistant
+
+            assistant_id = await get_or_create_assistant()
+            logger.info("🤖 OpenAI Assistants API initialized")
+            logger.info(f"   Assistant ID: {assistant_id}")
+            logger.info("   Features: Threads management, streaming responses, server-side context")
+        except Exception as e:
+            logger.error(f"❌ Error initializing OpenAI Assistant: {str(e)}")
+
         logger.info("✅ Application started successfully (v2.2 with Embeds)")
         
     except Exception as e:
