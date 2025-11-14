@@ -1,18 +1,24 @@
 /**
- * 🚀 Gemini Voice Widget v2.0 - Production Ready (NO RESAMPLING FIX)
+ * 🚀 Gemini Voice Widget v2.1 - Production Ready
  * Google Gemini Live API Integration
  * 
  * ✅ FIXED: Native 24kHz playback (no resampling distortion)
- * ✅ Premium visual design (copied from OpenAI widget)
+ * ✅ FIXED: Automatic audio buffer commit on silence detection
+ * ✅ FIXED: Proper message handling for all Gemini events
+ * ✅ Premium visual design
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
  * ✅ Real-time audio streaming (16kHz PCM input, 24kHz PCM output)
  * ✅ Dynamic screen context (based on assistant config)
- * ✅ Client-side VAD events
+ * ✅ Client-side VAD with auto-commit
  * ✅ Interruption handling
  * ✅ Visual feedback (premium equalizer + pulse animations)
  * ✅ Error handling with Russian messages
  * ✅ Responsive design
  * ✅ Voicyfy branding
+ * 
+ * @version 2.1.0
+ * @author WellcomeAI Team
+ * @license MIT
  * 
  * Usage:
  * <script>
@@ -45,7 +51,7 @@
         audio: {
             inputSampleRate: 16000,      // Gemini expects 16kHz
             outputSampleRate: 24000,     // Gemini sends 24kHz
-            playbackSampleRate: 24000,   // ✅ FIXED: Was 16000, now 24000 (no resampling!)
+            playbackSampleRate: 24000,   // ✅ Native playback - NO RESAMPLING!
             channelCount: 1,
             bitsPerSample: 16,
             chunkDuration: 100,          // ms
@@ -61,12 +67,12 @@
             maxHeight: 720
         },
         
-        // VAD
+        // VAD - ✅ Оптимизированные параметры
         vad: {
             enabled: true,
             silenceThreshold: -45,       // dB
-            silenceDuration: 500,        // ms
-            speechThreshold: -40         // dB
+            silenceDuration: 1500,       // ms (увеличено для стабильности)
+            speechThreshold: -38         // dB (более чувствительный)
         },
         
         // WebSocket
@@ -76,7 +82,7 @@
             pingInterval: 30000
         },
         
-        // UI - Premium colors (copied from OpenAI widget)
+        // UI - Premium colors
         colors: {
             primary: '#4a86e8',
             gradient: 'linear-gradient(135deg, #4a86e8, #2b59c3)',
@@ -95,7 +101,7 @@
         isConnected: false,
         isRecording: false,
         isPlaying: false,
-        isSpeaking: false,
+        isSpeaking: false,              // ✅ User speaking state
         audioContext: null,
         mediaStream: null,
         audioWorklet: null,
@@ -107,7 +113,8 @@
         lastSpeechTime: 0,
         lastSilenceTime: 0,
         sessionConfig: null,
-        errorState: null
+        errorState: null,
+        audioBufferCommitted: false     // ✅ Track commit state
     };
 
     // ============================================================================
@@ -115,7 +122,7 @@
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing v2.0 (NO RESAMPLING)...');
+        console.log('[GEMINI-WIDGET] Initializing v2.1 (PRODUCTION)...');
         
         // Получаем конфигурацию из data-атрибутов
         const scriptTag = document.currentScript || 
@@ -152,7 +159,7 @@
     function initAudioContext() {
         if (STATE.audioContext) return;
         
-        // ✅ FIXED: AudioContext на 24kHz для нативного воспроизведения
+        // ✅ AudioContext на 24kHz для нативного воспроизведения
         STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)({
             sampleRate: CONFIG.audio.playbackSampleRate  // 24000 Hz
         });
@@ -161,7 +168,7 @@
     }
 
     // ============================================================================
-    // UI CREATION - PREMIUM DESIGN (COPIED FROM OPENAI WIDGET)
+    // UI CREATION - PREMIUM DESIGN
     // ============================================================================
 
     function createWidget() {
@@ -869,7 +876,7 @@
         button.addEventListener('click', handleButtonClick);
         closeBtn.addEventListener('click', handleClose);
         
-        console.log('[GEMINI-WIDGET] UI created with premium design');
+        console.log('[GEMINI-WIDGET] ✅ UI created with premium design');
     }
 
     // ============================================================================
@@ -880,7 +887,6 @@
         const button = document.getElementById('gemini-btn');
         const circle = document.getElementById('gemini-circle');
         const status = document.getElementById('gemini-status');
-        const container = document.querySelector('.gemini-widget-container');
         
         // Remove all classes
         button.classList.remove('recording', 'playing');
@@ -1103,11 +1109,23 @@
     function handleWSMessage(event) {
         try {
             const data = JSON.parse(event.data);
-            console.log('[GEMINI-WIDGET] Message:', data.type);
+            
+            // ✅ Don't log ACK messages (too noisy)
+            if (data.type !== 'input_audio_buffer.append.ack') {
+                console.log('[GEMINI-WIDGET] Message:', data.type);
+            }
             
             switch (data.type) {
                 case 'connection_status':
                     handleConnectionStatus(data);
+                    break;
+                
+                case 'gemini.setup.complete':
+                    console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
+                    break;
+                
+                case 'input_audio_buffer.append.ack':
+                    // Audio chunk received confirmation - no action needed
                     break;
                 
                 case 'response.audio.delta':
@@ -1228,6 +1246,9 @@
         console.log('[GEMINI-WIDGET] 🔇 Assistant stopped speaking');
         STATE.isSpeaking = false;
         
+        // Reset commit flag for next turn
+        STATE.audioBufferCommitted = false;
+        
         if (!STATE.isRecording) {
             updateUI('connected');
         }
@@ -1237,6 +1258,7 @@
         console.log('[GEMINI-WIDGET] ⚡ Conversation interrupted');
         stopPlayback();
         STATE.isSpeaking = false;
+        STATE.audioBufferCommitted = false;
         
         updateUI('interrupted');
         
@@ -1289,7 +1311,7 @@
     }
 
     // ============================================================================
-    // AUDIO RECORDING
+    // AUDIO RECORDING - ✅ WITH AUTO-COMMIT ON SILENCE
     // ============================================================================
 
     async function startRecording() {
@@ -1324,26 +1346,37 @@
                 // Update visualization
                 updateAudioVisualization(inputData);
                 
-                // VAD check
+                // ✅ VAD check with auto-commit
                 const rms = calculateRMS(inputData);
                 const db = 20 * Math.log10(rms);
                 
                 if (db > CONFIG.vad.speechThreshold) {
+                    // Speech detected
                     if (!STATE.isSpeaking) {
                         console.log('[GEMINI-WIDGET] 🗣️ User started speaking');
                         sendMessage({ type: 'speech.user_started' });
+                        STATE.isSpeaking = true;
+                        STATE.audioBufferCommitted = false;
                     }
                     STATE.lastSpeechTime = Date.now();
-                } else if (STATE.lastSpeechTime > 0 && 
-                          Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration) {
-                    if (STATE.isSpeaking) {
-                        console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
-                        sendMessage({ type: 'speech.user_stopped' });
-                    }
+                } else if (STATE.isSpeaking && 
+                          STATE.lastSpeechTime > 0 && 
+                          Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration &&
+                          !STATE.audioBufferCommitted) {
+                    // Silence detected after speech
+                    console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
+                    sendMessage({ type: 'speech.user_stopped' });
+                    
+                    // ✅ CRITICAL: Auto-commit audio buffer for processing
+                    console.log('[GEMINI-WIDGET] 💾 Committing audio buffer for processing');
+                    sendMessage({ type: 'input_audio_buffer.commit' });
+                    
+                    STATE.isSpeaking = false;
                     STATE.lastSpeechTime = 0;
+                    STATE.audioBufferCommitted = true;
                 }
                 
-                // Send audio
+                // Send audio chunk
                 const base64Audio = arrayBufferToBase64(pcmData.buffer);
                 sendMessage({
                     type: 'input_audio_buffer.append',
@@ -1356,6 +1389,7 @@
             
             STATE.audioWorklet = { source, processor };
             STATE.isRecording = true;
+            STATE.audioBufferCommitted = false;
             
             updateUI('recording');
             
@@ -1387,8 +1421,12 @@
             STATE.audioWorklet = null;
         }
         
-        // Commit audio
-        sendMessage({ type: 'input_audio_buffer.commit' });
+        // Commit audio if not already committed
+        if (!STATE.audioBufferCommitted) {
+            console.log('[GEMINI-WIDGET] 💾 Final commit on stop');
+            sendMessage({ type: 'input_audio_buffer.commit' });
+            STATE.audioBufferCommitted = true;
+        }
         
         resetAudioVisualization();
         
@@ -1402,7 +1440,7 @@
     }
 
     // ============================================================================
-    // AUDIO PLAYBACK - FIXED: NO RESAMPLING!
+    // AUDIO PLAYBACK - ✅ NATIVE 24kHz (NO RESAMPLING!)
     // ============================================================================
 
     async function playAudioQueue() {
@@ -1436,13 +1474,12 @@
                 float32[i] = pcm16[i] / 32768.0;
             }
             
-            // ✅ CRITICAL FIX: NO RESAMPLING - Play native 24kHz!
-            // Previous version had 24kHz → 16kHz resampling which caused distortion
-            // Now we play directly at 24kHz
+            // ✅ CRITICAL: Native 24kHz playback - NO RESAMPLING!
+            // AudioContext was created at 24kHz, buffer is 24kHz → perfect match
             const audioBuffer = STATE.audioContext.createBuffer(
                 1,
                 float32.length,
-                24000  // Native Gemini frequency - NO CONVERSION!
+                CONFIG.audio.outputSampleRate  // 24000 Hz - native Gemini rate
             );
             audioBuffer.getChannelData(0).set(float32);
             
@@ -1585,6 +1622,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] Script loaded v2.0 (NO RESAMPLING FIX)');
+    console.log('[GEMINI-WIDGET] Script loaded v2.1 (PRODUCTION READY)');
 
 })();
