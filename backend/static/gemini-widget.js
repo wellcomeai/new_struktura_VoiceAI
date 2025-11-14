@@ -1,7 +1,8 @@
 /**
- * 🚀 Gemini Voice Widget v2.1 - Production Ready
+ * 🚀 Gemini Voice Widget v2.2 - Production Ready (FIXED)
  * Google Gemini Live API Integration
  * 
+ * ✅ FIXED: Setup timing - wait for Gemini to be ready before processing audio
  * ✅ FIXED: Native 24kHz playback (no resampling distortion)
  * ✅ FIXED: Automatic audio buffer commit on silence detection
  * ✅ FIXED: Proper message handling for all Gemini events
@@ -16,7 +17,7 @@
  * ✅ Responsive design
  * ✅ Voicyfy branding
  * 
- * @version 2.1.0
+ * @version 2.2.0
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -82,6 +83,12 @@
             pingInterval: 30000
         },
         
+        // Setup timing - ✅ CRITICAL FIX
+        setup: {
+            waitAfterSetup: 800,         // ms - подождать после setup complete
+            maxSetupWait: 10000          // ms - максимальное время ожидания setup
+        },
+        
         // UI - Premium colors
         colors: {
             primary: '#4a86e8',
@@ -99,6 +106,8 @@
     const STATE = {
         ws: null,
         isConnected: false,
+        isSetupComplete: false,         // ✅ NEW: Track setup status
+        readyToRecord: false,           // ✅ NEW: Ready to start recording
         isRecording: false,
         isPlaying: false,
         isSpeaking: false,              // ✅ User speaking state
@@ -114,7 +123,8 @@
         lastSilenceTime: 0,
         sessionConfig: null,
         errorState: null,
-        audioBufferCommitted: false     // ✅ Track commit state
+        audioBufferCommitted: false,    // ✅ Track commit state
+        setupTimeout: null              // ✅ NEW: Setup timeout
     };
 
     // ============================================================================
@@ -122,7 +132,7 @@
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing v2.1 (PRODUCTION)...');
+        console.log('[GEMINI-WIDGET] Initializing v2.2 (PRODUCTION - FIXED)...');
         
         // Получаем конфигурацию из data-атрибутов
         const scriptTag = document.currentScript || 
@@ -914,6 +924,9 @@
         } else if (state === 'error') {
             status.classList.add('error');
             updateStatusInfo('error', 'Ошибка');
+        } else if (state === 'waiting_setup') {
+            status.classList.add('connecting');
+            updateStatusInfo('connecting', 'Подготовка...');
         } else {
             updateStatusInfo('connecting', 'Подключение...');
         }
@@ -1034,15 +1047,21 @@
             
             if (!STATE.isConnected) {
                 await connectWebSocket();
-            } else if (!STATE.isRecording) {
+            } else if (STATE.readyToRecord && !STATE.isRecording) {
                 await startRecording();
+            } else if (!STATE.readyToRecord) {
+                console.log('[GEMINI-WIDGET] ⏳ Waiting for Gemini to be ready...');
+                updateUI('waiting_setup');
             }
         } else {
             // Toggle recording
             if (STATE.isRecording) {
                 await stopRecording();
-            } else if (!STATE.isPlaying) {
+            } else if (!STATE.isPlaying && STATE.readyToRecord) {
                 await startRecording();
+            } else if (!STATE.readyToRecord) {
+                console.log('[GEMINI-WIDGET] ⏳ Gemini is not ready yet...');
+                showMessage('Подождите, идет подключение...', 2000);
             }
         }
     }
@@ -1104,6 +1123,16 @@
 
         // Create audio bars
         createAudioBars(20);
+        
+        // ✅ CRITICAL: Setup timeout safety
+        STATE.setupTimeout = setTimeout(() => {
+            if (!STATE.isSetupComplete) {
+                console.error('[GEMINI-WIDGET] ⚠️ Setup timeout - forcing ready state');
+                STATE.isSetupComplete = true;
+                STATE.readyToRecord = true;
+                updateUI('connected');
+            }
+        }, CONFIG.setup.maxSetupWait);
     }
 
     function handleWSMessage(event) {
@@ -1121,7 +1150,7 @@
                     break;
                 
                 case 'gemini.setup.complete':
-                    console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
+                    handleSetupComplete();
                     break;
                 
                 case 'input_audio_buffer.append.ack':
@@ -1175,10 +1204,17 @@
     function handleWSClose(event) {
         console.log('[GEMINI-WIDGET] WebSocket closed:', event.code, event.reason);
         STATE.isConnected = false;
+        STATE.isSetupComplete = false;
+        STATE.readyToRecord = false;
         
         if (STATE.pingInterval) {
             clearInterval(STATE.pingInterval);
             STATE.pingInterval = null;
+        }
+        
+        if (STATE.setupTimeout) {
+            clearTimeout(STATE.setupTimeout);
+            STATE.setupTimeout = null;
         }
         
         if (STATE.isRecording) {
@@ -1224,6 +1260,34 @@
         };
         
         console.log('[GEMINI-WIDGET] Session config:', STATE.sessionConfig);
+    }
+
+    function handleSetupComplete() {
+        console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
+        
+        // Clear setup timeout
+        if (STATE.setupTimeout) {
+            clearTimeout(STATE.setupTimeout);
+            STATE.setupTimeout = null;
+        }
+        
+        STATE.isSetupComplete = true;
+        
+        // ✅ CRITICAL FIX: Wait after setup before allowing recording
+        console.log(`[GEMINI-WIDGET] ⏳ Waiting ${CONFIG.setup.waitAfterSetup}ms for Gemini to be ready...`);
+        updateUI('waiting_setup');
+        
+        setTimeout(() => {
+            STATE.readyToRecord = true;
+            console.log('[GEMINI-WIDGET] ✅ Ready to record!');
+            updateUI('connected');
+            
+            // If widget is open, show ready message
+            const container = document.querySelector('.gemini-widget-container');
+            if (container.classList.contains('active')) {
+                showMessage('Готов к общению! Нажмите кнопку для записи.', 3000);
+            }
+        }, CONFIG.setup.waitAfterSetup);
     }
 
     function handleAudioDelta(data) {
@@ -1316,6 +1380,15 @@
 
     async function startRecording() {
         if (STATE.isRecording) return;
+        
+        // ✅ CRITICAL: Check if setup is complete and ready
+        if (!STATE.isSetupComplete || !STATE.readyToRecord) {
+            console.log('[GEMINI-WIDGET] ⚠️ Cannot start recording - Gemini not ready');
+            console.log('[GEMINI-WIDGET]   Setup complete:', STATE.isSetupComplete);
+            console.log('[GEMINI-WIDGET]   Ready to record:', STATE.readyToRecord);
+            showMessage('Подождите, идет подключение...', 2000);
+            return;
+        }
         
         console.log('[GEMINI-WIDGET] Starting recording...');
         
@@ -1622,6 +1695,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] Script loaded v2.1 (PRODUCTION READY)');
+    console.log('[GEMINI-WIDGET] Script loaded v2.2 (PRODUCTION READY - FIXED)');
 
 })();
