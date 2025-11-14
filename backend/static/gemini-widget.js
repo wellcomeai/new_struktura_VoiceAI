@@ -1528,28 +1528,3 @@
     console.log('[GEMINI-WIDGET] Script loaded v3.0 ZERO-BUFFER');
 
 })();
-```
-
-## 🎯 Ключевые изменения в v3.0:
-
-### ✅ Удалено (мертвый код):
-- `STATE.audioBuffer` - массив буферизации
-- `STATE.canSendAudio` - флаг задержки отправки
-- `STATE.sendTimeout` - таймер задержки 800ms
-- `flushAudioBuffer()` - функция сброса буфера
-- `CONFIG.setup.waitAfterSetup` - задержка 800ms
-
-### ✅ Добавлено (оптимизации):
-- `STATE.isGeminiReady` - простой флаг готовности
-- `STATE.speechStartTime` - трекинг длительности речи
-- `CONFIG.vad.minSpeechDuration: 200` - игнор коротких кликов
-- `CONFIG.vad.silenceDuration: 900` - быстрее commit (было 1500ms)
-
-### ✅ Логика потока:
-```
-1. Setup complete → isGeminiReady = true (0ms delay)
-2. Start recording → IMMEDIATELY
-3. Audio chunks → SEND INSTANTLY to Gemini
-4. User speaks → detect with VAD
-5. User silent 900ms → auto-commit
-6. Response arrives → ~400-600ms total ⚡
