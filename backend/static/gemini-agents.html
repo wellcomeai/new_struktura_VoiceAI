@@ -1,0 +1,2498 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gemini агенты | Voicyfy</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --gemini-gradient: linear-gradient(135deg, #8B5CF6, #EC4899);
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель навигации */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .page-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    
+    /* Выпадающее меню пользователя */
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: background-color 0.2s;
+    }
+    
+    .user-button:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: background-color 0.2s;
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
+    }
+    
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    
+    .btn-outline:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+    }
+    
+    .btn-danger {
+      background-color: #ef4444;
+      color: var(--white);
+    }
+    
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Табы */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+    }
+    
+    .tab {
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-weight: 500;
+    }
+    
+    .tab.active {
+      color: var(--primary-blue);
+      border-bottom-color: var(--primary-blue);
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    /* Форма */
+    .form-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    textarea.form-control {
+      min-height: 150px;
+      resize: vertical;
+    }
+    
+    .form-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    
+    /* Селект для голоса */
+    .voice-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+    
+    .voice-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .voice-option:hover {
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option.selected {
+      border-color: var(--primary-blue);
+      background-color: var(--bg-blue-light);
+    }
+    
+    .voice-option input {
+      margin: 0;
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid #10b981;
+    }
+    
+    .notification-error {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: #10b981;
+    }
+    
+    .notification-error .notification-icon {
+      color: #ef4444;
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+    
+    /* Встраивание */
+    .embed-container {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+    
+    .embed-code {
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-top: 0.5rem;
+      font-family: monospace;
+      white-space: pre-wrap;
+      user-select: all;
+      overflow-x: auto;
+    }
+    
+    .embed-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1rem;
+    }
+    
+    /* Стили для блока ID агента */
+    .agent-id-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background-color: var(--bg-blue-light);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--primary-blue-light);
+      margin-bottom: 1rem;
+    }
+    
+    .agent-id-label {
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .agent-id-value {
+      font-family: monospace;
+      font-size: 0.95rem;
+      color: var(--primary-blue);
+      background-color: var(--white);
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      user-select: all;
+    }
+    
+    .copy-id-btn {
+      margin-left: auto;
+    }
+    
+    /* Стили для списка агентов */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    .agents-list-container {
+      margin-top: 2rem;
+    }
+    
+    .agent-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    
+    .agents-count {
+      color: var(--text-gray);
+      font-weight: 500;
+      margin: 0;
+    }
+    
+    .agent-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 1.5rem;
+    }
+    
+    .agent-item {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      display: flex;
+      gap: 1.25rem;
+      transition: all 0.2s;
+      position: relative;
+    }
+    
+    .agent-item:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    
+    /* Бейдж Gemini */
+    .gemini-badge {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: var(--gemini-gradient);
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+    }
+    
+    .agent-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4a86e8, #2b59c3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+    
+    .agent-info {
+      flex: 1;
+      min-width: 0;
+    }
+    
+    .agent-name {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .agent-description {
+      color: var(--text-gray);
+      margin-bottom: 0.75rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 0.95rem;
+    }
+    
+    .agent-meta {
+      display: flex;
+      gap: 1rem;
+      color: var(--text-light);
+      font-size: 0.875rem;
+    }
+    
+    .agent-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+    }
+    
+    .empty-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+    
+    .empty-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    
+    .empty-description {
+      color: var(--text-gray);
+      max-width: 500px;
+      margin: 0 auto 2rem;
+    }
+    
+    /* Стили для раздела тестирования */
+    .testing-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 2rem;
+    }
+    
+    .testing-container {
+      padding: 1.5rem;
+    }
+    
+    .testing-placeholder {
+      text-align: center;
+      padding: 3rem 2rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      border: 2px dashed var(--border-color);
+    }
+    
+    .testing-placeholder-icon {
+      font-size: 3rem;
+      color: var(--text-light);
+      margin-bottom: 1rem;
+    }
+    
+    .testing-placeholder-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    .testing-placeholder-text {
+      color: var(--text-gray);
+      margin-bottom: 1rem;
+    }
+    
+    /* Состояние загрузки */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Стили для функций */
+    .function-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .function-option:hover {
+      background-color: var(--bg-blue-light);
+    }
+
+    .function-option input {
+      margin: 0;
+    }
+
+    .function-info {
+      border: 1px solid var(--border-color);
+    }
+
+    .function-schema {
+      background-color: var(--white);
+      padding: 1rem;
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+    }
+
+    .prompt-example {
+      background-color: var(--white);
+      padding: 1rem;
+      border-radius: var(--radius-md);
+      margin-top: 1rem;
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .prompt-example pre {
+      background-color: var(--bg-light);
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+    }
+    
+    /* Стили для блока Google Sheets */
+    .connection-status {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      display: none;
+    }
+    
+    .sheet-container {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    
+    .sheet-input {
+      flex: 1;
+    }
+    
+    .sheet-info {
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      line-height: 1.5;
+    }
+    
+    .sheet-tips {
+      margin-top: 1rem;
+      padding: 1rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      border: 1px dashed var(--border-color);
+    }
+    
+    .sheet-tips h4 {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      color: var(--text-dark);
+    }
+    
+    .sheet-tips ul {
+      padding-left: 1.5rem;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      line-height: 1.5;
+    }
+    
+    .sheet-tips li {
+      margin-bottom: 0.5rem;
+    }
+
+    /* Чекбоксы для специфичных настроек Gemini */
+    .gemini-settings {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .checkbox-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background-color: var(--bg-light);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .checkbox-option:hover {
+      background-color: var(--bg-blue-light);
+      border-color: var(--primary-blue-light);
+    }
+
+    .checkbox-option input[type="checkbox"] {
+      margin-top: 0.25rem;
+    }
+
+    .checkbox-content {
+      flex: 1;
+    }
+
+    .checkbox-label {
+      font-weight: 600;
+      color: var(--text-dark);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .checkbox-description {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      line-height: 1.4;
+    }
+
+    /* Мобильная адаптация */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+      }
+      
+      .sidebar.mobile-open {
+        transform: translateX(0);
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+      }
+      
+      .content-container {
+        padding: 1rem;
+      }
+      
+      .page-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: stretch;
+      }
+      
+      .agent-items {
+        grid-template-columns: 1fr;
+      }
+      
+      .agent-item {
+        flex-direction: column;
+        text-align: center;
+      }
+      
+      .agent-actions {
+        flex-direction: row;
+        justify-content: center;
+      }
+      
+      .voice-options {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      }
+      
+      .form-footer {
+        flex-direction: column;
+      }
+      
+      .tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+      }
+      
+      .tab {
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+      
+      .user-dropdown {
+        right: auto;
+        left: 0;
+      }
+      
+      .agent-id-info {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      
+      .copy-id-btn {
+        margin-left: 0;
+        width: 100%;
+      }
+
+      .gemini-settings {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .content-container {
+        padding: 0.5rem;
+      }
+      
+      .form-section {
+        padding: 1rem;
+      }
+      
+      .agent-item {
+        padding: 1rem;
+      }
+      
+      .notification {
+        right: 0.5rem;
+        left: 0.5rem;
+        max-width: none;
+      }
+    }
+
+    /* Кнопка мобильного меню */
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-toggle {
+        display: block;
+      }
+    }
+
+    /* Overlay для мобильного меню */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 49;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar-overlay.show {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Overlay для мобильного меню -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- Боковая панель -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> Мои агенты
+      </a>
+      <a href="/static/gemini-agents.html" class="sidebar-nav-item active">
+        <i class="fas fa-sparkles"></i> Gemini агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      <a href="/static/outbound-calls.html" class="sidebar-nav-item">
+        <i class="fas fa-phone-alt"></i> Исходящие звонки
+      </a>
+      <a href="/static/conversations.html" class="sidebar-nav-item">
+        <i class="fas fa-comments"></i> Диалоги
+       </a>
+
+      <div class="sidebar-section">ИИ Интерфейс</div>
+      <a href="/static/voice_llm_interface.html" class="sidebar-nav-item">
+        <i class="fas fa-microphone"></i> JARVIS AI
+      </a>
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+    
+    <!-- Кнопка выхода внизу -->
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </div>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель навигации -->
+    <div class="top-nav">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button class="mobile-menu-toggle" id="mobile-menu-toggle">
+          <i class="fas fa-bars"></i>
+        </button>
+        <h1 class="page-title">Gemini агенты</h1>
+      </div>
+      
+      <div class="page-actions">
+        <button class="btn btn-outline" id="view-embed-code" style="display: none;">
+          <i class="fas fa-code"></i> Код для встраивания
+        </button>
+        <button class="btn btn-danger" id="delete-agent" style="display: none;">
+          <i class="fas fa-trash"></i> Удалить
+        </button>
+        <button class="btn btn-primary" id="save-agent" style="display: none;">
+          <i class="fas fa-save"></i> Сохранить
+        </button>
+        <button class="btn btn-primary" id="create-new-agent-btn">
+          <i class="fas fa-plus"></i> Создать агента
+        </button>
+        
+        <div class="user-menu">
+          <button class="user-button" id="user-menu-button">
+            <div class="user-avatar" id="user-avatar">АП</div>
+            <span class="user-name" id="user-name">Александр Петров</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          
+          <div class="user-dropdown" id="user-dropdown">
+            <a href="/static/settings.html" class="dropdown-item">
+              <i class="fas fa-user"></i> Профиль
+            </a>
+            <div class="dropdown-divider"></div>
+            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+              <i class="fas fa-sign-out-alt"></i> Выйти
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      <!-- Контейнер для списка агентов (показывается в режиме списка) -->
+      <div id="agents-list-container" class="agents-list-container">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Ваши голосовые ассистенты на Gemini</h2>
+          </div>
+          <div id="agents-list" class="agents-list">
+            <!-- Содержимое будет заполнено динамически -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Контейнер для редактирования агента (показывается в режиме редактирования) -->
+      <div id="edit-agent-container" style="display: none;">
+        <!-- Табы -->
+        <div class="tabs">
+          <div class="tab active" data-tab="settings">Настройки</div>
+          <div class="tab" data-tab="testing">Тестирование</div>
+          <div class="tab" data-tab="embed">Встраивание</div>
+          <div class="tab" data-tab="functions">Функции</div>
+        </div>
+        
+        <!-- Таб настроек -->
+        <div class="tab-content active" id="settings-tab">
+          <form id="agent-form">
+            <div class="form-section">
+              <div class="form-group">
+                <label for="agent-name">Название агента</label>
+                <input type="text" id="agent-name" class="form-control" placeholder="Введите название" required>
+              </div>
+              
+              <div class="form-group">
+                <label for="agent-description">Описание (опционально)</label>
+                <textarea id="agent-description" class="form-control" placeholder="Описание вашего голосового ассистента"></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="greeting-message">Приветственное сообщение</label>
+                <input 
+                  type="text" 
+                  id="greeting-message" 
+                  class="form-control" 
+                  placeholder="Здравствуйте! Чем я могу вам помочь?" 
+                  maxlength="200"
+                >
+                <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  Эта фраза будет первым, что скажет ассистент при звонке. Максимум 200 символов.
+                </p>
+              </div>
+            </div>
+            
+            <div class="form-section">
+              <div class="form-group">
+                <label for="system-prompt">Системный промпт</label>
+                <textarea id="system-prompt" class="form-control" placeholder="Инструкции для ассистента" required></textarea>
+                <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.
+                </p>
+              </div>
+
+              <!-- Gemini-специфичные настройки -->
+              <div class="form-group">
+                <label>Расширенные возможности Gemini</label>
+                <div class="gemini-settings">
+                  <label class="checkbox-option">
+                    <input type="checkbox" id="enable-thinking" name="enable_thinking">
+                    <div class="checkbox-content">
+                      <span class="checkbox-label">Режим размышлений</span>
+                      <span class="checkbox-description">Позволяет модели "думать" перед ответом для более глубокого анализа</span>
+                    </div>
+                  </label>
+
+                  <label class="checkbox-option">
+                    <input type="checkbox" id="enable-screen-context" name="enable_screen_context">
+                    <div class="checkbox-content">
+                      <span class="checkbox-label">Контекст экрана</span>
+                      <span class="checkbox-description">Включает анализ визуального контекста пользователя</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Новый блок для Google Sheet ID -->
+            <div class="form-section">
+              <div class="form-group">
+                <label for="google-sheet-id">ID Google таблицы для логирования</label>
+                <div class="sheet-container">
+                  <div class="sheet-input">
+                    <input type="text" id="google-sheet-id" class="form-control" placeholder="ID Google таблицы">
+                  </div>
+                  <button type="button" class="btn btn-outline" id="test-sheet-connection">
+                    <i class="fas fa-sync-alt"></i> Проверить подключение
+                  </button>
+                </div>
+                <p class="sheet-info">
+                  Укажите ID Google таблицы, в которую будут записываться все диалоги с ассистентом.
+                  Таблица должна быть доступна для редактирования по ссылке.
+                </p>
+                
+                <div id="sheet-connection-status" class="connection-status"></div>
+                
+                <div class="sheet-tips">
+                  <h4>Инструкция по настройке:</h4>
+                  <ul>
+                    <li>Создайте новую таблицу в Google Sheets</li>
+                    <li>Сделайте таблицу доступной для редактирования по ссылке (Настройки доступа → Изменить → Все, у кого есть ссылка)</li>
+                    <li>Скопируйте ID из URL таблицы (часть между /d/ и следующим символом /) и вставьте выше</li>
+                    <li>Система автоматически создаст необходимые заголовки в таблице</li>
+                    <li>В таблицу будут записываться: время, запросы пользователя, ответы ассистента и результаты выполнения функций</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-section">
+              <div class="form-group">
+                <label>Голос ассистента (Google Gemini)</label>
+                <div class="voice-options">
+                  <label class="voice-option selected">
+                    <input type="radio" name="voice" value="Puck" checked>
+                    <span>Puck</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="Charon">
+                    <span>Charon</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="Kore">
+                    <span>Kore</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="Fenrir">
+                    <span>Fenrir</span>
+                  </label>
+                  <label class="voice-option">
+                    <input type="radio" name="voice" value="Aoede">
+                    <span>Aoede</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-footer">
+              <button type="button" class="btn btn-outline" id="cancel-button">Отмена</button>
+              <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Таб тестирования - НОВЫЙ ИНТЕРФЕЙС v2.1 -->
+        <div class="tab-content" id="testing-tab">
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Тестирование вашего голосового ассистента</h3>
+            <p style="color: var(--text-gray); margin-bottom: 2rem;">
+              Голосовой ассистент готов к использованию. Для взаимодействия нажмите на кнопку в правом нижнем углу экрана.
+            </p>
+
+            <!-- Карточки с инструкциями -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+              <!-- Карточка 1: Говорите -->
+              <div style="background: linear-gradient(135deg, #EFF6FF, #DBEAFE); border: 1px solid #BFDBFE; border-radius: var(--radius-lg); padding: 1.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                  <div style="width: 48px; height: 48px; background: var(--primary-blue); border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i class="fas fa-microphone" style="color: white; font-size: 1.25rem;"></i>
+                  </div>
+                  <h4 style="font-size: 1.125rem; font-weight: 600;">Говорите с ассистентом через микрофон</h4>
+                </div>
+                <p style="color: var(--text-gray); line-height: 1.6;">
+                  Нажмите на кнопку виджета и начните говорить. Ассистент автоматически распознает вашу речь.
+                </p>
+              </div>
+
+              <!-- Карточка 2: Слушайте -->
+              <div style="background: linear-gradient(135deg, #F0FDF4, #DCFCE7); border: 1px solid #BBF7D0; border-radius: var(--radius-lg); padding: 1.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                  <div style="width: 48px; height: 48px; background: #10B981; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    <i class="fas fa-volume-up" style="color: white; font-size: 1.25rem;"></i>
+                  </div>
+                  <h4 style="font-size: 1.125rem; font-weight: 600;">Слушайте ответы в выбранном голосе</h4>
+                </div>
+                <p style="color: var(--text-gray); line-height: 1.6;">
+                  Ассистент ответит голосом, который вы выбрали в настройках. Качество звука: 24kHz HD.
+                </p>
+              </div>
+            </div>
+
+            <!-- Статус подключения -->
+            <div style="background: white; border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1.5rem;">
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                <div id="connection-status-icon" style="width: 12px; height: 12px; background: #94A3B8; border-radius: 50%; flex-shrink: 0;"></div>
+                <div style="flex: 1;">
+                  <div style="font-weight: 600; margin-bottom: 0.25rem;">Статус подключения</div>
+                  <div id="connection-status-text" style="color: var(--text-gray); font-size: 0.875rem;">Подключение...</div>
+                </div>
+                <div id="voice-info" style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+                  <i class="fas fa-volume-up"></i>
+                  <span id="selected-voice">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Информация о виджете -->
+            <div style="background: var(--bg-light); border: 1px dashed var(--border-color); border-radius: var(--radius-md); padding: 1.5rem;">
+              <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                <i class="fas fa-arrow-right" style="color: var(--primary-blue); font-size: 1.25rem; margin-top: 0.25rem;"></i>
+                <div>
+                  <p style="font-weight: 500; margin-bottom: 0.5rem; color: var(--text-dark);">
+                    Виджет доступен в правом нижнем углу экрана
+                  </p>
+                  <p style="color: var(--text-gray); font-size: 0.875rem; line-height: 1.6;">
+                    Нажмите на синий круг с эквалайзером для начала разговора. Виджет автоматически определяет начало и конец вашей речи.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Таб встраивания -->
+        <div class="tab-content" id="embed-tab">
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Код для встраивания</h3>
+            <p>Скопируйте этот код и вставьте его на свой сайт, чтобы добавить голосового ассистента на базе Gemini.</p>
+            
+            <!-- Новый блок для отображения ID агента -->
+            <div class="agent-id-info">
+              <span class="agent-id-label">ID агента:</span>
+              <span class="agent-id-value" id="agent-id-display">-</span>
+              <button class="btn btn-outline copy-id-btn" id="copy-agent-id">
+                <i class="fas fa-copy"></i> Копировать ID
+              </button>
+            </div>
+            
+            <div class="embed-container">
+              <div class="embed-code" id="embed-code">
+              <!-- Код будет загружен динамически -->
+              </div>
+              <div class="embed-actions">
+                <button class="btn btn-primary" id="copy-embed-code">
+                  <i class="fas fa-copy"></i> Копировать код
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Предпросмотр</h3>
+            <p>Так будет выглядеть ваш ассистент на сайте:</p>
+            
+            <div style="margin-top: 1.5rem; text-align: center;">
+              <div style="display: inline-block; position: relative;">
+                <div style="width: 400px; height: 300px; background-color: #f3f4f6; border: 1px dashed #d1d5db; border-radius: 0.5rem; display: flex; justify-content: center; align-items: center;">
+                  <div style="position: absolute; bottom: 20px; right: 20px; width: 60px; height: 60px; border-radius: 50%; background: var(--gemini-gradient); display: flex; justify-content: center; align-items: center; color: white; box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);">
+                    <i class="fas fa-sparkles" style="font-size: 1.5rem;"></i>
+                  </div>
+                </div>
+                <div style="margin-top: 0.5rem; font-size: 0.875rem; color: var(--text-gray);">Пример вашего сайта с виджетом Gemini ассистента</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Таб функций -->
+        <div class="tab-content" id="functions-tab">
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Функции ассистента</h3>
+            <p>Включите необходимые функции для вашего ассистента:</p>
+            
+            <!-- Функция: send_webhook -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-send_webhook" id="function-send_webhook">
+                <span>Отправка WebHook (n8n)</span>
+              </label>
+              
+              <div id="webhook-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "send_webhook",
+  "description": "Отправляет данные на внешний вебхук (например, для n8n)",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL вебхука для отправки данных"
+      },
+      "event": {
+        "type": "string",
+        "description": "Код события (например, 'booking', 'request', 'notification')"
+      },
+      "payload": {
+        "type": "object",
+        "description": "Произвольные данные для отправки"
+      }
+    },
+    "required": ["url", "event"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты должен использовать функцию send_webhook для отправки данных пользователя на сервер.</p>
+                  <p>URL вебхука: https://n8n.example.com/webhook/123</p>
+                  <p>Когда пользователь запрашивает отправку данных, используй функцию send_webhook с этими параметрами:</p>
+                  <ul>
+                    <li>url: указанный выше URL вебхука</li>
+                    <li>event: тип события (например, 'booking', 'request', 'notification')</li>
+                    <li>payload: объект с релевантными данными</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "url": "https://n8n.example.com/webhook/123",
+  "event": "booking",
+  "payload": {
+    "name": "Иван Петров",
+    "time": "15:00",
+    "date": "2023-05-10"
+  }
+}</pre>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: search_pinecone -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-search_pinecone" id="function-search_pinecone">
+                <span>Поиск в Pinecone</span>
+              </label>
+              
+              <div id="pinecone-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "search_pinecone",
+  "description": "Ищет похожие документы в Pinecone векторной базе данных",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "namespace": {
+        "type": "string",
+        "description": "Namespace в Pinecone для поиска документов"
+      },
+      "query": {
+        "type": "string",
+        "description": "Поисковый запрос для векторного поиска"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "Количество результатов для возврата",
+        "default": 3
+      }
+    },
+    "required": ["namespace", "query"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты должен использовать функцию search_pinecone для поиска релевантной информации в векторной базе данных.</p>
+                  <p>Pinecone namespace: my_namespace</p>
+                  <p>Когда пользователь запрашивает информацию, используй функцию search_pinecone с этими параметрами:</p>
+                  <ul>
+                    <li>namespace: указанный выше namespace</li>
+                    <li>query: запрос пользователя или его перефразировка для лучшего поиска</li>
+                    <li>top_k: количество результатов (по умолчанию 3)</li>
+                  </ul>
+                  <p>После получения результатов используй их для формирования более информативного ответа.</p>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "namespace": "my_namespace",
+  "query": "Как работает векторный поиск?",
+  "top_k": 5
+}</pre>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: query_llm -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-query_llm" id="function-query_llm">
+                <span>Запрос к текстовой LLM модели</span>
+              </label>
+              
+              <div id="query-llm-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "query_llm",
+  "description": "Отправляет сложные запросы к текстовой LLM модели для получения развернутых ответов",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "Текст запроса или задачи для LLM модели"
+      },
+      "model": {
+        "type": "string",
+        "description": "Модель для использования (gpt-4, gpt-3.5-turbo)",
+        "default": "gpt-4o-mini"
+      }
+    },
+    "required": ["prompt"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию query_llm для делегирования сложных задач текстовой модели ChatGPT.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь просит написать длинный текст (статью, письмо, код)</li>
+                    <li>Нужен детальный анализ или исследование</li>
+                    <li>Требуется структурированный ответ с множеством деталей</li>
+                    <li>Задача требует глубокого reasoning или пошагового решения</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "prompt": "Напиши подробную статью о преимуществах искусственного интеллекта в медицине",
+  "model": "gpt-4o-mini"
+}</pre>
+                  <p><strong>Важно:</strong> После получения ответа от LLM, ты можешь озвучить краткое резюме пользователю, а полный текст будет показан на экране.</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: read_google_doc -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-read_google_doc" id="function-read_google_doc">
+                <span>Чтение Google Документов</span>
+              </label>
+              
+              <div id="google-doc-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "read_google_doc",
+  "description": "Читает текст из публичного Google Документа по ссылке",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "Ссылка на Google Документ (должен быть публичным или доступным по ссылке)"
+      }
+    },
+    "required": ["url"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию read_google_doc для чтения содержимого Google Документов.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь дает ссылку на Google Document</li>
+                    <li>Нужно прочитать инструкцию или документацию из Google Docs</li>
+                    <li>Требуется проанализировать содержимое документа</li>
+                    <li>Пользователь просит резюмировать или обработать текст из документа</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "url": "https://docs.google.com/document/d/ABC123XYZ/edit"
+}</pre>
+                  <p><strong>Важно:</strong> Документ должен быть публичным или доступным по ссылке. После получения текста ты можешь отвечать на вопросы о его содержимом.</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: add_google_sheet_row -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-add_google_sheet_row" id="function-add_google_sheet_row">
+                <span>Добавление строки в Google Таблицу</span>
+              </label>
+              
+              <div id="add-sheet-row-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "add_google_sheet_row",
+  "description": "Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "URL Google Таблицы"
+      },
+      "row_to_append": {
+        "type": "string",
+        "description": "Данные для добавления, разделенные ;; (например: 'Иван Петров;;ivan@mail.com;;+79991234567')"
+      },
+      "sheet_name": {
+        "type": "string",
+        "description": "Название листа (опционально, по умолчанию первый лист)"
+      }
+    },
+    "required": ["url", "row_to_append"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию add_google_sheet_row для записи данных в Google Таблицы.</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь просит записать/сохранить информацию в таблицу</li>
+                    <li>Нужно добавить контактные данные, заявку или бронирование</li>
+                    <li>Требуется логировать действия пользователя</li>
+                    <li>Пользователь хочет оставить feedback или заполнить форму</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "url": "https://docs.google.com/spreadsheets/d/ABC123XYZ/edit",
+  "row_to_append": "Иван Петров;;ivan@mail.com;;+79991234567;;Консультация",
+  "sheet_name": "Заявки"
+}</pre>
+                  <p><strong>Важно:</strong></p>
+                  <ul>
+                    <li>Данные разделяются символами <code>;;</code> (двойной точкой с запятой)</li>
+                    <li>Количество значений должно соответствовать количеству колонок в таблице</li>
+                    <li>Таблица должна быть расшарена на сервисный аккаунт с правами редактора</li>
+                    <li>Если sheet_name не указан, запись идет на первый лист таблицы</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Функция: hangup_call -->
+            <div class="form-group">
+              <label class="function-option">
+                <input type="checkbox" name="function-hangup_call" id="function-hangup_call">
+                <span>Завершение звонка</span>
+              </label>
+              
+              <div id="hangup-call-info" class="function-info" style="display: none; margin-top: 1rem; padding: 1rem; background-color: var(--bg-light); border-radius: var(--radius-md);">
+                <h4>Информация о функции:</h4>
+                <pre class="function-schema">{
+  "name": "hangup_call",
+  "description": "Завершить текущий звонок когда разговор естественно завершен или по просьбе пользователя",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "reason": {
+        "type": "string",
+        "description": "Причина завершения звонка",
+        "enum": [
+          "conversation_completed",
+          "user_request",
+          "time_limit_reached",
+          "technical_issue",
+          "emergency"
+        ]
+      },
+      "farewell_message": {
+        "type": "string",
+        "description": "Прощальное сообщение перед завершением звонка (опционально)",
+        "maxLength": 200
+      }
+    },
+    "required": ["reason"]
+  }
+}</pre>
+                
+                <h4>Пример использования в промпте:</h4>
+                <div class="prompt-example">
+                  <p>Ты можешь использовать функцию hangup_call для завершения телефонного разговора.</p>
+                  <p><strong>⚠️ Важно:</strong> Эта функция работает только при телефонных звонках через Voximplant!</p>
+                  <p>Используй эту функцию когда:</p>
+                  <ul>
+                    <li>Пользователь поблагодарил и завершил разговор</li>
+                    <li>Пользователь прямо попросил завершить звонок ("до свидания", "спасибо, все")</li>
+                    <li>Разговор достиг естественного завершения</li>
+                    <li>Превышено время разговора</li>
+                    <li>Возникли технические проблемы</li>
+                  </ul>
+                  <p>Пример вызова:</p>
+                  <pre>{
+  "reason": "conversation_completed",
+  "farewell_message": "До свидания! Хорошего дня!"
+}</pre>
+                  <p><strong>Причины завершения (reason):</strong></p>
+                  <ul>
+                    <li><code>conversation_completed</code> - разговор естественно завершен</li>
+                    <li><code>user_request</code> - по просьбе пользователя</li>
+                    <li><code>time_limit_reached</code> - превышен лимит времени</li>
+                    <li><code>technical_issue</code> - техническая проблема</li>
+                    <li><code>emergency</code> - экстренное завершение</li>
+                  </ul>
+                  <p><strong>Примеры прощальных сообщений:</strong></p>
+                  <ul>
+                    <li>"До свидания! Хорошего дня!"</li>
+                    <li>"Спасибо за обращение! До встречи!"</li>
+                    <li>"Всего доброго!"</li>
+                    <li>"Обращайтесь еще!"</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+    </div>
+  </main>
+
+  <!-- ЖИВОЙ ДЕМО ВИДЖЕТ (только если агент выбран) -->
+  <div id="demo-widget-container" style="display: none;">
+    <script id="demo-widget-script"></script>
+  </div>
+  
+  <!-- JavaScript -->
+  <script>
+    // ============================================================================
+    // КОНСТАНТЫ И ПЕРЕМЕННЫЕ
+    // ============================================================================
+    
+    const API_BASE_URL = '/api';
+    let currentAgentId = null;
+    let isLoading = false;
+    
+    // ============================================================================
+    // API ФУНКЦИИ
+    // ============================================================================
+    
+    function getToken() {
+      return localStorage.getItem('auth_token');
+    }
+    
+    function checkAuth() {
+      if (!getToken()) {
+        window.location.href = '/static/login.html';
+        return false;
+      }
+      return true;
+    }
+    
+    async function apiRequest(endpoint, options = {}) {
+      const token = getToken();
+      
+      if (!options.headers) {
+        options.headers = {};
+      }
+      
+      options.headers['Authorization'] = `Bearer ${token}`;
+      
+      if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(options.body);
+      }
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+        
+        if (response.status === 401) {
+          localStorage.removeItem('auth_token');
+          window.location.href = '/static/login.html';
+          throw new Error('Требуется авторизация');
+        }
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.detail || 'Ошибка запроса');
+        }
+        
+        return data;
+      } catch (error) {
+        console.error('API Error:', error);
+        throw error;
+      }
+    }
+    
+    // ============================================================================
+    // UI ФУНКЦИИ
+    // ============================================================================
+    
+    function showNotification(message, type = 'success') {
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      
+      notification.className = `notification notification-${type}`;
+      notificationMessage.textContent = message;
+      
+      notification.style.display = 'flex';
+      setTimeout(() => notification.classList.add('show'), 10);
+      
+      setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.style.display = 'none', 300);
+      }, 5000);
+    }
+    
+    function setLoading(loading) {
+      isLoading = loading;
+      document.getElementById('loading-overlay').style.display = loading ? 'flex' : 'none';
+      
+      const buttons = document.querySelectorAll('.btn');
+      buttons.forEach(button => button.disabled = loading);
+    }
+    
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.toggle('active', tab.getAttribute('data-tab') === tabId);
+      });
+
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `${tabId}-tab`);
+      });
+
+      // Автозагрузка виджета на вкладке тестирования
+      if (tabId === 'testing' && currentAgentId) {
+        // Обновить статус
+        const voiceName = document.querySelector('input[name="voice"]:checked')?.value || 'Puck';
+        updateTestingStatus('connecting', voiceName);
+
+        setTimeout(() => {
+          loadDemoWidget(currentAgentId);
+          // Симуляция подключения (в реальности статус придет от виджета)
+          setTimeout(() => updateTestingStatus('connected', voiceName), 1000);
+        }, 500);
+      } else {
+        loadDemoWidget(null); // Выгрузка виджета
+        if (tabId !== 'testing') {
+          updateTestingStatus('disconnected', null);
+        }
+      }
+    }
+
+    // ============================================================================
+    // ОБНОВЛЕНИЕ СТАТУСА ТЕСТИРОВАНИЯ
+    // ============================================================================
+
+    function updateTestingStatus(status, voiceName) {
+      const statusIcon = document.getElementById('connection-status-icon');
+      const statusText = document.getElementById('connection-status-text');
+      const voiceInfo = document.getElementById('selected-voice');
+
+      if (!statusIcon || !statusText) return;
+
+      switch(status) {
+        case 'connected':
+          statusIcon.style.background = '#10B981';
+          statusText.textContent = 'Подключено';
+          statusText.style.color = '#10B981';
+          break;
+        case 'connecting':
+          statusIcon.style.background = '#F59E0B';
+          statusText.textContent = 'Подключение...';
+          statusText.style.color = '#F59E0B';
+          break;
+        case 'disconnected':
+          statusIcon.style.background = '#EF4444';
+          statusText.textContent = 'Не подключено';
+          statusText.style.color = '#EF4444';
+          break;
+        default:
+          statusIcon.style.background = '#94A3B8';
+          statusText.textContent = 'Ожидание...';
+          statusText.style.color = '#64748B';
+      }
+
+      if (voiceName && voiceInfo) {
+        voiceInfo.textContent = `Голос: ${voiceName}`;
+      }
+    }
+
+    // ============================================================================
+    // ФУНКЦИЯ ЗАГРУЗКИ ДЕМО ВИДЖЕТА
+    // ============================================================================
+    
+    function loadDemoWidget(assistantId) {
+      const container = document.getElementById('demo-widget-container');
+      const scriptEl = document.getElementById('demo-widget-script');
+
+      scriptEl.innerHTML = '';
+      container.style.display = 'none';
+
+      const oldWidget = document.getElementById('gemini-voice-widget');
+      if (oldWidget) {
+        oldWidget.remove();
+        console.log('[DEMO-WIDGET] Old widget removed');
+      }
+
+      // ✅ НОВОЕ: Удаление старых скриптов
+      const oldScripts = document.querySelectorAll('script[src*="gemini-widget.js"]');
+      oldScripts.forEach(s => {
+        s.remove();
+        console.log('[DEMO-WIDGET] Old script removed');
+      });
+
+      if (!assistantId) {
+        console.log('[DEMO-WIDGET] Widget unloaded');
+        return;
+      }
+
+      console.log('[DEMO-WIDGET] Loading widget v2.1 for assistant:', assistantId);
+
+      container.style.display = 'block';
+      const script = document.createElement('script');
+
+      // ✅ НОВОЕ: Кеш-бастинг
+      const version = Date.now();
+      script.src = `/static/gemini-widget.js?v=${version}`;
+
+      script.dataset.assistantId = assistantId;
+      script.dataset.server = window.location.origin;
+      script.dataset.position = 'bottom-right';
+      script.async = true;
+
+      script.onload = () => {
+        console.log('[DEMO-WIDGET] ✅ Widget v2.1 loaded successfully');
+      };
+
+      script.onerror = (error) => {
+        console.error('[DEMO-WIDGET] ❌ Failed to load widget:', error);
+        showNotification('Ошибка загрузки виджета', 'error');
+      };
+
+      document.head.appendChild(script);
+      console.log('[DEMO-WIDGET] Script tag added with cache busting');
+    }
+    
+    // ============================================================================
+    // РАБОТА С АГЕНТАМИ
+    // ============================================================================
+    
+    async function loadAgentsList() {
+      try {
+        setLoading(true);
+        const agents = await apiRequest('/gemini-assistants');
+        renderAgentsList(agents);
+      } catch (error) {
+        showNotification(error.message || 'Ошибка загрузки списка агентов', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    function renderAgentsList(agents) {
+      const container = document.getElementById('agents-list');
+      container.innerHTML = '';
+      
+      if (agents.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">
+              <i class="fas fa-sparkles"></i>
+            </div>
+            <h3 class="empty-title">У вас еще нет Gemini агентов</h3>
+            <p class="empty-description">
+              Создайте вашего первого голосового ассистента на базе Google Gemini
+            </p>
+            <button class="btn btn-primary" onclick="navigateToCreateAgent()">
+              <i class="fas fa-plus"></i> Создать нового агента
+            </button>
+          </div>
+        `;
+        return;
+      }
+      
+      const headerEl = document.createElement('div');
+      headerEl.className = 'agent-list-header';
+      headerEl.innerHTML = `<h4 class="agents-count">Найдено агентов: ${agents.length}</h4>`;
+      container.appendChild(headerEl);
+      
+      const listEl = document.createElement('div');
+      listEl.className = 'agent-items';
+      
+      agents.forEach(agent => {
+        const agentEl = document.createElement('div');
+        agentEl.className = 'agent-item';
+        agentEl.innerHTML = `
+          <div class="gemini-badge">Gemini</div>
+          <div class="agent-icon">
+            <i class="fas fa-sparkles"></i>
+          </div>
+          <div class="agent-info">
+            <h3 class="agent-name">${agent.name}</h3>
+            <p class="agent-description">${agent.description || 'Нет описания'}</p>
+            <div class="agent-meta">
+              <span class="agent-voice"><i class="fas fa-volume-up"></i> ${agent.voice}</span>
+              <span class="agent-date"><i class="fas fa-calendar"></i> Создан: ${new Date(agent.created_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+          <div class="agent-actions">
+            <button class="btn btn-outline" onclick="getEmbedCode('${agent.id}')" title="Получить код для встраивания">
+              <i class="fas fa-code"></i>
+            </button>
+            <button class="btn btn-primary" onclick="editAgent('${agent.id}')">
+              <i class="fas fa-edit"></i> Редактировать
+            </button>
+          </div>
+        `;
+        listEl.appendChild(agentEl);
+      });
+      
+      container.appendChild(listEl);
+    }
+    
+    async function loadAgentData(id) {
+      try {
+        setLoading(true);
+        const agent = await apiRequest(`/gemini-assistants/${id}`);
+        fillAgentForm(agent);
+        
+        document.getElementById('agent-id-display').textContent = id;
+        
+        const embedData = await apiRequest(`/gemini-assistants/${id}/embed-code`);
+        document.getElementById('embed-code').textContent = embedData.embed_code;
+        
+        document.getElementById('view-embed-code').style.display = 'inline-flex';
+        document.getElementById('delete-agent').style.display = 'inline-flex';
+        document.getElementById('save-agent').style.display = 'inline-flex';
+        document.getElementById('create-new-agent-btn').style.display = 'none';
+      } catch (error) {
+        showNotification(error.message || 'Ошибка загрузки данных агента', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    function fillAgentForm(agent) {
+      document.getElementById('agent-name').value = agent.name || '';
+      document.getElementById('agent-description').value = agent.description || '';
+      document.getElementById('system-prompt').value = agent.system_prompt || '';
+      document.getElementById('google-sheet-id').value = agent.google_sheet_id || '';
+      document.getElementById('greeting-message').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
+      
+      // Gemini-специфичные настройки
+      document.getElementById('enable-thinking').checked = agent.enable_thinking || false;
+      document.getElementById('enable-screen-context').checked = agent.enable_screen_context || false;
+      
+      // Выбор голоса
+      const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice || 'Puck'}"]`);
+      if (voiceInput) {
+        document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
+        voiceInput.closest('.voice-option').classList.add('selected');
+        voiceInput.checked = true;
+      }
+      
+      // Загрузка функций
+      loadFunctions(agent.functions || []);
+    }
+    
+    function loadFunctions(functions) {
+      const functionMapping = {
+        'send_webhook': 'function-send_webhook',
+        'search_pinecone': 'function-search_pinecone',
+        'query_llm': 'function-query_llm',
+        'read_google_doc': 'function-read_google_doc',
+        'add_google_sheet_row': 'function-add_google_sheet_row',
+        'hangup_call': 'function-hangup_call'
+      };
+      
+      // Сброс всех чекбоксов
+      Object.values(functionMapping).forEach(id => {
+        const checkbox = document.getElementById(id);
+        if (checkbox) checkbox.checked = false;
+      });
+      
+      // Включение нужных функций
+      functions.forEach(func => {
+        const checkboxId = functionMapping[func.name];
+        if (checkboxId) {
+          const checkbox = document.getElementById(checkboxId);
+          if (checkbox) checkbox.checked = true;
+        }
+      });
+    }
+    
+    function getFormData() {
+      const enabledFunctions = [];
+      
+      const functionCheckboxes = {
+        'send_webhook': 'Отправляет данные на внешний вебхук (например, для n8n)',
+        'search_pinecone': 'Ищет похожие документы в Pinecone векторной базе данных',
+        'query_llm': 'Отправляет сложные запросы к текстовой LLM модели для получения развернутых ответов',
+        'read_google_doc': 'Читает текст из публичного Google Документа по ссылке',
+        'add_google_sheet_row': 'Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования.',
+        'hangup_call': 'Завершить текущий звонок когда разговор естественно завершен или по просьбе пользователя'
+      };
+      
+      Object.entries(functionCheckboxes).forEach(([name, description]) => {
+        const checkbox = document.getElementById(`function-${name}`);
+        if (checkbox && checkbox.checked) {
+          enabledFunctions.push({ name, description });
+        }
+      });
+      
+      const googleSheetId = document.getElementById('google-sheet-id').value;
+      
+      return {
+        name: document.getElementById('agent-name').value,
+        description: document.getElementById('agent-description').value,
+        system_prompt: document.getElementById('system-prompt').value,
+        voice: document.querySelector('input[name="voice"]:checked').value,
+        google_sheet_id: googleSheetId || null,
+        greeting_message: document.getElementById('greeting-message').value || 'Здравствуйте! Чем я могу вам помочь?',
+        enable_thinking: document.getElementById('enable-thinking').checked,
+        enable_screen_context: document.getElementById('enable-screen-context').checked,
+        functions: enabledFunctions
+      };
+    }
+    
+    async function saveAgent() {
+      try {
+        setLoading(true);
+        const formData = getFormData();
+        
+        if (currentAgentId) {
+          await apiRequest(`/gemini-assistants/${currentAgentId}`, {
+            method: 'PUT',
+            body: formData
+          });
+          showNotification('Изменения успешно сохранены!', 'success');
+          await loadAgentData(currentAgentId);
+        } else {
+          const newAgent = await apiRequest('/gemini-assistants', {
+            method: 'POST',
+            body: formData
+          });
+          showNotification('Агент успешно создан!', 'success');
+          setTimeout(() => {
+            window.location.href = `/static/gemini-agents.html?id=${newAgent.id}`;
+          }, 1000);
+        }
+      } catch (error) {
+        showNotification(error.message || 'Ошибка сохранения', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    async function deleteAgent() {
+      if (!currentAgentId) return;
+      
+      if (!confirm('Вы уверены, что хотите удалить этого агента? Это действие нельзя отменить.')) {
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        await apiRequest(`/gemini-assistants/${currentAgentId}`, { method: 'DELETE' });
+        showNotification('Агент успешно удален!', 'success');
+        setTimeout(() => {
+          window.location.href = '/static/gemini-agents.html';
+        }, 1000);
+      } catch (error) {
+        showNotification(error.message || 'Ошибка удаления агента', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    // ============================================================================
+    // НАВИГАЦИЯ
+    // ============================================================================
+    
+    function navigateToCreateAgent() {
+      window.location.href = '/static/gemini-agents.html?mode=create';
+    }
+    
+    function editAgent(id) {
+      window.location.href = `/static/gemini-agents.html?id=${id}`;
+    }
+    
+    async function getEmbedCode(id) {
+      try {
+        setLoading(true);
+        currentAgentId = id;
+        switchToEditMode();
+        await loadAgentData(id);
+        switchTab('embed');
+      } catch (error) {
+        showNotification(error.message || 'Ошибка получения кода встраивания', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    function switchToEditMode() {
+      document.getElementById('agents-list-container').style.display = 'none';
+      document.getElementById('edit-agent-container').style.display = 'block';
+      document.querySelector('.page-title').textContent = 'Управление Gemini агентом';
+    }
+    
+    function switchToListMode() {
+      document.getElementById('agents-list-container').style.display = 'block';
+      document.getElementById('edit-agent-container').style.display = 'none';
+      document.querySelector('.page-title').textContent = 'Gemini агенты';
+      
+      document.getElementById('view-embed-code').style.display = 'none';
+      document.getElementById('delete-agent').style.display = 'none';
+      document.getElementById('save-agent').style.display = 'none';
+      document.getElementById('create-new-agent-btn').style.display = 'inline-flex';
+      
+      currentAgentId = null;
+      
+      // Выгрузка виджета
+      loadDemoWidget(null);
+    }
+    
+    function initCreateMode() {
+      document.getElementById('agent-name').value = '';
+      document.getElementById('agent-description').value = '';
+      document.getElementById('system-prompt').value = 'Ты умный голосовой помощник на базе Google Gemini. Отвечай на вопросы пользователя коротко, информативно и с небольшой ноткой юмора, когда это уместно. Стремись быть полезным и предоставлять точную информацию.';
+      document.getElementById('google-sheet-id').value = '';
+      document.getElementById('greeting-message').value = 'Здравствуйте! Чем я могу вам помочь?';
+      document.getElementById('enable-thinking').checked = false;
+      document.getElementById('enable-screen-context').checked = false;
+      
+      const voiceInput = document.querySelector('input[name="voice"][value="Puck"]');
+      if (voiceInput) {
+        document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
+        voiceInput.closest('.voice-option').classList.add('selected');
+        voiceInput.checked = true;
+      }
+      
+      document.querySelector('.page-title').textContent = 'Создание нового Gemini агента';
+      document.getElementById('save-agent').innerHTML = '<i class="fas fa-plus"></i> Создать';
+      document.getElementById('delete-agent').style.display = 'none';
+      document.getElementById('view-embed-code').style.display = 'none';
+      document.getElementById('save-agent').style.display = 'inline-flex';
+      document.getElementById('create-new-agent-btn').style.display = 'none';
+      
+      document.getElementById('agent-id-display').textContent = '-';
+    }
+    
+    // ============================================================================
+    // ЗАГРУЗКА ПОЛЬЗОВАТЕЛЯ
+    // ============================================================================
+    
+    async function loadUserInfo() {
+      try {
+        const userInfo = await apiRequest('/users/me');
+        const firstName = userInfo.first_name || '';
+        const lastName = userInfo.last_name || '';
+        
+        if (firstName || lastName) {
+          document.getElementById('user-name').textContent = firstName + (lastName ? ` ${lastName}` : '');
+          let initials = '';
+          if (firstName) initials += firstName[0];
+          if (lastName) initials += lastName[0];
+          document.getElementById('user-avatar').textContent = initials.toUpperCase();
+        } else if (userInfo.company_name) {
+          document.getElementById('user-name').textContent = userInfo.company_name;
+          document.getElementById('user-avatar').textContent = userInfo.company_name.substring(0, 2).toUpperCase();
+        } else {
+          document.getElementById('user-name').textContent = userInfo.email;
+          document.getElementById('user-avatar').textContent = userInfo.email.substring(0, 2).toUpperCase();
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки информации о пользователе:', error);
+      }
+    }
+    
+    // ============================================================================
+    // ИНИЦИАЛИЗАЦИЯ
+    // ============================================================================
+    
+    function initPage() {
+      if (!checkAuth()) return;
+      
+      loadUserInfo();
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      const id = urlParams.get('id');
+      const mode = urlParams.get('mode');
+      
+      if (id) {
+        currentAgentId = id;
+        switchToEditMode();
+        loadAgentData(id);
+      } else if (mode === 'create') {
+        switchToEditMode();
+        initCreateMode();
+      } else {
+        switchToListMode();
+        loadAgentsList();
+      }
+    }
+    
+    // ============================================================================
+    // EVENT LISTENERS
+    // ============================================================================
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      initPage();
+      
+      // Мобильное меню
+      document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.toggle('mobile-open');
+        document.getElementById('sidebar-overlay').classList.toggle('show');
+      });
+      
+      document.getElementById('sidebar-overlay').addEventListener('click', function() {
+        document.getElementById('sidebar').classList.remove('mobile-open');
+        this.classList.remove('show');
+      });
+      
+      // Выпадающее меню пользователя
+      document.getElementById('user-menu-button').addEventListener('click', function(e) {
+        e.stopPropagation();
+        document.getElementById('user-dropdown').classList.toggle('show');
+      });
+      
+      document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('user-dropdown');
+        const button = document.getElementById('user-menu-button');
+        if (dropdown.classList.contains('show') && !dropdown.contains(e.target) && !button.contains(e.target)) {
+          dropdown.classList.remove('show');
+        }
+      });
+      
+      // Табы
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+          switchTab(this.getAttribute('data-tab'));
+        });
+      });
+      
+      // Выбор голоса
+      document.querySelectorAll('.voice-option').forEach(option => {
+        option.addEventListener('click', function() {
+          document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
+          this.classList.add('selected');
+          this.querySelector('input').checked = true;
+        });
+      });
+      
+      // Форма
+      document.getElementById('agent-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        saveAgent();
+      });
+      
+      document.getElementById('cancel-button').addEventListener('click', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const mode = urlParams.get('mode');
+        
+        if (mode === 'create') {
+          window.location.href = '/static/gemini-agents.html';
+        } else if (currentAgentId) {
+          loadAgentData(currentAgentId);
+        } else {
+          window.location.href = '/static/gemini-agents.html';
+        }
+      });
+      
+      // Кнопки действий
+      document.getElementById('save-agent').addEventListener('click', saveAgent);
+      document.getElementById('delete-agent').addEventListener('click', deleteAgent);
+      document.getElementById('view-embed-code').addEventListener('click', () => switchTab('embed'));
+      document.getElementById('create-new-agent-btn').addEventListener('click', navigateToCreateAgent);
+      
+      // Копирование кода
+      document.getElementById('copy-embed-code').addEventListener('click', function() {
+        const embedCode = document.getElementById('embed-code').textContent;
+        navigator.clipboard.writeText(embedCode).then(() => {
+          showNotification('Код для встраивания скопирован!', 'success');
+        });
+      });
+      
+      document.getElementById('copy-agent-id').addEventListener('click', function() {
+        const agentId = document.getElementById('agent-id-display').textContent;
+        if (agentId && agentId !== '-') {
+          navigator.clipboard.writeText(agentId).then(() => {
+            showNotification('ID агента скопирован!', 'success');
+          });
+        }
+      });
+      
+      // Проверка Google Sheet
+      document.getElementById('test-sheet-connection').addEventListener('click', async function() {
+        const sheetId = document.getElementById('google-sheet-id').value;
+        const statusDiv = document.getElementById('sheet-connection-status');
+        
+        if (!sheetId) {
+          statusDiv.innerHTML = '<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Пожалуйста, укажите ID Google таблицы</div>';
+          statusDiv.style.display = 'block';
+          return;
+        }
+        
+        statusDiv.innerHTML = '<div style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i> Проверка подключения...</div>';
+        statusDiv.style.display = 'block';
+        
+        try {
+          const assistantId = currentAgentId || 'new';
+          const response = await apiRequest(`/gemini-assistants/${assistantId}/verify-sheet`, {
+            method: 'POST',
+            body: { sheet_id: sheetId }
+          });
+          
+          if (response.success) {
+            statusDiv.innerHTML = `<div style="color: #10b981;"><i class="fas fa-check-circle"></i> ${response.message}</div>`;
+          } else {
+            statusDiv.innerHTML = `<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> ${response.message}</div>`;
+          }
+        } catch (error) {
+          statusDiv.innerHTML = `<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Ошибка при проверке таблицы: ${error.message}</div>`;
+        }
+      });
+      
+      // Чекбоксы функций
+      const functionCheckboxes = [
+        { checkbox: 'function-send_webhook', info: 'webhook-info' },
+        { checkbox: 'function-search_pinecone', info: 'pinecone-info' },
+        { checkbox: 'function-query_llm', info: 'query-llm-info' },
+        { checkbox: 'function-read_google_doc', info: 'google-doc-info' },
+        { checkbox: 'function-add_google_sheet_row', info: 'add-sheet-row-info' },
+        { checkbox: 'function-hangup_call', info: 'hangup-call-info' }
+      ];
+      
+      functionCheckboxes.forEach(({ checkbox, info }) => {
+        const checkboxEl = document.getElementById(checkbox);
+        const infoEl = document.getElementById(info);
+        if (checkboxEl && infoEl) {
+          checkboxEl.addEventListener('change', function() {
+            infoEl.style.display = this.checked ? 'block' : 'none';
+          });
+        }
+      });
+      
+      // Закрытие уведомления
+      document.getElementById('notification-close').addEventListener('click', function() {
+        const notification = document.getElementById('notification');
+        notification.classList.remove('show');
+        setTimeout(() => notification.style.display = 'none', 300);
+      });
+    });
+  </script>
+</body>
+</html>
