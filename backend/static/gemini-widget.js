@@ -1,14 +1,15 @@
 /**
- * 🚀 Gemini Voice Widget v2.0 - Production Ready
+ * 🚀 Gemini Voice Widget v2.0 - Production Ready (FIXED AUDIO)
  * Google Gemini Live API Integration with Premium UI
  * 
  * Features:
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
- * ✅ Real-time audio streaming (16kHz PCM)
+ * ✅ Real-time audio streaming (16kHz PCM input, 24kHz PCM output)
+ * ✅ Dual AudioContext architecture for perfect audio quality
  * ✅ Dynamic screen context (based on assistant config)
  * ✅ Client-side VAD events
- * ✅ Audio resampling (24kHz → 16kHz)
- * ✅ Interruption handling
+ * ✅ NO resampling artifacts - crystal clear audio
+ * ✅ Interruption handling with orange visual feedback
  * ✅ Visual feedback (equalizer)
  * ✅ Error handling with Russian messages
  * ✅ Responsive design
@@ -19,7 +20,7 @@
  * <script>
  *   (function() {
  *     var script = document.createElement('script');
- *     script.src = 'https://yourserver.com/static/gemini-widget.js';
+ *     script.src = 'https://yourserver.com/static/gemini-widget-v2-fixed.js';
  *     script.dataset.assistantId = 'your-assistant-uuid';
  *     script.dataset.server = 'https://yourserver.com';
  *     script.dataset.position = 'bottom-right';
@@ -48,7 +49,7 @@
     // Функция для логирования
     const widgetLog = (message, type = 'info') => {
         if (DEBUG_MODE || type === 'error') {
-            const prefix = '[Gemini Widget]';
+            const prefix = '[Gemini Widget v2.0 FIXED]';
             if (type === 'error') {
                 console.error(`${prefix} ERROR:`, message);
             } else if (type === 'warn') {
@@ -146,7 +147,8 @@
         isPlaying: false,
         isSpeaking: false,
         isUserSpeaking: false,
-        audioContext: null,
+        captureAudioContext: null,
+        playbackAudioContext: null,
         mediaStream: null,
         audioWorklet: null,
         audioQueue: [],
@@ -156,7 +158,8 @@
         sessionConfig: null,
         isWidgetOpen: false,
         isReconnecting: false,
-        connectionFailedPermanently: false
+        connectionFailedPermanently: false,
+        isInterrupting: false
     };
 
     const interruptionState = {
@@ -168,11 +171,12 @@
 
     // Глобальные флаги для аудио
     window.audioInitialized = false;
-    window.globalAudioContext = null;
+    window.captureAudioContext = null;
+    window.playbackAudioContext = null;
     window.globalMicStream = null;
 
     // ============================================================================
-    // STYLES - PREMIUM UI FROM WIDGET.JS
+    // STYLES - PREMIUM UI WITH INTERRUPTION FEEDBACK
     // ============================================================================
 
     function createStyles() {
@@ -447,14 +451,50 @@
         }
       }
       
+      /* ОРАНЖЕВОЕ СВЕЧЕНИЕ ПРИ ПРЕРЫВАНИИ */
       .gemini-main-circle.interrupted {
-        background: linear-gradient(135deg, #fef3c7, #fffbeb);
-        box-shadow: 0 0 30px rgba(217, 119, 6, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+        background: linear-gradient(135deg, #fed7aa, #fef3c7) !important;
+        box-shadow: 0 0 40px rgba(251, 146, 60, 0.7), inset 0 2px 5px rgba(255, 255, 255, 0.5) !important;
+        animation: gemini-interrupt-pulse 0.8s ease-in-out infinite !important;
       }
       
       .gemini-main-circle.interrupted::before {
-        animation: gemini-wave 2s linear infinite;
-        background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(217, 119, 6, 0.3));
+        animation: gemini-wave 1.5s linear infinite !important;
+        background: linear-gradient(45deg, rgba(255, 255, 255, 0.6), rgba(251, 146, 60, 0.4)) !important;
+      }
+      
+      .gemini-main-circle.interrupted::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 3px solid rgba(251, 146, 60, 0.6) !important;
+        animation: gemini-interrupt-ring 1s ease-out infinite !important;
+      }
+      
+      @keyframes gemini-interrupt-pulse {
+        0%, 100% { 
+          transform: scale(1);
+        }
+        50% { 
+          transform: scale(1.03);
+        }
+      }
+      
+      @keyframes gemini-interrupt-ring {
+        0% { 
+          transform: scale(0.9);
+          opacity: 0.8;
+        }
+        50% { 
+          transform: scale(1.1);
+          opacity: 0.4;
+        }
+        100% { 
+          transform: scale(0.9);
+          opacity: 0.8;
+        }
       }
       
       .gemini-mic-icon {
@@ -473,7 +513,14 @@
       }
       
       .gemini-main-circle.interrupted .gemini-mic-icon {
-        color: #d97706;
+        color: #fb923c !important;
+        animation: gemini-mic-shake 0.5s ease-in-out infinite;
+      }
+      
+      @keyframes gemini-mic-shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
       }
       
       .gemini-audio-visualization {
@@ -500,7 +547,11 @@
         height: 2px;
         background-color: #3b82f6;
         border-radius: 1px;
-        transition: height 0.1s ease;
+        transition: height 0.1s ease, background-color 0.3s ease;
+      }
+      
+      .gemini-main-circle.interrupted .gemini-audio-bar {
+        background-color: #fb923c;
       }
       
       .gemini-loader-modal {
@@ -634,7 +685,13 @@
       }
       
       .gemini-status-dot.interrupted {
-        background-color: #d97706;
+        background-color: #fb923c;
+        animation: gemini-dot-blink 0.6s ease-in-out infinite;
+      }
+      
+      @keyframes gemini-dot-blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
       }
       
       /* VOICYFY БРЕНДИНГ */
@@ -683,7 +740,7 @@
       }
     `;
         document.head.appendChild(styleEl);
-        widgetLog('Styles created');
+        widgetLog('Styles created with interruption feedback');
     }
 
     // ============================================================================
@@ -702,7 +759,7 @@
     }
 
     // ============================================================================
-    // CREATE HTML - PREMIUM UI FROM WIDGET.JS
+    // CREATE HTML - PREMIUM UI
     // ============================================================================
 
     function createWidgetHTML() {
@@ -782,31 +839,49 @@
     }
 
     // ============================================================================
-    // INITIALIZATION & AUDIO
+    // INITIALIZATION & AUDIO - DUAL CONTEXT ARCHITECTURE
     // ============================================================================
 
     async function initializeAudio() {
-        widgetLog(`Initializing audio for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
+        widgetLog(`Initializing DUAL audio context for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
         
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 throw new Error("Browser doesn't support microphone access");
             }
 
-            if (!window.globalAudioContext) {
-                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                window.globalAudioContext = new AudioContextClass({
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+
+            // КОНТЕКСТ ДЛЯ ЗАПИСИ (16kHz)
+            if (!window.captureAudioContext) {
+                window.captureAudioContext = new AudioContextClass({
                     sampleRate: 16000,
                     latencyHint: 'interactive'
                 });
-                widgetLog(`AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
+                widgetLog(`✅ Capture AudioContext created: ${window.captureAudioContext.sampleRate} Hz`);
             }
 
-            if (window.globalAudioContext.state === 'suspended') {
-                await window.globalAudioContext.resume();
-                widgetLog('AudioContext resumed');
+            // КОНТЕКСТ ДЛЯ ВОСПРОИЗВЕДЕНИЯ (24kHz)
+            if (!window.playbackAudioContext) {
+                window.playbackAudioContext = new AudioContextClass({
+                    sampleRate: 24000,
+                    latencyHint: 'interactive'
+                });
+                widgetLog(`✅ Playback AudioContext created: ${window.playbackAudioContext.sampleRate} Hz`);
             }
 
+            // Проверяем состояния
+            if (window.captureAudioContext.state === 'suspended') {
+                await window.captureAudioContext.resume();
+                widgetLog('Capture AudioContext resumed');
+            }
+            
+            if (window.playbackAudioContext.state === 'suspended') {
+                await window.playbackAudioContext.resume();
+                widgetLog('Playback AudioContext resumed');
+            }
+
+            // Микрофон
             if (!window.globalMicStream) {
                 window.globalMicStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
@@ -817,11 +892,11 @@
                         channelCount: 1
                     }
                 });
-                widgetLog('Microphone access granted');
+                widgetLog('✅ Microphone access granted');
             }
 
             window.audioInitialized = true;
-            widgetLog('Audio initialization complete');
+            widgetLog('🎵 DUAL AudioContext initialization complete - PERFECT AUDIO QUALITY ENABLED');
             return true;
 
         } catch (error) {
@@ -911,6 +986,26 @@
             setTimeout(() => statusIndicator.classList.remove('show'), 3000);
         }
 
+        // Функция для обновления визуального состояния прерывания
+        function updateInterruptionState() {
+            const isInterrupting = STATE.isUserSpeaking && (STATE.isSpeaking || STATE.isPlaying);
+            
+            if (isInterrupting && !STATE.isInterrupting) {
+                // Начало прерывания
+                STATE.isInterrupting = true;
+                mainCircle.classList.add('interrupted');
+                mainCircle.classList.remove('speaking', 'listening');
+                interruptionState.interruption_count++;
+                widgetLog(`🔥 INTERRUPTION DETECTED! Count: ${interruptionState.interruption_count}`);
+                updateConnectionStatus('interrupted', 'Прерывание');
+            } else if (!isInterrupting && STATE.isInterrupting) {
+                // Конец прерывания
+                STATE.isInterrupting = false;
+                mainCircle.classList.remove('interrupted');
+                widgetLog('✅ Interruption ended');
+            }
+        }
+
         function resetConnection() {
             STATE.reconnectAttempts = 0;
             STATE.connectionFailedPermanently = false;
@@ -951,9 +1046,11 @@
             stopRecording();
             widgetContainer.classList.remove('active');
             STATE.isWidgetOpen = false;
+            STATE.isInterrupting = false;
             hideMessage();
             hideConnectionError();
             if (statusIndicator) statusIndicator.classList.remove('show');
+            mainCircle.classList.remove('interrupted');
         }
 
         // Audio utilities
@@ -1006,7 +1103,7 @@
             bars.forEach(bar => bar.style.height = '2px');
         }
 
-        // Recording
+        // Recording - ИСПОЛЬЗУЕТ 16kHz CAPTURE CONTEXT
         async function startRecording() {
             if (!STATE.isConnected || STATE.isPlaying || STATE.isReconnecting || STATE.isRecording) {
                 widgetLog(`Cannot start recording`);
@@ -1016,7 +1113,7 @@
             try {
                 widgetLog('Starting recording...');
 
-                if (!window.globalAudioContext || !window.globalMicStream) {
+                if (!window.captureAudioContext || !window.globalMicStream) {
                     const success = await initializeAudio();
                     if (!success) {
                         showMessage('Ошибка доступа к микрофону');
@@ -1024,15 +1121,15 @@
                     }
                 }
 
-                if (window.globalAudioContext.state === 'suspended') {
-                    await window.globalAudioContext.resume();
+                if (window.captureAudioContext.state === 'suspended') {
+                    await window.captureAudioContext.resume();
                 }
 
                 STATE.isRecording = true;
                 STATE.isUserSpeaking = false;
 
-                const source = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
-                const processor = window.globalAudioContext.createScriptProcessor(4096, 1, 1);
+                const source = window.captureAudioContext.createMediaStreamSource(window.globalMicStream);
+                const processor = window.captureAudioContext.createScriptProcessor(4096, 1, 1);
 
                 let silenceStartTime = 0;
 
@@ -1052,15 +1149,21 @@
                                 widgetLog('🗣️ User started speaking');
                                 sendMessage({ type: 'speech.user_started' });
                                 
+                                // Проверяем прерывание
+                                updateInterruptionState();
+                                
                                 if (STATE.isPlaying) {
                                     stopPlayback();
                                 }
                             }
                             silenceStartTime = 0;
                             
-                            if (!mainCircle.classList.contains('listening')) {
-                                mainCircle.classList.add('listening');
-                                mainCircle.classList.remove('speaking');
+                            // Обновляем визуальное состояние
+                            if (!STATE.isInterrupting) {
+                                if (!mainCircle.classList.contains('listening')) {
+                                    mainCircle.classList.add('listening');
+                                    mainCircle.classList.remove('speaking');
+                                }
                             }
                         } else if (STATE.isUserSpeaking) {
                             if (silenceStartTime === 0) {
@@ -1071,6 +1174,9 @@
                                 widgetLog('🤐 User stopped speaking');
                                 sendMessage({ type: 'speech.user_stopped' });
                                 silenceStartTime = 0;
+                                
+                                // Обновляем состояние прерывания
+                                updateInterruptionState();
                             }
                         }
 
@@ -1085,14 +1191,16 @@
                 };
 
                 source.connect(processor);
-                processor.connect(window.globalAudioContext.destination);
+                processor.connect(window.captureAudioContext.destination);
 
                 STATE.audioWorklet = { source, processor };
 
-                mainCircle.classList.add('listening');
-                mainCircle.classList.remove('speaking');
+                if (!STATE.isInterrupting) {
+                    mainCircle.classList.add('listening');
+                    mainCircle.classList.remove('speaking');
+                }
 
-                widgetLog('✅ Recording started');
+                widgetLog('✅ Recording started (16kHz Capture Context)');
 
             } catch (error) {
                 widgetLog(`Recording error: ${error.message}`, 'error');
@@ -1120,21 +1228,27 @@
 
             sendMessage({ type: 'input_audio_buffer.commit' });
             
-            mainCircle.classList.remove('listening');
+            mainCircle.classList.remove('listening', 'interrupted');
+            STATE.isInterrupting = false;
             resetAudioVisualization();
             
             widgetLog('✅ Recording stopped');
         }
 
-        // Playback
+        // Playback - ИСПОЛЬЗУЕТ 24kHz PLAYBACK CONTEXT БЕЗ РЕСЕМПЛИНГА
         async function playAudioQueue() {
             if (STATE.isPlaying || STATE.audioQueue.length === 0) return;
             
             STATE.isPlaying = true;
             interruptionState.is_assistant_speaking = true;
             
-            mainCircle.classList.add('speaking');
-            mainCircle.classList.remove('listening');
+            if (!STATE.isInterrupting) {
+                mainCircle.classList.add('speaking');
+                mainCircle.classList.remove('listening');
+            }
+            
+            // Проверяем прерывание
+            updateInterruptionState();
             
             while (STATE.audioQueue.length > 0) {
                 const base64Audio = STATE.audioQueue.shift();
@@ -1144,37 +1258,50 @@
             
             STATE.isPlaying = false;
             interruptionState.is_assistant_speaking = false;
-            mainCircle.classList.remove('speaking');
+            
+            if (!STATE.isInterrupting) {
+                mainCircle.classList.remove('speaking');
+            }
+            
+            updateInterruptionState();
         }
 
         async function playAudioChunk(base64Audio) {
             try {
+                // Убедись что playback context активен
+                if (window.playbackAudioContext.state === 'suspended') {
+                    await window.playbackAudioContext.resume();
+                }
+
+                // Декодируем base64
                 const binaryString = atob(base64Audio);
                 const bytes = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
 
+                // Конвертим в PCM16
                 const pcm16 = new Int16Array(bytes.buffer);
+                
+                // Конвертим в Float32
                 const float32 = new Float32Array(pcm16.length);
                 for (let i = 0; i < pcm16.length; i++) {
                     float32[i] = pcm16[i] / 32768.0;
                 }
 
-                const ratio = 24000 / 16000;
-                const outputLength = Math.floor(float32.length / ratio);
-                const resampled = new Float32Array(outputLength);
+                // ✅ СОЗДАЁМ БУФЕР С ПРАВИЛЬНЫМ SAMPLE RATE (24kHz)
+                // НЕТ РЕСЕМПЛИНГА! Данные уже в 24kHz от Gemini
+                const audioBuffer = window.playbackAudioContext.createBuffer(
+                    1,                              // моно
+                    float32.length,                 // длина
+                    24000                           // ← 24kHz! Нативный rate от Gemini
+                );
+                
+                audioBuffer.getChannelData(0).set(float32);
 
-                for (let i = 0; i < outputLength; i++) {
-                    resampled[i] = float32[Math.floor(i * ratio)];
-                }
-
-                const audioBuffer = window.globalAudioContext.createBuffer(1, resampled.length, 16000);
-                audioBuffer.getChannelData(0).set(resampled);
-
-                const source = window.globalAudioContext.createBufferSource();
+                const source = window.playbackAudioContext.createBufferSource();
                 source.buffer = audioBuffer;
-                source.connect(window.globalAudioContext.destination);
+                source.connect(window.playbackAudioContext.destination);
 
                 STATE.currentAudioSource = source;
 
@@ -1201,6 +1328,7 @@
             STATE.audioQueue = [];
             STATE.isPlaying = false;
             interruptionState.is_assistant_speaking = false;
+            updateInterruptionState();
         }
 
         // WebSocket
@@ -1305,15 +1433,23 @@
                                 widgetLog('🔊 Assistant started speaking');
                                 STATE.isSpeaking = true;
                                 interruptionState.is_assistant_speaking = true;
-                                mainCircle.classList.add('speaking');
-                                mainCircle.classList.remove('listening');
+                                updateInterruptionState();
+                                
+                                if (!STATE.isInterrupting) {
+                                    mainCircle.classList.add('speaking');
+                                    mainCircle.classList.remove('listening');
+                                }
                                 break;
                                 
                             case 'assistant.speech.ended':
                                 widgetLog('🔇 Assistant stopped speaking');
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
-                                mainCircle.classList.remove('speaking');
+                                updateInterruptionState();
+                                
+                                if (!STATE.isInterrupting) {
+                                    mainCircle.classList.remove('speaking');
+                                }
                                 
                                 if (STATE.isWidgetOpen && !STATE.isRecording && !STATE.isPlaying) {
                                     setTimeout(() => startRecording(), 400);
@@ -1325,6 +1461,7 @@
                                 stopPlayback();
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
+                                updateInterruptionState();
                                 mainCircle.classList.remove('speaking');
                                 break;
                                 
@@ -1525,7 +1662,7 @@
     // ============================================================================
 
     function initialize() {
-        widgetLog('Initializing Gemini Widget v2.0...');
+        widgetLog('🚀 Initializing Gemini Widget v2.0 FIXED...');
         
         loadFontAwesome();
         createStyles();
@@ -1536,7 +1673,7 @@
         
         initWidget();
         
-        widgetLog('✅ Gemini Widget v2.0 initialized');
+        widgetLog('✅ Gemini Widget v2.0 FIXED initialized - PERFECT AUDIO QUALITY');
     }
 
     // Start
@@ -1546,6 +1683,6 @@
         initialize();
     }
 
-    widgetLog('Gemini Widget v2.0 script loaded');
+    widgetLog('Gemini Widget v2.0 FIXED script loaded');
 
 })();
