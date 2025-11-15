@@ -1,13 +1,14 @@
 /**
- * 🚀 Gemini Voice Widget v3.0 - ZERO-BUFFER PRODUCTION
+ * 🚀 Gemini Voice Widget v3.0 - PRODUCTION READY
  * Google Gemini Live API Integration
  * 
- * ✅ NEW: Zero-buffer streaming - immediate audio send
- * ✅ NEW: Optimized VAD timing (900ms silence)
- * ✅ NEW: Simplified state management
- * ✅ NEW: 4x faster first response (~400-600ms)
- * ✅ FIXED: No audio loss, no delays
- * ✅ Premium UI with improved layout
+ * ✅ Auto-start recording after setup.complete
+ * ✅ Proper interruption handling with separate user/assistant flags
+ * ✅ iOS-compatible audio playback
+ * ✅ Global AudioContext + MediaStream (initialized once)
+ * ✅ Auto-return to recording after response
+ * ✅ Yellow interrupted animation
+ * ✅ Clean state management
  * 
  * @version 3.0.0
  * @author WellcomeAI Team
@@ -22,40 +23,46 @@
     // ============================================================================
 
     const CONFIG = {
+        // От data-атрибутов скрипта
         assistantId: null,
         serverUrl: null,
         position: 'bottom-right',
         
+        // Аудио параметры
         audio: {
-            inputSampleRate: 16000,
-            outputSampleRate: 24000,
-            playbackSampleRate: 24000,
+            inputSampleRate: 16000,      // Gemini expects 16kHz
+            outputSampleRate: 24000,     // Gemini sends 24kHz
+            playbackSampleRate: 24000,   // Keep as is (no resample)
             channelCount: 1,
             bitsPerSample: 16,
-            chunkDuration: 100,
+            chunkDuration: 100,          // ms
             maxBufferSize: 96000
         },
         
+        // VAD
         vad: {
             enabled: true,
-            silenceThreshold: -45,
-            silenceDuration: 900,           // ✅ Optimized: 900ms (was 1500ms)
-            speechThreshold: -38,
-            minSpeechDuration: 200          // ✅ NEW: Ignore clicks <200ms
+            silenceThreshold: -45,       // dB
+            silenceDuration: 900,        // ms - optimized
+            speechThreshold: -38,        // dB
+            minSpeechDuration: 200       // ms - ignore clicks
         },
         
+        // WebSocket
         ws: {
             reconnectDelay: 2000,
             maxReconnectAttempts: 5,
             pingInterval: 30000
         },
         
+        // UI
         colors: {
             primary: '#4a86e8',
-            gradient: 'linear-gradient(135deg, #4a86e8, #2b59c3)',
+            gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             success: '#10B981',
             error: '#EF4444',
-            warning: '#F59E0B'
+            warning: '#F59E0B',
+            interrupted: '#d97706'  // Yellow for interruption
         }
     };
 
@@ -66,31 +73,48 @@
     const STATE = {
         ws: null,
         isConnected: false,
-        isGeminiReady: false,               // ✅ NEW: Simple ready flag (no delays)
+        isGeminiReady: false,           // ✅ NEW: Ready flag after setup.complete
         isRecording: false,
         isPlaying: false,
-        isSpeaking: false,
-        audioContext: null,
-        mediaStream: null,
+        audioContext: null,              // ✅ Global AudioContext
+        mediaStream: null,               // ✅ Global MediaStream
         audioWorklet: null,
         audioQueue: [],
+        audioChunksBuffer: [],
         currentAudioSource: null,
         pingInterval: null,
         reconnectAttempts: 0,
         lastSpeechTime: 0,
-        speechStartTime: 0,                 // ✅ NEW: Track speech duration
-        sessionConfig: null,
-        errorState: null,
-        setupTimeout: null,
-        isWidgetOpen: false
+        speechStartTime: 0,
+        errorState: null
     };
+
+    // ✅ NEW: Interruption state with separate flags
+    const INTERRUPTION_STATE = {
+        is_assistant_speaking: false,
+        is_user_speaking: false,
+        interruption_count: 0,
+        last_interruption_time: 0,
+        current_audio_elements: []       // Array of Audio elements for interruption
+    };
+
+    // ✅ Global audio initialization flags
+    window.audioInitialized = false;
+    window.globalAudioContext = null;
+    window.globalMicStream = null;
+    window.silentAudioBuffer = null;     // For iOS unlock
+
+    // Determine device type
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isAndroid = /Android/i.test(navigator.userAgent);
 
     // ============================================================================
     // INITIALIZATION
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing v3.0 ZERO-BUFFER...');
+        console.log('[GEMINI-WIDGET] Initializing v3.0 PRODUCTION...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -113,23 +137,91 @@
             assistantId: CONFIG.assistantId,
             server: CONFIG.serverUrl,
             position: CONFIG.position,
-            mode: 'ZERO-BUFFER'
+            device: isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))
         });
 
         createWidget();
         
+        // Initialize AudioContext on first user interaction
         document.addEventListener('click', initAudioContext, { once: true });
         document.addEventListener('touchstart', initAudioContext, { once: true });
     }
 
-    function initAudioContext() {
-        if (STATE.audioContext) return;
+    // ✅ Global AudioContext initialization (once)
+    async function initAudioContext() {
+        if (window.audioInitialized) return true;
         
-        STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: CONFIG.audio.playbackSampleRate
-        });
+        console.log('[GEMINI-WIDGET] Initializing global AudioContext...');
         
-        console.log('[GEMINI-WIDGET] AudioContext initialized:', STATE.audioContext.sampleRate, 'Hz');
+        try {
+            // 1. Create AudioContext
+            if (!window.globalAudioContext) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                window.globalAudioContext = new AudioContextClass({
+                    sampleRate: CONFIG.audio.playbackSampleRate,
+                    latencyHint: 'interactive'
+                });
+                console.log('[GEMINI-WIDGET] AudioContext created:', window.globalAudioContext.sampleRate, 'Hz');
+            }
+
+            // 2. Resume if suspended
+            if (window.globalAudioContext.state === 'suspended') {
+                await window.globalAudioContext.resume();
+                console.log('[GEMINI-WIDGET] AudioContext resumed');
+            }
+
+            // 3. Get microphone access
+            if (!window.globalMicStream) {
+                const constraints = {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: CONFIG.audio.inputSampleRate,
+                        channelCount: 1
+                    }
+                };
+
+                window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+                console.log('[GEMINI-WIDGET] Microphone access granted');
+
+                // Handle stream end
+                window.globalMicStream.getAudioTracks().forEach(track => {
+                    track.onended = () => {
+                        console.log('[GEMINI-WIDGET] Microphone stream ended');
+                        window.globalMicStream = null;
+                        window.audioInitialized = false;
+                    };
+                });
+            }
+
+            // 4. iOS unlock - play silent buffer
+            if (isIOS && !window.silentAudioBuffer) {
+                try {
+                    window.silentAudioBuffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
+                    const channelData = window.silentAudioBuffer.getChannelData(0);
+                    channelData[0] = 0;
+                    
+                    const silentSource = window.globalAudioContext.createBufferSource();
+                    silentSource.buffer = window.silentAudioBuffer;
+                    silentSource.connect(window.globalAudioContext.destination);
+                    silentSource.start(0);
+                    
+                    console.log('[GEMINI-WIDGET iOS] Silent buffer played for unlock');
+                } catch (iosError) {
+                    console.warn('[GEMINI-WIDGET iOS] Silent buffer error:', iosError.message);
+                }
+            }
+
+            window.audioInitialized = true;
+            console.log('[GEMINI-WIDGET] ✅ Audio initialized successfully');
+            return true;
+
+        } catch (error) {
+            console.error('[GEMINI-WIDGET] Audio initialization error:', error.message);
+            showError('Ошибка микрофона', 'Не удалось получить доступ к микрофону');
+            return false;
+        }
     }
 
     // ============================================================================
@@ -179,21 +271,20 @@
                     width: 60px;
                     height: 60px;
                     border-radius: 50%;
-                    background: linear-gradient(135deg, #4a86e8, #2b59c3);
+                    background: ${CONFIG.colors.gradient};
                     border: none;
                     cursor: pointer;
-                    box-shadow: 0 8px 32px rgba(74, 134, 232, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     transition: all 0.3s ease;
                     position: relative;
-                    overflow: hidden;
                 }
 
                 .gemini-main-button:hover {
                     transform: scale(1.05);
-                    box-shadow: 0 10px 30px rgba(74, 134, 232, 0.4);
+                    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
                 }
 
                 .gemini-main-button:active {
@@ -208,6 +299,11 @@
                     animation: pulse-playing 2s ease-in-out infinite;
                 }
 
+                /* ✅ NEW: Interrupted animation (yellow) */
+                .gemini-main-button.interrupted {
+                    animation: pulse-interrupted 1s ease-in-out;
+                }
+
                 @keyframes pulse-recording {
                     0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); }
                     50% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.8); }
@@ -218,57 +314,51 @@
                     50% { box-shadow: 0 4px 20px rgba(16, 185, 129, 0.8); }
                 }
 
-                .gemini-button-inner {
-                    position: relative;
-                    width: 40px;
-                    height: 40px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                @keyframes pulse-interrupted {
+                    0%, 100% { 
+                        box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+                        background: ${CONFIG.colors.gradient};
+                    }
+                    50% { 
+                        box-shadow: 0 4px 20px rgba(217, 119, 6, 0.9);
+                        background: linear-gradient(135deg, #f59e0b, #d97706);
+                    }
                 }
 
-                .gemini-pulse-ring {
+                .gemini-button-icon {
+                    color: white;
+                    font-size: 24px;
+                }
+
+                .gemini-equalizer {
                     position: absolute;
-                    width: 100%;
-                    height: 100%;
-                    border-radius: 50%;
-                    animation: gemini-pulse-ring 3s ease-out infinite;
-                    background: radial-gradient(rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0) 70%);
-                    opacity: 0;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    display: none;
+                    gap: 3px;
                 }
 
-                @keyframes gemini-pulse-ring {
-                    0% { transform: scale(0.5); opacity: 0; }
-                    25% { opacity: 0.4; }
-                    100% { transform: scale(1.2); opacity: 0; }
-                }
-
-                .gemini-audio-bars-mini {
+                .gemini-equalizer.active {
                     display: flex;
-                    align-items: center;
-                    height: 26px;
-                    gap: 4px;
-                    justify-content: center;
                 }
 
-                .gemini-audio-bar-mini {
+                .gemini-equalizer-bar {
                     width: 3px;
-                    height: 12px;
-                    background-color: #ffffff;
-                    border-radius: 1.5px;
-                    animation: gemini-eq-animation 1.2s ease-in-out infinite;
-                    opacity: 0.9;
+                    background: white;
+                    border-radius: 2px;
+                    animation: equalizer 0.8s ease-in-out infinite;
                 }
 
-                .gemini-audio-bar-mini:nth-child(1) { animation-delay: 0.0s; height: 7px; }
-                .gemini-audio-bar-mini:nth-child(2) { animation-delay: 0.3s; height: 12px; }
-                .gemini-audio-bar-mini:nth-child(3) { animation-delay: 0.1s; height: 18px; }
-                .gemini-audio-bar-mini:nth-child(4) { animation-delay: 0.5s; height: 9px; }
+                .gemini-equalizer-bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+                .gemini-equalizer-bar:nth-child(2) { height: 12px; animation-delay: 0.1s; }
+                .gemini-equalizer-bar:nth-child(3) { height: 16px; animation-delay: 0.2s; }
+                .gemini-equalizer-bar:nth-child(4) { height: 12px; animation-delay: 0.3s; }
+                .gemini-equalizer-bar:nth-child(5) { height: 8px; animation-delay: 0.4s; }
 
-                @keyframes gemini-eq-animation {
-                    0% { height: 5px; }
-                    50% { height: 18px; }
-                    100% { height: 5px; }
+                @keyframes equalizer {
+                    0%, 100% { transform: scaleY(0.5); }
+                    50% { transform: scaleY(1.2); }
                 }
 
                 .gemini-status-indicator {
@@ -284,11 +374,11 @@
                 }
 
                 .gemini-status-indicator.connected {
-                    background: #10b981;
+                    background: ${CONFIG.colors.success};
                 }
 
                 .gemini-status-indicator.error {
-                    background: #ef4444;
+                    background: ${CONFIG.colors.error};
                     animation: blink 1s ease-in-out infinite;
                 }
 
@@ -297,307 +387,15 @@
                     50% { opacity: 0.3; }
                 }
 
-                .gemini-widget-expanded {
-                    position: absolute;
-                    bottom: 70px;
-                    right: 0;
-                    width: 360px;
-                    height: 0;
-                    opacity: 0;
-                    pointer-events: none;
-                    background: rgba(255, 255, 255, 0.98);
-                    backdrop-filter: blur(10px);
-                    -webkit-backdrop-filter: blur(10px);
-                    border-radius: 24px;
-                    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.06);
-                    overflow: hidden;
-                    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                    display: flex;
-                    flex-direction: column;
-                }
-
-                .gemini-widget-container.active .gemini-widget-expanded {
-                    height: 500px;
-                    opacity: 1;
-                    pointer-events: all;
-                }
-
-                .gemini-widget-container.active .gemini-main-button {
-                    transform: scale(0.9);
-                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-                }
-
-                .gemini-widget-header {
-                    padding: 20px 24px;
-                    background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-                    color: white;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    border-radius: 24px 24px 0 0;
-                }
-
-                .gemini-widget-title {
-                    font-weight: 600;
-                    font-size: 18px;
-                    letter-spacing: 0.3px;
-                }
-
-                .gemini-widget-close {
-                    background: rgba(255, 255, 255, 0.2);
-                    border: none;
-                    color: white;
-                    font-size: 20px;
-                    cursor: pointer;
-                    width: 32px;
-                    height: 32px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    transition: all 0.2s;
-                }
-
-                .gemini-widget-close:hover {
-                    background: rgba(255, 255, 255, 0.3);
-                    transform: scale(1.1);
-                }
-
-                .gemini-widget-content {
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    background: #f9fafc;
-                    position: relative;
-                    padding: 30px 20px 20px;
-                }
-
-                .gemini-main-circle {
-                    width: 200px;
-                    height: 200px;
-                    border-radius: 50%;
-                    background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
-                    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), inset 0 2px 5px rgba(255, 255, 255, 0.5);
-                    position: relative;
-                    overflow: hidden;
-                    transition: all 0.3s ease;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                .gemini-main-circle::before {
-                    content: '';
-                    position: absolute;
-                    width: 140%;
-                    height: 140%;
-                    background: linear-gradient(45deg, rgba(255, 255, 255, 0.3), rgba(74, 134, 232, 0.2));
-                    animation: gemini-wave 8s linear infinite;
-                    border-radius: 40%;
-                }
-
-                @keyframes gemini-wave {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-
-                .gemini-main-circle.listening {
-                    background: linear-gradient(135deg, #dbeafe, #eff6ff);
-                    box-shadow: 0 0 30px rgba(37, 99, 235, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
-                }
-
-                .gemini-main-circle.listening::before {
-                    animation: gemini-wave 4s linear infinite;
-                    background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(37, 99, 235, 0.3));
-                }
-
-                .gemini-main-circle.listening::after {
-                    content: '';
-                    position: absolute;
-                    width: 100%;
-                    height: 100%;
-                    border-radius: 50%;
-                    border: 3px solid rgba(37, 99, 235, 0.5);
-                    animation: gemini-pulse 1.5s ease-out infinite;
-                }
-
-                @keyframes gemini-pulse {
-                    0% { transform: scale(0.95); opacity: 0.7; }
-                    50% { transform: scale(1.05); opacity: 0.3; }
-                    100% { transform: scale(0.95); opacity: 0.7; }
-                }
-
-                .gemini-main-circle.speaking {
-                    background: linear-gradient(135deg, #dcfce7, #ecfdf5);
-                    box-shadow: 0 0 30px rgba(5, 150, 105, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
-                }
-
-                .gemini-main-circle.speaking::before {
-                    animation: gemini-wave 3s linear infinite;
-                    background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(5, 150, 105, 0.3));
-                }
-
-                .gemini-main-circle.speaking::after {
-                    content: '';
-                    position: absolute;
-                    width: 100%;
-                    height: 100%;
-                    background: radial-gradient(circle, transparent 50%, rgba(5, 150, 105, 0.1) 100%);
-                    border-radius: 50%;
-                    animation: gemini-ripple 2s ease-out infinite;
-                }
-
-                @keyframes gemini-ripple {
-                    0% { transform: scale(0.8); opacity: 0; }
-                    50% { opacity: 0.5; }
-                    100% { transform: scale(1.2); opacity: 0; }
-                }
-
-                .gemini-mic-icon {
-                    color: #3b82f6;
-                    font-size: 36px;
-                    z-index: 10;
-                    transition: color 0.3s ease;
-                }
-
-                .gemini-main-circle.listening .gemini-mic-icon {
-                    color: #2563eb;
-                }
-
-                .gemini-main-circle.speaking .gemini-mic-icon {
-                    color: #059669;
-                }
-
-                .gemini-audio-visualization {
-                    position: absolute;
-                    width: 100%;
-                    max-width: 180px;
-                    height: 30px;
-                    bottom: -5px;
-                    opacity: 0.8;
-                    pointer-events: none;
-                }
-
-                .gemini-audio-bars {
-                    display: flex;
-                    align-items: flex-end;
-                    height: 30px;
-                    gap: 2px;
-                    width: 100%;
-                    justify-content: center;
-                }
-
-                .gemini-audio-bar {
-                    width: 3px;
-                    height: 2px;
-                    background-color: #3b82f6;
-                    border-radius: 1px;
-                    transition: height 0.1s ease;
-                }
-
-                .gemini-message-display {
-                    position: absolute;
-                    width: 90%;
-                    bottom: 80px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: white;
-                    padding: 14px 18px;
-                    border-radius: 14px;
-                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-                    text-align: center;
-                    font-size: 15px;
-                    line-height: 1.5;
-                    opacity: 0;
-                    transition: all 0.3s;
-                    max-height: 120px;
-                    overflow-y: auto;
-                    z-index: 10;
-                }
-
-                .gemini-message-display.show {
-                    opacity: 1;
-                }
-
-                .gemini-status-info {
-                    position: absolute;
-                    bottom: 60px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    font-size: 12px;
-                    color: #64748b;
-                    padding: 6px 12px;
-                    border-radius: 12px;
-                    background-color: rgba(255, 255, 255, 0.9);
-                    display: flex;
-                    align-items: center;
-                    gap: 6px;
-                    opacity: 0;
-                    transition: opacity 0.3s;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-                }
-
-                .gemini-status-info.show {
-                    opacity: 1;
-                }
-
-                .gemini-status-dot {
-                    width: 8px;
-                    height: 8px;
-                    border-radius: 50%;
-                    background-color: #10b981;
-                }
-
-                .gemini-status-dot.disconnected {
-                    background-color: #ef4444;
-                }
-
-                .gemini-status-dot.connecting {
-                    background-color: #f59e0b;
-                }
-
-                .gemini-voicyfy-container {
-                    position: absolute;
-                    bottom: 16px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    text-align: center;
-                    padding: 8px;
-                    opacity: 0.7;
-                    transition: opacity 0.2s ease;
-                }
-
-                .gemini-voicyfy-container:hover {
-                    opacity: 1;
-                }
-
-                .gemini-voicyfy-link {
-                    display: inline-block;
-                    text-decoration: none;
-                    transition: transform 0.2s ease;
-                }
-
-                .gemini-voicyfy-link:hover {
-                    transform: translateY(-2px);
-                }
-
-                .gemini-voicyfy-link img {
-                    height: 28px;
-                    width: auto;
-                    display: block;
-                }
-
                 .gemini-error-message {
                     position: absolute;
                     bottom: 70px;
                     right: 0;
                     background: white;
-                    padding: 14px 18px;
-                    border-radius: 12px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    max-width: 300px;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    max-width: 280px;
                     display: none;
                     animation: slideUp 0.3s ease-out;
                 }
@@ -607,58 +405,44 @@
                 }
 
                 @keyframes slideUp {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to { opacity: 1; transform: translateY(0); }
+                    from {
+                        opacity: 0;
+                        transform: translateY(10px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
                 }
 
                 .gemini-error-title {
-                    color: #ef4444;
+                    color: ${CONFIG.colors.error};
                     font-weight: 600;
-                    font-size: 15px;
-                    margin-bottom: 6px;
+                    font-size: 14px;
+                    margin-bottom: 4px;
                 }
 
                 .gemini-error-text {
                     color: #64748B;
-                    font-size: 13px;
-                    line-height: 1.5;
+                    font-size: 12px;
+                    line-height: 1.4;
                 }
 
-                .gemini-loader-modal {
+                .gemini-branding {
                     position: absolute;
-                    top: 0;
-                    left: 0;
+                    bottom: -30px;
                     right: 0;
-                    bottom: 0;
-                    background-color: rgba(255, 255, 255, 0.9);
-                    backdrop-filter: blur(5px);
-                    -webkit-backdrop-filter: blur(5px);
+                    font-size: 10px;
+                    color: #94A3B8;
+                    text-decoration: none;
                     display: flex;
                     align-items: center;
-                    justify-content: center;
-                    z-index: 100;
-                    opacity: 0;
-                    visibility: hidden;
-                    transition: all 0.3s;
-                    border-radius: 24px;
+                    gap: 4px;
+                    transition: color 0.3s ease;
                 }
 
-                .gemini-loader-modal.active {
-                    opacity: 1;
-                    visibility: visible;
-                }
-
-                .gemini-loader {
-                    width: 44px;
-                    height: 44px;
-                    border: 4px solid rgba(59, 130, 246, 0.2);
-                    border-radius: 50%;
-                    border-top-color: #3b82f6;
-                    animation: gemini-spin 1s linear infinite;
-                }
-
-                @keyframes gemini-spin {
-                    to { transform: rotate(360deg); }
+                .gemini-branding:hover {
+                    color: ${CONFIG.colors.primary};
                 }
 
                 @media (max-width: 768px) {
@@ -672,94 +456,38 @@
                         height: 56px;
                     }
 
-                    .gemini-widget-expanded {
-                        width: calc(100vw - 30px);
-                        max-width: 360px;
-                    }
-
-                    .gemini-widget-container.active .gemini-widget-expanded {
-                        height: 480px;
-                    }
-
                     .gemini-error-message {
                         max-width: calc(100vw - 90px);
                     }
                 }
             </style>
 
-            <button class="gemini-main-button" id="gemini-btn" title="Gemini голосовой ассистент">
-                <div class="gemini-button-inner">
-                    <div class="gemini-pulse-ring"></div>
-                    
-                    <div class="gemini-audio-bars-mini">
-                        <div class="gemini-audio-bar-mini"></div>
-                        <div class="gemini-audio-bar-mini"></div>
-                        <div class="gemini-audio-bar-mini"></div>
-                        <div class="gemini-audio-bar-mini"></div>
-                    </div>
+            <button class="gemini-main-button" id="gemini-btn" title="Голосовой помощник">
+                <i class="gemini-button-icon">🎤</i>
+                
+                <div class="gemini-equalizer" id="gemini-equalizer">
+                    <div class="gemini-equalizer-bar"></div>
+                    <div class="gemini-equalizer-bar"></div>
+                    <div class="gemini-equalizer-bar"></div>
+                    <div class="gemini-equalizer-bar"></div>
+                    <div class="gemini-equalizer-bar"></div>
                 </div>
 
                 <div class="gemini-status-indicator" id="gemini-status"></div>
             </button>
 
-            <div class="gemini-widget-expanded" id="gemini-expanded">
-                <div class="gemini-widget-header">
-                    <div class="gemini-widget-title">Gemini Ассистент</div>
-                    <button class="gemini-widget-close" id="gemini-close" title="Закрыть">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-
-                <div class="gemini-widget-content">
-                    <div class="gemini-main-circle" id="gemini-circle">
-                        <i class="fas fa-microphone gemini-mic-icon"></i>
-                        
-                        <div class="gemini-audio-visualization">
-                            <div class="gemini-audio-bars" id="gemini-bars"></div>
-                        </div>
-                    </div>
-
-                    <div class="gemini-message-display" id="gemini-message"></div>
-
-                    <div class="gemini-status-info" id="gemini-status-info">
-                        <div class="gemini-status-dot" id="gemini-status-dot"></div>
-                        <span id="gemini-status-text">Подключение...</span>
-                    </div>
-
-                    <div class="gemini-voicyfy-container">
-                        <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="gemini-voicyfy-link">
-                            <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Powered by Voicyfy">
-                        </a>
-                    </div>
-                </div>
-
-                <div class="gemini-loader-modal" id="gemini-loader">
-                    <div class="gemini-loader"></div>
-                </div>
-            </div>
-
             <div class="gemini-error-message" id="gemini-error">
                 <div class="gemini-error-title">Ошибка</div>
                 <div class="gemini-error-text" id="gemini-error-text"></div>
             </div>
+
+            <a href="https://voicyfy.ru" target="_blank" class="gemini-branding">
+                <span>Powered by</span>
+                <strong>Voicyfy</strong>
+            </a>
         `;
 
         document.body.appendChild(container);
-
-        if (!document.getElementById('font-awesome-gemini')) {
-            const link = document.createElement('link');
-            link.id = 'font-awesome-gemini';
-            link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
-            document.head.appendChild(link);
-        }
-
-        const button = document.getElementById('gemini-btn');
-        const closeBtn = document.getElementById('gemini-close');
-        
-        button.addEventListener('click', handleButtonClick);
-        closeBtn.addEventListener('click', handleClose);
-        
         console.log('[GEMINI-WIDGET] ✅ UI created');
     }
 
@@ -769,51 +497,43 @@
 
     function updateUI(state) {
         const button = document.getElementById('gemini-btn');
-        const circle = document.getElementById('gemini-circle');
+        const icon = button.querySelector('.gemini-button-icon');
+        const equalizer = document.getElementById('gemini-equalizer');
         const status = document.getElementById('gemini-status');
         
-        button.classList.remove('recording', 'playing');
-        circle.classList.remove('listening', 'speaking', 'interrupted');
+        button.classList.remove('recording', 'playing', 'interrupted');
+        equalizer.classList.remove('active');
         status.classList.remove('connected', 'error');
 
         if (state === 'connected') {
             status.classList.add('connected');
-            updateStatusInfo('connected', 'Готов');
+            icon.textContent = '🎤';
+            icon.style.display = 'flex';
         } else if (state === 'recording') {
             button.classList.add('recording');
-            circle.classList.add('listening');
+            equalizer.classList.add('active');
+            icon.style.display = 'none';
             status.classList.add('connected');
-            updateStatusInfo('connected', 'Слушаю...');
         } else if (state === 'playing') {
             button.classList.add('playing');
-            circle.classList.add('speaking');
+            equalizer.classList.add('active');
+            icon.style.display = 'none';
             status.classList.add('connected');
-            updateStatusInfo('connected', 'Говорю...');
+        } else if (state === 'interrupted') {
+            button.classList.add('interrupted');
+            status.classList.add('connected');
+            // Remove interrupted class after 1 second
+            setTimeout(() => {
+                button.classList.remove('interrupted');
+            }, 1000);
         } else if (state === 'error') {
             status.classList.add('error');
-            updateStatusInfo('error', 'Ошибка');
+            icon.textContent = '❌';
+            icon.style.display = 'flex';
         } else {
-            updateStatusInfo('connecting', 'Подключение...');
+            icon.textContent = '🎤';
+            icon.style.display = 'flex';
         }
-    }
-
-    function updateStatusInfo(status, message) {
-        const statusInfo = document.getElementById('gemini-status-info');
-        const statusDot = document.getElementById('gemini-status-dot');
-        const statusText = document.getElementById('gemini-status-text');
-        
-        if (!statusInfo || !statusDot || !statusText) return;
-        
-        statusText.textContent = message;
-        
-        statusDot.classList.remove('connected', 'disconnected', 'connecting');
-        statusDot.classList.add(status);
-        
-        statusInfo.classList.add('show');
-        
-        setTimeout(() => {
-            statusInfo.classList.remove('show');
-        }, 3000);
     }
 
     function showError(title, message) {
@@ -836,126 +556,35 @@
         errorDiv.classList.remove('show');
     }
 
-    function showMessage(message, duration = 0) {
-        const messageDiv = document.getElementById('gemini-message');
-        messageDiv.textContent = message;
-        messageDiv.classList.add('show');
-        
-        if (duration > 0) {
-            setTimeout(() => {
-                messageDiv.classList.remove('show');
-            }, duration);
-        }
-    }
-
-    function hideMessage() {
-        const messageDiv = document.getElementById('gemini-message');
-        messageDiv.classList.remove('show');
-    }
-
-    function createAudioBars(count = 20) {
-        const barsContainer = document.getElementById('gemini-bars');
-        if (!barsContainer) return;
-        
-        barsContainer.innerHTML = '';
-        for (let i = 0; i < count; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'gemini-audio-bar';
-            barsContainer.appendChild(bar);
-        }
-    }
-
-    function updateAudioVisualization(audioData) {
-        const bars = document.querySelectorAll('.gemini-audio-bar');
-        if (!bars.length) return;
-        
-        const step = Math.floor(audioData.length / bars.length);
-        
-        for (let i = 0; i < bars.length; i++) {
-            let sum = 0;
-            for (let j = 0; j < step; j++) {
-                const index = i * step + j;
-                if (index < audioData.length) {
-                    sum += Math.abs(audioData[index]);
-                }
-            }
-            const average = sum / step;
-            const height = 2 + Math.min(28, Math.floor(average * 100));
-            bars[i].style.height = `${height}px`;
-        }
-    }
-
-    function resetAudioVisualization() {
-        const bars = document.querySelectorAll('.gemini-audio-bar');
-        bars.forEach(bar => {
-            bar.style.height = '2px';
-        });
-    }
-
     // ============================================================================
-    // BUTTON HANDLERS
+    // BUTTON CLICK HANDLER
     // ============================================================================
 
     async function handleButtonClick() {
         console.log('[GEMINI-WIDGET] Button clicked');
         
-        if (!STATE.audioContext) {
-            initAudioContext();
+        // Initialize audio context if not done
+        if (!window.audioInitialized) {
+            const success = await initAudioContext();
+            if (!success) return;
         }
 
-        const container = document.querySelector('.gemini-widget-container');
-        const isOpen = container.classList.contains('active');
-
-        if (!isOpen) {
-            container.classList.add('active');
-            STATE.isWidgetOpen = true;
-            
-            if (!STATE.isConnected) {
-                await connectWebSocket();
-            }
+        // Connect if not connected
+        if (!STATE.isConnected) {
+            await connectWebSocket();
         }
-    }
-
-    async function handleClose() {
-        console.log('[GEMINI-WIDGET] ✅ Close - disconnecting...');
-        
-        const container = document.querySelector('.gemini-widget-container');
-        container.classList.remove('active');
-        STATE.isWidgetOpen = false;
-        
-        if (STATE.isRecording) {
-            await stopRecording();
+        // If connected but Gemini not ready, wait
+        else if (!STATE.isGeminiReady) {
+            console.log('[GEMINI-WIDGET] Waiting for Gemini setup...');
         }
-        
-        stopPlayback();
-        
-        if (STATE.ws) {
-            try {
-                STATE.ws.close();
-                console.log('[GEMINI-WIDGET] WebSocket closed');
-            } catch (e) {
-                console.error('[GEMINI-WIDGET] Error closing WebSocket:', e);
-            }
+        // If playing, do nothing (let it finish)
+        else if (STATE.isPlaying) {
+            console.log('[GEMINI-WIDGET] Audio playing, please wait...');
         }
-        
-        STATE.isConnected = false;
-        STATE.isGeminiReady = false;
-        STATE.isSpeaking = false;
-        
-        if (STATE.pingInterval) {
-            clearInterval(STATE.pingInterval);
-            STATE.pingInterval = null;
+        // If not recording, start
+        else if (!STATE.isRecording) {
+            await startRecording();
         }
-        
-        if (STATE.setupTimeout) {
-            clearTimeout(STATE.setupTimeout);
-            STATE.setupTimeout = null;
-        }
-        
-        hideMessage();
-        hideError();
-        
-        console.log('[GEMINI-WIDGET] ✅ Clean shutdown complete');
     }
 
     // ============================================================================
@@ -991,72 +620,74 @@
         updateUI('connected');
         hideError();
         
+        // Start ping interval
         STATE.pingInterval = setInterval(() => {
             if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
                 sendMessage({ type: 'ping' });
             }
         }, CONFIG.ws.pingInterval);
 
-        createAudioBars(20);
-        
-        // ✅ Safety timeout (только на случай если setup не придет)
-        STATE.setupTimeout = setTimeout(() => {
-            if (!STATE.isGeminiReady) {
-                console.warn('[GEMINI-WIDGET] ⚠️ Setup timeout - forcing ready');
-                STATE.isGeminiReady = true;
-                
-                if (STATE.isWidgetOpen && !STATE.isRecording) {
-                    startRecording();
-                }
-            }
-        }, 10000);
+        // ✅ Note: We don't send session.create - server handles it
+        // We just wait for gemini.setup.complete event
+        console.log('[GEMINI-WIDGET] Waiting for setup.complete...');
     }
 
     function handleWSMessage(event) {
         try {
             const data = JSON.parse(event.data);
             
-            if (data.type !== 'input_audio_buffer.append.ack') {
+            // Don't log ACK messages
+            if (!data.type || !data.type.includes('.ack')) {
                 console.log('[GEMINI-WIDGET] Message:', data.type);
             }
             
             switch (data.type) {
+                // ✅ NEW: Setup complete - START RECORDING!
+                case 'gemini.setup.complete':
+                    handleGeminiSetupComplete();
+                    break;
+                
                 case 'connection_status':
                     handleConnectionStatus(data);
                     break;
                 
-                case 'gemini.setup.complete':
-                    handleSetupComplete();
+                // ✅ Interruption events
+                case 'conversation.interrupted':
+                    handleInterruptionEvent(data);
                     break;
                 
-                case 'input_audio_buffer.append.ack':
-                    // Silent ACK
+                case 'speech.started':
+                    handleSpeechStarted(data);
                     break;
                 
-                case 'input_audio_buffer.commit.ack':
-                    console.log('[GEMINI-WIDGET] ✅ Audio committed');
+                case 'speech.stopped':
+                    handleSpeechStopped(data);
                     break;
                 
+                case 'assistant.speech.started':
+                    handleAssistantSpeechStarted(data);
+                    break;
+                
+                case 'assistant.speech.ended':
+                    handleAssistantSpeechEnded(data);
+                    break;
+                
+                // ✅ Audio events
                 case 'response.audio.delta':
                     handleAudioDelta(data);
                     break;
                 
-                case 'assistant.speech.started':
-                    handleAssistantSpeechStarted();
+                case 'response.audio.done':
+                    handleAudioDone();
                     break;
                 
-                case 'assistant.speech.ended':
-                    handleAssistantSpeechEnded();
+                // ✅ Response done - auto-return to recording
+                case 'response.done':
+                    handleResponseDone();
                     break;
                 
-                case 'conversation.interrupted':
-                    handleInterruption();
-                    break;
-                
-                case 'response.text.delta':
-                    if (data.delta) {
-                        showMessage(data.delta);
-                    }
+                case 'response.cancelled':
+                    handleResponseCancelled();
                     break;
                 
                 case 'error':
@@ -1064,10 +695,13 @@
                     break;
                 
                 case 'pong':
+                    // Ping response
                     break;
                 
                 default:
-                    console.log('[GEMINI-WIDGET] Unhandled:', data.type);
+                    if (!data.type || !data.type.includes('.ack')) {
+                        console.log('[GEMINI-WIDGET] Unhandled:', data.type);
+                    }
             }
         } catch (error) {
             console.error('[GEMINI-WIDGET] Parse error:', error);
@@ -1090,11 +724,6 @@
             STATE.pingInterval = null;
         }
         
-        if (STATE.setupTimeout) {
-            clearTimeout(STATE.setupTimeout);
-            STATE.setupTimeout = null;
-        }
-        
         if (STATE.isRecording) {
             stopRecording();
         }
@@ -1103,11 +732,7 @@
             stopPlayback();
         }
         
-        if (!STATE.isWidgetOpen) {
-            console.log('[GEMINI-WIDGET] Widget closed - no reconnect');
-            return;
-        }
-        
+        // Auto-reconnect
         if (STATE.reconnectAttempts < CONFIG.ws.maxReconnectAttempts) {
             STATE.reconnectAttempts++;
             console.log(`[GEMINI-WIDGET] Reconnecting... Attempt ${STATE.reconnectAttempts}`);
@@ -1130,120 +755,106 @@
     // MESSAGE HANDLERS
     // ============================================================================
 
-    function handleConnectionStatus(data) {
-        console.log('[GEMINI-WIDGET] Connection status:', data);
-        
-        STATE.sessionConfig = {
-            model: data.model,
-            functions_enabled: data.functions_enabled,
-            google_sheets: data.google_sheets,
-            thinking_enabled: data.thinking_enabled,
-            client_id: data.client_id
-        };
-        
-        console.log('[GEMINI-WIDGET] Session config:', STATE.sessionConfig);
-    }
-
-    function handleSetupComplete() {
+    // ✅ NEW: Handle Gemini setup complete
+    function handleGeminiSetupComplete() {
         console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
-        
-        if (STATE.setupTimeout) {
-            clearTimeout(STATE.setupTimeout);
-            STATE.setupTimeout = null;
-        }
-        
-        // ✅ Prewarm audio pipeline
-        prewarmAudioPipeline();
-        
-        // ✅ ZERO-BUFFER: Ready immediately!
         STATE.isGeminiReady = true;
         
-        console.log('[GEMINI-WIDGET] ⚡ ZERO-BUFFER MODE: Ready to stream');
-        
-        // ✅ Start recording immediately
-        if (STATE.isWidgetOpen && !STATE.isRecording) {
-            console.log('[GEMINI-WIDGET] 🎙️ Starting recording...');
-            startRecording();
+        // ✅ AUTO-START RECORDING after setup
+        if (!STATE.isRecording && !STATE.isPlaying) {
+            setTimeout(() => {
+                console.log('[GEMINI-WIDGET] 🎙️ Auto-starting recording...');
+                startRecording();
+            }, 500);
         }
         
         updateUI('connected');
     }
 
-    function prewarmAudioPipeline() {
-        if (!STATE.audioContext) return;
-        
-        try {
-            console.log('[GEMINI-WIDGET] ⚡ Prewarming audio pipeline...');
-            
-            // Resume AudioContext if suspended
-            if (STATE.audioContext.state === 'suspended') {
-                console.log('[GEMINI-WIDGET] Resuming AudioContext...');
-                STATE.audioContext.resume();
-            }
-            
-            // Create and play 50ms of silence
-            const duration = 0.05;
-            const buffer = STATE.audioContext.createBuffer(
-                1,
-                Math.floor(STATE.audioContext.sampleRate * duration),
-                STATE.audioContext.sampleRate
-            );
-            
-            const channelData = buffer.getChannelData(0);
-            for (let i = 0; i < channelData.length; i++) {
-                channelData[i] = 0;
-            }
-            
-            const source = STATE.audioContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(STATE.audioContext.destination);
-            source.start();
-            
-            console.log('[GEMINI-WIDGET] ✅ Audio pipeline prewarmed');
-        } catch (error) {
-            console.error('[GEMINI-WIDGET] Prewarm error:', error);
-        }
+    function handleConnectionStatus(data) {
+        console.log('[GEMINI-WIDGET] Connection status:', data);
     }
 
     function handleAudioDelta(data) {
         if (!data.delta) return;
-        
-        STATE.audioQueue.push(data.delta);
-        
-        if (!STATE.isPlaying) {
-            playAudioQueue();
+        STATE.audioChunksBuffer.push(data.delta);
+    }
+
+    function handleAudioDone() {
+        if (STATE.audioChunksBuffer.length > 0) {
+            const fullAudio = STATE.audioChunksBuffer.join('');
+            addAudioToPlaybackQueue(fullAudio);
+            STATE.audioChunksBuffer = [];
         }
     }
 
-    function handleAssistantSpeechStarted() {
-        console.log('[GEMINI-WIDGET] 🔊 Assistant speaking');
-        STATE.isSpeaking = true;
+    // ✅ NEW: Auto-return to recording after response
+    function handleResponseDone() {
+        console.log('[GEMINI-WIDGET] Response done');
+        
+        // ✅ Auto-start recording if not playing and not already recording
+        if (!STATE.isPlaying && !STATE.isRecording && STATE.isGeminiReady) {
+            setTimeout(() => {
+                startRecording();
+            }, 400);
+        }
+    }
+
+    function handleResponseCancelled() {
+        console.log('[GEMINI-WIDGET] Response cancelled');
+        stopAllAudioPlayback();
+        updateUI('interrupted');
+    }
+
+    // ✅ NEW: Interruption event
+    function handleInterruptionEvent(data) {
+        console.log('[GEMINI-WIDGET] ⚡ INTERRUPTION detected');
+        
+        INTERRUPTION_STATE.interruption_count++;
+        INTERRUPTION_STATE.last_interruption_time = Date.now();
+        
+        stopAllAudioPlayback();
+        updateUI('interrupted');
+        
+        console.log(`[GEMINI-WIDGET] Interruption #${INTERRUPTION_STATE.interruption_count}`);
+    }
+
+    // ✅ NEW: Speech started (user)
+    function handleSpeechStarted(data) {
+        console.log('[GEMINI-WIDGET] 🗣️ User started speaking');
+        INTERRUPTION_STATE.is_user_speaking = true;
+        
+        // If assistant is speaking, interrupt
+        if (INTERRUPTION_STATE.is_assistant_speaking) {
+            stopAllAudioPlayback();
+            updateUI('interrupted');
+        }
+    }
+
+    // ✅ NEW: Speech stopped (user)
+    function handleSpeechStopped(data) {
+        console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
+        INTERRUPTION_STATE.is_user_speaking = false;
+    }
+
+    // ✅ NEW: Assistant speech started
+    function handleAssistantSpeechStarted(data) {
+        console.log('[GEMINI-WIDGET] 🔊 Assistant started speaking');
+        INTERRUPTION_STATE.is_assistant_speaking = true;
         updateUI('playing');
     }
 
-    function handleAssistantSpeechEnded() {
-        console.log('[GEMINI-WIDGET] 🔇 Assistant stopped');
-        STATE.isSpeaking = false;
+    // ✅ NEW: Assistant speech ended
+    function handleAssistantSpeechEnded(data) {
+        console.log('[GEMINI-WIDGET] 🔇 Assistant stopped speaking');
+        INTERRUPTION_STATE.is_assistant_speaking = false;
         
-        if (!STATE.isRecording) {
-            updateUI('connected');
+        // Return to recording if not already
+        if (!STATE.isRecording && STATE.isGeminiReady) {
+            setTimeout(() => {
+                startRecording();
+            }, 500);
         }
-    }
-
-    function handleInterruption() {
-        console.log('[GEMINI-WIDGET] ⚡ Interrupted');
-        stopPlayback();
-        STATE.isSpeaking = false;
-        
-        updateUI('interrupted');
-        
-        setTimeout(() => {
-            if (STATE.isRecording) {
-                updateUI('recording');
-            } else {
-                updateUI('connected');
-            }
-        }, 1000);
     }
 
     function handleError(data) {
@@ -1284,7 +895,7 @@
     }
 
     // ============================================================================
-    // AUDIO RECORDING - ZERO-BUFFER STREAMING
+    // AUDIO RECORDING
     // ============================================================================
 
     async function startRecording() {
@@ -1295,67 +906,86 @@
             return;
         }
         
-        console.log('[GEMINI-WIDGET] Starting recording (ZERO-BUFFER mode)...');
+        console.log('[GEMINI-WIDGET] Starting recording...');
         
         try {
-            STATE.mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    sampleRate: CONFIG.audio.inputSampleRate,
-                    channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
+            // Ensure audio is initialized
+            if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
+                console.log('[GEMINI-WIDGET] Audio not initialized, initializing...');
+                const success = await initAudioContext();
+                if (!success) {
+                    showError('Ошибка микрофона', 'Не удалось получить доступ к микрофону');
+                    return;
                 }
-            });
+            }
+
+            // Resume AudioContext if suspended
+            if (window.globalAudioContext.state === 'suspended') {
+                await window.globalAudioContext.resume();
+                console.log('[GEMINI-WIDGET] AudioContext resumed');
+            }
+
+            // Create audio processor
+            const source = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
+            const processor = window.globalAudioContext.createScriptProcessor(4096, 1, 1);
             
-            console.log('[GEMINI-WIDGET] Microphone granted');
-            
-            const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
-            const processor = STATE.audioContext.createScriptProcessor(4096, 1, 1);
+            let isSilent = true;
+            let silenceStartTime = Date.now();
             
             processor.onaudioprocess = (e) => {
                 if (!STATE.isRecording || !STATE.isGeminiReady) return;
                 
                 const inputData = e.inputBuffer.getChannelData(0);
-                const pcmData = float32ToPCM16(inputData);
                 
-                updateAudioVisualization(inputData);
-                
-                // VAD check
+                // Calculate RMS
                 const rms = calculateRMS(inputData);
                 const db = 20 * Math.log10(rms);
                 
+                // ✅ VAD with separate user speaking flag
                 if (db > CONFIG.vad.speechThreshold) {
-                    if (!STATE.isSpeaking) {
+                    if (!INTERRUPTION_STATE.is_user_speaking) {
                         const now = Date.now();
                         STATE.speechStartTime = now;
-                        console.log('[GEMINI-WIDGET] 🗣️ User speaking');
+                        console.log('[GEMINI-WIDGET] 🗣️ User speaking detected');
                         
+                        // ✅ If assistant is speaking = INTERRUPTION
+                        if (INTERRUPTION_STATE.is_assistant_speaking) {
+                            console.log('[GEMINI-WIDGET] ⚡ Interrupting assistant...');
+                            stopAllAudioPlayback();
+                            updateUI('interrupted');
+                        }
+                        
+                        INTERRUPTION_STATE.is_user_speaking = true;
                         sendMessage({ type: 'speech.user_started' });
-                        STATE.isSpeaking = true;
                     }
                     STATE.lastSpeechTime = Date.now();
-                } else if (STATE.isSpeaking && 
+                    isSilent = false;
+                    silenceStartTime = Date.now();
+                } else if (INTERRUPTION_STATE.is_user_speaking && 
                           STATE.lastSpeechTime > 0 && 
                           Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration) {
                     
-                    // ✅ Check minimum speech duration
+                    // Check minimum speech duration
                     const speechDuration = Date.now() - STATE.speechStartTime;
                     if (speechDuration >= CONFIG.vad.minSpeechDuration) {
-                        console.log('[GEMINI-WIDGET] 🤐 User stopped');
+                        console.log('[GEMINI-WIDGET] 🤐 User stopped (silence detected)');
                         console.log(`[GEMINI-WIDGET] Speech duration: ${speechDuration}ms`);
                         
                         sendMessage({ type: 'speech.user_stopped' });
                         sendMessage({ type: 'input_audio_buffer.commit' });
                         
-                        STATE.isSpeaking = false;
+                        INTERRUPTION_STATE.is_user_speaking = false;
                         STATE.lastSpeechTime = 0;
                         STATE.speechStartTime = 0;
+                        isSilent = true;
                     }
                 }
                 
-                // ✅ ZERO-BUFFER: Send immediately to Gemini
-                const base64Audio = arrayBufferToBase64(pcmData.buffer);
+                // Convert to PCM16
+                const pcm16Data = float32ToPCM16(inputData);
+                
+                // Send audio
+                const base64Audio = arrayBufferToBase64(pcm16Data.buffer);
                 sendMessage({
                     type: 'input_audio_buffer.append',
                     audio: base64Audio
@@ -1363,18 +993,18 @@
             };
             
             source.connect(processor);
-            processor.connect(STATE.audioContext.destination);
+            processor.connect(window.globalAudioContext.destination);
             
             STATE.audioWorklet = { source, processor };
             STATE.isRecording = true;
             
             updateUI('recording');
             
-            console.log('[GEMINI-WIDGET] ✅ Recording started (streaming mode)');
+            console.log('[GEMINI-WIDGET] ✅ Recording started');
             
         } catch (error) {
             console.error('[GEMINI-WIDGET] Recording error:', error);
-            showError('Ошибка записи', 'Не удалось получить доступ к микрофону');
+            showError('Ошибка записи', 'Не удалось начать запись');
         }
     }
 
@@ -1385,11 +1015,7 @@
         
         STATE.isRecording = false;
         
-        if (STATE.mediaStream) {
-            STATE.mediaStream.getTracks().forEach(track => track.stop());
-            STATE.mediaStream = null;
-        }
-        
+        // Disconnect audio nodes
         if (STATE.audioWorklet) {
             STATE.audioWorklet.source.disconnect();
             STATE.audioWorklet.processor.disconnect();
@@ -1397,15 +1023,13 @@
         }
         
         // Final commit if user was speaking
-        if (STATE.isSpeaking) {
+        if (INTERRUPTION_STATE.is_user_speaking) {
             console.log('[GEMINI-WIDGET] 💾 Final commit');
             sendMessage({ type: 'input_audio_buffer.commit' });
-            STATE.isSpeaking = false;
+            INTERRUPTION_STATE.is_user_speaking = false;
         }
         
-        resetAudioVisualization();
-        
-        if (STATE.isSpeaking) {
+        if (INTERRUPTION_STATE.is_assistant_speaking) {
             updateUI('playing');
         } else {
             updateUI('connected');
@@ -1431,38 +1055,55 @@
         }
         
         STATE.isPlaying = false;
+        
+        // ✅ Auto-return to recording after playback
+        if (STATE.isGeminiReady && !STATE.isRecording) {
+            setTimeout(() => {
+                startRecording();
+            }, 400);
+        }
     }
 
+    // ✅ iOS-compatible audio playback
     async function playAudioChunk(base64Audio) {
         try {
+            // Decode base64
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
             
+            // Convert PCM16 to Float32
             const pcm16 = new Int16Array(bytes.buffer);
             const float32 = new Float32Array(pcm16.length);
             for (let i = 0; i < pcm16.length; i++) {
                 float32[i] = pcm16[i] / 32768.0;
             }
             
-            const audioBuffer = STATE.audioContext.createBuffer(
+            // ✅ No resampling - keep at 24kHz as is
+            const audioBuffer = window.globalAudioContext.createBuffer(
                 1,
                 float32.length,
-                CONFIG.audio.outputSampleRate
+                CONFIG.audio.outputSampleRate  // 24000 Hz
             );
             audioBuffer.getChannelData(0).set(float32);
             
-            const source = STATE.audioContext.createBufferSource();
+            // Play using Web Audio API
+            const source = window.globalAudioContext.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(STATE.audioContext.destination);
+            source.connect(window.globalAudioContext.destination);
             
-            STATE.currentAudioSource = source;
+            // ✅ Save for interruption
+            INTERRUPTION_STATE.current_audio_elements.push(source);
             
             return new Promise((resolve) => {
                 source.onended = () => {
-                    STATE.currentAudioSource = null;
+                    // Remove from array
+                    const idx = INTERRUPTION_STATE.current_audio_elements.indexOf(source);
+                    if (idx > -1) {
+                        INTERRUPTION_STATE.current_audio_elements.splice(idx, 1);
+                    }
                     resolve();
                 };
                 source.start();
@@ -1473,16 +1114,49 @@
         }
     }
 
-    function stopPlayback() {
-        if (STATE.currentAudioSource) {
+    // ✅ NEW: Stop all audio playback (for interruptions)
+    function stopAllAudioPlayback() {
+        console.log('[GEMINI-WIDGET] Stopping all audio playback');
+        
+        STATE.isPlaying = false;
+        INTERRUPTION_STATE.is_assistant_speaking = false;
+        
+        // Stop all audio sources
+        INTERRUPTION_STATE.current_audio_elements.forEach(source => {
             try {
-                STATE.currentAudioSource.stop();
-                STATE.currentAudioSource = null;
-            } catch (e) {}
+                source.stop();
+                source.disconnect();
+            } catch (e) {
+                // Already stopped
+            }
+        });
+        
+        INTERRUPTION_STATE.current_audio_elements = [];
+        STATE.audioQueue = [];
+        STATE.audioChunksBuffer = [];
+        
+        // Notify server
+        if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
+            sendMessage({
+                type: "response.cancel"
+            });
         }
         
-        STATE.audioQueue = [];
-        STATE.isPlaying = false;
+        console.log('[GEMINI-WIDGET] ✅ All audio stopped');
+    }
+
+    function stopPlayback() {
+        stopAllAudioPlayback();
+    }
+
+    function addAudioToPlaybackQueue(audioBase64) {
+        if (!audioBase64 || typeof audioBase64 !== 'string') return;
+        
+        STATE.audioQueue.push(audioBase64);
+        
+        if (!STATE.isPlaying) {
+            playAudioQueue();
+        }
     }
 
     // ============================================================================
@@ -1516,7 +1190,7 @@
     }
 
     // ============================================================================
-    // START
+    // START APPLICATION
     // ============================================================================
 
     if (document.readyState === 'loading') {
@@ -1525,6 +1199,15 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] Script loaded v3.0 ZERO-BUFFER');
+    // Setup button click handler after DOM is ready
+    setTimeout(() => {
+        const button = document.getElementById('gemini-btn');
+        if (button) {
+            button.addEventListener('click', handleButtonClick);
+            console.log('[GEMINI-WIDGET] ✅ Button handler attached');
+        }
+    }, 100);
+
+    console.log('[GEMINI-WIDGET] Script loaded v3.0 PRODUCTION');
 
 })();
