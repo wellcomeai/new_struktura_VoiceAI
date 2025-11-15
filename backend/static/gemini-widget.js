@@ -1,25 +1,27 @@
 /**
- * 🚀 Gemini Voice Widget v2.1 - Production Ready (WAV Audio Fix)
+ * 🚀 Gemini Voice Widget v2.2 - Production Ready (Direct 24kHz Audio)
  * Google Gemini Live API Integration with Premium UI
  * 
  * Features:
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
- * ✅ Real-time audio streaming (24kHz PCM → WAV)
+ * ✅ Real-time audio streaming (Direct 24kHz PCM)
  * ✅ Dynamic screen context (based on assistant config)
  * ✅ Client-side VAD events
- * ✅ NO RESAMPLING - Direct WAV playback for crystal clear audio
+ * ✅ NO RESAMPLING - Direct 24kHz AudioContext playback
  * ✅ Interruption handling with visual feedback
  * ✅ Visual feedback (equalizer + status indicators)
  * ✅ Error handling with Russian messages
  * ✅ Responsive design
  * ✅ Premium Voicyfy branded UI
  * ✅ Fixed protocol for backend proxy
+ * ✅ Hidden circle when widget is expanded
  * 
- * Changelog v2.1:
- * 🔧 FIXED: Removed primitive resampling - now uses WAV format
- * 🔧 FIXED: AudioContext set to 24kHz (matches Gemini output)
- * 🔧 FIXED: Interruption status now shows visual feedback
- * 🔧 IMPROVED: Audio playback through HTML5 Audio element
+ * Changelog v2.2:
+ * 🔧 FIXED: Direct 24kHz AudioContext playback (no WAV, no resampling)
+ * 🔧 FIXED: Circle hidden when widget is expanded
+ * 🔧 FIXED: Interruption status shows visual feedback
+ * 🔧 IMPROVED: Enhanced audio debugging logs
+ * 🔧 IMPROVED: Better chunk size handling
  * 
  * Usage:
  * <script>
@@ -54,13 +56,14 @@
     // Функция для логирования
     const widgetLog = (message, type = 'info') => {
         if (DEBUG_MODE || type === 'error') {
-            const prefix = '[Gemini Widget v2.1]';
+            const prefix = '[Gemini Widget v2.2]';
+            const timestamp = new Date().toISOString().slice(11, 23);
             if (type === 'error') {
-                console.error(`${prefix} ERROR:`, message);
+                console.error(`${prefix} [${timestamp}] ERROR:`, message);
             } else if (type === 'warn') {
-                console.warn(`${prefix} WARNING:`, message);
+                console.warn(`${prefix} [${timestamp}] WARNING:`, message);
             } else if (DEBUG_MODE) {
-                console.log(`${prefix}`, message);
+                console.log(`${prefix} [${timestamp}]`, message);
             }
         }
     };
@@ -156,20 +159,22 @@
         mediaStream: null,
         audioWorklet: null,
         audioQueue: [],
-        currentAudioElement: null, // Изменено: используем Audio элемент вместо source
+        currentAudioSource: null,
         pingInterval: null,
         reconnectAttempts: 0,
         sessionConfig: null,
         isWidgetOpen: false,
         isReconnecting: false,
-        connectionFailedPermanently: false
+        connectionFailedPermanently: false,
+        audioChunksReceived: 0,
+        audioChunksPlayed: 0
     };
 
     const interruptionState = {
         is_assistant_speaking: false,
         is_user_speaking: false,
         interruption_count: 0,
-        current_audio_elements: []
+        current_audio_sources: []
     };
 
     // Глобальные флаги для аудио
@@ -714,7 +719,7 @@
     }
 
     // ============================================================================
-    // CREATE HTML - PREMIUM UI FROM WIDGET.JS
+    // CREATE HTML
     // ============================================================================
 
     function createWidgetHTML() {
@@ -723,12 +728,9 @@
         container.id = 'gemini-widget-container';
 
         container.innerHTML = `
-      <!-- Премиальная кнопка -->
       <div class="gemini-widget-button" id="gemini-widget-button">
         <div class="gemini-button-inner">
           <div class="gemini-pulse-ring"></div>
-          
-          <!-- Эквалайзер на кнопке -->
           <div class="gemini-audio-bars-mini">
             <div class="gemini-audio-bar-mini"></div>
             <div class="gemini-audio-bar-mini"></div>
@@ -738,7 +740,6 @@
         </div>
       </div>
       
-      <!-- Развернутый виджет -->
       <div class="gemini-widget-expanded" id="gemini-widget-expanded">
         <div class="gemini-widget-header">
           <div class="gemini-widget-title">Голосовой Ассистент</div>
@@ -747,34 +748,21 @@
           </button>
         </div>
         <div class="gemini-widget-content">
-          <!-- Главный круг -->
           <div class="gemini-main-circle" id="gemini-main-circle">
             <i class="fas fa-microphone gemini-mic-icon"></i>
-            
-            <!-- Аудио визуализация -->
             <div class="gemini-audio-visualization" id="gemini-audio-visualization">
               <div class="gemini-audio-bars" id="gemini-audio-bars"></div>
             </div>
           </div>
-          
-          <!-- Сообщение -->
           <div class="gemini-message-display" id="gemini-message-display"></div>
-          
-          <!-- Ошибка соединения -->
           <div class="gemini-connection-error" id="gemini-connection-error">
             Ошибка соединения с сервером
-            <button class="gemini-retry-button" id="gemini-retry-button">
-              Повторить подключение
-            </button>
+            <button class="gemini-retry-button" id="gemini-retry-button">Повторить подключение</button>
           </div>
-          
-          <!-- Индикатор статуса -->
           <div class="gemini-status-indicator" id="gemini-status-indicator">
             <div class="gemini-status-dot" id="gemini-status-dot"></div>
             <span id="gemini-status-text">Подключено</span>
           </div>
-          
-          <!-- VOICYFY -->
           <div class="gemini-voicyfy-container">
             <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="gemini-voicyfy-link">
               <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Voicyfy - powered by AI">
@@ -783,7 +771,6 @@
         </div>
       </div>
       
-      <!-- Загрузка -->
       <div id="gemini-loader-modal" class="gemini-loader-modal active">
         <div class="gemini-loader"></div>
       </div>
@@ -794,11 +781,11 @@
     }
 
     // ============================================================================
-    // INITIALIZATION & AUDIO
+    // AUDIO INITIALIZATION
     // ============================================================================
 
     async function initializeAudio() {
-        widgetLog(`Initializing audio for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
+        widgetLog(`🎵 Initializing audio for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
         
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -807,17 +794,16 @@
 
             if (!window.globalAudioContext) {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                // ✅ ИСПРАВЛЕНО: 24kHz для соответствия Gemini API
                 window.globalAudioContext = new AudioContextClass({
                     sampleRate: 24000,
                     latencyHint: 'interactive'
                 });
-                widgetLog(`AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
+                widgetLog(`✅ AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
             }
 
             if (window.globalAudioContext.state === 'suspended') {
                 await window.globalAudioContext.resume();
-                widgetLog('AudioContext resumed');
+                widgetLog('✅ AudioContext resumed');
             }
 
             if (!window.globalMicStream) {
@@ -830,75 +816,17 @@
                         channelCount: 1
                     }
                 });
-                widgetLog('Microphone access granted');
+                widgetLog('✅ Microphone access granted');
             }
 
             window.audioInitialized = true;
-            widgetLog('Audio initialization complete');
+            widgetLog('✅ Audio initialization complete');
             return true;
 
         } catch (error) {
-            widgetLog(`Audio initialization error: ${error.message}`, 'error');
+            widgetLog(`❌ Audio initialization error: ${error.message}`, 'error');
             return false;
         }
-    }
-
-    // ============================================================================
-    // WAV AUDIO FUNCTIONS (NEW - FIXED AUDIO PLAYBACK)
-    // ============================================================================
-
-    /**
-     * ✅ НОВАЯ ФУНКЦИЯ: Создание WAV файла из PCM данных
-     * Заменяет примитивный ресемплинг - теперь звук чистый!
-     */
-    function createWavFromPcm(pcmBuffer, sampleRate = 24000) {
-        const wavHeader = new ArrayBuffer(44);
-        const view = new DataView(wavHeader);
-        
-        // "RIFF" chunk descriptor
-        view.setUint8(0, 'R'.charCodeAt(0));
-        view.setUint8(1, 'I'.charCodeAt(0));
-        view.setUint8(2, 'F'.charCodeAt(0));
-        view.setUint8(3, 'F'.charCodeAt(0));
-        
-        view.setUint32(4, 36 + pcmBuffer.byteLength, true);
-        
-        // "WAVE" format
-        view.setUint8(8, 'W'.charCodeAt(0));
-        view.setUint8(9, 'A'.charCodeAt(0));
-        view.setUint8(10, 'V'.charCodeAt(0));
-        view.setUint8(11, 'E'.charCodeAt(0));
-        
-        // "fmt " subchunk
-        view.setUint8(12, 'f'.charCodeAt(0));
-        view.setUint8(13, 'm'.charCodeAt(0));
-        view.setUint8(14, 't'.charCodeAt(0));
-        view.setUint8(15, ' '.charCodeAt(0));
-        
-        view.setUint32(16, 16, true); // Subchunk size
-        view.setUint16(20, 1, true);  // Audio format (PCM)
-        view.setUint16(22, 1, true);  // Number of channels (Mono)
-        view.setUint32(24, sampleRate, true); // Sample rate
-        view.setUint32(28, sampleRate * 2, true); // Byte rate
-        view.setUint16(32, 2, true);  // Block align
-        view.setUint16(34, 16, true); // Bits per sample
-        
-        // "data" subchunk
-        view.setUint8(36, 'd'.charCodeAt(0));
-        view.setUint8(37, 'a'.charCodeAt(0));
-        view.setUint8(38, 't'.charCodeAt(0));
-        view.setUint8(39, 'a'.charCodeAt(0));
-        
-        view.setUint32(40, pcmBuffer.byteLength, true);
-        
-        // Combine header and data
-        const wavBuffer = new ArrayBuffer(wavHeader.byteLength + pcmBuffer.byteLength);
-        const wavBytes = new Uint8Array(wavBuffer);
-        
-        wavBytes.set(new Uint8Array(wavHeader), 0);
-        wavBytes.set(new Uint8Array(pcmBuffer), wavHeader.byteLength);
-        
-        return wavBuffer;
     }
 
     // ============================================================================
@@ -906,7 +834,6 @@
     // ============================================================================
 
     function initWidget() {
-        // UI элементы
         const widgetContainer = document.getElementById('gemini-widget-container');
         const widgetButton = document.getElementById('gemini-widget-button');
         const widgetClose = document.getElementById('gemini-widget-close');
@@ -925,7 +852,6 @@
             return;
         }
 
-        // Создаем аудио-бары
         function createAudioBars(count = 20) {
             audioBars.innerHTML = '';
             for (let i = 0; i < count; i++) {
@@ -936,7 +862,6 @@
         }
         createAudioBars();
 
-        // UI helper functions
         function showMessage(message, duration = 5000) {
             messageDisplay.textContent = message;
             messageDisplay.classList.add('show');
@@ -951,12 +876,7 @@
 
         function showConnectionError(message) {
             if (connectionError) {
-                connectionError.innerHTML = `
-                    ${message || 'Ошибка соединения с сервером'}
-                    <button class="gemini-retry-button" onclick="document.getElementById('gemini-retry-button').click()">
-                        Повторить подключение
-                    </button>
-                `;
+                connectionError.innerHTML = `${message || 'Ошибка соединения с сервером'}<button class="gemini-retry-button" onclick="document.getElementById('gemini-retry-button').click()">Повторить подключение</button>`;
                 connectionError.classList.add('visible');
             }
         }
@@ -969,15 +889,12 @@
 
         function updateConnectionStatus(status, message) {
             if (!statusIndicator || !statusDot || !statusText) return;
-            
             statusText.textContent = message || status;
             statusDot.classList.remove('connected', 'disconnected', 'connecting', 'interrupted');
-            
             if (status === 'connected') statusDot.classList.add('connected');
             else if (status === 'disconnected') statusDot.classList.add('disconnected');
             else if (status === 'interrupted') statusDot.classList.add('interrupted');
             else statusDot.classList.add('connecting');
-            
             statusIndicator.classList.add('show');
             setTimeout(() => statusIndicator.classList.remove('show'), 3000);
         }
@@ -992,9 +909,11 @@
         }
 
         async function openWidget() {
-            widgetLog('Opening widget');
+            widgetLog('📂 Opening widget');
             widgetContainer.classList.add('active');
             STATE.isWidgetOpen = true;
+            mainCircle.style.display = 'none';
+            widgetLog('🙈 Main circle hidden');
 
             if (!window.audioInitialized) {
                 const success = await initializeAudio();
@@ -1018,16 +937,17 @@
         }
 
         function closeWidget() {
-            widgetLog('Closing widget');
+            widgetLog('📁 Closing widget');
             stopRecording();
             widgetContainer.classList.remove('active');
             STATE.isWidgetOpen = false;
+            mainCircle.style.display = 'flex';
+            widgetLog('👁️ Main circle visible');
             hideMessage();
             hideConnectionError();
             if (statusIndicator) statusIndicator.classList.remove('show');
         }
 
-        // Audio utilities
         function float32ToPCM16(float32Array) {
             const pcm16 = new Int16Array(float32Array.length);
             for (let i = 0; i < float32Array.length; i++) {
@@ -1057,7 +977,6 @@
         function updateAudioVisualization(audioData) {
             const bars = audioBars.querySelectorAll('.gemini-audio-bar');
             const step = Math.floor(audioData.length / bars.length);
-            
             for (let i = 0; i < bars.length; i++) {
                 let sum = 0;
                 for (let j = 0; j < step; j++) {
@@ -1077,15 +996,14 @@
             bars.forEach(bar => bar.style.height = '2px');
         }
 
-        // Recording
         async function startRecording() {
             if (!STATE.isConnected || STATE.isPlaying || STATE.isReconnecting || STATE.isRecording) {
-                widgetLog(`Cannot start recording`);
+                widgetLog(`⏸️ Cannot start recording`);
                 return;
             }
 
             try {
-                widgetLog('Starting recording...');
+                widgetLog('🎙️ Starting recording...');
 
                 if (!window.globalAudioContext || !window.globalMicStream) {
                     const success = await initializeAudio();
@@ -1110,9 +1028,7 @@
                 processor.onaudioprocess = (e) => {
                     if (STATE.isRecording && STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
                         const inputData = e.inputBuffer.getChannelData(0);
-                        
                         updateAudioVisualization(inputData);
-
                         const rms = calculateRMS(inputData);
                         const db = 20 * Math.log10(rms);
                         
@@ -1122,13 +1038,11 @@
                                 interruptionState.is_user_speaking = true;
                                 widgetLog('🗣️ User started speaking');
                                 sendMessage({ type: 'speech.user_started' });
-                                
                                 if (STATE.isPlaying) {
                                     stopPlayback();
                                 }
                             }
                             silenceStartTime = 0;
-                            
                             if (!mainCircle.classList.contains('listening')) {
                                 mainCircle.classList.add('listening');
                                 mainCircle.classList.remove('speaking');
@@ -1147,65 +1061,50 @@
 
                         const pcm16 = float32ToPCM16(inputData);
                         const base64Audio = arrayBufferToBase64(pcm16.buffer);
-
-                        sendMessage({
-                            type: 'input_audio_buffer.append',
-                            audio: base64Audio
-                        });
+                        sendMessage({ type: 'input_audio_buffer.append', audio: base64Audio });
                     }
                 };
 
                 source.connect(processor);
                 processor.connect(window.globalAudioContext.destination);
-
                 STATE.audioWorklet = { source, processor };
-
                 mainCircle.classList.add('listening');
                 mainCircle.classList.remove('speaking');
-
-                widgetLog('✅ Recording started');
+                widgetLog('✅ Recording started successfully');
 
             } catch (error) {
-                widgetLog(`Recording error: ${error.message}`, 'error');
+                widgetLog(`❌ Recording error: ${error.message}`, 'error');
                 showMessage('Ошибка доступа к микрофону');
             }
         }
 
         function stopRecording() {
             if (!STATE.isRecording) return;
-            
-            widgetLog('Stopping recording');
+            widgetLog('🛑 Stopping recording');
             STATE.isRecording = false;
             STATE.isUserSpeaking = false;
-            
             if (window.globalMicStream) {
                 window.globalMicStream.getTracks().forEach(track => track.stop());
                 window.globalMicStream = null;
             }
-            
             if (STATE.audioWorklet) {
                 STATE.audioWorklet.source.disconnect();
                 STATE.audioWorklet.processor.disconnect();
                 STATE.audioWorklet = null;
             }
-
             sendMessage({ type: 'input_audio_buffer.commit' });
-            
             mainCircle.classList.remove('listening');
             resetAudioVisualization();
-            
             widgetLog('✅ Recording stopped');
         }
 
-        // ✅ НОВАЯ ФУНКЦИЯ: Playback через WAV (вместо примитивного ресемплинга)
         async function playAudioQueue() {
             if (STATE.isPlaying || STATE.audioQueue.length === 0) return;
-            
             STATE.isPlaying = true;
             interruptionState.is_assistant_speaking = true;
-            
             mainCircle.classList.add('speaking');
             mainCircle.classList.remove('listening');
+            widgetLog(`🔊 Starting playback queue (${STATE.audioQueue.length} chunks)`);
             
             while (STATE.audioQueue.length > 0) {
                 const base64Audio = STATE.audioQueue.shift();
@@ -1216,125 +1115,81 @@
             STATE.isPlaying = false;
             interruptionState.is_assistant_speaking = false;
             mainCircle.classList.remove('speaking');
+            widgetLog(`✅ Playback queue complete`);
         }
 
-        /**
-         * ✅ ИСПРАВЛЕННАЯ ФУНКЦИЯ: Воспроизведение через WAV
-         * Теперь звук кристально чистый без хрипа!
-         */
         async function playAudioChunk(base64Audio) {
             try {
-                // Декодируем base64 в ArrayBuffer
+                STATE.audioChunksReceived++;
                 const binaryString = atob(base64Audio);
                 const bytes = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
+                widgetLog(`🎵 Chunk #${STATE.audioChunksReceived}: ${bytes.length} bytes`);
 
-                // ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Создаем WAV файл вместо ручного ресемплинга
-                const wavBuffer = createWavFromPcm(bytes.buffer, 24000); // Gemini возвращает 24kHz
-                const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-                const audioUrl = URL.createObjectURL(blob);
-                
-                // Используем HTML5 Audio element
-                const audio = new Audio();
-                
-                // Настройки для iOS совместимости
-                audio.playsInline = true;
-                audio.muted = false;
-                audio.volume = 1.0;
-                audio.preload = 'auto';
-                audio.src = audioUrl;
-                
-                STATE.currentAudioElement = audio;
-                interruptionState.current_audio_elements.push(audio);
+                const pcm16 = new Int16Array(bytes.buffer);
+                const float32 = new Float32Array(pcm16.length);
+                for (let i = 0; i < pcm16.length; i++) {
+                    float32[i] = pcm16[i] / 32768.0;
+                }
 
-                return new Promise((resolve, reject) => {
-                    audio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        STATE.currentAudioElement = null;
-                        const index = interruptionState.current_audio_elements.indexOf(audio);
+                const audioBuffer = window.globalAudioContext.createBuffer(1, float32.length, 24000);
+                audioBuffer.getChannelData(0).set(float32);
+
+                const source = window.globalAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(window.globalAudioContext.destination);
+
+                STATE.currentAudioSource = source;
+                interruptionState.current_audio_sources.push(source);
+
+                return new Promise((resolve) => {
+                    source.onended = () => {
+                        STATE.currentAudioSource = null;
+                        const index = interruptionState.current_audio_sources.indexOf(source);
                         if (index > -1) {
-                            interruptionState.current_audio_elements.splice(index, 1);
+                            interruptionState.current_audio_sources.splice(index, 1);
                         }
+                        STATE.audioChunksPlayed++;
                         resolve();
                     };
-                    
-                    audio.onerror = (e) => {
-                        widgetLog(`Audio playback error: ${e}`, 'error');
-                        URL.revokeObjectURL(audioUrl);
-                        STATE.currentAudioElement = null;
-                        const index = interruptionState.current_audio_elements.indexOf(audio);
-                        if (index > -1) {
-                            interruptionState.current_audio_elements.splice(index, 1);
-                        }
-                        reject(e);
-                    };
-                    
-                    // Запускаем воспроизведение
-                    audio.play().catch(error => {
-                        widgetLog(`Play failed: ${error.message}`, 'error');
-                        URL.revokeObjectURL(audioUrl);
-                        reject(error);
-                    });
+                    source.start();
+                    widgetLog(`▶️ Playing chunk (duration: ${(audioBuffer.duration * 1000).toFixed(0)}ms)`);
                 });
 
             } catch (error) {
-                widgetLog(`Playback error: ${error.message}`, 'error');
+                widgetLog(`❌ Playback error: ${error.message}`, 'error');
             }
         }
 
         function stopPlayback() {
-            widgetLog('Stopping playback');
-            
-            // Останавливаем текущий аудио элемент
-            if (STATE.currentAudioElement) {
-                try {
-                    STATE.currentAudioElement.pause();
-                    STATE.currentAudioElement.currentTime = 0;
-                    if (STATE.currentAudioElement.src && STATE.currentAudioElement.src.startsWith('blob:')) {
-                        URL.revokeObjectURL(STATE.currentAudioElement.src);
-                    }
-                } catch (e) {
-                    widgetLog(`Error stopping audio: ${e.message}`, 'warn');
-                }
-                STATE.currentAudioElement = null;
+            widgetLog('⏹️ Stopping all playback');
+            if (STATE.currentAudioSource) {
+                try { STATE.currentAudioSource.stop(); } catch (e) {}
+                STATE.currentAudioSource = null;
             }
-            
-            // Останавливаем все аудио элементы в очереди перебивания
-            if (interruptionState.current_audio_elements) {
-                interruptionState.current_audio_elements.forEach(audio => {
-                    try {
-                        audio.pause();
-                        audio.currentTime = 0;
-                        if (audio.src && audio.src.startsWith('blob:')) {
-                            URL.revokeObjectURL(audio.src);
-                        }
-                    } catch (e) {
-                        widgetLog(`Error stopping audio element: ${e.message}`, 'warn');
-                    }
+            if (interruptionState.current_audio_sources) {
+                interruptionState.current_audio_sources.forEach(source => {
+                    try { source.stop(); } catch (e) {}
                 });
-                interruptionState.current_audio_elements = [];
+                interruptionState.current_audio_sources = [];
             }
-            
             STATE.audioQueue = [];
             STATE.isPlaying = false;
             interruptionState.is_assistant_speaking = false;
         }
 
-        // WebSocket
         async function connectWebSocket() {
             try {
                 loaderModal.classList.add('active');
-                widgetLog('Connecting to WebSocket...');
-
+                widgetLog('🔌 Connecting to WebSocket...');
                 STATE.isReconnecting = true;
                 hideConnectionError();
 
                 if (STATE.ws) {
                     try { STATE.ws.close(); } catch (e) {}
                 }
-
                 if (STATE.pingInterval) {
                     clearInterval(STATE.pingInterval);
                     STATE.pingInterval = null;
@@ -1343,11 +1198,10 @@
                 STATE.ws = new WebSocket(WS_URL);
 
                 const connectionTimeout = setTimeout(() => {
-                    widgetLog('Connection timeout', 'error');
+                    widgetLog('⏱️ Connection timeout', 'error');
                     if (STATE.ws) STATE.ws.close();
                     STATE.isReconnecting = false;
                     loaderModal.classList.remove('active');
-                    
                     STATE.reconnectAttempts++;
                     if (STATE.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                         STATE.connectionFailedPermanently = true;
@@ -1368,19 +1222,16 @@
                     STATE.reconnectAttempts = 0;
                     STATE.connectionFailedPermanently = false;
                     loaderModal.classList.remove('active');
+                    STATE.audioChunksReceived = 0;
+                    STATE.audioChunksPlayed = 0;
 
                     STATE.pingInterval = setInterval(() => {
                         if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
-                            try {
-                                sendMessage({ type: 'ping' });
-                            } catch (e) {
-                                widgetLog(`Ping error: ${e.message}`, 'error');
-                            }
+                            try { sendMessage({ type: 'ping' }); } catch (e) {}
                         }
                     }, PING_INTERVAL);
 
                     hideConnectionError();
-
                     if (STATE.isWidgetOpen) {
                         updateConnectionStatus('connected', 'Подключено (Gemini API)');
                         setTimeout(() => startRecording(), 500);
@@ -1391,26 +1242,16 @@
                     try {
                         if (typeof event.data !== 'string') return;
                         const data = JSON.parse(event.data);
-                        
-                        widgetLog(`📩 Message type: ${data.type || 'unknown'}`);
+                        if (data.type !== 'input_audio_buffer.append.ack') {
+                            widgetLog(`📩 Message: ${data.type}`);
+                        }
 
                         switch(data.type) {
                             case 'connection_status':
-                                widgetLog('✅ Connection status received');
-                                STATE.sessionConfig = {
-                                    model: data.model,
-                                    functions_enabled: data.functions_enabled,
-                                    google_sheets: data.google_sheets,
-                                    thinking_enabled: data.thinking_enabled,
-                                    client_id: data.client_id
-                                };
-                                widgetLog(`Session config: ${JSON.stringify(STATE.sessionConfig)}`);
+                                STATE.sessionConfig = data;
                                 break;
-
                             case 'gemini.setup.complete':
-                                widgetLog('✅ Gemini setup complete');
                                 break;
-                                
                             case 'response.audio.delta':
                                 if (data.delta) {
                                     STATE.audioQueue.push(data.delta);
@@ -1419,41 +1260,30 @@
                                     }
                                 }
                                 break;
-                                
                             case 'assistant.speech.started':
-                                widgetLog('🔊 Assistant started speaking');
                                 STATE.isSpeaking = true;
                                 interruptionState.is_assistant_speaking = true;
                                 mainCircle.classList.add('speaking');
                                 mainCircle.classList.remove('listening');
                                 updateConnectionStatus('connected', 'Ассистент говорит');
                                 break;
-                                
                             case 'assistant.speech.ended':
-                                widgetLog('🔇 Assistant stopped speaking');
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
                                 mainCircle.classList.remove('speaking');
-                                
                                 if (STATE.isWidgetOpen && !STATE.isRecording && !STATE.isPlaying) {
                                     setTimeout(() => startRecording(), 400);
                                 }
                                 updateConnectionStatus('connected', 'Готов к разговору');
                                 break;
-
                             case 'conversation.interrupted':
-                                widgetLog('⚡ Conversation interrupted');
                                 stopPlayback();
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
                                 interruptionState.interruption_count++;
-                                
                                 mainCircle.classList.remove('speaking');
                                 mainCircle.classList.add('interrupted');
-                                
-                                // ✅ ИСПРАВЛЕНО: Добавлен визуальный статус при перебивании
                                 updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
-                                
                                 setTimeout(() => {
                                     mainCircle.classList.remove('interrupted');
                                     if (!interruptionState.is_assistant_speaking) {
@@ -1462,53 +1292,33 @@
                                     updateConnectionStatus('connected', 'Готов к разговору');
                                 }, 1000);
                                 break;
-                                
                             case 'error':
-                                widgetLog(`❌ Server error: ${data.error?.message || 'Unknown error'}`, 'error');
+                                widgetLog(`❌ Server error: ${data.error?.message}`, 'error');
                                 handleServerError(data);
                                 break;
-
-                            case 'pong':
-                                break;
-
-                            case 'input_audio_buffer.append.ack':
-                                break;
-
-                            case 'response.text.delta':
-                                if (data.text) {
-                                    widgetLog(`Text: ${data.text}`);
-                                }
-                                break;
-                                
-                            default:
-                                widgetLog(`Unhandled message type: ${data.type}`, 'warn');
                         }
-
                     } catch (error) {
-                        widgetLog(`Message parse error: ${error.message}`, 'error');
+                        widgetLog(`❌ Message parse error: ${error.message}`, 'error');
                     }
                 };
 
                 STATE.ws.onclose = (event) => {
-                    widgetLog(`WebSocket closed: ${event.code}`);
+                    widgetLog(`🔌 WebSocket closed: ${event.code}`);
                     STATE.isConnected = false;
                     STATE.isRecording = false;
-
                     if (STATE.pingInterval) {
                         clearInterval(STATE.pingInterval);
                         STATE.pingInterval = null;
                     }
-
                     if (event.code === 1000 || event.code === 1001) {
                         STATE.isReconnecting = false;
                         return;
                     }
-
                     reconnectWithDelay();
                 };
 
                 STATE.ws.onerror = (error) => {
-                    widgetLog(`WebSocket error: ${error}`, 'error');
+                    widgetLog(`❌ WebSocket error`, 'error');
                     if (STATE.isWidgetOpen) {
                         showMessage('Ошибка соединения с сервером');
                         updateConnectionStatus('disconnected', 'Ошибка соединения');
@@ -1518,10 +1328,9 @@
                 return true;
 
             } catch (error) {
-                widgetLog(`Connection error: ${error.message}`, 'error');
+                widgetLog(`❌ Connection error: ${error.message}`, 'error');
                 STATE.isReconnecting = false;
                 loaderModal.classList.remove('active');
-                
                 STATE.reconnectAttempts++;
                 if (STATE.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                     STATE.connectionFailedPermanently = true;
@@ -1531,17 +1340,14 @@
                 } else {
                     reconnectWithDelay();
                 }
-                
                 return false;
             }
         }
 
         function reconnectWithDelay() {
             if (STATE.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                widgetLog('Max reconnection attempts reached');
                 STATE.isReconnecting = false;
                 STATE.connectionFailedPermanently = true;
-                
                 if (STATE.isWidgetOpen) {
                     showConnectionError('Не удалось восстановить соединение');
                     updateConnectionStatus('disconnected', 'Отключено');
@@ -1550,7 +1356,6 @@
             }
 
             STATE.isReconnecting = true;
-
             if (STATE.isWidgetOpen) {
                 showMessage('Соединение прервано. Переподключение...', 0);
                 updateConnectionStatus('connecting', 'Переподключение...');
@@ -1559,15 +1364,12 @@
             const delay = Math.min(30000, Math.pow(2, STATE.reconnectAttempts) * 1000);
             STATE.reconnectAttempts++;
 
-            widgetLog(`Reconnecting in ${delay/1000}s (attempt ${STATE.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-
             setTimeout(() => {
                 if (STATE.isReconnecting) {
                     connectWebSocket().then(success => {
                         if (success) {
                             STATE.reconnectAttempts = 0;
                             STATE.isReconnecting = false;
-                            
                             if (STATE.isWidgetOpen) {
                                 showMessage('Соединение восстановлено', 3000);
                                 updateConnectionStatus('connected', 'Подключено (Gemini API)');
@@ -1577,8 +1379,6 @@
                                     }
                                 }, 1000);
                             }
-                        } else {
-                            STATE.isReconnecting = false;
                         }
                     });
                 }
@@ -1590,7 +1390,7 @@
                 try {
                     STATE.ws.send(JSON.stringify(message));
                 } catch (error) {
-                    widgetLog(`Send error: ${error.message}`, 'error');
+                    widgetLog(`❌ Send error: ${error.message}`, 'error');
                 }
             }
         }
@@ -1599,40 +1399,19 @@
             const error = data.error || {};
             let title = 'Ошибка';
             let message = error.message || 'Произошла ошибка';
-            
             switch (error.code) {
-                case 'TRIAL_EXPIRED':
-                    title = 'Пробный период истек';
-                    message = 'Пожалуйста, оформите подписку для продолжения работы';
-                    break;
-                case 'SUBSCRIPTION_EXPIRED':
-                    title = 'Подписка истекла';
-                    message = 'Пожалуйста, продлите подписку для продолжения работы';
-                    break;
-                case 'assistant_not_found':
-                    title = 'Ассистент не найден';
-                    message = 'Проверьте правильность ID ассистента';
-                    break;
-                case 'gemini_connection_failed':
-                    title = 'Ошибка Gemini';
-                    message = 'Не удалось подключиться к Gemini API';
-                    break;
-                case 'no_api_key':
-                    title = 'Нет API ключа';
-                    message = 'Gemini API ключ не настроен';
-                    break;
+                case 'TRIAL_EXPIRED': title = 'Пробный период истек'; break;
+                case 'SUBSCRIPTION_EXPIRED': title = 'Подписка истекла'; break;
+                case 'assistant_not_found': title = 'Ассистент не найден'; break;
+                case 'gemini_connection_failed': title = 'Ошибка Gemini'; break;
+                case 'no_api_key': title = 'Нет API ключа'; break;
             }
-            
             showMessage(`${title}: ${message}`, 10000);
-            
-            if (error.requires_payment) {
-                if (STATE.ws) {
-                    STATE.ws.close();
-                }
+            if (error.requires_payment && STATE.ws) {
+                STATE.ws.close();
             }
         }
 
-        // Event handlers
         widgetButton.addEventListener('click', openWidget);
         widgetClose.addEventListener('click', closeWidget);
         mainCircle.addEventListener('click', () => {
@@ -1651,7 +1430,6 @@
             retryButton.addEventListener('click', resetConnection);
         }
 
-        // Initial connection
         connectWebSocket();
     }
 
@@ -1660,27 +1438,20 @@
     // ============================================================================
 
     function initialize() {
-        widgetLog('Initializing Gemini Widget v2.1 (WAV Audio Fix)...');
-        
+        widgetLog('🚀 Initializing Gemini Widget v2.2 (Direct 24kHz Audio)...');
         loadFontAwesome();
         createStyles();
         createWidgetHTML();
-        
         document.addEventListener('click', initializeAudio, { once: true });
         document.addEventListener('touchstart', initializeAudio, { once: true });
-        
         initWidget();
-        
-        widgetLog('✅ Gemini Widget v2.1 initialized - Crystal clear audio with WAV playback!');
+        widgetLog('✅ Gemini Widget v2.2 initialized!');
     }
 
-    // Start
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initialize);
     } else {
         initialize();
     }
-
-    widgetLog('Gemini Widget v2.1 script loaded');
 
 })();
