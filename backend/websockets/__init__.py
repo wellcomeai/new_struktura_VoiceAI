@@ -3,16 +3,21 @@ WebSocket module for WellcomeAI application.
 Handles real-time communication with clients.
 
 🆕 Now includes GA Realtime API support (gpt-realtime model)
+🆕 Now includes Google Gemini Live API support (gemini-2.5-flash-native-audio)
 🧪 Experimental: Streaming TTS with sentence detection + ElevenLabs
 """
 
-# 📌 Старые обработчики (Beta API)
+# 📌 OpenAI - Старые обработчики (Beta API)
 from .handler import handle_websocket_connection
 from .openai_client import OpenAIRealtimeClient
 
-# 🆕 НОВЫЕ обработчики (GA API)
+# 🆕 OpenAI - НОВЫЕ обработчики (GA API)
 from .handler_realtime_new import handle_websocket_connection_new
 from .openai_client_new import OpenAIRealtimeClientNew
+
+# 🆕 Google Gemini - Live API обработчики
+from .gemini_client import GeminiLiveClient
+from .handler_gemini import handle_gemini_websocket_connection
 
 # 📞 Voximplant интеграция
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
@@ -24,13 +29,17 @@ from .voximplant_handler import (
 )
 
 __all__ = [
-    # Beta API (старая версия)
+    # OpenAI Beta API (старая версия)
     "handle_websocket_connection", 
     "OpenAIRealtimeClient",
     
-    # 🆕 GA API (новая версия)
+    # 🆕 OpenAI GA API (новая версия)
     "handle_websocket_connection_new",
     "OpenAIRealtimeClientNew",
+    
+    # 🆕 Google Gemini Live API
+    "GeminiLiveClient",
+    "handle_gemini_websocket_connection",
     
     # 🧪 Streaming TTS (экспериментальная версия)
     "handle_websocket_connection_streaming",

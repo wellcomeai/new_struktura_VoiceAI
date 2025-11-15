@@ -3,7 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice AI Assistant</title>
+    <title>JARVIS AI | Voicyfy</title>
+
+    <!-- Favicon и PWA -->
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="description" content="JARVIS AI - Голосовой ассистент с интеграцией LLM">
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <style>
@@ -19,6 +29,16 @@
             --background: rgba(255, 255, 255, 0.95);
             --text-color: #1a1a1a;
             --border-color: rgba(255, 255, 255, 0.3);
+            --primary-blue: #2563eb;
+            --primary-blue-light: #3b82f6;
+            --text-dark: #0f172a;
+            --text-gray: #64748b;
+            --text-light: #94a3b8;
+            --bg-light: #f8fafc;
+            --bg-blue-light: #eff6ff;
+            --white: #ffffff;
+            --radius-md: 0.5rem;
+            --sidebar-width: 260px;
         }
 
         body {
@@ -27,20 +47,185 @@
             min-height: 100vh;
             position: relative;
             overflow: hidden;
+            display: flex;
         }
 
-        /* Config Panel Styles */
-        .config-panel {
+        /* Боковая панель навигации */
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--white);
+            border-right: 1px solid var(--border-color);
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            transition: transform 0.3s ease;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-dark);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: var(--radius-md);
+        }
+
+        .sidebar-nav {
+            padding: 1.5rem 0;
+            flex-grow: 1;
+        }
+
+        .sidebar-section {
+            padding: 0 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-light);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .sidebar-nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1.5rem;
+            color: var(--text-gray);
+            text-decoration: none;
+            transition: background-color 0.2s, color 0.2s;
+            border-left: 3px solid transparent;
+            font-size: 0.9rem;
+        }
+
+        .sidebar-nav-item.active {
+            background-color: var(--bg-blue-light);
+            color: var(--primary-blue);
+            border-left-color: var(--primary-blue);
+        }
+
+        .sidebar-nav-item:hover {
+            background-color: var(--bg-blue-light);
+            color: var(--primary-blue);
+        }
+
+        .sidebar-nav-item i {
+            margin-right: 0.75rem;
+            width: 20px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .sidebar-overlay {
+            display: none;
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+
+            .sidebar-overlay.show {
+                display: block;
+            }
+        }
+
+        /* Скрываем config panel в embed режиме */
+        body.embed-mode .config-panel {
+            display: none;
+        }
+
+        body.embed-mode .main-container {
+            padding-top: 0;
+        }
+
+        /* Кнопка копирования в LLM панели */
+        .copy-button {
+            background: none;
+            border: none;
+            color: var(--text-gray);
+            cursor: pointer;
+            padding: 0.5rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .copy-button:hover {
+            background-color: var(--bg-light);
+            color: var(--primary-blue);
+        }
+
+        .copy-button:active {
+            transform: scale(0.95);
+        }
+
+        .copy-button.copied {
+            color: #22c55e;
+        }
+
+        /* Config Panel Styles - теперь всегда видим */
+        .config-panel {
+            position: fixed;
+            top: 0;
+            left: var(--sidebar-width);
+            right: 0;
             background: rgba(255, 255, 255, 0.98);
             backdrop-filter: blur(20px);
             border-bottom: 2px solid var(--primary-color);
-            padding: 20px 30px;
-            z-index: 1000;
+            padding: 15px 25px;
+            z-index: 90;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        @media (max-width: 768px) {
+            .config-panel {
+                left: 0;
+                padding: 12px 20px;
+            }
         }
 
         .config-container {
@@ -52,25 +237,42 @@
             display: flex;
             align-items: center;
             gap: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
+        }
+
+        .mobile-menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 1.25rem;
+            color: var(--text-gray);
+            cursor: pointer;
+            padding: 0.5rem;
+            margin-right: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-menu-toggle {
+                display: block;
+            }
         }
 
         .config-icon {
-            width: 48px;
-            height: 48px;
+            width: 36px;
+            height: 36px;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-            border-radius: 12px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 18px;
             color: white;
             box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
         }
 
         .config-title {
             font-family: 'Orbitron', monospace;
-            font-size: 24px;
+            font-size: 18px;
             font-weight: 700;
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             -webkit-background-clip: text;
@@ -80,7 +282,7 @@
 
         .config-subtitle {
             color: #6a6a6a;
-            font-size: 14px;
+            font-size: 12px;
         }
 
         .config-form {
@@ -97,18 +299,18 @@
 
         .form-label {
             display: block;
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
             color: var(--text-color);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .form-select {
             width: 100%;
-            padding: 12px 16px;
-            font-size: 15px;
+            padding: 10px 14px;
+            font-size: 13px;
             border: 2px solid rgba(102, 126, 234, 0.2);
-            border-radius: 12px;
+            border-radius: 10px;
             background: white;
             color: var(--text-color);
             font-family: 'Inter', sans-serif;
@@ -123,17 +325,27 @@
         }
 
         .btn {
-            padding: 12px 24px;
-            font-size: 15px;
+            padding: 10px 20px;
+            font-size: 13px;
             font-weight: 600;
             border: none;
-            border-radius: 12px;
+            border-radius: 10px;
             cursor: pointer;
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             font-family: 'Inter', sans-serif;
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-light);
+            color: var(--text-gray);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--border-color);
         }
 
         .btn-primary {
@@ -201,9 +413,19 @@
             }
         }
 
-        /* Adjust main container when config panel is visible */
-        body.config-mode .main-container {
+        /* Adjust main container - всегда учитываем config panel */
+        .main-container {
+            margin-left: var(--sidebar-width);
+            width: calc(100% - var(--sidebar-width));
             padding-top: 140px;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                margin-left: 0;
+                width: 100%;
+                padding-top: 160px;
+            }
         }
 
         /* Blur overlay */
@@ -957,16 +1179,74 @@
     </style>
 </head>
 <body>
+    <!-- Overlay для мобильного меню -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
     <!-- ============================================================ -->
-    <!-- CONFIG PANEL (показывается только в режиме настройки) -->
+    <!-- SIDEBAR NAVIGATION -->
     <!-- ============================================================ -->
-    <div class="config-panel" id="configPanel" style="display: none;">
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="/" class="sidebar-logo">
+                <div class="logo-icon">
+                    <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                </div>
+                <span>Voicyfy</span>
+            </a>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="sidebar-section">Основное</div>
+            <a href="/static/dashboard.html" class="sidebar-nav-item">
+                <i class="fas fa-home"></i> Дашборд
+            </a>
+            <a href="/static/agents.html" class="sidebar-nav-item">
+                <i class="fas fa-robot"></i> Мои агенты
+            </a>
+            <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+                <i class="fas fa-book"></i> База знаний
+            </a>
+            <a href="/static/outbound-calls.html" class="sidebar-nav-item">
+                <i class="fas fa-phone-alt"></i> Исходящие звонки
+            </a>
+            <a href="/static/conversations.html" class="sidebar-nav-item">
+                <i class="fas fa-comments"></i> Диалоги
+            </a>
+
+            <div class="sidebar-section">ИИ Интерфейс</div>
+            <a href="/static/voice_llm_interface.html" class="sidebar-nav-item active">
+                <i class="fas fa-microphone"></i> JARVIS AI
+            </a>
+
+            <div class="sidebar-section">Аккаунт</div>
+            <a href="/static/settings.html" class="sidebar-nav-item">
+                <i class="fas fa-gear"></i> Настройки
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;">
+                <i class="fas fa-sign-out-alt"></i> Выйти
+            </a>
+        </div>
+    </aside>
+
+    <!-- ============================================================ -->
+    <!-- CONFIG PANEL (теперь всегда видим в виде header) -->
+    <!-- ============================================================ -->
+    <div class="config-panel" id="configPanel">
         <div class="config-container">
             <div class="config-header">
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle">
+                    <i class="fas fa-bars"></i>
+                </button>
                 <div class="config-icon">⚙️</div>
                 <div>
-                    <div class="config-title">Настройка встраиваемого ассистента</div>
-                    <div class="config-subtitle">Выберите ассистента и скопируйте HTML код для встраивания на ваш сайт</div>
+                    <div class="config-title">Конфигурация JARVIS AI</div>
+                    <div class="config-subtitle">Выберите ассистента, сохраните и тестируйте в режиме реального времени</div>
                 </div>
             </div>
             
@@ -980,10 +1260,13 @@
                 
                 <div class="config-actions">
                     <button class="btn btn-primary" id="saveBtn" onclick="saveConfig()">
-                        <i class="fas fa-save"></i> Сохранить и тестировать
+                        <i class="fas fa-save"></i> Сохранить
+                    </button>
+                    <button class="btn btn-success" id="testBtn" onclick="testAgent()" disabled>
+                        <i class="fas fa-play"></i> Тестировать
                     </button>
                     <button class="btn btn-success" id="copyBtn" onclick="copyHTMLCode()" disabled>
-                        <i class="fas fa-code"></i> Скопировать HTML код
+                        <i class="fas fa-code"></i> Копировать код
                     </button>
                 </div>
             </div>
@@ -1031,6 +1314,10 @@
                     <div class="llm-icon">🤖</div>
                     <div class="llm-title">Результаты ИИ</div>
                     <div class="llm-meta" id="llmMeta">Ожидание запроса</div>
+                    <button class="copy-button" id="copyLlmButton" onclick="copyLLMResponse()" style="display: none;">
+                        <i class="fas fa-copy"></i>
+                        <span id="copyButtonText">Копировать</span>
+                    </button>
                 </div>
                 <div class="llm-content" id="llmContent">
                     <div class="llm-placeholder">
@@ -1100,41 +1387,33 @@
             const isAndroid = /Android/i.test(navigator.userAgent);
 
             // ============================================================================
-            // CONFIG MODE DETECTION
+            // CONFIGURATION
             // ============================================================================
-            
+
             const urlParams = new URLSearchParams(window.location.search);
-            const isConfigMode = urlParams.has('config') || window.location.pathname.includes('/config');
-            
-            // ✅ ASSISTANT_ID - может быть null в режиме настройки
+
+            // ✅ ASSISTANT_ID - теперь всегда управляется через интерфейс
             let ASSISTANT_ID = urlParams.get('assistant') || null;
-            
-            console.log('[EMBED] Mode:', isConfigMode ? 'CONFIG' : 'EMBEDDED');
-            console.log('[EMBED] Assistant ID:', ASSISTANT_ID);
+
+            console.log('[JARVIS] JARVIS AI Interface');
+            console.log('[JARVIS] Assistant ID:', ASSISTANT_ID);
 
             // ============================================================================
-            // SHOW/HIDE CONFIG PANEL
+            // UI ELEMENTS
             // ============================================================================
-            
+
             const configPanel = document.getElementById('configPanel');
             const assistantSelect = document.getElementById('assistantSelect');
             const saveBtn = document.getElementById('saveBtn');
+            const testBtn = document.getElementById('testBtn');
             const copyBtn = document.getElementById('copyBtn');
             const successMessage = document.getElementById('successMessage');
+            const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+            const sidebar = document.getElementById('sidebar');
+            const sidebarOverlay = document.getElementById('sidebar-overlay');
 
-            if (isConfigMode) {
-                configPanel.style.display = 'block';
-                document.body.classList.add('config-mode');
-                loadAssistantsList();
-            } else {
-                if (!ASSISTANT_ID) {
-                    showError(
-                        'Отсутствует ID ассистента',
-                        'Не удалось определить конфигурацию ассистента. Проверьте правильность URL.'
-                    );
-                    return;
-                }
-            }
+            // Всегда загружаем список ассистентов
+            loadAssistantsList();
 
             // ============================================================================
             // CONFIG PANEL FUNCTIONS
@@ -1172,91 +1451,141 @@
             
             function getAuthToken() {
                 // ✅ Получаем токен из localStorage или cookies
-                return localStorage.getItem('auth_token') || 
+                return localStorage.getItem('auth_token') ||
                        document.cookie.split('; ').find(row => row.startsWith('auth_token='))?.split('=')[1] ||
                        '';
             }
-            
-            window.saveConfig = function() {
+
+            // Функция показа/скрытия индикатора загрузки
+            function setLoading(isLoading) {
+                const saveBtn = document.getElementById('saveBtn');
+                const testBtn = document.getElementById('testBtn');
+                const copyBtn = document.getElementById('copyBtn');
+
+                if (isLoading) {
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
+                    testBtn.disabled = true;
+                    copyBtn.disabled = true;
+                } else {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+                }
+            }
+
+            window.saveConfig = async function() {
                 const selectedAssistantId = assistantSelect.value;
-                
+
                 if (!selectedAssistantId) {
                     alert('❌ Пожалуйста, выберите ассистента!');
                     return;
                 }
-                
-                // Применяем выбранный assistant_id
-                ASSISTANT_ID = selectedAssistantId;
-                
-                // Включаем кнопку копирования
-                copyBtn.disabled = false;
-                
-                // Показываем уведомление
-                showSuccess('✅ Конфигурация сохранена! Теперь можно тестировать или скопировать HTML код');
-                
-                // Переподключаем WebSocket с новым assistant_id
-                if (websocket) {
-                    websocket.close();
+
+                try {
+                    setLoading(true);
+
+                    // Создаем embed конфигурацию через API
+                    const response = await fetch(`${SERVER_URL}/api/embeds`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${getAuthToken()}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            assistant_id: selectedAssistantId,
+                            custom_name: 'JARVIS AI Widget'
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Failed to create embed config');
+                    }
+
+                    const data = await response.json();
+
+                    // Сохраняем данные для кнопки "Копировать"
+                    window.currentEmbedCode = data.embed_code;
+                    window.currentEmbedUrl = data.embed_url;
+                    window.currentIframeCode = data.iframe_code;
+
+                    // Применяем assistant_id для тестирования
+                    ASSISTANT_ID = selectedAssistantId;
+
+                    // Включаем кнопки
+                    testBtn.disabled = false;
+                    copyBtn.disabled = false;
+
+                    // Показываем успех с embed кодом
+                    showSuccess(`✅ Сохранено! Embed код: ${data.embed_code}`);
+
+                    // Переподключаем WebSocket для тестирования
+                    if (websocket) {
+                        websocket.close();
+                    }
+                    connectWebSocket();
+
+                } catch (error) {
+                    console.error('[CONFIG] Save error:', error);
+                    alert('❌ Ошибка сохранения: ' + error.message);
+                } finally {
+                    setLoading(false);
                 }
-                connectWebSocket();
             };
-            
-            window.copyHTMLCode = function() {
+
+            window.testAgent = function() {
                 if (!ASSISTANT_ID) {
                     alert('❌ Сначала сохраните конфигурацию!');
                     return;
                 }
-                
+
+                // Проверяем подключение
+                if (!isConnected) {
+                    showSuccess('🔄 Подключение к ассистенту...');
+                    connectWebSocket();
+                } else {
+                    showSuccess('✅ Готов к тестированию! Нажмите на сферу JARVIS и начните говорить');
+                }
+            };
+            
+            window.copyHTMLCode = function() {
+                if (!window.currentEmbedUrl) {
+                    alert('❌ Сначала сохраните конфигурацию!');
+                    return;
+                }
+
                 try {
-                    // Получаем весь HTML документа
-                    let html = document.documentElement.outerHTML;
-                    
-                    // Удаляем панель настройки
-                    html = html.replace(
-                        /<div class="config-panel"[^>]*>[\s\S]*?<!-- MAIN INTERFACE -->/,
-                        '<!-- MAIN INTERFACE -->'
-                    );
-                    
-                    // Удаляем success message
-                    html = html.replace(
-                        /<div class="success-message"[^>]*>[\s\S]*?<\/div>/,
-                        ''
-                    );
-                    
-                    // Удаляем класс config-mode
-                    html = html.replace('class="config-mode"', '');
-                    
-                    // Подставляем assistant_id в URL параметры
-                    html = html.replace(
-                        /const ASSISTANT_ID = urlParams\.get\('assistant'\) \|\| null;/,
-                        `const ASSISTANT_ID = '${ASSISTANT_ID}';`
-                    );
-                    
-                    // Удаляем логику определения config режима
-                    html = html.replace(
-                        /const isConfigMode = [\s\S]*?console\.log\('\[EMBED\] Assistant ID:', ASSISTANT_ID\);/,
-                        `const isConfigMode = false;\nconst ASSISTANT_ID = '${ASSISTANT_ID}';\nconsole.log('[EMBED] Assistant ID:', ASSISTANT_ID);`
-                    );
-                    
-                    // Копируем в буфер обмена
-                    navigator.clipboard.writeText(html).then(() => {
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                    // Готовый iframe код для вставки
+                    const embedCode = `<!-- Voicyfy JARVIS AI Widget -->
+<iframe
+    src="${window.currentEmbedUrl}"
+    width="100%"
+    height="800px"
+    frameborder="0"
+    allow="microphone"
+    style="border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
+</iframe>
+<!-- Embed code: ${window.currentEmbedCode} -->`;
+
+                    // Копируем в буфер
+                    navigator.clipboard.writeText(embedCode).then(() => {
+                        showSuccess('✅ Iframe код скопирован! Вставьте на ваш сайт');
                     }).catch(err => {
                         // Fallback для старых браузеров
                         const textarea = document.createElement('textarea');
-                        textarea.value = html;
+                        textarea.value = embedCode;
                         textarea.style.position = 'fixed';
                         textarea.style.opacity = '0';
                         document.body.appendChild(textarea);
                         textarea.select();
                         document.execCommand('copy');
                         document.body.removeChild(textarea);
-                        showSuccess('✅ HTML код скопирован в буфер обмена!');
+                        showSuccess('✅ Iframe код скопирован!');
                     });
-                    
+
                 } catch (error) {
-                    console.error('[CONFIG] Error copying HTML:', error);
-                    alert('❌ Ошибка при копировании кода: ' + error.message);
+                    console.error('[CONFIG] Copy error:', error);
+                    alert('❌ Ошибка копирования: ' + error.message);
                 }
             };
             
@@ -1405,13 +1734,61 @@
                     .replace(/\n/g, '<br>');
             }
 
+            // Функция копирования ответа ИИ
+            let currentLLMContent = '';
+
+            function copyLLMResponse() {
+                if (!currentLLMContent) {
+                    showSuccess('❌ Нет контента для копирования', 'error');
+                    return;
+                }
+
+                const copyButton = document.getElementById('copyLlmButton');
+                const copyButtonText = document.getElementById('copyButtonText');
+                const copyIcon = copyButton.querySelector('i');
+
+                try {
+                    // Копируем текст без HTML тегов
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = currentLLMContent;
+                    const plainText = tempDiv.textContent || tempDiv.innerText || '';
+
+                    navigator.clipboard.writeText(plainText).then(() => {
+                        // Анимация успеха
+                        copyButton.classList.add('copied');
+                        copyIcon.className = 'fas fa-check';
+                        copyButtonText.textContent = 'Скопировано!';
+
+                        setTimeout(() => {
+                            copyButton.classList.remove('copied');
+                            copyIcon.className = 'fas fa-copy';
+                            copyButtonText.textContent = 'Копировать';
+                        }, 2000);
+
+                    }).catch(err => {
+                        showSuccess('❌ Ошибка копирования', 'error');
+                    });
+
+                } catch (error) {
+                    console.error('[COPY] Error:', error);
+                    showSuccess('❌ Ошибка копирования', 'error');
+                }
+            }
+
             function displayLLMContent(content, model = 'GPT-4o-mini') {
                 log('✅ Displaying LLM content');
-                
+
                 const formattedContent = formatMarkdown(content);
                 llmContent.innerHTML = `<div class="fade-in">${formattedContent}</div>`;
                 llmMeta.textContent = model;
                 llmContent.scrollTop = 0;
+
+                // Сохраняем контент и показываем кнопку копирования
+                currentLLMContent = formattedContent;
+                const copyButton = document.getElementById('copyLlmButton');
+                if (copyButton) {
+                    copyButton.style.display = 'flex';
+                }
             }
 
             function updateStatus(status, text, className) {
@@ -2111,18 +2488,10 @@
             // ============================================================================
             
             async function connectWebSocket() {
-                // ✅ В режиме конфигурации без assistant_id не подключаемся
-                if (isConfigMode && !ASSISTANT_ID) {
-                    log('Config mode without assistant_id - waiting for configuration');
-                    updateStatus('connecting', 'Выберите ассистента', 'connecting');
-                    return;
-                }
-
+                // ✅ Без assistant_id не подключаемся
                 if (!ASSISTANT_ID) {
-                    showError(
-                        'Отсутствует ID ассистента',
-                        'Не удалось определить конфигурацию ассистента.'
-                    );
+                    log('Waiting for assistant configuration');
+                    updateStatus('connecting', 'Выберите и сохраните ассистента', 'connecting');
                     return;
                 }
 
@@ -2315,19 +2684,41 @@
             });
 
             // ============================================================================
+            // MOBILE MENU HANDLERS
+            // ============================================================================
+
+            mobileMenuToggle.addEventListener('click', function() {
+                sidebar.classList.toggle('mobile-open');
+                sidebarOverlay.classList.toggle('show');
+            });
+
+            sidebarOverlay.addEventListener('click', function() {
+                sidebar.classList.remove('mobile-open');
+                sidebarOverlay.classList.remove('show');
+            });
+
+            // ============================================================================
             // INITIALIZATION
             // ============================================================================
-            
-            log('🚀 Voice AI Assistant Starting...');
-            log(`Mode: ${isConfigMode ? 'CONFIG' : 'EMBEDDED'}`);
-            log(`Assistant ID: ${ASSISTANT_ID || 'Not set'}`);
+
+            log('🚀 JARVIS AI Interface Starting...');
+            log(`Assistant ID: ${ASSISTANT_ID || 'Not configured yet'}`);
             log(`Server URL: ${SERVER_URL}`);
-            
+
             createCircularVisualizer();
             initThreeJS();
-            
-            // Подключаемся только если НЕ config режим или если уже выбран assistant
-            if (!isConfigMode || ASSISTANT_ID) {
+
+            // Определяем режим работы и инициализируем соответственно
+            if (!ASSISTANT_ID) {
+                // Режим настройки - показываем config panel и понятное состояние
+                document.body.classList.remove('embed-mode');
+                updateStatus('connecting', 'Выберите и сохраните ассистента', 'connecting');
+                if (jarvisSphere) {
+                    jarvisSphere.classList.remove('listening', 'speaking', 'processing');
+                }
+            } else {
+                // Embed режим - скрываем config panel и подключаемся
+                document.body.classList.add('embed-mode');
                 connectWebSocket();
             }
         });

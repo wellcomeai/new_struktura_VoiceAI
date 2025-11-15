@@ -7,15 +7,26 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel
 import uuid
 
 from backend.db.session import get_db
 from backend.models.embed_config import EmbedConfig
 from backend.models.assistant import AssistantConfig
 from backend.models.user import User
-from backend.core.dependencies import get_current_user  # ✅ ИСПРАВЛЕНО: было backend.api.dependencies
+from backend.core.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/embeds", tags=["Embeds"])
+
+
+# ==================================================================================
+# 📦 PYDANTIC MODELS
+# ==================================================================================
+
+class CreateEmbedRequest(BaseModel):
+    """Request model for creating embed config"""
+    assistant_id: str
+    custom_name: Optional[str] = None
 
 
 # ==================================================================================
@@ -24,8 +35,7 @@ router = APIRouter(prefix="/api/embeds", tags=["Embeds"])
 
 @router.post("/")
 async def create_embed_config(
-    assistant_id: str,
-    custom_name: Optional[str] = None,
+    request: CreateEmbedRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -39,7 +49,7 @@ async def create_embed_config(
     """
     # Проверяем что assistant принадлежит пользователю
     assistant = db.query(AssistantConfig).filter(
-        AssistantConfig.id == uuid.UUID(assistant_id),
+        AssistantConfig.id == uuid.UUID(request.assistant_id),
         AssistantConfig.user_id == current_user.id
     ).first()
     
@@ -49,8 +59,8 @@ async def create_embed_config(
     # Создаем конфигурацию
     embed_config = EmbedConfig(
         user_id=current_user.id,
-        assistant_id=uuid.UUID(assistant_id),
-        custom_name=custom_name
+        assistant_id=uuid.UUID(request.assistant_id),
+        custom_name=request.custom_name
     )
     
     db.add(embed_config)
