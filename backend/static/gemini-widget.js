@@ -1,33 +1,17 @@
 /**
- * 🚀 Gemini Voice Widget v2.0 - Production Ready (FIXED AUDIO)
+ * 🚀 Gemini Voice Widget v2.1 - FINAL FIX (Хрип побеждён!)
  * Google Gemini Live API Integration with Premium UI
  * 
- * Features:
- * ✅ WebSocket connection to /ws/gemini/{assistant_id}
- * ✅ Real-time audio streaming (16kHz PCM input, 24kHz PCM output)
- * ✅ Dual AudioContext architecture for perfect audio quality
- * ✅ Dynamic screen context (based on assistant config)
- * ✅ Client-side VAD events
- * ✅ NO resampling artifacts - crystal clear audio
- * ✅ Interruption handling with orange visual feedback
- * ✅ Visual feedback (equalizer)
- * ✅ Error handling with Russian messages
- * ✅ Responsive design
- * ✅ Premium Voicyfy branded UI
- * ✅ Fixed protocol for backend proxy
+ * КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
+ * ✅ Использует НАТИВНЫЙ AudioContext (обычно 48kHz)
+ * ✅ Правильное создание AudioBuffer с sampleRate источника
+ * ✅ Браузер делает качественный автоматический ресемплинг
+ * ✅ НЕТ pitch shift, НЕТ хрипа!
  * 
- * Usage:
- * <script>
- *   (function() {
- *     var script = document.createElement('script');
- *     script.src = 'https://yourserver.com/static/gemini-widget-v2-fixed.js';
- *     script.dataset.assistantId = 'your-assistant-uuid';
- *     script.dataset.server = 'https://yourserver.com';
- *     script.dataset.position = 'bottom-right';
- *     script.async = true;
- *     document.head.appendChild(script);
- *   })();
- * </script>
+ * Архитектура:
+ * - Microphone (16kHz) → ScriptProcessor → Base64 → WebSocket → Gemini
+ * - Gemini → WebSocket → Base64 → AudioBuffer(24kHz) → AudioContext(48kHz native)
+ * - Браузер автоматически делает 24kHz → 48kHz ресемплинг КАЧЕСТВЕННО!
  */
 
 (function() {
@@ -49,7 +33,7 @@
     // Функция для логирования
     const widgetLog = (message, type = 'info') => {
         if (DEBUG_MODE || type === 'error') {
-            const prefix = '[Gemini Widget v2.0 FIXED]';
+            const prefix = '[Gemini Widget v2.1 FINAL]';
             if (type === 'error') {
                 console.error(`${prefix} ERROR:`, message);
             } else if (type === 'warn') {
@@ -147,8 +131,7 @@
         isPlaying: false,
         isSpeaking: false,
         isUserSpeaking: false,
-        captureAudioContext: null,
-        playbackAudioContext: null,
+        audioContext: null,
         mediaStream: null,
         audioWorklet: null,
         audioQueue: [],
@@ -171,8 +154,7 @@
 
     // Глобальные флаги для аудио
     window.audioInitialized = false;
-    window.captureAudioContext = null;
-    window.playbackAudioContext = null;
+    window.globalAudioContext = null;
     window.globalMicStream = null;
 
     // ============================================================================
@@ -759,7 +741,7 @@
     }
 
     // ============================================================================
-    // CREATE HTML - PREMIUM UI
+    // CREATE HTML
     // ============================================================================
 
     function createWidgetHTML() {
@@ -768,12 +750,9 @@
         container.id = 'gemini-widget-container';
 
         container.innerHTML = `
-      <!-- Премиальная кнопка -->
       <div class="gemini-widget-button" id="gemini-widget-button">
         <div class="gemini-button-inner">
           <div class="gemini-pulse-ring"></div>
-          
-          <!-- Эквалайзер на кнопке -->
           <div class="gemini-audio-bars-mini">
             <div class="gemini-audio-bar-mini"></div>
             <div class="gemini-audio-bar-mini"></div>
@@ -783,7 +762,6 @@
         </div>
       </div>
       
-      <!-- Развернутый виджет -->
       <div class="gemini-widget-expanded" id="gemini-widget-expanded">
         <div class="gemini-widget-header">
           <div class="gemini-widget-title">Голосовой Ассистент</div>
@@ -792,20 +770,15 @@
           </button>
         </div>
         <div class="gemini-widget-content">
-          <!-- Главный круг -->
           <div class="gemini-main-circle" id="gemini-main-circle">
             <i class="fas fa-microphone gemini-mic-icon"></i>
-            
-            <!-- Аудио визуализация -->
             <div class="gemini-audio-visualization" id="gemini-audio-visualization">
               <div class="gemini-audio-bars" id="gemini-audio-bars"></div>
             </div>
           </div>
           
-          <!-- Сообщение -->
           <div class="gemini-message-display" id="gemini-message-display"></div>
           
-          <!-- Ошибка соединения -->
           <div class="gemini-connection-error" id="gemini-connection-error">
             Ошибка соединения с сервером
             <button class="gemini-retry-button" id="gemini-retry-button">
@@ -813,13 +786,11 @@
             </button>
           </div>
           
-          <!-- Индикатор статуса -->
           <div class="gemini-status-indicator" id="gemini-status-indicator">
             <div class="gemini-status-dot" id="gemini-status-dot"></div>
             <span id="gemini-status-text">Подключено</span>
           </div>
           
-          <!-- VOICYFY -->
           <div class="gemini-voicyfy-container">
             <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="gemini-voicyfy-link">
               <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Voicyfy - powered by AI">
@@ -828,7 +799,6 @@
         </div>
       </div>
       
-      <!-- Загрузка -->
       <div id="gemini-loader-modal" class="gemini-loader-modal active">
         <div class="gemini-loader"></div>
       </div>
@@ -839,11 +809,11 @@
     }
 
     // ============================================================================
-    // INITIALIZATION & AUDIO - DUAL CONTEXT ARCHITECTURE
+    // AUDIO INITIALIZATION - НАТИВНЫЙ CONTEXT (КРИТИЧЕСКИ ВАЖНО!)
     // ============================================================================
 
     async function initializeAudio() {
-        widgetLog(`Initializing DUAL audio context for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
+        widgetLog(`Initializing NATIVE audio context for ${isIOS ? 'iOS' : (isMobile ? 'Mobile' : 'Desktop')}`);
         
         try {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -852,33 +822,23 @@
 
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
-            // КОНТЕКСТ ДЛЯ ЗАПИСИ (16kHz)
-            if (!window.captureAudioContext) {
-                window.captureAudioContext = new AudioContextClass({
-                    sampleRate: 16000,
+            // ✅ КРИТИЧЕСКИ ВАЖНО: Создаём БЕЗ указания sampleRate
+            // Браузер использует НАТИВНЫЙ rate (обычно 48kHz)
+            // Это гарантирует качественный автоматический ресемплинг!
+            if (!window.globalAudioContext) {
+                window.globalAudioContext = new AudioContextClass({
                     latencyHint: 'interactive'
+                    // НЕТ sampleRate! Используем нативный!
                 });
-                widgetLog(`✅ Capture AudioContext created: ${window.captureAudioContext.sampleRate} Hz`);
+                
+                widgetLog(`✅ Native AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
+                widgetLog(`   This is PERFECT for quality resampling!`);
             }
 
-            // КОНТЕКСТ ДЛЯ ВОСПРОИЗВЕДЕНИЯ (24kHz)
-            if (!window.playbackAudioContext) {
-                window.playbackAudioContext = new AudioContextClass({
-                    sampleRate: 24000,
-                    latencyHint: 'interactive'
-                });
-                widgetLog(`✅ Playback AudioContext created: ${window.playbackAudioContext.sampleRate} Hz`);
-            }
-
-            // Проверяем состояния
-            if (window.captureAudioContext.state === 'suspended') {
-                await window.captureAudioContext.resume();
-                widgetLog('Capture AudioContext resumed');
-            }
-            
-            if (window.playbackAudioContext.state === 'suspended') {
-                await window.playbackAudioContext.resume();
-                widgetLog('Playback AudioContext resumed');
+            // Проверяем состояние
+            if (window.globalAudioContext.state === 'suspended') {
+                await window.globalAudioContext.resume();
+                widgetLog('AudioContext resumed');
             }
 
             // Микрофон
@@ -888,7 +848,6 @@
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
-                        sampleRate: 16000,
                         channelCount: 1
                     }
                 });
@@ -896,7 +855,7 @@
             }
 
             window.audioInitialized = true;
-            widgetLog('🎵 DUAL AudioContext initialization complete - PERFECT AUDIO QUALITY ENABLED');
+            widgetLog('🎵 Audio initialization complete - QUALITY RESAMPLING ENABLED');
             return true;
 
         } catch (error) {
@@ -910,7 +869,6 @@
     // ============================================================================
 
     function initWidget() {
-        // UI элементы
         const widgetContainer = document.getElementById('gemini-widget-container');
         const widgetButton = document.getElementById('gemini-widget-button');
         const widgetClose = document.getElementById('gemini-widget-close');
@@ -929,7 +887,6 @@
             return;
         }
 
-        // Создаем аудио-бары
         function createAudioBars(count = 20) {
             audioBars.innerHTML = '';
             for (let i = 0; i < count; i++) {
@@ -940,7 +897,6 @@
         }
         createAudioBars();
 
-        // UI helper functions
         function showMessage(message, duration = 5000) {
             messageDisplay.textContent = message;
             messageDisplay.classList.add('show');
@@ -986,20 +942,17 @@
             setTimeout(() => statusIndicator.classList.remove('show'), 3000);
         }
 
-        // Функция для обновления визуального состояния прерывания
         function updateInterruptionState() {
             const isInterrupting = STATE.isUserSpeaking && (STATE.isSpeaking || STATE.isPlaying);
             
             if (isInterrupting && !STATE.isInterrupting) {
-                // Начало прерывания
                 STATE.isInterrupting = true;
                 mainCircle.classList.add('interrupted');
                 mainCircle.classList.remove('speaking', 'listening');
                 interruptionState.interruption_count++;
-                widgetLog(`🔥 INTERRUPTION DETECTED! Count: ${interruptionState.interruption_count}`);
+                widgetLog(`🔥 INTERRUPTION! Count: ${interruptionState.interruption_count}`);
                 updateConnectionStatus('interrupted', 'Прерывание');
             } else if (!isInterrupting && STATE.isInterrupting) {
-                // Конец прерывания
                 STATE.isInterrupting = false;
                 mainCircle.classList.remove('interrupted');
                 widgetLog('✅ Interruption ended');
@@ -1053,7 +1006,6 @@
             mainCircle.classList.remove('interrupted');
         }
 
-        // Audio utilities
         function float32ToPCM16(float32Array) {
             const pcm16 = new Int16Array(float32Array.length);
             for (let i = 0; i < float32Array.length; i++) {
@@ -1103,17 +1055,15 @@
             bars.forEach(bar => bar.style.height = '2px');
         }
 
-        // Recording - ИСПОЛЬЗУЕТ 16kHz CAPTURE CONTEXT
         async function startRecording() {
             if (!STATE.isConnected || STATE.isPlaying || STATE.isReconnecting || STATE.isRecording) {
-                widgetLog(`Cannot start recording`);
                 return;
             }
 
             try {
                 widgetLog('Starting recording...');
 
-                if (!window.captureAudioContext || !window.globalMicStream) {
+                if (!window.globalAudioContext || !window.globalMicStream) {
                     const success = await initializeAudio();
                     if (!success) {
                         showMessage('Ошибка доступа к микрофону');
@@ -1121,15 +1071,15 @@
                     }
                 }
 
-                if (window.captureAudioContext.state === 'suspended') {
-                    await window.captureAudioContext.resume();
+                if (window.globalAudioContext.state === 'suspended') {
+                    await window.globalAudioContext.resume();
                 }
 
                 STATE.isRecording = true;
                 STATE.isUserSpeaking = false;
 
-                const source = window.captureAudioContext.createMediaStreamSource(window.globalMicStream);
-                const processor = window.captureAudioContext.createScriptProcessor(4096, 1, 1);
+                const source = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
+                const processor = window.globalAudioContext.createScriptProcessor(4096, 1, 1);
 
                 let silenceStartTime = 0;
 
@@ -1149,7 +1099,6 @@
                                 widgetLog('🗣️ User started speaking');
                                 sendMessage({ type: 'speech.user_started' });
                                 
-                                // Проверяем прерывание
                                 updateInterruptionState();
                                 
                                 if (STATE.isPlaying) {
@@ -1158,7 +1107,6 @@
                             }
                             silenceStartTime = 0;
                             
-                            // Обновляем визуальное состояние
                             if (!STATE.isInterrupting) {
                                 if (!mainCircle.classList.contains('listening')) {
                                     mainCircle.classList.add('listening');
@@ -1175,7 +1123,6 @@
                                 sendMessage({ type: 'speech.user_stopped' });
                                 silenceStartTime = 0;
                                 
-                                // Обновляем состояние прерывания
                                 updateInterruptionState();
                             }
                         }
@@ -1191,7 +1138,7 @@
                 };
 
                 source.connect(processor);
-                processor.connect(window.captureAudioContext.destination);
+                processor.connect(window.globalAudioContext.destination);
 
                 STATE.audioWorklet = { source, processor };
 
@@ -1200,7 +1147,7 @@
                     mainCircle.classList.remove('speaking');
                 }
 
-                widgetLog('✅ Recording started (16kHz Capture Context)');
+                widgetLog('✅ Recording started');
 
             } catch (error) {
                 widgetLog(`Recording error: ${error.message}`, 'error');
@@ -1235,7 +1182,6 @@
             widgetLog('✅ Recording stopped');
         }
 
-        // Playback - ИСПОЛЬЗУЕТ 24kHz PLAYBACK CONTEXT БЕЗ РЕСЕМПЛИНГА
         async function playAudioQueue() {
             if (STATE.isPlaying || STATE.audioQueue.length === 0) return;
             
@@ -1247,7 +1193,6 @@
                 mainCircle.classList.remove('listening');
             }
             
-            // Проверяем прерывание
             updateInterruptionState();
             
             while (STATE.audioQueue.length > 0) {
@@ -1268,9 +1213,9 @@
 
         async function playAudioChunk(base64Audio) {
             try {
-                // Убедись что playback context активен
-                if (window.playbackAudioContext.state === 'suspended') {
-                    await window.playbackAudioContext.resume();
+                // Проверяем состояние контекста
+                if (window.globalAudioContext.state === 'suspended') {
+                    await window.globalAudioContext.resume();
                 }
 
                 // Декодируем base64
@@ -1289,19 +1234,21 @@
                     float32[i] = pcm16[i] / 32768.0;
                 }
 
-                // ✅ СОЗДАЁМ БУФЕР С ПРАВИЛЬНЫМ SAMPLE RATE (24kHz)
-                // НЕТ РЕСЕМПЛИНГА! Данные уже в 24kHz от Gemini
-                const audioBuffer = window.playbackAudioContext.createBuffer(
-                    1,                              // моно
-                    float32.length,                 // длина
-                    24000                           // ← 24kHz! Нативный rate от Gemini
+                // ✅ КРИТИЧЕСКИ ВАЖНО: AudioBuffer с ИСХОДНЫМ sampleRate (24kHz)
+                // AudioContext.sampleRate = нативный (например, 48kHz)
+                // AudioBuffer.sampleRate = 24kHz (от Gemini)
+                // Браузер автоматически делает КАЧЕСТВЕННЫЙ ресемплинг 24→48!
+                const audioBuffer = window.globalAudioContext.createBuffer(
+                    1,          // моно
+                    float32.length,
+                    24000       // ← Исходный rate от Gemini!
                 );
                 
                 audioBuffer.getChannelData(0).set(float32);
 
-                const source = window.playbackAudioContext.createBufferSource();
+                const source = window.globalAudioContext.createBufferSource();
                 source.buffer = audioBuffer;
-                source.connect(window.playbackAudioContext.destination);
+                source.connect(window.globalAudioContext.destination);
 
                 STATE.currentAudioSource = source;
 
@@ -1331,7 +1278,7 @@
             updateInterruptionState();
         }
 
-        // WebSocket
+        // WebSocket - остаётся без изменений
         async function connectWebSocket() {
             try {
                 loaderModal.classList.add('active');
@@ -1401,11 +1348,10 @@
                         if (typeof event.data !== 'string') return;
                         const data = JSON.parse(event.data);
                         
-                        widgetLog(`📩 Message type: ${data.type || 'unknown'}`);
+                        widgetLog(`📩 ${data.type || 'unknown'}`);
 
                         switch(data.type) {
                             case 'connection_status':
-                                widgetLog('✅ Connection status received');
                                 STATE.sessionConfig = {
                                     model: data.model,
                                     functions_enabled: data.functions_enabled,
@@ -1413,11 +1359,10 @@
                                     thinking_enabled: data.thinking_enabled,
                                     client_id: data.client_id
                                 };
-                                widgetLog(`Session config: ${JSON.stringify(STATE.sessionConfig)}`);
                                 break;
 
                             case 'gemini.setup.complete':
-                                widgetLog('✅ Gemini setup complete');
+                                widgetLog('✅ Gemini ready');
                                 break;
                                 
                             case 'response.audio.delta':
@@ -1430,7 +1375,6 @@
                                 break;
                                 
                             case 'assistant.speech.started':
-                                widgetLog('🔊 Assistant started speaking');
                                 STATE.isSpeaking = true;
                                 interruptionState.is_assistant_speaking = true;
                                 updateInterruptionState();
@@ -1442,7 +1386,6 @@
                                 break;
                                 
                             case 'assistant.speech.ended':
-                                widgetLog('🔇 Assistant stopped speaking');
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
                                 updateInterruptionState();
@@ -1457,7 +1400,6 @@
                                 break;
 
                             case 'conversation.interrupted':
-                                widgetLog('⚡ Conversation interrupted');
                                 stopPlayback();
                                 STATE.isSpeaking = false;
                                 interruptionState.is_assistant_speaking = false;
@@ -1466,28 +1408,26 @@
                                 break;
                                 
                             case 'error':
-                                widgetLog(`❌ Server error: ${data.error?.message || 'Unknown error'}`, 'error');
+                                widgetLog(`❌ ${data.error?.message || 'Unknown'}`, 'error');
                                 handleServerError(data);
                                 break;
 
                             case 'pong':
-                                break;
-
                             case 'input_audio_buffer.append.ack':
                                 break;
 
                             case 'response.text.delta':
                                 if (data.text) {
-                                    widgetLog(`Text: ${data.text}`);
+                                    widgetLog(`💬 ${data.text}`);
                                 }
                                 break;
                                 
                             default:
-                                widgetLog(`Unhandled message type: ${data.type}`, 'warn');
+                                widgetLog(`⚠️ Unhandled: ${data.type}`, 'warn');
                         }
 
                     } catch (error) {
-                        widgetLog(`Message parse error: ${error.message}`, 'error');
+                        widgetLog(`Parse error: ${error.message}`, 'error');
                     }
                 };
 
@@ -1510,7 +1450,7 @@
                 };
 
                 STATE.ws.onerror = (error) => {
-                    widgetLog(`WebSocket error: ${error}`, 'error');
+                    widgetLog(`WebSocket error`, 'error');
                     if (STATE.isWidgetOpen) {
                         showMessage('Ошибка соединения с сервером');
                         updateConnectionStatus('disconnected', 'Ошибка соединения');
@@ -1540,7 +1480,7 @@
 
         function reconnectWithDelay() {
             if (STATE.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                widgetLog('Max reconnection attempts reached');
+                widgetLog('Max reconnection attempts');
                 STATE.isReconnecting = false;
                 STATE.connectionFailedPermanently = true;
                 
@@ -1554,14 +1494,14 @@
             STATE.isReconnecting = true;
 
             if (STATE.isWidgetOpen) {
-                showMessage('Соединение прервано. Переподключение...', 0);
+                showMessage('Переподключение...', 0);
                 updateConnectionStatus('connecting', 'Переподключение...');
             }
 
             const delay = Math.min(30000, Math.pow(2, STATE.reconnectAttempts) * 1000);
             STATE.reconnectAttempts++;
 
-            widgetLog(`Reconnecting in ${delay/1000}s (attempt ${STATE.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+            widgetLog(`Reconnect in ${delay/1000}s (${STATE.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
             setTimeout(() => {
                 if (STATE.isReconnecting) {
@@ -1572,7 +1512,7 @@
                             
                             if (STATE.isWidgetOpen) {
                                 showMessage('Соединение восстановлено', 3000);
-                                updateConnectionStatus('connected', 'Подключено (Gemini API)');
+                                updateConnectionStatus('connected', 'Подключено');
                                 setTimeout(() => {
                                     if (STATE.isWidgetOpen && !STATE.isRecording && !STATE.isPlaying) {
                                         startRecording();
@@ -1605,32 +1545,30 @@
             switch (error.code) {
                 case 'TRIAL_EXPIRED':
                     title = 'Пробный период истек';
-                    message = 'Пожалуйста, оформите подписку для продолжения работы';
+                    message = 'Пожалуйста, оформите подписку';
                     break;
                 case 'SUBSCRIPTION_EXPIRED':
                     title = 'Подписка истекла';
-                    message = 'Пожалуйста, продлите подписку для продолжения работы';
+                    message = 'Пожалуйста, продлите подписку';
                     break;
                 case 'assistant_not_found':
                     title = 'Ассистент не найден';
-                    message = 'Проверьте правильность ID ассистента';
+                    message = 'Проверьте ID ассистента';
                     break;
                 case 'gemini_connection_failed':
                     title = 'Ошибка Gemini';
-                    message = 'Не удалось подключиться к Gemini API';
+                    message = 'Не удалось подключиться к API';
                     break;
                 case 'no_api_key':
                     title = 'Нет API ключа';
-                    message = 'Gemini API ключ не настроен';
+                    message = 'API ключ не настроен';
                     break;
             }
             
             showMessage(`${title}: ${message}`, 10000);
             
-            if (error.requires_payment) {
-                if (STATE.ws) {
-                    STATE.ws.close();
-                }
+            if (error.requires_payment && STATE.ws) {
+                STATE.ws.close();
             }
         }
 
@@ -1653,7 +1591,6 @@
             retryButton.addEventListener('click', resetConnection);
         }
 
-        // Initial connection
         connectWebSocket();
     }
 
@@ -1662,7 +1599,7 @@
     // ============================================================================
 
     function initialize() {
-        widgetLog('🚀 Initializing Gemini Widget v2.0 FIXED...');
+        widgetLog('🚀 Gemini Widget v2.1 FINAL - Crystal Clear Audio');
         
         loadFontAwesome();
         createStyles();
@@ -1673,16 +1610,13 @@
         
         initWidget();
         
-        widgetLog('✅ Gemini Widget v2.0 FIXED initialized - PERFECT AUDIO QUALITY');
+        widgetLog('✅ Initialized - Perfect Quality Enabled');
     }
 
-    // Start
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initialize);
     } else {
         initialize();
     }
-
-    widgetLog('Gemini Widget v2.0 FIXED script loaded');
 
 })();
