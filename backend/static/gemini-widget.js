@@ -1,18 +1,30 @@
 /**
- * 🚀 Gemini Voice Widget v3.0 - PRODUCTION READY
+ * 🚀 Gemini Voice Widget v1.0 - Production Ready
  * Google Gemini Live API Integration
  * 
- * ✅ Auto-start recording after setup.complete
- * ✅ Proper interruption handling with separate user/assistant flags
- * ✅ iOS-compatible audio playback
- * ✅ Global AudioContext + MediaStream (initialized once)
- * ✅ Auto-return to recording after response
- * ✅ Yellow interrupted animation
- * ✅ Clean state management
+ * Features:
+ * ✅ WebSocket connection to /ws/gemini/{assistant_id}
+ * ✅ Real-time audio streaming (16kHz PCM)
+ * ✅ Dynamic screen context (based on assistant config)
+ * ✅ Client-side VAD events
+ * ✅ Audio resampling (24kHz → 16kHz)
+ * ✅ Interruption handling
+ * ✅ Visual feedback (equalizer)
+ * ✅ Error handling with Russian messages
+ * ✅ Responsive design
  * 
- * @version 3.0.0
- * @author WellcomeAI Team
- * @license MIT
+ * Usage:
+ * <script>
+ *   (function() {
+ *     var script = document.createElement('script');
+ *     script.src = 'https://yourserver.com/static/gemini-widget.js';
+ *     script.dataset.assistantId = 'your-assistant-uuid';
+ *     script.dataset.server = 'https://yourserver.com';
+ *     script.dataset.position = 'bottom-right';
+ *     script.async = true;
+ *     document.head.appendChild(script);
+ *   })();
+ * </script>
  */
 
 (function() {
@@ -32,20 +44,28 @@
         audio: {
             inputSampleRate: 16000,      // Gemini expects 16kHz
             outputSampleRate: 24000,     // Gemini sends 24kHz
-            playbackSampleRate: 24000,   // Keep as is (no resample)
+            playbackSampleRate: 16000,   // Downsampled for playback
             channelCount: 1,
             bitsPerSample: 16,
             chunkDuration: 100,          // ms
             maxBufferSize: 96000
         },
         
+        // Screen capture
+        screen: {
+            enabled: false,              // Динамически из конфига
+            interval: 5000,              // 5 секунд
+            quality: 0.7,
+            maxWidth: 1280,
+            maxHeight: 720
+        },
+        
         // VAD
         vad: {
             enabled: true,
             silenceThreshold: -45,       // dB
-            silenceDuration: 900,        // ms - optimized
-            speechThreshold: -38,        // dB
-            minSpeechDuration: 200       // ms - ignore clicks
+            silenceDuration: 500,        // ms
+            speechThreshold: -40         // dB
         },
         
         // WebSocket
@@ -57,12 +77,11 @@
         
         // UI
         colors: {
-            primary: '#4a86e8',
+            primary: '#8B5CF6',
             gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             success: '#10B981',
             error: '#EF4444',
-            warning: '#F59E0B',
-            interrupted: '#d97706'  // Yellow for interruption
+            warning: '#F59E0B'
         }
     };
 
@@ -73,49 +92,31 @@
     const STATE = {
         ws: null,
         isConnected: false,
-        isGeminiReady: false,           // ✅ NEW: Ready flag after setup.complete
         isRecording: false,
         isPlaying: false,
-        audioContext: null,              // ✅ Global AudioContext
-        mediaStream: null,               // ✅ Global MediaStream
+        isSpeaking: false,
+        audioContext: null,
+        mediaStream: null,
         audioWorklet: null,
         audioQueue: [],
-        audioChunksBuffer: [],
         currentAudioSource: null,
+        screenCaptureInterval: null,
         pingInterval: null,
         reconnectAttempts: 0,
         lastSpeechTime: 0,
-        speechStartTime: 0,
+        lastSilenceTime: 0,
+        sessionConfig: null,
         errorState: null
     };
-
-    // ✅ NEW: Interruption state with separate flags
-    const INTERRUPTION_STATE = {
-        is_assistant_speaking: false,
-        is_user_speaking: false,
-        interruption_count: 0,
-        last_interruption_time: 0,
-        current_audio_elements: []       // Array of Audio elements for interruption
-    };
-
-    // ✅ Global audio initialization flags
-    window.audioInitialized = false;
-    window.globalAudioContext = null;
-    window.globalMicStream = null;
-    window.silentAudioBuffer = null;     // For iOS unlock
-
-    // Determine device type
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const isAndroid = /Android/i.test(navigator.userAgent);
 
     // ============================================================================
     // INITIALIZATION
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing v3.0 PRODUCTION...');
+        console.log('[GEMINI-WIDGET] Initializing...');
         
+        // Получаем конфигурацию из data-атрибутов
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
         
@@ -129,99 +130,32 @@
         CONFIG.position = scriptTag.dataset.position || 'bottom-right';
 
         if (!CONFIG.assistantId || !CONFIG.serverUrl) {
-            console.error('[GEMINI-WIDGET] Missing required parameters');
+            console.error('[GEMINI-WIDGET] Missing required parameters: assistantId, server');
             return;
         }
 
         console.log('[GEMINI-WIDGET] Config:', {
             assistantId: CONFIG.assistantId,
             server: CONFIG.serverUrl,
-            position: CONFIG.position,
-            device: isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))
+            position: CONFIG.position
         });
 
+        // Создаем UI
         createWidget();
         
-        // Initialize AudioContext on first user interaction
+        // Инициализируем AudioContext при первом взаимодействии
         document.addEventListener('click', initAudioContext, { once: true });
         document.addEventListener('touchstart', initAudioContext, { once: true });
     }
 
-    // ✅ Global AudioContext initialization (once)
-    async function initAudioContext() {
-        if (window.audioInitialized) return true;
+    function initAudioContext() {
+        if (STATE.audioContext) return;
         
-        console.log('[GEMINI-WIDGET] Initializing global AudioContext...');
+        STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            sampleRate: CONFIG.audio.inputSampleRate
+        });
         
-        try {
-            // 1. Create AudioContext
-            if (!window.globalAudioContext) {
-                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                window.globalAudioContext = new AudioContextClass({
-                    sampleRate: CONFIG.audio.playbackSampleRate,
-                    latencyHint: 'interactive'
-                });
-                console.log('[GEMINI-WIDGET] AudioContext created:', window.globalAudioContext.sampleRate, 'Hz');
-            }
-
-            // 2. Resume if suspended
-            if (window.globalAudioContext.state === 'suspended') {
-                await window.globalAudioContext.resume();
-                console.log('[GEMINI-WIDGET] AudioContext resumed');
-            }
-
-            // 3. Get microphone access
-            if (!window.globalMicStream) {
-                const constraints = {
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        sampleRate: CONFIG.audio.inputSampleRate,
-                        channelCount: 1
-                    }
-                };
-
-                window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-                console.log('[GEMINI-WIDGET] Microphone access granted');
-
-                // Handle stream end
-                window.globalMicStream.getAudioTracks().forEach(track => {
-                    track.onended = () => {
-                        console.log('[GEMINI-WIDGET] Microphone stream ended');
-                        window.globalMicStream = null;
-                        window.audioInitialized = false;
-                    };
-                });
-            }
-
-            // 4. iOS unlock - play silent buffer
-            if (isIOS && !window.silentAudioBuffer) {
-                try {
-                    window.silentAudioBuffer = window.globalAudioContext.createBuffer(1, 1, window.globalAudioContext.sampleRate);
-                    const channelData = window.silentAudioBuffer.getChannelData(0);
-                    channelData[0] = 0;
-                    
-                    const silentSource = window.globalAudioContext.createBufferSource();
-                    silentSource.buffer = window.silentAudioBuffer;
-                    silentSource.connect(window.globalAudioContext.destination);
-                    silentSource.start(0);
-                    
-                    console.log('[GEMINI-WIDGET iOS] Silent buffer played for unlock');
-                } catch (iosError) {
-                    console.warn('[GEMINI-WIDGET iOS] Silent buffer error:', iosError.message);
-                }
-            }
-
-            window.audioInitialized = true;
-            console.log('[GEMINI-WIDGET] ✅ Audio initialized successfully');
-            return true;
-
-        } catch (error) {
-            console.error('[GEMINI-WIDGET] Audio initialization error:', error.message);
-            showError('Ошибка микрофона', 'Не удалось получить доступ к микрофону');
-            return false;
-        }
+        console.log('[GEMINI-WIDGET] AudioContext initialized:', STATE.audioContext.sampleRate);
     }
 
     // ============================================================================
@@ -229,18 +163,21 @@
     // ============================================================================
 
     function createWidget() {
+        // Контейнер
         const container = document.createElement('div');
         container.id = 'gemini-voice-widget';
         container.className = `gemini-widget-container position-${CONFIG.position}`;
         
         container.innerHTML = `
             <style>
+                /* Reset */
                 #gemini-voice-widget * {
                     margin: 0;
                     padding: 0;
                     box-sizing: border-box;
                 }
 
+                /* Container */
                 .gemini-widget-container {
                     position: fixed;
                     z-index: 999999;
@@ -267,6 +204,7 @@
                     left: 20px;
                 }
 
+                /* Main Button */
                 .gemini-main-button {
                     width: 60px;
                     height: 60px;
@@ -299,11 +237,6 @@
                     animation: pulse-playing 2s ease-in-out infinite;
                 }
 
-                /* ✅ NEW: Interrupted animation (yellow) */
-                .gemini-main-button.interrupted {
-                    animation: pulse-interrupted 1s ease-in-out;
-                }
-
                 @keyframes pulse-recording {
                     0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); }
                     50% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.8); }
@@ -314,22 +247,12 @@
                     50% { box-shadow: 0 4px 20px rgba(16, 185, 129, 0.8); }
                 }
 
-                @keyframes pulse-interrupted {
-                    0%, 100% { 
-                        box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
-                        background: ${CONFIG.colors.gradient};
-                    }
-                    50% { 
-                        box-shadow: 0 4px 20px rgba(217, 119, 6, 0.9);
-                        background: linear-gradient(135deg, #f59e0b, #d97706);
-                    }
-                }
-
                 .gemini-button-icon {
                     color: white;
                     font-size: 24px;
                 }
 
+                /* Equalizer */
                 .gemini-equalizer {
                     position: absolute;
                     top: 50%;
@@ -361,6 +284,7 @@
                     50% { transform: scaleY(1.2); }
                 }
 
+                /* Status Indicator */
                 .gemini-status-indicator {
                     position: absolute;
                     top: -5px;
@@ -387,6 +311,7 @@
                     50% { opacity: 0.3; }
                 }
 
+                /* Error Message */
                 .gemini-error-message {
                     position: absolute;
                     bottom: 70px;
@@ -428,6 +353,7 @@
                     line-height: 1.4;
                 }
 
+                /* Branding */
                 .gemini-branding {
                     position: absolute;
                     bottom: -30px;
@@ -445,6 +371,7 @@
                     color: ${CONFIG.colors.primary};
                 }
 
+                /* Mobile Responsive */
                 @media (max-width: 768px) {
                     .gemini-widget-container {
                         bottom: 15px !important;
@@ -462,9 +389,11 @@
                 }
             </style>
 
+            <!-- Main Button -->
             <button class="gemini-main-button" id="gemini-btn" title="Голосовой помощник">
                 <i class="gemini-button-icon">🎤</i>
                 
+                <!-- Equalizer -->
                 <div class="gemini-equalizer" id="gemini-equalizer">
                     <div class="gemini-equalizer-bar"></div>
                     <div class="gemini-equalizer-bar"></div>
@@ -473,14 +402,17 @@
                     <div class="gemini-equalizer-bar"></div>
                 </div>
 
+                <!-- Status Indicator -->
                 <div class="gemini-status-indicator" id="gemini-status"></div>
             </button>
 
+            <!-- Error Message -->
             <div class="gemini-error-message" id="gemini-error">
                 <div class="gemini-error-title">Ошибка</div>
                 <div class="gemini-error-text" id="gemini-error-text"></div>
             </div>
 
+            <!-- Branding -->
             <a href="https://voicyfy.ru" target="_blank" class="gemini-branding">
                 <span>Powered by</span>
                 <strong>Voicyfy</strong>
@@ -488,7 +420,12 @@
         `;
 
         document.body.appendChild(container);
-        console.log('[GEMINI-WIDGET] ✅ UI created');
+
+        // Event listeners
+        const button = document.getElementById('gemini-btn');
+        button.addEventListener('click', handleButtonClick);
+        
+        console.log('[GEMINI-WIDGET] UI created');
     }
 
     // ============================================================================
@@ -501,14 +438,15 @@
         const equalizer = document.getElementById('gemini-equalizer');
         const status = document.getElementById('gemini-status');
         
-        button.classList.remove('recording', 'playing', 'interrupted');
+        // Remove all classes
+        button.classList.remove('recording', 'playing');
         equalizer.classList.remove('active');
         status.classList.remove('connected', 'error');
 
+        // Update based on state
         if (state === 'connected') {
             status.classList.add('connected');
             icon.textContent = '🎤';
-            icon.style.display = 'flex';
         } else if (state === 'recording') {
             button.classList.add('recording');
             equalizer.classList.add('active');
@@ -519,17 +457,9 @@
             equalizer.classList.add('active');
             icon.style.display = 'none';
             status.classList.add('connected');
-        } else if (state === 'interrupted') {
-            button.classList.add('interrupted');
-            status.classList.add('connected');
-            // Remove interrupted class after 1 second
-            setTimeout(() => {
-                button.classList.remove('interrupted');
-            }, 1000);
         } else if (state === 'error') {
             status.classList.add('error');
             icon.textContent = '❌';
-            icon.style.display = 'flex';
         } else {
             icon.textContent = '🎤';
             icon.style.display = 'flex';
@@ -563,26 +493,18 @@
     async function handleButtonClick() {
         console.log('[GEMINI-WIDGET] Button clicked');
         
-        // Initialize audio context if not done
-        if (!window.audioInitialized) {
-            const success = await initAudioContext();
-            if (!success) return;
+        if (!STATE.audioContext) {
+            initAudioContext();
         }
 
-        // Connect if not connected
         if (!STATE.isConnected) {
+            // Подключаемся
             await connectWebSocket();
-        }
-        // If connected but Gemini not ready, wait
-        else if (!STATE.isGeminiReady) {
-            console.log('[GEMINI-WIDGET] Waiting for Gemini setup...');
-        }
-        // If playing, do nothing (let it finish)
-        else if (STATE.isPlaying) {
-            console.log('[GEMINI-WIDGET] Audio playing, please wait...');
-        }
-        // If not recording, start
-        else if (!STATE.isRecording) {
+        } else if (STATE.isRecording) {
+            // Останавливаем запись
+            await stopRecording();
+        } else {
+            // Начинаем запись
             await startRecording();
         }
     }
@@ -620,74 +542,38 @@
         updateUI('connected');
         hideError();
         
-        // Start ping interval
+        // Start ping
         STATE.pingInterval = setInterval(() => {
             if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
                 sendMessage({ type: 'ping' });
             }
         }, CONFIG.ws.pingInterval);
-
-        // ✅ Note: We don't send session.create - server handles it
-        // We just wait for gemini.setup.complete event
-        console.log('[GEMINI-WIDGET] Waiting for setup.complete...');
     }
 
     function handleWSMessage(event) {
         try {
             const data = JSON.parse(event.data);
-            
-            // Don't log ACK messages
-            if (!data.type || !data.type.includes('.ack')) {
-                console.log('[GEMINI-WIDGET] Message:', data.type);
-            }
+            console.log('[GEMINI-WIDGET] Message:', data.type);
             
             switch (data.type) {
-                // ✅ NEW: Setup complete - START RECORDING!
-                case 'gemini.setup.complete':
-                    handleGeminiSetupComplete();
-                    break;
-                
                 case 'connection_status':
                     handleConnectionStatus(data);
                     break;
                 
-                // ✅ Interruption events
-                case 'conversation.interrupted':
-                    handleInterruptionEvent(data);
-                    break;
-                
-                case 'speech.started':
-                    handleSpeechStarted(data);
-                    break;
-                
-                case 'speech.stopped':
-                    handleSpeechStopped(data);
-                    break;
-                
-                case 'assistant.speech.started':
-                    handleAssistantSpeechStarted(data);
-                    break;
-                
-                case 'assistant.speech.ended':
-                    handleAssistantSpeechEnded(data);
-                    break;
-                
-                // ✅ Audio events
                 case 'response.audio.delta':
                     handleAudioDelta(data);
                     break;
                 
-                case 'response.audio.done':
-                    handleAudioDone();
+                case 'assistant.speech.started':
+                    handleAssistantSpeechStarted();
                     break;
                 
-                // ✅ Response done - auto-return to recording
-                case 'response.done':
-                    handleResponseDone();
+                case 'assistant.speech.ended':
+                    handleAssistantSpeechEnded();
                     break;
                 
-                case 'response.cancelled':
-                    handleResponseCancelled();
+                case 'conversation.interrupted':
+                    handleInterruption();
                     break;
                 
                 case 'error':
@@ -699,12 +585,10 @@
                     break;
                 
                 default:
-                    if (!data.type || !data.type.includes('.ack')) {
-                        console.log('[GEMINI-WIDGET] Unhandled:', data.type);
-                    }
+                    console.log('[GEMINI-WIDGET] Unhandled message type:', data.type);
             }
         } catch (error) {
-            console.error('[GEMINI-WIDGET] Parse error:', error);
+            console.error('[GEMINI-WIDGET] Error parsing message:', error);
         }
     }
 
@@ -715,9 +599,8 @@
     }
 
     function handleWSClose(event) {
-        console.log('[GEMINI-WIDGET] WebSocket closed:', event.code);
+        console.log('[GEMINI-WIDGET] WebSocket closed:', event.code, event.reason);
         STATE.isConnected = false;
-        STATE.isGeminiReady = false;
         
         if (STATE.pingInterval) {
             clearInterval(STATE.pingInterval);
@@ -738,7 +621,7 @@
             console.log(`[GEMINI-WIDGET] Reconnecting... Attempt ${STATE.reconnectAttempts}`);
             setTimeout(connectWebSocket, CONFIG.ws.reconnectDelay);
         } else {
-            showError('Соединение потеряно', 'Превышено количество попыток');
+            showError('Соединение потеряно', 'Превышено количество попыток переподключения');
             updateUI('error');
         }
     }
@@ -755,110 +638,64 @@
     // MESSAGE HANDLERS
     // ============================================================================
 
-    // ✅ NEW: Handle Gemini setup complete
-    function handleGeminiSetupComplete() {
-        console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
-        STATE.isGeminiReady = true;
-        
-        // ✅ AUTO-START RECORDING after setup
-        if (!STATE.isRecording && !STATE.isPlaying) {
-            setTimeout(() => {
-                console.log('[GEMINI-WIDGET] 🎙️ Auto-starting recording...');
-                startRecording();
-            }, 500);
-        }
-        
-        updateUI('connected');
-    }
-
     function handleConnectionStatus(data) {
         console.log('[GEMINI-WIDGET] Connection status:', data);
+        
+        STATE.sessionConfig = {
+            model: data.model,
+            functions_enabled: data.functions_enabled,
+            google_sheets: data.google_sheets,
+            thinking_enabled: data.thinking_enabled,
+            client_id: data.client_id
+        };
+        
+        // Check screen context from config (will be added in future)
+        // For now, disabled by default
+        CONFIG.screen.enabled = false;
+        
+        console.log('[GEMINI-WIDGET] Session config:', STATE.sessionConfig);
+        console.log('[GEMINI-WIDGET] Screen capture:', CONFIG.screen.enabled ? 'enabled' : 'disabled');
     }
 
     function handleAudioDelta(data) {
         if (!data.delta) return;
-        STATE.audioChunksBuffer.push(data.delta);
-    }
-
-    function handleAudioDone() {
-        if (STATE.audioChunksBuffer.length > 0) {
-            const fullAudio = STATE.audioChunksBuffer.join('');
-            addAudioToPlaybackQueue(fullAudio);
-            STATE.audioChunksBuffer = [];
+        
+        STATE.audioQueue.push(data.delta);
+        
+        if (!STATE.isPlaying) {
+            playAudioQueue();
         }
     }
 
-    // ✅ NEW: Auto-return to recording after response
-    function handleResponseDone() {
-        console.log('[GEMINI-WIDGET] Response done');
-        
-        // ✅ Auto-start recording if not playing and not already recording
-        if (!STATE.isPlaying && !STATE.isRecording && STATE.isGeminiReady) {
-            setTimeout(() => {
-                startRecording();
-            }, 400);
-        }
-    }
-
-    function handleResponseCancelled() {
-        console.log('[GEMINI-WIDGET] Response cancelled');
-        stopAllAudioPlayback();
-        updateUI('interrupted');
-    }
-
-    // ✅ NEW: Interruption event
-    function handleInterruptionEvent(data) {
-        console.log('[GEMINI-WIDGET] ⚡ INTERRUPTION detected');
-        
-        INTERRUPTION_STATE.interruption_count++;
-        INTERRUPTION_STATE.last_interruption_time = Date.now();
-        
-        stopAllAudioPlayback();
-        updateUI('interrupted');
-        
-        console.log(`[GEMINI-WIDGET] Interruption #${INTERRUPTION_STATE.interruption_count}`);
-    }
-
-    // ✅ NEW: Speech started (user)
-    function handleSpeechStarted(data) {
-        console.log('[GEMINI-WIDGET] 🗣️ User started speaking');
-        INTERRUPTION_STATE.is_user_speaking = true;
-        
-        // If assistant is speaking, interrupt
-        if (INTERRUPTION_STATE.is_assistant_speaking) {
-            stopAllAudioPlayback();
-            updateUI('interrupted');
-        }
-    }
-
-    // ✅ NEW: Speech stopped (user)
-    function handleSpeechStopped(data) {
-        console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
-        INTERRUPTION_STATE.is_user_speaking = false;
-    }
-
-    // ✅ NEW: Assistant speech started
-    function handleAssistantSpeechStarted(data) {
+    function handleAssistantSpeechStarted() {
         console.log('[GEMINI-WIDGET] 🔊 Assistant started speaking');
-        INTERRUPTION_STATE.is_assistant_speaking = true;
+        STATE.isSpeaking = true;
         updateUI('playing');
     }
 
-    // ✅ NEW: Assistant speech ended
-    function handleAssistantSpeechEnded(data) {
+    function handleAssistantSpeechEnded() {
         console.log('[GEMINI-WIDGET] 🔇 Assistant stopped speaking');
-        INTERRUPTION_STATE.is_assistant_speaking = false;
+        STATE.isSpeaking = false;
         
-        // Return to recording if not already
-        if (!STATE.isRecording && STATE.isGeminiReady) {
-            setTimeout(() => {
-                startRecording();
-            }, 500);
+        if (!STATE.isRecording) {
+            updateUI('connected');
+        }
+    }
+
+    function handleInterruption() {
+        console.log('[GEMINI-WIDGET] ⚡ Conversation interrupted');
+        stopPlayback();
+        STATE.isSpeaking = false;
+        
+        if (STATE.isRecording) {
+            updateUI('recording');
+        } else {
+            updateUI('connected');
         }
     }
 
     function handleError(data) {
-        console.error('[GEMINI-WIDGET] Error:', data.error);
+        console.error('[GEMINI-WIDGET] Server error:', data.error);
         
         const error = data.error;
         let title = 'Ошибка';
@@ -867,15 +704,15 @@
         switch (error.code) {
             case 'TRIAL_EXPIRED':
                 title = 'Пробный период истек';
-                message = 'Оформите подписку для продолжения';
+                message = 'Пожалуйста, оформите подписку для продолжения работы';
                 break;
             case 'SUBSCRIPTION_EXPIRED':
                 title = 'Подписка истекла';
-                message = 'Продлите подписку для продолжения';
+                message = 'Пожалуйста, продлите подписку для продолжения работы';
                 break;
             case 'assistant_not_found':
                 title = 'Ассистент не найден';
-                message = 'Проверьте ID ассистента';
+                message = 'Проверьте правильность ID ассистента';
                 break;
             case 'gemini_connection_failed':
                 title = 'Ошибка Gemini';
@@ -889,8 +726,11 @@
         
         showError(title, message);
         
-        if (error.requires_payment && STATE.ws) {
-            STATE.ws.close();
+        if (error.requires_payment) {
+            // Close connection
+            if (STATE.ws) {
+                STATE.ws.close();
+            }
         }
     }
 
@@ -901,91 +741,53 @@
     async function startRecording() {
         if (STATE.isRecording) return;
         
-        if (!STATE.isGeminiReady) {
-            console.log('[GEMINI-WIDGET] ⚠️ Gemini not ready yet');
-            return;
-        }
-        
         console.log('[GEMINI-WIDGET] Starting recording...');
         
         try {
-            // Ensure audio is initialized
-            if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
-                console.log('[GEMINI-WIDGET] Audio not initialized, initializing...');
-                const success = await initAudioContext();
-                if (!success) {
-                    showError('Ошибка микрофона', 'Не удалось получить доступ к микрофону');
-                    return;
+            // Request microphone
+            STATE.mediaStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    sampleRate: CONFIG.audio.inputSampleRate,
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
                 }
-            }
-
-            // Resume AudioContext if suspended
-            if (window.globalAudioContext.state === 'suspended') {
-                await window.globalAudioContext.resume();
-                console.log('[GEMINI-WIDGET] AudioContext resumed');
-            }
-
-            // Create audio processor
-            const source = window.globalAudioContext.createMediaStreamSource(window.globalMicStream);
-            const processor = window.globalAudioContext.createScriptProcessor(4096, 1, 1);
+            });
             
-            let isSilent = true;
-            let silenceStartTime = Date.now();
+            console.log('[GEMINI-WIDGET] Microphone access granted');
+            
+            // Create AudioWorklet for processing
+            const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
+            const processor = STATE.audioContext.createScriptProcessor(4096, 1, 1);
             
             processor.onaudioprocess = (e) => {
-                if (!STATE.isRecording || !STATE.isGeminiReady) return;
+                if (!STATE.isRecording) return;
                 
                 const inputData = e.inputBuffer.getChannelData(0);
+                const pcmData = float32ToPCM16(inputData);
                 
-                // Calculate RMS
+                // VAD check
                 const rms = calculateRMS(inputData);
                 const db = 20 * Math.log10(rms);
                 
-                // ✅ VAD with separate user speaking flag
                 if (db > CONFIG.vad.speechThreshold) {
-                    if (!INTERRUPTION_STATE.is_user_speaking) {
-                        const now = Date.now();
-                        STATE.speechStartTime = now;
-                        console.log('[GEMINI-WIDGET] 🗣️ User speaking detected');
-                        
-                        // ✅ If assistant is speaking = INTERRUPTION
-                        if (INTERRUPTION_STATE.is_assistant_speaking) {
-                            console.log('[GEMINI-WIDGET] ⚡ Interrupting assistant...');
-                            stopAllAudioPlayback();
-                            updateUI('interrupted');
-                        }
-                        
-                        INTERRUPTION_STATE.is_user_speaking = true;
+                    if (!STATE.isSpeaking) {
+                        console.log('[GEMINI-WIDGET] 🗣️ User started speaking');
                         sendMessage({ type: 'speech.user_started' });
                     }
                     STATE.lastSpeechTime = Date.now();
-                    isSilent = false;
-                    silenceStartTime = Date.now();
-                } else if (INTERRUPTION_STATE.is_user_speaking && 
-                          STATE.lastSpeechTime > 0 && 
+                } else if (STATE.lastSpeechTime > 0 && 
                           Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration) {
-                    
-                    // Check minimum speech duration
-                    const speechDuration = Date.now() - STATE.speechStartTime;
-                    if (speechDuration >= CONFIG.vad.minSpeechDuration) {
-                        console.log('[GEMINI-WIDGET] 🤐 User stopped (silence detected)');
-                        console.log(`[GEMINI-WIDGET] Speech duration: ${speechDuration}ms`);
-                        
+                    if (STATE.isSpeaking) {
+                        console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
                         sendMessage({ type: 'speech.user_stopped' });
-                        sendMessage({ type: 'input_audio_buffer.commit' });
-                        
-                        INTERRUPTION_STATE.is_user_speaking = false;
-                        STATE.lastSpeechTime = 0;
-                        STATE.speechStartTime = 0;
-                        isSilent = true;
                     }
+                    STATE.lastSpeechTime = 0;
                 }
                 
-                // Convert to PCM16
-                const pcm16Data = float32ToPCM16(inputData);
-                
                 // Send audio
-                const base64Audio = arrayBufferToBase64(pcm16Data.buffer);
+                const base64Audio = arrayBufferToBase64(pcmData.buffer);
                 sendMessage({
                     type: 'input_audio_buffer.append',
                     audio: base64Audio
@@ -993,18 +795,23 @@
             };
             
             source.connect(processor);
-            processor.connect(window.globalAudioContext.destination);
+            processor.connect(STATE.audioContext.destination);
             
             STATE.audioWorklet = { source, processor };
             STATE.isRecording = true;
             
             updateUI('recording');
             
+            // Start screen capture if enabled
+            if (CONFIG.screen.enabled) {
+                startScreenCapture();
+            }
+            
             console.log('[GEMINI-WIDGET] ✅ Recording started');
             
         } catch (error) {
             console.error('[GEMINI-WIDGET] Recording error:', error);
-            showError('Ошибка записи', 'Не удалось начать запись');
+            showError('Ошибка записи', 'Не удалось получить доступ к микрофону');
         }
     }
 
@@ -1015,6 +822,12 @@
         
         STATE.isRecording = false;
         
+        // Stop media stream
+        if (STATE.mediaStream) {
+            STATE.mediaStream.getTracks().forEach(track => track.stop());
+            STATE.mediaStream = null;
+        }
+        
         // Disconnect audio nodes
         if (STATE.audioWorklet) {
             STATE.audioWorklet.source.disconnect();
@@ -1022,14 +835,16 @@
             STATE.audioWorklet = null;
         }
         
-        // Final commit if user was speaking
-        if (INTERRUPTION_STATE.is_user_speaking) {
-            console.log('[GEMINI-WIDGET] 💾 Final commit');
-            sendMessage({ type: 'input_audio_buffer.commit' });
-            INTERRUPTION_STATE.is_user_speaking = false;
+        // Commit audio
+        sendMessage({ type: 'input_audio_buffer.commit' });
+        
+        // Stop screen capture
+        if (STATE.screenCaptureInterval) {
+            clearInterval(STATE.screenCaptureInterval);
+            STATE.screenCaptureInterval = null;
         }
         
-        if (INTERRUPTION_STATE.is_assistant_speaking) {
+        if (STATE.isSpeaking) {
             updateUI('playing');
         } else {
             updateUI('connected');
@@ -1055,16 +870,8 @@
         }
         
         STATE.isPlaying = false;
-        
-        // ✅ Auto-return to recording after playback
-        if (STATE.isGeminiReady && !STATE.isRecording) {
-            setTimeout(() => {
-                startRecording();
-            }, 400);
-        }
     }
 
-    // ✅ iOS-compatible audio playback
     async function playAudioChunk(base64Audio) {
         try {
             // Decode base64
@@ -1081,29 +888,36 @@
                 float32[i] = pcm16[i] / 32768.0;
             }
             
-            // ✅ No resampling - keep at 24kHz as is
-            const audioBuffer = window.globalAudioContext.createBuffer(
+            // Resample from 24kHz to 16kHz (simple decimation)
+            const outputSampleRate = CONFIG.audio.playbackSampleRate;
+            const inputSampleRate = CONFIG.audio.outputSampleRate;
+            const ratio = inputSampleRate / outputSampleRate;
+            const outputLength = Math.floor(float32.length / ratio);
+            const resampled = new Float32Array(outputLength);
+            
+            for (let i = 0; i < outputLength; i++) {
+                const srcIndex = Math.floor(i * ratio);
+                resampled[i] = float32[srcIndex];
+            }
+            
+            // Create AudioBuffer
+            const audioBuffer = STATE.audioContext.createBuffer(
                 1,
-                float32.length,
-                CONFIG.audio.outputSampleRate  // 24000 Hz
+                resampled.length,
+                outputSampleRate
             );
-            audioBuffer.getChannelData(0).set(float32);
+            audioBuffer.getChannelData(0).set(resampled);
             
-            // Play using Web Audio API
-            const source = window.globalAudioContext.createBufferSource();
+            // Play
+            const source = STATE.audioContext.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(window.globalAudioContext.destination);
+            source.connect(STATE.audioContext.destination);
             
-            // ✅ Save for interruption
-            INTERRUPTION_STATE.current_audio_elements.push(source);
+            STATE.currentAudioSource = source;
             
             return new Promise((resolve) => {
                 source.onended = () => {
-                    // Remove from array
-                    const idx = INTERRUPTION_STATE.current_audio_elements.indexOf(source);
-                    if (idx > -1) {
-                        INTERRUPTION_STATE.current_audio_elements.splice(idx, 1);
-                    }
+                    STATE.currentAudioSource = null;
                     resolve();
                 };
                 source.start();
@@ -1114,48 +928,73 @@
         }
     }
 
-    // ✅ NEW: Stop all audio playback (for interruptions)
-    function stopAllAudioPlayback() {
-        console.log('[GEMINI-WIDGET] Stopping all audio playback');
-        
-        STATE.isPlaying = false;
-        INTERRUPTION_STATE.is_assistant_speaking = false;
-        
-        // Stop all audio sources
-        INTERRUPTION_STATE.current_audio_elements.forEach(source => {
+    function stopPlayback() {
+        if (STATE.currentAudioSource) {
             try {
-                source.stop();
-                source.disconnect();
+                STATE.currentAudioSource.stop();
+                STATE.currentAudioSource = null;
             } catch (e) {
                 // Already stopped
             }
-        });
-        
-        INTERRUPTION_STATE.current_audio_elements = [];
-        STATE.audioQueue = [];
-        STATE.audioChunksBuffer = [];
-        
-        // Notify server
-        if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
-            sendMessage({
-                type: "response.cancel"
-            });
         }
         
-        console.log('[GEMINI-WIDGET] ✅ All audio stopped');
+        STATE.audioQueue = [];
+        STATE.isPlaying = false;
     }
 
-    function stopPlayback() {
-        stopAllAudioPlayback();
+    // ============================================================================
+    // SCREEN CAPTURE
+    // ============================================================================
+
+    async function startScreenCapture() {
+        console.log('[GEMINI-WIDGET] Starting screen capture...');
+        
+        // Capture immediately
+        await captureScreen();
+        
+        // Then every interval
+        STATE.screenCaptureInterval = setInterval(captureScreen, CONFIG.screen.interval);
     }
 
-    function addAudioToPlaybackQueue(audioBase64) {
-        if (!audioBase64 || typeof audioBase64 !== 'string') return;
-        
-        STATE.audioQueue.push(audioBase64);
-        
-        if (!STATE.isPlaying) {
-            playAudioQueue();
+    async function captureScreen() {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Capture viewport
+            canvas.width = Math.min(window.innerWidth, CONFIG.screen.maxWidth);
+            canvas.height = Math.min(window.innerHeight, CONFIG.screen.maxHeight);
+            
+            // Use html2canvas if available, otherwise just send placeholder
+            if (window.html2canvas) {
+                const screenshot = await html2canvas(document.body, {
+                    width: canvas.width,
+                    height: canvas.height,
+                    scale: 1,
+                    logging: false
+                });
+                
+                ctx.drawImage(screenshot, 0, 0, canvas.width, canvas.height);
+            } else {
+                // Fallback: just fill with white (requires html2canvas library)
+                console.warn('[GEMINI-WIDGET] html2canvas not available');
+                return;
+            }
+            
+            // Convert to base64
+            const base64Image = canvas.toDataURL('image/jpeg', CONFIG.screen.quality);
+            
+            // Send to server
+            sendMessage({
+                type: 'screen.context',
+                image: base64Image,
+                silent: true  // Don't trigger response
+            });
+            
+            console.log('[GEMINI-WIDGET] 📸 Screen captured');
+            
+        } catch (error) {
+            console.error('[GEMINI-WIDGET] Screen capture error:', error);
         }
     }
 
@@ -1193,21 +1032,13 @@
     // START APPLICATION
     // ============================================================================
 
+    // Wait for DOM ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
     }
 
-    // Setup button click handler after DOM is ready
-    setTimeout(() => {
-        const button = document.getElementById('gemini-btn');
-        if (button) {
-            button.addEventListener('click', handleButtonClick);
-            console.log('[GEMINI-WIDGET] ✅ Button handler attached');
-        }
-    }, 100);
-
-    console.log('[GEMINI-WIDGET] Script loaded v3.0 PRODUCTION');
+    console.log('[GEMINI-WIDGET] Script loaded');
 
 })();
