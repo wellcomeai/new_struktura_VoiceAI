@@ -5,13 +5,14 @@
  * Features:
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
  * ✅ Real-time audio streaming (16kHz PCM)
+ * ✅ Dynamic screen context (based on assistant config)
  * ✅ Client-side VAD events
  * ✅ Audio resampling (24kHz → 16kHz)
  * ✅ Interruption handling
  * ✅ Visual feedback (equalizer)
  * ✅ Error handling with Russian messages
  * ✅ Responsive design
- * ✅ Unified WellcomeAI branding (same UI as OpenAI widget)
+ * ✅ Unified WellcomeAI branding
  * 
  * Usage:
  * <script>
@@ -56,6 +57,15 @@
             maxBufferSize: 96000
         },
         
+        // Screen capture
+        screen: {
+            enabled: false,              // Динамически из конфига
+            interval: 5000,              // 5 секунд
+            quality: 0.7,
+            maxWidth: 1280,
+            maxHeight: 720
+        },
+        
         // VAD
         vad: {
             enabled: true,
@@ -87,6 +97,7 @@
         audioWorklet: null,
         audioQueue: [],
         currentAudioSource: null,
+        screenCaptureInterval: null,
         pingInterval: null,
         reconnectAttempts: 0,
         lastSpeechTime: 0,
@@ -190,7 +201,7 @@
     }
 
     // ============================================================================
-    // STYLES - UNIFIED WELLCOMEAI BRANDING (FROM OPENAI WIDGET)
+    // STYLES - UNIFIED WELLCOMEAI BRANDING
     // ============================================================================
 
     function createStyles() {
@@ -866,7 +877,7 @@
             if (connectionError) {
                 connectionError.innerHTML = `
                     ${message || 'Ошибка соединения с сервером'}
-                    <button class="gemini-retry-button" onclick="this.parentElement.nextElementSibling.click()">
+                    <button class="gemini-retry-button" onclick="document.getElementById('gemini-retry-button').click()">
                         Повторить подключение
                     </button>
                 `;
@@ -957,6 +968,10 @@
             }
         }
 
+        // ============================================================================
+        // RECORDING
+        // ============================================================================
+
         async function startRecording() {
             if (!STATE.isConnected || STATE.isPlaying || STATE.isReconnecting || STATE.isRecording) {
                 widgetLog(`Cannot start recording: isConnected=${STATE.isConnected}, isPlaying=${STATE.isPlaying}, isReconnecting=${STATE.isReconnecting}, isRecording=${STATE.isRecording}`);
@@ -989,6 +1004,7 @@
                 }
 
                 STATE.isRecording = true;
+                interruptionState.is_user_speaking = false;
 
                 // Создаем audio worklet для обработки
                 const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
@@ -1004,37 +1020,46 @@
                         // Визуализация
                         updateAudioVisualization(inputData);
 
-                        // Конвертация в PCM16
-                        const pcm16 = float32ToPCM16(inputData);
-                        const base64Audio = arrayBufferToBase64(pcm16.buffer);
-
-                        // Отправка в Gemini
-                        STATE.ws.send(JSON.stringify({
-                            realtime_input: {
-                                media_chunks: [{
-                                    data: base64Audio,
-                                    mime_type: "audio/pcm"
-                                }]
-                            }
-                        }));
-
                         // VAD логика
                         const rms = calculateRMS(inputData);
                         const hasSound = rms > 0.02;
 
+                        // Прерывание ассистента при разговоре пользователя
+                        if (hasSound && STATE.isPlaying) {
+                            interruptAssistant();
+                        }
+
+                        // Конвертация в PCM16
+                        const pcm16 = float32ToPCM16(inputData);
+                        const base64Audio = arrayBufferToBase64(pcm16.buffer);
+
+                        // ПРАВИЛЬНАЯ ОТПРАВКА АУДИО В GEMINI
+                        sendMessage({
+                            type: 'input_audio_buffer.append',
+                            audio: base64Audio
+                        });
+
                         if (hasSound) {
+                            if (!interruptionState.is_user_speaking) {
+                                interruptionState.is_user_speaking = true;
+                                widgetLog('User started speaking (client-side VAD)');
+                            }
                             isSilent = false;
                             silenceStartTime = Date.now();
                             
                             if (!mainCircle.classList.contains('listening')) {
                                 mainCircle.classList.add('listening');
+                                mainCircle.classList.remove('speaking');
                             }
                         } else if (!isSilent) {
                             const silenceDuration = Date.now() - silenceStartTime;
                             
                             if (silenceDuration > CONFIG.vad.silenceDuration) {
+                                if (interruptionState.is_user_speaking) {
+                                    interruptionState.is_user_speaking = false;
+                                    widgetLog('User stopped speaking (client-side VAD)');
+                                }
                                 isSilent = true;
-                                // Можно добавить логику автокоммита
                             }
                         }
                     }
@@ -1048,7 +1073,12 @@
                 mainCircle.classList.add('listening');
                 mainCircle.classList.remove('speaking');
 
-                widgetLog('Recording started');
+                // Start screen capture if enabled
+                if (CONFIG.screen.enabled) {
+                    startScreenCapture();
+                }
+
+                widgetLog('✅ Recording started');
 
             } catch (error) {
                 widgetLog(`Recording error: ${error.message}`, 'error');
@@ -1062,6 +1092,7 @@
             widgetLog('Stopping recording');
             
             STATE.isRecording = false;
+            interruptionState.is_user_speaking = false;
             
             if (STATE.mediaStream) {
                 STATE.mediaStream.getTracks().forEach(track => track.stop());
@@ -1073,12 +1104,21 @@
                 STATE.audioWorklet.processor.disconnect();
                 STATE.audioWorklet = null;
             }
+
+            // COMMIT AUDIO BUFFER
+            sendMessage({ type: 'input_audio_buffer.commit' });
+
+            // Stop screen capture
+            if (STATE.screenCaptureInterval) {
+                clearInterval(STATE.screenCaptureInterval);
+                STATE.screenCaptureInterval = null;
+            }
             
             mainCircle.classList.remove('listening');
             
             resetAudioVisualization();
             
-            widgetLog('Recording stopped');
+            widgetLog('✅ Recording stopped');
         }
 
         function updateAudioVisualization(audioData) {
@@ -1104,6 +1144,33 @@
             bars.forEach(bar => {
                 bar.style.height = '2px';
             });
+        }
+
+        // ============================================================================
+        // INTERRUPTION HANDLING
+        // ============================================================================
+
+        function interruptAssistant() {
+            if (!STATE.isPlaying) return;
+
+            widgetLog('🛑 Interrupting assistant');
+            interruptionState.interruption_count++;
+
+            // Останавливаем текущее воспроизведение
+            stopPlayback();
+
+            // ОТПРАВЛЯЕМ СИГНАЛ ОТМЕНЫ
+            sendMessage({ type: 'response.cancel' });
+
+            mainCircle.classList.add('interrupted');
+            mainCircle.classList.remove('speaking');
+
+            setTimeout(() => {
+                mainCircle.classList.remove('interrupted');
+                if (STATE.isRecording) {
+                    mainCircle.classList.add('listening');
+                }
+            }, 300);
         }
 
         // ============================================================================
@@ -1172,11 +1239,27 @@
                     STATE.connectionFailedPermanently = false;
                     loaderModal.classList.remove('active');
 
+                    // ПРАВИЛЬНАЯ ИНИЦИАЛИЗАЦИЯ СЕССИИ GEMINI
+                    sendMessage({
+                        type: 'session.create',
+                        config: {
+                            systemInstruction: 'Вы - голосовой ассистент. Отвечайте кратко и по делу.',
+                            voice: 'Puck',
+                            speechConfig: {
+                                voiceConfig: {
+                                    prebuiltVoiceConfig: {
+                                        voiceName: "Puck"
+                                    }
+                                }
+                            }
+                        }
+                    });
+
                     // Ping
                     STATE.pingInterval = setInterval(() => {
                         if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
                             try {
-                                STATE.ws.send(JSON.stringify({ type: 'ping' }));
+                                sendMessage({ type: 'ping' });
                             } catch (e) {
                                 widgetLog(`Ping error: ${e.message}`, 'error');
                             }
@@ -1184,16 +1267,6 @@
                     }, PING_INTERVAL);
 
                     hideConnectionError();
-
-                    // Setup конфигурация для Gemini
-                    STATE.ws.send(JSON.stringify({
-                        setup: {
-                            model: "models/gemini-2.0-flash-exp",
-                            generation_config: {
-                                response_modalities: ["AUDIO"]
-                            }
-                        }
-                    }));
 
                     if (STATE.isWidgetOpen) {
                         updateConnectionStatus('connected', 'Подключено (Gemini API)');
@@ -1207,31 +1280,69 @@
 
                         const data = JSON.parse(event.data);
                         
-                        widgetLog(`Message type: ${data.type || 'unknown'}`);
+                        widgetLog(`📩 Message type: ${data.type || 'unknown'}`);
 
-                        // Обработка разных типов сообщений Gemini
-                        if (data.serverContent) {
-                            // Аудио от ассистента
-                            if (data.serverContent.modelTurn) {
-                                const parts = data.serverContent.modelTurn.parts;
-                                parts.forEach(part => {
-                                    if (part.inlineData && part.inlineData.mimeType === 'audio/pcm') {
-                                        playAudioChunk(part.inlineData.data);
+                        // ПРАВИЛЬНАЯ ОБРАБОТКА СОБЫТИЙ GEMINI
+                        switch(data.type) {
+                            case 'session.created':
+                                STATE.sessionConfig = data.session;
+                                widgetLog('✅ Session created:', data.session);
+                                
+                                // Включаем screen capture если нужно
+                                if (data.session && data.session.screen_capture_enabled) {
+                                    CONFIG.screen.enabled = true;
+                                    widgetLog('Screen capture enabled');
+                                }
+                                break;
+                                
+                            case 'session.updated':
+                                STATE.sessionConfig = data.session;
+                                widgetLog('Session updated:', data.session);
+                                break;
+                                
+                            case 'input_audio_buffer.speech_started':
+                                widgetLog('🎤 User started speaking (server VAD)');
+                                STATE.isSpeaking = true;
+                                break;
+                                
+                            case 'input_audio_buffer.speech_stopped':
+                                widgetLog('🔇 User stopped speaking (server VAD)');
+                                STATE.isSpeaking = false;
+                                break;
+                                
+                            case 'response.audio.delta':
+                                // Добавляем аудио чанк в очередь
+                                if (data.audio) {
+                                    STATE.audioQueue.push(data.audio);
+                                    if (!STATE.isPlaying) {
+                                        playAudioQueue();
                                     }
-                                });
-                            }
-
-                            // Текст транскрипции
-                            if (data.serverContent.turnComplete) {
-                                widgetLog('Turn complete');
-                                if (STATE.isWidgetOpen && !STATE.isPlaying) {
+                                }
+                                break;
+                                
+                            case 'response.audio.done':
+                                widgetLog('✅ Audio response complete');
+                                break;
+                                
+                            case 'response.done':
+                                widgetLog('✅ Response complete');
+                                // Возобновляем запись после ответа
+                                if (STATE.isWidgetOpen && !STATE.isRecording && !STATE.isPlaying) {
                                     setTimeout(() => startRecording(), 400);
                                 }
-                            }
-                        }
+                                break;
+                                
+                            case 'error':
+                                widgetLog(`❌ Server error: ${data.message}`, 'error');
+                                showMessage(`Ошибка: ${data.message}`);
+                                break;
 
-                        if (data.setupComplete) {
-                            widgetLog('Setup complete');
+                            case 'pong':
+                                // Ping response
+                                break;
+                                
+                            default:
+                                widgetLog(`Unknown message type: ${data.type}`, 'warn');
                         }
 
                     } catch (error) {
@@ -1335,17 +1446,48 @@
             }, delay);
         }
 
+        function sendMessage(message) {
+            if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
+                try {
+                    STATE.ws.send(JSON.stringify(message));
+                } catch (error) {
+                    widgetLog(`Send error: ${error.message}`, 'error');
+                }
+            }
+        }
+
         // ============================================================================
         // AUDIO PLAYBACK
         // ============================================================================
 
+        async function playAudioQueue() {
+            if (STATE.isPlaying || STATE.audioQueue.length === 0) return;
+            
+            STATE.isPlaying = true;
+            interruptionState.is_assistant_speaking = true;
+            
+            mainCircle.classList.add('speaking');
+            mainCircle.classList.remove('listening');
+            
+            while (STATE.audioQueue.length > 0) {
+                const base64Audio = STATE.audioQueue.shift();
+                await playAudioChunk(base64Audio);
+                
+                if (!STATE.isPlaying) break;
+            }
+            
+            STATE.isPlaying = false;
+            interruptionState.is_assistant_speaking = false;
+            mainCircle.classList.remove('speaking');
+
+            // Автоматически возобновляем прослушивание
+            if (STATE.isWidgetOpen && !STATE.isRecording) {
+                setTimeout(() => startRecording(), 400);
+            }
+        }
+
         async function playAudioChunk(base64Audio) {
             try {
-                STATE.isPlaying = true;
-                interruptionState.is_assistant_speaking = true;
-                mainCircle.classList.add('speaking');
-                mainCircle.classList.remove('listening');
-
                 // Decode base64
                 const binaryString = atob(base64Audio);
                 const bytes = new Uint8Array(binaryString.length);
@@ -1360,7 +1502,7 @@
                     float32[i] = pcm16[i] / 32768.0;
                 }
 
-                // Resample from 24kHz to 16kHz
+                // Resample from 24kHz to 16kHz (simple decimation)
                 const outputSampleRate = CONFIG.audio.playbackSampleRate;
                 const inputSampleRate = CONFIG.audio.outputSampleRate;
                 const ratio = inputSampleRate / outputSampleRate;
@@ -1373,7 +1515,11 @@
                 }
 
                 // Create AudioBuffer
-                const audioBuffer = STATE.audioContext.createBuffer(1, resampled.length, outputSampleRate);
+                const audioBuffer = STATE.audioContext.createBuffer(
+                    1,
+                    resampled.length,
+                    outputSampleRate
+                );
                 audioBuffer.getChannelData(0).set(resampled);
 
                 // Play
@@ -1386,17 +1532,6 @@
                 return new Promise((resolve) => {
                     source.onended = () => {
                         STATE.currentAudioSource = null;
-                        STATE.isPlaying = false;
-                        interruptionState.is_assistant_speaking = false;
-                        mainCircle.classList.remove('speaking');
-                        
-                        // Автоматически возобновляем прослушивание
-                        if (STATE.isWidgetOpen) {
-                            setTimeout(() => {
-                                startRecording();
-                            }, 400);
-                        }
-                        
                         resolve();
                     };
                     source.start();
@@ -1404,8 +1539,76 @@
 
             } catch (error) {
                 widgetLog(`Playback error: ${error.message}`, 'error');
-                STATE.isPlaying = false;
-                interruptionState.is_assistant_speaking = false;
+            }
+        }
+
+        function stopPlayback() {
+            if (STATE.currentAudioSource) {
+                try {
+                    STATE.currentAudioSource.stop();
+                    STATE.currentAudioSource = null;
+                } catch (e) {
+                    // Already stopped
+                }
+            }
+            
+            STATE.audioQueue = [];
+            STATE.isPlaying = false;
+            interruptionState.is_assistant_speaking = false;
+        }
+
+        // ============================================================================
+        // SCREEN CAPTURE
+        // ============================================================================
+
+        async function startScreenCapture() {
+            widgetLog('Starting screen capture...');
+            
+            // Capture immediately
+            await captureScreen();
+            
+            // Then every interval
+            STATE.screenCaptureInterval = setInterval(captureScreen, CONFIG.screen.interval);
+        }
+
+        async function captureScreen() {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Capture viewport
+                canvas.width = Math.min(window.innerWidth, CONFIG.screen.maxWidth);
+                canvas.height = Math.min(window.innerHeight, CONFIG.screen.maxHeight);
+                
+                // Use html2canvas if available
+                if (window.html2canvas) {
+                    const screenshot = await html2canvas(document.body, {
+                        width: canvas.width,
+                        height: canvas.height,
+                        scale: 1,
+                        logging: false
+                    });
+                    
+                    ctx.drawImage(screenshot, 0, 0, canvas.width, canvas.height);
+                } else {
+                    widgetLog('html2canvas not available', 'warn');
+                    return;
+                }
+                
+                // Convert to base64
+                const base64Image = canvas.toDataURL('image/jpeg', CONFIG.screen.quality);
+                
+                // ОТПРАВКА SCREEN CONTEXT
+                sendMessage({
+                    type: 'screen.context',
+                    image: base64Image,
+                    silent: true
+                });
+                
+                widgetLog('📸 Screen captured');
+                
+            } catch (error) {
+                widgetLog(`Screen capture error: ${error.message}`, 'error');
             }
         }
     }
@@ -1450,6 +1653,6 @@
         init();
     }
 
-    widgetLog('Gemini Widget script loaded');
+    widgetLog('Gemini Widget v2.0 script loaded');
 
 })();
