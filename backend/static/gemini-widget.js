@@ -1,5 +1,5 @@
 /**
- * 🚀 Gemini Voice Widget v1.0 - Production Ready
+ * 🚀 Gemini Voice Widget v2.0 - Production Ready
  * Google Gemini Live API Integration
  * 
  * Features:
@@ -12,6 +12,7 @@
  * ✅ Visual feedback (equalizer)
  * ✅ Error handling with Russian messages
  * ✅ Responsive design
+ * ✅ Fixed protocol for backend proxy
  * 
  * Usage:
  * <script>
@@ -95,6 +96,7 @@
         isRecording: false,
         isPlaying: false,
         isSpeaking: false,
+        isUserSpeaking: false,
         audioContext: null,
         mediaStream: null,
         audioWorklet: null,
@@ -109,12 +111,19 @@
         errorState: null
     };
 
+    // Состояния для обработки перебивания
+    const interruptionState = {
+        is_assistant_speaking: false,
+        is_user_speaking: false,
+        interruption_count: 0
+    };
+
     // ============================================================================
     // INITIALIZATION
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing...');
+        console.log('[GEMINI-WIDGET] Initializing v2.0...');
         
         // Получаем конфигурацию из data-атрибутов
         const scriptTag = document.currentScript || 
@@ -159,7 +168,7 @@
     }
 
     // ============================================================================
-    // UI CREATION
+    // UI CREATION - ORIGINAL DESIGN
     // ============================================================================
 
     function createWidget() {
@@ -429,7 +438,7 @@
     }
 
     // ============================================================================
-    // UI UPDATES
+    // UI UPDATES - ORIGINAL
     // ============================================================================
 
     function updateUI(state) {
@@ -447,6 +456,7 @@
         if (state === 'connected') {
             status.classList.add('connected');
             icon.textContent = '🎤';
+            icon.style.display = 'flex';
         } else if (state === 'recording') {
             button.classList.add('recording');
             equalizer.classList.add('active');
@@ -460,6 +470,7 @@
         } else if (state === 'error') {
             status.classList.add('error');
             icon.textContent = '❌';
+            icon.style.display = 'flex';
         } else {
             icon.textContent = '🎤';
             icon.style.display = 'flex';
@@ -510,7 +521,7 @@
     }
 
     // ============================================================================
-    // WEBSOCKET CONNECTION
+    // WEBSOCKET CONNECTION - FIXED PROTOCOL
     // ============================================================================
 
     async function connectWebSocket() {
@@ -542,6 +553,8 @@
         updateUI('connected');
         hideError();
         
+        // БЭКЕНД САМ СОЗДАЕТ СЕССИЮ - НЕ ОТПРАВЛЯЕМ session.create
+        
         // Start ping
         STATE.pingInterval = setInterval(() => {
             if (STATE.ws && STATE.ws.readyState === WebSocket.OPEN) {
@@ -555,9 +568,15 @@
             const data = JSON.parse(event.data);
             console.log('[GEMINI-WIDGET] Message:', data.type);
             
+            // ОБРАБОТКА СООБЩЕНИЙ ОТ БЭКЕНДА-ПРОКСИ
             switch (data.type) {
                 case 'connection_status':
                     handleConnectionStatus(data);
+                    break;
+                
+                case 'gemini.setup.complete':
+                    // Бэкенд готов к работе
+                    console.log('[GEMINI-WIDGET] ✅ Gemini setup complete');
                     break;
                 
                 case 'response.audio.delta':
@@ -582,6 +601,17 @@
                 
                 case 'pong':
                     // Ping response
+                    break;
+                
+                case 'input_audio_buffer.append.ack':
+                    // Подтверждение получения аудио - игнорируем
+                    break;
+                
+                case 'response.text.delta':
+                    // Текстовый ответ - можем логировать
+                    if (data.text) {
+                        console.log('[GEMINI-WIDGET] Text:', data.text);
+                    }
                     break;
                 
                 default:
@@ -635,7 +665,7 @@
     }
 
     // ============================================================================
-    // MESSAGE HANDLERS
+    // MESSAGE HANDLERS - FIXED FOR BACKEND PROXY
     // ============================================================================
 
     function handleConnectionStatus(data) {
@@ -649,8 +679,7 @@
             client_id: data.client_id
         };
         
-        // Check screen context from config (will be added in future)
-        // For now, disabled by default
+        // Screen capture - disabled by default
         CONFIG.screen.enabled = false;
         
         console.log('[GEMINI-WIDGET] Session config:', STATE.sessionConfig);
@@ -658,6 +687,7 @@
     }
 
     function handleAudioDelta(data) {
+        // ВАЖНО: Поле называется "delta", не "audio"!
         if (!data.delta) return;
         
         STATE.audioQueue.push(data.delta);
@@ -670,12 +700,14 @@
     function handleAssistantSpeechStarted() {
         console.log('[GEMINI-WIDGET] 🔊 Assistant started speaking');
         STATE.isSpeaking = true;
+        interruptionState.is_assistant_speaking = true;
         updateUI('playing');
     }
 
     function handleAssistantSpeechEnded() {
         console.log('[GEMINI-WIDGET] 🔇 Assistant stopped speaking');
         STATE.isSpeaking = false;
+        interruptionState.is_assistant_speaking = false;
         
         if (!STATE.isRecording) {
             updateUI('connected');
@@ -686,6 +718,7 @@
         console.log('[GEMINI-WIDGET] ⚡ Conversation interrupted');
         stopPlayback();
         STATE.isSpeaking = false;
+        interruptionState.is_assistant_speaking = false;
         
         if (STATE.isRecording) {
             updateUI('recording');
@@ -735,7 +768,7 @@
     }
 
     // ============================================================================
-    // AUDIO RECORDING
+    // AUDIO RECORDING - WITH CLIENT-SIDE VAD
     // ============================================================================
 
     async function startRecording() {
@@ -761,32 +794,51 @@
             const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
             const processor = STATE.audioContext.createScriptProcessor(4096, 1, 1);
             
+            let silenceStartTime = 0;
+            
             processor.onaudioprocess = (e) => {
                 if (!STATE.isRecording) return;
                 
                 const inputData = e.inputBuffer.getChannelData(0);
                 const pcmData = float32ToPCM16(inputData);
                 
-                // VAD check
+                // CLIENT-SIDE VAD
                 const rms = calculateRMS(inputData);
                 const db = 20 * Math.log10(rms);
                 
                 if (db > CONFIG.vad.speechThreshold) {
-                    if (!STATE.isSpeaking) {
+                    // Пользователь говорит
+                    if (!STATE.isUserSpeaking) {
+                        STATE.isUserSpeaking = true;
+                        interruptionState.is_user_speaking = true;
                         console.log('[GEMINI-WIDGET] 🗣️ User started speaking');
+                        
+                        // ОТПРАВЛЯЕМ СОБЫТИЕ НА СЕРВЕР
                         sendMessage({ type: 'speech.user_started' });
+                        
+                        // Прерываем ассистента если он говорит
+                        if (STATE.isPlaying) {
+                            console.log('[GEMINI-WIDGET] 🛑 Interrupting assistant');
+                            stopPlayback();
+                        }
                     }
-                    STATE.lastSpeechTime = Date.now();
-                } else if (STATE.lastSpeechTime > 0 && 
-                          Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration) {
-                    if (STATE.isSpeaking) {
+                    silenceStartTime = 0;
+                } else if (STATE.isUserSpeaking) {
+                    // Тишина
+                    if (silenceStartTime === 0) {
+                        silenceStartTime = Date.now();
+                    } else if (Date.now() - silenceStartTime > CONFIG.vad.silenceDuration) {
+                        STATE.isUserSpeaking = false;
+                        interruptionState.is_user_speaking = false;
                         console.log('[GEMINI-WIDGET] 🤐 User stopped speaking');
+                        
+                        // ОТПРАВЛЯЕМ СОБЫТИЕ НА СЕРВЕР
                         sendMessage({ type: 'speech.user_stopped' });
+                        silenceStartTime = 0;
                     }
-                    STATE.lastSpeechTime = 0;
                 }
                 
-                // Send audio
+                // Send audio - БЕЗ ИЗМЕНЕНИЙ
                 const base64Audio = arrayBufferToBase64(pcmData.buffer);
                 sendMessage({
                     type: 'input_audio_buffer.append',
@@ -799,6 +851,7 @@
             
             STATE.audioWorklet = { source, processor };
             STATE.isRecording = true;
+            STATE.isUserSpeaking = false;
             
             updateUI('recording');
             
@@ -821,6 +874,8 @@
         console.log('[GEMINI-WIDGET] Stopping recording...');
         
         STATE.isRecording = false;
+        STATE.isUserSpeaking = false;
+        interruptionState.is_user_speaking = false;
         
         // Stop media stream
         if (STATE.mediaStream) {
@@ -835,7 +890,7 @@
             STATE.audioWorklet = null;
         }
         
-        // Commit audio
+        // Commit audio - БЕЗ ИЗМЕНЕНИЙ
         sendMessage({ type: 'input_audio_buffer.commit' });
         
         // Stop screen capture
@@ -854,13 +909,14 @@
     }
 
     // ============================================================================
-    // AUDIO PLAYBACK
+    // AUDIO PLAYBACK - БЕЗ ИЗМЕНЕНИЙ
     // ============================================================================
 
     async function playAudioQueue() {
         if (STATE.isPlaying || STATE.audioQueue.length === 0) return;
         
         STATE.isPlaying = true;
+        interruptionState.is_assistant_speaking = true;
         
         while (STATE.audioQueue.length > 0) {
             const base64Audio = STATE.audioQueue.shift();
@@ -870,6 +926,7 @@
         }
         
         STATE.isPlaying = false;
+        interruptionState.is_assistant_speaking = false;
     }
 
     async function playAudioChunk(base64Audio) {
@@ -940,10 +997,11 @@
         
         STATE.audioQueue = [];
         STATE.isPlaying = false;
+        interruptionState.is_assistant_speaking = false;
     }
 
     // ============================================================================
-    // SCREEN CAPTURE
+    // SCREEN CAPTURE - БЕЗ ИЗМЕНЕНИЙ
     // ============================================================================
 
     async function startScreenCapture() {
@@ -965,7 +1023,7 @@
             canvas.width = Math.min(window.innerWidth, CONFIG.screen.maxWidth);
             canvas.height = Math.min(window.innerHeight, CONFIG.screen.maxHeight);
             
-            // Use html2canvas if available, otherwise just send placeholder
+            // Use html2canvas if available
             if (window.html2canvas) {
                 const screenshot = await html2canvas(document.body, {
                     width: canvas.width,
@@ -976,7 +1034,6 @@
                 
                 ctx.drawImage(screenshot, 0, 0, canvas.width, canvas.height);
             } else {
-                // Fallback: just fill with white (requires html2canvas library)
                 console.warn('[GEMINI-WIDGET] html2canvas not available');
                 return;
             }
@@ -988,7 +1045,7 @@
             sendMessage({
                 type: 'screen.context',
                 image: base64Image,
-                silent: true  // Don't trigger response
+                silent: true
             });
             
             console.log('[GEMINI-WIDGET] 📸 Screen captured');
@@ -999,7 +1056,7 @@
     }
 
     // ============================================================================
-    // AUDIO UTILITIES
+    // AUDIO UTILITIES - БЕЗ ИЗМЕНЕНИЙ
     // ============================================================================
 
     function float32ToPCM16(float32Array) {
@@ -1039,6 +1096,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] Script loaded');
+    console.log('[GEMINI-WIDGET] v2.0 Script loaded');
 
 })();
