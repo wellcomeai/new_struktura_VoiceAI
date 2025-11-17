@@ -1,8 +1,7 @@
 /**
- * 🚀 Gemini Voice Widget v2.7.2 - PRODUCTION (PREMIUM UI)
+ * 🚀 Gemini Voice Widget v2.7.1 - PRODUCTION (PREMIUM UI)
  * Google Gemini Live API Integration
  * 
- * ✅ v2.7.2: Fixed continuous audio bars animation during assistant speech
  * ✅ v2.7.1: Fixed header text visibility + audio bars for assistant speech
  * ✅ NEW: Premium modern UI design
  * ✅ NEW: Glassmorphism effects
@@ -17,7 +16,7 @@
  * ✅ One-click activation - auto-start recording
  * ✅ Close = disconnect - clean shutdown
  * 
- * @version 2.7.2
+ * @version 2.7.1
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -225,7 +224,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.2 (PREMIUM UI)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.1 (PREMIUM UI)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -1992,6 +1991,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.2 (PREMIUM UI)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.1 (PREMIUM UI)');
 
 })();
