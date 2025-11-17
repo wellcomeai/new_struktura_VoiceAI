@@ -60,8 +60,8 @@
         vad: {
             enabled: true,
             silenceThreshold: -45,
-            silenceDuration: 1500,
-            speechThreshold: -38
+            silenceDuration: 400,
+            speechThreshold: -42
         },
         
         ws: {
