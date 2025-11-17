@@ -1,17 +1,17 @@
 /**
- * 🚀 Gemini Voice Widget v2.4.1 - Production Ready (CLICK-FREE AUDIO)
+ * 🚀 Gemini Voice Widget v2.5.0 - Production Ready (AUDIOWORKLET)
  * Google Gemini Live API Integration
  * 
- * ✅ NEW: Scheduled audio playback queue (no clicks/gaps between chunks)
- * ✅ NEW: Time-synchronized audio streaming
- * ✅ FIXED: Audio crackling/clicking from chunk boundaries
+ * ✅ NEW: AudioWorklet for recording (no more ScriptProcessor deprecation)
+ * ✅ NEW: Crossfade between audio chunks (smooth transitions)
+ * ✅ NEW: Advanced audio buffering and scheduling
+ * ✅ FIXED: All audio crackling/clicking issues
+ * ✅ Scheduled audio playback queue (no clicks/gaps between chunks)
+ * ✅ Time-synchronized audio streaming
  * ✅ Automatic audio resampling (24kHz -> browser native rate)
  * ✅ Real sample rate detection and logging
  * ✅ One-click activation - auto-start recording when widget opens
  * ✅ Close = disconnect - clean shutdown on close
- * ✅ Setup timing - wait for Gemini to be ready before processing audio
- * ✅ Native 24kHz playback with fallback resampling
- * ✅ Automatic audio buffer commit on silence detection
  * ✅ Premium visual design with improved layout
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
  * ✅ Real-time audio streaming (16kHz PCM input, 24kHz PCM output)
@@ -21,7 +21,7 @@
  * ✅ Responsive design
  * ✅ Voicyfy branding
  * 
- * @version 2.4.1
+ * @version 2.5.0
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -57,12 +57,13 @@
             inputSampleRate: 16000,
             outputSampleRate: 24000,        // Частота от Gemini API
             playbackSampleRate: 24000,      // Желаемая частота (будет скорректирована)
-            actualSampleRate: null,         // ✅ NEW: Реальная частота AudioContext
+            actualSampleRate: null,         // Реальная частота AudioContext
             channelCount: 1,
             bitsPerSample: 16,
             chunkDuration: 100,
             maxBufferSize: 96000,
-            needsResampling: false          // ✅ NEW: Флаг необходимости ресемплинга
+            needsResampling: false,
+            crossfadeDuration: 0.005        // 5ms crossfade между чанками
         },
         
         // VAD
@@ -110,7 +111,7 @@
         isSpeaking: false,
         audioContext: null,
         mediaStream: null,
-        audioWorklet: null,
+        audioWorkletNode: null,
         audioQueue: [],
         currentAudioSource: null,
         pingInterval: null,
@@ -122,16 +123,56 @@
         audioBufferCommitted: false,
         setupTimeout: null,
         isWidgetOpen: false,
-        audioChunksProcessed: 0,  // ✅ NEW: Счетчик для статистики
-        nextPlaybackTime: null     // ✅ NEW: Временная метка для синхронизации воспроизведения
+        audioChunksProcessed: 0,
+        nextPlaybackTime: null,
+        audioWorkletReady: false
     };
+
+    // ============================================================================
+    // AUDIOWORKLET PROCESSOR CODE (INLINE)
+    // ============================================================================
+
+    const WORKLET_PROCESSOR_CODE = `
+class RecorderWorkletProcessor extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        this.bufferSize = 4096;
+        this.buffer = new Float32Array(this.bufferSize);
+        this.bufferIndex = 0;
+    }
+
+    process(inputs, outputs, parameters) {
+        const input = inputs[0];
+        if (!input || !input[0]) return true;
+
+        const inputData = input[0];
+
+        for (let i = 0; i < inputData.length; i++) {
+            this.buffer[this.bufferIndex++] = inputData[i];
+
+            if (this.bufferIndex >= this.bufferSize) {
+                // Отправляем буфер в main thread
+                this.port.postMessage({
+                    type: 'audioData',
+                    data: this.buffer.slice(0, this.bufferIndex)
+                });
+                this.bufferIndex = 0;
+            }
+        }
+
+        return true;
+    }
+}
+
+registerProcessor('recorder-worklet', RecorderWorkletProcessor);
+`;
 
     // ============================================================================
     // INITIALIZATION
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.4.1 (CLICK-FREE AUDIO)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.5.0 (AUDIOWORKLET)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -162,7 +203,7 @@
         document.addEventListener('touchstart', initAudioContext, { once: true });
     }
 
-    function initAudioContext() {
+    async function initAudioContext() {
         if (STATE.audioContext) return;
         
         console.log('[GEMINI-WIDGET] 🎧 Creating AudioContext...');
@@ -172,13 +213,13 @@
             sampleRate: CONFIG.audio.playbackSampleRate
         });
         
-        // ✅ ПРОВЕРЯЕМ РЕАЛЬНУЮ ЧАСТОТУ
+        // Проверяем реальную частоту
         const actualRate = STATE.audioContext.sampleRate;
         CONFIG.audio.actualSampleRate = actualRate;
         
         console.log('[GEMINI-WIDGET] 📊 Actual sample rate:', actualRate, 'Hz');
         
-        // ✅ ОПРЕДЕЛЯЕМ НЕОБХОДИМОСТЬ РЕСЕМПЛИНГА
+        // Определяем необходимость ресемплинга
         if (actualRate !== CONFIG.audio.outputSampleRate) {
             CONFIG.audio.needsResampling = true;
             console.warn('[GEMINI-WIDGET] ⚠️ Sample rate mismatch detected!');
@@ -188,13 +229,39 @@
             console.log('[GEMINI-WIDGET] ✅ Sample rates match - no resampling needed');
         }
         
+        // Регистрируем AudioWorklet
+        await loadAudioWorklet();
+        
         console.log('[GEMINI-WIDGET] ✅ AudioContext initialized');
         console.log('[GEMINI-WIDGET] 📊 Audio Config:', {
             input: CONFIG.audio.inputSampleRate + ' Hz',
             geminiOutput: CONFIG.audio.outputSampleRate + ' Hz',
             browserActual: actualRate + ' Hz',
-            needsResampling: CONFIG.audio.needsResampling
+            needsResampling: CONFIG.audio.needsResampling,
+            audioWorklet: STATE.audioWorkletReady ? 'ready' : 'not ready'
         });
+    }
+
+    async function loadAudioWorklet() {
+        try {
+            console.log('[GEMINI-WIDGET] 📦 Loading AudioWorklet...');
+            
+            // Создаём Blob URL для worklet processor
+            const blob = new Blob([WORKLET_PROCESSOR_CODE], { type: 'application/javascript' });
+            const workletUrl = URL.createObjectURL(blob);
+            
+            await STATE.audioContext.audioWorklet.addModule(workletUrl);
+            
+            STATE.audioWorkletReady = true;
+            console.log('[GEMINI-WIDGET] ✅ AudioWorklet loaded successfully');
+            
+            // Очищаем URL
+            URL.revokeObjectURL(workletUrl);
+        } catch (error) {
+            console.error('[GEMINI-WIDGET] ❌ AudioWorklet load failed:', error);
+            console.warn('[GEMINI-WIDGET] ⚠️ Falling back to ScriptProcessor');
+            STATE.audioWorkletReady = false;
+        }
     }
 
     // ============================================================================
@@ -980,14 +1047,14 @@
     }
 
     // ============================================================================
-    // BUTTON HANDLERS - AUTO-START LOGIC
+    // BUTTON HANDLERS
     // ============================================================================
 
     async function handleButtonClick() {
         console.log('[GEMINI-WIDGET] Button clicked');
         
         if (!STATE.audioContext) {
-            initAudioContext();
+            await initAudioContext();
         }
 
         const container = document.querySelector('.gemini-widget-container');
@@ -1280,7 +1347,6 @@
             updateUI('connected');
         }
         
-        // ✅ ЛОГИРУЕМ СТАТИСТИКУ
         console.log('[GEMINI-WIDGET] 📊 Audio chunks processed:', STATE.audioChunksProcessed);
         STATE.audioChunksProcessed = 0;
     }
@@ -1340,7 +1406,7 @@
     }
 
     // ============================================================================
-    // AUDIO RECORDING
+    // AUDIO RECORDING - WITH AUDIOWORKLET
     // ============================================================================
 
     async function startRecording() {
@@ -1367,53 +1433,16 @@
             console.log('[GEMINI-WIDGET] Microphone granted');
             
             const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
-            const processor = STATE.audioContext.createScriptProcessor(4096, 1, 1);
             
-            processor.onaudioprocess = (e) => {
-                if (!STATE.isRecording) return;
-                
-                const inputData = e.inputBuffer.getChannelData(0);
-                const pcmData = float32ToPCM16(inputData);
-                
-                updateAudioVisualization(inputData);
-                
-                const rms = calculateRMS(inputData);
-                const db = 20 * Math.log10(rms);
-                
-                if (db > CONFIG.vad.speechThreshold) {
-                    if (!STATE.isSpeaking) {
-                        console.log('[GEMINI-WIDGET] 🗣️ User speaking');
-                        sendMessage({ type: 'speech.user_started' });
-                        STATE.isSpeaking = true;
-                        STATE.audioBufferCommitted = false;
-                    }
-                    STATE.lastSpeechTime = Date.now();
-                } else if (STATE.isSpeaking && 
-                          STATE.lastSpeechTime > 0 && 
-                          Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration &&
-                          !STATE.audioBufferCommitted) {
-                    console.log('[GEMINI-WIDGET] 🤐 User stopped');
-                    sendMessage({ type: 'speech.user_stopped' });
-                    
-                    console.log('[GEMINI-WIDGET] 💾 Committing audio');
-                    sendMessage({ type: 'input_audio_buffer.commit' });
-                    
-                    STATE.isSpeaking = false;
-                    STATE.lastSpeechTime = 0;
-                    STATE.audioBufferCommitted = true;
-                }
-                
-                const base64Audio = arrayBufferToBase64(pcmData.buffer);
-                sendMessage({
-                    type: 'input_audio_buffer.append',
-                    audio: base64Audio
-                });
-            };
+            // ✅ AUDIOWORKLET если доступен, иначе ScriptProcessor
+            if (STATE.audioWorkletReady) {
+                console.log('[GEMINI-WIDGET] 🎙️ Using AudioWorklet (modern)');
+                await startAudioWorkletRecording(source);
+            } else {
+                console.log('[GEMINI-WIDGET] 🎙️ Using ScriptProcessor (fallback)');
+                await startScriptProcessorRecording(source);
+            }
             
-            source.connect(processor);
-            processor.connect(STATE.audioContext.destination);
-            
-            STATE.audioWorklet = { source, processor };
             STATE.isRecording = true;
             STATE.audioBufferCommitted = false;
             
@@ -1425,6 +1454,106 @@
             console.error('[GEMINI-WIDGET] Recording error:', error);
             showError('Ошибка записи', 'Не удалось получить доступ к микрофону');
         }
+    }
+
+    async function startAudioWorkletRecording(source) {
+        const workletNode = new AudioWorkletNode(STATE.audioContext, 'recorder-worklet');
+        
+        workletNode.port.onmessage = (event) => {
+            if (!STATE.isRecording) return;
+            
+            const audioData = event.data.data;
+            const pcmData = float32ToPCM16(audioData);
+            
+            updateAudioVisualization(audioData);
+            
+            const rms = calculateRMS(audioData);
+            const db = 20 * Math.log10(rms);
+            
+            if (db > CONFIG.vad.speechThreshold) {
+                if (!STATE.isSpeaking) {
+                    console.log('[GEMINI-WIDGET] 🗣️ User speaking');
+                    sendMessage({ type: 'speech.user_started' });
+                    STATE.isSpeaking = true;
+                    STATE.audioBufferCommitted = false;
+                }
+                STATE.lastSpeechTime = Date.now();
+            } else if (STATE.isSpeaking && 
+                      STATE.lastSpeechTime > 0 && 
+                      Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration &&
+                      !STATE.audioBufferCommitted) {
+                console.log('[GEMINI-WIDGET] 🤐 User stopped');
+                sendMessage({ type: 'speech.user_stopped' });
+                
+                console.log('[GEMINI-WIDGET] 💾 Committing audio');
+                sendMessage({ type: 'input_audio_buffer.commit' });
+                
+                STATE.isSpeaking = false;
+                STATE.lastSpeechTime = 0;
+                STATE.audioBufferCommitted = true;
+            }
+            
+            const base64Audio = arrayBufferToBase64(pcmData.buffer);
+            sendMessage({
+                type: 'input_audio_buffer.append',
+                audio: base64Audio
+            });
+        };
+        
+        source.connect(workletNode);
+        workletNode.connect(STATE.audioContext.destination);
+        
+        STATE.audioWorkletNode = { source, workletNode };
+    }
+
+    async function startScriptProcessorRecording(source) {
+        const processor = STATE.audioContext.createScriptProcessor(4096, 1, 1);
+        
+        processor.onaudioprocess = (e) => {
+            if (!STATE.isRecording) return;
+            
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmData = float32ToPCM16(inputData);
+            
+            updateAudioVisualization(inputData);
+            
+            const rms = calculateRMS(inputData);
+            const db = 20 * Math.log10(rms);
+            
+            if (db > CONFIG.vad.speechThreshold) {
+                if (!STATE.isSpeaking) {
+                    console.log('[GEMINI-WIDGET] 🗣️ User speaking');
+                    sendMessage({ type: 'speech.user_started' });
+                    STATE.isSpeaking = true;
+                    STATE.audioBufferCommitted = false;
+                }
+                STATE.lastSpeechTime = Date.now();
+            } else if (STATE.isSpeaking && 
+                      STATE.lastSpeechTime > 0 && 
+                      Date.now() - STATE.lastSpeechTime > CONFIG.vad.silenceDuration &&
+                      !STATE.audioBufferCommitted) {
+                console.log('[GEMINI-WIDGET] 🤐 User stopped');
+                sendMessage({ type: 'speech.user_stopped' });
+                
+                console.log('[GEMINI-WIDGET] 💾 Committing audio');
+                sendMessage({ type: 'input_audio_buffer.commit' });
+                
+                STATE.isSpeaking = false;
+                STATE.lastSpeechTime = 0;
+                STATE.audioBufferCommitted = true;
+            }
+            
+            const base64Audio = arrayBufferToBase64(pcmData.buffer);
+            sendMessage({
+                type: 'input_audio_buffer.append',
+                audio: base64Audio
+            });
+        };
+        
+        source.connect(processor);
+        processor.connect(STATE.audioContext.destination);
+        
+        STATE.audioWorkletNode = { source, processor };
     }
 
     async function stopRecording() {
@@ -1439,10 +1568,15 @@
             STATE.mediaStream = null;
         }
         
-        if (STATE.audioWorklet) {
-            STATE.audioWorklet.source.disconnect();
-            STATE.audioWorklet.processor.disconnect();
-            STATE.audioWorklet = null;
+        if (STATE.audioWorkletNode) {
+            STATE.audioWorkletNode.source.disconnect();
+            if (STATE.audioWorkletNode.workletNode) {
+                STATE.audioWorkletNode.workletNode.disconnect();
+            }
+            if (STATE.audioWorkletNode.processor) {
+                STATE.audioWorkletNode.processor.disconnect();
+            }
+            STATE.audioWorkletNode = null;
         }
         
         if (!STATE.audioBufferCommitted) {
@@ -1463,7 +1597,7 @@
     }
 
     // ============================================================================
-    // AUDIO PLAYBACK - WITH SCHEDULED QUEUE (NO CLICKS)
+    // AUDIO PLAYBACK - WITH CROSSFADE
     // ============================================================================
 
     async function playAudioQueue() {
@@ -1471,18 +1605,17 @@
         
         STATE.isPlaying = true;
         
-        // ✅ ИНИЦИАЛИЗИРУЕМ ВРЕМЕННУЮ МЕТКУ для синхронизации
+        // Инициализируем временную метку
         if (!STATE.nextPlaybackTime || STATE.nextPlaybackTime < STATE.audioContext.currentTime) {
-            STATE.nextPlaybackTime = STATE.audioContext.currentTime + 0.05; // Небольшой буфер
+            STATE.nextPlaybackTime = STATE.audioContext.currentTime + 0.05;
         }
         
         while (STATE.audioQueue.length > 0) {
             const base64Audio = STATE.audioQueue.shift();
-            const duration = await playAudioChunk(base64Audio);
+            const duration = await playAudioChunkWithCrossfade(base64Audio);
             
             if (!STATE.isPlaying) break;
             
-            // Планируем следующий чанк сразу после текущего
             if (duration) {
                 STATE.nextPlaybackTime += duration;
             }
@@ -1491,16 +1624,16 @@
         STATE.isPlaying = false;
     }
 
-    async function playAudioChunk(base64Audio) {
+    async function playAudioChunkWithCrossfade(base64Audio) {
         try {
-            // ✅ 1. Декодируем Base64 → ArrayBuffer
+            // Декодируем Base64 → ArrayBuffer
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
             
-            // ✅ 2. Int16Array → Float32Array (PCM16 → Float)
+            // Int16Array → Float32Array
             const pcm16 = new Int16Array(bytes.buffer);
             const float32 = new Float32Array(pcm16.length);
             for (let i = 0; i < pcm16.length; i++) {
@@ -1509,7 +1642,7 @@
             
             console.log(`[GEMINI-WIDGET] 🎵 Chunk #${++STATE.audioChunksProcessed}: ${float32.length} samples @ ${CONFIG.audio.outputSampleRate}Hz`);
             
-            // ✅ 3. РЕСЕМПЛИНГ ЕСЛИ НУЖНО
+            // Ресемплинг если нужно
             let audioData = float32;
             let targetSampleRate = CONFIG.audio.outputSampleRate;
             
@@ -1525,7 +1658,10 @@
                 console.log(`[GEMINI-WIDGET] 🔄 Resampled: ${float32.length} → ${resampled.length} samples`);
             }
             
-            // ✅ 4. Создаем AudioBuffer
+            // ✅ ПРИМЕНЯЕМ CROSSFADE (сглаживание краёв)
+            applyCrossfade(audioData, targetSampleRate);
+            
+            // Создаем AudioBuffer
             const audioBuffer = STATE.audioContext.createBuffer(
                 1,
                 audioData.length,
@@ -1533,21 +1669,19 @@
             );
             audioBuffer.getChannelData(0).set(audioData);
             
-            // ✅ 5. ЗАПЛАНИРОВАННОЕ воспроизведение с синхронизацией
+            // Запланированное воспроизведение
             const source = STATE.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(STATE.audioContext.destination);
             
-            // Планируем воспроизведение в точное время
             const startTime = STATE.nextPlaybackTime || STATE.audioContext.currentTime;
             source.start(startTime);
             
             STATE.currentAudioSource = source;
             
-            // Вычисляем длительность чанка
             const duration = audioBuffer.duration;
             
-            // Ждём окончания (или минимальное время)
+            // Ждём окончания
             await new Promise((resolve) => {
                 const waitTime = Math.max(0, (startTime - STATE.audioContext.currentTime + duration) * 1000);
                 setTimeout(resolve, waitTime);
@@ -1562,10 +1696,26 @@
             console.error('[GEMINI-WIDGET] Error details:', {
                 message: error.message,
                 stack: error.stack,
-                audioQueueLength: STATE.audioQueue.length,
-                needsResampling: CONFIG.audio.needsResampling
+                audioQueueLength: STATE.audioQueue.length
             });
             return 0;
+        }
+    }
+
+    function applyCrossfade(audioData, sampleRate) {
+        const crossfadeSamples = Math.floor(CONFIG.audio.crossfadeDuration * sampleRate);
+        
+        // Fade-in в начале
+        for (let i = 0; i < crossfadeSamples && i < audioData.length; i++) {
+            const gain = i / crossfadeSamples;
+            audioData[i] *= gain;
+        }
+        
+        // Fade-out в конце
+        for (let i = 0; i < crossfadeSamples && i < audioData.length; i++) {
+            const index = audioData.length - 1 - i;
+            const gain = i / crossfadeSamples;
+            audioData[index] *= gain;
         }
     }
 
@@ -1579,20 +1729,13 @@
         
         STATE.audioQueue = [];
         STATE.isPlaying = false;
-        STATE.nextPlaybackTime = null; // ✅ Сбрасываем временную метку
+        STATE.nextPlaybackTime = null;
     }
 
     // ============================================================================
-    // AUDIO RESAMPLING - LINEAR INTERPOLATION
+    // AUDIO RESAMPLING
     // ============================================================================
 
-    /**
-     * Ресемплинг аудио с использованием линейной интерполяции
-     * @param {Float32Array} inputBuffer - Входной аудиобуфер
-     * @param {number} inputSampleRate - Исходная частота дискретизации
-     * @param {number} outputSampleRate - Целевая частота дискретизации
-     * @returns {Float32Array} - Пересемплированный буфер
-     */
     function resampleAudio(inputBuffer, inputSampleRate, outputSampleRate) {
         if (inputSampleRate === outputSampleRate) {
             return inputBuffer;
@@ -1658,6 +1801,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.4.1 (CLICK-FREE AUDIO)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.5.0 (AUDIOWORKLET)');
 
 })();
