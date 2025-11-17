@@ -1,6 +1,7 @@
 """
 User schemas for WellcomeAI application.
 Defines schemas for user-related requests and responses.
+✅ ОБНОВЛЕНО: Добавлены поля gemini_api_key и elevenlabs_api_key
 """
 
 from pydantic import BaseModel, Field, EmailStr, validator
@@ -31,6 +32,8 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = Field(None, description="User last name")
     company_name: Optional[str] = Field(None, description="Company name")
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
+    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")  # ✅ ДОБАВЛЕНО
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")  # ✅ ДОБАВЛЕНО
     
     class Config:
         json_schema_extra = {
@@ -38,7 +41,9 @@ class UserUpdate(BaseModel):
                 "first_name": "John",
                 "last_name": "Doe",
                 "company_name": "ACME Inc.",
-                "openai_api_key": "sk-..."
+                "openai_api_key": "sk-...",
+                "elevenlabs_api_key": "el-...",
+                "gemini_api_key": "AIza..."
             }
         }
 
@@ -62,11 +67,17 @@ class UserResponse(UserBase):
     created_at: datetime = Field(..., description="User creation timestamp")
     updated_at: Optional[datetime] = Field(None, description="User update timestamp")
     
-    # Добавляем сам ключ API в ответ
+    # ✅ API ключи
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
-    has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
+    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")  # ✅ ДОБАВЛЕНО
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")  # ✅ ДОБАВЛЕНО
     
-    # Новые поля для тарификации
+    # ✅ Статусы наличия API ключей
+    has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
+    has_elevenlabs_api_key: bool = Field(False, description="Whether user has ElevenLabs API key set")  # ✅ ДОБАВЛЕНО
+    has_gemini_api_key: bool = Field(False, description="Whether user has Gemini API key set")  # ✅ ДОБАВЛЕНО
+    
+    # ✅ Поля тарификации
     is_trial: bool = Field(False, description="Whether user is in trial period")
     is_admin: bool = Field(False, description="Whether user is an admin")
     subscription_end_date: Optional[datetime] = Field(None, description="End date of subscription")
