@@ -937,7 +937,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             <!-- Expanded Widget -->
             <div class="gemini-widget-expanded" id="gemini-expanded">
                 <div class="gemini-widget-header">
-                    <div class="gemini-widget-title">Gemini Ассистент</div>
+                    <div class="gemini-widget-title">Голосовой Ассистент</div>
                     <button class="gemini-widget-close" id="gemini-close" title="Закрыть">
                         <i class="fas fa-times"></i>
                     </button>
