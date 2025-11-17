@@ -1,7 +1,8 @@
 /**
- * 🚀 Gemini Voice Widget v2.7.0 - PRODUCTION (PREMIUM UI)
+ * 🚀 Gemini Voice Widget v2.7.1 - PRODUCTION (PREMIUM UI)
  * Google Gemini Live API Integration
  * 
+ * ✅ v2.7.1: Fixed header text visibility + audio bars for assistant speech
  * ✅ NEW: Premium modern UI design
  * ✅ NEW: Glassmorphism effects
  * ✅ NEW: Animated gradient borders
@@ -15,7 +16,7 @@
  * ✅ One-click activation - auto-start recording
  * ✅ Close = disconnect - clean shutdown
  * 
- * @version 2.7.0
+ * @version 2.7.1
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -222,7 +223,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.0 (PREMIUM UI)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.1 (PREMIUM UI)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -535,7 +536,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     position: absolute;
                     bottom: 70px;
                     right: 0;
-                    width: 380px;
+                    width: 400px;
                     height: 0;
                     opacity: 0;
                     pointer-events: none;
@@ -589,10 +590,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 
                 .gemini-widget-title {
                     font-weight: 600;
-                    font-size: 18px;
-                    letter-spacing: 0.3px;
+                    font-size: 19px;
+                    letter-spacing: 0.2px;
                     position: relative;
                     z-index: 1;
+                    white-space: nowrap;
                 }
 
                 .gemini-widget-close {
@@ -1007,7 +1009,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 
                     .gemini-widget-expanded {
                         width: calc(100vw - 30px);
-                        max-width: 380px;
+                        max-width: 400px;
                     }
 
                     .gemini-widget-container.active .gemini-widget-expanded {
@@ -1025,6 +1027,10 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 
                     .gemini-error-message {
                         max-width: calc(100vw - 90px);
+                    }
+
+                    .gemini-widget-title {
+                        font-size: 17px;
                     }
                 }
             </style>
@@ -1534,6 +1540,9 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 );
             }
             
+            // ✅ Визуализация аудио ответа ассистента
+            updateAudioVisualization(audioData);
+            
             if (STATE.audioStreamNode) {
                 STATE.audioStreamNode.port.postMessage({
                     type: 'audioData',
@@ -1563,6 +1572,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.audioBufferCommitted = false;
         
         stopPlayback();
+        resetAudioVisualization();
         
         if (!STATE.isRecording) {
             updateUI('connected');
@@ -1928,6 +1938,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.0 (PREMIUM UI)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.1 (PREMIUM UI)');
 
 })();
