@@ -8,14 +8,6 @@ OpenAI VAD Only Architecture - Simplified
 - Код проще на 15%, меньше точек отказа
 - OpenAI server VAD управляет всем процессом
 
-Previous features (maintained):
-- ✅ Async function calling (v2.10)
-- ✅ query_llm, get_current_weather, search_web (v2.10)
-- ✅ Interruption handling (v2.9)
-- ✅ Screen capture support (v2.8)
-- ✅ Streaming audio playback (v2.7)
-- ✅ OpenAI Realtime GA API with gpt-realtime-mini (v2.6)
-
 Compatible with:
 - openai_client_new.py v3.1 (OpenAI GA + server VAD)
 - widget.js v3.2.2 (OpenAI VAD Only - Simplified)
@@ -29,10 +21,9 @@ from datetime import datetime
 from typing import Dict, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
 
-# 🔧 ИСПРАВЛЕННЫЕ ИМПОРТЫ для вашей структуры проекта:
+# ✅ ПРАВИЛЬНЫЕ ИМПОРТЫ для вашей структуры проекта:
 from backend.db.session import SessionLocal
-from backend.models.assistant import Assistant
-from backend.models.conversation import Conversation
+from backend.models import AssistantConfig, Conversation  # ← Правильно!
 from backend.websockets.openai_client_new import RealtimeClient
 
 # Импорты для функций
@@ -233,8 +224,8 @@ async def handle_realtime_connection(
     
     log_to_render(f"[v2.11 OpenAI VAD] New WebSocket connection for assistant: {assistant_id}")
     
-    # Получаем ассистента из базы данных
-    assistant = db.query(Assistant).filter(Assistant.id == assistant_id).first()
+    # ✅ Используем правильное имя класса: AssistantConfig
+    assistant = db.query(AssistantConfig).filter(AssistantConfig.id == assistant_id).first()
     
     if not assistant:
         log_to_render(f"Assistant not found: {assistant_id}", "ERROR")
@@ -507,7 +498,7 @@ async def handle_realtime_connection(
         except Exception:
             pass
 
-# Экспортируем функцию с правильным именем для совместимости
+# ✅ Экспортируем функцию с правильным именем для совместимости
 async def handle_websocket_connection_new(websocket: WebSocket, assistant_id: str, db: SessionLocal):
     """Wrapper для совместимости с существующим кодом"""
     await handle_realtime_connection(websocket, assistant_id, db)
