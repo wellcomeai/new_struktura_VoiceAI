@@ -1,12 +1,15 @@
 /**
- * 🚀 Gemini Voice Widget v2.3 - Production Ready (AUTO-START)
+ * 🚀 Gemini Voice Widget v2.4 - Production Ready (AUDIO FIX)
  * Google Gemini Live API Integration
  * 
- * ✅ NEW: One-click activation - auto-start recording when widget opens
- * ✅ NEW: Close = disconnect - clean shutdown on close
- * ✅ FIXED: Setup timing - wait for Gemini to be ready before processing audio
- * ✅ FIXED: Native 24kHz playback (no resampling distortion)
- * ✅ FIXED: Automatic audio buffer commit on silence detection
+ * ✅ NEW: Automatic audio resampling (24kHz -> browser native rate)
+ * ✅ NEW: Real sample rate detection and logging
+ * ✅ FIXED: Audio distortion/crackling from sample rate mismatch
+ * ✅ One-click activation - auto-start recording when widget opens
+ * ✅ Close = disconnect - clean shutdown on close
+ * ✅ Setup timing - wait for Gemini to be ready before processing audio
+ * ✅ Native 24kHz playback with fallback resampling
+ * ✅ Automatic audio buffer commit on silence detection
  * ✅ Premium visual design with improved layout
  * ✅ WebSocket connection to /ws/gemini/{assistant_id}
  * ✅ Real-time audio streaming (16kHz PCM input, 24kHz PCM output)
@@ -16,7 +19,7 @@
  * ✅ Responsive design
  * ✅ Voicyfy branding
  * 
- * @version 2.3.0
+ * @version 2.4.0
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -50,12 +53,14 @@
         // Аудио параметры
         audio: {
             inputSampleRate: 16000,
-            outputSampleRate: 24000,
-            playbackSampleRate: 24000,
+            outputSampleRate: 24000,        // Частота от Gemini API
+            playbackSampleRate: 24000,      // Желаемая частота (будет скорректирована)
+            actualSampleRate: null,         // ✅ NEW: Реальная частота AudioContext
             channelCount: 1,
             bitsPerSample: 16,
             chunkDuration: 100,
-            maxBufferSize: 96000
+            maxBufferSize: 96000,
+            needsResampling: false          // ✅ NEW: Флаг необходимости ресемплинга
         },
         
         // VAD
@@ -114,7 +119,8 @@
         errorState: null,
         audioBufferCommitted: false,
         setupTimeout: null,
-        isWidgetOpen: false  // ✅ NEW: Track widget state
+        isWidgetOpen: false,
+        audioChunksProcessed: 0  // ✅ NEW: Счетчик для статистики
     };
 
     // ============================================================================
@@ -122,7 +128,7 @@
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] Initializing v2.3 (AUTO-START)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.4 (AUDIO FIX)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -156,11 +162,36 @@
     function initAudioContext() {
         if (STATE.audioContext) return;
         
+        console.log('[GEMINI-WIDGET] 🎧 Creating AudioContext...');
+        console.log('[GEMINI-WIDGET] 📊 Requested sample rate:', CONFIG.audio.playbackSampleRate, 'Hz');
+        
         STATE.audioContext = new (window.AudioContext || window.webkitAudioContext)({
             sampleRate: CONFIG.audio.playbackSampleRate
         });
         
-        console.log('[GEMINI-WIDGET] AudioContext initialized:', STATE.audioContext.sampleRate, 'Hz');
+        // ✅ ПРОВЕРЯЕМ РЕАЛЬНУЮ ЧАСТОТУ
+        const actualRate = STATE.audioContext.sampleRate;
+        CONFIG.audio.actualSampleRate = actualRate;
+        
+        console.log('[GEMINI-WIDGET] 📊 Actual sample rate:', actualRate, 'Hz');
+        
+        // ✅ ОПРЕДЕЛЯЕМ НЕОБХОДИМОСТЬ РЕСЕМПЛИНГА
+        if (actualRate !== CONFIG.audio.outputSampleRate) {
+            CONFIG.audio.needsResampling = true;
+            console.warn('[GEMINI-WIDGET] ⚠️ Sample rate mismatch detected!');
+            console.warn('[GEMINI-WIDGET] 🔄 Resampling enabled:', CONFIG.audio.outputSampleRate, 'Hz →', actualRate, 'Hz');
+        } else {
+            CONFIG.audio.needsResampling = false;
+            console.log('[GEMINI-WIDGET] ✅ Sample rates match - no resampling needed');
+        }
+        
+        console.log('[GEMINI-WIDGET] ✅ AudioContext initialized');
+        console.log('[GEMINI-WIDGET] 📊 Audio Config:', {
+            input: CONFIG.audio.inputSampleRate + ' Hz',
+            geminiOutput: CONFIG.audio.outputSampleRate + ' Hz',
+            browserActual: actualRate + ' Hz',
+            needsResampling: CONFIG.audio.needsResampling
+        });
     }
 
     // ============================================================================
@@ -960,19 +991,13 @@
         const isOpen = container.classList.contains('active');
 
         if (!isOpen) {
-            // ✅ ОТКРЫВАЕМ ВИДЖЕТ
             container.classList.add('active');
             STATE.isWidgetOpen = true;
             
             if (!STATE.isConnected) {
-                // Подключаемся к WebSocket
                 await connectWebSocket();
             }
-            
-            // ✅ АВТОМАТИЧЕСКИ НАЧИНАЕМ ЗАПИСЬ КОГДА ГОТОВО
-            // Это произойдет в handleSetupComplete()
         }
-        // Виджет уже открыт - ничего не делаем (все работает автоматически)
     }
 
     async function handleClose() {
@@ -982,15 +1007,12 @@
         container.classList.remove('active');
         STATE.isWidgetOpen = false;
         
-        // ✅ ОСТАНАВЛИВАЕМ ЗАПИСЬ
         if (STATE.isRecording) {
             await stopRecording();
         }
         
-        // ✅ ОСТАНАВЛИВАЕМ ВОСПРОИЗВЕДЕНИЕ
         stopPlayback();
         
-        // ✅ ЗАКРЫВАЕМ WEBSOCKET
         if (STATE.ws) {
             try {
                 STATE.ws.close();
@@ -1000,12 +1022,12 @@
             }
         }
         
-        // ✅ СБРАСЫВАЕМ СОСТОЯНИЕ
         STATE.isConnected = false;
         STATE.isSetupComplete = false;
         STATE.readyToRecord = false;
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
+        STATE.audioChunksProcessed = 0;
         
         if (STATE.pingInterval) {
             clearInterval(STATE.pingInterval);
@@ -1070,7 +1092,6 @@
                 STATE.isSetupComplete = true;
                 STATE.readyToRecord = true;
                 
-                // ✅ AUTO-START если виджет открыт
                 if (STATE.isWidgetOpen && !STATE.isRecording) {
                     startRecording();
                 }
@@ -1165,13 +1186,11 @@
             stopPlayback();
         }
         
-        // ✅ НЕ ПЕРЕПОДКЛЮЧАЕМСЯ если виджет закрыт
         if (!STATE.isWidgetOpen) {
             console.log('[GEMINI-WIDGET] Widget closed - no reconnect');
             return;
         }
         
-        // Переподключаемся только если виджет открыт
         if (STATE.reconnectAttempts < CONFIG.ws.maxReconnectAttempts) {
             STATE.reconnectAttempts++;
             console.log(`[GEMINI-WIDGET] Reconnecting... Attempt ${STATE.reconnectAttempts}`);
@@ -1226,7 +1245,6 @@
             console.log('[GEMINI-WIDGET] ✅ Ready!');
             updateUI('connected');
             
-            // ✅ АВТОМАТИЧЕСКИ НАЧИНАЕМ ЗАПИСЬ ЕСЛИ ВИДЖЕТ ОТКРЫТ
             if (STATE.isWidgetOpen && !STATE.isRecording) {
                 console.log('[GEMINI-WIDGET] 🎙️ AUTO-START recording...');
                 startRecording();
@@ -1258,6 +1276,10 @@
         if (!STATE.isRecording) {
             updateUI('connected');
         }
+        
+        // ✅ ЛОГИРУЕМ СТАТИСТИКУ
+        console.log('[GEMINI-WIDGET] 📊 Audio chunks processed:', STATE.audioChunksProcessed);
+        STATE.audioChunksProcessed = 0;
     }
 
     function handleInterruption() {
@@ -1438,7 +1460,7 @@
     }
 
     // ============================================================================
-    // AUDIO PLAYBACK
+    // AUDIO PLAYBACK - WITH RESAMPLING
     // ============================================================================
 
     async function playAudioQueue() {
@@ -1458,25 +1480,47 @@
 
     async function playAudioChunk(base64Audio) {
         try {
+            // ✅ 1. Декодируем Base64 → ArrayBuffer
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
             
+            // ✅ 2. Int16Array → Float32Array (PCM16 → Float)
             const pcm16 = new Int16Array(bytes.buffer);
             const float32 = new Float32Array(pcm16.length);
             for (let i = 0; i < pcm16.length; i++) {
                 float32[i] = pcm16[i] / 32768.0;
             }
             
+            console.log(`[GEMINI-WIDGET] 🎵 Chunk #${++STATE.audioChunksProcessed}: ${float32.length} samples @ ${CONFIG.audio.outputSampleRate}Hz`);
+            
+            // ✅ 3. РЕСЕМПЛИНГ ЕСЛИ НУЖНО
+            let audioData = float32;
+            let targetSampleRate = CONFIG.audio.outputSampleRate;
+            
+            if (CONFIG.audio.needsResampling) {
+                const resampled = resampleAudio(
+                    float32,
+                    CONFIG.audio.outputSampleRate,
+                    CONFIG.audio.actualSampleRate
+                );
+                audioData = resampled;
+                targetSampleRate = CONFIG.audio.actualSampleRate;
+                
+                console.log(`[GEMINI-WIDGET] 🔄 Resampled: ${float32.length} → ${resampled.length} samples`);
+            }
+            
+            // ✅ 4. Создаем AudioBuffer
             const audioBuffer = STATE.audioContext.createBuffer(
                 1,
-                float32.length,
-                CONFIG.audio.outputSampleRate
+                audioData.length,
+                targetSampleRate
             );
-            audioBuffer.getChannelData(0).set(float32);
+            audioBuffer.getChannelData(0).set(audioData);
             
+            // ✅ 5. Воспроизводим
             const source = STATE.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(STATE.audioContext.destination);
@@ -1492,7 +1536,13 @@
             });
             
         } catch (error) {
-            console.error('[GEMINI-WIDGET] Playback error:', error);
+            console.error('[GEMINI-WIDGET] ❌ Playback error:', error);
+            console.error('[GEMINI-WIDGET] Error details:', {
+                message: error.message,
+                stack: error.stack,
+                audioQueueLength: STATE.audioQueue.length,
+                needsResampling: CONFIG.audio.needsResampling
+            });
         }
     }
 
@@ -1506,6 +1556,42 @@
         
         STATE.audioQueue = [];
         STATE.isPlaying = false;
+    }
+
+    // ============================================================================
+    // AUDIO RESAMPLING - LINEAR INTERPOLATION
+    // ============================================================================
+
+    /**
+     * Ресемплинг аудио с использованием линейной интерполяции
+     * @param {Float32Array} inputBuffer - Входной аудиобуфер
+     * @param {number} inputSampleRate - Исходная частота дискретизации
+     * @param {number} outputSampleRate - Целевая частота дискретизации
+     * @returns {Float32Array} - Пересемплированный буфер
+     */
+    function resampleAudio(inputBuffer, inputSampleRate, outputSampleRate) {
+        if (inputSampleRate === outputSampleRate) {
+            return inputBuffer;
+        }
+        
+        const ratio = inputSampleRate / outputSampleRate;
+        const outputLength = Math.round(inputBuffer.length / ratio);
+        const outputBuffer = new Float32Array(outputLength);
+        
+        console.log(`[GEMINI-WIDGET] 🔄 Resampling: ${inputSampleRate}Hz → ${outputSampleRate}Hz (ratio: ${ratio.toFixed(3)})`);
+        console.log(`[GEMINI-WIDGET] 📏 Length: ${inputBuffer.length} → ${outputLength} samples`);
+        
+        for (let i = 0; i < outputLength; i++) {
+            const srcIndex = i * ratio;
+            const srcIndexFloor = Math.floor(srcIndex);
+            const srcIndexCeil = Math.min(srcIndexFloor + 1, inputBuffer.length - 1);
+            const t = srcIndex - srcIndexFloor;
+            
+            // Линейная интерполяция
+            outputBuffer[i] = inputBuffer[srcIndexFloor] * (1 - t) + inputBuffer[srcIndexCeil] * t;
+        }
+        
+        return outputBuffer;
     }
 
     // ============================================================================
@@ -1548,6 +1634,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] Script loaded v2.3 (AUTO-START)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.4 (AUDIO FIX)');
 
 })();
