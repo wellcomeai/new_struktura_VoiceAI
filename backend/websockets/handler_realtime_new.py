@@ -28,11 +28,12 @@ import base64
 from datetime import datetime
 from typing import Dict, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
-from sqlalchemy.orm import Session
 
-from backend.database import SessionLocal
-from backend.models import Assistant, Conversation
-from backend.openai_client_new import RealtimeClient
+# 🔧 ИСПРАВЛЕННЫЕ ИМПОРТЫ для вашей структуры проекта:
+from backend.db.session import SessionLocal
+from backend.models.assistant import Assistant
+from backend.models.conversation import Conversation
+from backend.websockets.openai_client_new import RealtimeClient
 
 # Импорты для функций
 import httpx
@@ -219,7 +220,7 @@ async def search_web(query: str, num_results: int = 3) -> Dict[str, Any]:
 async def handle_realtime_connection(
     websocket: WebSocket,
     assistant_id: str,
-    db: Session
+    db: SessionLocal
 ):
     """
     v2.11: Обработчик WebSocket соединения (OpenAI VAD Only - Simplified)
@@ -505,6 +506,11 @@ async def handle_realtime_connection(
             await websocket.close()
         except Exception:
             pass
+
+# Экспортируем функцию с правильным именем для совместимости
+async def handle_websocket_connection_new(websocket: WebSocket, assistant_id: str, db: SessionLocal):
+    """Wrapper для совместимости с существующим кодом"""
+    await handle_realtime_connection(websocket, assistant_id, db)
 
 async def get_active_connections_count() -> int:
     """Возвращает количество активных соединений"""
