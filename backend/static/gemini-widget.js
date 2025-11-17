@@ -6,6 +6,9 @@
  * ✅ NEW: Zero-latency playback start (first chunk immediately)
  * ✅ NEW: Seamless audio continuity (no gaps/clicks)
  * ✅ NEW: Instant interruptions (<10ms)
+ * ✅ NEW: Updated UI colors (interrupted = orange)
+ * ✅ NEW: Auto return to listening (blue) after assistant speaks
+ * ✅ REMOVED: Text display in widget (voice only)
  * ✅ REMOVED: Prefetch buffering
  * ✅ REMOVED: Discrete AudioBufferSource nodes
  * ✅ REMOVED: Artificial lookahead delay
@@ -112,7 +115,7 @@
         audioContext: null,
         mediaStream: null,
         audioWorkletNode: null,
-        audioStreamNode: null,          // NEW: Worklet для воспроизведения
+        audioStreamNode: null,          // Worklet для воспроизведения
         pingInterval: null,
         reconnectAttempts: 0,
         lastSpeechTime: 0,
@@ -124,7 +127,7 @@
         isWidgetOpen: false,
         audioChunksProcessed: 0,
         audioWorkletReady: false,
-        streamWorkletReady: false       // NEW: Готовность stream worklet
+        streamWorkletReady: false
     };
 
     // ============================================================================
@@ -166,34 +169,31 @@ class RecorderWorkletProcessor extends AudioWorkletProcessor {
 registerProcessor('recorder-worklet', RecorderWorkletProcessor);
 `;
 
-    // ✅ NEW: Streaming playback worklet
+    // Streaming playback worklet
     const STREAM_WORKLET_CODE = `
 class AudioStreamProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.audioQueue = [];           // Очередь Float32Array буферов
-        this.currentBuffer = null;      // Текущий буфер
-        this.bufferIndex = 0;           // Позиция в текущем буфере
-        this.samplesProcessed = 0;      // Счетчик семплов
-        this.isActive = false;          // Флаг активности
+        this.audioQueue = [];
+        this.currentBuffer = null;
+        this.bufferIndex = 0;
+        this.samplesProcessed = 0;
+        this.isActive = false;
         
         this.port.onmessage = (e) => {
             if (e.data.type === 'audioData') {
-                // Добавляем новый буфер в очередь
                 this.audioQueue.push(e.data.buffer);
                 if (!this.isActive) {
                     this.isActive = true;
                     this.port.postMessage({ type: 'started' });
                 }
             } else if (e.data.type === 'clear') {
-                // Мгновенная очистка для прерываний
                 this.audioQueue = [];
                 this.currentBuffer = null;
                 this.bufferIndex = 0;
                 this.isActive = false;
                 this.port.postMessage({ type: 'cleared' });
             } else if (e.data.type === 'stop') {
-                // Плавная остановка (доиграть остатки)
                 this.isActive = false;
                 this.port.postMessage({ type: 'stopped' });
             }
@@ -207,24 +207,20 @@ class AudioStreamProcessor extends AudioWorkletProcessor {
         const outputChannel = output[0];
         
         for (let i = 0; i < outputChannel.length; i++) {
-            // Если текущий буфер закончился - берем следующий из очереди
             if (!this.currentBuffer || this.bufferIndex >= this.currentBuffer.length) {
                 if (this.audioQueue.length > 0) {
                     this.currentBuffer = this.audioQueue.shift();
                     this.bufferIndex = 0;
                 } else {
-                    // Нет данных - выводим тишину (плавно, без clicks)
                     outputChannel[i] = 0;
                     continue;
                 }
             }
             
-            // Записываем семпл из буфера
             outputChannel[i] = this.currentBuffer[this.bufferIndex++];
             this.samplesProcessed++;
         }
         
-        // Отправляем статистику каждые 100ms
         if (this.samplesProcessed % 4800 === 0) {
             this.port.postMessage({
                 type: 'stats',
@@ -233,7 +229,7 @@ class AudioStreamProcessor extends AudioWorkletProcessor {
             });
         }
         
-        return true; // Keep processor alive
+        return true;
     }
 }
 
@@ -286,13 +282,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             sampleRate: CONFIG.audio.playbackSampleRate
         });
         
-        // Проверяем реальную частоту
         const actualRate = STATE.audioContext.sampleRate;
         CONFIG.audio.actualSampleRate = actualRate;
         
         console.log('[GEMINI-WIDGET] 📊 Actual sample rate:', actualRate, 'Hz');
         
-        // Определяем необходимость ресемплинга
         if (actualRate !== CONFIG.audio.outputSampleRate) {
             CONFIG.audio.needsResampling = true;
             console.warn('[GEMINI-WIDGET] ⚠️ Sample rate mismatch detected!');
@@ -302,7 +296,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             console.log('[GEMINI-WIDGET] ✅ Sample rates match - no resampling needed');
         }
         
-        // Регистрируем AudioWorklets
         await loadAudioWorklets();
         
         console.log('[GEMINI-WIDGET] ✅ AudioContext initialized');
@@ -320,7 +313,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         try {
             console.log('[GEMINI-WIDGET] 📦 Loading AudioWorklets...');
             
-            // Recorder worklet
             const recorderBlob = new Blob([RECORDER_WORKLET_CODE], { type: 'application/javascript' });
             const recorderUrl = URL.createObjectURL(recorderBlob);
             
@@ -329,7 +321,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             console.log('[GEMINI-WIDGET] ✅ Recorder worklet loaded');
             URL.revokeObjectURL(recorderUrl);
             
-            // Stream worklet (NEW)
             const streamBlob = new Blob([STREAM_WORKLET_CODE], { type: 'application/javascript' });
             const streamUrl = URL.createObjectURL(streamBlob);
             
@@ -517,7 +508,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     50% { opacity: 0.3; }
                 }
 
-                /* Expanded Widget - IMPROVED */
+                /* Expanded Widget */
                 .gemini-widget-expanded {
                     position: absolute;
                     bottom: 70px;
@@ -538,7 +529,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 }
 
                 .gemini-widget-container.active .gemini-widget-expanded {
-                    height: 500px;
+                    height: 480px;
                     opacity: 1;
                     pointer-events: all;
                 }
@@ -548,7 +539,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
                 }
 
-                /* Widget Header - IMPROVED */
+                /* Widget Header */
                 .gemini-widget-header {
                     padding: 20px 24px;
                     background: linear-gradient(135deg, #1e3a8a, #3b82f6);
@@ -679,6 +670,27 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     100% { transform: scale(1.2); opacity: 0; }
                 }
 
+                /* ✅ UPDATED: Interrupted = Orange */
+                .gemini-main-circle.interrupted {
+                    background: linear-gradient(135deg, #fed7aa, #ffedd5);
+                    box-shadow: 0 0 30px rgba(249, 115, 22, 0.5), inset 0 2px 5px rgba(255, 255, 255, 0.5);
+                }
+
+                .gemini-main-circle.interrupted::before {
+                    animation: gemini-wave 2s linear infinite;
+                    background: linear-gradient(45deg, rgba(255, 255, 255, 0.5), rgba(249, 115, 22, 0.3));
+                }
+
+                .gemini-main-circle.interrupted::after {
+                    content: '';
+                    position: absolute;
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 50%;
+                    border: 3px solid rgba(249, 115, 22, 0.5);
+                    animation: gemini-pulse 1s ease-out infinite;
+                }
+
                 .gemini-mic-icon {
                     color: #3b82f6;
                     font-size: 36px;
@@ -692,6 +704,10 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 
                 .gemini-main-circle.speaking .gemini-mic-icon {
                     color: #059669;
+                }
+
+                .gemini-main-circle.interrupted .gemini-mic-icon {
+                    color: #f97316;
                 }
 
                 /* Audio Visualization */
@@ -722,32 +738,12 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     transition: height 0.1s ease;
                 }
 
-                /* Message Display - IMPROVED */
+                /* ✅ HIDDEN: Message Display */
                 .gemini-message-display {
-                    position: absolute;
-                    width: 90%;
-                    bottom: 80px;
-                    left: 50%;
-                    transform: translateX(-50%);
-                    background: white;
-                    padding: 14px 18px;
-                    border-radius: 14px;
-                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
-                    text-align: center;
-                    font-size: 15px;
-                    line-height: 1.5;
-                    opacity: 0;
-                    transition: all 0.3s;
-                    max-height: 120px;
-                    overflow-y: auto;
-                    z-index: 10;
+                    display: none;
                 }
 
-                .gemini-message-display.show {
-                    opacity: 1;
-                }
-
-                /* Status Info - IMPROVED */
+                /* Status Info */
                 .gemini-status-info {
                     position: absolute;
                     bottom: 60px;
@@ -785,7 +781,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     background-color: #f59e0b;
                 }
 
-                /* Voicyfy Branding - IMPROVED */
+                /* Voicyfy Branding */
                 .gemini-voicyfy-container {
                     position: absolute;
                     bottom: 16px;
@@ -909,7 +905,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     }
 
                     .gemini-widget-container.active .gemini-widget-expanded {
-                        height: 480px;
+                        height: 460px;
                     }
 
                     .gemini-error-message {
@@ -919,7 +915,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             </style>
 
             <!-- Main Button -->
-            <button class="gemini-main-button" id="gemini-btn" title="Gemini голосовой ассистент">
+            <button class="gemini-main-button" id="gemini-btn" title="Голосовой ассистент">
                 <div class="gemini-button-inner">
                     <div class="gemini-pulse-ring"></div>
                     
@@ -937,7 +933,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             <!-- Expanded Widget -->
             <div class="gemini-widget-expanded" id="gemini-expanded">
                 <div class="gemini-widget-header">
-                    <div class="gemini-widget-title">Gemini Ассистент</div>
+                    <div class="gemini-widget-title">Голосовой Ассистент</div>
                     <button class="gemini-widget-close" id="gemini-close" title="Закрыть">
                         <i class="fas fa-times"></i>
                     </button>
@@ -951,8 +947,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                             <div class="gemini-audio-bars" id="gemini-bars"></div>
                         </div>
                     </div>
-
-                    <div class="gemini-message-display" id="gemini-message"></div>
 
                     <div class="gemini-status-info" id="gemini-status-info">
                         <div class="gemini-status-dot" id="gemini-status-dot"></div>
@@ -1072,23 +1066,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         errorDiv.classList.remove('show');
     }
 
-    function showMessage(message, duration = 0) {
-        const messageDiv = document.getElementById('gemini-message');
-        messageDiv.textContent = message;
-        messageDiv.classList.add('show');
-        
-        if (duration > 0) {
-            setTimeout(() => {
-                messageDiv.classList.remove('show');
-            }, duration);
-        }
-    }
-
-    function hideMessage() {
-        const messageDiv = document.getElementById('gemini-message');
-        messageDiv.classList.remove('show');
-    }
-
     function createAudioBars(count = 20) {
         const barsContainer = document.getElementById('gemini-bars');
         if (!barsContainer) return;
@@ -1191,7 +1168,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             STATE.setupTimeout = null;
         }
         
-        hideMessage();
         hideError();
         
         console.log('[GEMINI-WIDGET] ✅ Clean shutdown complete');
@@ -1288,9 +1264,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     break;
                 
                 case 'response.text.delta':
-                    if (data.delta) {
-                        showMessage(data.delta);
-                    }
+                    // ✅ REMOVED: No text display in widget
                     break;
                 
                 case 'error':
@@ -1404,28 +1378,24 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         }, CONFIG.setup.waitAfterSetup);
     }
 
-    // ✅ NEW: Simplified handleAudioDelta - just decode and send to worklet
     function handleAudioDelta(data) {
         if (!data.delta) return;
         
         STATE.audioChunksProcessed++;
         
         try {
-            // 1. Decode base64 → ArrayBuffer
             const binaryString = atob(data.delta);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
             
-            // 2. PCM16 → Float32
             const pcm16 = new Int16Array(bytes.buffer);
             const float32 = new Float32Array(pcm16.length);
             for (let i = 0; i < pcm16.length; i++) {
                 float32[i] = pcm16[i] / 32768.0;
             }
             
-            // 3. Resampling if needed
             let audioData = float32;
             if (CONFIG.audio.needsResampling) {
                 audioData = resampleAudio(
@@ -1435,7 +1405,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 );
             }
             
-            // 4. Send to stream worklet IMMEDIATELY
             if (STATE.audioStreamNode) {
                 STATE.audioStreamNode.port.postMessage({
                     type: 'audioData',
@@ -1443,7 +1412,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 });
             }
             
-            // 5. Start playback if not started yet
             if (!STATE.isPlaying) {
                 console.log('[GEMINI-WIDGET] 🎵 Starting real-time stream (chunk #1)');
                 startAudioStream();
@@ -1465,11 +1433,16 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
         
-        // Stop audio stream
         stopPlayback();
         
+        // ✅ UPDATED: Return to listening (blue) after assistant finishes
         if (!STATE.isRecording) {
-            updateUI('connected');
+            const circle = document.getElementById('gemini-circle');
+            if (circle) {
+                circle.classList.remove('speaking');
+                circle.classList.add('listening');
+            }
+            updateUI('recording');
         }
         
         console.log('[GEMINI-WIDGET] 📊 Audio chunks processed:', STATE.audioChunksProcessed);
@@ -1482,9 +1455,20 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
         
+        // ✅ UPDATED: Show orange circle
+        const circle = document.getElementById('gemini-circle');
+        if (circle) {
+            circle.classList.remove('speaking', 'listening');
+            circle.classList.add('interrupted');
+        }
+        
         updateUI('interrupted');
         
         setTimeout(() => {
+            if (circle) {
+                circle.classList.remove('interrupted');
+                circle.classList.add('listening');
+            }
             if (STATE.isRecording) {
                 updateUI('recording');
             } else {
@@ -1559,7 +1543,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             
             const source = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
             
-            // ✅ AUDIOWORKLET if available
             if (STATE.audioWorkletReady) {
                 console.log('[GEMINI-WIDGET] 🎙️ Using AudioWorklet (modern)');
                 await startAudioWorkletRecording(source);
@@ -1725,24 +1708,20 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // AUDIO PLAYBACK - STREAMING VIA AUDIOWORKLET
     // ============================================================================
 
-    // ✅ NEW: Start continuous audio stream
     async function startAudioStream() {
         if (STATE.isPlaying) return;
         
         console.log('[GEMINI-WIDGET] 🎵 Starting audio stream...');
         
         try {
-            // Create stream worklet if not exists
             if (!STATE.audioStreamNode && STATE.streamWorkletReady) {
                 STATE.audioStreamNode = new AudioWorkletNode(
                     STATE.audioContext, 
                     'audio-stream-processor'
                 );
                 
-                // Handle worklet messages
                 STATE.audioStreamNode.port.onmessage = (e) => {
                     if (e.data.type === 'stats') {
-                        // Periodic stats logging
                         if (STATE.audioChunksProcessed % 50 === 0) {
                             console.log('[GEMINI-WIDGET] 📊 Stream stats:', {
                                 queueLength: e.data.queueLength,
@@ -1757,7 +1736,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     }
                 };
                 
-                // Connect to destination
                 STATE.audioStreamNode.connect(STATE.audioContext.destination);
                 console.log('[GEMINI-WIDGET] ✅ Stream worklet connected');
             }
@@ -1770,13 +1748,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         }
     }
 
-    // ✅ NEW: Stop playback immediately
     function stopPlayback() {
         if (!STATE.isPlaying) return;
         
         console.log('[GEMINI-WIDGET] 🛑 Stopping playback...');
         
-        // Clear worklet queue instantly
         if (STATE.audioStreamNode) {
             STATE.audioStreamNode.port.postMessage({ type: 'clear' });
         }
@@ -1806,7 +1782,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             const srcIndexCeil = Math.min(srcIndexFloor + 1, inputBuffer.length - 1);
             const t = srcIndex - srcIndexFloor;
             
-            // Linear interpolation
             outputBuffer[i] = inputBuffer[srcIndexFloor] * (1 - t) + inputBuffer[srcIndexCeil] * t;
         }
         
