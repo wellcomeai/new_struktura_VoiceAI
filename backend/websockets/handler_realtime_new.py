@@ -24,7 +24,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 # ✅ ПРАВИЛЬНЫЕ ИМПОРТЫ для вашей структуры проекта:
 from backend.db.session import SessionLocal
 from backend.models import AssistantConfig, Conversation  # ← Правильно!
-from backend.websockets.openai_client_new import RealtimeClient
+from backend.websockets.openai_client_new import OpenAIRealtimeClientNew as RealtimeClient
 
 # Импорты для функций
 import httpx
