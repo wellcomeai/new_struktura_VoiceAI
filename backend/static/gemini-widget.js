@@ -1,10 +1,12 @@
 /**
- * 🚀 Gemini Voice Widget v2.4 - Production Ready (AUDIO FIX)
+ * 🚀 Gemini Voice Widget v2.4.1 - Production Ready (CLICK-FREE AUDIO)
  * Google Gemini Live API Integration
  * 
- * ✅ NEW: Automatic audio resampling (24kHz -> browser native rate)
- * ✅ NEW: Real sample rate detection and logging
- * ✅ FIXED: Audio distortion/crackling from sample rate mismatch
+ * ✅ NEW: Scheduled audio playback queue (no clicks/gaps between chunks)
+ * ✅ NEW: Time-synchronized audio streaming
+ * ✅ FIXED: Audio crackling/clicking from chunk boundaries
+ * ✅ Automatic audio resampling (24kHz -> browser native rate)
+ * ✅ Real sample rate detection and logging
  * ✅ One-click activation - auto-start recording when widget opens
  * ✅ Close = disconnect - clean shutdown on close
  * ✅ Setup timing - wait for Gemini to be ready before processing audio
@@ -19,7 +21,7 @@
  * ✅ Responsive design
  * ✅ Voicyfy branding
  * 
- * @version 2.4.0
+ * @version 2.4.1
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -120,7 +122,8 @@
         audioBufferCommitted: false,
         setupTimeout: null,
         isWidgetOpen: false,
-        audioChunksProcessed: 0  // ✅ NEW: Счетчик для статистики
+        audioChunksProcessed: 0,  // ✅ NEW: Счетчик для статистики
+        nextPlaybackTime: null     // ✅ NEW: Временная метка для синхронизации воспроизведения
     };
 
     // ============================================================================
@@ -128,7 +131,7 @@
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.4 (AUDIO FIX)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.4.1 (CLICK-FREE AUDIO)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -1460,7 +1463,7 @@
     }
 
     // ============================================================================
-    // AUDIO PLAYBACK - WITH RESAMPLING
+    // AUDIO PLAYBACK - WITH SCHEDULED QUEUE (NO CLICKS)
     // ============================================================================
 
     async function playAudioQueue() {
@@ -1468,11 +1471,21 @@
         
         STATE.isPlaying = true;
         
+        // ✅ ИНИЦИАЛИЗИРУЕМ ВРЕМЕННУЮ МЕТКУ для синхронизации
+        if (!STATE.nextPlaybackTime || STATE.nextPlaybackTime < STATE.audioContext.currentTime) {
+            STATE.nextPlaybackTime = STATE.audioContext.currentTime + 0.05; // Небольшой буфер
+        }
+        
         while (STATE.audioQueue.length > 0) {
             const base64Audio = STATE.audioQueue.shift();
-            await playAudioChunk(base64Audio);
+            const duration = await playAudioChunk(base64Audio);
             
             if (!STATE.isPlaying) break;
+            
+            // Планируем следующий чанк сразу после текущего
+            if (duration) {
+                STATE.nextPlaybackTime += duration;
+            }
         }
         
         STATE.isPlaying = false;
@@ -1520,20 +1533,29 @@
             );
             audioBuffer.getChannelData(0).set(audioData);
             
-            // ✅ 5. Воспроизводим
+            // ✅ 5. ЗАПЛАНИРОВАННОЕ воспроизведение с синхронизацией
             const source = STATE.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(STATE.audioContext.destination);
             
+            // Планируем воспроизведение в точное время
+            const startTime = STATE.nextPlaybackTime || STATE.audioContext.currentTime;
+            source.start(startTime);
+            
             STATE.currentAudioSource = source;
             
-            return new Promise((resolve) => {
-                source.onended = () => {
-                    STATE.currentAudioSource = null;
-                    resolve();
-                };
-                source.start();
+            // Вычисляем длительность чанка
+            const duration = audioBuffer.duration;
+            
+            // Ждём окончания (или минимальное время)
+            await new Promise((resolve) => {
+                const waitTime = Math.max(0, (startTime - STATE.audioContext.currentTime + duration) * 1000);
+                setTimeout(resolve, waitTime);
             });
+            
+            STATE.currentAudioSource = null;
+            
+            return duration;
             
         } catch (error) {
             console.error('[GEMINI-WIDGET] ❌ Playback error:', error);
@@ -1543,6 +1565,7 @@
                 audioQueueLength: STATE.audioQueue.length,
                 needsResampling: CONFIG.audio.needsResampling
             });
+            return 0;
         }
     }
 
@@ -1556,6 +1579,7 @@
         
         STATE.audioQueue = [];
         STATE.isPlaying = false;
+        STATE.nextPlaybackTime = null; // ✅ Сбрасываем временную метку
     }
 
     // ============================================================================
@@ -1634,6 +1658,6 @@
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.4 (AUDIO FIX)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.4.1 (CLICK-FREE AUDIO)');
 
 })();
