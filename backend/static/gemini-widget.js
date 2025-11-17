@@ -1,7 +1,8 @@
 /**
- * 🚀 Gemini Voice Widget v2.7.1 - PRODUCTION (PREMIUM UI)
+ * 🚀 Gemini Voice Widget v2.7.2 - PRODUCTION (PREMIUM UI)
  * Google Gemini Live API Integration
  * 
+ * ✅ v2.7.2: Fixed continuous audio bars animation during assistant speech
  * ✅ v2.7.1: Fixed header text visibility + audio bars for assistant speech
  * ✅ NEW: Premium modern UI design
  * ✅ NEW: Glassmorphism effects
@@ -16,7 +17,7 @@
  * ✅ One-click activation - auto-start recording
  * ✅ Close = disconnect - clean shutdown
  * 
- * @version 2.7.1
+ * @version 2.7.2
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -111,7 +112,8 @@
         isWidgetOpen: false,
         audioChunksProcessed: 0,
         audioWorkletReady: false,
-        streamWorkletReady: false
+        streamWorkletReady: false,
+        playbackAnimationId: null
     };
 
     // ============================================================================
@@ -223,7 +225,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.1 (PREMIUM UI)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.2 (PREMIUM UI)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -1239,6 +1241,42 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         });
     }
 
+    // ✅ NEW: Непрерывная анимация аудиобаров при воспроизведении
+    function animatePlaybackBars() {
+        if (!STATE.isPlaying) {
+            if (STATE.playbackAnimationId) {
+                cancelAnimationFrame(STATE.playbackAnimationId);
+                STATE.playbackAnimationId = null;
+            }
+            resetAudioVisualization();
+            return;
+        }
+
+        const bars = document.querySelectorAll('.gemini-audio-bar');
+        if (!bars.length) {
+            STATE.playbackAnimationId = requestAnimationFrame(animatePlaybackBars);
+            return;
+        }
+
+        // Генерируем случайные значения с плавностью
+        bars.forEach((bar, index) => {
+            const baseHeight = 8;
+            const amplitude = 28;
+            const frequency = 0.05;
+            const phase = index * 0.5;
+            const time = Date.now() * frequency;
+            
+            // Используем sin волну + случайность для естественности
+            const sinWave = Math.sin(time + phase) * 0.5 + 0.5;
+            const randomness = Math.random() * 0.3;
+            const height = baseHeight + (sinWave + randomness) * amplitude;
+            
+            bar.style.height = `${Math.max(3, Math.min(35, height))}px`;
+        });
+
+        STATE.playbackAnimationId = requestAnimationFrame(animatePlaybackBars);
+    }
+
     // ============================================================================
     // BUTTON HANDLERS
     // ============================================================================
@@ -1540,9 +1578,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 );
             }
             
-            // ✅ Визуализация аудио ответа ассистента
-            updateAudioVisualization(audioData);
-            
             if (STATE.audioStreamNode) {
                 STATE.audioStreamNode.port.postMessage({
                     type: 'audioData',
@@ -1564,6 +1599,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         console.log('[GEMINI-WIDGET] 🔊 Assistant speaking');
         STATE.isSpeaking = true;
         updateUI('playing');
+        
+        // ✅ Запускаем непрерывную анимацию аудиобаров
+        if (!STATE.playbackAnimationId) {
+            animatePlaybackBars();
+        }
     }
 
     function handleAssistantSpeechEnded() {
@@ -1587,6 +1627,13 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         stopPlayback();
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
+        
+        // ✅ Останавливаем анимацию аудиобаров
+        if (STATE.playbackAnimationId) {
+            cancelAnimationFrame(STATE.playbackAnimationId);
+            STATE.playbackAnimationId = null;
+        }
+        resetAudioVisualization();
         
         if (STATE.isRecording) {
             updateUI('recording');
@@ -1874,6 +1921,13 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isPlaying = false;
         STATE.audioChunksProcessed = 0;
         
+        // ✅ Останавливаем анимацию аудиобаров
+        if (STATE.playbackAnimationId) {
+            cancelAnimationFrame(STATE.playbackAnimationId);
+            STATE.playbackAnimationId = null;
+        }
+        resetAudioVisualization();
+        
         console.log('[GEMINI-WIDGET] ✅ Playback stopped');
     }
 
@@ -1938,6 +1992,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.1 (PREMIUM UI)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.2 (PREMIUM UI)');
 
 })();
