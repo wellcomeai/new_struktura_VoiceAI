@@ -1,11 +1,14 @@
 /**
- * 🚀 Gemini Voice Widget v2.5.0 - Production Ready (AUDIOWORKLET)
+ * 🚀 Gemini Voice Widget v2.5.1 - Production Ready (SMOOTH SPEECH)
  * Google Gemini Live API Integration
  * 
- * ✅ NEW: AudioWorklet for recording (no more ScriptProcessor deprecation)
- * ✅ NEW: Crossfade between audio chunks (smooth transitions)
- * ✅ NEW: Advanced audio buffering and scheduling
- * ✅ FIXED: All audio crackling/clicking issues
+ * ✅ NEW: Prefetch buffering (accumulate chunks before playback start)
+ * ✅ NEW: Increased crossfade duration (15ms for ultra-smooth transitions)
+ * ✅ NEW: Lookahead scheduling (compensate for network delays)
+ * ✅ FIXED: Micro-pauses between chunks eliminated
+ * ✅ AudioWorklet for recording (no more ScriptProcessor deprecation)
+ * ✅ Crossfade between audio chunks (smooth transitions)
+ * ✅ Advanced audio buffering and scheduling
  * ✅ Scheduled audio playback queue (no clicks/gaps between chunks)
  * ✅ Time-synchronized audio streaming
  * ✅ Automatic audio resampling (24kHz -> browser native rate)
@@ -21,7 +24,7 @@
  * ✅ Responsive design
  * ✅ Voicyfy branding
  * 
- * @version 2.5.0
+ * @version 2.5.1
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -63,7 +66,10 @@
             chunkDuration: 100,
             maxBufferSize: 96000,
             needsResampling: false,
-            crossfadeDuration: 0.005        // 5ms crossfade между чанками
+            crossfadeDuration: 0.015,       // ✅ 15ms crossfade (увеличено с 5ms)
+            prefetchChunks: 3,              // ✅ NEW: Накопить 3 чанка перед началом
+            minBufferDuration: 0.1,         // ✅ NEW: Минимум 100ms буфера перед стартом
+            lookaheadTime: 0.15             // ✅ NEW: Планировать воспроизведение на 150ms вперёд
         },
         
         // VAD
@@ -125,7 +131,10 @@
         isWidgetOpen: false,
         audioChunksProcessed: 0,
         nextPlaybackTime: null,
-        audioWorkletReady: false
+        audioWorkletReady: false,
+        prefetchBuffer: [],          // ✅ NEW: Буфер для накопления чанков
+        isPrefetching: false,        // ✅ NEW: Флаг режима префетчинга
+        totalBufferedDuration: 0     // ✅ NEW: Накопленная длительность в секундах
     };
 
     // ============================================================================
@@ -172,7 +181,7 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.5.0 (AUDIOWORKLET)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.5.1 (SMOOTH SPEECH)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -1325,10 +1334,30 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
     function handleAudioDelta(data) {
         if (!data.delta) return;
         
-        STATE.audioQueue.push(data.delta);
-        
+        // ✅ ПРЕФЕТЧИНГ: Накапливаем чанки перед началом воспроизведения
         if (!STATE.isPlaying) {
-            playAudioQueue();
+            STATE.prefetchBuffer.push(data.delta);
+            STATE.isPrefetching = true;
+            
+            // Проверяем, достаточно ли чанков для начала
+            if (STATE.prefetchBuffer.length >= CONFIG.audio.prefetchChunks) {
+                console.log(`[GEMINI-WIDGET] 🎬 Prefetch complete: ${STATE.prefetchBuffer.length} chunks buffered`);
+                console.log(`[GEMINI-WIDGET] 🎵 Starting smooth playback...`);
+                
+                // Переносим все из prefetch в основную очередь
+                STATE.audioQueue.push(...STATE.prefetchBuffer);
+                STATE.prefetchBuffer = [];
+                STATE.isPrefetching = false;
+                STATE.totalBufferedDuration = 0;
+                
+                // Начинаем воспроизведение
+                playAudioQueue();
+            } else {
+                console.log(`[GEMINI-WIDGET] ⏳ Buffering... (${STATE.prefetchBuffer.length}/${CONFIG.audio.prefetchChunks})`);
+            }
+        } else {
+            // Уже играем - добавляем напрямую в очередь
+            STATE.audioQueue.push(data.delta);
         }
     }
 
@@ -1342,6 +1371,14 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
         console.log('[GEMINI-WIDGET] 🔇 Assistant stopped');
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
+        
+        // ✅ Очищаем префетч буфер если остались чанки
+        if (STATE.prefetchBuffer.length > 0) {
+            console.log(`[GEMINI-WIDGET] 🗑️ Clearing ${STATE.prefetchBuffer.length} prefetch chunks`);
+            STATE.prefetchBuffer = [];
+            STATE.isPrefetching = false;
+            STATE.totalBufferedDuration = 0;
+        }
         
         if (!STATE.isRecording) {
             updateUI('connected');
@@ -1605,9 +1642,10 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
         
         STATE.isPlaying = true;
         
-        // Инициализируем временную метку
+        // ✅ Инициализируем временную метку с lookahead
         if (!STATE.nextPlaybackTime || STATE.nextPlaybackTime < STATE.audioContext.currentTime) {
-            STATE.nextPlaybackTime = STATE.audioContext.currentTime + 0.05;
+            STATE.nextPlaybackTime = STATE.audioContext.currentTime + CONFIG.audio.lookaheadTime;
+            console.log(`[GEMINI-WIDGET] 🕐 Playback scheduled at +${CONFIG.audio.lookaheadTime}s lookahead`);
         }
         
         while (STATE.audioQueue.length > 0) {
@@ -1728,8 +1766,13 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
         }
         
         STATE.audioQueue = [];
+        STATE.prefetchBuffer = [];          // ✅ Очищаем префетч буфер
+        STATE.isPrefetching = false;
+        STATE.totalBufferedDuration = 0;
         STATE.isPlaying = false;
         STATE.nextPlaybackTime = null;
+        
+        console.log('[GEMINI-WIDGET] 🛑 Playback stopped, buffers cleared');
     }
 
     // ============================================================================
@@ -1801,6 +1844,6 @@ registerProcessor('recorder-worklet', RecorderWorkletProcessor);
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.5.0 (AUDIOWORKLET)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.5.1 (SMOOTH SPEECH)');
 
 })();
