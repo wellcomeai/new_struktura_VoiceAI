@@ -157,6 +157,8 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
     }
     
     .page-title {
@@ -168,6 +170,7 @@
       display: flex;
       gap: 1rem;
       align-items: center;
+      flex-wrap: wrap;
     }
     
     /* API ключ */
@@ -1334,7 +1337,7 @@
         <div class="user-menu">
           <button class="user-button" id="user-menu-button">
             <div class="user-avatar" id="user-avatar">АП</div>
-            <span class="user-name" id="user-name">Александр Петров</span>
+            <span class="user-name" id="user-name">Пользователь</span>
             <i class="fas fa-chevron-down"></i>
           </button>
           
@@ -1957,6 +1960,7 @@
     let currentAgentId = null;
     let isLoading = false;
     let currentUserApiKey = null;
+    let currentUser = null;
     
     // Все голоса Gemini (30 штук)
     const GEMINI_VOICES = [
@@ -2045,33 +2049,65 @@
     }
     
     // ============================================================================
-    // API КЛЮЧ - УПРАВЛЕНИЕ
+    // ОБЪЕДИНЕННАЯ ЗАГРУЗКА ПОЛЬЗОВАТЕЛЯ И API КЛЮЧА (ОПТИМИЗАЦИЯ)
     // ============================================================================
     
-    async function loadUserApiKey() {
+    async function loadUserData() {
       try {
         const userInfo = await apiRequest('/users/me');
+        currentUser = userInfo;
         currentUserApiKey = userInfo.gemini_api_key;
         
-        const apiKeyInput = document.getElementById('gemini-api-key-input');
-        const deleteBtn = document.getElementById('delete-api-key');
+        // Обновляем UI пользователя
+        updateUserUI(userInfo);
         
-        if (currentUserApiKey) {
-          apiKeyInput.value = currentUserApiKey;
-          apiKeyInput.placeholder = '••••••••••••••••••••';
-          deleteBtn.style.display = 'block';
-          return true;
-        } else {
-          apiKeyInput.value = '';
-          apiKeyInput.placeholder = 'Введите Google AI API ключ';
-          deleteBtn.style.display = 'none';
-          return false;
-        }
+        // Обновляем UI API ключа
+        updateApiKeyUI(userInfo.gemini_api_key);
+        
+        return !!userInfo.gemini_api_key;
       } catch (error) {
-        console.error('Ошибка загрузки API ключа:', error);
+        console.error('Ошибка загрузки данных пользователя:', error);
         return false;
       }
     }
+    
+    function updateUserUI(userInfo) {
+      const firstName = userInfo.first_name || '';
+      const lastName = userInfo.last_name || '';
+      
+      if (firstName || lastName) {
+        document.getElementById('user-name').textContent = firstName + (lastName ? ` ${lastName}` : '');
+        let initials = '';
+        if (firstName) initials += firstName[0];
+        if (lastName) initials += lastName[0];
+        document.getElementById('user-avatar').textContent = initials.toUpperCase();
+      } else if (userInfo.company_name) {
+        document.getElementById('user-name').textContent = userInfo.company_name;
+        document.getElementById('user-avatar').textContent = userInfo.company_name.substring(0, 2).toUpperCase();
+      } else {
+        document.getElementById('user-name').textContent = userInfo.email;
+        document.getElementById('user-avatar').textContent = userInfo.email.substring(0, 2).toUpperCase();
+      }
+    }
+    
+    function updateApiKeyUI(apiKey) {
+      const apiKeyInput = document.getElementById('gemini-api-key-input');
+      const deleteBtn = document.getElementById('delete-api-key');
+      
+      if (apiKey) {
+        apiKeyInput.value = apiKey;
+        apiKeyInput.placeholder = '••••••••••••••••••••';
+        deleteBtn.style.display = 'block';
+      } else {
+        apiKeyInput.value = '';
+        apiKeyInput.placeholder = 'Введите Google AI API ключ';
+        deleteBtn.style.display = 'none';
+      }
+    }
+    
+    // ============================================================================
+    // API КЛЮЧ - УПРАВЛЕНИЕ (БЕЗ ПЕРЕЗАГРУЗКИ)
+    // ============================================================================
     
     async function saveApiKey() {
       const apiKeyInput = document.getElementById('gemini-api-key-input');
@@ -2093,10 +2129,9 @@
         showNotification('API ключ успешно сохранен!', 'success');
         document.getElementById('delete-api-key').style.display = 'block';
         
-        // Перезагружаем страницу для отображения контента
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+        // БЕЗ перезагрузки - просто показываем контент
+        checkApiKeyAndShowContent(true);
+        await loadAgentsList();
       } catch (error) {
         showNotification(error.message || 'Ошибка сохранения API ключа', 'error');
       } finally {
@@ -2122,10 +2157,8 @@
         
         showNotification('API ключ успешно удален', 'success');
         
-        // Перезагружаем страницу для скрытия контента
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+        // БЕЗ перезагрузки - просто скрываем контент
+        checkApiKeyAndShowContent(false);
       } catch (error) {
         showNotification(error.message || 'Ошибка удаления API ключа', 'error');
       } finally {
@@ -2211,7 +2244,7 @@
       if (tabId === 'testing' && currentAgentId) {
         setTimeout(() => loadDemoWidget(currentAgentId), 500);
       } else {
-        loadDemoWidget(null); // Выгрузка виджета
+        loadDemoWidget(null);
       }
     }
     
@@ -2253,22 +2286,16 @@
       const container = document.getElementById('demo-widget-container');
       const scriptEl = document.getElementById('demo-widget-script');
       
-      // Очистка старого виджета
       scriptEl.innerHTML = '';
       container.style.display = 'none';
       
-      // Удаление старого виджета из DOM
       const oldWidget = document.getElementById('gemini-voice-widget');
       if (oldWidget) oldWidget.remove();
       
       if (!assistantId) {
-        console.log('[DEMO-WIDGET] Widget unloaded');
         return;
       }
       
-      console.log('[DEMO-WIDGET] Loading widget for assistant:', assistantId);
-      
-      // Загрузка нового виджета
       container.style.display = 'block';
       const script = document.createElement('script');
       script.src = '/static/gemini-widget.js';
@@ -2392,7 +2419,6 @@
       document.getElementById('google-sheet-id').value = agent.google_sheet_id || '';
       document.getElementById('greeting-message').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       
-      // Выбор голоса
       const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice || 'Puck'}"]`);
       if (voiceInput) {
         document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
@@ -2400,7 +2426,6 @@
         voiceInput.checked = true;
       }
       
-      // Загрузка функций
       loadFunctions(agent.functions || []);
     }
     
@@ -2414,13 +2439,11 @@
         'hangup_call': 'function-hangup_call'
       };
       
-      // Сброс всех чекбоксов
       Object.values(functionMapping).forEach(id => {
         const checkbox = document.getElementById(id);
         if (checkbox) checkbox.checked = false;
       });
       
-      // Включение нужных функций
       functions.forEach(func => {
         const checkboxId = functionMapping[func.name];
         if (checkboxId) {
@@ -2558,7 +2581,6 @@
       
       currentAgentId = null;
       
-      // Выгрузка виджета
       loadDemoWidget(null);
     }
     
@@ -2569,7 +2591,6 @@
       document.getElementById('google-sheet-id').value = '';
       document.getElementById('greeting-message').value = 'Здравствуйте! Чем я могу вам помочь?';
       
-      // Выбор первого голоса по умолчанию
       const firstVoice = document.querySelector('input[name="voice"]');
       if (firstVoice) {
         document.querySelectorAll('.voice-option').forEach(opt => opt.classList.remove('selected'));
@@ -2588,55 +2609,21 @@
     }
     
     // ============================================================================
-    // ЗАГРУЗКА ПОЛЬЗОВАТЕЛЯ
-    // ============================================================================
-    
-    async function loadUserInfo() {
-      try {
-        const userInfo = await apiRequest('/users/me');
-        const firstName = userInfo.first_name || '';
-        const lastName = userInfo.last_name || '';
-        
-        if (firstName || lastName) {
-          document.getElementById('user-name').textContent = firstName + (lastName ? ` ${lastName}` : '');
-          let initials = '';
-          if (firstName) initials += firstName[0];
-          if (lastName) initials += lastName[0];
-          document.getElementById('user-avatar').textContent = initials.toUpperCase();
-        } else if (userInfo.company_name) {
-          document.getElementById('user-name').textContent = userInfo.company_name;
-          document.getElementById('user-avatar').textContent = userInfo.company_name.substring(0, 2).toUpperCase();
-        } else {
-          document.getElementById('user-name').textContent = userInfo.email;
-          document.getElementById('user-avatar').textContent = userInfo.email.substring(0, 2).toUpperCase();
-        }
-      } catch (error) {
-        console.error('Ошибка загрузки информации о пользователе:', error);
-      }
-    }
-    
-    // ============================================================================
     // ИНИЦИАЛИЗАЦИЯ
     // ============================================================================
     
     async function initPage() {
       if (!checkAuth()) return;
       
-      // Инициализация голосов
       initVoiceOptions();
       
-      // Загрузка пользователя
-      await loadUserInfo();
-      
-      // Проверка API ключа
-      const hasApiKey = await loadUserApiKey();
+      const hasApiKey = await loadUserData();
       
       const urlParams = new URLSearchParams(window.location.search);
       const id = urlParams.get('id');
       const mode = urlParams.get('mode');
       
       if (!hasApiKey) {
-        // Если нет API ключа - показываем экран настройки
         checkApiKeyAndShowContent(false);
       } else if (id) {
         currentAgentId = id;
@@ -2658,12 +2645,10 @@
     document.addEventListener('DOMContentLoaded', function() {
       initPage();
       
-      // API ключ
       document.getElementById('api-key-toggle').addEventListener('click', toggleApiKeyVisibility);
       document.getElementById('save-api-key').addEventListener('click', saveApiKey);
       document.getElementById('delete-api-key').addEventListener('click', deleteApiKey);
       
-      // Мобильное меню
       document.getElementById('mobile-menu-toggle').addEventListener('click', function() {
         document.getElementById('sidebar').classList.toggle('mobile-open');
         document.getElementById('sidebar-overlay').classList.toggle('show');
@@ -2674,7 +2659,6 @@
         this.classList.remove('show');
       });
       
-      // Выпадающее меню пользователя
       document.getElementById('user-menu-button').addEventListener('click', function(e) {
         e.stopPropagation();
         document.getElementById('user-dropdown').classList.toggle('show');
@@ -2688,14 +2672,12 @@
         }
       });
       
-      // Табы
       document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', function() {
           switchTab(this.getAttribute('data-tab'));
         });
       });
       
-      // Выбор голоса
       document.addEventListener('click', function(e) {
         const voiceOption = e.target.closest('.voice-option');
         if (voiceOption) {
@@ -2705,7 +2687,6 @@
         }
       });
       
-      // Форма
       document.getElementById('agent-form').addEventListener('submit', function(e) {
         e.preventDefault();
         saveAgent();
@@ -2724,13 +2705,11 @@
         }
       });
       
-      // Кнопки действий
       document.getElementById('save-agent').addEventListener('click', saveAgent);
       document.getElementById('delete-agent').addEventListener('click', deleteAgent);
       document.getElementById('view-embed-code').addEventListener('click', () => switchTab('embed'));
       document.getElementById('create-new-agent-btn').addEventListener('click', navigateToCreateAgent);
       
-      // Копирование кода
       document.getElementById('copy-embed-code').addEventListener('click', function() {
         const embedCode = document.getElementById('embed-code').textContent;
         navigator.clipboard.writeText(embedCode).then(() => {
@@ -2747,7 +2726,6 @@
         }
       });
       
-      // Проверка Google Sheet
       document.getElementById('test-sheet-connection').addEventListener('click', async function() {
         const sheetId = document.getElementById('google-sheet-id').value;
         const statusDiv = document.getElementById('sheet-connection-status');
@@ -2778,7 +2756,6 @@
         }
       });
       
-      // Чекбоксы функций
       const functionCheckboxes = [
         { checkbox: 'function-send_webhook', info: 'webhook-info' },
         { checkbox: 'function-search_pinecone', info: 'pinecone-info' },
@@ -2798,7 +2775,6 @@
         }
       });
       
-      // Закрытие уведомления
       document.getElementById('notification-close').addEventListener('click', function() {
         const notification = document.getElementById('notification');
         notification.classList.remove('show');
