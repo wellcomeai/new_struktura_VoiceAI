@@ -1,6 +1,6 @@
 """
-🚀 PRODUCTION VERSION 1.2 - Google Gemini Live API Client
-Model: gemini-2.5-flash-native-audio-preview-09-2025
+🚀 PRODUCTION VERSION 1.1 - Google Gemini Live API Client
+Model: gemini-2.0-flash-live-preview-04-09
 
 Features:
 ✅ Native audio I/O (PCM 16kHz input, 24kHz output)
@@ -13,7 +13,6 @@ Features:
 ✅ Performance monitoring
 ✅ Production-ready stability
 ✅ FIXED: Correct WebSocket endpoint for Live API
-✅ FIXED: Explicit turn_complete signal for short phrases
 """
 
 import asyncio
@@ -79,7 +78,7 @@ def generate_short_id(prefix: str = "") -> str:
 
 class GeminiLiveClient:
     """
-    🚀 PRODUCTION v1.2 - Client for Google Gemini Live API
+    🚀 PRODUCTION v1.1 - Client for Google Gemini Live API
     
     Key features:
     - Native audio processing (16kHz input, 24kHz output)
@@ -89,7 +88,6 @@ class GeminiLiveClient:
     - Screen context support
     - Reliable error handling
     - Performance monitoring
-    - Explicit turn completion for fast responses
     """
     
     def __init__(
@@ -175,7 +173,7 @@ class GeminiLiveClient:
                     ping_timeout=120,
                     close_timeout=15,
                     extra_headers={
-                        'User-Agent': 'Voicyfy/1.2'
+                        'User-Agent': 'Voicyfy/1.1'
                     }
                 ),
                 timeout=30
@@ -344,14 +342,14 @@ class GeminiLiveClient:
             thinking_budget = getattr(self.assistant_config, "thinking_budget", 1024)
             thinking_config = {
                 "thinking_budget": thinking_budget,
-                "include_thoughts": False
+                "include_thoughts": False  # Don't send thoughts to client by default
             }
             logger.info(f"[GEMINI-CLIENT] Thinking mode enabled (budget: {thinking_budget})")
         
         # ✅ FIXED: Build correct setup payload for Live API
         setup_payload = {
             "setup": {
-                "model": f"models/{self.model}",
+                "model": f"models/{self.model}",  # ← CRITICAL: Add model here!
                 "generation_config": generation_config,
                 "system_instruction": system_instruction
             }
@@ -571,38 +569,12 @@ class GeminiLiveClient:
 
     async def commit_audio(self) -> bool:
         """
-        ✅ FIXED v1.2: Send explicit turn_complete to Gemini.
-        Signals that user has finished speaking for immediate response.
-        
-        This is critical for short phrases like "hello" - without explicit
-        turn_complete, Gemini waits for its internal VAD which can take 1-3s.
-        
-        Returns:
-            True if signal sent successfully
+        Commit audio buffer (signal end of user turn).
+        Note: Gemini uses automatic VAD, so this may not be needed.
         """
-        if not self.is_connected or not self.ws:
-            logger.error("[GEMINI-CLIENT] Cannot commit: not connected")
-            return False
-        
-        try:
-            logger.info("[GEMINI-CLIENT] 💾 Committing audio buffer (turn_complete)")
-            
-            # ✅ Explicit signal to Gemini that user finished speaking
-            turn_complete_payload = {
-                "client_content": {
-                    "turn_complete": True
-                }
-            }
-            
-            await self.ws.send(json.dumps(turn_complete_payload))
-            logger.info("[GEMINI-CLIENT] ✅ turn_complete sent to Gemini")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"[GEMINI-CLIENT] ❌ Error committing audio: {e}")
-            logger.error(traceback.format_exc())
-            return False
+        # Gemini handles this automatically with VAD
+        logger.info("[GEMINI-CLIENT] Audio commit (handled by VAD)")
+        return True
 
     async def clear_audio_buffer(self) -> bool:
         """Clear audio buffer."""
