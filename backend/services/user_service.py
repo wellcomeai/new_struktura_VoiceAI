@@ -1,6 +1,7 @@
 """
 User service for WellcomeAI application.
 Handles user account management operations.
+✅ ОБНОВЛЕНО: Добавлена поддержка gemini_api_key и elevenlabs_api_key
 """
 
 from fastapi import HTTPException, status
@@ -11,9 +12,9 @@ from datetime import datetime, timedelta, timezone
 
 from backend.core.logging import get_logger
 from backend.models.user import User
-from backend.models.assistant import AssistantConfig  # Правильный импорт модели
-from backend.models.file import File  # Добавлен импорт для файлов
-from backend.models.subscription import SubscriptionPlan # Добавлен импорт для подписок
+from backend.models.assistant import AssistantConfig
+from backend.models.file import File
+from backend.models.subscription import SubscriptionPlan
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
 
 logger = get_logger(__name__)
@@ -66,11 +67,25 @@ class UserService:
             last_name=user.last_name,
             company_name=user.company_name,
             subscription_plan=user.subscription_plan,
-            openai_api_key=user.openai_api_key,  # Включаем API ключ в ответ
+            
+            # ✅ API ключи
+            openai_api_key=user.openai_api_key,
+            elevenlabs_api_key=user.elevenlabs_api_key,
+            gemini_api_key=user.gemini_api_key,
+            
+            # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
+            has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
+            has_gemini_api_key=bool(user.gemini_api_key),
+            
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
-            updated_at=user.updated_at
+            updated_at=user.updated_at,
+            
+            # ✅ Тарифы
+            is_trial=user.is_trial,
+            is_admin=user.is_admin,
+            subscription_end_date=user.subscription_end_date
         )
     
     @staticmethod
@@ -87,7 +102,7 @@ class UserService:
         """
         user = await UserService.get_user_by_id(db, user_id)
         
-        # Count user's assistants - исправленный код
+        # Count user's assistants
         total_assistants = db.query(AssistantConfig).filter(
             AssistantConfig.user_id == user.id
         ).count()
@@ -104,11 +119,27 @@ class UserService:
             last_name=user.last_name,
             company_name=user.company_name,
             subscription_plan=user.subscription_plan,
-            openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
+            
+            # ✅ API ключи
+            openai_api_key=user.openai_api_key,
+            elevenlabs_api_key=user.elevenlabs_api_key,
+            gemini_api_key=user.gemini_api_key,
+            
+            # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
+            has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
+            has_gemini_api_key=bool(user.gemini_api_key),
+            
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
             updated_at=user.updated_at,
+            
+            # ✅ Тарифы
+            is_trial=user.is_trial,
+            is_admin=user.is_admin,
+            subscription_end_date=user.subscription_end_date,
+            
+            # ✅ Статистика
             total_assistants=total_assistants,
             total_conversations=total_conversations,
             usage_tokens=user.usage_tokens,
@@ -142,10 +173,15 @@ class UserService:
                 # Pydantic v2
                 update_data = user_data.model_dump(exclude_unset=True)
             
-            # Явно обрабатываем случай с API ключом
+            # ✅ Явно обрабатываем все API ключи (разрешаем пустую строку или None)
             if 'openai_api_key' in update_data:
-                # Разрешаем пустую строку или None
                 user.openai_api_key = update_data.pop('openai_api_key')
+            
+            if 'elevenlabs_api_key' in update_data:
+                user.elevenlabs_api_key = update_data.pop('elevenlabs_api_key')
+            
+            if 'gemini_api_key' in update_data:
+                user.gemini_api_key = update_data.pop('gemini_api_key')
             
             # Обновляем остальные поля
             for key, value in update_data.items():
@@ -163,11 +199,25 @@ class UserService:
                 last_name=user.last_name,
                 company_name=user.company_name,
                 subscription_plan=user.subscription_plan,
-                openai_api_key=user.openai_api_key,  # Включаем сам API-ключ в ответ
+                
+                # ✅ API ключи
+                openai_api_key=user.openai_api_key,
+                elevenlabs_api_key=user.elevenlabs_api_key,
+                gemini_api_key=user.gemini_api_key,
+                
+                # ✅ Статусы наличия ключей
                 has_api_key=bool(user.openai_api_key),
+                has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
+                has_gemini_api_key=bool(user.gemini_api_key),
+                
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
-                updated_at=user.updated_at
+                updated_at=user.updated_at,
+                
+                # ✅ Тарифы
+                is_trial=user.is_trial,
+                is_admin=user.is_admin,
+                subscription_end_date=user.subscription_end_date
             )
             
         except IntegrityError as e:
