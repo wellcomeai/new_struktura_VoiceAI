@@ -1,7 +1,8 @@
 /**
- * 🚀 Gemini Voice Widget v2.7.1 - PRODUCTION (PREMIUM UI)
+ * 🚀 Gemini Voice Widget v2.7.2 - PRODUCTION (PREMIUM UI)
  * Google Gemini Live API Integration
  * 
+ * ✅ v2.7.2: CRITICAL FIX - Short phrase detection (stops sending silence after commit)
  * ✅ v2.7.1: Fixed header text visibility + audio bars for assistant speech
  * ✅ NEW: Premium modern UI design
  * ✅ NEW: Glassmorphism effects
@@ -15,8 +16,9 @@
  * ✅ Instant interruptions (<10ms)
  * ✅ One-click activation - auto-start recording
  * ✅ Close = disconnect - clean shutdown
+ * ✅ Optimized VAD for short phrases
  * 
- * @version 2.7.1
+ * @version 2.7.2
  * @author WellcomeAI Team
  * @license MIT
  * 
@@ -96,6 +98,7 @@
         isRecording: false,
         isPlaying: false,
         isSpeaking: false,
+        shouldSendAudio: false,
         audioContext: null,
         mediaStream: null,
         audioWorkletNode: null,
@@ -224,7 +227,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.1 (PREMIUM UI)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.7.2 (PREMIUM UI)...');
         
         const scriptTag = document.currentScript || 
                          document.querySelector('script[data-assistant-id]');
@@ -1193,7 +1196,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     }
 
     function showMessage(message, duration = 0) {
-        // Text output is hidden, but keep function for compatibility
         return;
     }
 
@@ -1240,7 +1242,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         });
     }
 
-    // ✅ NEW: Непрерывная анимация аудиобаров при воспроизведении
     function animatePlaybackBars() {
         if (!STATE.isPlaying) {
             if (STATE.playbackAnimationId) {
@@ -1257,7 +1258,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             return;
         }
 
-        // Генерируем случайные значения с плавностью
         bars.forEach((bar, index) => {
             const baseHeight = 8;
             const amplitude = 28;
@@ -1265,7 +1265,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             const phase = index * 0.5;
             const time = Date.now() * frequency;
             
-            // Используем sin волну + случайность для естественности
             const sinWave = Math.sin(time + phase) * 0.5 + 0.5;
             const randomness = Math.random() * 0.3;
             const height = baseHeight + (sinWave + randomness) * amplitude;
@@ -1326,6 +1325,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isSetupComplete = false;
         STATE.readyToRecord = false;
         STATE.isSpeaking = false;
+        STATE.shouldSendAudio = false;
         STATE.audioBufferCommitted = false;
         STATE.audioChunksProcessed = 0;
         
@@ -1436,7 +1436,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     break;
                 
                 case 'response.text.delta':
-                    // Text output hidden
                     break;
                 
                 case 'error':
@@ -1599,7 +1598,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isSpeaking = true;
         updateUI('playing');
         
-        // ✅ Запускаем непрерывную анимацию аудиобаров
         if (!STATE.playbackAnimationId) {
             animatePlaybackBars();
         }
@@ -1627,7 +1625,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isSpeaking = false;
         STATE.audioBufferCommitted = false;
         
-        // ✅ Останавливаем анимацию аудиобаров
         if (STATE.playbackAnimationId) {
             cancelAnimationFrame(STATE.playbackAnimationId);
             STATE.playbackAnimationId = null;
@@ -1748,6 +1745,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     sendMessage({ type: 'speech.user_started' });
                     STATE.isSpeaking = true;
                     STATE.audioBufferCommitted = false;
+                    STATE.shouldSendAudio = true;
                 }
                 STATE.lastSpeechTime = Date.now();
             } else if (STATE.isSpeaking && 
@@ -1763,13 +1761,16 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 STATE.isSpeaking = false;
                 STATE.lastSpeechTime = 0;
                 STATE.audioBufferCommitted = true;
+                STATE.shouldSendAudio = false;
             }
             
-            const base64Audio = arrayBufferToBase64(pcmData.buffer);
-            sendMessage({
-                type: 'input_audio_buffer.append',
-                audio: base64Audio
-            });
+            if (STATE.shouldSendAudio) {
+                const base64Audio = arrayBufferToBase64(pcmData.buffer);
+                sendMessage({
+                    type: 'input_audio_buffer.append',
+                    audio: base64Audio
+                });
+            }
         };
         
         source.connect(workletNode);
@@ -1798,6 +1799,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     sendMessage({ type: 'speech.user_started' });
                     STATE.isSpeaking = true;
                     STATE.audioBufferCommitted = false;
+                    STATE.shouldSendAudio = true;
                 }
                 STATE.lastSpeechTime = Date.now();
             } else if (STATE.isSpeaking && 
@@ -1813,13 +1815,16 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 STATE.isSpeaking = false;
                 STATE.lastSpeechTime = 0;
                 STATE.audioBufferCommitted = true;
+                STATE.shouldSendAudio = false;
             }
             
-            const base64Audio = arrayBufferToBase64(pcmData.buffer);
-            sendMessage({
-                type: 'input_audio_buffer.append',
-                audio: base64Audio
-            });
+            if (STATE.shouldSendAudio) {
+                const base64Audio = arrayBufferToBase64(pcmData.buffer);
+                sendMessage({
+                    type: 'input_audio_buffer.append',
+                    audio: base64Audio
+                });
+            }
         };
         
         source.connect(processor);
@@ -1834,6 +1839,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         console.log('[GEMINI-WIDGET] Stopping recording...');
         
         STATE.isRecording = false;
+        STATE.shouldSendAudio = false;
         
         if (STATE.mediaStream) {
             STATE.mediaStream.getTracks().forEach(track => track.stop());
@@ -1920,7 +1926,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         STATE.isPlaying = false;
         STATE.audioChunksProcessed = 0;
         
-        // ✅ Останавливаем анимацию аудиобаров
         if (STATE.playbackAnimationId) {
             cancelAnimationFrame(STATE.playbackAnimationId);
             STATE.playbackAnimationId = null;
@@ -1991,6 +1996,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         init();
     }
 
-    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.1 (PREMIUM UI)');
+    console.log('[GEMINI-WIDGET] 🚀 Script loaded v2.7.2 (PREMIUM UI)');
 
 })();
