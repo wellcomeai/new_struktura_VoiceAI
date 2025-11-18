@@ -340,23 +340,11 @@ class GeminiLiveClient:
             }
         }
         
-        # Generation config with new features
+        # Generation config - ONLY basic audio settings
         generation_config = {
             "response_modalities": ["AUDIO"],
             "speech_config": speech_config
         }
-        
-        # ✅ NEW: Add Affective Dialog (emotion-aware responses)
-        if enable_affective_dialog:
-            generation_config["enable_affective_dialog"] = True
-            logger.info(f"[GEMINI-CLIENT] 🎭 Affective Dialog: ENABLED (emotion-aware responses)")
-        
-        # ✅ NEW: Add Proactive Audio (background noise filtering)
-        if enable_proactive_audio:
-            generation_config["proactivity"] = {
-                "proactive_audio": True
-            }
-            logger.info(f"[GEMINI-CLIENT] 🎤 Proactive Audio: ENABLED (ignores background conversations)")
         
         # System instruction
         system_instruction = {
@@ -375,7 +363,7 @@ class GeminiLiveClient:
             }
             logger.info(f"[GEMINI-CLIENT] 🧠 Thinking mode: ENABLED (budget: {thinking_budget})")
         
-        # Build setup payload for Live API
+        # ✅ FIXED: Build setup payload with correct structure
         setup_payload = {
             "setup": {
                 "model": f"models/{self.model}",
@@ -383,6 +371,18 @@ class GeminiLiveClient:
                 "system_instruction": system_instruction
             }
         }
+        
+        # ✅ NEW: Add Affective Dialog at setup level (NOT in generation_config)
+        if enable_affective_dialog:
+            setup_payload["setup"]["enable_affective_dialog"] = True
+            logger.info(f"[GEMINI-CLIENT] 🎭 Affective Dialog: ENABLED (emotion-aware responses)")
+        
+        # ✅ NEW: Add Proactive Audio at setup level (NOT in generation_config)
+        if enable_proactive_audio:
+            setup_payload["setup"]["proactivity"] = {
+                "proactive_audio": True
+            }
+            logger.info(f"[GEMINI-CLIENT] 🎤 Proactive Audio: ENABLED (ignores background conversations)")
         
         # Add tools if any
         if tools:
