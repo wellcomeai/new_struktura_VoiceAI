@@ -1,5 +1,5 @@
 """
-🚀 PRODUCTION VERSION 1.2 - Google Gemini Live API Client
+🚀 PRODUCTION VERSION 1.3 - Google Gemini Live API Client
 Model: gemini-2.5-flash-native-audio-preview-09-2025
 
 Features:
@@ -9,11 +9,12 @@ Features:
 ✅ Manual function calling support
 ✅ Thinking mode support (configurable)
 ✅ Screen context support (silent mode)
+✅ Affective Dialog - emotion-aware responses
+✅ Proactive Audio - ignores background conversations
 ✅ Interruption handling
 ✅ Reconnection logic
 ✅ Performance monitoring
 ✅ Production-ready stability
-✅ FIXED: Correct WebSocket endpoint for Live API
 """
 
 import asyncio
@@ -79,7 +80,7 @@ def generate_short_id(prefix: str = "") -> str:
 
 class GeminiLiveClient:
     """
-    🚀 PRODUCTION v1.2 - Client for Google Gemini Live API
+    🚀 PRODUCTION v1.3 - Client for Google Gemini Live API
     
     Key features:
     - Pure Gemini VAD (automatic voice activity detection)
@@ -88,6 +89,8 @@ class GeminiLiveClient:
     - Manual function calling (handler controls execution)
     - Thinking mode support
     - Screen context support
+    - Affective Dialog (emotion-aware responses)
+    - Proactive Audio (ignores background noise)
     - Reliable error handling
     - Performance monitoring
     """
@@ -109,7 +112,7 @@ class GeminiLiveClient:
         self.ws = None
         self.is_connected = False
         
-        # ✅ FIXED: Correct WebSocket endpoint for Gemini Live API
+        # ✅ v1alpha endpoint for Affective Dialog and Proactive Audio
         self.model = "gemini-2.5-flash-native-audio-preview-09-2025"
         self.base_url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
         self.gemini_url = f"{self.base_url}?key={self.api_key}"
@@ -160,7 +163,7 @@ class GeminiLiveClient:
         logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         logger.info(f"[GEMINI-CLIENT] 🔌 CONNECTION ATTEMPT")
         logger.info(f"[GEMINI-CLIENT] Model: {self.model}")
-        logger.info(f"[GEMINI-CLIENT] Endpoint: {self.base_url}")
+        logger.info(f"[GEMINI-CLIENT] Endpoint: v1alpha (Affective Dialog + Proactive Audio)")
         logger.info(f"[GEMINI-CLIENT] API Key: {self.api_key[:15]}...{self.api_key[-8:]}")
         logger.info(f"[GEMINI-CLIENT] VAD Mode: Pure Gemini (automatic)")
         logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -176,7 +179,7 @@ class GeminiLiveClient:
                     ping_timeout=120,
                     close_timeout=15,
                     extra_headers={
-                        'User-Agent': 'Voicyfy/1.2'
+                        'User-Agent': 'Voicyfy/1.3'
                     }
                 ),
                 timeout=30
@@ -294,9 +297,20 @@ class GeminiLiveClient:
         self,
         voice: str = DEFAULT_VOICE,
         system_message: str = DEFAULT_SYSTEM_MESSAGE,
-        functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
+        functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None,
+        enable_affective_dialog: bool = True,
+        enable_proactive_audio: bool = True
     ) -> bool:
-        """Send BidiGenerateContentSetup to configure session."""
+        """
+        Send BidiGenerateContentSetup to configure session.
+        
+        Args:
+            voice: Voice name for speech synthesis
+            system_message: System instruction for the model
+            functions: Function definitions for tool use
+            enable_affective_dialog: Enable emotion-aware responses (default: True)
+            enable_proactive_audio: Enable background noise filtering (default: True)
+        """
         if not self.is_connected or not self.ws:
             logger.error("[GEMINI-CLIENT] Cannot setup session: not connected")
             return False
@@ -326,11 +340,23 @@ class GeminiLiveClient:
             }
         }
         
-        # Generation config
+        # Generation config with new features
         generation_config = {
             "response_modalities": ["AUDIO"],
             "speech_config": speech_config
         }
+        
+        # ✅ NEW: Add Affective Dialog (emotion-aware responses)
+        if enable_affective_dialog:
+            generation_config["enable_affective_dialog"] = True
+            logger.info(f"[GEMINI-CLIENT] 🎭 Affective Dialog: ENABLED (emotion-aware responses)")
+        
+        # ✅ NEW: Add Proactive Audio (background noise filtering)
+        if enable_proactive_audio:
+            generation_config["proactivity"] = {
+                "proactive_audio": True
+            }
+            logger.info(f"[GEMINI-CLIENT] 🎤 Proactive Audio: ENABLED (ignores background conversations)")
         
         # System instruction
         system_instruction = {
@@ -347,9 +373,9 @@ class GeminiLiveClient:
                 "thinking_budget": thinking_budget,
                 "include_thoughts": False
             }
-            logger.info(f"[GEMINI-CLIENT] Thinking mode enabled (budget: {thinking_budget})")
+            logger.info(f"[GEMINI-CLIENT] 🧠 Thinking mode: ENABLED (budget: {thinking_budget})")
         
-        # ✅ Build correct setup payload for Live API
+        # Build setup payload for Live API
         setup_payload = {
             "setup": {
                 "model": f"models/{self.model}",
@@ -378,6 +404,8 @@ class GeminiLiveClient:
             logger.info(f"[GEMINI-CLIENT]   Voice: {voice}")
             logger.info(f"[GEMINI-CLIENT]   Tools: {len(tools)}")
             logger.info(f"[GEMINI-CLIENT]   Thinking: {bool(thinking_config)}")
+            logger.info(f"[GEMINI-CLIENT]   Affective Dialog: {enable_affective_dialog}")
+            logger.info(f"[GEMINI-CLIENT]   Proactive Audio: {enable_proactive_audio}")
         except Exception as e:
             logger.error(f"[GEMINI-CLIENT] ❌ Error sending setup: {e}")
             logger.error(traceback.format_exc())
@@ -552,6 +580,8 @@ class GeminiLiveClient:
         - Just sends audio continuously
         - Gemini decides when to respond
         - No manual commit needed
+        - Affective Dialog analyzes emotional tone
+        - Proactive Audio filters background noise
         """
         if not self.is_connected or not self.ws or not audio_buffer:
             return False
