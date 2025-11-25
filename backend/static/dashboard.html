@@ -1852,7 +1852,7 @@
           apiKeyStatus.style.display = 'flex';
           apiKeyForm.style.display = 'none';
           
-          const lockedFeatures = [agentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
+          const lockedFeatures = [agentsNavItem, geminiAgentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
           lockedFeatures.forEach(element => {
             if (element) element.classList.remove('locked-feature');
           });
