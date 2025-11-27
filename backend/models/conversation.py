@@ -3,6 +3,7 @@
 Conversation model for WellcomeAI application.
 Represents chat interactions between users and assistants.
 🆕 v2.0: Added caller_number field for Voximplant integration
+🆕 v3.0: Added contact_id for CRM integration
 """
 
 import uuid
@@ -18,11 +19,13 @@ class Conversation(Base, BaseModel):
     """
     Conversation model representing chat interactions with assistants.
     🆕 v2.0: Extended with caller_number support
+    🆕 v3.0: Extended with contact_id for CRM
     """
     __tablename__ = "conversations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     assistant_id = Column(UUID(as_uuid=True), ForeignKey("assistant_configs.id", ondelete="CASCADE"), nullable=False)
+    contact_id = Column(UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE"), nullable=True, index=True)  # 🆕 v3.0: Link to CRM contact
     session_id = Column(String, nullable=True, index=True)  # Group related messages
     user_message = Column(Text, nullable=True)
     assistant_message = Column(Text, nullable=True)
@@ -38,6 +41,7 @@ class Conversation(Base, BaseModel):
 
     # Relationships
     assistant = relationship("AssistantConfig", back_populates="conversations")
+    contact = relationship("Contact", back_populates="conversations")  # 🆕 v3.0: CRM relationship
 
     def __repr__(self):
         """String representation of Conversation"""
@@ -51,6 +55,8 @@ class Conversation(Base, BaseModel):
             data["id"] = str(data["id"])
         if isinstance(data.get("assistant_id"), uuid.UUID):
             data["assistant_id"] = str(data["assistant_id"])
+        if isinstance(data.get("contact_id"), uuid.UUID):
+            data["contact_id"] = str(data["contact_id"])
             
         return data
     
