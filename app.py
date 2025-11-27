@@ -6,6 +6,7 @@ This file configures all application components: routes, middleware, logging, et
 ✅ v2.2: Added Embeds API support (embeddable pages)
 ✅ v2.3: Added Google Gemini Live API support
 ✅ v2.4: Added Gemini Assistants CRUD API support
+✅ v2.5: Added CRM (Contacts) API support
 """
 import os
 import asyncio
@@ -28,7 +29,8 @@ from backend.api import (
     email_verification,
     embeds,
     gemini_ws,  # ✅ Gemini WebSocket API
-    gemini_assistants  # ✅ НОВОЕ: Gemini Assistants CRUD API
+    gemini_assistants,  # ✅ Gemini Assistants CRUD API
+    contacts  # ✅ НОВОЕ: CRM API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -57,7 +59,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
     description="API for managing personalized voice assistants based on OpenAI and Google Gemini",
-    version="2.4.0",  # ✅ Обновлена версия
+    version="2.5.0",  # ✅ Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
@@ -148,7 +150,7 @@ else:
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
-app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])  # ✅ НОВОЕ
+app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])  # ✅ Gemini CRUD
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])
@@ -162,6 +164,7 @@ app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplan
 app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
 app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
+app.include_router(contacts.router, prefix="/api/contacts", tags=["CRM"])  # ✅ НОВОЕ: CRM API
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
 app.include_router(embeds.router, tags=["Embeds"])
 
@@ -371,6 +374,87 @@ def create_gemini_tables():
             raise
 
 
+def create_crm_tables():
+    """
+    Create CRM (Contacts) tables and check missing columns
+    """
+    try:
+        from backend.models.contact import Contact
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+        
+        logger.info("📇 Creating CRM tables and checking missing columns...")
+        
+        # Создаем таблицы CRM
+        Base.metadata.create_all(engine)
+        
+        inspector = inspect(engine)
+        
+        # Проверяем таблицу contacts
+        if not inspector.has_table('contacts'):
+            logger.info("➕ Creating contacts table...")
+            try:
+                Contact.__table__.create(engine)
+                logger.info("✅ Successfully created contacts table")
+            except Exception as e:
+                logger.error(f"❌ Failed to create contacts table: {str(e)}")
+        else:
+            logger.info("✅ Table contacts already exists")
+        
+        # Проверяем поле contact_id в таблице conversations
+        try:
+            if inspector.has_table('conversations'):
+                columns = inspector.get_columns('conversations')
+                existing_columns = {col['name']: col for col in columns}
+                
+                if 'contact_id' not in existing_columns:
+                    logger.info("➕ Adding contact_id column to conversations table...")
+                    
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                # Добавляем колонку без FK constraint
+                                conn.execute(text("ALTER TABLE conversations ADD COLUMN contact_id UUID"))
+                                trans.commit()
+                                logger.info("✅ Successfully added contact_id column")
+                                
+                                # Создаем индекс
+                                trans = conn.begin()
+                                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_contact_id ON conversations(contact_id)"))
+                                trans.commit()
+                                logger.info("✅ Successfully created index on contact_id")
+                                
+                                # Добавляем FK constraint с NOT VALID (для больших таблиц)
+                                trans = conn.begin()
+                                conn.execute(text("""
+                                    ALTER TABLE conversations 
+                                    ADD CONSTRAINT fk_conversations_contact_id 
+                                    FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+                                    NOT VALID
+                                """))
+                                trans.commit()
+                                logger.info("✅ Successfully added FK constraint on contact_id")
+                                
+                            except Exception as e:
+                                trans.rollback()
+                                if "already exists" not in str(e).lower():
+                                    logger.error(f"❌ Failed to add contact_id: {str(e)}")
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error: {str(conn_error)}")
+                else:
+                    logger.info("✅ Column contact_id already exists in conversations")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking conversations table: {str(table_error)}")
+        
+        logger.info("✅ CRM tables and columns setup completed")
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating CRM tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
+
 def check_and_fix_all_missing_columns():
     """
     Comprehensive check and fix for all missing columns across all tables
@@ -391,6 +475,7 @@ def check_and_fix_all_missing_columns():
             },
             'conversations': {
                 'caller_number': 'VARCHAR(50) NULL',
+                'contact_id': 'UUID NULL',
             },
             'assistant_configs': {
                 # Добавьте если нужно
@@ -561,7 +646,7 @@ def create_embed_configs_table():
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application v2.4...")
+        logger.info("🚀 Starting WellcomeAI application v2.5...")
         
         # Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
@@ -596,6 +681,9 @@ async def startup_event():
                 
                 # Шаг 7: Создаем таблицы Gemini
                 create_gemini_tables()
+                
+                # Шаг 8: Создаем таблицы CRM (Contacts)
+                create_crm_tables()
                 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
@@ -675,11 +763,29 @@ async def startup_event():
         try:
             logger.info("💬 Conversations API initialized")
             logger.info(f"   List endpoint: {settings.HOST_URL}/api/conversations")
+            logger.info(f"   Sessions endpoint: {settings.HOST_URL}/api/conversations/sessions")
             logger.info(f"   Detail endpoint: {settings.HOST_URL}/api/conversations/{{id}}")
             logger.info(f"   Stats endpoint: {settings.HOST_URL}/api/conversations/stats")
             logger.info(f"   By caller endpoint: {settings.HOST_URL}/api/conversations/by-caller/{{phone}}")
         except Exception as e:
             logger.error(f"❌ Error initializing Conversations API: {str(e)}")
+        
+        # ✅ НОВОЕ: Логирование инициализации CRM API
+        try:
+            logger.info("📇 CRM API initialized")
+            logger.info(f"   List contacts: GET {settings.HOST_URL}/api/contacts")
+            logger.info(f"   Get contact: GET {settings.HOST_URL}/api/contacts/{{id}}")
+            logger.info(f"   Create/Update: POST {settings.HOST_URL}/api/contacts")
+            logger.info(f"   Update: PUT {settings.HOST_URL}/api/contacts/{{id}}")
+            logger.info(f"   Update status: PATCH {settings.HOST_URL}/api/contacts/{{id}}/status")
+            logger.info(f"   Delete: DELETE {settings.HOST_URL}/api/contacts/{{id}}")
+            logger.info("   Features:")
+            logger.info("     - Auto-create contacts from phone calls")
+            logger.info("     - Link all conversations to contacts")
+            logger.info("     - Contact statuses: new, active, client, archived")
+            logger.info("     - Search and filtering")
+        except Exception as e:
+            logger.error(f"❌ Error initializing CRM API: {str(e)}")
         
         # Логирование инициализации Embeds API
         try:
@@ -709,7 +815,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Gemini Live API: {str(e)}")
         
-        # ✅ НОВОЕ: Логирование инициализации Gemini Assistants API
+        # Логирование инициализации Gemini Assistants API
         try:
             logger.info("🤖 Gemini Assistants CRUD API initialized")
             logger.info(f"   List: GET {settings.HOST_URL}/api/gemini-assistants")
@@ -722,7 +828,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Gemini Assistants API: {str(e)}")
         
-        logger.info("✅ Application started successfully (v2.4 with Gemini Assistants)")
+        logger.info("✅ Application started successfully (v2.5 with CRM)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
@@ -746,7 +852,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "wellcome-ai",
-        "version": "2.4.0",
+        "version": "2.5.0",
         "features": {
             "openai_realtime": True,
             "gemini_live": True,
@@ -754,7 +860,8 @@ async def health_check():
             "elevenlabs": True,
             "voximplant": True,
             "embeds": True,
-            "email_verification": True
+            "email_verification": True,
+            "crm": True  # ✅ НОВОЕ: CRM функциональность
         }
     }
 
