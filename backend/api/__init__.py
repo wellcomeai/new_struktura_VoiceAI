@@ -6,6 +6,7 @@ Contains FastAPI route definitions for all endpoints.
 ✅ ОБНОВЛЕНО: Добавлен роутер embeds
 ✅ ОБНОВЛЕНО: Добавлен роутер gemini_ws для Google Gemini Live API
 ✅ ОБНОВЛЕНО: Добавлен роутер gemini_assistants для Gemini CRUD
+✅ ОБНОВЛЕНО: Добавлен роутер contacts для CRM функциональности
 """
 
 from fastapi import APIRouter
@@ -29,6 +30,7 @@ from .conversations import router as conversations_router
 from .email_verification import router as email_verification_router
 from .embeds import router as embeds_router
 from .llm_streaming import router as llm_streaming_router
+from .contacts import router as contacts_router  # ✅ НОВОЕ: CRM
 
 # Create a main API router
 api_router = APIRouter()
@@ -52,6 +54,7 @@ api_router.include_router(conversations_router, tags=["Conversations"])
 api_router.include_router(email_verification_router, prefix="/email-verification", tags=["Email Verification"])
 api_router.include_router(embeds_router, tags=["Embeds"])
 api_router.include_router(llm_streaming_router, tags=["LLM Streaming"])
+api_router.include_router(contacts_router, tags=["CRM"])  # ✅ НОВОЕ: CRM
 
 # Export all routers for use in app.py
 __all__ = [
@@ -74,5 +77,6 @@ __all__ = [
     "conversations_router",
     "email_verification_router",
     "embeds_router",
-    "llm_streaming_router"
+    "llm_streaming_router",
+    "contacts_router"  # ✅ НОВОЕ: CRM
 ]
