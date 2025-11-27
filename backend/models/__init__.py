@@ -3,6 +3,7 @@ Database models module for WellcomeAI application.
 This module contains SQLAlchemy ORM models that represent database tables.
 ✅ ОБНОВЛЕНО: Добавлена модель EmailVerification для верификации email
 ✅ ОБНОВЛЕНО: Добавлены модели Gemini Assistant и Gemini Conversation
+✅ ОБНОВЛЕНО: Добавлена модель Contact для CRM функциональности
 """
 
 from .base import Base, engine, create_tables_with_full_tracking
@@ -28,6 +29,9 @@ from .embed_config import EmbedConfig
 # ✅ НОВОЕ: Импортируем Gemini модели
 from .gemini_assistant import GeminiAssistantConfig, GeminiConversation
 
+# ✅ НОВОЕ: Импортируем Contact для CRM
+from .contact import Contact
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -52,5 +56,7 @@ __all__ = [
     "EmbedConfig",
     # ✅ НОВОЕ: Gemini модели
     "GeminiAssistantConfig",
-    "GeminiConversation"
+    "GeminiConversation",
+    # ✅ НОВОЕ: CRM модель
+    "Contact"
 ]
