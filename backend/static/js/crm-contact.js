@@ -1,8 +1,8 @@
 // backend/static/js/crm-contact.js
 /**
  * Contact Detail Page для Voicyfy CRM
- * Детальный просмотр контакта с историей диалогов
- * Version: 1.0
+ * Детальный просмотр контакта с историей диалогов и лентой заметок
+ * Version: 2.0 - Production Ready with Notes Feed
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -11,8 +11,10 @@ document.addEventListener('DOMContentLoaded', function() {
   const contactName = document.getElementById('contact-name');
   const contactPhone = document.getElementById('contact-phone');
   const statusDropdown = document.getElementById('status-dropdown');
-  const notesTextarea = document.getElementById('notes-textarea');
-  const saveNotesBtn = document.getElementById('save-notes-btn');
+  const notesFeed = document.getElementById('notes-feed');
+  const notesCount = document.getElementById('notes-count');
+  const noteInput = document.getElementById('note-input');
+  const addNoteBtn = document.getElementById('add-note-btn');
   const deleteContactBtn = document.getElementById('delete-contact-btn');
   const conversationsAccordion = document.getElementById('conversations-accordion');
   const conversationsCount = document.getElementById('conversations-count');
@@ -28,6 +30,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ==================== Состояние ====================
   let currentContact = null;
   let contactId = null;
+  let notes = [];
   
   // ==================== API ====================
   const api = {
@@ -76,6 +79,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     get(endpoint) {
       return this.fetch(endpoint, { method: 'GET' });
+    },
+    
+    post(endpoint, body) {
+      return this.fetch(endpoint, { method: 'POST', body });
     },
     
     put(endpoint, body) {
@@ -175,12 +182,14 @@ document.addEventListener('DOMContentLoaded', function() {
       contactName.textContent = contact.name || 'Без имени';
       contactPhone.textContent = formatPhoneNumber(contact.phone);
       statusDropdown.value = contact.status || 'new';
-      notesTextarea.value = contact.notes || '';
       
       // Update conversations count
       const totalConversations = contact.stats?.total_conversations || 0;
       conversationsCount.textContent = totalConversations;
       deleteConversationsCount.textContent = totalConversations;
+      
+      // Load notes
+      await loadNotes();
       
       // Render conversations
       renderConversations(contact.conversations || []);
@@ -188,6 +197,113 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error loading contact:', error);
       showNotification(error.message || 'Ошибка загрузки контакта', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // ==================== Load Notes ====================
+  async function loadNotes() {
+    try {
+      const data = await api.get(`/contacts/${contactId}/notes`);
+      notes = data.notes || [];
+      renderNotes();
+    } catch (error) {
+      console.error('Error loading notes:', error);
+      showNotification('Ошибка загрузки заметок', 'error');
+    }
+  }
+  
+  // ==================== Render Notes ====================
+  function renderNotes() {
+    notesCount.textContent = notes.length;
+    
+    if (notes.length === 0) {
+      notesFeed.innerHTML = `
+        <div class="notes-empty">
+          <i class="fas fa-sticky-note"></i>
+          <p>Нет заметок</p>
+        </div>
+      `;
+      return;
+    }
+    
+    notesFeed.innerHTML = '';
+    
+    notes.forEach(note => {
+      const noteCard = document.createElement('div');
+      noteCard.className = 'note-card';
+      noteCard.dataset.noteId = note.id;
+      
+      noteCard.innerHTML = `
+        <div class="note-card-header">
+          <span class="note-date">${formatDate(note.created_at)}</span>
+          <button class="note-delete-btn" data-note-id="${note.id}" title="Удалить заметку">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+        </div>
+        <div class="note-text">${escapeHtml(note.note_text)}</div>
+      `;
+      
+      notesFeed.appendChild(noteCard);
+      
+      // Add delete listener
+      const deleteBtn = noteCard.querySelector('.note-delete-btn');
+      deleteBtn.addEventListener('click', () => deleteNote(note.id));
+    });
+  }
+  
+  // ==================== Add Note ====================
+  async function addNote() {
+    try {
+      const noteText = noteInput.value.trim();
+      
+      if (!noteText) {
+        showNotification('Введите текст заметки', 'error');
+        return;
+      }
+      
+      setLoading(true);
+      
+      await api.post(`/contacts/${contactId}/notes`, {
+        note_text: noteText
+      });
+      
+      // Clear input
+      noteInput.value = '';
+      
+      // Reload notes
+      await loadNotes();
+      
+      showNotification('Заметка добавлена', 'success');
+      
+    } catch (error) {
+      console.error('Error adding note:', error);
+      showNotification(error.message || 'Ошибка добавления заметки', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // ==================== Delete Note ====================
+  async function deleteNote(noteId) {
+    try {
+      if (!confirm('Удалить эту заметку?')) {
+        return;
+      }
+      
+      setLoading(true);
+      
+      await api.delete(`/contacts/notes/${noteId}`);
+      
+      // Reload notes
+      await loadNotes();
+      
+      showNotification('Заметка удалена', 'success');
+      
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      showNotification(error.message || 'Ошибка удаления заметки', 'error');
     } finally {
       setLoading(false);
     }
@@ -294,7 +410,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         messageDiv.innerHTML = `
           <div class="message-role">${msg.type === 'user' ? '👤 Клиент' : '🤖 Ассистент'}</div>
-          <div class="message-text">${msg.text}</div>
+          <div class="message-text">${escapeHtml(msg.text)}</div>
         `;
         
         container.appendChild(messageDiv);
@@ -308,27 +424,6 @@ document.addEventListener('DOMContentLoaded', function() {
           <p>Ошибка загрузки сообщений</p>
         </div>
       `;
-    }
-  }
-  
-  // ==================== Save Notes ====================
-  async function saveNotes() {
-    try {
-      setLoading(true);
-      
-      const notes = notesTextarea.value.trim();
-      
-      await api.put(`/contacts/${contactId}`, {
-        notes: notes || null
-      });
-      
-      showNotification('Заметки сохранены', 'success');
-      
-    } catch (error) {
-      console.error('Error saving notes:', error);
-      showNotification(error.message || 'Ошибка сохранения заметок', 'error');
-    } finally {
-      setLoading(false);
     }
   }
   
@@ -373,8 +468,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // ==================== Utility Functions ====================
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  
   // ==================== Event Listeners ====================
-  saveNotesBtn.addEventListener('click', saveNotes);
+  addNoteBtn.addEventListener('click', addNote);
+  
+  // Allow Enter+Ctrl to add note
+  noteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault();
+      addNote();
+    }
+  });
   
   statusDropdown.addEventListener('change', (e) => {
     updateStatus(e.target.value);
