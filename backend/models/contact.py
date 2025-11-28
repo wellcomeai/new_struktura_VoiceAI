@@ -2,6 +2,7 @@
 """
 Contact model для CRM функциональности.
 Хранит информацию о контактах (клиентах) с их телефонами и именами.
+✅ ОБНОВЛЕНО: Добавлена модель ContactNote для ленты заметок
 """
 
 from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, UniqueConstraint
@@ -36,7 +37,7 @@ class Contact(Base):
         nullable=False
     )  # new, active, client, archived
     
-    # Заметки
+    # Заметки (оставлено для обратной совместимости)
     notes = Column(Text, nullable=True)
     
     # Timestamps
@@ -47,6 +48,7 @@ class Contact(Base):
     # Relationships
     user = relationship("User", backref="contacts")
     conversations = relationship("Conversation", back_populates="contact", cascade="all, delete-orphan")
+    contact_notes = relationship("ContactNote", back_populates="contact", cascade="all, delete-orphan", order_by="desc(ContactNote.created_at)")
     
     # Уникальность: один номер телефона у одного пользователя
     __table_args__ = (
@@ -70,4 +72,47 @@ class Contact(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "last_interaction": self.last_interaction.isoformat() if self.last_interaction else None
+        }
+
+
+class ContactNote(Base):
+    """
+    Отдельная заметка по контакту.
+    Позволяет создавать ленту заметок с историей (как в AmoCRM).
+    Каждая заметка - отдельная запись с датой создания.
+    """
+    __tablename__ = "contact_notes"
+    
+    # Основные поля
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id = Column(UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    
+    # Текст заметки
+    note_text = Column(Text, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    contact = relationship("Contact", back_populates="contact_notes")
+    user = relationship("User")
+    
+    # Индексы
+    __table_args__ = (
+        Index('ix_contact_notes_contact_created', 'contact_id', 'created_at'),
+    )
+    
+    def __repr__(self):
+        return f"<ContactNote {self.id} for contact {self.contact_id}>"
+    
+    def to_dict(self):
+        """Сериализация для API"""
+        return {
+            "id": str(self.id),
+            "contact_id": str(self.contact_id),
+            "note_text": self.note_text,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
