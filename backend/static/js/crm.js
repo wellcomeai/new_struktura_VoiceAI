@@ -2,25 +2,19 @@
 /**
  * CRM Interface для Voicyfy
  * Управление контактами (клиентами)
- * Version: 1.0
+ * Version: 2.0 - Added Kanban view with drag & drop
  */
 
 document.addEventListener('DOMContentLoaded', function() {
   // ==================== Элементы ====================
   const contactsGrid = document.getElementById('contacts-grid');
+  const kanbanBoard = document.getElementById('kanban-board');
   const searchInput = document.getElementById('search-input');
   const refreshBtn = document.getElementById('refresh-btn');
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
   const paginationInfo = document.getElementById('pagination-info');
   const pagination = document.getElementById('pagination');
-  const modalOverlay = document.getElementById('modal-overlay');
-  const modalTitle = document.getElementById('modal-title');
-  const modalSubtitle = document.getElementById('modal-subtitle');
-  const modalBody = document.getElementById('modal-body');
-  const modalClose = document.getElementById('modal-close');
-  const modalCancel = document.getElementById('modal-cancel');
-  const modalSave = document.getElementById('modal-save');
   const notification = document.getElementById('notification');
   const notificationMessage = document.getElementById('notification-message');
   const notificationClose = document.getElementById('notification-close');
@@ -33,6 +27,11 @@ document.addEventListener('DOMContentLoaded', function() {
   const userEmailDisplay = document.getElementById('user-name');
   const userAvatar = document.getElementById('user-avatar');
   const statusBadges = document.querySelectorAll('.status-badge');
+  const viewToggleBtns = document.querySelectorAll('.view-toggle-btn');
+  const gridViewBtn = document.getElementById('grid-view-btn');
+  const kanbanViewBtn = document.getElementById('kanban-view-btn');
+  const contactsContainer = document.getElementById('contacts-container');
+  const kanbanContainer = document.getElementById('kanban-container');
   
   // ==================== Состояние ====================
   let currentPage = 0;
@@ -40,7 +39,8 @@ document.addEventListener('DOMContentLoaded', function() {
   let totalContacts = 0;
   let currentStatus = '';
   let searchQuery = '';
-  let currentContact = null;
+  let currentView = 'grid'; // 'grid' or 'kanban'
+  let allContacts = []; // Для Kanban view
   const perPage = 20;
   
   // Таймер для debounce поиска
@@ -95,20 +95,8 @@ document.addEventListener('DOMContentLoaded', function() {
       return this.fetch(endpoint, { method: 'GET' });
     },
     
-    post(endpoint, body) {
-      return this.fetch(endpoint, { method: 'POST', body });
-    },
-    
-    put(endpoint, body) {
-      return this.fetch(endpoint, { method: 'PUT', body });
-    },
-    
     patch(endpoint, body) {
       return this.fetch(endpoint, { method: 'PATCH', body });
-    },
-    
-    delete(endpoint) {
-      return this.fetch(endpoint, { method: 'DELETE' });
     }
   };
   
@@ -164,18 +152,11 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function formatPhoneNumber(phone) {
-    // Форматирование номера телефона
     if (!phone) return '';
-    
-    // Убираем все нецифровые символы
     const cleaned = phone.replace(/\D/g, '');
-    
-    // Форматируем как +7 (XXX) XXX-XX-XX
     if (cleaned.startsWith('7') && cleaned.length === 11) {
       return `+7 (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7, 9)}-${cleaned.slice(9)}`;
     }
-    
-    // Возвращаем как есть если не подходит
     return phone;
   }
   
@@ -197,21 +178,41 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       return name.substring(0, 2).toUpperCase();
     }
-    
-    // Если имени нет, используем последние 2 цифры номера
     if (phone) {
       const cleaned = phone.replace(/\D/g, '');
       return cleaned.slice(-2);
     }
-    
     return '??';
   }
   
-  // ==================== Рендер карточек ====================
+  // ==================== View Switching ====================
+  function switchView(view) {
+    currentView = view;
+    
+    // Update buttons
+    viewToggleBtns.forEach(btn => btn.classList.remove('active'));
+    if (view === 'grid') {
+      gridViewBtn.classList.add('active');
+      contactsContainer.style.display = 'block';
+      kanbanContainer.style.display = 'none';
+      loadContacts();
+    } else {
+      kanbanViewBtn.classList.add('active');
+      contactsContainer.style.display = 'none';
+      kanbanContainer.style.display = 'block';
+      loadKanbanContacts();
+    }
+    
+    // Save preference
+    localStorage.setItem('crm_view', view);
+  }
+  
+  // ==================== Grid View ====================
   function createContactCard(contact) {
     const card = document.createElement('div');
     card.className = 'contact-card';
-    card.onclick = () => openContactDetail(contact.id);
+    // ✅ ИСПРАВЛЕНО: Переход на детальную страницу
+    card.onclick = () => window.location.href = `/static/crm-contact.html?id=${contact.id}`;
     
     const displayName = contact.name || 'Без имени';
     const initials = getInitials(contact.name, contact.phone);
@@ -264,7 +265,6 @@ document.addEventListener('DOMContentLoaded', function() {
     pagination.style.display = 'none';
   }
   
-  // ==================== Загрузка контактов ====================
   async function loadContacts() {
     try {
       setLoading(true);
@@ -309,7 +309,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // ==================== Обновление пагинации ====================
   function updatePagination() {
     if (totalPages <= 1) {
       pagination.style.display = 'none';
@@ -323,172 +322,154 @@ document.addEventListener('DOMContentLoaded', function() {
     nextBtn.disabled = currentPage >= totalPages - 1;
   }
   
-  // ==================== Детальный просмотр контакта ====================
-  async function openContactDetail(contactId) {
-    try {
-      setLoading(true);
-      
-      const contact = await api.get(`/contacts/${contactId}?include_conversations=true`);
-      currentContact = contact;
-      
-      // Заголовок
-      const displayName = contact.name || 'Без имени';
-      modalTitle.innerHTML = `
-        <i class="fas fa-user-circle"></i>
-        ${displayName}
-      `;
-      
-      // Подзаголовок
-      const formattedPhone = formatPhoneNumber(contact.phone);
-      modalSubtitle.innerHTML = `
-        <span style="font-family: 'Consolas', 'Monaco', monospace; font-weight: 600;">
-          <i class="fas fa-phone"></i> ${formattedPhone}
-        </span>
-        ${contact.total_conversations ? `
-          <span style="color: var(--text-gray);">
-            <i class="fas fa-comments"></i> ${contact.stats.total_conversations} диалогов
-          </span>
-        ` : ''}
-      `;
-      
-      // Тело модалки
-      modalBody.innerHTML = `
-        <!-- Редактирование контакта -->
-        <div class="modal-section">
-          <div class="section-title">Информация о контакте</div>
-          
-          <div class="form-group">
-            <label class="form-label">Имя</label>
-            <input 
-              type="text" 
-              id="contact-name-input" 
-              class="form-input" 
-              placeholder="Введите имя контакта..."
-              value="${contact.name || ''}"
-            >
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Статус</label>
-            <div class="status-selector" id="status-selector">
-              <div class="status-option status-new ${contact.status === 'new' ? 'selected' : ''}" data-status="new">
-                Новый
-              </div>
-              <div class="status-option status-active ${contact.status === 'active' ? 'selected' : ''}" data-status="active">
-                Активный
-              </div>
-              <div class="status-option status-client ${contact.status === 'client' ? 'selected' : ''}" data-status="client">
-                Клиент
-              </div>
-              <div class="status-option status-archived ${contact.status === 'archived' ? 'selected' : ''}" data-status="archived">
-                Архив
-              </div>
-            </div>
-          </div>
-          
-          <div class="form-group">
-            <label class="form-label">Заметки</label>
-            <textarea 
-              id="contact-notes-input" 
-              class="form-textarea" 
-              placeholder="Добавьте заметки о контакте..."
-            >${contact.notes || ''}</textarea>
-          </div>
-        </div>
-        
-        <!-- История диалогов -->
-        ${contact.conversations && contact.conversations.length > 0 ? `
-          <div class="modal-section">
-            <div class="section-title">История диалогов (${contact.conversations.length})</div>
-            <div class="conversations-list" id="conversations-list">
-              ${contact.conversations.map(conv => `
-                <div class="conversation-item" onclick="window.open('/static/conversations.html?session=${conv.session_id}', '_blank')">
-                  <div class="conversation-header">
-                    <div class="conversation-assistant">
-                      <i class="fas fa-robot"></i> ${conv.assistant_name || 'Неизвестный ассистент'}
-                    </div>
-                    <div class="conversation-date">${formatDate(conv.created_at)}</div>
-                  </div>
-                  <div class="conversation-stats">
-                    <span><i class="fas fa-comments"></i> ${conv.messages_count} сообщений</span>
-                    ${conv.total_duration ? `<span><i class="fas fa-clock"></i> ${Math.floor(conv.total_duration / 60)} мин</span>` : ''}
-                    <span><i class="fas fa-brain"></i> ${conv.total_tokens} токенов</span>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : `
-          <div class="modal-section">
-            <div class="section-title">История диалогов</div>
-            <p style="color: var(--text-gray); text-align: center; padding: 2rem;">
-              Пока не было диалогов с этим контактом
-            </p>
-          </div>
-        `}
-      `;
-      
-      // Обработчики для статусов
-      const statusOptions = modalBody.querySelectorAll('.status-option');
-      statusOptions.forEach(option => {
-        option.addEventListener('click', function() {
-          statusOptions.forEach(opt => opt.classList.remove('selected'));
-          this.classList.add('selected');
-        });
-      });
-      
-      modalOverlay.classList.add('show');
-      
-    } catch (error) {
-      console.error('Error loading contact detail:', error);
-      showNotification(error.message || 'Ошибка при загрузке контакта', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-  
-  // ==================== Сохранение контакта ====================
-  async function saveContact() {
-    if (!currentContact) return;
+  // ==================== Kanban View ====================
+  function createKanbanCard(contact) {
+    const card = document.createElement('div');
+    card.className = 'kanban-card';
+    card.dataset.contactId = contact.id;
+    card.onclick = () => window.location.href = `/static/crm-contact.html?id=${contact.id}`;
     
+    const displayName = contact.name || 'Без имени';
+    const initials = getInitials(contact.name, contact.phone);
+    const formattedPhone = formatPhoneNumber(contact.phone);
+    
+    card.innerHTML = `
+      <div class="kanban-card-header">
+        <div class="contact-avatar-small">${initials}</div>
+        <div class="kanban-card-info">
+          <div class="kanban-card-name">${displayName}</div>
+          <div class="kanban-card-phone">${formattedPhone}</div>
+        </div>
+      </div>
+      <div class="kanban-card-meta">
+        <span><i class="fas fa-comments"></i> ${contact.total_conversations || 0}</span>
+        ${contact.last_interaction ? `<span><i class="fas fa-clock"></i> ${formatDate(contact.last_interaction)}</span>` : ''}
+      </div>
+    `;
+    
+    return card;
+  }
+  
+  async function loadKanbanContacts() {
     try {
       setLoading(true);
       
-      const name = document.getElementById('contact-name-input').value.trim();
-      const notes = document.getElementById('contact-notes-input').value.trim();
-      const selectedStatus = modalBody.querySelector('.status-option.selected');
-      const status = selectedStatus ? selectedStatus.dataset.status : currentContact.status;
+      // Загружаем ВСЕ контакты для Kanban (без пагинации)
+      let url = `/contacts?limit=100&offset=0`;
       
-      const updateData = {
-        name: name || null,
-        notes: notes || null,
-        status: status
-      };
+      if (searchQuery) {
+        url += `&search=${encodeURIComponent(searchQuery)}`;
+      }
       
-      await api.put(`/contacts/${currentContact.id}`, updateData);
+      const response = await api.get(url);
+      allContacts = response.contacts;
       
-      showNotification('Контакт успешно обновлен', 'success');
-      
-      closeModal();
-      loadContacts(); // Перезагрузить список
+      renderKanban();
       
     } catch (error) {
-      console.error('Error saving contact:', error);
-      showNotification(error.message || 'Ошибка при сохранении контакта', 'error');
+      console.error('Error loading kanban contacts:', error);
+      showNotification(error.message || 'Ошибка при загрузке контактов', 'error');
     } finally {
       setLoading(false);
     }
   }
   
-  // ==================== Закрытие модального окна ====================
-  function closeModal() {
-    modalOverlay.classList.remove('show');
-    currentContact = null;
+  function renderKanban() {
+    const statuses = ['new', 'active', 'client', 'archived'];
+    const columns = {
+      new: document.getElementById('kanban-col-new'),
+      active: document.getElementById('kanban-col-active'),
+      client: document.getElementById('kanban-col-client'),
+      archived: document.getElementById('kanban-col-archived')
+    };
+    
+    // Очищаем колонки
+    Object.values(columns).forEach(col => {
+      col.innerHTML = '';
+    });
+    
+    // Группируем контакты по статусам
+    const grouped = {
+      new: [],
+      active: [],
+      client: [],
+      archived: []
+    };
+    
+    allContacts.forEach(contact => {
+      if (grouped[contact.status]) {
+        grouped[contact.status].push(contact);
+      }
+    });
+    
+    // Обновляем счетчики
+    document.getElementById('count-new').textContent = grouped.new.length;
+    document.getElementById('count-active').textContent = grouped.active.length;
+    document.getElementById('count-client').textContent = grouped.client.length;
+    document.getElementById('count-archived').textContent = grouped.archived.length;
+    
+    // Рендерим карточки
+    statuses.forEach(status => {
+      const contacts = grouped[status];
+      const column = columns[status];
+      
+      if (contacts.length === 0) {
+        column.innerHTML = '<div class="kanban-empty">Пусто</div>';
+      } else {
+        contacts.forEach(contact => {
+          const card = createKanbanCard(contact);
+          column.appendChild(card);
+        });
+      }
+    });
+    
+    // Инициализируем Sortable для drag & drop
+    initSortable();
+  }
+  
+  function initSortable() {
+    const columns = document.querySelectorAll('.kanban-column-content');
+    
+    columns.forEach(column => {
+      new Sortable(column, {
+        group: 'kanban',
+        animation: 150,
+        ghostClass: 'kanban-card-ghost',
+        dragClass: 'kanban-card-drag',
+        onEnd: async function(evt) {
+          const contactId = evt.item.dataset.contactId;
+          const newStatus = evt.to.id.replace('kanban-col-', '');
+          
+          // Обновляем статус на сервере
+          try {
+            await api.patch(`/contacts/${contactId}/status`, {
+              status: newStatus
+            });
+            
+            showNotification(`Статус изменен на "${getStatusLabel(newStatus)}"`, 'success');
+            
+            // Обновляем счетчики
+            loadKanbanContacts();
+            
+          } catch (error) {
+            console.error('Error updating status:', error);
+            showNotification(error.message || 'Ошибка обновления статуса', 'error');
+            // Возвращаем карточку обратно
+            loadKanbanContacts();
+          }
+        }
+      });
+    });
   }
   
   // ==================== Фильтры ====================
   statusBadges.forEach(badge => {
     badge.addEventListener('click', function() {
+      // В Kanban режиме статусы не работают как фильтр
+      if (currentView === 'kanban') {
+        return;
+      }
+      
       statusBadges.forEach(b => b.classList.remove('active'));
       this.classList.add('active');
       
@@ -505,8 +486,13 @@ document.addEventListener('DOMContentLoaded', function() {
     searchTimeout = setTimeout(() => {
       searchQuery = this.value.trim();
       currentPage = 0;
-      loadContacts();
-    }, 500); // Debounce 500ms
+      
+      if (currentView === 'grid') {
+        loadContacts();
+      } else {
+        loadKanbanContacts();
+      }
+    }, 500);
   });
   
   // ==================== Пагинация ====================
@@ -528,20 +514,17 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // ==================== Обновление ====================
   refreshBtn.addEventListener('click', () => {
-    loadContacts();
+    if (currentView === 'grid') {
+      loadContacts();
+    } else {
+      loadKanbanContacts();
+    }
     showNotification('Данные обновлены', 'info');
   });
   
-  // ==================== Модальное окно ====================
-  modalClose.addEventListener('click', closeModal);
-  modalCancel.addEventListener('click', closeModal);
-  modalSave.addEventListener('click', saveContact);
-  
-  modalOverlay.addEventListener('click', (e) => {
-    if (e.target === modalOverlay) {
-      closeModal();
-    }
-  });
+  // ==================== View Toggle ====================
+  gridViewBtn.addEventListener('click', () => switchView('grid'));
+  kanbanViewBtn.addEventListener('click', () => switchView('kanban'));
   
   // ==================== Мобильное меню ====================
   mobileMenuToggle.addEventListener('click', function() {
@@ -604,5 +587,8 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // ==================== Инициализация ====================
   loadUserInfo();
-  loadContacts();
+  
+  // Restore view preference
+  const savedView = localStorage.getItem('crm_view') || 'grid';
+  switchView(savedView);
 });
