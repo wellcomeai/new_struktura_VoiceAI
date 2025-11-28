@@ -8,7 +8,8 @@
 document.addEventListener('DOMContentLoaded', function() {
   // ==================== Элементы ====================
   const contactAvatar = document.getElementById('contact-avatar');
-  const contactName = document.getElementById('contact-name');
+  const nameInput = document.getElementById('name-input');
+  const saveNameBtn = document.getElementById('save-name-btn');
   const contactPhone = document.getElementById('contact-phone');
   const statusDropdown = document.getElementById('status-dropdown');
   const notesFeed = document.getElementById('notes-feed');
@@ -179,7 +180,8 @@ document.addEventListener('DOMContentLoaded', function() {
       // Update left panel
       const initials = getInitials(contact.name, contact.phone);
       contactAvatar.textContent = initials;
-      contactName.textContent = contact.name || 'Без имени';
+      nameInput.value = contact.name || '';
+      nameInput.placeholder = contact.name ? 'Введите имя контакта...' : 'Без имени';
       contactPhone.textContent = formatPhoneNumber(contact.phone);
       statusDropdown.value = contact.status || 'new';
       
@@ -448,6 +450,32 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  // ==================== Save Name ====================
+  async function saveName() {
+    try {
+      const newName = nameInput.value.trim();
+      
+      setLoading(true);
+      
+      const response = await api.put(`/contacts/${contactId}`, {
+        name: newName || null
+      });
+      
+      // Update current contact and avatar
+      currentContact = response.contact;
+      const initials = getInitials(newName, currentContact.phone);
+      contactAvatar.textContent = initials;
+      
+      showNotification('Имя сохранено', 'success');
+      
+    } catch (error) {
+      console.error('Error saving name:', error);
+      showNotification(error.message || 'Ошибка сохранения имени', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+  
   // ==================== Delete Contact ====================
   async function deleteContact() {
     try {
@@ -476,6 +504,16 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // ==================== Event Listeners ====================
+  saveNameBtn.addEventListener('click', saveName);
+  
+  // Allow Enter to save name
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveName();
+    }
+  });
+  
   addNoteBtn.addEventListener('click', addNote);
   
   // Allow Enter+Ctrl to add note
