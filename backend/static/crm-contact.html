@@ -153,6 +153,9 @@
       letter-spacing: 0.05em;
       color: var(--text-light);
       margin-bottom: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     
     .status-dropdown {
@@ -173,25 +176,147 @@
       box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
     }
     
-    .status-dropdown option {
-      padding: 0.5rem;
+    /* Notes Feed */
+    .notes-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-height: 400px;
+      overflow-y: auto;
+      padding-right: 0.5rem;
     }
     
-    .notes-textarea {
+    .notes-feed::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .notes-feed::-webkit-scrollbar-track {
+      background: var(--bg-light);
+      border-radius: 3px;
+    }
+    
+    .notes-feed::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 3px;
+    }
+    
+    .notes-feed::-webkit-scrollbar-thumb:hover {
+      background: var(--text-light);
+    }
+    
+    .note-card {
+      background-color: var(--bg-light);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+      position: relative;
+      transition: all 0.2s;
+    }
+    
+    .note-card:hover {
+      box-shadow: var(--shadow-sm);
+      border-color: var(--primary-blue-light);
+    }
+    
+    .note-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    
+    .note-date {
+      font-size: 0.75rem;
+      color: var(--text-light);
+    }
+    
+    .note-delete-btn {
+      background: none;
+      border: none;
+      color: var(--text-light);
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 0.25rem;
+      transition: all 0.2s;
+      font-size: 0.875rem;
+    }
+    
+    .note-delete-btn:hover {
+      color: var(--error-red);
+      background-color: rgba(239, 68, 68, 0.1);
+    }
+    
+    .note-text {
+      font-size: 0.875rem;
+      line-height: 1.5;
+      color: var(--text-dark);
+      word-wrap: break-word;
+    }
+    
+    .note-input-container {
+      margin-top: 0.75rem;
+    }
+    
+    .note-input {
       width: 100%;
-      min-height: 150px;
+      min-height: 80px;
       padding: 0.75rem;
       border: 1px solid var(--border-color);
       border-radius: var(--radius-md);
       font-size: 0.875rem;
       font-family: inherit;
       resize: vertical;
+      transition: all 0.2s;
     }
     
-    .notes-textarea:focus {
+    .note-input:focus {
       outline: none;
       border-color: var(--primary-blue-light);
       box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    .note-input::placeholder {
+      color: var(--text-light);
+    }
+    
+    .add-note-btn {
+      width: 100%;
+      margin-top: 0.5rem;
+      padding: 0.6rem 1rem;
+      background-color: var(--primary-blue);
+      color: var(--white);
+      border: none;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    
+    .add-note-btn:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .add-note-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .notes-empty {
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--text-light);
+      font-size: 0.875rem;
+    }
+    
+    .notes-empty i {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      display: block;
     }
     
     .btn {
@@ -597,17 +722,29 @@
         </select>
       </div>
       
-      <!-- Notes -->
+      <!-- Notes Feed -->
       <div class="info-section">
-        <div class="section-label">Заметки</div>
-        <textarea 
-          class="notes-textarea" 
-          id="notes-textarea" 
-          placeholder="Добавьте заметки о контакте..."
-        ></textarea>
-        <button class="btn btn-primary" id="save-notes-btn" style="margin-top: 0.75rem;">
-          <i class="fas fa-save"></i> Сохранить заметки
-        </button>
+        <div class="section-label">
+          <span>Заметки (<span id="notes-count">0</span>)</span>
+        </div>
+        
+        <!-- Notes List -->
+        <div class="notes-feed" id="notes-feed">
+          <!-- Notes will be loaded here -->
+        </div>
+        
+        <!-- Add Note Form -->
+        <div class="note-input-container">
+          <textarea 
+            class="note-input" 
+            id="note-input" 
+            placeholder="Добавьте новую заметку..."
+            rows="3"
+          ></textarea>
+          <button class="add-note-btn" id="add-note-btn">
+            <i class="fas fa-plus"></i> Добавить заметку
+          </button>
+        </div>
       </div>
     </div>
     
