@@ -3,6 +3,7 @@
 Conversation service for WellcomeAI application.
 Handles conversation tracking and analysis.
 ✅ v2.0: Extended with caller_number support and enhanced filtering
+✅ v2.1: Auto-create contacts from phone calls (CRM integration)
 """
 
 from fastapi import HTTPException, status
@@ -25,6 +26,58 @@ logger = get_logger(__name__)
 
 class ConversationService:
     """Service for conversation operations"""
+    
+    # ==================================================================================
+    # 🆕 HELPER METHOD - Auto-create contact from phone number
+    # ==================================================================================
+    
+    @staticmethod
+    def _get_or_create_contact(db: Session, user_id: uuid.UUID, phone: str) -> Optional[uuid.UUID]:
+        """
+        🆕 v2.1: Внутренний метод для автосоздания контакта из номера телефона.
+        
+        Args:
+            db: Database session
+            user_id: ID пользователя (владельца ассистента)
+            phone: Номер телефона
+            
+        Returns:
+            UUID контакта или None при ошибке
+        """
+        try:
+            from backend.models.contact import Contact
+            
+            logger.info(f"[CRM-AUTO] Checking/creating contact for phone: {phone}")
+            
+            # Ищем существующий контакт
+            contact = db.query(Contact).filter(
+                Contact.user_id == user_id,
+                Contact.phone == phone
+            ).first()
+            
+            if contact:
+                # Обновляем время последнего контакта
+                contact.last_interaction = datetime.utcnow()
+                db.flush()
+                logger.info(f"[CRM-AUTO] ✅ Found existing contact: {contact.id}")
+                return contact.id
+            else:
+                # Создаем новый контакт
+                new_contact = Contact(
+                    user_id=user_id,
+                    phone=phone,
+                    status="new",
+                    last_interaction=datetime.utcnow()
+                )
+                db.add(new_contact)
+                db.flush()  # Получаем ID без полного commit
+                logger.info(f"[CRM-AUTO] ✅ Created new contact: {new_contact.id}")
+                return new_contact.id
+                
+        except Exception as e:
+            logger.error(f"[CRM-AUTO] ❌ Error creating contact: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
     
     # ==================================================================================
     # 📦 LEGACY METHODS - Оригинальные методы (НЕ ТРОГАТЬ для совместимости)
@@ -142,13 +195,15 @@ class ConversationService:
         ]
     
     @staticmethod
-    async def get_conversation_stats(db: Session, assistant_id: str) -> ConversationStats:
+    async def get_conversation_stats(db: Session, assistant_id: str, user_id: Optional[str] = None, days: int = 30) -> ConversationStats:
         """
         🔧 LEGACY: Get conversation statistics for an assistant (оригинальный метод)
         
         Args:
             db: Database session
             assistant_id: Assistant ID
+            user_id: Optional user ID for filtering
+            days: Number of days to calculate stats for
             
         Returns:
             ConversationStats object
@@ -308,7 +363,7 @@ class ConversationService:
         tokens_used: Optional[int] = 0
     ) -> Optional[Conversation]:
         """
-        🆕 v2.0: Сохранить диалог в БД с поддержкой caller_number.
+        🆕 v2.1: Сохранить диалог в БД с автосозданием контакта из caller_number.
         Используется для Voximplant и других внешних источников.
         
         Args:
@@ -317,7 +372,7 @@ class ConversationService:
             user_message: Сообщение пользователя
             assistant_message: Ответ ассистента
             session_id: ID сессии (для группировки диалогов)
-            caller_number: 🆕 Номер телефона (для Voximplant)
+            caller_number: 🆕 Номер телефона (автоматически создаст контакт в CRM)
             client_info: Дополнительная информация о клиенте
             audio_duration: Длительность аудио
             tokens_used: Количество использованных токенов
@@ -326,7 +381,7 @@ class ConversationService:
             Conversation: Созданная запись диалога или None при ошибке
         """
         try:
-            logger.info(f"[CONVERSATION-SERVICE-v2] Saving conversation for assistant {assistant_id}")
+            logger.info(f"[CONVERSATION-SERVICE-v2.1] Saving conversation for assistant {assistant_id}")
             logger.info(f"   User message length: {len(user_message)} chars")
             logger.info(f"   Assistant message length: {len(assistant_message)} chars")
             logger.info(f"   Caller number: {caller_number}")
@@ -345,13 +400,28 @@ class ConversationService:
                 logger.error(f"Assistant not found: {assistant_id}")
                 return None
             
-            # Создаем запись
+            # 🆕 v2.1: АВТОСОЗДАНИЕ КОНТАКТА ИЗ НОМЕРА ТЕЛЕФОНА
+            contact_id = None
+            if caller_number and caller_number != "unknown":
+                contact_id = ConversationService._get_or_create_contact(
+                    db=db,
+                    user_id=assistant.user_id,
+                    phone=caller_number
+                )
+                
+                if contact_id:
+                    logger.info(f"[CRM-AUTO] ✅ Contact linked: {contact_id}")
+                else:
+                    logger.warning(f"[CRM-AUTO] ⚠️ Failed to create/link contact")
+            
+            # Создаем запись диалога
             conversation = Conversation(
                 assistant_id=assistant_uuid,
                 session_id=session_id or str(uuid.uuid4()),
                 user_message=user_message or "",
                 assistant_message=assistant_message or "",
-                caller_number=caller_number,  # 🆕 v2.0
+                caller_number=caller_number,
+                contact_id=contact_id,  # 🆕 v2.1: Связываем с контактом
                 client_info=client_info or {},
                 audio_duration=audio_duration,
                 tokens_used=tokens_used or 0
@@ -362,6 +432,8 @@ class ConversationService:
             db.refresh(conversation)
             
             logger.info(f"✅ Conversation saved successfully: {conversation.id}")
+            if contact_id:
+                logger.info(f"✅ Linked to contact: {contact_id}")
             
             return conversation
             
