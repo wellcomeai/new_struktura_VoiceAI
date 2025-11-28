@@ -4,6 +4,7 @@ This module contains SQLAlchemy ORM models that represent database tables.
 ✅ ОБНОВЛЕНО: Добавлена модель EmailVerification для верификации email
 ✅ ОБНОВЛЕНО: Добавлены модели Gemini Assistant и Gemini Conversation
 ✅ ОБНОВЛЕНО: Добавлена модель Contact для CRM функциональности
+✅ ОБНОВЛЕНО: Добавлена модель ContactNote для ленты заметок
 """
 
 from .base import Base, engine, create_tables_with_full_tracking
@@ -29,8 +30,8 @@ from .embed_config import EmbedConfig
 # ✅ НОВОЕ: Импортируем Gemini модели
 from .gemini_assistant import GeminiAssistantConfig, GeminiConversation
 
-# ✅ НОВОЕ: Импортируем Contact для CRM
-from .contact import Contact
+# ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
+from .contact import Contact, ContactNote
 
 # Export specific models
 __all__ = [
@@ -57,6 +58,7 @@ __all__ = [
     # ✅ НОВОЕ: Gemini модели
     "GeminiAssistantConfig",
     "GeminiConversation",
-    # ✅ НОВОЕ: CRM модель
-    "Contact"
+    # ✅ НОВОЕ: CRM модели
+    "Contact",
+    "ContactNote"
 ]
