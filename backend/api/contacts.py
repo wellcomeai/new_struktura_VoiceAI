@@ -2,7 +2,7 @@
 """
 Contacts API endpoints для CRM функциональности.
 Управление контактами (клиентами) и их связью с диалогами.
-Version: 1.0 - Production Ready
+Version: 2.0 - Production Ready + Contact Notes (лента заметок)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -17,7 +17,7 @@ from backend.core.logging import get_logger
 from backend.db.session import get_db
 from backend.services.auth_service import AuthService
 from backend.models.user import User
-from backend.models.contact import Contact
+from backend.models.contact import Contact, ContactNote
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 
@@ -49,6 +49,11 @@ class ContactStatusUpdate(BaseModel):
     status: str = Field(..., description="Новый статус: new, active, client, archived")
 
 
+class ContactNoteCreate(BaseModel):
+    """Схема для создания заметки"""
+    note_text: str = Field(..., description="Текст заметки", min_length=1)
+
+
 # ==================== Вспомогательные функции ====================
 
 def get_or_create_contact(db: Session, user_id: UUID, phone: str) -> Contact:
@@ -78,7 +83,7 @@ def get_or_create_contact(db: Session, user_id: UUID, phone: str) -> Contact:
     return contact
 
 
-# ==================== API Endpoints ====================
+# ==================== CONTACTS API Endpoints ====================
 
 @router.get("/")
 async def get_contacts(
@@ -562,7 +567,7 @@ async def delete_contact(
     """
     Удалить контакт.
     
-    ⚠️ ВНИМАНИЕ: Это также удалит все диалоги связанные с контактом!
+    ⚠️ ВНИМАНИЕ: Это также удалит все диалоги и заметки связанные с контактом!
     
     **Параметры:**
     - contact_id: UUID контакта
@@ -595,21 +600,26 @@ async def delete_contact(
                 detail="Contact not found"
             )
         
-        # Подсчитываем количество связанных диалогов
+        # Подсчитываем количество связанных данных
         conversations_count = db.query(Conversation).filter(
             Conversation.contact_id == contact.id
         ).count()
         
-        # Удаляем контакт (диалоги удалятся автоматически благодаря cascade)
+        notes_count = db.query(ContactNote).filter(
+            ContactNote.contact_id == contact.id
+        ).count()
+        
+        # Удаляем контакт (диалоги и заметки удалятся автоматически благодаря cascade)
         db.delete(contact)
         db.commit()
         
         logger.info(f"✅ Contact deleted: {contact_id}")
-        logger.info(f"   Also deleted {conversations_count} related conversations")
+        logger.info(f"   Also deleted {conversations_count} conversations and {notes_count} notes")
         
         return {
             "message": "Contact deleted successfully",
-            "deleted_conversations": conversations_count
+            "deleted_conversations": conversations_count,
+            "deleted_notes": notes_count
         }
         
     except HTTPException:
@@ -620,4 +630,232 @@ async def delete_contact(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete contact: {str(e)}"
+        )
+
+
+# ==================== CONTACT NOTES API Endpoints ====================
+
+@router.get("/{contact_id}/notes")
+async def get_contact_notes(
+    contact_id: str,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получить все заметки по контакту (лента заметок).
+    
+    Возвращает список всех заметок отсортированных по дате (новые сверху).
+    
+    **Параметры:**
+    - contact_id: UUID контакта
+    
+    **Возвращает:**
+    - notes: Список заметок с датами и авторами
+    - total: Количество заметок
+    """
+    try:
+        logger.info(f"[CRM-API] Get notes for contact {contact_id}")
+        
+        # Проверяем UUID
+        try:
+            contact_uuid = UUID(contact_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid contact ID format"
+            )
+        
+        # Проверяем что контакт принадлежит пользователю
+        contact = db.query(Contact).filter(
+            Contact.id == contact_uuid,
+            Contact.user_id == current_user.id
+        ).first()
+        
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Contact not found"
+            )
+        
+        # Получаем заметки (новые сверху)
+        notes = db.query(ContactNote).filter(
+            ContactNote.contact_id == contact_uuid
+        ).order_by(desc(ContactNote.created_at)).all()
+        
+        result = []
+        for note in notes:
+            note_dict = note.to_dict()
+            # Добавляем информацию об авторе
+            author = db.query(User).filter(User.id == note.user_id).first()
+            note_dict['author_email'] = author.email if author else "Unknown"
+            result.append(note_dict)
+        
+        logger.info(f"✅ Returned {len(result)} notes")
+        
+        return {
+            "notes": result,
+            "total": len(result)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting notes: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get notes: {str(e)}"
+        )
+
+
+@router.post("/{contact_id}/notes")
+async def create_contact_note(
+    contact_id: str,
+    note_data: ContactNoteCreate,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Создать новую заметку для контакта.
+    
+    Добавляет заметку в ленту заметок контакта.
+    
+    **Параметры:**
+    - contact_id: UUID контакта
+    
+    **Body:**
+    - note_text: Текст заметки (обязательно, минимум 1 символ)
+    
+    **Возвращает:**
+    - note: Созданная заметка с ID и датой создания
+    """
+    try:
+        logger.info(f"[CRM-API] Create note for contact {contact_id}")
+        
+        # Проверяем UUID
+        try:
+            contact_uuid = UUID(contact_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid contact ID format"
+            )
+        
+        # Проверяем что контакт принадлежит пользователю
+        contact = db.query(Contact).filter(
+            Contact.id == contact_uuid,
+            Contact.user_id == current_user.id
+        ).first()
+        
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Contact not found"
+            )
+        
+        # Валидация
+        note_text = note_data.note_text.strip()
+        if not note_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Note text cannot be empty"
+            )
+        
+        # Создаем заметку
+        new_note = ContactNote(
+            contact_id=contact_uuid,
+            user_id=current_user.id,
+            note_text=note_text
+        )
+        
+        db.add(new_note)
+        db.commit()
+        db.refresh(new_note)
+        
+        result = new_note.to_dict()
+        result['author_email'] = current_user.email
+        
+        logger.info(f"✅ Note created: {new_note.id}")
+        
+        return {
+            "message": "Note created successfully",
+            "note": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error creating note: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create note: {str(e)}"
+        )
+
+
+@router.delete("/notes/{note_id}")
+async def delete_contact_note(
+    note_id: str,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Удалить заметку из ленты заметок.
+    
+    Можно удалить только заметки контактов, которые принадлежат пользователю.
+    
+    **Параметры:**
+    - note_id: UUID заметки
+    
+    **Возвращает:**
+    - Сообщение об успешном удалении
+    """
+    try:
+        logger.info(f"[CRM-API] Delete note {note_id}")
+        
+        # Проверяем UUID
+        try:
+            note_uuid = UUID(note_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid note ID format"
+            )
+        
+        # Получаем заметку
+        note = db.query(ContactNote).filter(ContactNote.id == note_uuid).first()
+        
+        if not note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found"
+            )
+        
+        # Проверяем что контакт принадлежит пользователю
+        contact = db.query(Contact).filter(
+            Contact.id == note.contact_id,
+            Contact.user_id == current_user.id
+        ).first()
+        
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Удаляем
+        db.delete(note)
+        db.commit()
+        
+        logger.info(f"✅ Note deleted: {note_id}")
+        
+        return {"message": "Note deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error deleting note: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete note: {str(e)}"
         )
