@@ -127,13 +127,6 @@
       margin: 0 auto 1.5rem;
     }
     
-    .contact-name {
-      text-align: center;
-      font-size: 1.5rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-    
     .contact-phone {
       text-align: center;
       font-size: 1rem;
@@ -708,8 +701,22 @@
     <!-- Left Panel -->
     <div class="left-panel">
       <div class="contact-avatar-large" id="contact-avatar">АА</div>
-      <div class="contact-name" id="contact-name">Загрузка...</div>
       <div class="contact-phone" id="contact-phone">+7 ...</div>
+      
+      <!-- Name Edit -->
+      <div class="info-section">
+        <div class="section-label">Имя</div>
+        <input 
+          type="text" 
+          class="status-dropdown" 
+          id="name-input" 
+          placeholder="Введите имя контакта..."
+          style="cursor: text;"
+        >
+        <button class="btn btn-primary" id="save-name-btn" style="margin-top: 0.75rem;">
+          <i class="fas fa-save"></i> Сохранить имя
+        </button>
+      </div>
       
       <!-- Status -->
       <div class="info-section">
