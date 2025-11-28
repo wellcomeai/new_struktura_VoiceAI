@@ -2,7 +2,7 @@
 """
 Contacts API endpoints для CRM функциональности.
 Управление контактами (клиентами) и их связью с диалогами.
-Version: 1.0 - Initial CRM implementation
+Version: 1.0 - Production Ready
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -80,7 +80,7 @@ def get_or_create_contact(db: Session, user_id: UUID, phone: str) -> Contact:
 
 # ==================== API Endpoints ====================
 
-@router.get("/contacts")
+@router.get("/")
 async def get_contacts(
     status: Optional[str] = Query(None, description="Фильтр по статусу"),
     search: Optional[str] = Query(None, description="Поиск по имени или номеру"),
@@ -183,7 +183,7 @@ async def get_contacts(
         )
 
 
-@router.get("/contacts/{contact_id}")
+@router.get("/{contact_id}")
 async def get_contact_detail(
     contact_id: str,
     include_conversations: bool = Query(True, description="Включить список всех диалогов"),
@@ -298,7 +298,7 @@ async def get_contact_detail(
         )
 
 
-@router.post("/contacts")
+@router.post("/")
 async def create_or_update_contact(
     contact_data: ContactCreate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -388,7 +388,7 @@ async def create_or_update_contact(
         )
 
 
-@router.put("/contacts/{contact_id}")
+@router.put("/{contact_id}")
 async def update_contact(
     contact_id: str,
     contact_data: ContactUpdate,
@@ -474,7 +474,7 @@ async def update_contact(
         )
 
 
-@router.patch("/contacts/{contact_id}/status")
+@router.patch("/{contact_id}/status")
 async def update_contact_status(
     contact_id: str,
     status_data: ContactStatusUpdate,
@@ -553,7 +553,7 @@ async def update_contact_status(
         )
 
 
-@router.delete("/contacts/{contact_id}")
+@router.delete("/{contact_id}")
 async def delete_contact(
     contact_id: str,
     current_user: User = Depends(AuthService.get_current_user),
