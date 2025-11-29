@@ -1,3 +1,4 @@
+# backend/functions/send_webhook.py
 """
 Функция для отправки данных через вебхук.
 """
@@ -43,11 +44,15 @@ class WebhookFunction(FunctionBase):
     @classmethod
     def get_name(cls) -> str:
         return "send_webhook"
-        
+    
+    @classmethod
+    def get_display_name(cls) -> str:
+        return "Отправка WebHook (универсальная)"
+    
     @classmethod
     def get_description(cls) -> str:
-        return "Отправляет данные на внешний вебхук (например, для n8n)"
-        
+        return "Отправляет данные на внешний вебхук (n8n, Make.com, Zapier, любой HTTP endpoint)"
+    
     @classmethod
     def get_parameters(cls) -> Dict[str, Any]:
         return {
@@ -68,6 +73,61 @@ class WebhookFunction(FunctionBase):
             },
             "required": ["url", "event"]
         }
+    
+    @classmethod
+    def get_example_prompt(cls) -> str:
+        return """
+<p>Ты можешь использовать функцию <code>send_webhook</code> для отправки данных пользователя на внешний сервер.</p>
+
+<p><strong>Совместимость:</strong> работает с n8n, Make.com, Zapier, любым HTTP endpoint</p>
+
+<p><strong>Когда использовать:</strong></p>
+<ul>
+    <li>Пользователь просит записать/сохранить данные</li>
+    <li>Нужно отправить заявку, бронирование или запрос</li>
+    <li>Требуется интеграция с внешней системой</li>
+    <li>Нужно логировать события или действия</li>
+</ul>
+
+<p><strong>Настройка в промпте:</strong></p>
+<p>Укажи в системном промпте URL вебхука:</p>
+<pre>URL вебхука: https://n8n.example.com/webhook/abc123</pre>
+
+<p><strong>Параметры функции:</strong></p>
+<ul>
+    <li><code>url</code> — URL вебхука (можно указать в промпте или передать напрямую)</li>
+    <li><code>event</code> — тип события: 'booking', 'request', 'notification', 'feedback' и т.д.</li>
+    <li><code>payload</code> — объект с данными пользователя</li>
+</ul>
+
+<p><strong>Пример вызова:</strong></p>
+<pre>{
+  "url": "https://n8n.example.com/webhook/abc123",
+  "event": "booking",
+  "payload": {
+    "name": "Иван Петров",
+    "phone": "+79991234567",
+    "time": "15:00",
+    "date": "2024-05-10",
+    "service": "Консультация"
+  }
+}</pre>
+
+<p><strong>Что отправляется на сервер:</strong></p>
+<pre>{
+  "event": "booking",
+  "data": {
+    "name": "Иван Петров",
+    "phone": "+79991234567",
+    ...
+  },
+  "assistant_id": "uuid-агента",
+  "assistant_name": "Имя ассистента",
+  "client_id": "session-id"
+}</pre>
+
+<p><strong>💡 Совет:</strong> Если URL не указан в параметрах, система автоматически извлечет его из системного промпта.</p>
+"""
         
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
