@@ -1,12 +1,13 @@
 """
-🚀 PRODUCTION VERSION 1.1 - Google Gemini Live API Handler
+🚀 PRODUCTION VERSION 1.2 - Google Gemini Live API Handler
 ✅ PURE GEMINI VAD - removed client-side commit logic
 ✅ Continuous audio streaming - Gemini decides when to respond
 ✅ Complete function calling support
-✅ Google Sheets logging
+✅ Google Sheets logging with transcription support
 ✅ Database integration
 ✅ Interruption handling
 ✅ Screen context support
+✅ Audio transcription support (input + output)
 ✅ Maximum logging for debugging
 ✅ Ready for production deployment
 """
@@ -70,8 +71,9 @@ async def handle_gemini_websocket_connection(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v1.1 - Main WebSocket handler for Gemini Live API
+    🚀 PRODUCTION v1.2 - Main WebSocket handler for Gemini Live API
     ✅ Pure Gemini VAD - continuous audio streaming
+    ✅ Audio transcription support
     """
     client_id = str(uuid.uuid4())
     gemini_client = None
@@ -125,6 +127,7 @@ async def handle_gemini_websocket_connection(
         log_to_render(f"   Voice: {getattr(assistant, 'voice', 'Aoede')}")
         log_to_render(f"   Model: gemini-2.5-flash-native-audio-preview-09-2025")
         log_to_render(f"   Thinking enabled: {getattr(assistant, 'enable_thinking', False)}")
+        log_to_render(f"   Transcription: ENABLED")
 
         # Extract enabled functions
         functions = getattr(assistant, "functions", None)
@@ -219,11 +222,12 @@ async def handle_gemini_websocket_connection(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Gemini Live API (Production v1.1 - Pure VAD)",
+            "message": "Connected to Gemini Live API (Production v1.2 - Transcription)",
             "model": "gemini-2.5-flash-native-audio-preview-09-2025",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
             "thinking_enabled": getattr(assistant, 'enable_thinking', False),
+            "transcription_enabled": True,
             "client_id": client_id,
             "vad_mode": "gemini_native"
         })
@@ -427,10 +431,11 @@ async def handle_gemini_messages(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v1.1 - Handle messages from Gemini Live API
+    🚀 PRODUCTION v1.2 - Handle messages from Gemini Live API
     ✅ Complete function calling support
     ✅ Google Sheets logging
     ✅ Database integration
+    ✅ Audio transcription support (input + output)
     ✅ Maximum logging for debugging
     """
     if not gemini_client.is_connected or not gemini_client.ws:
@@ -451,6 +456,7 @@ async def handle_gemini_messages(
     # Metrics
     event_count = 0
     function_execution_count = 0
+    transcript_events_received = 0
     
     try:
         log_to_render(f"🎭 Gemini message handler started")
@@ -458,6 +464,7 @@ async def handle_gemini_messages(
         log_to_render(f"   Session ID: {gemini_client.session_id}")
         log_to_render(f"   Enabled functions: {gemini_client.enabled_functions}")
         log_to_render(f"   VAD mode: Pure Gemini (automatic)")
+        log_to_render(f"   Transcription: ENABLED")
         
         while True:
             try:
@@ -487,16 +494,45 @@ async def handle_gemini_messages(
                 
                 # Setup complete
                 if "setupComplete" in response_data:
-                    log_to_render(f"✅ Gemini setup complete")
+                    log_to_render(f"✅ Gemini setup complete (transcription enabled)")
                     await websocket.send_json({
                         "type": "gemini.setup.complete",
-                        "timestamp": time.time()
+                        "timestamp": time.time(),
+                        "transcription_enabled": True
                     })
                     continue
                 
                 # Server content (main response container)
                 if "serverContent" in response_data:
                     server_content = response_data["serverContent"]
+                    
+                    # ✅ ТРАНСКРИПЦИЯ ВХОДЯЩЕГО АУДИО (пользователя)
+                    if "inputTranscription" in server_content:
+                        input_trans = server_content["inputTranscription"]
+                        if "text" in input_trans:
+                            transcript_text = input_trans["text"]
+                            user_transcript += transcript_text
+                            transcript_events_received += 1
+                            log_to_render(f"👤 USER TRANSCRIPT: {transcript_text}")
+                            
+                            await websocket.send_json({
+                                "type": "input.transcription",
+                                "text": transcript_text
+                            })
+                    
+                    # ✅ ТРАНСКРИПЦИЯ ОТВЕТА МОДЕЛИ (ассистента)
+                    if "outputTranscription" in server_content:
+                        output_trans = server_content["outputTranscription"]
+                        if "text" in output_trans:
+                            transcript_text = output_trans["text"]
+                            assistant_transcript += transcript_text
+                            transcript_events_received += 1
+                            log_to_render(f"🤖 ASSISTANT TRANSCRIPT: {transcript_text}")
+                            
+                            await websocket.send_json({
+                                "type": "output.transcription",
+                                "text": transcript_text
+                            })
                     
                     # Check for interruption
                     if server_content.get("interrupted"):
@@ -518,10 +554,10 @@ async def handle_gemini_messages(
                         parts = model_turn.get("parts", [])
                         
                         for part in parts:
-                            # Text content
+                            # Text content (может быть дополнительно)
                             if "text" in part:
                                 text = part["text"]
-                                assistant_transcript += text
+                                # Не добавляем в assistant_transcript - уже есть из outputTranscription
                                 await websocket.send_json({
                                     "type": "response.text.delta",
                                     "delta": text
@@ -659,7 +695,7 @@ async def handle_gemini_messages(
                                         except Exception as e:
                                             log_to_render(f"❌ DB save error: {e}", "ERROR")
                                     
-                                    # Google Sheets logging
+                                    # Google Sheets logging for function calls
                                     if gemini_client.assistant_config and gemini_client.assistant_config.google_sheet_id:
                                         sheet_id = gemini_client.assistant_config.google_sheet_id
                                         
@@ -673,7 +709,7 @@ async def handle_gemini_messages(
                                             )
                                             
                                             if sheets_result:
-                                                log_to_render(f"✅ Google Sheets logged")
+                                                log_to_render(f"✅ Google Sheets logged (function call)")
                                             else:
                                                 log_to_render(f"❌ Google Sheets failed", "WARNING")
                                         except Exception as e:
@@ -720,6 +756,7 @@ async def handle_gemini_messages(
                         # Turn complete
                         if server_content.get("turnComplete"):
                             log_to_render(f"🏁 Turn complete")
+                            log_to_render(f"📊 TRANSCRIPTS - User: {len(user_transcript)} chars | Assistant: {len(assistant_transcript)} chars")
                             
                             if interruption_state["is_assistant_speaking"]:
                                 interruption_state["is_assistant_speaking"] = False
@@ -730,45 +767,62 @@ async def handle_gemini_messages(
                                     "timestamp": time.time()
                                 })
                             
-                            # Save dialog to DB as separate record
-                            if user_transcript and assistant_transcript:
-                                log_to_render(f"💾 Saving dialog as separate DB record")
+                            # ✅ ЛОГИРОВАНИЕ С ТРАНСКРИПТАМИ
+                            # Изменено условие: логируем если хотя бы один транскрипт не пустой
+                            if user_transcript or assistant_transcript:
+                                final_user = user_transcript or "[Voice input - no text transcript]"
+                                final_assistant = assistant_transcript or "[Voice response - no text transcript]"
                                 
+                                log_to_render(f"💾 Saving dialog with transcripts")
+                                log_to_render(f"   User: {final_user[:100]}...")
+                                log_to_render(f"   Assistant: {final_assistant[:100]}...")
+                                
+                                # Save to DB
                                 try:
                                     await ConversationService.save_conversation(
                                         db=gemini_client.db_session,
                                         assistant_id=str(gemini_client.assistant_config.id),
-                                        user_message=user_transcript,
-                                        assistant_message=assistant_transcript,
+                                        user_message=final_user,
+                                        assistant_message=final_assistant,
                                         session_id=gemini_client.session_id,
                                         caller_number=None,
                                         tokens_used=0
                                     )
-                                    log_to_render(f"✅ Dialog saved")
+                                    log_to_render(f"✅ Dialog saved to DB")
                                 except Exception as e:
                                     log_to_render(f"❌ Error saving dialog: {e}", "ERROR")
                                 
-                                # Google Sheets logging for regular dialog
+                                # ✅ Google Sheets logging for regular dialog
                                 if gemini_client.assistant_config and gemini_client.assistant_config.google_sheet_id:
+                                    log_to_render(f"📊 Attempting Google Sheets log...")
+                                    log_to_render(f"   Sheet ID: {gemini_client.assistant_config.google_sheet_id[:20]}...")
+                                    
                                     try:
                                         sheets_result = await GoogleSheetsService.log_conversation(
                                             sheet_id=gemini_client.assistant_config.google_sheet_id,
-                                            user_message=user_transcript,
-                                            assistant_message=assistant_transcript,
+                                            user_message=final_user,
+                                            assistant_message=final_assistant,
                                             function_result=None,
                                             conversation_id=gemini_client.conversation_record_id
                                         )
                                         
                                         if sheets_result:
-                                            log_to_render(f"✅ Regular dialog logged to Sheets")
+                                            log_to_render(f"✅ ✅ ✅ GOOGLE SHEETS LOGGED SUCCESSFULLY ✅ ✅ ✅")
+                                        else:
+                                            log_to_render(f"❌ Google Sheets returned False", "ERROR")
                                     except Exception as e:
                                         log_to_render(f"❌ Sheets error: {e}", "ERROR")
+                                        log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
+                                else:
+                                    log_to_render(f"⚠️ Skipping Sheets: no google_sheet_id configured", "WARNING")
+                            else:
+                                log_to_render(f"⚠️ Skipping dialog save: both transcripts empty", "WARNING")
                             
                             # Reset transcripts
                             user_transcript = ""
                             assistant_transcript = ""
                 
-                # User transcript
+                # User transcript from clientContent (если есть)
                 if "clientContent" in response_data:
                     client_content = response_data["clientContent"]
                     turns = client_content.get("turns", [])
@@ -777,8 +831,8 @@ async def handle_gemini_messages(
                         parts = turn.get("parts", [])
                         for part in parts:
                             if "text" in part:
-                                user_transcript += part["text"]
-                                log_to_render(f"👤 USER TEXT: {part['text']}")
+                                # Уже обрабатывается через inputTranscription
+                                log_to_render(f"👤 CLIENT CONTENT TEXT: {part['text']}")
 
             except ConnectionClosed as e:
                 log_to_render(f"⚠️ Gemini connection closed: {e}", "WARNING")
@@ -803,3 +857,4 @@ async def handle_gemini_messages(
         log_to_render(f"📊 Final handler stats:")
         log_to_render(f"   Total events processed: {event_count}")
         log_to_render(f"   Functions executed: {function_execution_count}")
+        log_to_render(f"   Transcript events received: {transcript_events_received}")
