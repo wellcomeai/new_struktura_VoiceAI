@@ -31,6 +31,7 @@ from backend.api import (
     gemini_ws,  # ✅ Gemini WebSocket API
     gemini_assistants,  # ✅ Gemini Assistants CRUD API
     contacts  # ✅ НОВОЕ: CRM API
+    functions
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -167,6 +168,7 @@ app.include_router(conversations.router, prefix="/api/conversations", tags=["Con
 app.include_router(contacts.router, prefix="/api/contacts", tags=["CRM"])  # ✅ НОВОЕ: CRM API
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
 app.include_router(embeds.router, tags=["Embeds"])
+app.include_router(functions.router, prefix="/api/functions", tags=["Functions"])
 
 # ============================================================================
 # STATIC FILES
