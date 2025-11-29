@@ -1,3 +1,4 @@
+# backend/functions/search_pinecone.py
 """
 Функция для поиска в векторной базе данных Pinecone.
 """
@@ -41,11 +42,15 @@ class PineconeSearchFunction(FunctionBase):
     @classmethod
     def get_name(cls) -> str:
         return "search_pinecone"
-        
+    
+    @classmethod
+    def get_display_name(cls) -> str:
+        return "Поиск в Pinecone (векторная БД)"
+    
     @classmethod
     def get_description(cls) -> str:
         return "Ищет похожие документы в Pinecone векторной базе данных"
-        
+    
     @classmethod
     def get_parameters(cls) -> Dict[str, Any]:
         return {
@@ -67,6 +72,69 @@ class PineconeSearchFunction(FunctionBase):
             },
             "required": ["namespace", "query"]
         }
+    
+    @classmethod
+    def get_example_prompt(cls) -> str:
+        return """
+<p>Ты можешь использовать функцию <code>search_pinecone</code> для поиска релевантной информации в векторной базе данных.</p>
+
+<p><strong>Что такое Pinecone?</strong></p>
+<p>Векторная база данных для семантического поиска. Позволяет находить похожие документы по смыслу, а не по точному совпадению слов.</p>
+
+<p><strong>Когда использовать:</strong></p>
+<ul>
+    <li>Пользователь задает вопрос о продуктах, услугах, документации</li>
+    <li>Нужно найти релевантную информацию из большой базы знаний</li>
+    <li>Требуется контекст для более точного ответа</li>
+    <li>Поиск по FAQ, инструкциям, каталогам</li>
+</ul>
+
+<p><strong>Настройка в промпте:</strong></p>
+<p>Укажи в системном промпте namespace Pinecone:</p>
+<pre>Pinecone namespace: my_knowledge_base</pre>
+
+<p><strong>Параметры функции:</strong></p>
+<ul>
+    <li><code>namespace</code> — имя namespace в Pinecone (можно указать в промпте)</li>
+    <li><code>query</code> — поисковый запрос пользователя или его перефразировка</li>
+    <li><code>top_k</code> — количество результатов (по умолчанию 3, можно 5-10)</li>
+</ul>
+
+<p><strong>Пример вызова:</strong></p>
+<pre>{
+  "namespace": "my_knowledge_base",
+  "query": "Как работает векторный поиск?",
+  "top_k": 5
+}</pre>
+
+<p><strong>Результат:</strong></p>
+<pre>{
+  "success": true,
+  "query": "Как работает векторный поиск?",
+  "namespace": "my_knowledge_base",
+  "results": [
+    {
+      "id": "doc_123",
+      "score": 0.92,
+      "metadata": {
+        "text": "Векторный поиск использует...",
+        "title": "Введение в поиск",
+        "category": "Документация"
+      }
+    },
+    ...
+  ],
+  "total": 5
+}</pre>
+
+<p><strong>💡 Совет:</strong> После получения результатов используй информацию из <code>metadata</code> для формирования более точного и информативного ответа пользователю.</p>
+
+<p><strong>⚙️ Требования:</strong></p>
+<ul>
+    <li>Переменная окружения <code>PINECONE_API_KEY</code> должна быть настроена</li>
+    <li>OpenAI API ключ для создания эмбеддингов</li>
+</ul>
+"""
         
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
