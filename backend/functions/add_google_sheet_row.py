@@ -28,6 +28,10 @@ class AddGoogleSheetRowFunction(FunctionBase):
         return "add_google_sheet_row"
     
     @classmethod
+    def get_display_name(cls) -> str:
+        return "Добавление строки в Google Таблицу"
+    
+    @classmethod
     def get_description(cls) -> str:
         return "Добавляет новую строку в Google Таблицу. Таблица должна быть доступна для редактирования."
     
@@ -51,6 +55,87 @@ class AddGoogleSheetRowFunction(FunctionBase):
             },
             "required": ["url", "row_to_append"]
         }
+    
+    @classmethod
+    def get_example_prompt(cls) -> str:
+        return """
+<p>Ты можешь использовать функцию <code>add_google_sheet_row</code> для записи данных в Google Таблицы.</p>
+
+<p><strong>Когда использовать:</strong></p>
+<ul>
+    <li>Пользователь просит записать/сохранить информацию в таблицу</li>
+    <li>Нужно добавить контактные данные, заявку или бронирование</li>
+    <li>Требуется логировать действия или события</li>
+    <li>Пользователь хочет оставить feedback или заполнить форму</li>
+    <li>Сбор лидов, опросов, регистраций</li>
+</ul>
+
+<p><strong>Параметры функции:</strong></p>
+<ul>
+    <li><code>url</code> — ссылка на Google Таблицу</li>
+    <li><code>row_to_append</code> — данные через разделитель <code>;;</code></li>
+    <li><code>sheet_name</code> — название листа (опционально)</li>
+</ul>
+
+<p><strong>Пример вызова:</strong></p>
+<pre>{
+  "url": "https://docs.google.com/spreadsheets/d/1ABC123XYZ456/edit",
+  "row_to_append": "Иван Петров;;ivan@mail.com;;+79991234567;;Консультация;;15:00",
+  "sheet_name": "Заявки"
+}</pre>
+
+<p><strong>Результат:</strong></p>
+<pre>{
+  "success": true,
+  "message": "Строка успешно добавлена в таблицу (строка №42)",
+  "spreadsheet_id": "1ABC123XYZ456",
+  "sheet_name": "Заявки",
+  "row_number": 42,
+  "values_added": ["Иван Петров", "ivan@mail.com", ...],
+  "cells_updated": 5
+}</pre>
+
+<p><strong>⚠️ ВАЖНО - Формат данных:</strong></p>
+<ul>
+    <li>Разделитель: <strong>двойная точка с запятой</strong> <code>;;</code></li>
+    <li>Пример: <code>"Имя;;Email;;Телефон;;Услуга;;Время"</code></li>
+    <li>Количество значений должно соответствовать количеству колонок</li>
+    <li>Порядок важен — данные пойдут в колонки A, B, C, D...</li>
+</ul>
+
+<p><strong>Примеры данных:</strong></p>
+<pre>Контакты:
+"Иван Петров;;+79991234567;;ivan@mail.com"
+
+Бронирование:
+"Петр Сидоров;;2024-05-10;;15:00;;Массаж;;60 минут"
+
+Заявка:
+"ООО 'Компания';;Консультация;;contact@company.ru;;Срочно"</pre>
+
+<p><strong>⚙️ Настройка таблицы:</strong></p>
+<ol>
+    <li>Создай Google Таблицу</li>
+    <li>Настрой доступ: <strong>"Все, у кого есть ссылка → Редактор"</strong></li>
+    <li>Или расшарь на сервисный аккаунт с правами редактора</li>
+    <li>Первая строка (опционально) — заголовки колонок</li>
+    <li>Данные будут добавляться в следующую пустую строку</li>
+</ol>
+
+<p><strong>💡 Примеры использования:</strong></p>
+<ul>
+    <li>"Запиши мои контакты: Иван, ivan@mail.com, +79991234567"</li>
+    <li>"Забронируй на 15:00, услуга массаж, клиент Петр Сидоров"</li>
+    <li>"Добавь заявку от компании ABC, нужна консультация"</li>
+</ul>
+
+<p><strong>Обработка ошибок:</strong></p>
+<ul>
+    <li><strong>403 PERMISSION_DENIED</strong> → таблица не расшарена, открой доступ</li>
+    <li><strong>404 NOT_FOUND</strong> → неверная ссылка на таблицу</li>
+    <li><strong>INVALID_ARGUMENT</strong> → неверное название листа</li>
+</ul>
+"""
     
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
