@@ -25,6 +25,10 @@ class QueryLLMFunction(FunctionBase):
         return "query_llm"
     
     @classmethod
+    def get_display_name(cls) -> str:
+        return "Запрос к текстовой LLM (ChatGPT)"
+    
+    @classmethod
     def get_description(cls) -> str:
         return "Отправляет сложные запросы к текстовой LLM модели для получения развернутых ответов"
     
@@ -45,6 +49,61 @@ class QueryLLMFunction(FunctionBase):
             },
             "required": ["prompt"]
         }
+    
+    @classmethod
+    def get_example_prompt(cls) -> str:
+        return """
+<p>Ты можешь использовать функцию <code>query_llm</code> для делегирования сложных задач текстовой модели ChatGPT.</p>
+
+<p><strong>Зачем это нужно?</strong></p>
+<p>Голосовые модели оптимизированы для коротких реплик. Для длинных текстов, анализа или кода используй текстовую модель.</p>
+
+<p><strong>Когда использовать:</strong></p>
+<ul>
+    <li>Пользователь просит написать <strong>длинный текст</strong> (статью, письмо, отчет, код)</li>
+    <li>Нужен <strong>детальный анализ</strong> или исследование</li>
+    <li>Требуется <strong>структурированный ответ</strong> с множеством деталей</li>
+    <li>Задача требует <strong>глубокого reasoning</strong> или пошагового решения</li>
+    <li>Создание кода, скриптов, SQL запросов</li>
+    <li>Написание документации, инструкций, руководств</li>
+</ul>
+
+<p><strong>Параметры функции:</strong></p>
+<ul>
+    <li><code>prompt</code> — детальное описание задачи для ChatGPT</li>
+    <li><code>model</code> — модель: "gpt-4o-mini" (быстрая), "gpt-4" (умная), "gpt-3.5-turbo" (экономная)</li>
+</ul>
+
+<p><strong>Пример вызова:</strong></p>
+<pre>{
+  "prompt": "Напиши подробную статью о преимуществах искусственного интеллекта в медицине. Включи примеры, статистику и перспективы развития.",
+  "model": "gpt-4o-mini"
+}</pre>
+
+<p><strong>Результат:</strong></p>
+<pre>{
+  "result": "Запрос выполнен! Развернутый ответ выведен на экран.",
+  "status": "success",
+  "model_used": "gpt-4o-mini",
+  "response_length": 2847,
+  "full_response": "... полный текст ответа ..."
+}</pre>
+
+<p><strong>💡 Как работать с результатом:</strong></p>
+<ul>
+    <li><strong>Голосом:</strong> озвучь краткое резюме (2-3 предложения)</li>
+    <li><strong>На экране:</strong> полный текст автоматически отобразится в UI</li>
+    <li><strong>Для пользователя:</strong> "Я подготовил подробный ответ, вы можете прочитать его на экране слева"</li>
+</ul>
+
+<p><strong>⚠️ Важно:</strong> Используй эту функцию только для задач, где действительно нужен длинный/сложный ответ. Для простых вопросов отвечай напрямую.</p>
+
+<p><strong>⚙️ Требования:</strong></p>
+<ul>
+    <li>OpenAI API ключ (пользователя или системный)</li>
+    <li>Достаточно токенов на аккаунте</li>
+</ul>
+"""
     
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
