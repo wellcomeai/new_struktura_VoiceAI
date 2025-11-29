@@ -24,16 +24,8 @@ async def get_functions(
         List[Dict[str, Any]]: Список определений функций
     """
     try:
-        # Получаем все определения функций
-        definitions = get_all_definitions()
-        
-        # Преобразуем в список
-        functions_list = list(definitions.values())
-        
-        # Дополнительно можно здесь фильтровать по доступности для пользователя
-        # например, проверять premium-функции
-        
-        return functions_list
+        # get_all_definitions() уже возвращает List[Dict], не нужно вызывать .values()
+        return get_all_definitions()
     except Exception as e:
         logger.error(f"Error getting functions: {str(e)}")
         raise HTTPException(
@@ -53,9 +45,8 @@ async def get_functions_openai_format(
         List[Dict[str, Any]]: Список определений функций для OpenAI
     """
     try:
-        # Получаем определения функций для OpenAI
-        definitions = get_all_openai_definitions()
-        return definitions
+        # get_all_openai_definitions() уже возвращает List[Dict]
+        return get_all_openai_definitions()
     except Exception as e:
         logger.error(f"Error getting OpenAI functions: {str(e)}")
         raise HTTPException(
