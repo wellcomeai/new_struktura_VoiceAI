@@ -1,7 +1,13 @@
 """
-🚀 PRODUCTION VERSION 1.3 - Google Gemini Live API Client
+🚀 PRODUCTION VERSION 1.5 - Google Gemini Live API Client
 Model: gemini-2.5-flash-native-audio-preview-09-2025
 
+CRITICAL FIX in v1.5:
+✅ Correct toolResponse format for function results
+   - Changed from client_content to toolResponse
+   - Proper BidiGenerateContentToolResponse structure
+   - ID matching for function calls (from toolCall event)
+   
 Features:
 ✅ PURE GEMINI VAD - automatic voice activity detection
 ✅ Continuous audio streaming - no manual commit needed
@@ -15,6 +21,7 @@ Features:
 ✅ Performance monitoring
 ✅ Production-ready stability
 ✅ FIXED: Correct WebSocket endpoint for Live API
+✅ FIXED: toolResponse format per official documentation
 """
 
 import asyncio
@@ -456,8 +463,17 @@ class GeminiLiveClient:
 
     async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, bool]:
         """
-        Send function result back to Gemini.
+        Send function result back to Gemini via toolResponse.
         
+        According to Gemini Live API documentation:
+        "BidiGenerateContentClientContent shouldn't be used to provide a response 
+        to the function calls issued by the model. BidiGenerateContentToolResponse 
+        should be used instead."
+        
+        Args:
+            function_call_id: ID from the toolCall event
+            result: Function execution result
+            
         Returns:
             Dict with success status
         """
@@ -470,27 +486,27 @@ class GeminiLiveClient:
             }
         
         try:
-            logger.info(f"[GEMINI-CLIENT] Sending function result: {function_call_id}")
+            logger.info(f"[GEMINI-CLIENT] 📤 Sending toolResponse for call ID: {function_call_id}")
+            logger.info(f"[GEMINI-CLIENT]    Function: {self.last_function_name}")
             
-            # Gemini expects function response in client_content
+            # ✅ CORRECT FORMAT per Live API WebSocket documentation
+            # https://ai.google.dev/api/live#BidiGenerateContentToolResponse
             result_payload = {
-                "client_content": {
-                    "turns": [{
-                        "role": "user",
-                        "parts": [{
-                            "function_response": {
-                                "name": self.last_function_name,
-                                "response": result
-                            }
-                        }]
-                    }],
-                    "turn_complete": True
+                "toolResponse": {  # NOT client_content!
+                    "functionResponses": [{  # Plural!
+                        "id": function_call_id,  # CRITICAL: ID from toolCall event
+                        "name": self.last_function_name,
+                        "response": result  # Your result as-is
+                    }]
                 }
             }
             
-            logger.info(f"[GEMINI-CLIENT] Sending function_response...")
+            # Log payload preview
+            payload_preview = json.dumps(result_payload, ensure_ascii=False)[:300]
+            logger.info(f"[GEMINI-CLIENT] Payload: {payload_preview}...")
+            
             await self.ws.send(json.dumps(result_payload))
-            logger.info(f"[GEMINI-CLIENT] ✅ Function result sent")
+            logger.info(f"[GEMINI-CLIENT] ✅ toolResponse sent successfully")
             
             return {
                 "success": True,
@@ -498,7 +514,7 @@ class GeminiLiveClient:
             }
             
         except Exception as e:
-            error_msg = f"Error sending function result: {e}"
+            error_msg = f"Error sending toolResponse: {e}"
             logger.error(f"[GEMINI-CLIENT] {error_msg}")
             return {
                 "success": False,
