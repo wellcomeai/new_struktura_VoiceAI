@@ -502,6 +502,72 @@ async def handle_gemini_messages(
                     })
                     continue
                 
+                # ✅ Tool Call event (top-level, outside serverContent)
+                if "toolCall" in response_data:
+                    tool_call = response_data["toolCall"]
+                    function_calls = tool_call.get("functionCalls", [])
+                    
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log_to_render(f"🔧 TOOL CALL EVENT (top-level)")
+                    log_to_render(f"   Function calls: {len(function_calls)}")
+                    log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    
+                    for func_call in function_calls:
+                        function_name = func_call.get("name")
+                        function_id = func_call.get("id")
+                        arguments = func_call.get("args", {})
+                        
+                        log_to_render(f"📞 Function: {function_name}")
+                        log_to_render(f"   ID: {function_id}")
+                        log_to_render(f"   Args: {json.dumps(arguments, ensure_ascii=False)[:200]}")
+                        
+                        # Store pending call
+                        pending_function_call = {
+                            "name": function_name,
+                            "call_id": function_id,
+                            "arguments": arguments
+                        }
+                        
+                        # Execute immediately
+                        try:
+                            start_time = time.time()
+                            normalized_name = normalize_function_name(function_name)
+                            
+                            log_to_render(f"⚙️ Executing function: {normalized_name}")
+                            
+                            result = await gemini_client.execute_function(
+                                function_name=normalized_name,
+                                arguments=arguments,
+                                extra_context={
+                                    "assistant_id": str(gemini_client.assistant_config.id),
+                                    "user_id": str(gemini_client.user.id) if gemini_client.user else None,
+                                    "websocket": websocket
+                                }
+                            )
+                            
+                            execution_time = time.time() - start_time
+                            function_execution_count += 1
+                            
+                            log_to_render(f"✅ Function executed: {execution_time:.3f}s")
+                            
+                            # Send result to Gemini
+                            delivery_status = await gemini_client.send_function_result(
+                                function_name=normalized_name,
+                                call_id=function_id,
+                                result=result
+                            )
+                            
+                            if delivery_status and delivery_status.get("success"):
+                                log_to_render(f"✅ Result delivered to Gemini")
+                            else:
+                                log_to_render(f"❌ Delivery failed: {delivery_status.get('error')}", "ERROR")
+                                
+                        except Exception as e:
+                            log_to_render(f"❌ Function execution error: {e}", "ERROR")
+                            log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
+                    
+                    continue
+                
                 # Server content (main response container)
                 if "serverContent" in response_data:
                     server_content = response_data["serverContent"]
@@ -854,6 +920,48 @@ async def handle_gemini_messages(
         log_to_render(f"❌ CRITICAL Handler error: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
     finally:
+        # ✅ РЕЗЕРВНОЕ ЛОГИРОВАНИЕ если есть несохранённые транскрипты
+        if (user_transcript or assistant_transcript) and gemini_client.assistant_config:
+            log_to_render(f"💾 FINAL SAVE: Found unsaved transcripts on disconnect")
+            log_to_render(f"   User: {len(user_transcript)} chars")
+            log_to_render(f"   Assistant: {len(assistant_transcript)} chars")
+            
+            final_user = user_transcript or "[Voice input - no text transcript]"
+            final_assistant = assistant_transcript or "[Voice response - incomplete]"
+            
+            # Save to DB
+            try:
+                await ConversationService.save_conversation(
+                    db=gemini_client.db_session,
+                    assistant_id=str(gemini_client.assistant_config.id),
+                    user_message=final_user,
+                    assistant_message=final_assistant,
+                    session_id=gemini_client.session_id,
+                    caller_number=None,
+                    tokens_used=0
+                )
+                log_to_render(f"✅ Final transcripts saved to DB")
+            except Exception as e:
+                log_to_render(f"❌ Final DB save error: {e}", "ERROR")
+            
+            # Save to Google Sheets
+            if gemini_client.assistant_config.google_sheet_id:
+                try:
+                    sheets_result = await GoogleSheetsService.log_conversation(
+                        sheet_id=gemini_client.assistant_config.google_sheet_id,
+                        user_message=final_user,
+                        assistant_message=final_assistant,
+                        function_result=None,
+                        conversation_id=gemini_client.conversation_record_id
+                    )
+                    
+                    if sheets_result:
+                        log_to_render(f"✅ Final transcripts saved to Google Sheets")
+                    else:
+                        log_to_render(f"❌ Final Sheets save failed", "ERROR")
+                except Exception as e:
+                    log_to_render(f"❌ Final Sheets error: {e}", "ERROR")
+        
         log_to_render(f"📊 Final handler stats:")
         log_to_render(f"   Total events processed: {event_count}")
         log_to_render(f"   Functions executed: {function_execution_count}")
