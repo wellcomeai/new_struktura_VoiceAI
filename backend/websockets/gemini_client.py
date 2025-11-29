@@ -329,12 +329,10 @@ class GeminiLiveClient:
             }
         }
         
-        # ✅ Generation config with transcription support
+        # ✅ Generation config - ТОЛЬКО модальности и голос (БЕЗ транскрипции)
         generation_config = {
             "response_modalities": ["AUDIO"],
-            "speech_config": speech_config,
-            "output_audio_transcription": {},  # ✅ Транскрипция ответа модели
-            "input_audio_transcription": {}    # ✅ Транскрипция входящего аудио
+            "speech_config": speech_config
         }
         
         # System instruction
@@ -355,11 +353,14 @@ class GeminiLiveClient:
             logger.info(f"[GEMINI-CLIENT] Thinking mode enabled (budget: {thinking_budget})")
         
         # ✅ Build correct setup payload for Live API
+        # Транскрипция на верхнем уровне setup, НЕ в generation_config!
         setup_payload = {
             "setup": {
                 "model": f"models/{self.model}",
                 "generation_config": generation_config,
-                "system_instruction": system_instruction
+                "system_instruction": system_instruction,
+                "output_audio_transcription": {},  # ✅ На верхнем уровне setup
+                "input_audio_transcription": {}     # ✅ На верхнем уровне setup
             }
         }
         
