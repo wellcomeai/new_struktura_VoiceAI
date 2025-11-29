@@ -41,6 +41,10 @@ class ReadGoogleDocFunction(FunctionBase):
         return "read_google_doc"
     
     @classmethod
+    def get_display_name(cls) -> str:
+        return "Чтение Google Документов"
+    
+    @classmethod
     def get_description(cls) -> str:
         return "Читает текст из публичного Google Документа по ссылке"
     
@@ -56,6 +60,67 @@ class ReadGoogleDocFunction(FunctionBase):
             },
             "required": ["url"]
         }
+    
+    @classmethod
+    def get_example_prompt(cls) -> str:
+        return """
+<p>Ты можешь использовать функцию <code>read_google_doc</code> для чтения содержимого Google Документов.</p>
+
+<p><strong>Когда использовать:</strong></p>
+<ul>
+    <li>Пользователь дает ссылку на Google Document</li>
+    <li>Нужно прочитать инструкцию, политику, договор из Google Docs</li>
+    <li>Требуется проанализировать или резюмировать содержимое документа</li>
+    <li>Пользователь просит найти информацию в документе</li>
+    <li>Нужно ответить на вопросы по содержанию документа</li>
+</ul>
+
+<p><strong>Параметры функции:</strong></p>
+<ul>
+    <li><code>url</code> — ссылка на Google Документ</li>
+</ul>
+
+<p><strong>Пример вызова:</strong></p>
+<pre>{
+  "url": "https://docs.google.com/document/d/1ABC123XYZ456/edit"
+}</pre>
+
+<p><strong>Результат:</strong></p>
+<pre>{
+  "success": true,
+  "text": "Полный текст документа...",
+  "length": 2547,
+  "document_id": "1ABC123XYZ456"
+}</pre>
+
+<p><strong>💡 Как работать с результатом:</strong></p>
+<ul>
+    <li>После получения текста ты можешь отвечать на вопросы о содержимом</li>
+    <li>Резюмировать документ в несколько предложений</li>
+    <li>Найти конкретную информацию (цены, даты, условия)</li>
+    <li>Сравнить с другими источниками</li>
+</ul>
+
+<p><strong>⚠️ Требования к документу:</strong></p>
+<ul>
+    <li>Документ должен быть <strong>публичным</strong> или доступным по ссылке</li>
+    <li>Настройка доступа: "Все, у кого есть ссылка, могут просматривать"</li>
+    <li>Если доступ запрещен (403), попроси пользователя открыть доступ</li>
+</ul>
+
+<p><strong>Поддерживаемые форматы URL:</strong></p>
+<ul>
+    <li><code>https://docs.google.com/document/d/DOCUMENT_ID/edit</code></li>
+    <li><code>https://drive.google.com/file/d/DOCUMENT_ID/view</code></li>
+</ul>
+
+<p><strong>Примеры использования:</strong></p>
+<ul>
+    <li>"Прочитай этот документ и скажи, какие там условия"</li>
+    <li>"Что написано в разделе 'Цены' в этом документе?"</li>
+    <li>"Резюмируй основные пункты этого договора"</li>
+</ul>
+"""
     
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
