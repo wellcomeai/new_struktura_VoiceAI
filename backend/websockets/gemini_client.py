@@ -1,5 +1,5 @@
 """
-🚀 PRODUCTION VERSION 1.2 - Google Gemini Live API Client
+🚀 PRODUCTION VERSION 1.3 - Google Gemini Live API Client
 Model: gemini-2.5-flash-native-audio-preview-09-2025
 
 Features:
@@ -9,6 +9,7 @@ Features:
 ✅ Manual function calling support
 ✅ Thinking mode support (configurable)
 ✅ Screen context support (silent mode)
+✅ Audio transcription support (input + output)
 ✅ Interruption handling
 ✅ Reconnection logic
 ✅ Performance monitoring
@@ -79,12 +80,13 @@ def generate_short_id(prefix: str = "") -> str:
 
 class GeminiLiveClient:
     """
-    🚀 PRODUCTION v1.2 - Client for Google Gemini Live API
+    🚀 PRODUCTION v1.3 - Client for Google Gemini Live API
     
     Key features:
     - Pure Gemini VAD (automatic voice activity detection)
     - Continuous audio streaming (no manual commit needed)
     - Native audio processing (16kHz input, 24kHz output)
+    - Audio transcription (input + output)
     - Manual function calling (handler controls execution)
     - Thinking mode support
     - Screen context support
@@ -163,6 +165,7 @@ class GeminiLiveClient:
         logger.info(f"[GEMINI-CLIENT] Endpoint: {self.base_url}")
         logger.info(f"[GEMINI-CLIENT] API Key: {self.api_key[:15]}...{self.api_key[-8:]}")
         logger.info(f"[GEMINI-CLIENT] VAD Mode: Pure Gemini (automatic)")
+        logger.info(f"[GEMINI-CLIENT] Transcription: ENABLED (input + output)")
         logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         try:
@@ -176,7 +179,7 @@ class GeminiLiveClient:
                     ping_timeout=120,
                     close_timeout=15,
                     extra_headers={
-                        'User-Agent': 'Voicyfy/1.2'
+                        'User-Agent': 'Voicyfy/1.3'
                     }
                 ),
                 timeout=30
@@ -326,10 +329,12 @@ class GeminiLiveClient:
             }
         }
         
-        # Generation config
+        # ✅ Generation config with transcription support
         generation_config = {
             "response_modalities": ["AUDIO"],
-            "speech_config": speech_config
+            "speech_config": speech_config,
+            "output_audio_transcription": {},  # ✅ Транскрипция ответа модели
+            "input_audio_transcription": {}    # ✅ Транскрипция входящего аудио
         }
         
         # System instruction
@@ -370,6 +375,7 @@ class GeminiLiveClient:
             logger.info(f"[GEMINI-CLIENT] Sending setup message...")
             logger.info(f"[GEMINI-CLIENT] Setup payload keys: {list(setup_payload['setup'].keys())}")
             logger.info(f"[GEMINI-CLIENT] ℹ️ Gemini will use automatic VAD (no manual commit needed)")
+            logger.info(f"[GEMINI-CLIENT] ℹ️ Transcription enabled for both input and output audio")
             
             await self.ws.send(json.dumps(setup_payload))
             
@@ -378,6 +384,7 @@ class GeminiLiveClient:
             logger.info(f"[GEMINI-CLIENT]   Voice: {voice}")
             logger.info(f"[GEMINI-CLIENT]   Tools: {len(tools)}")
             logger.info(f"[GEMINI-CLIENT]   Thinking: {bool(thinking_config)}")
+            logger.info(f"[GEMINI-CLIENT]   Transcription: ENABLED")
         except Exception as e:
             logger.error(f"[GEMINI-CLIENT] ❌ Error sending setup: {e}")
             logger.error(traceback.format_exc())
