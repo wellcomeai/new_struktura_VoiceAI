@@ -328,7 +328,7 @@ class GeminiLiveClient:
         
         # Generation config
         generation_config = {
-            "response_modalities": ["AUDIO", "TEXT"],
+            "response_modalities": ["AUDIO"],
             "speech_config": speech_config
         }
         
