@@ -16,11 +16,17 @@ from backend.functions.registry import (
 # Автоматически загружаем все функции при импорте модуля
 discover_functions()
 
+# Алиасы для обратной совместимости
+get_all_definitions = get_function_definitions
+get_all_openai_definitions = get_function_definitions
+
 __all__ = [
     "FunctionBase",
     "register_function", 
     "normalize_function_name",
     "get_function_definitions",
+    "get_all_definitions",  # алиас
+    "get_all_openai_definitions",  # алиас
     "get_enabled_functions",
     "execute_function",
     "discover_functions"
