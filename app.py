@@ -30,7 +30,7 @@ from backend.api import (
     embeds,
     gemini_ws,  # ✅ Gemini WebSocket API
     gemini_assistants,  # ✅ Gemini Assistants CRUD API
-    contacts  # ✅ НОВОЕ: CRM API
+    contacts,  # ✅ НОВОЕ: CRM API
     functions
 )
 from backend.models.base import create_tables
