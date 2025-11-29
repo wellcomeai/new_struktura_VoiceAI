@@ -1,15 +1,22 @@
 """
-🚀 PRODUCTION VERSION 1.2 - Google Gemini Live API Handler
+🚀 PRODUCTION VERSION 1.4 - Google Gemini Live API Handler
 ✅ PURE GEMINI VAD - removed client-side commit logic
 ✅ Continuous audio streaming - Gemini decides when to respond
-✅ Complete function calling support
+✅ Complete function calling support with toolCall event handler
 ✅ Google Sheets logging with transcription support
 ✅ Database integration
 ✅ Interruption handling
 ✅ Screen context support
 ✅ Audio transcription support (input + output)
+✅ Fallback logging on disconnect
 ✅ Maximum logging for debugging
 ✅ Ready for production deployment
+
+CRITICAL FIXES in v1.4:
+- Added toolCall event handler for top-level function calls
+- Fixed execute_function signature (name, arguments, context)
+- Added last_function_name assignment before send_function_result
+- Added fallback logging in finally block
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -535,12 +542,17 @@ async def handle_gemini_messages(
                             
                             log_to_render(f"⚙️ Executing function: {normalized_name}")
                             
-                            result = await gemini_client.execute_function(
-                                function_name=normalized_name,
+                            # ✅ Установка last_function_name для send_function_result
+                            gemini_client.last_function_name = normalized_name
+                            
+                            # ✅ execute_function с правильной сигнатурой
+                            result = await execute_function(
+                                name=normalized_name,
                                 arguments=arguments,
-                                extra_context={
-                                    "assistant_id": str(gemini_client.assistant_config.id),
-                                    "user_id": str(gemini_client.user.id) if gemini_client.user else None,
+                                context={
+                                    "assistant_config": gemini_client.assistant_config,
+                                    "client_id": gemini_client.client_id,
+                                    "db_session": gemini_client.db_session,
                                     "websocket": websocket
                                 }
                             )
@@ -550,21 +562,40 @@ async def handle_gemini_messages(
                             
                             log_to_render(f"✅ Function executed: {execution_time:.3f}s")
                             
-                            # Send result to Gemini
+                            # Send result to Gemini (используем позиционные аргументы как в основном коде)
+                            log_to_render(f"📤 Sending function result to Gemini...")
                             delivery_status = await gemini_client.send_function_result(
-                                function_name=normalized_name,
-                                call_id=function_id,
-                                result=result
+                                function_id,  # call_id
+                                result
                             )
                             
                             if delivery_status and delivery_status.get("success"):
                                 log_to_render(f"✅ Result delivered to Gemini")
+                                
+                                await websocket.send_json({
+                                    "type": "function_call.completed",
+                                    "function": normalized_name,
+                                    "function_call_id": function_id,
+                                    "result": result,
+                                    "execution_time": execution_time
+                                })
                             else:
                                 log_to_render(f"❌ Delivery failed: {delivery_status.get('error')}", "ERROR")
+                                
+                                await websocket.send_json({
+                                    "type": "function_call.delivery_error",
+                                    "function_call_id": function_id,
+                                    "error": delivery_status.get('error')
+                                })
                                 
                         except Exception as e:
                             log_to_render(f"❌ Function execution error: {e}", "ERROR")
                             log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
+                            
+                            await websocket.send_json({
+                                "type": "error",
+                                "error": {"code": "function_execution_error", "message": str(e)}
+                            })
                     
                     continue
                 
