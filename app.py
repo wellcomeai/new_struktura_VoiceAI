@@ -24,7 +24,7 @@ from backend.core.config import settings
 from backend.core.logging import setup_logging, get_logger
 from backend.api import (
     auth, users, assistants, files, websocket, healthcheck, 
-    subscriptions, subscription_logs, admin, partners, 
+    subscriptions, subscription_logs, admin, 
     knowledge_base, payments, voximplant, elevenlabs, conversations,
     email_verification,
     embeds,
@@ -36,6 +36,7 @@ from backend.api import (
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
+from backend.api.partners import router as partners_router
 
 # Alembic для миграций
 from alembic.config import Config as AlembicConfig
