@@ -7,6 +7,7 @@ This file configures all application components: routes, middleware, logging, et
 ✅ v2.3: Added Google Gemini Live API support
 ✅ v2.4: Added Gemini Assistants CRUD API support
 ✅ v2.5: Added CRM (Contacts) API support
+✅ v2.6: Fixed UTM parameters preservation in redirect
 """
 import os
 import asyncio
@@ -16,7 +17,7 @@ import gc
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -61,7 +62,7 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
     description="API for managing personalized voice assistants based on OpenAI and Google Gemini",
-    version="2.5.0",  # ✅ Обновлена версия
+    version="2.6.0",  # ✅ Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
@@ -649,7 +650,7 @@ def create_embed_configs_table():
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application v2.5...")
+        logger.info("🚀 Starting WellcomeAI application v2.6...")
         
         # Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
@@ -831,7 +832,22 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Gemini Assistants API: {str(e)}")
         
-        logger.info("✅ Application started successfully (v2.5 with CRM)")
+        # Логирование инициализации Partners API
+        try:
+            logger.info("🤝 Partners API initialized")
+            logger.info(f"   Dashboard: GET {settings.HOST_URL}/api/partners/dashboard")
+            logger.info(f"   Referrals: GET {settings.HOST_URL}/api/partners/referrals")
+            logger.info(f"   Generate link: GET {settings.HOST_URL}/api/partners/generate-link")
+            logger.info(f"   Commission rate: 30%")
+            logger.info("   Features:")
+            logger.info("     - Auto-activation for all users")
+            logger.info("     - UTM tracking (utm_source=partner)")
+            logger.info("     - Referral code format: XX123456")
+            logger.info("     - Commission on paid subscriptions")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Partners API: {str(e)}")
+        
+        logger.info("✅ Application started successfully (v2.6 with UTM fix)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
@@ -843,12 +859,33 @@ async def startup_event():
 # ============================================================================
 
 @app.get("/")
-async def root():
-    """Redirect to main page"""
-    from fastapi.responses import RedirectResponse
-    query_params = str(request.url.query)
-    redirect_url = f"/static/index.html?{query_params}" if query_params else "/static/index.html"
-    return RedirectResponse(url="/static/index.html")
+async def root(request: Request):
+    """
+    Root endpoint with UTM parameters preservation.
+    Redirects to main page while preserving all query parameters (especially UTM).
+    
+    Example:
+        https://voicyfy.ru/?utm_source=partner&utm_campaign=ABC123
+        → https://voicyfy.ru/static/index.html?utm_source=partner&utm_campaign=ABC123
+    """
+    try:
+        # Получаем query string из URL
+        query_string = request.url.query
+        
+        # Формируем redirect URL с сохранением параметров
+        if query_string:
+            redirect_url = f"/static/index.html?{query_string}"
+            logger.info(f"🔗 Redirecting / → {redirect_url}")
+        else:
+            redirect_url = "/static/index.html"
+            logger.debug(f"🔗 Redirecting / → {redirect_url} (no params)")
+        
+        return RedirectResponse(url=redirect_url, status_code=302)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in root redirect: {e}", exc_info=True)
+        # Fallback - редирект без параметров
+        return RedirectResponse(url="/static/index.html", status_code=302)
 
 
 @app.get("/health")
@@ -857,7 +894,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "wellcome-ai",
-        "version": "2.5.0",
+        "version": "2.6.0",
         "features": {
             "openai_realtime": True,
             "gemini_live": True,
@@ -866,7 +903,9 @@ async def health_check():
             "voximplant": True,
             "embeds": True,
             "email_verification": True,
-            "crm": True  # ✅ НОВОЕ: CRM функциональность
+            "crm": True,
+            "partners": True,  # ✅ Partners API
+            "utm_tracking": True  # ✅ UTM параметры сохраняются
         }
     }
 
