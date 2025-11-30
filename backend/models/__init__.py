@@ -5,6 +5,7 @@ This module contains SQLAlchemy ORM models that represent database tables.
 ✅ ОБНОВЛЕНО: Добавлены модели Gemini Assistant и Gemini Conversation
 ✅ ОБНОВЛЕНО: Добавлена модель Contact для CRM функциональности
 ✅ ОБНОВЛЕНО: Добавлена модель ContactNote для ленты заметок
+✅ ОБНОВЛЕНО: Добавлены модели Partner для партнерской программы
 """
 
 from .base import Base, engine, create_tables_with_full_tracking
@@ -33,6 +34,9 @@ from .gemini_assistant import GeminiAssistantConfig, GeminiConversation
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
 
+# ✅ НОВОЕ: Импортируем Partner модели для партнерской программы
+from .partner import Partner, ReferralRelationship, PartnerCommission
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -60,5 +64,9 @@ __all__ = [
     "GeminiConversation",
     # ✅ НОВОЕ: CRM модели
     "Contact",
-    "ContactNote"
+    "ContactNote",
+    # ✅ НОВОЕ: Partner модели
+    "Partner",
+    "ReferralRelationship",
+    "PartnerCommission"
 ]
