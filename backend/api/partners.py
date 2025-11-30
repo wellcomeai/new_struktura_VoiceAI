@@ -1,6 +1,7 @@
-# backend/api/partners.py - НОВЫЙ файл
+# backend/api/partners.py
 """
 Partner API endpoints for WellcomeAI application.
+✅ ОБНОВЛЕНО: Автоматическая активация партнерства для всех пользователей
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -36,12 +37,26 @@ async def get_partner_dashboard(
 ):
     """
     Получение полной статистики партнера для дашборда
+    ✅ ОБНОВЛЕНО: Автоматически активирует партнерство если его нет
     """
     # Проверяем, является ли пользователь партнером
     partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
-    if not partner:
-        raise HTTPException(404, "Partnership not found. Please activate partnership first.")
     
+    if not partner:
+        # 🆕 АВТОМАТИЧЕСКАЯ АКТИВАЦИЯ - создаем партнерство
+        logger.info(f"Auto-activating partnership for user {current_user.id}")
+        activation_result = await PartnerService.activate_partnership(db, str(current_user.id))
+        
+        if not activation_result.get("success"):
+            raise HTTPException(500, "Failed to activate partnership")
+        
+        # Получаем созданного партнера
+        partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
+        
+        if not partner:
+            raise HTTPException(500, "Partnership was not created properly")
+    
+    # Получаем статистику
     result = await PartnerService.get_partner_stats(db, str(current_user.id))
     return result
 
@@ -54,11 +69,23 @@ async def get_my_referrals(
 ):
     """
     Получение списка рефералов партнера
+    ✅ ОБНОВЛЕНО: Автоматически активирует партнерство если его нет
     """
     # Проверяем партнерство
     partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
+    
     if not partner:
-        raise HTTPException(404, "Partnership not found")
+        # 🆕 АВТОМАТИЧЕСКАЯ АКТИВАЦИЯ
+        logger.info(f"Auto-activating partnership for user {current_user.id}")
+        activation_result = await PartnerService.activate_partnership(db, str(current_user.id))
+        
+        if not activation_result.get("success"):
+            raise HTTPException(500, "Failed to activate partnership")
+        
+        partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
+        
+        if not partner:
+            raise HTTPException(500, "Partnership was not created properly")
     
     # Получаем рефералов
     referrals_query = db.query(ReferralRelationship).filter(
@@ -121,26 +148,36 @@ async def check_partner_status(
 ):
     """
     Проверка статуса партнерства пользователя
+    ✅ ОБНОВЛЕНО: Всегда возвращает is_partner=True (все пользователи - партнеры)
     """
     partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
     
     if not partner:
+        # Автоматически активируем
+        logger.info(f"Auto-activating partnership for user {current_user.id}")
+        activation_result = await PartnerService.activate_partnership(db, str(current_user.id))
+        
+        if activation_result.get("success"):
+            partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
+    
+    if partner:
+        return {
+            "is_partner": True,
+            "is_active": partner.is_active,
+            "referral_code": partner.referral_code,
+            "referral_link": PartnerService._generate_referral_link(partner.referral_code),
+            "commission_rate": float(partner.commission_rate),
+            "activated_at": partner.activated_at,
+            "total_referrals": partner.total_referrals,
+            "total_earnings": float(partner.total_earnings)
+        }
+    else:
+        # Если по какой-то причине партнерство не создалось
         return {
             "is_partner": False,
             "can_activate": True,
             "commission_rate": PartnerService.COMMISSION_RATE
         }
-    
-    return {
-        "is_partner": True,
-        "is_active": partner.is_active,
-        "referral_code": partner.referral_code,
-        "referral_link": PartnerService._generate_referral_link(partner.referral_code),
-        "commission_rate": float(partner.commission_rate),
-        "activated_at": partner.activated_at,
-        "total_referrals": partner.total_referrals,
-        "total_earnings": float(partner.total_earnings)
-    }
 
 @router.get("/generate-link")
 async def generate_referral_link(
@@ -149,6 +186,7 @@ async def generate_referral_link(
 ):
     """
     Генерация реферальной ссылки (активирует партнерство если нужно)
+    ✅ ОБНОВЛЕНО: Всегда активирует партнерство автоматически
     """
     partner = db.query(Partner).filter(Partner.user_id == current_user.id).first()
     
