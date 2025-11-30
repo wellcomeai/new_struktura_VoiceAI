@@ -1,7 +1,8 @@
-# backend/services/partner_service.py - НОВЫЙ файл
+# backend/services/partner_service.py
 """
 Partner service for WellcomeAI application.
 Сервис партнерской программы без изменения существующих таблиц.
+✅ ИСПРАВЛЕНО: Реферальная ссылка теперь ведет на главную страницу (/)
 """
 
 import secrets
@@ -98,7 +99,13 @@ class PartnerService:
     
     @staticmethod
     def _generate_referral_link(referral_code: str) -> str:
-        """Генерация полной реферальной ссылки с UTM метками"""
+        """
+        Генерация полной реферальной ссылки с UTM метками
+        ✅ ИСПРАВЛЕНО: Ссылка на главную страницу вместо /register
+        
+        Было: https://voicyfy.ru/register?utm_campaign=...
+        Стало: https://voicyfy.ru/?utm_campaign=...
+        """
         base_url = settings.HOST_URL.rstrip('/')
         utm_params = [
             f"utm_source=partner",
@@ -106,7 +113,8 @@ class PartnerService:
             f"utm_campaign={referral_code}",
             f"utm_content=registration"
         ]
-        return f"{base_url}/register?{'&'.join(utm_params)}"
+        # ✅ ИЗМЕНЕНО: /register? → /?
+        return f"{base_url}/?{'&'.join(utm_params)}"
     
     @staticmethod
     async def process_referral_registration(
@@ -114,9 +122,10 @@ class PartnerService:
         new_user_id: str, 
         referral_code: str,
         utm_data: Optional[Dict[str, str]] = None
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """
         Обработка регистрации по реферальной ссылке
+        ✅ ОБНОВЛЕНО: Возвращает dict с информацией о партнере
         """
         try:
             # Находим партнера по коду
@@ -127,7 +136,10 @@ class PartnerService:
             
             if not partner:
                 logger.warning(f"❌ Invalid referral code: {referral_code}")
-                return False
+                return {
+                    "success": False,
+                    "message": "Invalid referral code"
+                }
             
             # Проверяем, что пользователь еще не привязан
             existing_relationship = db.query(ReferralRelationship).filter(
@@ -136,7 +148,10 @@ class PartnerService:
             
             if existing_relationship:
                 logger.warning(f"❌ User {new_user_id} already has referral relationship")
-                return False
+                return {
+                    "success": False,
+                    "message": "User already has referral relationship"
+                }
             
             # Создаем связь реферер-реферал
             relationship = ReferralRelationship(
@@ -156,12 +171,26 @@ class PartnerService:
             
             logger.info(f"✅ Referral relationship created: partner {partner.id} -> user {new_user_id}")
             
-            return True
+            # Получаем информацию о пользователе-партнере
+            partner_user = db.query(User).filter(User.id == partner.user_id).first()
+            
+            return {
+                "success": True,
+                "message": "Referral registration processed successfully",
+                "referrer_info": {
+                    "name": f"{partner_user.first_name or ''} {partner_user.last_name or ''}".strip() or "Партнер",
+                    "email": partner_user.email
+                } if partner_user else None,
+                "commission_rate": float(partner.commission_rate)
+            }
             
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Error processing referral registration: {str(e)}")
-            return False
+            return {
+                "success": False,
+                "message": f"Error processing referral: {str(e)}"
+            }
     
     @staticmethod
     async def process_referral_payment(
