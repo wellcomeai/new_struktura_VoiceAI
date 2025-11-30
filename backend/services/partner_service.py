@@ -1,14 +1,14 @@
 # backend/services/partner_service.py
 """
 Partner service for WellcomeAI application.
-Сервис партнерской программы без изменения существующих таблиц.
-✅ ИСПРАВЛЕНО: Реферальная ссылка теперь ведет на главную страницу (/)
+✅ УЛУЧШЕННАЯ ВЕРСИЯ v2.0 с детальным логированием для диагностики
 """
 
 import secrets
 import string
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
+from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -102,9 +102,6 @@ class PartnerService:
         """
         Генерация полной реферальной ссылки с UTM метками
         ✅ ИСПРАВЛЕНО: Ссылка на главную страницу вместо /register
-        
-        Было: https://voicyfy.ru/register?utm_campaign=...
-        Стало: https://voicyfy.ru/?utm_campaign=...
         """
         base_url = settings.HOST_URL.rstrip('/')
         utm_params = [
@@ -113,7 +110,6 @@ class PartnerService:
             f"utm_campaign={referral_code}",
             f"utm_content=registration"
         ]
-        # ✅ ИЗМЕНЕНО: /register? → /?
         return f"{base_url}/?{'&'.join(utm_params)}"
     
     @staticmethod
@@ -201,74 +197,204 @@ class PartnerService:
     ):
         """
         Обработка платежа реферала и начисление комиссии
+        ✅ УЛУЧШЕННАЯ ВЕРСИЯ v2.0 с детальным логированием
         """
+        logger.info("="*80)
+        logger.info(f"🚀 STARTING REFERRAL PAYMENT PROCESSING")
+        logger.info(f"   user_id: {user_id}")
+        logger.info(f"   transaction_id: {transaction.id if transaction else 'None'}")
+        logger.info(f"   amount: {amount}")
+        logger.info("="*80)
+        
         try:
-            # Ищем реферальную связь
+            # ШАГ 1: Проверка входных данных
+            logger.info(f"📋 STEP 1: Validating input parameters")
+            
+            if not user_id:
+                logger.error(f"❌ STEP 1 FAILED: user_id is empty!")
+                return
+            
+            if not transaction:
+                logger.error(f"❌ STEP 1 FAILED: transaction is None!")
+                return
+            
+            if not amount or amount <= 0:
+                logger.error(f"❌ STEP 1 FAILED: invalid amount {amount}")
+                return
+            
+            logger.info(f"✅ STEP 1 PASSED: All input parameters are valid")
+            
+            # ШАГ 2: Поиск реферальной связи
+            logger.info(f"📋 STEP 2: Searching for referral relationship")
+            logger.info(f"   Querying: ReferralRelationship.referral_user_id = {user_id}")
+            
             referral_relationship = db.query(ReferralRelationship).filter(
                 ReferralRelationship.referral_user_id == user_id,
                 ReferralRelationship.is_active == True
             ).first()
             
             if not referral_relationship:
-                logger.info(f"No referral relationship found for user {user_id}")
+                logger.warning(f"⚠️ STEP 2: No referral relationship found for user {user_id}")
+                logger.info(f"   This user was not referred by anyone - skipping commission")
                 return
             
-            # Получаем партнера
+            logger.info(f"✅ STEP 2 PASSED: Referral relationship found!")
+            logger.info(f"   relationship_id: {referral_relationship.id}")
+            logger.info(f"   partner_id: {referral_relationship.partner_id}")
+            logger.info(f"   utm_campaign: {referral_relationship.utm_campaign}")
+            logger.info(f"   first_payment_made: {referral_relationship.first_payment_made}")
+            
+            # ШАГ 3: Получение партнера
+            logger.info(f"📋 STEP 3: Getting partner information")
+            
             partner = referral_relationship.partner
-            if not partner or not partner.is_active:
-                logger.warning(f"Partner {partner.id if partner else 'None'} is not active")
+            
+            if not partner:
+                logger.error(f"❌ STEP 3 FAILED: Partner not found for relationship {referral_relationship.id}")
                 return
             
-            # Проверяем, не начислялась ли уже комиссия за эту транзакцию
+            logger.info(f"✅ STEP 3 PASSED: Partner found!")
+            logger.info(f"   partner_id: {partner.id}")
+            logger.info(f"   partner_user_id: {partner.user_id}")
+            logger.info(f"   referral_code: {partner.referral_code}")
+            logger.info(f"   commission_rate: {partner.commission_rate}%")
+            logger.info(f"   is_active: {partner.is_active}")
+            
+            if not partner.is_active:
+                logger.warning(f"⚠️ STEP 3: Partner {partner.id} is not active - skipping commission")
+                return
+            
+            # ШАГ 4: Проверка дублирования комиссии
+            logger.info(f"📋 STEP 4: Checking for duplicate commission")
+            logger.info(f"   Querying: PartnerCommission.payment_transaction_id = {transaction.id}")
+            
             existing_commission = db.query(PartnerCommission).filter(
                 PartnerCommission.payment_transaction_id == transaction.id
             ).first()
             
             if existing_commission:
-                logger.warning(f"Commission already exists for transaction {transaction.id}")
+                logger.warning(f"⚠️ STEP 4: Commission already exists for transaction {transaction.id}")
+                logger.info(f"   Existing commission_id: {existing_commission.id}")
+                logger.info(f"   Existing commission_amount: {existing_commission.commission_amount}")
                 return
             
-            # Вычисляем комиссию
-            commission_amount = (amount * float(partner.commission_rate)) / 100
+            logger.info(f"✅ STEP 4 PASSED: No duplicate commission found")
             
-            # Создаем запись о комиссии
+            # ШАГ 5: Вычисление комиссии
+            logger.info(f"📋 STEP 5: Calculating commission")
+            logger.info(f"   Formula: {amount} * {partner.commission_rate}% / 100")
+            
+            # ✅ ИСПРАВЛЕНО: Используем Decimal для корректных вычислений
+            amount_decimal = Decimal(str(amount))
+            commission_amount = (amount_decimal * partner.commission_rate) / Decimal('100')
+            
+            logger.info(f"✅ STEP 5 PASSED: Commission calculated")
+            logger.info(f"   Original amount: {amount}₽")
+            logger.info(f"   Commission rate: {partner.commission_rate}%")
+            logger.info(f"   Commission amount: {commission_amount}₽")
+            
+            # ШАГ 6: Создание записи о комиссии
+            logger.info(f"📋 STEP 6: Creating commission record")
+            
+            now = datetime.now(timezone.utc)
+            
+            # ✅ ИСПРАВЛЕНО: Используем Decimal для всех денежных значений
             commission = PartnerCommission(
                 partner_id=partner.id,
                 referral_relationship_id=referral_relationship.id,
                 payment_transaction_id=transaction.id,
-                original_amount=amount,
+                original_amount=amount_decimal,  # ✅ Decimal вместо float
                 commission_rate=partner.commission_rate,
-                commission_amount=commission_amount,
+                commission_amount=commission_amount,  # ✅ Уже Decimal
                 status="confirmed",
-                confirmed_at=datetime.now(timezone.utc)
+                confirmed_at=now
             )
             
-            # Обновляем статистику партнера
+            logger.info(f"   Commission object created:")
+            logger.info(f"   - partner_id: {commission.partner_id}")
+            logger.info(f"   - referral_relationship_id: {commission.referral_relationship_id}")
+            logger.info(f"   - payment_transaction_id: {commission.payment_transaction_id}")
+            logger.info(f"   - original_amount: {commission.original_amount}")
+            logger.info(f"   - commission_rate: {commission.commission_rate}")
+            logger.info(f"   - commission_amount: {commission.commission_amount}")
+            logger.info(f"   - status: {commission.status}")
+            
+            # ШАГ 7: Обновление статистики партнера
+            logger.info(f"📋 STEP 7: Updating partner statistics")
+            logger.info(f"   Current total_earnings: {partner.total_earnings}")
+            logger.info(f"   Adding: {commission_amount}")
+            
+            # ✅ ИСПРАВЛЕНО: Decimal += Decimal (без ошибок типов)
             partner.total_earnings += commission_amount
             
-            # Отмечаем первый платеж реферала
+            logger.info(f"   New total_earnings: {partner.total_earnings}")
+            
+            # ШАГ 8: Отметка первого платежа реферала
+            logger.info(f"📋 STEP 8: Updating first payment flag")
+            
             if not referral_relationship.first_payment_made:
+                logger.info(f"   Setting first_payment_made = True")
+                logger.info(f"   Setting first_payment_at = {now}")
+                
                 referral_relationship.first_payment_made = True
-                referral_relationship.first_payment_at = datetime.now(timezone.utc)
+                referral_relationship.first_payment_at = now
+            else:
+                logger.info(f"   First payment already made on {referral_relationship.first_payment_at}")
+            
+            # ШАГ 9: Сохранение в БД
+            logger.info(f"📋 STEP 9: Saving to database")
+            logger.info(f"   Adding commission to session...")
             
             db.add(commission)
+            
+            logger.info(f"   Calling db.commit()...")
             db.commit()
             
-            logger.info(f"✅ Partner commission processed: {commission_amount}₽ for partner {partner.id}")
+            logger.info(f"✅ STEP 9 PASSED: Successfully committed to database!")
             
-            # Логируем событие
+            # ШАГ 10: Логирование события
+            logger.info(f"📋 STEP 10: Logging subscription event")
+            
             await SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=str(partner.user_id),
                 action="partner_commission_earned",
                 plan_id=None,
                 plan_code="commission",
-                details=f"Earned {commission_amount}₽ commission from referral payment {amount}₽ (transaction: {transaction.id})"
+                details=f"Earned {float(commission_amount):.2f}₽ commission from referral payment {float(amount_decimal):.2f}₽ (transaction: {transaction.id})"
             )
             
+            logger.info(f"✅ STEP 10 PASSED: Event logged")
+            
+            # ФИНАЛ
+            logger.info("="*80)
+            logger.info(f"🎉 REFERRAL PAYMENT PROCESSING COMPLETED SUCCESSFULLY!")
+            logger.info(f"   Commission ID: {commission.id}")
+            logger.info(f"   Partner earned: {float(commission_amount):.2f}₽")
+            logger.info(f"   Partner total earnings: {float(partner.total_earnings):.2f}₽")
+            logger.info("="*80)
+            
         except Exception as e:
+            logger.error("="*80)
+            logger.error(f"💥 CRITICAL ERROR IN REFERRAL PAYMENT PROCESSING!")
+            logger.error(f"   Error type: {type(e).__name__}")
+            logger.error(f"   Error message: {str(e)}")
+            logger.error(f"   User ID: {user_id}")
+            logger.error(f"   Transaction ID: {transaction.id if transaction else 'None'}")
+            logger.error(f"   Amount: {amount}")
+            
+            # Детальная трассировка
+            import traceback
+            logger.error(f"   Full traceback:")
+            logger.error(traceback.format_exc())
+            
+            logger.error("="*80)
+            
+            # Откатываем транзакцию
             db.rollback()
-            logger.error(f"❌ Error processing partner commission: {str(e)}")
+            
+            # Пробрасываем ошибку дальше
+            raise
     
     @staticmethod
     async def get_partner_stats(db: Session, user_id: str) -> Dict[str, Any]:
