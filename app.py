@@ -846,6 +846,8 @@ async def startup_event():
 async def root():
     """Redirect to main page"""
     from fastapi.responses import RedirectResponse
+    query_params = str(request.url.query)
+    redirect_url = f"/static/index.html?{query_params}" if query_params else "/static/index.html"
     return RedirectResponse(url="/static/index.html")
 
 
