@@ -2,6 +2,7 @@
 Authentication service for WellcomeAI application.
 Handles user authentication operations with partner referral system.
 ✅ ОБНОВЛЕНО: Добавлено поле email_verified в ответы
+✅ ОБНОВЛЕНО: Добавлена обработка UTM и реферальных кодов при регистрации
 """
 
 from fastapi import HTTPException, status, Depends
@@ -33,6 +34,7 @@ class AuthService:
     async def register(db: Session, user_data: RegisterRequest) -> Dict[str, Any]:
         """
         Register a new user with optional referral tracking
+        ✅ ОБНОВЛЕНО: Добавлена обработка UTM и реферальных кодов
         
         Args:
             db: Database session
@@ -44,6 +46,9 @@ class AuthService:
         try:
             logger.info(f"🚀 Starting registration for email: {user_data.email}")
             
+            # ========================================
+            # 1. ПРОВЕРКА EMAIL
+            # ========================================
             # Check if user already exists
             existing_user = db.query(User).filter(User.email == user_data.email).first()
             if existing_user:
@@ -62,6 +67,9 @@ class AuthService:
                     detail="Invalid email format"
                 )
             
+            # ========================================
+            # 2. СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ
+            # ========================================
             # Hash password
             password_hash = hash_password(user_data.password)
             logger.info(f"✅ Password hashed for user: {user_data.email}")
@@ -85,7 +93,9 @@ class AuthService:
             
             logger.info(f"✅ New user created with ID: {user.id}")
             
-            # 🆕 ОБРАБОТКА РЕФЕРАЛЬНОЙ ССЫЛКИ
+            # ========================================
+            # 3. 🆕 ОБРАБОТКА РЕФЕРАЛЬНОЙ ССЫЛКИ (UTM)
+            # ========================================
             referral_processed = False
             referrer_info = None
             partner_bonus_info = None
@@ -105,18 +115,18 @@ class AuthService:
                         utm_data=user_data.utm_data
                     )
                     
-                    if referral_result["success"]:
+                    if referral_result.get("success"):
                         referral_processed = True
-                        referrer_info = referral_result["referrer_info"]
+                        referrer_info = referral_result.get("referrer_info")
                         partner_bonus_info = {
                             "message": "🎉 Вы зарегистрировались по партнерской ссылке!",
                             "referral_code": user_data.referral_code,
-                            "partner_name": referrer_info.get("name", "Партнер"),
+                            "partner_name": referrer_info.get("name", "Партнер") if referrer_info else "Партнер",
                             "commission_rate": referral_result.get("commission_rate", 30.0)
                         }
                         
                         logger.info(f"✅ Referral processed successfully for user {user.email}")
-                        logger.info(f"   Partner: {referrer_info.get('email', 'Unknown')}")
+                        logger.info(f"   Partner: {referrer_info.get('email', 'Unknown') if referrer_info else 'Unknown'}")
                         logger.info(f"   UTM data: {user_data.utm_data}")
                     else:
                         logger.warning(f"❌ Failed to process referral code: {user_data.referral_code}")
@@ -124,9 +134,14 @@ class AuthService:
                         
                 except Exception as ref_error:
                     logger.error(f"❌ Error processing referral: {str(ref_error)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                     # Не прерываем регистрацию из-за ошибки реферальной системы
                     # Продолжаем обычную регистрацию
             
+            # ========================================
+            # 4. АКТИВАЦИЯ ТРИАЛА
+            # ========================================
             # Activate trial subscription (3 days)
             try:
                 from backend.services.subscription_service import SubscriptionService
@@ -136,6 +151,9 @@ class AuthService:
                 logger.error(f"❌ Error activating trial subscription: {str(sub_error)}")
                 # Не прерываем регистрацию, но логируем ошибку
             
+            # ========================================
+            # 5. ВОЗВРАТ ОТВЕТА
+            # ========================================
             # ❌ НЕ ГЕНЕРИРУЕМ ТОКЕН - пользователь должен сначала подтвердить email
             # token = create_access_token(str(user.id))
             
@@ -204,6 +222,8 @@ class AuthService:
         except Exception as e:
             db.rollback()
             logger.error(f"❌ Unexpected error during registration: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Registration failed due to server error"
