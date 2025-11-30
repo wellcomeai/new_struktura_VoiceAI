@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- ✅ PRODUCTION READY: Email Verification с UX улучшениями -->
+<!-- ✅ PRODUCTION READY: Email Verification с UX улучшениями + Скрытые партнерские уведомления -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -210,110 +210,6 @@
         opacity: 1;
         transform: translateY(0);
       }
-    }
-
-    /* Referral Notifications */
-    .referral-notification {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-      padding: 1rem 1.5rem;
-      border-radius: var(--radius-md);
-      margin-bottom: 1.5rem;
-      box-shadow: var(--shadow-md);
-      animation: slideInDown 0.5s ease-out;
-    }
-
-    .referral-notification .title {
-      font-weight: 700;
-      font-size: 1rem;
-      margin-bottom: 0.5rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .referral-notification .details {
-      font-size: 0.875rem;
-      opacity: 0.95;
-      line-height: 1.4;
-    }
-
-    .referral-notification .partner-code {
-      font-family: 'Courier New', monospace;
-      background: rgba(255, 255, 255, 0.2);
-      padding: 0.25rem 0.5rem;
-      border-radius: 0.25rem;
-      font-weight: 600;
-    }
-
-    .partner-welcome-modal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.3s ease;
-    }
-
-    .partner-welcome-modal.show {
-      opacity: 1;
-      visibility: visible;
-    }
-
-    .partner-welcome-content {
-      background: white;
-      border-radius: var(--radius-lg);
-      padding: 2rem;
-      max-width: 500px;
-      margin: 0 1rem;
-      text-align: center;
-      box-shadow: var(--shadow-lg);
-      transform: scale(0.9);
-      transition: transform 0.3s ease;
-    }
-
-    .partner-welcome-modal.show .partner-welcome-content {
-      transform: scale(1);
-    }
-
-    .partner-welcome-icon {
-      font-size: 3rem;
-      color: #10b981;
-      margin-bottom: 1rem;
-    }
-
-    .partner-welcome-title {
-      font-size: 1.5rem;
-      font-weight: 700;
-      color: var(--text-dark);
-      margin-bottom: 1rem;
-    }
-
-    .partner-welcome-text {
-      color: var(--text-gray);
-      margin-bottom: 1.5rem;
-      line-height: 1.6;
-    }
-
-    .partner-commission-info {
-      background: var(--bg-blue-light);
-      border: 1px solid #bfdbfe;
-      border-radius: var(--radius-md);
-      padding: 1rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .commission-rate {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: var(--primary-blue);
     }
 
     .btn {
@@ -1368,7 +1264,7 @@
           <form id="register-form" class="auth-form active">
             <h2 class="auth-title">Создайте аккаунт</h2>
             
-            <div id="referral-notification-container"></div>
+            <!-- ❌ УБРАНО: referral-notification-container -->
             <div id="register-notification-container"></div>
             
             <div class="form-group">
@@ -1572,17 +1468,7 @@
     </footer>
   </div>
   
-  <div id="partner-welcome-modal" class="partner-welcome-modal">
-    <div class="partner-welcome-content">
-      <div class="partner-welcome-icon">🎉</div>
-      <h2 class="partner-welcome-title">Добро пожаловать!</h2>
-      <p class="partner-welcome-text" id="partner-welcome-text"></p>
-      <div class="partner-commission-info">
-        <p>Ваш пригласивший получит <span class="commission-rate">30%</span> с ваших оплат</p>
-      </div>
-      <button class="btn btn-primary" onclick="closePartnerWelcome()">Понятно, спасибо!</button>
-    </div>
-  </div>
+  <!-- ❌ УБРАНО: partner-welcome-modal (модальное окно с 30% комиссией) -->
   
   <script>
     // ========================================
@@ -1865,13 +1751,13 @@
     }
 
     // ========================================
-    // ✅ REFERRAL TRACKER CLASS
+    // ✅ REFERRAL TRACKER CLASS (Silent Mode)
     // ========================================
     class ReferralTracker {
       static init() {
         console.log('🔗 Initializing Referral Tracker...');
         this.captureUTMData();
-        this.showReferralNotification();
+        // ❌ УБРАНО: this.showReferralNotification();
       }
       
       static captureUTMData() {
@@ -1891,30 +1777,6 @@
           localStorage.setItem('referral_code', utmData.utm_campaign);
           localStorage.setItem('utm_data', JSON.stringify(utmData));
           console.log('✅ Referral data captured:', utmData);
-        }
-      }
-      
-      static showReferralNotification() {
-        const referralCode = localStorage.getItem('referral_code');
-        
-        if (referralCode && this.isRegistrationPage()) {
-          console.log('📢 Showing referral notification for code:', referralCode);
-          
-          const container = document.getElementById('referral-notification-container');
-          if (container) {
-            container.innerHTML = `
-              <div class="referral-notification">
-                <div class="title">
-                  <i class="fas fa-gift"></i>
-                  Партнерское приглашение!
-                </div>
-                <div class="details">
-                  Вы регистрируетесь по приглашению партнера.<br>
-                  Код приглашения: <span class="partner-code">${referralCode}</span>
-                </div>
-              </div>
-            `;
-          }
         }
       }
       
@@ -1940,29 +1802,6 @@
         localStorage.removeItem('referral_code');
         localStorage.removeItem('utm_data');
         console.log('🧹 Referral data cleared');
-      }
-      
-      static showPartnerWelcome(referralInfo) {
-        const modal = document.getElementById('partner-welcome-modal');
-        const text = document.getElementById('partner-welcome-text');
-        
-        if (modal && text && referralInfo) {
-          text.textContent = referralInfo.message || 
-            `Вы были приглашены партнером ${referralInfo.partner_name || 'нашей платформы'}!`;
-          
-          modal.classList.add('show');
-          
-          setTimeout(() => {
-            modal.classList.remove('show');
-          }, 10000);
-        }
-      }
-    }
-    
-    function closePartnerWelcome() {
-      const modal = document.getElementById('partner-welcome-modal');
-      if (modal) {
-        modal.classList.remove('show');
       }
     }
 
@@ -2079,10 +1918,10 @@
             // Show verification section
             emailVerification.showVerificationSection(email);
             
-            // Show partner welcome if exists
-            if (data.referral_info) {
-              ReferralTracker.showPartnerWelcome(data.referral_info);
-            }
+            // ❌ УБРАНО: Show partner welcome modal
+            // if (data.referral_info) {
+            //   ReferralTracker.showPartnerWelcome(data.referral_info);
+            // }
             
             // Clear referral data
             ReferralTracker.clearReferralData();
@@ -2166,7 +2005,7 @@
           
           // Check for unverified email
           if (error.message.includes('not verified') || error.message.includes('не подтвержден')) {
-            showInlineNotification('login-notification-container', 'warning', 'Email не подтверждён! Проверьте почту для кода верификации.');
+            showInlineNotification('login-notification-container', 'warning', 'Email не подтвержён! Проверьте почту для кода верификации.');
           } else if (error.message.includes('Invalid') || error.message.includes('password')) {
             showInlineNotification('login-notification-container', 'error', 'Неверный email или пароль');
           } else {
