@@ -164,7 +164,7 @@ app.include_router(knowledge_base.router, prefix="/api/knowledge-base", tags=["K
 app.include_router(payments.router, prefix="/api/payments", tags=["Payments"])
 app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplant"])
 app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
-app.include_router(partners.router, prefix="/api/partners", tags=["Partners"])
+app.include_router(partners_router, prefix="/api/partners", tags=["Partners"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
 app.include_router(contacts.router, prefix="/api/contacts", tags=["CRM"])  # ✅ НОВОЕ: CRM API
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
