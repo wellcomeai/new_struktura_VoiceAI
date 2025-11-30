@@ -1,6 +1,7 @@
 """
 Authentication schemas for WellcomeAI application.
 Defines schemas for authentication-related requests and responses with partner referral support.
+✅ ОБНОВЛЕНО: Оставлены ВСЕ оригинальные схемы + проверка на None для валидаторов
 """
 
 from pydantic import BaseModel, Field, EmailStr, validator
