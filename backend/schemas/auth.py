@@ -1,7 +1,8 @@
 """
 Authentication schemas for WellcomeAI application.
 Defines schemas for authentication-related requests and responses with partner referral support.
-✅ ОБНОВЛЕНО: Оставлены ВСЕ оригинальные схемы + проверка на None для валидаторов
+✅ v2.6: Исправлено - utm_data теперь принимает null значения (Dict[str, Optional[str]])
+✅ v2.6: Исправлен баг затенения переменной в utm_data_format валидаторе
 """
 
 from pydantic import BaseModel, Field, EmailStr, validator
@@ -47,7 +48,9 @@ class RegisterRequest(BaseModel):
         max_length=10,
         description="Referral code from partner (usually from UTM campaign)"
     )
-    utm_data: Optional[Dict[str, str]] = Field(
+    # ✅ ИСПРАВЛЕНО: Dict[str, Optional[str]] вместо Dict[str, str]
+    # Теперь принимает null значения в utm_term и других полях
+    utm_data: Optional[Dict[str, Optional[str]]] = Field(
         None,
         description="UTM tracking data from referral link"
     )
@@ -101,7 +104,12 @@ class RegisterRequest(BaseModel):
 
     @validator('utm_data')
     def utm_data_format(cls, v):
-        """Validate UTM data format"""
+        """
+        Validate UTM data format
+        ✅ ИСПРАВЛЕНО: 
+        - Фильтрует null значения
+        - Исправлен баг затенения переменной (val вместо v)
+        """
         if v is None:
             return v
             
@@ -114,10 +122,14 @@ class RegisterRequest(BaseModel):
             'utm_content', 'utm_term'
         }
         
-        # Фильтруем только допустимые ключи
+        # ✅ ИСПРАВЛЕНО: 
+        # - val вместо v (избежание затенения переменной)
+        # - Проверка на None ДО преобразования в строку
+        # - Фильтрация пустых строк после strip()
         filtered_utm = {
-            k: str(v).strip() for k, v in v.items() 
-            if k in allowed_utm_keys and v
+            k: str(val).strip() 
+            for k, val in v.items() 
+            if k in allowed_utm_keys and val is not None and str(val).strip()
         }
         
         return filtered_utm if filtered_utm else None
@@ -195,6 +207,12 @@ class AuthResponse(BaseModel):
         None,
         description="Partner program information and opportunities"
     )
+    
+    # ✅ НОВОЕ: Email verification info
+    verification_required: Optional[bool] = Field(None, description="Whether email verification is required")
+    verification_sent: Optional[bool] = Field(None, description="Whether verification code was sent")
+    expires_in_minutes: Optional[int] = Field(None, description="Verification code expiration time")
+    max_attempts: Optional[int] = Field(None, description="Maximum verification attempts")
 
     class Config:
         schema_extra = {
@@ -222,7 +240,11 @@ class AuthResponse(BaseModel):
                     "show_welcome_bonus": True,
                     "referrer_gets_commission": True,
                     "commission_rate": 30.0
-                }
+                },
+                "verification_required": True,
+                "verification_sent": True,
+                "expires_in_minutes": 10,
+                "max_attempts": 3
             }
         }
 
