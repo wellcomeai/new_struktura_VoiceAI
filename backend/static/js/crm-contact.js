@@ -2,13 +2,14 @@
 /**
  * Contact Detail Page для Voicyfy CRM
  * Детальный просмотр контакта с историей диалогов, заметками и задачами
- * Version: 3.7 - PRODUCTION READY with Call Direction Support
+ * Version: 3.8 - PRODUCTION READY with Unified Timeline & Task Editing
  * ✅ OpenAI + Gemini assistants support
  * ✅ Tasks with auto-calls
  * ✅ Notes feed
- * ✅ Conversations history
+ * ✅ Conversations history with call direction (INBOUND/OUTBOUND)
  * ✅ v3.6: Custom greeting support
- * ✅ v3.7: Call direction indicators (INBOUND/OUTBOUND)
+ * ✅ v3.7: Call direction indicators
+ * ✅ v3.8: Unified timeline (tasks + conversations) + Task editing modal
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -25,27 +26,45 @@ document.addEventListener('DOMContentLoaded', function() {
   const noteInput = document.getElementById('note-input');
   const addNoteBtn = document.getElementById('add-note-btn');
   
-  // Tabs
-  const tabBtns = document.querySelectorAll('.tab-btn');
-  const conversationsTab = document.getElementById('conversations-tab');
-  const tasksTab = document.getElementById('tasks-tab');
-  
-  // Conversations
-  const conversationsAccordion = document.getElementById('conversations-accordion');
-  const conversationsCount = document.getElementById('conversations-count');
-  
-  // Tasks
-  const tasksList = document.getElementById('tasks-list');
-  const tasksCount = document.getElementById('tasks-count');
+  // Timeline (unified)
+  const timelineContainer = document.getElementById('timeline-container');
   const createTaskBtn = document.getElementById('create-task-btn');
-  const taskModal = document.getElementById('task-modal');
-  const taskForm = document.getElementById('task-form');
-  const taskAssistantSelect = document.getElementById('task-assistant');
-  const taskDatetimeInput = document.getElementById('task-datetime');
-  const taskTitleInput = document.getElementById('task-title');
-  const taskDescriptionInput = document.getElementById('task-description');
-  const taskCustomGreetingInput = document.getElementById('task-custom-greeting'); // ✅ v3.6
-  const cancelTaskBtn = document.getElementById('cancel-task-btn');
+  
+  // Task Create Modal
+  const taskCreateModal = document.getElementById('task-create-modal');
+  const taskCreateForm = document.getElementById('task-create-form');
+  const taskCreateAssistant = document.getElementById('task-create-assistant');
+  const taskCreateDatetime = document.getElementById('task-create-datetime');
+  const taskCreateTitle = document.getElementById('task-create-title');
+  const taskCreateDescription = document.getElementById('task-create-description');
+  const taskCreateGreeting = document.getElementById('task-create-greeting');
+  const taskCreateCancelBtn = document.getElementById('task-create-cancel-btn');
+  
+  // Task View/Edit Modal
+  const taskViewModal = document.getElementById('task-view-modal');
+  const taskViewMode = document.getElementById('task-view-mode');
+  const taskEditForm = document.getElementById('task-edit-form');
+  const taskViewCloseBtn = document.getElementById('task-view-close-btn');
+  const taskViewEditBtn = document.getElementById('task-view-edit-btn');
+  const taskEditCancelBtn = document.getElementById('task-edit-cancel-btn');
+  const taskModalTitle = document.getElementById('task-modal-title');
+  
+  // Task View Mode Elements
+  const taskViewStatus = document.getElementById('task-view-status');
+  const taskViewTitle = document.getElementById('task-view-title');
+  const taskViewDatetime = document.getElementById('task-view-datetime');
+  const taskViewAssistant = document.getElementById('task-view-assistant');
+  const taskViewDescription = document.getElementById('task-view-description');
+  const taskViewGreeting = document.getElementById('task-view-greeting');
+  const taskViewDescriptionSection = document.getElementById('task-view-description-section');
+  const taskViewGreetingSection = document.getElementById('task-view-greeting-section');
+  
+  // Task Edit Mode Elements
+  const taskEditAssistant = document.getElementById('task-edit-assistant');
+  const taskEditDatetime = document.getElementById('task-edit-datetime');
+  const taskEditTitle = document.getElementById('task-edit-title');
+  const taskEditDescription = document.getElementById('task-edit-description');
+  const taskEditGreeting = document.getElementById('task-edit-greeting');
   
   // Delete
   const deleteContactBtn = document.getElementById('delete-contact-btn');
@@ -64,8 +83,10 @@ document.addEventListener('DOMContentLoaded', function() {
   let currentContact = null;
   let contactId = null;
   let notes = [];
-  let tasks = [];
+  let timelineItems = []; // Unified: tasks + conversations
   let assistants = [];
+  let currentTaskId = null;
+  let currentTaskData = null;
   
   // ==================== API ====================
   const api = {
@@ -230,37 +251,39 @@ document.addEventListener('DOMContentLoaded', function() {
     return div.innerHTML;
   }
   
-  // ==================== Tabs ====================
-  tabBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabName = btn.dataset.tab;
-      
-      // Update buttons
-      tabBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      
-      // Update content
-      conversationsTab.classList.remove('active');
-      tasksTab.classList.remove('active');
-      
-      if (tabName === 'conversations') {
-        conversationsTab.classList.add('active');
-      } else if (tabName === 'tasks') {
-        tasksTab.classList.add('active');
-        // Load tasks when tab is opened
-        if (tasks.length === 0) {
-          loadTasks();
-        }
-      }
-    });
-  });
+  function getTaskStatusInfo(status) {
+    const statusMap = {
+      'scheduled': { icon: '📅', label: 'Запланирована' },
+      'pending': { icon: '⏳', label: 'Ожидает' },
+      'calling': { icon: '📞', label: 'Звонок...' },
+      'completed': { icon: '✅', label: 'Выполнена' },
+      'failed': { icon: '❌', label: 'Ошибка' },
+      'cancelled': { icon: '🚫', label: 'Отменена' }
+    };
+    return statusMap[status] || { icon: '❓', label: status };
+  }
+  
+  function getCallDirectionInfo(direction) {
+    const directionMap = {
+      'inbound': { icon: '📞', label: 'Входящий звонок' },
+      'outbound': { icon: '📱', label: 'Исходящий звонок' },
+      'chat': { icon: '💬', label: 'Диалог' }
+    };
+    return directionMap[direction] || { icon: '💬', label: 'Диалог' };
+  }
+  
+  function getMessageEnding(count) {
+    if (count % 10 === 1 && count % 100 !== 11) return 'е';
+    if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) return 'я';
+    return 'й';
+  }
   
   // ==================== Load Contact ====================
   async function loadContact() {
     try {
       setLoading(true);
       
-      const contact = await api.get(`/contacts/${contactId}?include_conversations=true`);
+      const contact = await api.get(`/contacts/${contactId}`);
       currentContact = contact;
       
       // Update left panel
@@ -271,22 +294,14 @@ document.addEventListener('DOMContentLoaded', function() {
       contactPhone.textContent = formatPhoneNumber(contact.phone);
       statusDropdown.value = contact.status || 'new';
       
-      // Update conversations count
-      const totalConversations = contact.stats?.total_conversations || 0;
-      conversationsCount.textContent = totalConversations;
-      deleteConversationsCount.textContent = totalConversations;
-      
       // Load notes
       await loadNotes();
-      
-      // Render conversations
-      renderConversations(contact.conversations || []);
       
       // Load assistants (for task creation)
       await loadAssistants();
       
-      // Load tasks
-      await loadTasks();
+      // Load unified timeline
+      await loadTimeline();
       
     } catch (error) {
       console.error('Error loading contact:', error);
@@ -403,92 +418,293 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // ==================== Render Conversations (✅ v3.7: Call Direction Support) ====================
-  function renderConversations(conversations) {
-    conversationsAccordion.innerHTML = '';
+  // ==================== Load Assistants (OpenAI + Gemini) ====================
+  async function loadAssistants() {
+    try {
+      assistants = [];
+      
+      console.log('[ASSISTANTS] Loading assistants...');
+      
+      // 1. Загружаем OpenAI ассистентов
+      try {
+        const openaiData = await api.get('/assistants');
+        console.log('[ASSISTANTS] OpenAI API response:', openaiData);
+        
+        const openaiList = Array.isArray(openaiData) ? openaiData : (openaiData.assistants || []);
+        
+        openaiList.forEach(a => {
+          assistants.push({
+            id: a.id,
+            name: a.name,
+            type: 'openai',
+            displayName: a.name
+          });
+        });
+        
+        console.log(`[ASSISTANTS] ✅ Loaded ${openaiList.length} OpenAI assistants`);
+      } catch (e) {
+        console.warn('[ASSISTANTS] ⚠️ Error loading OpenAI assistants:', e.message);
+      }
+      
+      // 2. Загружаем Gemini ассистентов
+      try {
+        const geminiData = await api.get('/gemini-assistants');
+        console.log('[ASSISTANTS] Gemini API response:', geminiData);
+        
+        const geminiList = Array.isArray(geminiData) ? geminiData : [];
+        
+        geminiList.forEach(a => {
+          assistants.push({
+            id: a.id,
+            name: a.name,
+            type: 'gemini',
+            displayName: a.name
+          });
+        });
+        
+        console.log(`[ASSISTANTS] ✅ Loaded ${geminiList.length} Gemini assistants`);
+      } catch (e) {
+        console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
+      }
+      
+      console.log(`[ASSISTANTS] 🎯 Total assistants: ${assistants.length}`);
+      
+      renderAssistantSelects();
+      
+    } catch (error) {
+      console.error('[ASSISTANTS] ❌ Fatal error loading assistants:', error);
+      assistants = [];
+      renderAssistantSelects();
+    }
+  }
+  
+  function renderAssistantSelects() {
+    // Render for both create and edit modals
+    [taskCreateAssistant, taskEditAssistant].forEach(selectElement => {
+      selectElement.innerHTML = '';
+      
+      if (assistants.length === 0) {
+        selectElement.innerHTML = '<option value="">Нет доступных ассистентов</option>';
+        createTaskBtn.disabled = true;
+        return;
+      }
+      
+      createTaskBtn.disabled = false;
+      
+      const placeholderOption = document.createElement('option');
+      placeholderOption.value = '';
+      placeholderOption.textContent = 'Выберите ассистента...';
+      selectElement.appendChild(placeholderOption);
+      
+      const openaiAssistants = assistants.filter(a => a.type === 'openai');
+      const geminiAssistants = assistants.filter(a => a.type === 'gemini');
+      
+      // OpenAI group
+      if (openaiAssistants.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = '🤖 OpenAI Assistants';
+        
+        openaiAssistants.forEach(assistant => {
+          const option = document.createElement('option');
+          option.value = `${assistant.id}|openai`;
+          option.textContent = assistant.name;
+          optgroup.appendChild(option);
+        });
+        
+        selectElement.appendChild(optgroup);
+      }
+      
+      // Gemini group
+      if (geminiAssistants.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = '✨ Gemini Assistants';
+        
+        geminiAssistants.forEach(assistant => {
+          const option = document.createElement('option');
+          option.value = `${assistant.id}|gemini`;
+          option.textContent = assistant.name;
+          optgroup.appendChild(option);
+        });
+        
+        selectElement.appendChild(optgroup);
+      }
+    });
     
-    if (conversations.length === 0) {
-      conversationsAccordion.innerHTML = `
+    console.log('[ASSISTANTS] ✅ Assistant selects rendered');
+  }
+  
+  // ==================== Load Unified Timeline ====================
+  async function loadTimeline() {
+    try {
+      // Load tasks
+      const tasksResponse = await api.get(`/contacts/${contactId}/tasks`);
+      const tasks = tasksResponse.tasks || [];
+      
+      // Load conversations
+      const conversationsResponse = await api.get(`/contacts/${contactId}?include_conversations=true`);
+      const conversations = conversationsResponse.conversations || [];
+      
+      // Combine into unified timeline
+      timelineItems = [
+        ...tasks.map(task => ({ ...task, type: 'task' })),
+        ...conversations.map(conv => ({ ...conv, type: 'conversation', expanded: false }))
+      ];
+      
+      // Sort by date (newest first)
+      timelineItems.sort((a, b) => {
+        const dateA = new Date(a.scheduled_time || a.created_at);
+        const dateB = new Date(b.scheduled_time || b.created_at);
+        return dateB - dateA;
+      });
+      
+      renderTimeline();
+      
+      // Update conversations count for delete modal
+      deleteConversationsCount.textContent = conversations.length;
+      
+    } catch (error) {
+      console.error('Error loading timeline:', error);
+      timelineContainer.innerHTML = `
         <div class="empty-state">
-          <i class="fas fa-comments"></i>
-          <p>Пока нет диалогов с этим контактом</p>
+          <i class="fas fa-exclamation-circle"></i>
+          <div>Ошибка загрузки истории</div>
+        </div>
+      `;
+    }
+  }
+  
+  // ==================== Render Unified Timeline ====================
+  function renderTimeline() {
+    if (timelineItems.length === 0) {
+      timelineContainer.innerHTML = `
+        <div class="empty-state">
+          <i class="fas fa-clock"></i>
+          <div>История взаимодействий пуста</div>
+          <p style="margin-top: 0.5rem; font-size: 0.875rem;">Создайте первую задачу или начните диалог</p>
         </div>
       `;
       return;
     }
     
-    conversations.forEach((conv, index) => {
-      const item = document.createElement('div');
-      item.className = 'conversation-item';
-      item.dataset.sessionId = conv.session_id;
-      
-      const createdDate = formatDate(conv.created_at);
-      const messagesCount = conv.messages_count || 0;
-      const duration = conv.total_duration ? `${Math.floor(conv.total_duration / 60)} мин` : '';
-      const tokens = conv.total_tokens || 0;
-      
-      // ✅ v3.7: Определяем иконку и метку по направлению звонка
-      let callIcon = '💬';  // По умолчанию диалог
-      let callLabel = 'Диалог';
-      
-      if (conv.call_direction === 'INBOUND') {
-        callIcon = '📞';
-        callLabel = 'Входящий';
-      } else if (conv.call_direction === 'OUTBOUND') {
-        callIcon = '📱';
-        callLabel = 'Исходящий';
+    timelineContainer.innerHTML = '';
+    
+    timelineItems.forEach((item, index) => {
+      if (item.type === 'task') {
+        timelineContainer.appendChild(renderTaskItem(item));
+      } else {
+        timelineContainer.appendChild(renderConversationItem(item, index));
       }
-      
-      item.innerHTML = `
-        <div class="conversation-header">
-          <div class="conversation-info">
-            <div class="conversation-date">
-              ${callIcon} ${callLabel} • ${createdDate}
-            </div>
-            <div class="conversation-meta">
-              <span><i class="fas fa-robot"></i> ${conv.assistant_name || 'Неизвестный'}</span>
-              <span><i class="fas fa-comments"></i> ${messagesCount} сообщений</span>
-              ${duration ? `<span><i class="fas fa-clock"></i> ${duration}</span>` : ''}
-              <span><i class="fas fa-brain"></i> ${tokens} токенов</span>
-            </div>
-          </div>
-          <div class="conversation-toggle">
-            <i class="fas fa-chevron-down"></i>
-          </div>
-        </div>
-        <div class="conversation-body">
-          <div class="conversation-messages" id="messages-${index}">
-            <div style="text-align: center; padding: 2rem; color: var(--text-gray);">
-              <i class="fas fa-spinner fa-spin"></i> Загрузка сообщений...
-            </div>
-          </div>
-        </div>
-      `;
-      
-      conversationsAccordion.appendChild(item);
-      
-      // Accordion toggle
-      const header = item.querySelector('.conversation-header');
-      header.addEventListener('click', () => toggleConversation(item, conv.session_id, index));
     });
   }
   
-  // ==================== Toggle Conversation ====================
-  async function toggleConversation(item, sessionId, index) {
-    const isExpanded = item.classList.contains('expanded');
+  // ==================== Render Task Item ====================
+  function renderTaskItem(task) {
+    const statusInfo = getTaskStatusInfo(task.status);
+    const scheduledTime = new Date(task.scheduled_time);
+    const isOverdue = scheduledTime < new Date() && task.status === 'scheduled';
     
-    // Close all other conversations
+    const item = document.createElement('div');
+    item.className = 'timeline-item task-item';
+    item.dataset.taskId = task.id;
+    
+    item.innerHTML = `
+      <div class="timeline-item-header">
+        <div class="timeline-item-info">
+          <div class="timeline-item-type">
+            📅 ${escapeHtml(task.title)}
+          </div>
+          <div class="timeline-item-meta">
+            <span><span class="task-status-badge status-${task.status}">${statusInfo.icon} ${statusInfo.label}</span></span>
+            <span>${formatDateTime(task.scheduled_time)}${isOverdue ? ' <span style="color: var(--error-red); font-weight: 600;">⚠️ Просрочено</span>' : ''}</span>
+            <span>${task.assistant_name || 'Ассистент не указан'}</span>
+          </div>
+        </div>
+        <div class="timeline-item-toggle">
+          <i class="fas fa-chevron-right"></i>
+        </div>
+      </div>
+    `;
+    
+    // Click to open task view modal
+    item.addEventListener('click', () => openTaskViewModal(task.id));
+    
+    return item;
+  }
+  
+  // ==================== Render Conversation Item ====================
+  function renderConversationItem(conversation, index) {
+    const callDirection = getCallDirectionInfo(conversation.call_direction);
+    const messageCount = conversation.messages_count || 0;
+    
+    const item = document.createElement('div');
+    item.className = `timeline-item conversation-item ${conversation.expanded ? 'expanded' : ''}`;
+    item.dataset.conversationId = conversation.id;
+    item.dataset.index = index;
+    
+    item.innerHTML = `
+      <div class="timeline-item-header">
+        <div class="timeline-item-info">
+          <div class="timeline-item-type">
+            ${callDirection.icon} ${callDirection.label}
+            ${conversation.task_id ? '<span style="font-size: 0.75rem; color: var(--text-light);">(по задаче)</span>' : ''}
+          </div>
+          <div class="timeline-item-meta">
+            <span>${formatDate(conversation.created_at)}</span>
+            <span>${messageCount} сообщени${getMessageEnding(messageCount)}</span>
+          </div>
+        </div>
+        <div class="timeline-item-toggle">
+          <i class="fas fa-chevron-down"></i>
+        </div>
+      </div>
+      <div class="timeline-item-body">
+        <div class="timeline-item-content" id="conversation-content-${index}">
+          <div style="text-align: center; padding: 1rem; color: var(--text-light);">
+            <i class="fas fa-spinner fa-spin"></i> Загрузка сообщений...
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Click to toggle conversation
+    const header = item.querySelector('.timeline-item-header');
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target.closest('a')) return;
+      toggleConversation(conversation.id, index);
+    });
+    
+    return item;
+  }
+  
+  // ==================== Toggle Conversation ====================
+  async function toggleConversation(conversationId, index) {
+    const item = timelineItems.find(i => i.id === conversationId && i.type === 'conversation');
+    if (!item) return;
+    
+    const element = document.querySelector(`[data-conversation-id="${conversationId}"]`);
+    if (!element) return;
+    
+    const wasExpanded = item.expanded;
+    
+    // Close all conversations
+    timelineItems.forEach(i => {
+      if (i.type === 'conversation') {
+        i.expanded = false;
+      }
+    });
     document.querySelectorAll('.conversation-item').forEach(el => {
       el.classList.remove('expanded');
     });
     
-    if (!isExpanded) {
-      item.classList.add('expanded');
+    // Toggle current
+    if (!wasExpanded) {
+      item.expanded = true;
+      element.classList.add('expanded');
       
-      // Load messages if not loaded yet
-      const messagesContainer = document.getElementById(`messages-${index}`);
-      if (messagesContainer.querySelector('.fa-spinner')) {
-        await loadConversationMessages(sessionId, messagesContainer);
+      // Load messages if not loaded
+      const contentContainer = document.getElementById(`conversation-content-${index}`);
+      if (contentContainer && contentContainer.querySelector('.fa-spinner')) {
+        await loadConversationMessages(item.session_id, contentContainer);
       }
     }
   }
@@ -500,9 +716,8 @@ document.addEventListener('DOMContentLoaded', function() {
       
       if (!data.messages || data.messages.length === 0) {
         container.innerHTML = `
-          <div style="text-align: center; padding: 2rem; color: var(--text-gray);">
-            <i class="fas fa-comment-slash"></i>
-            <p>Нет сообщений</p>
+          <div style="text-align: center; padding: 1rem; color: var(--text-light);">
+            Нет сообщений
           </div>
         `;
         return;
@@ -525,369 +740,76 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error loading messages:', error);
       container.innerHTML = `
-        <div style="text-align: center; padding: 2rem; color: var(--error-red);">
+        <div style="text-align: center; padding: 1rem; color: var(--error-red);">
           <i class="fas fa-exclamation-circle"></i>
-          <p>Ошибка загрузки сообщений</p>
+          Ошибка загрузки сообщений
         </div>
       `;
     }
   }
   
-  // ==================== Load Assistants (OpenAI + Gemini) ====================
-  async function loadAssistants() {
-    try {
-      assistants = [];
-      
-      console.log('[ASSISTANTS] Loading assistants...');
-      
-      // 1. Загружаем OpenAI ассистентов
-      try {
-        const openaiData = await api.get('/assistants');
-        console.log('[ASSISTANTS] OpenAI API response:', openaiData);
-        
-        // API может вернуть массив или объект с полем assistants
-        const openaiList = Array.isArray(openaiData) ? openaiData : (openaiData.assistants || []);
-        
-        // Добавляем тип для различения
-        openaiList.forEach(a => {
-          assistants.push({
-            id: a.id,
-            name: a.name,
-            type: 'openai',
-            displayName: a.name
-          });
-        });
-        
-        console.log(`[ASSISTANTS] ✅ Loaded ${openaiList.length} OpenAI assistants`);
-      } catch (e) {
-        console.warn('[ASSISTANTS] ⚠️ Error loading OpenAI assistants:', e.message);
-      }
-      
-      // 2. Загружаем Gemini ассистентов
-      try {
-        const geminiData = await api.get('/gemini-assistants');
-        console.log('[ASSISTANTS] Gemini API response:', geminiData);
-        
-        // API возвращает массив
-        const geminiList = Array.isArray(geminiData) ? geminiData : [];
-        
-        // Добавляем тип для различения
-        geminiList.forEach(a => {
-          assistants.push({
-            id: a.id,
-            name: a.name,
-            type: 'gemini',
-            displayName: a.name
-          });
-        });
-        
-        console.log(`[ASSISTANTS] ✅ Loaded ${geminiList.length} Gemini assistants`);
-      } catch (e) {
-        console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
-      }
-      
-      console.log(`[ASSISTANTS] 🎯 Total assistants: ${assistants.length}`);
-      
-      renderAssistantSelect();
-      
-    } catch (error) {
-      console.error('[ASSISTANTS] ❌ Fatal error loading assistants:', error);
-      assistants = [];
-      renderAssistantSelect();
-    }
-  }
+  // ==================== Task Operations ====================
   
-  function renderAssistantSelect() {
-    taskAssistantSelect.innerHTML = '';
-    
-    if (assistants.length === 0) {
-      taskAssistantSelect.innerHTML = '<option value="">Нет доступных ассистентов</option>';
-      createTaskBtn.disabled = true;
-      console.log('[ASSISTANTS] No assistants available - task creation disabled');
-      return;
-    }
-    
-    // Включаем кнопку создания задачи
-    createTaskBtn.disabled = false;
-    
-    // Добавляем placeholder
-    const placeholderOption = document.createElement('option');
-    placeholderOption.value = '';
-    placeholderOption.textContent = 'Выберите ассистента...';
-    taskAssistantSelect.appendChild(placeholderOption);
-    
-    // Группируем по типу
-    const openaiAssistants = assistants.filter(a => a.type === 'openai');
-    const geminiAssistants = assistants.filter(a => a.type === 'gemini');
-    
-    console.log(`[ASSISTANTS] Rendering: ${openaiAssistants.length} OpenAI, ${geminiAssistants.length} Gemini`);
-    
-    // Добавляем OpenAI ассистентов
-    if (openaiAssistants.length > 0) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = '🤖 OpenAI Assistants';
-      
-      openaiAssistants.forEach(assistant => {
-        const option = document.createElement('option');
-        option.value = assistant.id;
-        option.textContent = assistant.name;
-        option.dataset.type = 'openai';
-        optgroup.appendChild(option);
-      });
-      
-      taskAssistantSelect.appendChild(optgroup);
-    }
-    
-    // Добавляем Gemini ассистентов
-    if (geminiAssistants.length > 0) {
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = '✨ Gemini Assistants';
-      
-      geminiAssistants.forEach(assistant => {
-        const option = document.createElement('option');
-        option.value = assistant.id;
-        option.textContent = assistant.name;
-        option.dataset.type = 'gemini';
-        optgroup.appendChild(option);
-      });
-      
-      taskAssistantSelect.appendChild(optgroup);
-    }
-    
-    console.log('[ASSISTANTS] ✅ Assistant select rendered successfully');
-  }
-  
-  // ==================== Load Tasks ====================
-  async function loadTasks() {
-    try {
-      const data = await api.get(`/contacts/${contactId}/tasks`);
-      tasks = data.tasks || [];
-      tasksCount.textContent = data.pending_count || 0;
-      renderTasks();
-    } catch (error) {
-      console.error('Error loading tasks:', error);
-      showNotification('Ошибка загрузки задач', 'error');
-    }
-  }
-  
-  // ==================== Render Tasks ====================
-  function renderTasks() {
-    if (tasks.length === 0) {
-      tasksList.innerHTML = `
-        <div class="empty-state-small">
-          <i class="fas fa-calendar-check"></i>
-          <p>Нет задач</p>
-          <p style="font-size: 0.75rem; margin-top: 0.5rem;">Создайте задачу для автоматического звонка</p>
-        </div>
-      `;
-      return;
-    }
-    
-    tasksList.innerHTML = '';
-    
-    // Группируем по статусу
-    const pending = tasks.filter(t => t.status === 'scheduled' || t.status === 'pending');
-    const completed = tasks.filter(t => t.status === 'completed');
-    const failed = tasks.filter(t => t.status === 'failed');
-    const cancelled = tasks.filter(t => t.status === 'cancelled');
-    
-    // Рендерим pending
-    if (pending.length > 0) {
-      const section = document.createElement('div');
-      section.className = 'tasks-section';
-      section.innerHTML = '<h4>📅 Запланированные</h4>';
-      
-      pending.forEach(task => {
-        section.appendChild(createTaskCard(task));
-      });
-      
-      tasksList.appendChild(section);
-    }
-    
-    // Рендерим completed
-    if (completed.length > 0) {
-      const section = document.createElement('div');
-      section.className = 'tasks-section';
-      section.innerHTML = '<h4>✅ Выполненные</h4>';
-      
-      completed.forEach(task => {
-        section.appendChild(createTaskCard(task));
-      });
-      
-      tasksList.appendChild(section);
-    }
-    
-    // Рендерим failed
-    if (failed.length > 0) {
-      const section = document.createElement('div');
-      section.className = 'tasks-section';
-      section.innerHTML = '<h4>❌ Ошибка</h4>';
-      
-      failed.forEach(task => {
-        section.appendChild(createTaskCard(task));
-      });
-      
-      tasksList.appendChild(section);
-    }
-    
-    // Рендерим cancelled
-    if (cancelled.length > 0) {
-      const section = document.createElement('div');
-      section.className = 'tasks-section';
-      section.innerHTML = '<h4>🚫 Отменённые</h4>';
-      
-      cancelled.forEach(task => {
-        section.appendChild(createTaskCard(task));
-      });
-      
-      tasksList.appendChild(section);
-    }
-  }
-  
-  function createTaskCard(task) {
-    const card = document.createElement('div');
-    card.className = 'task-card';
-    card.dataset.taskId = task.id;
-    
-    const scheduledTime = new Date(task.scheduled_time);
-    const now = new Date();
-    const isPast = scheduledTime < now;
-    const isScheduled = task.status === 'scheduled' || task.status === 'pending';
-    
-    card.innerHTML = `
-      <div class="task-card-header">
-        <div class="task-status status-${task.status}">
-          ${getTaskStatusIcon(task.status)} ${getTaskStatusLabel(task.status)}
-        </div>
-        ${isScheduled ? `
-          <button class="task-delete-btn" data-task-id="${task.id}" title="Отменить задачу">
-            <i class="fas fa-times"></i>
-          </button>
-        ` : ''}
-      </div>
-      
-      <div class="task-title">${escapeHtml(task.title)}</div>
-      
-      ${task.description ? `
-        <div class="task-description">${escapeHtml(task.description)}</div>
-      ` : ''}
-      
-      <div class="task-meta">
-        <div class="task-time ${isPast && isScheduled ? 'task-overdue' : ''}">
-          <i class="fas fa-clock"></i>
-          ${formatDateTime(task.scheduled_time)}
-        </div>
-        <div class="task-assistant">
-          <i class="fas fa-robot"></i>
-          ${task.assistant_name || 'Unknown'}
-        </div>
-      </div>
-      
-      ${task.call_session_id ? `
-        <div class="task-result">
-          <i class="fas fa-phone"></i>
-          Звонок выполнен (ID: ${task.call_session_id.substring(0, 8)}...)
-        </div>
-      ` : ''}
-    `;
-    
-    // Add delete listener
-    const deleteBtn = card.querySelector('.task-delete-btn');
-    if (deleteBtn) {
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteTask(task.id);
-      });
-    }
-    
-    return card;
-  }
-  
-  function getTaskStatusIcon(status) {
-    const icons = {
-      'scheduled': '📅',
-      'pending': '⏳',
-      'calling': '📞',
-      'completed': '✅',
-      'failed': '❌',
-      'cancelled': '🚫'
-    };
-    return icons[status] || '❓';
-  }
-  
-  function getTaskStatusLabel(status) {
-    const labels = {
-      'scheduled': 'Запланирована',
-      'pending': 'Ожидает',
-      'calling': 'Звоним',
-      'completed': 'Выполнена',
-      'failed': 'Ошибка',
-      'cancelled': 'Отменена'
-    };
-    return labels[status] || status;
-  }
-  
-  // ==================== Create Task ====================
-  createTaskBtn.addEventListener('click', () => {
-    // Set default datetime to 1 hour from now
+  // Open Task Create Modal
+  function openTaskCreateModal() {
     const defaultTime = new Date();
     defaultTime.setHours(defaultTime.getHours() + 1);
-    taskDatetimeInput.value = defaultTime.toISOString().slice(0, 16);
+    taskCreateDatetime.value = defaultTime.toISOString().slice(0, 16);
     
-    taskModal.classList.add('show');
-  });
+    taskCreateForm.reset();
+    taskCreateDatetime.value = defaultTime.toISOString().slice(0, 16);
+    
+    taskCreateModal.classList.add('show');
+  }
   
-  cancelTaskBtn.addEventListener('click', () => {
-    taskModal.classList.remove('show');
-    taskForm.reset();
-  });
+  function closeTaskCreateModal() {
+    taskCreateModal.classList.remove('show');
+    taskCreateForm.reset();
+  }
   
-  taskModal.addEventListener('click', (e) => {
-    if (e.target === taskModal) {
-      taskModal.classList.remove('show');
-      taskForm.reset();
-    }
-  });
-  
-  taskForm.addEventListener('submit', async (e) => {
+  // Create Task
+  async function createTask(e) {
     e.preventDefault();
     
-    const assistantId = taskAssistantSelect.value;
-    const scheduledTime = taskDatetimeInput.value;
-    const title = taskTitleInput.value.trim();
-    const description = taskDescriptionInput.value.trim();
-    const customGreeting = taskCustomGreetingInput.value.trim(); // ✅ v3.6
+    const assistantValue = taskCreateAssistant.value;
+    if (!assistantValue) {
+      showNotification('Выберите ассистента', 'error');
+      return;
+    }
     
-    if (!assistantId || !scheduledTime || !title) {
-      showNotification('Заполните все обязательные поля', 'error');
+    const [assistantId, assistantType] = assistantValue.split('|');
+    const scheduledTime = taskCreateDatetime.value;
+    const title = taskCreateTitle.value.trim();
+    const description = taskCreateDescription.value.trim();
+    const customGreeting = taskCreateGreeting.value.trim();
+    
+    if (!title) {
+      showNotification('Введите название задачи', 'error');
       return;
     }
     
     try {
       setLoading(true);
       
-      console.log('[TASK] Creating task with data:', {
-        assistant_id: assistantId,
-        scheduled_time: scheduledTime,
+      const body = {
+        scheduled_time: new Date(scheduledTime).toISOString(),
         title: title,
         description: description || null,
-        custom_greeting: customGreeting || null  // ✅ v3.6
-      });
+        custom_greeting: customGreeting || null
+      };
       
-      await api.post(`/contacts/${contactId}/tasks`, {
-        assistant_id: assistantId,
-        scheduled_time: scheduledTime,
-        title: title,
-        description: description || null,
-        custom_greeting: customGreeting || null  // ✅ v3.6
-      });
+      if (assistantType === 'openai') {
+        body.assistant_id = assistantId;
+      } else {
+        body.gemini_assistant_id = assistantId;
+      }
       
-      taskModal.classList.remove('show');
-      taskForm.reset();
+      await api.post(`/contacts/${contactId}/tasks`, body);
       
-      await loadTasks();
+      closeTaskCreateModal();
+      await loadTimeline();
       
-      showNotification('Задача создана', 'success');
+      showNotification('Задача создана успешно', 'success');
       
     } catch (error) {
       console.error('Error creating task:', error);
@@ -895,32 +817,170 @@ document.addEventListener('DOMContentLoaded', function() {
     } finally {
       setLoading(false);
     }
-  });
+  }
   
-  // ==================== Delete Task ====================
-  async function deleteTask(taskId) {
-    if (!confirm('Отменить эту задачу?')) {
+  // Open Task View Modal
+  async function openTaskViewModal(taskId) {
+    try {
+      setLoading(true);
+      currentTaskId = taskId;
+      
+      const response = await api.get(`/contacts/tasks/${taskId}`);
+      currentTaskData = response;
+      
+      populateTaskViewMode();
+      
+      taskViewMode.style.display = 'block';
+      taskEditForm.style.display = 'none';
+      taskModalTitle.innerHTML = '<i class="fas fa-calendar-alt"></i> Детали задачи';
+      
+      taskViewModal.classList.add('show');
+      
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Error loading task:', error);
+      showNotification('Ошибка загрузки задачи', 'error');
+      setLoading(false);
+    }
+  }
+  
+  function populateTaskViewMode() {
+    const task = currentTaskData;
+    const statusInfo = getTaskStatusInfo(task.status);
+    
+    // Status
+    taskViewStatus.innerHTML = `
+      <span class="task-status-badge status-${task.status}">
+        ${statusInfo.icon} ${statusInfo.label}
+      </span>
+    `;
+    
+    // Title
+    taskViewTitle.textContent = task.title;
+    
+    // DateTime
+    const scheduledTime = new Date(task.scheduled_time);
+    const isOverdue = scheduledTime < new Date() && task.status === 'scheduled';
+    taskViewDatetime.innerHTML = 
+      formatDateTime(task.scheduled_time) + 
+      (isOverdue ? ' <span style="color: var(--error-red); font-weight: 600;">⚠️ Просрочено</span>' : '');
+    
+    // Assistant
+    const assistantIcon = task.assistant_type === 'openai' ? '🤖' : '✨';
+    taskViewAssistant.textContent = `${assistantIcon} ${task.assistant_name}`;
+    
+    // Description
+    if (task.description) {
+      taskViewDescriptionSection.style.display = 'block';
+      taskViewDescription.textContent = task.description;
+    } else {
+      taskViewDescriptionSection.style.display = 'none';
+    }
+    
+    // Custom greeting
+    if (task.custom_greeting) {
+      taskViewGreetingSection.style.display = 'block';
+      taskViewGreeting.textContent = task.custom_greeting;
+    } else {
+      taskViewGreetingSection.style.display = 'none';
+    }
+    
+    // Show/hide edit button
+    if (task.status === 'scheduled' || task.status === 'pending') {
+      taskViewEditBtn.style.display = 'inline-flex';
+    } else {
+      taskViewEditBtn.style.display = 'none';
+    }
+  }
+  
+  function switchToEditMode() {
+    const task = currentTaskData;
+    
+    // Populate edit form
+    const assistantValue = task.assistant_type === 'openai' 
+      ? `${task.assistant_id}|openai` 
+      : `${task.gemini_assistant_id}|gemini`;
+    
+    taskEditAssistant.value = assistantValue;
+    
+    const scheduledTime = new Date(task.scheduled_time);
+    taskEditDatetime.value = scheduledTime.toISOString().slice(0, 16);
+    
+    taskEditTitle.value = task.title;
+    taskEditDescription.value = task.description || '';
+    taskEditGreeting.value = task.custom_greeting || '';
+    
+    // Switch views
+    taskViewMode.style.display = 'none';
+    taskEditForm.style.display = 'block';
+    taskModalTitle.innerHTML = '<i class="fas fa-edit"></i> Редактирование задачи';
+  }
+  
+  function switchToViewMode() {
+    taskViewMode.style.display = 'block';
+    taskEditForm.style.display = 'none';
+    taskModalTitle.innerHTML = '<i class="fas fa-calendar-alt"></i> Детали задачи';
+  }
+  
+  async function updateTask(e) {
+    e.preventDefault();
+    
+    const assistantValue = taskEditAssistant.value;
+    if (!assistantValue) {
+      showNotification('Выберите ассистента', 'error');
+      return;
+    }
+    
+    const [assistantId, assistantType] = assistantValue.split('|');
+    const scheduledTime = taskEditDatetime.value;
+    const title = taskEditTitle.value.trim();
+    const description = taskEditDescription.value.trim();
+    const customGreeting = taskEditGreeting.value.trim();
+    
+    if (!title) {
+      showNotification('Введите название задачи', 'error');
       return;
     }
     
     try {
       setLoading(true);
       
-      await api.delete(`/contacts/tasks/${taskId}`);
+      const body = {
+        scheduled_time: new Date(scheduledTime).toISOString(),
+        title: title,
+        description: description || null,
+        custom_greeting: customGreeting || null
+      };
       
-      await loadTasks();
+      // Backend will determine type by assistant_id
+      body.assistant_id = assistantId;
       
-      showNotification('Задача отменена', 'success');
+      const response = await api.put(`/contacts/tasks/${currentTaskId}`, body);
+      currentTaskData = response;
+      
+      showNotification('Задача обновлена успешно', 'success');
+      
+      await loadTimeline();
+      closeTaskViewModal();
+      
+      setLoading(false);
       
     } catch (error) {
-      console.error('Error deleting task:', error);
-      showNotification(error.message || 'Ошибка отмены задачи', 'error');
-    } finally {
+      console.error('Error updating task:', error);
+      showNotification(error.message || 'Ошибка обновления задачи', 'error');
       setLoading(false);
     }
   }
   
-  // ==================== Update Status ====================
+  function closeTaskViewModal() {
+    taskViewModal.classList.remove('show');
+    currentTaskId = null;
+    currentTaskData = null;
+  }
+  
+  // ==================== Contact Operations ====================
+  
   async function updateStatus(newStatus) {
     try {
       setLoading(true);
@@ -934,14 +994,12 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error updating status:', error);
       showNotification(error.message || 'Ошибка обновления статуса', 'error');
-      // Revert status
       statusDropdown.value = currentContact.status;
     } finally {
       setLoading(false);
     }
   }
   
-  // ==================== Save Name ====================
   async function saveName() {
     try {
       const newName = nameInput.value.trim();
@@ -952,7 +1010,6 @@ document.addEventListener('DOMContentLoaded', function() {
         name: newName || null
       });
       
-      // Update current contact and avatar
       currentContact = response.contact;
       const initials = getInitials(newName, currentContact.phone);
       contactAvatar.textContent = initials;
@@ -967,7 +1024,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // ==================== Delete Contact ====================
   async function deleteContact() {
     try {
       setLoading(true);
@@ -988,9 +1044,9 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // ==================== Event Listeners ====================
-  saveNameBtn.addEventListener('click', saveName);
   
-  // Allow Enter to save name
+  // Name
+  saveNameBtn.addEventListener('click', saveName);
   nameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -998,9 +1054,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   
+  // Notes
   addNoteBtn.addEventListener('click', addNote);
-  
-  // Allow Enter+Ctrl to add note
   noteInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.ctrlKey) {
       e.preventDefault();
@@ -1008,36 +1063,56 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
   
+  // Status
   statusDropdown.addEventListener('change', (e) => {
     updateStatus(e.target.value);
   });
   
+  // Task Create Modal
+  createTaskBtn.addEventListener('click', openTaskCreateModal);
+  taskCreateCancelBtn.addEventListener('click', closeTaskCreateModal);
+  taskCreateForm.addEventListener('submit', createTask);
+  taskCreateModal.addEventListener('click', (e) => {
+    if (e.target === taskCreateModal) {
+      closeTaskCreateModal();
+    }
+  });
+  
+  // Task View/Edit Modal
+  taskViewCloseBtn.addEventListener('click', closeTaskViewModal);
+  taskViewEditBtn.addEventListener('click', switchToEditMode);
+  taskEditCancelBtn.addEventListener('click', switchToViewMode);
+  taskEditForm.addEventListener('submit', updateTask);
+  taskViewModal.addEventListener('click', (e) => {
+    if (e.target === taskViewModal) {
+      closeTaskViewModal();
+    }
+  });
+  
+  // Delete Contact
   deleteContactBtn.addEventListener('click', () => {
     deleteModal.classList.add('show');
   });
-  
   cancelDeleteBtn.addEventListener('click', () => {
     deleteModal.classList.remove('show');
   });
-  
   confirmDeleteBtn.addEventListener('click', () => {
     deleteModal.classList.remove('show');
     deleteContact();
   });
-  
   deleteModal.addEventListener('click', (e) => {
     if (e.target === deleteModal) {
       deleteModal.classList.remove('show');
     }
   });
   
+  // Notification
   notificationClose.addEventListener('click', hideNotification);
   
   // ==================== Initialization ====================
   if (!api.isAuthenticated()) {
     window.location.href = '/static/login.html';
   } else {
-    // Get contact ID from URL
     const urlParams = new URLSearchParams(window.location.search);
     contactId = urlParams.get('id');
     
