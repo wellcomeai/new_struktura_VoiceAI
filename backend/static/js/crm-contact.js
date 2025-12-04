@@ -264,12 +264,15 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function getCallDirectionInfo(direction) {
+    // Поддержка как UPPERCASE (INBOUND/OUTBOUND), так и lowercase
+    const normalizedDirection = direction ? direction.toLowerCase() : 'chat';
+    
     const directionMap = {
       'inbound': { icon: '📞', label: 'Входящий звонок' },
       'outbound': { icon: '📱', label: 'Исходящий звонок' },
       'chat': { icon: '💬', label: 'Диалог' }
     };
-    return directionMap[direction] || { icon: '💬', label: 'Диалог' };
+    return directionMap[normalizedDirection] || { icon: '💬', label: 'Диалог' };
   }
   
   function getMessageEnding(count) {
@@ -544,6 +547,11 @@ document.addEventListener('DOMContentLoaded', function() {
       const conversationsResponse = await api.get(`/contacts/${contactId}?include_conversations=true`);
       const conversations = conversationsResponse.conversations || [];
       
+      console.log('[TIMELINE] Loaded:', tasks.length, 'tasks,', conversations.length, 'conversations');
+      if (conversations.length > 0) {
+        console.log('[TIMELINE] First conversation sample:', conversations[0]);
+      }
+      
       // Combine into unified timeline
       timelineItems = [
         ...tasks.map(task => ({ ...task, type: 'task' })),
@@ -633,6 +641,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // ==================== Render Conversation Item ====================
   function renderConversationItem(conversation, index) {
+    // Debug: проверяем call_direction
+    console.log('[CONVERSATION]', conversation.id, 'call_direction:', conversation.call_direction);
+    
     const callDirection = getCallDirectionInfo(conversation.call_direction);
     const messageCount = conversation.messages_count || 0;
     
