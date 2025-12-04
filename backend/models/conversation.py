@@ -38,7 +38,7 @@ class Conversation(Base, BaseModel):
     is_flagged = Column(Boolean, default=False)  # Flagged for review
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     audio_duration = Column(Float, nullable=True)  # Duration of audio in seconds
-
+    call_direction = Column(String(20), nullable=True, index=True)
     # Relationships
     assistant = relationship("AssistantConfig", back_populates="conversations")
     contact = relationship("Contact", back_populates="conversations")  # 🆕 v3.0: CRM relationship
