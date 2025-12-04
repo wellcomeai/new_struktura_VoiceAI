@@ -2,12 +2,13 @@
 /**
  * Contact Detail Page для Voicyfy CRM
  * Детальный просмотр контакта с историей диалогов, заметками и задачами
- * Version: 3.6 - PRODUCTION READY with Custom Greeting
+ * Version: 3.7 - PRODUCTION READY with Call Direction Support
  * ✅ OpenAI + Gemini assistants support
  * ✅ Tasks with auto-calls
  * ✅ Notes feed
  * ✅ Conversations history
  * ✅ v3.6: Custom greeting support
+ * ✅ v3.7: Call direction indicators (INBOUND/OUTBOUND)
  */
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -43,7 +44,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const taskDatetimeInput = document.getElementById('task-datetime');
   const taskTitleInput = document.getElementById('task-title');
   const taskDescriptionInput = document.getElementById('task-description');
-  const taskCustomGreetingInput = document.getElementById('task-custom-greeting'); // ✅ НОВОЕ v3.6
+  const taskCustomGreetingInput = document.getElementById('task-custom-greeting'); // ✅ v3.6
   const cancelTaskBtn = document.getElementById('cancel-task-btn');
   
   // Delete
@@ -402,7 +403,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // ==================== Render Conversations ====================
+  // ==================== Render Conversations (✅ v3.7: Call Direction Support) ====================
   function renderConversations(conversations) {
     conversationsAccordion.innerHTML = '';
     
@@ -426,11 +427,23 @@ document.addEventListener('DOMContentLoaded', function() {
       const duration = conv.total_duration ? `${Math.floor(conv.total_duration / 60)} мин` : '';
       const tokens = conv.total_tokens || 0;
       
+      // ✅ v3.7: Определяем иконку и метку по направлению звонка
+      let callIcon = '💬';  // По умолчанию диалог
+      let callLabel = 'Диалог';
+      
+      if (conv.call_direction === 'INBOUND') {
+        callIcon = '📞';
+        callLabel = 'Входящий';
+      } else if (conv.call_direction === 'OUTBOUND') {
+        callIcon = '📱';
+        callLabel = 'Исходящий';
+      }
+      
       item.innerHTML = `
         <div class="conversation-header">
           <div class="conversation-info">
             <div class="conversation-date">
-              📞 ${createdDate}
+              ${callIcon} ${callLabel} • ${createdDate}
             </div>
             <div class="conversation-meta">
               <span><i class="fas fa-robot"></i> ${conv.assistant_name || 'Неизвестный'}</span>
@@ -843,7 +856,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const scheduledTime = taskDatetimeInput.value;
     const title = taskTitleInput.value.trim();
     const description = taskDescriptionInput.value.trim();
-    const customGreeting = taskCustomGreetingInput.value.trim(); // ✅ НОВОЕ v3.6
+    const customGreeting = taskCustomGreetingInput.value.trim(); // ✅ v3.6
     
     if (!assistantId || !scheduledTime || !title) {
       showNotification('Заполните все обязательные поля', 'error');
@@ -858,7 +871,7 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduled_time: scheduledTime,
         title: title,
         description: description || null,
-        custom_greeting: customGreeting || null  // ✅ НОВОЕ v3.6
+        custom_greeting: customGreeting || null  // ✅ v3.6
       });
       
       await api.post(`/contacts/${contactId}/tasks`, {
@@ -866,7 +879,7 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduled_time: scheduledTime,
         title: title,
         description: description || null,
-        custom_greeting: customGreeting || null  // ✅ НОВОЕ v3.6
+        custom_greeting: customGreeting || null  // ✅ v3.6
       });
       
       taskModal.classList.remove('show');
