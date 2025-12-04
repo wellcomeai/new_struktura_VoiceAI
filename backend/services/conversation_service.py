@@ -4,6 +4,7 @@ Conversation service for WellcomeAI application.
 Handles conversation tracking and analysis.
 ✅ v2.0: Extended with caller_number support and enhanced filtering
 ✅ v2.1: Auto-create contacts from phone calls (CRM integration)
+✅ v3.1: Phone normalization and call direction extraction
 """
 
 from fastapi import HTTPException, status
@@ -28,18 +29,73 @@ class ConversationService:
     """Service for conversation operations"""
     
     # ==================================================================================
+    # 🆕 HELPER METHODS - Phone normalization and call direction extraction
+    # ==================================================================================
+    
+    @staticmethod
+    def _normalize_phone(phone: str) -> str:
+        """
+        Нормализует номер телефона, убирая префиксы OUTBOUND/INBOUND.
+        
+        Examples:
+            "OUTBOUND: INBOUND: 79500968479" -> "79500968479"
+            "INBOUND: 79601663217" -> "79601663217"
+            "OUTBOUND: +79934409005" -> "79934409005"
+            "+7 (950) 096-84-79" -> "79500968479"
+        
+        Returns:
+            Normalized phone number or "unknown"
+        """
+        if not phone or phone == "unknown":
+            return "unknown"
+        
+        # Убираем префиксы
+        cleaned = phone.replace("OUTBOUND:", "").replace("INBOUND:", "").strip()
+        
+        # Убираем все символы кроме цифр
+        cleaned = ''.join(c for c in cleaned if c.isdigit())
+        
+        # Если номер начинается с 8, заменяем на 7
+        if cleaned.startswith('8') and len(cleaned) == 11:
+            cleaned = '7' + cleaned[1:]
+        
+        return cleaned if cleaned else "unknown"
+    
+    @staticmethod
+    def _extract_call_direction(phone: str) -> Optional[str]:
+        """
+        Извлекает направление звонка из префикса номера.
+        
+        Args:
+            phone: Номер телефона с префиксом (например, "INBOUND: 79601663217")
+        
+        Returns:
+            "INBOUND", "OUTBOUND", или None
+        """
+        if not phone:
+            return None
+        
+        if "OUTBOUND:" in phone:
+            return "OUTBOUND"
+        elif "INBOUND:" in phone:
+            return "INBOUND"
+        
+        return None
+    
+    # ==================================================================================
     # 🆕 HELPER METHOD - Auto-create contact from phone number
     # ==================================================================================
     
     @staticmethod
     def _get_or_create_contact(db: Session, user_id: uuid.UUID, phone: str) -> Optional[uuid.UUID]:
         """
-        🆕 v2.1: Внутренний метод для автосоздания контакта из номера телефона.
+        🆕 v3.1: Внутренний метод для автосоздания контакта из номера телефона.
+        Использует нормализацию номера для предотвращения дублей.
         
         Args:
             db: Database session
             user_id: ID пользователя (владельца ассистента)
-            phone: Номер телефона
+            phone: Номер телефона (будет нормализован)
             
         Returns:
             UUID контакта или None при ошибке
@@ -47,12 +103,15 @@ class ConversationService:
         try:
             from backend.models.contact import Contact
             
-            logger.info(f"[CRM-AUTO] Checking/creating contact for phone: {phone}")
+            # ✅ НОРМАЛИЗУЕМ номер перед поиском
+            normalized_phone = ConversationService._normalize_phone(phone)
             
-            # Ищем существующий контакт
+            logger.info(f"[CRM-AUTO] Normalizing phone: '{phone}' -> '{normalized_phone}'")
+            
+            # Ищем по нормализованному номеру
             contact = db.query(Contact).filter(
                 Contact.user_id == user_id,
-                Contact.phone == phone
+                Contact.phone == normalized_phone
             ).first()
             
             if contact:
@@ -62,15 +121,15 @@ class ConversationService:
                 logger.info(f"[CRM-AUTO] ✅ Found existing contact: {contact.id}")
                 return contact.id
             else:
-                # Создаем новый контакт
+                # Создаем новый контакт с нормализованным номером
                 new_contact = Contact(
                     user_id=user_id,
-                    phone=phone,
+                    phone=normalized_phone,
                     status="new",
                     last_interaction=datetime.utcnow()
                 )
                 db.add(new_contact)
-                db.flush()  # Получаем ID без полного commit
+                db.flush()
                 logger.info(f"[CRM-AUTO] ✅ Created new contact: {new_contact.id}")
                 return new_contact.id
                 
@@ -347,7 +406,7 @@ class ConversationService:
             )
     
     # ==================================================================================
-    # 🆕 NEW METHODS v2.0 - Новые методы с поддержкой caller_number
+    # 🆕 NEW METHODS v3.1 - Новые методы с поддержкой call_direction и нормализации
     # ==================================================================================
     
     @staticmethod
@@ -358,12 +417,13 @@ class ConversationService:
         assistant_message: str,
         session_id: Optional[str] = None,
         caller_number: Optional[str] = None,
+        call_direction: Optional[str] = None,
         client_info: Optional[Dict[str, Any]] = None,
         audio_duration: Optional[float] = None,
         tokens_used: Optional[int] = 0
     ) -> Optional[Conversation]:
         """
-        🆕 v2.1: Сохранить диалог в БД с автосозданием контакта из caller_number.
+        🆕 v3.1: Сохранить диалог в БД с автосозданием контакта и нормализацией номера.
         Используется для Voximplant и других внешних источников.
         
         Args:
@@ -372,7 +432,8 @@ class ConversationService:
             user_message: Сообщение пользователя
             assistant_message: Ответ ассистента
             session_id: ID сессии (для группировки диалогов)
-            caller_number: 🆕 Номер телефона (автоматически создаст контакт в CRM)
+            caller_number: Номер телефона (может содержать префиксы INBOUND:/OUTBOUND:)
+            call_direction: Направление звонка ("INBOUND"/"OUTBOUND") - будет извлечено автоматически если не указано
             client_info: Дополнительная информация о клиенте
             audio_duration: Длительность аудио
             tokens_used: Количество использованных токенов
@@ -381,10 +442,10 @@ class ConversationService:
             Conversation: Созданная запись диалога или None при ошибке
         """
         try:
-            logger.info(f"[CONVERSATION-SERVICE-v2.1] Saving conversation for assistant {assistant_id}")
+            logger.info(f"[CONVERSATION-SERVICE-v3.1] Saving conversation for assistant {assistant_id}")
             logger.info(f"   User message length: {len(user_message)} chars")
             logger.info(f"   Assistant message length: {len(assistant_message)} chars")
-            logger.info(f"   Caller number: {caller_number}")
+            logger.info(f"   Caller number (raw): {caller_number}")
             logger.info(f"   Session ID: {session_id}")
             
             # Валидация assistant_id
@@ -400,13 +461,22 @@ class ConversationService:
                 logger.error(f"Assistant not found: {assistant_id}")
                 return None
             
-            # 🆕 v2.1: АВТОСОЗДАНИЕ КОНТАКТА ИЗ НОМЕРА ТЕЛЕФОНА
+            # 🆕 v3.1: ИЗВЛЕКАЕМ направление звонка из префикса
+            if not call_direction and caller_number:
+                call_direction = ConversationService._extract_call_direction(caller_number)
+                logger.info(f"   Extracted call_direction: {call_direction}")
+            
+            # 🆕 v3.1: НОРМАЛИЗУЕМ номер телефона
+            normalized_phone = ConversationService._normalize_phone(caller_number) if caller_number else "unknown"
+            logger.info(f"   Normalized phone: {normalized_phone}")
+            
+            # 🆕 v3.1: АВТОСОЗДАНИЕ КОНТАКТА ИЗ НОМЕРА ТЕЛЕФОНА
             contact_id = None
-            if caller_number and caller_number != "unknown":
+            if normalized_phone and normalized_phone != "unknown":
                 contact_id = ConversationService._get_or_create_contact(
                     db=db,
                     user_id=assistant.user_id,
-                    phone=caller_number
+                    phone=normalized_phone
                 )
                 
                 if contact_id:
@@ -420,8 +490,9 @@ class ConversationService:
                 session_id=session_id or str(uuid.uuid4()),
                 user_message=user_message or "",
                 assistant_message=assistant_message or "",
-                caller_number=caller_number,
-                contact_id=contact_id,  # 🆕 v2.1: Связываем с контактом
+                caller_number=normalized_phone,
+                call_direction=call_direction,
+                contact_id=contact_id,
                 client_info=client_info or {},
                 audio_duration=audio_duration,
                 tokens_used=tokens_used or 0
@@ -432,8 +503,7 @@ class ConversationService:
             db.refresh(conversation)
             
             logger.info(f"✅ Conversation saved successfully: {conversation.id}")
-            if contact_id:
-                logger.info(f"✅ Linked to contact: {contact_id}")
+            logger.info(f"   Direction: {call_direction}, Phone: {normalized_phone}, Contact: {contact_id}")
             
             return conversation
             
@@ -462,7 +532,7 @@ class ConversationService:
             db: Database session
             assistant_id: Фильтр по ассистенту
             user_id: Фильтр по пользователю (владельцу ассистента)
-            caller_number: 🆕 Фильтр по номеру телефона
+            caller_number: Фильтр по номеру телефона
             session_id: Фильтр по сессии
             date_from: Фильтр - диалоги после этой даты
             date_to: Фильтр - диалоги до этой даты
@@ -504,7 +574,7 @@ class ConversationService:
                     logger.warning(f"Invalid user_id format: {user_id}")
                     return {"conversations": [], "total": 0, "page": 0, "page_size": limit}
             
-            # 🆕 Фильтр по номеру телефона
+            # Фильтр по номеру телефона
             if caller_number:
                 query = query.filter(Conversation.caller_number == caller_number)
             
@@ -574,7 +644,7 @@ class ConversationService:
             # Базовая информация
             result = conversation.to_dict()
             
-            # 🆕 Добавляем логи функций если запрошено
+            # Добавляем логи функций если запрошено
             if include_functions:
                 function_logs = db.query(FunctionLog).filter(
                     FunctionLog.conversation_id == conv_uuid
