@@ -2,7 +2,8 @@
 """
 Contacts API endpoints для CRM функциональности.
 Управление контактами (клиентами) и их связью с диалогами.
-Version: 3.3 - Production Ready + Phone Normalization ✅
+Version: 3.4 - Production Ready + Task Update Endpoint ✅
+✅ v3.4: Добавлен endpoint для обновления задач PUT /contacts/tasks/{task_id}
 ✅ v3.3: Добавлена нормализация номеров телефонов для предотвращения дублей
 ✅ v3.2: Добавлена поддержка custom_greeting для персонализированных приветствий
 ✅ v3.1: OpenAI + Gemini ассистенты
@@ -69,6 +70,18 @@ class TaskCreate(BaseModel):
     assistant_id: str = Field(..., description="UUID ассистента для звонка (OpenAI или Gemini)")
     scheduled_time: str = Field(..., description="Время звонка в ISO формате или текстом")
     title: str = Field(..., description="Название задачи", min_length=1, max_length=255)
+    description: Optional[str] = Field(None, description="Описание задачи")
+    custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")
+
+
+class TaskUpdate(BaseModel):
+    """
+    Схема для обновления задачи
+    ✅ v3.4: Новая схема для редактирования задач
+    """
+    assistant_id: Optional[str] = Field(None, description="UUID ассистента для звонка (OpenAI или Gemini)")
+    scheduled_time: Optional[str] = Field(None, description="Время звонка в ISO формате или текстом")
+    title: Optional[str] = Field(None, description="Название задачи", min_length=1, max_length=255)
     description: Optional[str] = Field(None, description="Описание задачи")
     custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")
 
@@ -1049,6 +1062,96 @@ async def get_contact_tasks(
         )
 
 
+@router.get("/tasks/{task_id}")
+async def get_task_detail(
+    task_id: str,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получить детальную информацию о задаче.
+    ✅ v3.4: Новый endpoint для получения деталей задачи
+    
+    **Параметры:**
+    - task_id: UUID задачи
+    
+    **Возвращает:**
+    - Полная информация о задаче с именем ассистента и типом
+    """
+    try:
+        logger.info(f"[TASKS-API] Get task detail: {task_id}")
+        
+        # Проверяем UUID
+        try:
+            task_uuid = UUID(task_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task ID format"
+            )
+        
+        # Получаем задачу
+        task = db.query(Task).filter(Task.id == task_uuid).first()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task not found"
+            )
+        
+        # Проверяем доступ через контакт
+        contact = db.query(Contact).filter(
+            Contact.id == task.contact_id,
+            Contact.user_id == current_user.id
+        ).first()
+        
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Формируем результат
+        result = task.to_dict()
+        
+        # Определяем тип и получаем имя ассистента
+        if task.assistant_id:
+            assistant = db.query(AssistantConfig).filter(
+                AssistantConfig.id == task.assistant_id
+            ).first()
+            result['assistant_name'] = assistant.name if assistant else "Unknown OpenAI"
+            result['assistant_type'] = 'openai'
+        elif task.gemini_assistant_id:
+            gemini_assistant = db.query(GeminiAssistantConfig).filter(
+                GeminiAssistantConfig.id == task.gemini_assistant_id
+            ).first()
+            result['assistant_name'] = gemini_assistant.name if gemini_assistant else "Unknown Gemini"
+            result['assistant_type'] = 'gemini'
+        else:
+            result['assistant_name'] = "Unknown"
+            result['assistant_type'] = 'unknown'
+        
+        # Добавляем информацию о контакте
+        result['contact'] = {
+            'id': str(contact.id),
+            'name': contact.name,
+            'phone': contact.phone
+        }
+        
+        logger.info(f"✅ Task details returned")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error getting task detail: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get task detail: {str(e)}"
+        )
+
+
 @router.post("/{contact_id}/tasks")
 async def create_contact_task(
     contact_id: str,
@@ -1191,6 +1294,204 @@ async def create_contact_task(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create task: {str(e)}"
+        )
+
+
+@router.put("/tasks/{task_id}")
+async def update_task(
+    task_id: str,
+    task_data: TaskUpdate,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Обновить существующую задачу.
+    ✅ v3.4: Новый endpoint для редактирования задач
+    
+    Можно редактировать только задачи со статусом SCHEDULED или PENDING.
+    
+    **Параметры:**
+    - task_id: UUID задачи
+    
+    **Body (все поля опциональные):**
+    - assistant_id: UUID нового ассистента
+    - scheduled_time: Новое время звонка
+    - title: Новое название
+    - description: Новое описание
+    - custom_greeting: Новое приветствие
+    
+    **Возвращает:**
+    - task: Обновленная задача
+    """
+    try:
+        logger.info(f"[TASKS-API-v3.4] Update task {task_id}")
+        
+        # Проверяем UUID
+        try:
+            task_uuid = UUID(task_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task ID format"
+            )
+        
+        # Получаем задачу
+        task = db.query(Task).filter(Task.id == task_uuid).first()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task not found"
+            )
+        
+        # Проверяем доступ через контакт
+        contact = db.query(Contact).filter(
+            Contact.id == task.contact_id,
+            Contact.user_id == current_user.id
+        ).first()
+        
+        if not contact:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Проверяем что задачу можно редактировать
+        if task.status not in [TaskStatus.SCHEDULED, TaskStatus.PENDING]:
+            logger.warning(f"[TASKS-API] Cannot edit task with status {task.status.value}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot edit task with status {task.status.value}. Only SCHEDULED and PENDING tasks can be edited."
+            )
+        
+        # Обновляем поля
+        updated_fields = []
+        
+        # 1. Обновление ассистента
+        if task_data.assistant_id is not None:
+            try:
+                new_assistant_uuid = UUID(task_data.assistant_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid assistant ID format"
+                )
+            
+            # Проверяем новый ассистент в обеих таблицах
+            openai_assistant = db.query(AssistantConfig).filter(
+                AssistantConfig.id == new_assistant_uuid,
+                AssistantConfig.user_id == current_user.id
+            ).first()
+            
+            gemini_assistant = db.query(GeminiAssistantConfig).filter(
+                GeminiAssistantConfig.id == new_assistant_uuid,
+                GeminiAssistantConfig.user_id == current_user.id
+            ).first()
+            
+            if not openai_assistant and not gemini_assistant:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="New assistant not found"
+                )
+            
+            # Обновляем правильное поле в зависимости от типа
+            if openai_assistant:
+                task.assistant_id = new_assistant_uuid
+                task.gemini_assistant_id = None
+                assistant_name = openai_assistant.name
+                logger.info(f"   Updated assistant to OpenAI: {assistant_name}")
+            else:
+                task.assistant_id = None
+                task.gemini_assistant_id = new_assistant_uuid
+                assistant_name = gemini_assistant.name
+                logger.info(f"   Updated assistant to Gemini: {assistant_name}")
+            
+            updated_fields.append("assistant_id")
+        
+        # 2. Обновление времени
+        if task_data.scheduled_time is not None:
+            try:
+                # Пытаемся как ISO формат
+                new_scheduled_time = datetime.fromisoformat(task_data.scheduled_time.replace('Z', '+00:00'))
+            except:
+                # Если не получилось - парсим как текст
+                new_scheduled_time = parse_time_string(task_data.scheduled_time)
+            
+            if new_scheduled_time.tzinfo is not None:
+                new_scheduled_time = new_scheduled_time.replace(tzinfo=None)
+            
+            # Проверяем что время в будущем
+            if new_scheduled_time <= datetime.utcnow():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Scheduled time must be in the future"
+                )
+            
+            task.scheduled_time = new_scheduled_time
+            updated_fields.append("scheduled_time")
+            logger.info(f"   Updated scheduled_time to {new_scheduled_time}")
+        
+        # 3. Обновление названия
+        if task_data.title is not None:
+            task.title = task_data.title.strip()
+            updated_fields.append("title")
+            logger.info(f"   Updated title to: {task.title}")
+        
+        # 4. Обновление описания
+        if task_data.description is not None:
+            task.description = task_data.description.strip() if task_data.description else None
+            updated_fields.append("description")
+            logger.info(f"   Updated description")
+        
+        # 5. Обновление приветствия
+        if task_data.custom_greeting is not None:
+            task.custom_greeting = task_data.custom_greeting.strip() if task_data.custom_greeting else None
+            updated_fields.append("custom_greeting")
+            logger.info(f"   Updated custom_greeting")
+        
+        # Обновляем дату изменения
+        task.updated_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(task)
+        
+        # Формируем результат
+        result = task.to_dict()
+        
+        # Определяем тип и получаем имя ассистента
+        if task.assistant_id:
+            assistant = db.query(AssistantConfig).filter(
+                AssistantConfig.id == task.assistant_id
+            ).first()
+            result['assistant_name'] = assistant.name if assistant else "Unknown OpenAI"
+            result['assistant_type'] = 'openai'
+        elif task.gemini_assistant_id:
+            gemini_assistant = db.query(GeminiAssistantConfig).filter(
+                GeminiAssistantConfig.id == task.gemini_assistant_id
+            ).first()
+            result['assistant_name'] = gemini_assistant.name if gemini_assistant else "Unknown Gemini"
+            result['assistant_type'] = 'gemini'
+        else:
+            result['assistant_name'] = "Unknown"
+            result['assistant_type'] = 'unknown'
+        
+        logger.info(f"✅ Task updated: {task.id}")
+        logger.info(f"   Updated fields: {', '.join(updated_fields)}")
+        
+        return {
+            "message": "Task updated successfully",
+            "task": result,
+            "updated_fields": updated_fields
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ Error updating task: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update task: {str(e)}"
         )
 
 
