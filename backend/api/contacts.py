@@ -2,7 +2,8 @@
 """
 Contacts API endpoints для CRM функциональности.
 Управление контактами (клиентами) и их связью с диалогами.
-Version: 3.2 - Production Ready + Contact Notes + Tasks + Custom Greeting ✅
+Version: 3.3 - Production Ready + Phone Normalization ✅
+✅ v3.3: Добавлена нормализация номеров телефонов для предотвращения дублей
 ✅ v3.2: Добавлена поддержка custom_greeting для персонализированных приветствий
 ✅ v3.1: OpenAI + Gemini ассистенты
 """
@@ -19,6 +20,7 @@ import re
 from backend.core.logging import get_logger
 from backend.db.session import get_db
 from backend.services.auth_service import AuthService
+from backend.services.conversation_service import ConversationService
 from backend.models.user import User
 from backend.models.contact import Contact, ContactNote
 from backend.models.conversation import Conversation
@@ -68,31 +70,38 @@ class TaskCreate(BaseModel):
     scheduled_time: str = Field(..., description="Время звонка в ISO формате или текстом")
     title: str = Field(..., description="Название задачи", min_length=1, max_length=255)
     description: Optional[str] = Field(None, description="Описание задачи")
-    custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")  # ✅ НОВОЕ v3.2
+    custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")
 
 
 # ==================== Вспомогательные функции ====================
 
 def get_or_create_contact(db: Session, user_id: UUID, phone: str) -> Contact:
     """
+    🔧 DEPRECATED: Используйте ConversationService._get_or_create_contact()
+    
     Получить существующий контакт или создать новый (автоматически).
     Используется при сохранении диалога.
+    
+    ✅ v3.3: Использует нормализацию номера
     """
+    # Нормализуем номер
+    normalized_phone = ConversationService._normalize_phone(phone)
+    
     contact = db.query(Contact).filter(
         Contact.user_id == user_id,
-        Contact.phone == phone
+        Contact.phone == normalized_phone
     ).first()
     
     if not contact:
         contact = Contact(
             user_id=user_id,
-            phone=phone,
+            phone=normalized_phone,
             status="new",
             last_interaction=datetime.utcnow()
         )
         db.add(contact)
         db.flush()
-        logger.info(f"[CRM] Auto-created contact for phone {phone}, user {user_id}")
+        logger.info(f"[CRM] Auto-created contact for phone {normalized_phone}, user {user_id}")
     else:
         # Обновляем время последнего контакта
         contact.last_interaction = datetime.utcnow()
@@ -324,6 +333,7 @@ async def get_contact_detail(
             sessions = db.query(
                 Conversation.session_id,
                 Conversation.assistant_id,
+                Conversation.call_direction,
                 func.count(Conversation.id).label('messages_count'),
                 func.min(Conversation.created_at).label('created_at'),
                 func.max(Conversation.created_at).label('updated_at'),
@@ -333,7 +343,8 @@ async def get_contact_detail(
                 Conversation.contact_id == contact.id
             ).group_by(
                 Conversation.session_id,
-                Conversation.assistant_id
+                Conversation.assistant_id,
+                Conversation.call_direction
             ).order_by(desc(func.max(Conversation.created_at))).all()
             
             conversations = []
@@ -347,6 +358,7 @@ async def get_contact_detail(
                     "session_id": s.session_id,
                     "assistant_id": str(s.assistant_id),
                     "assistant_name": assistant.name if assistant else "Unknown",
+                    "call_direction": s.call_direction,
                     "messages_count": s.messages_count,
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                     "updated_at": s.updated_at.isoformat() if s.updated_at else None,
@@ -379,6 +391,7 @@ async def create_or_update_contact(
 ):
     """
     Создать новый контакт или обновить существующий.
+    ✅ v3.3: Использует нормализацию номера для предотвращения дублей
     
     Если контакт с таким номером уже существует - обновляет его данные.
     
@@ -392,8 +405,12 @@ async def create_or_update_contact(
     - Созданный или обновленный контакт
     """
     try:
-        logger.info(f"[CRM-API] Create/update contact for user {current_user.id}")
-        logger.info(f"   Phone: {contact_data.phone}")
+        logger.info(f"[CRM-API-v3.3] Create/update contact for user {current_user.id}")
+        logger.info(f"   Phone (raw): {contact_data.phone}")
+        
+        # ✅ v3.3: НОРМАЛИЗУЕМ номер телефона
+        normalized_phone = ConversationService._normalize_phone(contact_data.phone)
+        logger.info(f"   Phone (normalized): {normalized_phone}")
         
         # Валидация статуса
         valid_statuses = ["new", "active", "client", "archived"]
@@ -403,10 +420,10 @@ async def create_or_update_contact(
                 detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
             )
         
-        # Проверяем существует ли контакт
+        # Проверяем существует ли контакт с нормализованным номером
         contact = db.query(Contact).filter(
             Contact.user_id == current_user.id,
-            Contact.phone == contact_data.phone
+            Contact.phone == normalized_phone
         ).first()
         
         if contact:
@@ -430,10 +447,10 @@ async def create_or_update_contact(
                 "contact": contact.to_dict()
             }
         else:
-            # Создаем новый
+            # Создаем новый с нормализованным номером
             new_contact = Contact(
                 user_id=current_user.id,
-                phone=contact_data.phone,
+                phone=normalized_phone,
                 name=contact_data.name,
                 status=contact_data.status,
                 notes=contact_data.notes
@@ -443,7 +460,7 @@ async def create_or_update_contact(
             db.commit()
             db.refresh(new_contact)
             
-            logger.info(f"✅ Contact created: {new_contact.id}")
+            logger.info(f"✅ Contact created: {new_contact.id} with normalized phone: {normalized_phone}")
             
             return {
                 "message": "Contact created successfully",
@@ -992,7 +1009,7 @@ async def get_contact_tasks(
         for task in tasks:
             task_dict = task.to_dict()
             
-            # ✅ НОВОЕ: Определяем тип и получаем имя ассистента
+            # Определяем тип и получаем имя ассистента
             if task.assistant_id:
                 # OpenAI ассистент
                 assistant = db.query(AssistantConfig).filter(
@@ -1094,7 +1111,7 @@ async def create_contact_task(
                 detail="Invalid assistant ID format"
             )
         
-        # ✅ НОВОЕ: Проверяем в обеих таблицах
+        # Проверяем в обеих таблицах
         openai_assistant = db.query(AssistantConfig).filter(
             AssistantConfig.id == assistant_uuid,
             AssistantConfig.user_id == current_user.id
@@ -1136,7 +1153,7 @@ async def create_contact_task(
                 detail="Scheduled time must be in the future"
             )
         
-        # ✅ v3.2: Создаем задачу с custom_greeting
+        # Создаем задачу с custom_greeting
         new_task = Task(
             contact_id=contact_uuid,
             assistant_id=assistant_uuid if openai_assistant else None,
@@ -1145,7 +1162,7 @@ async def create_contact_task(
             scheduled_time=scheduled_time,
             title=task_data.title.strip(),
             description=task_data.description.strip() if task_data.description else None,
-            custom_greeting=task_data.custom_greeting.strip() if task_data.custom_greeting else None,  # ✅ НОВОЕ v3.2
+            custom_greeting=task_data.custom_greeting.strip() if task_data.custom_greeting else None,
             status=TaskStatus.SCHEDULED
         )
         
