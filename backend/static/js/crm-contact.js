@@ -929,18 +929,14 @@ document.addEventListener('DOMContentLoaded', function() {
         scheduled_time: mskToUtc(scheduledTime),
         title: title,
         description: description || null,
-        custom_greeting: customGreeting || null
+        custom_greeting: customGreeting || null,
+        // ✅ v3.9.1 FIX: Всегда отправляем assistant_id - бэкенд сам определит тип по UUID
+        assistant_id: assistantId
       };
       
-      if (assistantType === 'openai') {
-        body.assistant_id = assistantId;
-      } else {
-        body.gemini_assistant_id = assistantId;
-      }
-      
       console.log('[TASK-CREATE] Sending:', body);
-      console.log('[TASK-CREATE] Input time (МСК):', scheduledTime);
-      console.log('[TASK-CREATE] Converted to UTC:', body.scheduled_time);
+      console.log('[TASK-CREATE] Assistant:', assistantId, '(', assistantType, ')');
+      console.log('[TASK-CREATE] Time: МСК', scheduledTime, '→ UTC', body.scheduled_time);
       
       await api.post(`/contacts/${contactId}/tasks`, body);
       
@@ -1118,8 +1114,7 @@ document.addEventListener('DOMContentLoaded', function() {
       body.assistant_id = assistantId;
       
       console.log('[TASK-UPDATE] Sending:', body);
-      console.log('[TASK-UPDATE] Input time (МСК):', scheduledTime);
-      console.log('[TASK-UPDATE] Converted to UTC:', body.scheduled_time);
+      console.log('[TASK-UPDATE] Time: МСК', scheduledTime, '→ UTC', body.scheduled_time);
       
       const response = await api.put(`/contacts/tasks/${currentTaskId}`, body);
       currentTaskData = response;
