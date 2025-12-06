@@ -2,7 +2,7 @@
 /**
  * Contact Detail Page для Voicyfy CRM
  * Детальный просмотр контакта с историей диалогов, заметками и задачами
- * Version: 3.8 - PRODUCTION READY with Unified Timeline & Task Editing
+ * Version: 3.9 - PRODUCTION READY with Moscow Timezone Support
  * ✅ OpenAI + Gemini assistants support
  * ✅ Tasks with auto-calls
  * ✅ Notes feed
@@ -10,9 +10,71 @@
  * ✅ v3.6: Custom greeting support
  * ✅ v3.7: Call direction indicators
  * ✅ v3.8: Unified timeline (tasks + conversations) + Task editing modal
+ * ✅ v3.9: Moscow timezone (МСК) support - все время отображается и вводится в МСК
  */
 
 document.addEventListener('DOMContentLoaded', function() {
+  // ==================== Timezone: Moscow (UTC+3) ====================
+  const MSK_OFFSET_HOURS = 3;
+
+  /**
+   * Конвертация локального времени (как МСК) в UTC для отправки на сервер
+   * Пользователь вводит 14:00 МСК → отправляем 11:00 UTC
+   * @param {string} dateString - значение из datetime-local input (YYYY-MM-DDTHH:mm)
+   * @returns {string} ISO строка в UTC
+   */
+  function mskToUtc(dateString) {
+    // datetime-local даёт строку без timezone, интерпретируем как МСК
+    const [datePart, timePart] = dateString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = timePart.split(':').map(Number);
+    
+    // Создаём дату как МСК (вручную)
+    const mskDate = new Date(Date.UTC(year, month - 1, day, hours - MSK_OFFSET_HOURS, minutes, 0, 0));
+    
+    return mskDate.toISOString();
+  }
+
+  /**
+   * Конвертация UTC в МСК для отображения
+   * Сервер возвращает 11:00 UTC → показываем 14:00 МСК
+   * @param {string} isoString - ISO строка в UTC
+   * @returns {Date} Date объект в МСК
+   */
+  function utcToMsk(isoString) {
+    if (!isoString) return null;
+    const utcDate = new Date(isoString);
+    // Добавляем 3 часа (UTC → МСК)
+    return new Date(utcDate.getTime() + MSK_OFFSET_HOURS * 60 * 60 * 1000);
+  }
+
+  /**
+   * Получить текущее время в МСК
+   * @returns {Date} текущее время как если бы мы были в МСК
+   */
+  function getMskNow() {
+    const now = new Date();
+    return new Date(now.getTime() + (MSK_OFFSET_HOURS * 60 + now.getTimezoneOffset()) * 60 * 1000);
+  }
+
+  /**
+   * Форматирование даты в МСК для datetime-local input
+   * @param {string} isoString - ISO строка в UTC
+   * @returns {string} формат YYYY-MM-DDTHH:mm для input
+   */
+  function formatDatetimeLocalMsk(isoString) {
+    const mskDate = utcToMsk(isoString);
+    if (!mskDate) return '';
+    
+    const year = mskDate.getUTCFullYear();
+    const month = String(mskDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(mskDate.getUTCDate()).padStart(2, '0');
+    const hours = String(mskDate.getUTCHours()).padStart(2, '0');
+    const minutes = String(mskDate.getUTCMinutes()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
   // ==================== Элементы ====================
   const contactAvatar = document.getElementById('contact-avatar');
   const nameInput = document.getElementById('name-input');
@@ -182,42 +244,80 @@ document.addEventListener('DOMContentLoaded', function() {
     notification.classList.remove('show');
   }
   
+  /**
+   * Форматирование даты для заметок и диалогов
+   * @param {string} dateString - ISO строка
+   * @returns {string} отформатированная строка
+   */
   function formatDate(dateString) {
     if (!dateString) return 'Нет данных';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now - date;
+    
+    // ✅ v3.9: Конвертируем UTC → МСК
+    const date = utcToMsk(dateString);
+    const mskNow = getMskNow();
+    
+    const diff = mskNow - date;
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     
+    const timeStr = date.toLocaleTimeString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'UTC' // т.к. мы уже сконвертировали в МСК
+    });
+    
     if (days === 0) {
-      return 'Сегодня ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      return 'Сегодня ' + timeStr;
     } else if (days === 1) {
-      return 'Вчера ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      return 'Вчера ' + timeStr;
     } else if (days < 7) {
       return days + ' дн. назад';
     } else {
-      return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleDateString('ru-RU', { 
+        day: '2-digit', 
+        month: 'long', 
+        year: 'numeric',
+        timeZone: 'UTC'
+      }) + ' ' + timeStr;
     }
   }
   
+  /**
+   * Форматирование даты и времени для задач (с указанием МСК)
+   * ✅ v3.9: Отображает время в московской временной зоне
+   * @param {string} dateString - ISO строка в UTC
+   * @returns {string} отформатированная строка с пометкой МСК
+   */
   function formatDateTime(dateString) {
     if (!dateString) return '';
-    const date = new Date(dateString);
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
     
-    if (date.toDateString() === now.toDateString()) {
-      return 'Сегодня ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    } else if (date.toDateString() === tomorrow.toDateString()) {
-      return 'Завтра ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    // ✅ v3.9: Конвертируем UTC → МСК для отображения
+    const date = utcToMsk(dateString);
+    const mskNow = getMskNow();
+    
+    const tomorrow = new Date(mskNow);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    
+    const timeStr = date.toLocaleTimeString('ru-RU', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'UTC' // т.к. мы уже сконвертировали
+    });
+    
+    // Сравниваем даты (без времени)
+    const dateOnly = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const todayOnly = new Date(Date.UTC(mskNow.getUTCFullYear(), mskNow.getUTCMonth(), mskNow.getUTCDate()));
+    const tomorrowOnly = new Date(Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate()));
+    
+    if (dateOnly.getTime() === todayOnly.getTime()) {
+      return 'Сегодня ' + timeStr + ' МСК';
+    } else if (dateOnly.getTime() === tomorrowOnly.getTime()) {
+      return 'Завтра ' + timeStr + ' МСК';
     } else {
-      return date.toLocaleString('ru-RU', { 
+      return date.toLocaleDateString('ru-RU', { 
         day: '2-digit', 
         month: 'long',
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
+        timeZone: 'UTC'
+      }) + ' ' + timeStr + ' МСК';
     }
   }
   
@@ -608,8 +708,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // ==================== Render Task Item ====================
   function renderTaskItem(task) {
     const statusInfo = getTaskStatusInfo(task.status);
-    const scheduledTime = new Date(task.scheduled_time);
-    const isOverdue = scheduledTime < new Date() && task.status === 'scheduled';
+    
+    // ✅ v3.9: Сравниваем в МСК
+    const scheduledMsk = utcToMsk(task.scheduled_time);
+    const mskNow = getMskNow();
+    const isOverdue = scheduledMsk < mskNow && task.status === 'scheduled';
     
     const item = document.createElement('div');
     item.className = 'timeline-item task-item';
@@ -761,14 +864,25 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // ==================== Task Operations ====================
   
-  // Open Task Create Modal
+  /**
+   * Открыть модалку создания задачи
+   * ✅ v3.9: Дефолтное время устанавливается в МСК
+   */
   function openTaskCreateModal() {
-    const defaultTime = new Date();
-    defaultTime.setHours(defaultTime.getHours() + 1);
-    taskCreateDatetime.value = defaultTime.toISOString().slice(0, 16);
+    // ✅ v3.9: Дефолтное время: следующий час от текущего МСК
+    const mskNow = getMskNow();
+    mskNow.setUTCHours(mskNow.getUTCHours() + 1);
+    mskNow.setUTCMinutes(0, 0, 0);
+    
+    // Format for datetime-local: YYYY-MM-DDTHH:mm
+    const year = mskNow.getUTCFullYear();
+    const month = String(mskNow.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(mskNow.getUTCDate()).padStart(2, '0');
+    const hours = String(mskNow.getUTCHours()).padStart(2, '0');
+    const minutes = String(mskNow.getUTCMinutes()).padStart(2, '0');
     
     taskCreateForm.reset();
-    taskCreateDatetime.value = defaultTime.toISOString().slice(0, 16);
+    taskCreateDatetime.value = `${year}-${month}-${day}T${hours}:${minutes}`;
     
     taskCreateModal.classList.add('show');
   }
@@ -778,7 +892,10 @@ document.addEventListener('DOMContentLoaded', function() {
     taskCreateForm.reset();
   }
   
-  // Create Task
+  /**
+   * Создать задачу
+   * ✅ v3.9: Конвертирует время из МСК в UTC перед отправкой
+   */
   async function createTask(e) {
     e.preventDefault();
     
@@ -799,11 +916,17 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     
+    if (!scheduledTime) {
+      showNotification('Укажите время звонка', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       
       const body = {
-        scheduled_time: new Date(scheduledTime).toISOString(),
+        // ✅ v3.9: Конвертируем МСК → UTC перед отправкой
+        scheduled_time: mskToUtc(scheduledTime),
         title: title,
         description: description || null,
         custom_greeting: customGreeting || null
@@ -814,6 +937,10 @@ document.addEventListener('DOMContentLoaded', function() {
       } else {
         body.gemini_assistant_id = assistantId;
       }
+      
+      console.log('[TASK-CREATE] Sending:', body);
+      console.log('[TASK-CREATE] Input time (МСК):', scheduledTime);
+      console.log('[TASK-CREATE] Converted to UTC:', body.scheduled_time);
       
       await api.post(`/contacts/${contactId}/tasks`, body);
       
@@ -830,7 +957,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
-  // Open Task View Modal
+  /**
+   * Открыть модалку просмотра задачи
+   */
   async function openTaskViewModal(taskId) {
     try {
       setLoading(true);
@@ -856,6 +985,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  /**
+   * Заполнить режим просмотра задачи
+   * ✅ v3.9: Отображает время в МСК
+   */
   function populateTaskViewMode() {
     const task = currentTaskData;
     const statusInfo = getTaskStatusInfo(task.status);
@@ -870,9 +1003,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Title
     taskViewTitle.textContent = task.title;
     
-    // DateTime
-    const scheduledTime = new Date(task.scheduled_time);
-    const isOverdue = scheduledTime < new Date() && task.status === 'scheduled';
+    // DateTime - показываем в МСК
+    // ✅ v3.9: Сравниваем в МСК
+    const scheduledMsk = utcToMsk(task.scheduled_time);
+    const mskNow = getMskNow();
+    const isOverdue = scheduledMsk < mskNow && task.status === 'scheduled';
+    
     taskViewDatetime.innerHTML = 
       formatDateTime(task.scheduled_time) + 
       (isOverdue ? ' <span style="color: var(--error-red); font-weight: 600;">⚠️ Просрочено</span>' : '');
@@ -905,6 +1041,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
   
+  /**
+   * Переключиться в режим редактирования
+   * ✅ v3.9: Конвертирует время UTC → МСК для отображения в input
+   */
   function switchToEditMode() {
     const task = currentTaskData;
     
@@ -915,8 +1055,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     taskEditAssistant.value = assistantValue;
     
-    const scheduledTime = new Date(task.scheduled_time);
-    taskEditDatetime.value = scheduledTime.toISOString().slice(0, 16);
+    // ✅ v3.9: Конвертируем UTC → МСК для редактирования
+    taskEditDatetime.value = formatDatetimeLocalMsk(task.scheduled_time);
     
     taskEditTitle.value = task.title;
     taskEditDescription.value = task.description || '';
@@ -934,6 +1074,10 @@ document.addEventListener('DOMContentLoaded', function() {
     taskModalTitle.innerHTML = '<i class="fas fa-calendar-alt"></i> Детали задачи';
   }
   
+  /**
+   * Обновить задачу
+   * ✅ v3.9: Конвертирует время из МСК в UTC перед отправкой
+   */
   async function updateTask(e) {
     e.preventDefault();
     
@@ -954,11 +1098,17 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
     
+    if (!scheduledTime) {
+      showNotification('Укажите время звонка', 'error');
+      return;
+    }
+    
     try {
       setLoading(true);
       
       const body = {
-        scheduled_time: new Date(scheduledTime).toISOString(),
+        // ✅ v3.9: Конвертируем МСК → UTC перед отправкой
+        scheduled_time: mskToUtc(scheduledTime),
         title: title,
         description: description || null,
         custom_greeting: customGreeting || null
@@ -966,6 +1116,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Backend will determine type by assistant_id
       body.assistant_id = assistantId;
+      
+      console.log('[TASK-UPDATE] Sending:', body);
+      console.log('[TASK-UPDATE] Input time (МСК):', scheduledTime);
+      console.log('[TASK-UPDATE] Converted to UTC:', body.scheduled_time);
       
       const response = await api.put(`/contacts/tasks/${currentTaskId}`, body);
       currentTaskData = response;
