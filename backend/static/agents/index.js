@@ -62,6 +62,8 @@ async function loadAvailableFunctions() {
     console.log('[FUNCTIONS] Загружаем список доступных функций...');
     const functions = await api.getFunctions();
     availableFunctions = functions;
+    // ВАЖНО: Экспортируем в window для доступа из ui.js
+    window.availableFunctions = availableFunctions;
     console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
     renderFunctions(functions);
   } catch (error) {
@@ -405,6 +407,8 @@ function renderAgentsList(agents) {
         currentAgentId = agentId;
         switchToEditMode();
         
+        // ИСПРАВЛЕНО: Сначала загружаем функции, потом данные агента
+        await loadAvailableFunctions();
         await loadAgentData();
         
         document.getElementById('embed-code').textContent = embedData.embed_code;
@@ -935,10 +939,10 @@ function initDOMElements() {
 }
 
 // ============================================================================
-// ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ
+// ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ (ИСПРАВЛЕНО)
 // ============================================================================
 
-function initPage() {
+async function initPage() {
   if (!api.checkAuth()) return;
   
   loadUserInfo();
@@ -950,16 +954,17 @@ function initPage() {
     debugLog(`Инициализация страницы с ID агента: ${currentAgentId}`);
     
     switchToEditMode();
-    loadAgentData();
-    // ДОБАВЛЕНО: Предзагрузка функций при входе в режим редактирования
-    loadAvailableFunctions();
+    // ИСПРАВЛЕНО: Сначала загружаем функции (рендерим чекбоксы в DOM),
+    // потом загружаем данные агента (заполняем форму и ставим галочки)
+    await loadAvailableFunctions();
+    await loadAgentData();
   } else if (params.mode === 'create') {
     debugLog('Инициализация страницы в режиме создания');
     
     switchToEditMode();
+    // ИСПРАВЛЕНО: Сначала загружаем функции, потом инициализируем форму
+    await loadAvailableFunctions();
     initCreateMode();
-    // ДОБАВЛЕНО: Предзагрузка функций при создании нового агента
-    loadAvailableFunctions();
   } else {
     debugLog('Инициализация страницы в режиме списка агентов');
     
