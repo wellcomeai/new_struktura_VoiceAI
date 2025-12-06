@@ -15,57 +15,62 @@
 
 document.addEventListener('DOMContentLoaded', function() {
   // ==================== Timezone: Moscow (UTC+3) ====================
-  const MSK_OFFSET_HOURS = 3;
+  // ✅ v3.9.2: Простая и надёжная логика без зависимости от браузера
+  // Пользователь ВСЕГДА вводит московское время, мы ВСЕГДА показываем московское время
+  
+  const MSK_OFFSET_MS = 3 * 60 * 60 * 1000; // 3 часа в миллисекундах
 
   /**
-   * Конвертация локального времени (как МСК) в UTC для отправки на сервер
-   * Пользователь вводит 14:00 МСК → отправляем 11:00 UTC
-   * @param {string} dateString - значение из datetime-local input (YYYY-MM-DDTHH:mm)
-   * @returns {string} ISO строка в UTC
+   * МСК → UTC: вычитаем 3 часа
+   * Пользователь ввёл 15:00 (МСК) → отправляем 12:00 UTC
+   * 
+   * @param {string} dateString - "2025-12-06T15:00" из datetime-local input
+   * @returns {string} "2025-12-06T12:00:00.000Z" ISO строка UTC
    */
   function mskToUtc(dateString) {
-    // datetime-local даёт строку без timezone, интерпретируем как МСК
+    // Парсим строку напрямую (НЕ используем new Date() чтобы избежать влияния браузера)
     const [datePart, timePart] = dateString.split('T');
     const [year, month, day] = datePart.split('-').map(Number);
     const [hours, minutes] = timePart.split(':').map(Number);
     
-    // Создаём дату как МСК (вручную)
-    const mskDate = new Date(Date.UTC(year, month - 1, day, hours - MSK_OFFSET_HOURS, minutes, 0, 0));
+    // Создаём timestamp: сначала как UTC, потом вычитаем 3 часа
+    const inputAsUtcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+    const realUtcMs = inputAsUtcMs - MSK_OFFSET_MS;
     
-    return mskDate.toISOString();
+    return new Date(realUtcMs).toISOString();
   }
 
   /**
-   * Конвертация UTC в МСК для отображения
-   * Сервер возвращает 11:00 UTC → показываем 14:00 МСК
-   * @param {string} isoString - ISO строка в UTC
-   * @returns {Date} Date объект в МСК
+   * UTC → МСК: добавляем 3 часа
+   * Сервер вернул 12:00 UTC → показываем 15:00 МСК
+   * 
+   * @param {string} isoString - "2025-12-06T12:00:00.000Z" ISO строка UTC
+   * @returns {Date} Date объект (использовать getUTC* методы для получения МСК времени)
    */
   function utcToMsk(isoString) {
     if (!isoString) return null;
-    const utcDate = new Date(isoString);
-    // Добавляем 3 часа (UTC → МСК)
-    return new Date(utcDate.getTime() + MSK_OFFSET_HOURS * 60 * 60 * 1000);
+    const utcMs = new Date(isoString).getTime();
+    return new Date(utcMs + MSK_OFFSET_MS);
   }
 
   /**
-   * Получить текущее время в МСК
-   * @returns {Date} текущее время как если бы мы были в МСК
+   * Текущее время в МСК
+   * @returns {Date} Date объект с текущим московским временем
    */
   function getMskNow() {
-    const now = new Date();
-    return new Date(now.getTime() + (MSK_OFFSET_HOURS * 60 + now.getTimezoneOffset()) * 60 * 1000);
+    return new Date(Date.now() + MSK_OFFSET_MS);
   }
 
   /**
-   * Форматирование даты в МСК для datetime-local input
+   * Форматирование UTC даты в строку для datetime-local input (показываем МСК)
    * @param {string} isoString - ISO строка в UTC
-   * @returns {string} формат YYYY-MM-DDTHH:mm для input
+   * @returns {string} "2025-12-06T15:00" для input
    */
   function formatDatetimeLocalMsk(isoString) {
     const mskDate = utcToMsk(isoString);
     if (!mskDate) return '';
     
+    // Используем getUTC* потому что мы уже добавили смещение
     const year = mskDate.getUTCFullYear();
     const month = String(mskDate.getUTCMonth() + 1).padStart(2, '0');
     const day = String(mskDate.getUTCDate()).padStart(2, '0');
