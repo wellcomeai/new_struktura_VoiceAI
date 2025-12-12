@@ -1,8 +1,10 @@
+# backend/websockets/gemini_client.py
 """
-🚀 PRODUCTION VERSION 1.5 - Google Gemini Live API Client
+🚀 PRODUCTION VERSION 1.6 - Google Gemini Live API Client
 Model: gemini-2.5-flash-native-audio-preview-09-2025
 
-CRITICAL FIX in v1.5:
+CRITICAL FIX in v1.6:
+✅ Added auto-greeting on connect using greeting_message from config
 ✅ Correct toolResponse format for function results
    - Changed from client_content to toolResponse
    - Proper BidiGenerateContentToolResponse structure
@@ -20,6 +22,7 @@ Features:
 ✅ Reconnection logic
 ✅ Performance monitoring
 ✅ Production-ready stability
+✅ Auto-greeting on connect
 ✅ FIXED: Correct WebSocket endpoint for Live API
 ✅ FIXED: toolResponse format per official documentation
 """
@@ -87,7 +90,7 @@ def generate_short_id(prefix: str = "") -> str:
 
 class GeminiLiveClient:
     """
-    🚀 PRODUCTION v1.3 - Client for Google Gemini Live API
+    🚀 PRODUCTION v1.6 - Client for Google Gemini Live API
     
     Key features:
     - Pure Gemini VAD (automatic voice activity detection)
@@ -97,6 +100,7 @@ class GeminiLiveClient:
     - Manual function calling (handler controls execution)
     - Thinking mode support
     - Screen context support
+    - Auto-greeting on connect
     - Reliable error handling
     - Performance monitoring
     """
@@ -136,6 +140,9 @@ class GeminiLiveClient:
         self.interruption_occurred = False
         self.last_interruption_time = 0
         
+        # ✅ NEW: Greeting state
+        self.greeting_sent = False
+        
         # Device detection
         self.is_ios = "iphone" in user_agent.lower() or "ipad" in user_agent.lower()
         self.is_android = "android" in user_agent.lower()
@@ -173,6 +180,7 @@ class GeminiLiveClient:
         logger.info(f"[GEMINI-CLIENT] API Key: {self.api_key[:15]}...{self.api_key[-8:]}")
         logger.info(f"[GEMINI-CLIENT] VAD Mode: Pure Gemini (automatic)")
         logger.info(f"[GEMINI-CLIENT] Transcription: ENABLED (input + output)")
+        logger.info(f"[GEMINI-CLIENT] Auto-greeting: {bool(getattr(self.assistant_config, 'greeting_message', None))}")
         logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         try:
@@ -186,7 +194,7 @@ class GeminiLiveClient:
                     ping_timeout=120,
                     close_timeout=15,
                     extra_headers={
-                        'User-Agent': 'Voicyfy/1.3'
+                        'User-Agent': 'Voicyfy/1.6'
                     }
                 ),
                 timeout=30
@@ -225,6 +233,17 @@ class GeminiLiveClient:
                 return False
 
             logger.info(f"[GEMINI-CLIENT] ✅ Session initialized successfully")
+            
+            # ✅ NEW: Send initial greeting if configured
+            greeting_message = getattr(self.assistant_config, "greeting_message", None)
+            if greeting_message and not self.greeting_sent:
+                logger.info(f"[GEMINI-CLIENT] 👋 Auto-greeting enabled, sending...")
+                # Small delay to ensure setup is complete
+                await asyncio.sleep(0.3)
+                await self.send_initial_greeting()
+            else:
+                logger.info(f"[GEMINI-CLIENT] ℹ️ No greeting_message configured, skipping auto-greet")
+            
             return True
             
         except asyncio.TimeoutError:
@@ -291,6 +310,7 @@ class GeminiLiveClient:
             self.current_response_id = None
             self.current_audio_samples = 0
             self.interruption_occurred = False
+            self.greeting_sent = False  # Reset greeting state for reconnection
             
             result = await self.connect()
             if result:
@@ -416,6 +436,97 @@ class GeminiLiveClient:
                 logger.error(f"[GEMINI-CLIENT] Error creating conversation: {e}")
 
         return True
+
+    async def send_initial_greeting(self) -> bool:
+        """
+        Send initial greeting prompt to trigger voice greeting from Gemini.
+        Uses greeting_message from assistant config.
+        
+        Returns:
+            True if sent successfully
+        """
+        if not self.is_connected or not self.ws:
+            logger.error("[GEMINI-CLIENT] Cannot send greeting: not connected")
+            return False
+        
+        if self.greeting_sent:
+            logger.info("[GEMINI-CLIENT] Greeting already sent, skipping")
+            return True
+        
+        # Get greeting from config
+        greeting_message = getattr(self.assistant_config, "greeting_message", None)
+        
+        if not greeting_message:
+            logger.info("[GEMINI-CLIENT] No greeting_message configured, skipping auto-greet")
+            return False
+        
+        try:
+            logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"[GEMINI-CLIENT] 👋 SENDING INITIAL GREETING")
+            logger.info(f"[GEMINI-CLIENT]    Message: {greeting_message[:100]}...")
+            logger.info(f"[GEMINI-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Send as user message to trigger response
+            # We instruct Gemini to say the greeting
+            payload = {
+                "client_content": {
+                    "turns": [{
+                        "role": "user",
+                        "parts": [{
+                            "text": f"Поприветствуй пользователя голосом. Скажи именно это: \"{greeting_message}\""
+                        }]
+                    }],
+                    "turn_complete": True
+                }
+            }
+            
+            await self.ws.send(json.dumps(payload))
+            self.greeting_sent = True
+            
+            logger.info(f"[GEMINI-CLIENT] ✅ Greeting prompt sent successfully")
+            logger.info(f"[GEMINI-CLIENT]    Gemini will now speak the greeting")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"[GEMINI-CLIENT] ❌ Error sending greeting: {e}")
+            logger.error(traceback.format_exc())
+            return False
+
+    async def send_text_message(self, text: str) -> bool:
+        """
+        Send a text message to Gemini (triggers voice response).
+        
+        Args:
+            text: Text message to send
+            
+        Returns:
+            True if sent successfully
+        """
+        if not self.is_connected or not self.ws:
+            logger.error("[GEMINI-CLIENT] Cannot send message: not connected")
+            return False
+        
+        try:
+            logger.info(f"[GEMINI-CLIENT] 💬 Sending text message: {text[:100]}...")
+            
+            payload = {
+                "client_content": {
+                    "turns": [{
+                        "role": "user",
+                        "parts": [{"text": text}]
+                    }],
+                    "turn_complete": True
+                }
+            }
+            
+            await self.ws.send(json.dumps(payload))
+            logger.info(f"[GEMINI-CLIENT] ✅ Text message sent")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[GEMINI-CLIENT] ❌ Error sending text message: {e}")
+            return False
 
     async def handle_interruption(self) -> bool:
         """Handle interruption events."""
@@ -617,6 +728,7 @@ class GeminiLiveClient:
         self.current_response_id = None
         self.current_audio_samples = 0
         self.interruption_occurred = False
+        self.greeting_sent = False
 
     async def receive_messages(self) -> AsyncGenerator[Dict[str, Any], None]:
         """Receive and yield messages from Gemini WebSocket."""
