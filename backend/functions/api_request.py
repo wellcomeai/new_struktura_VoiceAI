@@ -86,18 +86,15 @@ class ApiRequestFunction(FunctionBase):
                 "method": {
                     "type": "string",
                     "description": "HTTP метод",
-                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
-                    "default": "GET"
+                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]
                 },
                 "headers": {
                     "type": "object",
-                    "description": "HTTP заголовки (например: {'Authorization': 'Bearer token', 'Content-Type': 'application/json'})",
-                    "additionalProperties": {"type": "string"}
+                    "description": "HTTP заголовки в формате JSON объекта (например: {\"Authorization\": \"Bearer token\", \"Content-Type\": \"application/json\"})"
                 },
                 "query_params": {
                     "type": "object",
-                    "description": "Query параметры URL (например: {'page': '1', 'limit': '10'})",
-                    "additionalProperties": {"type": "string"}
+                    "description": "Query параметры URL в формате JSON объекта (например: {\"page\": \"1\", \"limit\": \"10\"})"
                 },
                 "body": {
                     "type": "object",
@@ -105,10 +102,7 @@ class ApiRequestFunction(FunctionBase):
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "Таймаут запроса в секундах",
-                    "default": 30,
-                    "minimum": 1,
-                    "maximum": 120
+                    "description": "Таймаут запроса в секундах (по умолчанию 30)"
                 }
             },
             "required": ["url"]
