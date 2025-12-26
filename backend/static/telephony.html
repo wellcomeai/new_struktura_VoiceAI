@@ -1,0 +1,2410 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Телефония | Voicyfy</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* Основные стили */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --success-green: #10b981;
+      --error-red: #ef4444;
+      --warning-orange: #f59e0b;
+      --purple: #8b5cf6;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+    }
+    
+    /* Боковая панель */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+    
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+    
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
+    }
+    
+    .sidebar-nav {
+      padding: 1.5rem 0;
+      flex-grow: 1;
+    }
+    
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+    
+    .sidebar-nav-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .sidebar-nav-item i {
+      margin-right: 0.75rem;
+      width: 20px;
+      text-align: center;
+    }
+    
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    
+    /* Основной контент */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    
+    /* Верхняя панель */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    
+    .page-actions {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    
+    /* Выпадающее меню пользователя */
+    .user-menu {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      position: relative;
+    }
+    
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+    }
+    
+    .user-button:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background-color: var(--bg-blue-light);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: var(--primary-blue);
+      font-weight: 600;
+    }
+    
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 180px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+    
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+    
+    .dropdown-item:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+    
+    .dropdown-divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 0.25rem 0;
+    }
+    
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+      text-decoration: none;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+    
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+    
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+      color: var(--text-dark);
+    }
+    
+    .btn-success {
+      background-color: var(--success-green);
+      color: var(--white);
+    }
+    
+    .btn-success:hover {
+      background-color: #059669;
+    }
+    
+    .btn-danger {
+      background-color: var(--error-red);
+      color: var(--white);
+    }
+    
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+    
+    .btn-purple {
+      background-color: var(--purple);
+      color: var(--white);
+    }
+    
+    .btn-purple:hover {
+      background-color: #7c3aed;
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .btn-lg {
+      padding: 1rem 2rem;
+      font-size: 1rem;
+    }
+    
+    .btn-sm {
+      padding: 0.4rem 0.75rem;
+      font-size: 0.8rem;
+    }
+    
+    /* Контейнер для содержимого */
+    .content-container {
+      padding: 2rem;
+      flex-grow: 1;
+    }
+    
+    /* Карточки */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+    
+    .card-header {
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    .card-description {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+    }
+    
+    /* Статус-блок */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .status-item {
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      text-align: center;
+    }
+    
+    .status-item-label {
+      font-size: 0.75rem;
+      color: var(--text-gray);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    
+    .status-item-value {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .status-item-value.success {
+      color: var(--success-green);
+    }
+    
+    .status-item-value.warning {
+      color: var(--warning-orange);
+    }
+    
+    .status-item-value.error {
+      color: var(--error-red);
+    }
+    
+    /* Статус верификации */
+    .verification-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+    
+    .verification-status.verified {
+      background-color: #dcfce7;
+      color: #166534;
+    }
+    
+    .verification-status.pending {
+      background-color: #fef3c7;
+      color: #92400e;
+    }
+    
+    .verification-status.not-started {
+      background-color: #f1f5f9;
+      color: #475569;
+    }
+    
+    .verification-status.rejected {
+      background-color: #fee2e2;
+      color: #991b1b;
+    }
+    
+    /* Форма */
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+    }
+    
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    select.form-control {
+      cursor: pointer;
+    }
+    
+    .form-helper {
+      margin-top: 0.5rem;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+    
+    /* Таблица номеров */
+    .numbers-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .numbers-table th,
+    .numbers-table td {
+      padding: 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .numbers-table th {
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-gray);
+      background-color: var(--bg-light);
+    }
+    
+    .numbers-table tr:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .phone-number {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+    
+    .assistant-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: 2rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+    
+    .assistant-badge.not-bound {
+      background-color: #f1f5f9;
+      color: var(--text-gray);
+    }
+    
+    /* Табы для категорий номеров */
+    .number-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.5rem;
+    }
+    
+    .number-tab {
+      padding: 0.5rem 1rem;
+      border: none;
+      background: none;
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .number-tab:hover {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+    }
+    
+    .number-tab.active {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .number-tab i {
+      font-size: 0.75rem;
+    }
+    
+    /* Фильтр региона */
+    .region-filter {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      align-items: center;
+    }
+    
+    .region-filter label {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      white-space: nowrap;
+    }
+    
+    .region-filter select {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      max-width: 200px;
+    }
+    
+    /* Список доступных номеров */
+    .available-numbers-list {
+      max-height: 350px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+    }
+    
+    .number-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .number-item:last-child {
+      border-bottom: none;
+    }
+    
+    .number-item:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .number-item.selected {
+      background-color: var(--bg-blue-light);
+      border-left: 3px solid var(--primary-blue);
+    }
+    
+    /* Уведомление */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 350px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    
+    .notification.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    
+    .notification-success {
+      border-left: 4px solid var(--success-green);
+    }
+    
+    .notification-error {
+      border-left: 4px solid var(--error-red);
+    }
+    
+    .notification-info {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .notification-warning {
+      border-left: 4px solid var(--warning-orange);
+    }
+    
+    .notification-icon {
+      font-size: 1.25rem;
+    }
+    
+    .notification-success .notification-icon {
+      color: var(--success-green);
+    }
+    
+    .notification-error .notification-icon {
+      color: var(--error-red);
+    }
+    
+    .notification-info .notification-icon {
+      color: var(--primary-blue);
+    }
+    
+    .notification-warning .notification-icon {
+      color: var(--warning-orange);
+    }
+    
+    .notification-content {
+      flex: 1;
+    }
+    
+    .notification-close {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      font-size: 1.125rem;
+    }
+    
+    /* Состояние загрузки */
+    .loading-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Пустое состояние */
+    .empty-state {
+      text-align: center;
+      padding: 3rem;
+      color: var(--text-gray);
+    }
+    
+    .empty-state i {
+      font-size: 4rem;
+      margin-bottom: 1rem;
+      opacity: 0.3;
+    }
+    
+    .empty-state h3 {
+      font-size: 1.25rem;
+      margin-bottom: 0.5rem;
+      color: var(--text-dark);
+    }
+    
+    /* Инструкции */
+    .instructions {
+      background-color: var(--bg-blue-light);
+      border: 1px solid var(--primary-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .instructions h4 {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      color: var(--text-dark);
+    }
+    
+    .instructions ol {
+      padding-left: 1.5rem;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      line-height: 1.6;
+    }
+    
+    .instructions li {
+      margin-bottom: 0.5rem;
+    }
+    
+    /* Действия */
+    .action-buttons {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    
+    /* Модальное окно */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    
+    .modal-overlay.show {
+      display: flex;
+    }
+    
+    .modal {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      width: 100%;
+      max-width: 500px;
+      max-height: 90vh;
+      overflow-y: auto;
+      margin: 1rem;
+    }
+    
+    .modal.modal-wide {
+      max-width: 700px;
+    }
+    
+    .modal-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+    }
+    
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+    }
+    
+    .modal-body {
+      padding: 1.5rem;
+    }
+    
+    .modal-body.compact {
+      padding: 1rem 1.5rem;
+    }
+    
+    .modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .modal-footer-left {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+    
+    .modal-footer-left strong {
+      color: var(--text-dark);
+    }
+    
+    .modal-footer-right {
+      display: flex;
+      gap: 1rem;
+    }
+    
+    /* Фильтры номеров - компактная строка */
+    .numbers-filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    
+    .number-tabs {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 0;
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    
+    .number-tab {
+      padding: 0.4rem 0.75rem;
+      border: none;
+      background: var(--bg-light);
+      color: var(--text-gray);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    
+    .number-tab:hover {
+      background-color: var(--border-color);
+      color: var(--text-dark);
+    }
+    
+    .number-tab.active {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .number-tab i {
+      font-size: 0.7rem;
+    }
+    
+    /* Фильтр региона компактный */
+    .region-filter {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0;
+      align-items: center;
+    }
+    
+    .region-filter label {
+      display: none;
+    }
+    
+    .region-filter select {
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.8rem;
+      min-width: 160px;
+      cursor: pointer;
+    }
+    
+    /* Список номеров - компактный */
+    .available-numbers-list {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+    }
+    
+    .number-item {
+      display: flex;
+      align-items: center;
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.15s;
+      gap: 0.75rem;
+    }
+    
+    .number-item:last-child {
+      border-bottom: none;
+    }
+    
+    .number-item:hover {
+      background-color: var(--bg-light);
+    }
+    
+    .number-item.selected {
+      background-color: var(--bg-blue-light);
+    }
+    
+    .number-item-radio {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--border-color);
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+    
+    .number-item.selected .number-item-radio {
+      border-color: var(--primary-blue);
+      background-color: var(--primary-blue);
+    }
+    
+    .number-item.selected .number-item-radio::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background-color: var(--white);
+      border-radius: 50%;
+    }
+    
+    .number-item-phone {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      white-space: nowrap;
+    }
+    
+    .number-item-separator {
+      color: var(--text-light);
+      margin: 0 0.25rem;
+    }
+    
+    .number-item-region {
+      font-size: 0.8rem;
+      color: var(--text-gray);
+      white-space: nowrap;
+    }
+    
+    .number-item-dots {
+      flex: 1;
+      border-bottom: 1px dotted var(--border-color);
+      margin: 0 0.5rem;
+      min-width: 20px;
+    }
+    
+    .number-item-price {
+      font-size: 0.875rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    
+    /* Состояние загрузки в списке */
+    .numbers-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem;
+      color: var(--text-gray);
+    }
+    
+    .numbers-loading .spinner {
+      width: 30px;
+      height: 30px;
+      border: 3px solid var(--bg-blue-light);
+      border-radius: 50%;
+      border-top-color: var(--primary-blue);
+      animation: spin 1s linear infinite;
+      margin-bottom: 1rem;
+    }
+    
+    /* Кнопка загрузить ещё */
+    .load-more-container {
+      padding: 0.75rem;
+      text-align: center;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .load-more-btn {
+      width: 100%;
+      padding: 0.5rem 1rem;
+      font-size: 0.8rem;
+    }
+    
+    /* Карточки выбора типа верификации */
+    .verification-type-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .verification-type-card {
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem 1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-align: center;
+      position: relative;
+      background-color: var(--white);
+    }
+    
+    .verification-type-card:hover {
+      border-color: var(--primary-blue-light);
+      background-color: var(--bg-blue-light);
+    }
+    
+    .verification-type-card.selected {
+      border-color: var(--primary-blue);
+      background-color: var(--bg-blue-light);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    
+    .verification-type-card .check-icon {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: var(--primary-blue);
+      color: var(--white);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+    }
+    
+    .verification-type-card.selected .check-icon {
+      display: flex;
+    }
+    
+    .verification-type-card .type-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: var(--bg-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 0.75rem;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      transition: all 0.2s;
+    }
+    
+    .verification-type-card:hover .type-icon {
+      background-color: var(--white);
+      color: var(--primary-blue);
+    }
+    
+    .verification-type-card.selected .type-icon {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+    
+    .verification-type-card .type-title {
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text-dark);
+      margin-bottom: 0.25rem;
+    }
+    
+    .verification-type-card .type-description {
+      font-size: 0.75rem;
+      color: var(--text-gray);
+      line-height: 1.4;
+    }
+    
+    .verification-type-card.selected .type-title {
+      color: var(--primary-blue-dark);
+    }
+    
+    /* Адаптация карточек верификации для мобильных */
+    @media (max-width: 600px) {
+      .verification-type-grid {
+        grid-template-columns: 1fr;
+      }
+      
+      .verification-type-card {
+        display: flex;
+        align-items: center;
+        text-align: left;
+        padding: 1rem;
+        gap: 1rem;
+      }
+      
+      .verification-type-card .type-icon {
+        margin: 0;
+        flex-shrink: 0;
+      }
+      
+      .verification-type-card .type-info {
+        flex: 1;
+      }
+      
+      .verification-type-card .check-icon {
+        position: static;
+        flex-shrink: 0;
+      }
+    }
+    
+    /* Мобильная адаптация */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+      }
+      
+      .sidebar.mobile-open {
+        transform: translateX(0);
+      }
+      
+      .main-content {
+        margin-left: 0;
+      }
+      
+      .top-nav {
+        padding: 1rem;
+      }
+      
+      .content-container {
+        padding: 1rem;
+      }
+      
+      .status-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      
+      .action-buttons {
+        flex-direction: column;
+      }
+      
+      .action-buttons .btn {
+        width: 100%;
+        justify-content: center;
+      }
+      
+      .numbers-table {
+        font-size: 0.875rem;
+      }
+      
+      .numbers-table th,
+      .numbers-table td {
+        padding: 0.75rem 0.5rem;
+      }
+      
+      .number-tabs {
+        flex-wrap: wrap;
+      }
+      
+      .number-tab {
+        flex: 1;
+        justify-content: center;
+        min-width: 80px;
+      }
+    }
+
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-toggle {
+        display: block;
+      }
+    }
+
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 49;
+    }
+
+    @media (max-width: 768px) {
+      .sidebar-overlay.show {
+        display: block;
+      }
+    }
+    
+    /* Скрытые секции */
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- Overlay для мобильного меню -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <!-- Боковая панель -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
+            <i class="fas fa-robot"></i>
+          </div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+    </div>
+    
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> OpenAI агенты
+      </a>
+      <a href="/static/gemini-agents.html" class="sidebar-nav-item">
+        <i class="fas fa-gem"></i> Gemini агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      <a href="/static/telephony.html" class="sidebar-nav-item active">
+        <i class="fas fa-phone"></i> Телефония
+      </a>
+      <a href="/static/test_outbound-calls.html" class="sidebar-nav-item">
+        <i class="fas fa-phone-alt"></i> Исходящие звонки
+      </a>
+      <a href="/static/conversations.html" class="sidebar-nav-item">
+         <i class="fas fa-comments"></i> Диалоги
+      </a>
+      <a href="/static/crm.html" class="sidebar-nav-item">
+         <i class="fas fa-address-book"></i> CRM
+      </a>
+
+      <div class="sidebar-section">ИИ Интерфейс</div>
+      <a href="/static/voice_llm_interface.html" class="sidebar-nav-item">
+        <i class="fas fa-microphone"></i> JARVIS AI
+      </a>
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+    
+    <div class="sidebar-footer">
+      <a href="/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </div>
+  </aside>
+  
+  <!-- Основной контент -->
+  <main class="main-content">
+    <!-- Верхняя панель -->
+    <div class="top-nav">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button class="mobile-menu-toggle" id="mobile-menu-toggle">
+          <i class="fas fa-bars"></i>
+        </button>
+        <h1 class="page-title">Телефония</h1>
+      </div>
+      
+      <div class="page-actions">
+        <div class="user-menu">
+          <button class="user-button" id="user-menu-button">
+            <div class="user-avatar" id="user-avatar">АП</div>
+            <span class="user-name" id="user-name">Пользователь</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          
+          <div class="user-dropdown" id="user-dropdown">
+            <a href="/static/settings.html" class="dropdown-item">
+              <i class="fas fa-user"></i> Профиль
+            </a>
+            <div class="dropdown-divider"></div>
+            <a href="/static/index.html" class="dropdown-item">
+              <i class="fas fa-sign-out-alt"></i> Выйти
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Контейнер для содержимого -->
+    <div class="content-container">
+      
+      <!-- Секция: Телефония не подключена -->
+      <div id="not-connected-section" class="card hidden">
+        <div class="empty-state">
+          <i class="fas fa-phone-slash"></i>
+          <h3>Телефония не подключена</h3>
+          <p style="margin-bottom: 1.5rem;">Подключите телефонию, чтобы покупать номера и принимать звонки</p>
+          
+          <div class="instructions" style="text-align: left; max-width: 500px; margin: 0 auto 1.5rem;">
+            <h4>📋 Как это работает:</h4>
+            <ol>
+              <li>Нажмите "Подключить телефонию"</li>
+              <li>Пройдите верификацию (загрузите документы)</li>
+              <li>Пополните баланс</li>
+              <li>Купите номер телефона</li>
+              <li>Привяжите ассистента к номеру</li>
+            </ol>
+          </div>
+          
+          <div class="form-group" style="max-width: 300px; margin: 0 auto 1rem;">
+            <label for="verification-type-setup">Тип верификации</label>
+            <select id="verification-type-setup" class="form-control">
+              <option value="legal_entity">Юридическое лицо</option>
+              <option value="entrepreneur">ИП</option>
+              <option value="individual">Физическое лицо</option>
+            </select>
+          </div>
+          
+          <button class="btn btn-primary btn-lg" id="setup-telephony-btn">
+            <i class="fas fa-plug"></i> Подключить телефонию
+          </button>
+        </div>
+      </div>
+      
+      <!-- Секция: Статус телефонии -->
+      <div id="connected-section" class="hidden">
+        
+        <!-- Статус -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Статус телефонии</h2>
+          </div>
+          
+          <div class="status-grid">
+            <div class="status-item">
+              <div class="status-item-label">Статус</div>
+              <div id="verification-badge" class="verification-status not-started">
+                <i class="fas fa-clock"></i>
+                <span>Не начата</span>
+              </div>
+            </div>
+            <div class="status-item">
+              <div class="status-item-label">Баланс</div>
+              <div id="balance-value" class="status-item-value">— ₽</div>
+            </div>
+            <div class="status-item">
+              <div class="status-item-label">Номеров</div>
+              <div id="numbers-count" class="status-item-value">0</div>
+            </div>
+            <div class="status-item">
+              <div class="status-item-label">Account ID</div>
+              <div id="account-id-value" class="status-item-value" style="font-size: 0.875rem; font-family: monospace;">—</div>
+            </div>
+          </div>
+          
+          <div class="action-buttons">
+            <button class="btn btn-primary" id="verification-btn">
+              <i class="fas fa-file-alt"></i> Верификация
+            </button>
+            <button class="btn btn-success" id="billing-btn">
+              <i class="fas fa-credit-card"></i> Пополнить баланс
+            </button>
+            <button class="btn btn-secondary" id="refresh-status-btn">
+              <i class="fas fa-sync-alt"></i> Обновить
+            </button>
+          </div>
+        </div>
+        
+        <!-- Мои номера -->
+        <div class="card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h2 class="card-title">Мои номера</h2>
+              <p class="card-description">Управление телефонными номерами</p>
+            </div>
+            <button class="btn btn-primary" id="buy-number-btn">
+              <i class="fas fa-plus"></i> Купить номер
+            </button>
+          </div>
+          
+          <div id="my-numbers-container">
+            <!-- Таблица или пустое состояние -->
+          </div>
+        </div>
+        
+      </div>
+      
+    </div>
+    
+    <!-- Уведомление -->
+    <div class="notification notification-success" id="notification" style="display: none;">
+      <div class="notification-icon">
+        <i class="fas fa-check-circle"></i>
+      </div>
+      <div class="notification-content">
+        <div id="notification-message">Операция успешно выполнена!</div>
+      </div>
+      <button class="notification-close" id="notification-close">&times;</button>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+      <div class="loading-spinner"></div>
+    </div>
+  </main>
+  
+  <!-- Модальное окно: Покупка номера -->
+  <div class="modal-overlay" id="buy-number-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 class="modal-title">Купить номер</h3>
+        <button class="modal-close" id="close-buy-modal">&times;</button>
+      </div>
+      <div class="modal-body compact">
+        <!-- Фильтры в одной строке -->
+        <div class="numbers-filter-row">
+          <div class="number-tabs">
+            <button class="number-tab active" data-category="GEOGRAPHIC">
+              <i class="fas fa-building"></i> Городские
+            </button>
+            <button class="number-tab" data-category="MOBILE">
+              <i class="fas fa-mobile-alt"></i> Мобильные
+            </button>
+            <button class="number-tab" data-category="TOLLFREE">
+              <i class="fas fa-phone-volume"></i> 8-800
+            </button>
+          </div>
+          
+          <div class="region-filter">
+            <select id="region-filter" class="form-control">
+              <option value="">Все регионы</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Список номеров -->
+        <div id="available-numbers-container">
+          <div class="numbers-loading">
+            <div class="spinner"></div>
+            <span>Загрузка номеров...</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-footer-left">
+          Баланс: <strong id="modal-balance">0 ₽</strong>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-secondary" id="cancel-buy-btn">Отмена</button>
+          <button class="btn btn-success" id="confirm-buy-btn" disabled>
+            <i class="fas fa-shopping-cart"></i> <span id="buy-btn-text">Купить</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Модальное окно: Привязка ассистента -->
+  <div class="modal-overlay" id="bind-assistant-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Привязать ассистента</h3>
+        <button class="modal-close" id="close-bind-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="bind-phone-id">
+        
+        <div class="form-group">
+          <label>Тип ассистента</label>
+          <select id="bind-assistant-type" class="form-control">
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>Выберите ассистента</label>
+          <select id="bind-assistant-select" class="form-control">
+            <option value="">Загрузка...</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancel-bind-btn">Отмена</button>
+        <button class="btn btn-primary" id="confirm-bind-btn">
+          <i class="fas fa-link"></i> Привязать
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Модальное окно: Выбор типа верификации -->
+  <div class="modal-overlay" id="verification-type-modal">
+    <div class="modal" style="max-width: 550px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Выберите тип верификации</h3>
+        <button class="modal-close" id="close-verification-type-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-gray); font-size: 0.875rem; margin-bottom: 1.25rem;">
+          Выберите тип лица для прохождения верификации в системе телефонии
+        </p>
+        
+        <div class="verification-type-grid">
+          <!-- Физическое лицо -->
+          <div class="verification-type-card selected" data-type="individual">
+            <div class="check-icon">
+              <i class="fas fa-check"></i>
+            </div>
+            <div class="type-icon">
+              <i class="fas fa-user"></i>
+            </div>
+            <div class="type-info">
+              <div class="type-title">Физ. лицо</div>
+              <div class="type-description">Для частных лиц</div>
+            </div>
+          </div>
+          
+          <!-- Юридическое лицо -->
+          <div class="verification-type-card" data-type="legal_entity">
+            <div class="check-icon">
+              <i class="fas fa-check"></i>
+            </div>
+            <div class="type-icon">
+              <i class="fas fa-building"></i>
+            </div>
+            <div class="type-info">
+              <div class="type-title">Юр. лицо</div>
+              <div class="type-description">Для компаний</div>
+            </div>
+          </div>
+          
+          <!-- ИП -->
+          <div class="verification-type-card" data-type="entrepreneur">
+            <div class="check-icon">
+              <i class="fas fa-check"></i>
+            </div>
+            <div class="type-icon">
+              <i class="fas fa-briefcase"></i>
+            </div>
+            <div class="type-info">
+              <div class="type-title">ИП</div>
+              <div class="type-description">Индивидуальный предприниматель</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancel-verification-type-btn">Отмена</button>
+        <button class="btn btn-primary" id="confirm-verification-type-btn">
+          <i class="fas fa-arrow-right"></i> Перейти к верификации
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Элементы
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const notificationClose = document.getElementById('notification-close');
+      const loadingOverlay = document.getElementById('loading-overlay');
+      const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+      const sidebar = document.getElementById('sidebar');
+      const sidebarOverlay = document.getElementById('sidebar-overlay');
+      const userMenuButton = document.getElementById('user-menu-button');
+      const userDropdown = document.getElementById('user-dropdown');
+      const userEmailDisplay = document.getElementById('user-name');
+      const userAvatar = document.getElementById('user-avatar');
+      
+      // Секции
+      const notConnectedSection = document.getElementById('not-connected-section');
+      const connectedSection = document.getElementById('connected-section');
+      
+      // Элементы статуса
+      const verificationBadge = document.getElementById('verification-badge');
+      const balanceValue = document.getElementById('balance-value');
+      const numbersCount = document.getElementById('numbers-count');
+      const accountIdValue = document.getElementById('account-id-value');
+      
+      // Кнопки
+      const setupTelephonyBtn = document.getElementById('setup-telephony-btn');
+      const verificationBtn = document.getElementById('verification-btn');
+      const billingBtn = document.getElementById('billing-btn');
+      const refreshStatusBtn = document.getElementById('refresh-status-btn');
+      const buyNumberBtn = document.getElementById('buy-number-btn');
+      
+      // Модальные окна
+      const buyNumberModal = document.getElementById('buy-number-modal');
+      const bindAssistantModal = document.getElementById('bind-assistant-modal');
+      const verificationTypeModal = document.getElementById('verification-type-modal');
+      
+      let selectedNumberToBuy = null;
+      let selectedNumberPrice = null;
+      let currentBalance = 0;
+      let selectedVerificationType = 'individual';
+      let currentCategory = 'GEOGRAPHIC';
+      let currentRegionId = null;
+      let currentOffset = 0;
+      let hasMoreNumbers = false;
+      let regionsCache = {};
+      
+      // Дефолтные регионы для каждой категории
+      const defaultRegions = {
+        'GEOGRAPHIC': 15,
+        'MOBILE': 177,
+        'TOLLFREE': 3
+      };
+      
+      // API функции
+      const api = {
+        baseUrl: '/api',
+        
+        getToken() {
+          return localStorage.getItem('auth_token');
+        },
+        
+        isAuthenticated() {
+          return this.getToken() !== null;
+        },
+        
+        async fetch(endpoint, options = {}) {
+          if (this.isAuthenticated()) {
+            options.headers = {
+              ...options.headers,
+              'Authorization': `Bearer ${this.getToken()}`
+            };
+          }
+          
+          if (options.body && typeof options.body !== 'string') {
+            options.headers = {
+              ...options.headers,
+              'Content-Type': 'application/json'
+            };
+            options.body = JSON.stringify(options.body);
+          }
+          
+          const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+          
+          if (response.status === 401) {
+            localStorage.removeItem('auth_token');
+            window.location.href = '/static/login.html';
+            throw new Error('Требуется авторизация');
+          }
+          
+          const data = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(data.detail || data.message || 'Произошла ошибка');
+          }
+          
+          return data;
+        },
+        
+        get(endpoint) {
+          return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        }
+      };
+      
+      // UI функции
+      function setLoading(loading) {
+        loadingOverlay.style.display = loading ? 'flex' : 'none';
+      }
+      
+      function showNotification(message, type = 'success') {
+        notification.classList.remove('notification-success', 'notification-error', 'notification-info', 'notification-warning');
+        notification.classList.add(`notification-${type}`);
+        
+        const iconElement = notification.querySelector('.notification-icon i');
+        iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
+                             type === 'error' ? 'fas fa-exclamation-circle' : 
+                             type === 'warning' ? 'fas fa-exclamation-triangle' :
+                             'fas fa-info-circle';
+        
+        notificationMessage.textContent = message;
+        notification.style.display = 'flex';
+        
+        setTimeout(() => {
+          notification.classList.add('show');
+        }, 10);
+        
+        setTimeout(() => {
+          hideNotification();
+        }, 5000);
+      }
+      
+      function hideNotification() {
+        notification.classList.remove('show');
+        setTimeout(() => {
+          notification.style.display = 'none';
+        }, 300);
+      }
+      
+      // Обновление UI статуса верификации
+      function updateVerificationBadge(status) {
+        const statusMap = {
+          'not_started': { class: 'not-started', icon: 'fa-clock', text: 'Не начата' },
+          'awaiting_documents': { class: 'pending', icon: 'fa-file-upload', text: 'Загрузите документы' },
+          'awaiting_agreement': { class: 'pending', icon: 'fa-file-signature', text: 'Загрузите договор' },
+          'awaiting_verification': { class: 'pending', icon: 'fa-hourglass-half', text: 'На проверке' },
+          'verified': { class: 'verified', icon: 'fa-check-circle', text: 'Верифицирован' },
+          'rejected': { class: 'rejected', icon: 'fa-times-circle', text: 'Отклонено' }
+        };
+        
+        const info = statusMap[status] || statusMap['not_started'];
+        
+        verificationBadge.className = `verification-status ${info.class}`;
+        verificationBadge.innerHTML = `<i class="fas ${info.icon}"></i><span>${info.text}</span>`;
+      }
+      
+      // Загрузка статуса телефонии
+      async function loadTelephonyStatus() {
+        try {
+          setLoading(true);
+          const status = await api.get('/telephony/status');
+          
+          if (status.is_connected) {
+            notConnectedSection.classList.add('hidden');
+            connectedSection.classList.remove('hidden');
+            
+            updateVerificationBadge(status.verification_status);
+            balanceValue.textContent = status.balance !== null ? `${status.balance.toFixed(2)} ₽` : '— ₽';
+            numbersCount.textContent = status.numbers_count;
+            accountIdValue.textContent = status.account_id || '—';
+            
+            await loadMyNumbers();
+          } else {
+            notConnectedSection.classList.remove('hidden');
+            connectedSection.classList.add('hidden');
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки статуса:', error);
+          notConnectedSection.classList.remove('hidden');
+          connectedSection.classList.add('hidden');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      // Загрузка моих номеров
+      async function loadMyNumbers() {
+        try {
+          const result = await api.get('/telephony/my-numbers');
+          const container = document.getElementById('my-numbers-container');
+          
+          if (result.numbers.length === 0) {
+            container.innerHTML = `
+              <div class="empty-state">
+                <i class="fas fa-phone"></i>
+                <h3>Нет номеров</h3>
+                <p>Купите номер, чтобы принимать звонки</p>
+              </div>
+            `;
+            return;
+          }
+          
+          container.innerHTML = `
+            <table class="numbers-table">
+              <thead>
+                <tr>
+                  <th>Номер</th>
+                  <th>Ассистент на входящие</th>
+                  <th>Действия</th>
+                  <th>Исходящие звонки</th>
+                </tr>
+              </thead>
+              <tbody id="numbers-tbody">
+              </tbody>
+            </table>
+          `;
+          
+          const tbody = document.getElementById('numbers-tbody');
+          
+          result.numbers.forEach(num => {
+            const tr = document.createElement('tr');
+            
+            const assistantBadge = num.assistant_name 
+              ? `<span class="assistant-badge"><i class="fas fa-robot"></i> ${num.assistant_name}</span>`
+              : `<span class="assistant-badge not-bound"><i class="fas fa-unlink"></i> Не привязан</span>`;
+            
+            tr.innerHTML = `
+              <td><span class="phone-number">${num.phone_number}</span></td>
+              <td>${assistantBadge}</td>
+              <td>
+                <button class="btn btn-secondary btn-sm bind-assistant-btn" data-id="${num.id}" data-phone="${num.phone_number}">
+                  <i class="fas fa-link"></i> Привязать
+                </button>
+              </td>
+              <td>
+                <a href="/static/test_outbound-calls.html" class="btn btn-secondary btn-sm">
+                  <i class="fas fa-phone-alt"></i> Перейти
+                </a>
+              </td>
+            `;
+            
+            tbody.appendChild(tr);
+          });
+          
+          // Обработчики для кнопок привязки
+          document.querySelectorAll('.bind-assistant-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              openBindModal(btn.dataset.id, btn.dataset.phone);
+            });
+          });
+          
+        } catch (error) {
+          console.error('Ошибка загрузки номеров:', error);
+        }
+      }
+      
+      // Загрузка регионов для категории
+      async function loadRegions(category) {
+        const regionSelect = document.getElementById('region-filter');
+        
+        if (regionsCache[category]) {
+          renderRegions(regionsCache[category]);
+          return;
+        }
+        
+        regionSelect.innerHTML = '<option value="">Загрузка...</option>';
+        regionSelect.disabled = true;
+        
+        try {
+          const result = await api.get(`/telephony/phone-regions?category=${category}`);
+          
+          if (result.success && result.regions) {
+            regionsCache[category] = result.regions;
+            renderRegions(result.regions);
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки регионов:', error);
+          regionSelect.innerHTML = '<option value="">Все регионы</option>';
+        } finally {
+          regionSelect.disabled = false;
+        }
+      }
+      
+      // Отрисовка регионов в dropdown
+      function renderRegions(regions) {
+        const regionSelect = document.getElementById('region-filter');
+        regionSelect.innerHTML = '<option value="">Все регионы</option>';
+        
+        const sorted = [...regions].sort((a, b) => b.phone_count - a.phone_count);
+        
+        sorted.forEach(r => {
+          const option = document.createElement('option');
+          option.value = r.region_id;
+          option.textContent = `${r.region_name} (${r.phone_count})`;
+          regionSelect.appendChild(option);
+        });
+      }
+      
+      // Обновление кнопки покупки
+      function updateBuyButton() {
+        const btn = document.getElementById('confirm-buy-btn');
+        const btnText = document.getElementById('buy-btn-text');
+        
+        if (selectedNumberToBuy && selectedNumberPrice) {
+          btn.disabled = false;
+          btnText.textContent = `Купить за ${selectedNumberPrice} ₽`;
+        } else {
+          btn.disabled = true;
+          btnText.textContent = 'Купить';
+        }
+      }
+      
+      // Загрузка доступных номеров
+      async function loadAvailableNumbers(category, regionId = null, append = false) {
+        const container = document.getElementById('available-numbers-container');
+        
+        if (!append) {
+          currentOffset = 0;
+          selectedNumberToBuy = null;
+          selectedNumberPrice = null;
+          updateBuyButton();
+          container.innerHTML = `
+            <div class="numbers-loading">
+              <div class="spinner"></div>
+              <span>Загрузка номеров...</span>
+            </div>
+          `;
+        }
+        
+        const effectiveRegionId = (regionId && parseInt(regionId) > 0) 
+          ? parseInt(regionId) 
+          : defaultRegions[category];
+        
+        currentRegionId = effectiveRegionId;
+        
+        try {
+          let url = `/telephony/available-numbers?count=30&category=${category}&region_id=${effectiveRegionId}`;
+          if (currentOffset > 0) {
+            url += `&offset=${currentOffset}`;
+          }
+          
+          const result = await api.get(url);
+          
+          if (result.numbers.length === 0 && !append) {
+            container.innerHTML = `
+              <div class="empty-state" style="padding: 2rem;">
+                <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                <p>Номера не найдены</p>
+              </div>
+            `;
+            hasMoreNumbers = false;
+            return;
+          }
+          
+          hasMoreNumbers = result.numbers.length === 30 && (currentOffset + 30) < result.total;
+          
+          let list;
+          if (append) {
+            list = container.querySelector('.available-numbers-list');
+            const oldLoadMore = container.querySelector('.load-more-container');
+            if (oldLoadMore) oldLoadMore.remove();
+          } else {
+            container.innerHTML = `<div class="available-numbers-list"></div>`;
+            list = container.querySelector('.available-numbers-list');
+          }
+          
+          result.numbers.forEach(num => {
+            const item = document.createElement('div');
+            item.className = 'number-item';
+            item.dataset.phone = num.phone_number;
+            item.dataset.price = num.phone_price || 0;
+            
+            const priceText = num.phone_price ? `${num.phone_price} ₽` : '—';
+            
+            item.innerHTML = `
+              <div class="number-item-radio"></div>
+              <span class="number-item-phone">${formatPhoneNumber(num.phone_number)}</span>
+              <span class="number-item-separator">·</span>
+              <span class="number-item-region">${num.region || 'Россия'}</span>
+              <div class="number-item-dots"></div>
+              <span class="number-item-price">${priceText}</span>
+            `;
+            
+            item.addEventListener('click', () => {
+              document.querySelectorAll('.number-item').forEach(i => i.classList.remove('selected'));
+              item.classList.add('selected');
+              selectedNumberToBuy = num.phone_number;
+              selectedNumberPrice = num.phone_price;
+              updateBuyButton();
+            });
+            
+            list.appendChild(item);
+          });
+          
+          if (hasMoreNumbers) {
+            const loadMoreContainer = document.createElement('div');
+            loadMoreContainer.className = 'load-more-container';
+            loadMoreContainer.innerHTML = `
+              <button class="btn btn-secondary load-more-btn">
+                <i class="fas fa-plus"></i> Загрузить ещё (всего: ${result.total})
+              </button>
+            `;
+            loadMoreContainer.querySelector('.load-more-btn').addEventListener('click', (e) => {
+              e.stopPropagation();
+              currentOffset += 30;
+              loadAvailableNumbers(currentCategory, currentRegionId, true);
+            });
+            list.appendChild(loadMoreContainer);
+          }
+          
+          currentOffset = append ? currentOffset + result.numbers.length : result.numbers.length;
+          
+        } catch (error) {
+          if (!append) {
+            container.innerHTML = `
+              <div class="empty-state" style="padding: 2rem;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--error-red);"></i>
+                <p>${error.message || 'Ошибка загрузки номеров'}</p>
+              </div>
+            `;
+          }
+        }
+      }
+      
+      // Форматирование номера телефона
+      function formatPhoneNumber(phone) {
+        const cleaned = phone.replace(/\D/g, '');
+        if (cleaned.length === 11 && cleaned.startsWith('7')) {
+          return `+7 ${cleaned.slice(1, 4)} ${cleaned.slice(4, 7)}-${cleaned.slice(7, 9)}-${cleaned.slice(9)}`;
+        }
+        return phone;
+      }
+      
+      // Подключение телефонии
+      setupTelephonyBtn.addEventListener('click', async () => {
+        try {
+          setLoading(true);
+          const verificationType = document.getElementById('verification-type-setup').value;
+          
+          const result = await api.post('/telephony/setup', {
+            verification_type: verificationType
+          });
+          
+          showNotification(result.message, 'success');
+          
+          if (result.verification_url) {
+            window.open(result.verification_url, '_blank');
+          }
+          
+          await loadTelephonyStatus();
+          
+        } catch (error) {
+          showNotification(error.message || 'Ошибка подключения телефонии', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Кнопка верификации
+      verificationBtn.addEventListener('click', () => {
+        selectedVerificationType = 'individual';
+        document.querySelectorAll('.verification-type-card').forEach(card => {
+          card.classList.remove('selected');
+          if (card.dataset.type === 'individual') {
+            card.classList.add('selected');
+          }
+        });
+        verificationTypeModal.classList.add('show');
+      });
+      
+      // Обработка выбора карточки типа верификации
+      document.querySelectorAll('.verification-type-card').forEach(card => {
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.verification-type-card').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          selectedVerificationType = card.dataset.type;
+        });
+      });
+      
+      // Закрытие модалки выбора типа верификации
+      document.getElementById('close-verification-type-modal').addEventListener('click', () => {
+        verificationTypeModal.classList.remove('show');
+      });
+      
+      document.getElementById('cancel-verification-type-btn').addEventListener('click', () => {
+        verificationTypeModal.classList.remove('show');
+      });
+      
+      // Подтверждение выбора типа верификации
+      document.getElementById('confirm-verification-type-btn').addEventListener('click', async () => {
+        verificationTypeModal.classList.remove('show');
+        
+        try {
+          setLoading(true);
+          const result = await api.get(`/telephony/verification-url?verification_type=${selectedVerificationType}`);
+          
+          if (result.url) {
+            window.open(result.url, '_blank');
+          }
+        } catch (error) {
+          showNotification(error.message || 'Ошибка получения ссылки', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Кнопка биллинга
+      billingBtn.addEventListener('click', async () => {
+        try {
+          setLoading(true);
+          const result = await api.get('/telephony/billing-url?start_page=card');
+          
+          if (result.url) {
+            window.open(result.url, '_blank');
+          }
+        } catch (error) {
+          showNotification(error.message || 'Ошибка получения ссылки', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Кнопка обновления
+      refreshStatusBtn.addEventListener('click', async () => {
+        await loadTelephonyStatus();
+        showNotification('Статус обновлен', 'info');
+      });
+      
+      // Кнопка покупки номера
+      buyNumberBtn.addEventListener('click', async () => {
+        selectedNumberToBuy = null;
+        selectedNumberPrice = null;
+        updateBuyButton();
+        currentCategory = 'GEOGRAPHIC';
+        currentOffset = 0;
+        
+        document.querySelectorAll('.number-tab').forEach(tab => {
+          tab.classList.remove('active');
+          if (tab.dataset.category === 'GEOGRAPHIC') {
+            tab.classList.add('active');
+          }
+        });
+        
+        buyNumberModal.classList.add('show');
+        
+        try {
+          const balanceResult = await api.get('/telephony/balance');
+          currentBalance = balanceResult.balance || 0;
+          document.getElementById('modal-balance').textContent = `${currentBalance.toFixed(2)} ₽`;
+        } catch (e) {
+          document.getElementById('modal-balance').textContent = '— ₽';
+        }
+        
+        loadRegions(currentCategory).then(() => {
+          const regionSelect = document.getElementById('region-filter');
+          regionSelect.value = defaultRegions[currentCategory];
+        });
+        
+        loadAvailableNumbers(currentCategory, defaultRegions[currentCategory]);
+      });
+      
+      // Обработчики табов категорий
+      document.querySelectorAll('.number-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.number-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          currentCategory = tab.dataset.category;
+          selectedNumberToBuy = null;
+          selectedNumberPrice = null;
+          currentOffset = 0;
+          updateBuyButton();
+          
+          loadRegions(currentCategory).then(() => {
+            const regionSelect = document.getElementById('region-filter');
+            regionSelect.value = defaultRegions[currentCategory];
+          });
+          
+          loadAvailableNumbers(currentCategory, defaultRegions[currentCategory]);
+        });
+      });
+      
+      // Обработчик фильтра региона
+      document.getElementById('region-filter').addEventListener('change', (e) => {
+        selectedNumberToBuy = null;
+        selectedNumberPrice = null;
+        currentOffset = 0;
+        updateBuyButton();
+        const regionId = e.target.value || defaultRegions[currentCategory];
+        loadAvailableNumbers(currentCategory, regionId);
+      });
+      
+      // Закрытие модального окна покупки
+      document.getElementById('close-buy-modal').addEventListener('click', () => {
+        buyNumberModal.classList.remove('show');
+      });
+      
+      document.getElementById('cancel-buy-btn').addEventListener('click', () => {
+        buyNumberModal.classList.remove('show');
+      });
+      
+      // Подтверждение покупки
+      document.getElementById('confirm-buy-btn').addEventListener('click', async () => {
+        if (!selectedNumberToBuy) return;
+        
+        const priceText = selectedNumberPrice ? ` за ${selectedNumberPrice} ₽` : '';
+        if (!confirm(`Купить номер ${formatPhoneNumber(selectedNumberToBuy)}${priceText}?`)) return;
+        
+        try {
+          setLoading(true);
+          
+          const result = await api.post('/telephony/buy-number', {
+            phone_number: selectedNumberToBuy
+          });
+          
+          showNotification(result.message || 'Номер успешно куплен!', 'success');
+          buyNumberModal.classList.remove('show');
+          selectedNumberToBuy = null;
+          selectedNumberPrice = null;
+          
+          await loadTelephonyStatus();
+          
+        } catch (error) {
+          const errorMsg = error.message || '';
+          if (errorMsg.toLowerCase().includes('insufficient funds') || errorMsg.toLowerCase().includes('недостаточно')) {
+            showNotification('На вашем балансе недостаточно средств. Пополните баланс и попробуйте снова.', 'error');
+          } else {
+            showNotification(errorMsg || 'Ошибка покупки номера', 'error');
+          }
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Модальное окно привязки ассистента
+      function openBindModal(phoneId, phoneNumber) {
+        document.getElementById('bind-phone-id').value = phoneId;
+        document.getElementById('bind-assistant-modal').querySelector('.modal-title').textContent = 
+          `Привязать ассистента к ${formatPhoneNumber(phoneNumber)}`;
+        loadAssistantsForBind();
+        bindAssistantModal.classList.add('show');
+      }
+      
+      // Загрузка ассистентов для привязки
+      async function loadAssistantsForBind() {
+        const typeSelect = document.getElementById('bind-assistant-type');
+        const assistantSelect = document.getElementById('bind-assistant-select');
+        
+        try {
+          const type = typeSelect.value;
+          const endpoint = type === 'openai' ? '/assistants' : '/gemini-assistants';
+          
+          const assistants = await api.get(endpoint);
+          
+          assistantSelect.innerHTML = '<option value="">Выберите ассистента</option>';
+          
+          assistants.forEach(a => {
+            const option = document.createElement('option');
+            option.value = a.id;
+            option.textContent = a.name;
+            assistantSelect.appendChild(option);
+          });
+          
+        } catch (error) {
+          assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+        }
+      }
+      
+      document.getElementById('bind-assistant-type').addEventListener('change', loadAssistantsForBind);
+      
+      document.getElementById('close-bind-modal').addEventListener('click', () => {
+        bindAssistantModal.classList.remove('show');
+      });
+      
+      document.getElementById('cancel-bind-btn').addEventListener('click', () => {
+        bindAssistantModal.classList.remove('show');
+      });
+      
+      // Подтверждение привязки
+      document.getElementById('confirm-bind-btn').addEventListener('click', async () => {
+        const phoneId = document.getElementById('bind-phone-id').value;
+        const assistantType = document.getElementById('bind-assistant-type').value;
+        const assistantId = document.getElementById('bind-assistant-select').value;
+        
+        if (!assistantId) {
+          showNotification('Выберите ассистента', 'warning');
+          return;
+        }
+        
+        try {
+          setLoading(true);
+          
+          await api.post('/telephony/bind-assistant', {
+            phone_number_id: phoneId,
+            assistant_type: assistantType,
+            assistant_id: assistantId
+          });
+          
+          showNotification('Ассистент успешно привязан!', 'success');
+          bindAssistantModal.classList.remove('show');
+          
+          await loadMyNumbers();
+          
+        } catch (error) {
+          showNotification(error.message || 'Ошибка привязки', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+      
+      // Загрузка информации о пользователе
+      async function loadUserInfo() {
+        try {
+          const userInfo = await api.get('/users/me');
+          
+          const firstName = userInfo.first_name || '';
+          const lastName = userInfo.last_name || '';
+          
+          if (firstName || lastName) {
+            userEmailDisplay.textContent = firstName + (lastName ? ` ${lastName}` : '');
+            
+            let initials = '';
+            if (firstName) initials += firstName[0];
+            if (lastName) initials += lastName[0];
+            userAvatar.textContent = initials.toUpperCase();
+          } else if (userInfo.company_name) {
+            userEmailDisplay.textContent = userInfo.company_name;
+            userAvatar.textContent = userInfo.company_name.substring(0, 2).toUpperCase();
+          } else {
+            userEmailDisplay.textContent = userInfo.email;
+            userAvatar.textContent = userInfo.email.substring(0, 2).toUpperCase();
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки информации о пользователе:', error);
+        }
+      }
+      
+      // Мобильное меню
+      mobileMenuToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('mobile-open');
+        sidebarOverlay.classList.toggle('show');
+      });
+      
+      sidebarOverlay.addEventListener('click', function() {
+        sidebar.classList.remove('mobile-open');
+        sidebarOverlay.classList.remove('show');
+      });
+      
+      // Выпадающее меню пользователя
+      userMenuButton.addEventListener('click', function(e) {
+        e.stopPropagation();
+        userDropdown.classList.toggle('show');
+      });
+      
+      document.addEventListener('click', function(e) {
+        if (userDropdown.classList.contains('show') && !userDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+          userDropdown.classList.remove('show');
+        }
+      });
+      
+      // Закрытие уведомления
+      notificationClose.addEventListener('click', hideNotification);
+      
+      // Закрытие модалок по клику на overlay
+      verificationTypeModal.addEventListener('click', function(e) {
+        if (e.target === verificationTypeModal) {
+          verificationTypeModal.classList.remove('show');
+        }
+      });
+      
+      buyNumberModal.addEventListener('click', function(e) {
+        if (e.target === buyNumberModal) {
+          buyNumberModal.classList.remove('show');
+        }
+      });
+      
+      bindAssistantModal.addEventListener('click', function(e) {
+        if (e.target === bindAssistantModal) {
+          bindAssistantModal.classList.remove('show');
+        }
+      });
+      
+      // Проверка авторизации
+      if (!api.isAuthenticated()) {
+        window.location.href = '/static/login.html';
+        return;
+      }
+      
+      // Инициализация
+      loadUserInfo();
+      loadTelephonyStatus();
+    });
+  </script>
+</body>
+</html>
