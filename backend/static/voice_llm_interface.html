@@ -52,6 +52,124 @@
             display: flex;
         }
 
+        /* ============================================================ */
+        /* 🆕 START OVERLAY - Активация по клику */
+        /* ============================================================ */
+        .start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.95), rgba(99, 102, 241, 0.95));
+            backdrop-filter: blur(20px);
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+
+        .start-overlay.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .start-overlay-content {
+            text-align: center;
+            color: white;
+            max-width: 400px;
+            padding: 40px;
+        }
+
+        .start-overlay-icon {
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            animation: pulse-overlay 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-overlay {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4);
+            }
+            50% {
+                transform: scale(1.05);
+                box-shadow: 0 0 0 20px rgba(255, 255, 255, 0);
+            }
+        }
+
+        .start-overlay-icon i {
+            font-size: 48px;
+            color: white;
+            filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.5));
+        }
+
+        .start-overlay-title {
+            font-family: 'Orbitron', monospace;
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .start-overlay-subtitle {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-bottom: 40px;
+            line-height: 1.5;
+        }
+
+        .start-overlay-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 18px 40px;
+            background: white;
+            color: var(--gemini-color);
+            border: none;
+            border-radius: 50px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            font-family: 'Inter', sans-serif;
+        }
+
+        .start-overlay-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .start-overlay-button:active {
+            transform: translateY(-1px);
+        }
+
+        .start-overlay-button i {
+            font-size: 20px;
+        }
+
+        .start-overlay-hint {
+            margin-top: 30px;
+            font-size: 14px;
+            opacity: 0.7;
+        }
+
+        .start-overlay-hint i {
+            margin-right: 8px;
+        }
+
         /* Боковая панель навигации */
         .sidebar {
             width: var(--sidebar-width);
@@ -219,7 +337,7 @@
             color: #22c55e;
         }
 
-        /* Config Panel Styles - теперь всегда видим */
+        /* Config Panel Styles */
         .config-panel {
             position: fixed;
             top: 0;
@@ -425,7 +543,7 @@
             }
         }
 
-        /* Adjust main container - всегда учитываем config panel */
+        /* Main container */
         .main-container {
             margin-left: var(--sidebar-width);
             width: calc(100% - var(--sidebar-width));
@@ -1137,49 +1255,6 @@
             line-height: 1.6;
         }
 
-        /* Loading animation */
-        .loading-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 60px 20px;
-        }
-
-        .loading {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 20px;
-        }
-
-        .loading-dot {
-            width: 10px;
-            height: 10px;
-            background: var(--gemini-color);
-            border-radius: 50%;
-            animation: pulse-loading 1.4s infinite ease-in-out;
-        }
-
-        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
-        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes pulse-loading {
-            0%, 80%, 100% {
-                transform: scale(0);
-                opacity: 0.5;
-            }
-            40% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        .loading-text {
-            color: #6a6a6a;
-            font-size: 16px;
-        }
-
         /* Content formatting */
         .llm-content h1, .llm-content h2, .llm-content h3 {
             margin: 24px 0 12px 0;
@@ -1279,16 +1354,50 @@
             .config-actions {
                 flex-direction: column;
             }
+
+            .start-overlay-title {
+                font-size: 24px;
+            }
+
+            .start-overlay-subtitle {
+                font-size: 16px;
+            }
+
+            .start-overlay-button {
+                padding: 14px 30px;
+                font-size: 16px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- ============================================================ -->
+    <!-- 🆕 START OVERLAY - Обязательный клик для активации аудио -->
+    <!-- ============================================================ -->
+    <div class="start-overlay" id="startOverlay">
+        <div class="start-overlay-content">
+            <div class="start-overlay-icon">
+                <i class="fas fa-gem"></i>
+            </div>
+            <div class="start-overlay-title">JARVIS AI</div>
+            <div class="start-overlay-subtitle">
+                Голосовой ассистент на базе Google Gemini с поддержкой LLM
+            </div>
+            <button class="start-overlay-button" id="startButton">
+                <i class="fas fa-microphone"></i>
+                Нажмите чтобы начать
+            </button>
+            <div class="start-overlay-hint">
+                <i class="fas fa-info-circle"></i>
+                Требуется для активации микрофона и звука
+            </div>
+        </div>
+    </div>
+
     <!-- Overlay для мобильного меню -->
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <!-- ============================================================ -->
     <!-- SIDEBAR NAVIGATION -->
-    <!-- ============================================================ -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="/" class="sidebar-logo">
@@ -1341,9 +1450,7 @@
         </div>
     </aside>
 
-    <!-- ============================================================ -->
     <!-- CONFIG PANEL -->
-    <!-- ============================================================ -->
     <div class="config-panel" id="configPanel">
         <div class="config-container">
             <div class="config-header">
@@ -1386,9 +1493,7 @@
         <span id="successText">Успешно!</span>
     </div>
 
-    <!-- ============================================================ -->
     <!-- MAIN INTERFACE -->
-    <!-- ============================================================ -->
     <canvas id="jarvis-three-canvas"></canvas>
     <div class="background-overlay"></div>
     
@@ -1432,7 +1537,7 @@
                         <div class="placeholder-title">Задайте вопрос голосовому ассистенту</div>
                         <div class="placeholder-text">
                             Нажмите на сферу JARVIS справа и произнесите ваш вопрос. 
-                            Для сложных задач ассистент автоматически получит развёрнутый ответ от LLM и покажет его на экране в реальном времени.
+                            Для сложных задач ассистент автоматически получит развёрнутый ответ от LLM.
                         </div>
                     </div>
                 </div>
@@ -1445,7 +1550,7 @@
                     <div class="voice-title">Gemini Voice</div>
                     <div class="voice-status connecting" id="voiceStatus">
                         <span class="status-dot"></span>
-                        <span id="statusText">Подключение...</span>
+                        <span id="statusText">Ожидание...</span>
                     </div>
                 </div>
                 <div class="voice-content">
@@ -1460,7 +1565,7 @@
                         <div class="instructions-title">Как использовать</div>
                         <div class="instructions-text">
                             Нажмите на сферу и говорите естественно с Gemini. 
-                            Для развёрнутых ответов текст будет появляться на экране в реальном времени.
+                            Для развёрнутых ответов текст будет появляться на экране.
                         </div>
                     </div>
                 </div>
@@ -1470,9 +1575,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        // ============================================================================
-        // WAIT FOR DOM TO BE READY
-        // ============================================================================
         document.addEventListener('DOMContentLoaded', function() {
             'use strict';
 
@@ -1485,33 +1587,26 @@
             const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
             const PING_INTERVAL = 15000;
             const MOBILE_PING_INTERVAL = 10000;
-            
-            // ✅ v2.0: localStorage key for saving assistant
             const STORAGE_KEY_ASSISTANT = 'lastGeminiAssistantId';
-
-            // ✅ Определяем SERVER_URL из текущего location
             const SERVER_URL = `${window.location.protocol}//${window.location.host}`;
             
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
             const isAndroid = /Android/i.test(navigator.userAgent);
 
-            // ============================================================================
-            // ASSISTANT CONFIGURATION
-            // ============================================================================
-
             const urlParams = new URLSearchParams(window.location.search);
-
-            // ✅ ASSISTANT_ID - управляется через интерфейс (Gemini ассистенты)
             let ASSISTANT_ID = urlParams.get('assistant') || null;
+            let userActivated = false;
 
-            console.log('[JARVIS] JARVIS AI Interface v4.1 (Gemini + Dual WebSocket LLM + User API Keys)');
+            console.log('[JARVIS] JARVIS AI Interface v4.2 (User Activation Required)');
             console.log('[JARVIS] Assistant ID from URL:', ASSISTANT_ID);
 
             // ============================================================================
             // UI ELEMENTS
             // ============================================================================
 
+            const startOverlay = document.getElementById('startOverlay');
+            const startButton = document.getElementById('startButton');
             const configPanel = document.getElementById('configPanel');
             const assistantSelect = document.getElementById('assistantSelect');
             const saveBtn = document.getElementById('saveBtn');
@@ -1521,19 +1616,78 @@
             const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
             const sidebar = document.getElementById('sidebar');
             const sidebarOverlay = document.getElementById('sidebar-overlay');
-
-            // Всегда загружаем список Gemini ассистентов
-            loadGeminiAssistantsList();
+            const jarvisSphere = document.getElementById('jarvisSphere');
+            const circularViz = document.getElementById('circularViz');
+            const llmContent = document.getElementById('llmContent');
+            const llmMeta = document.getElementById('llmMeta');
+            const voiceStatus = document.getElementById('voiceStatus');
+            const statusText = document.getElementById('statusText');
+            const errorContainer = document.getElementById('errorContainer');
+            const hudFrames = [
+                document.getElementById('hudTL'),
+                document.getElementById('hudTR'),
+                document.getElementById('hudBL'),
+                document.getElementById('hudBR')
+            ];
 
             // ============================================================================
-            // 🆕 LOAD GEMINI ASSISTANTS (with localStorage restore)
+            // 🆕 v4.2: START OVERLAY HANDLER
             // ============================================================================
+            
+            async function activateAudioAndStart() {
+                log('🎬 User activation triggered');
+                
+                try {
+                    const audioSuccess = await initializeAudio();
+                    if (!audioSuccess) {
+                        log('❌ Audio initialization failed', 'error');
+                    }
+                    
+                    initPlaybackAudioContext();
+                    userActivated = true;
+                    startOverlay.classList.add('hidden');
+                    log('✅ Overlay hidden, audio activated');
+                    
+                    if (ASSISTANT_ID) {
+                        log('🔌 Connecting WebSocket after user activation...');
+                        connectWebSocket();
+                    } else {
+                        updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
+                    }
+                    
+                } catch (error) {
+                    log(`❌ Activation error: ${error}`, 'error');
+                    startOverlay.classList.add('hidden');
+                    userActivated = true;
+                }
+            }
+            
+            startButton.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                activateAudioAndStart();
+            });
+            
+            startOverlay.addEventListener('click', function(e) {
+                if (e.target === startOverlay) {
+                    activateAudioAndStart();
+                }
+            });
+
+            // ============================================================================
+            // LOAD GEMINI ASSISTANTS
+            // ============================================================================
+            
+            const isEmbedMode = urlParams.has('assistant');
+            
+            if (!isEmbedMode) {
+                loadGeminiAssistantsList();
+            }
             
             async function loadGeminiAssistantsList() {
                 try {
                     console.log('[CONFIG] Loading Gemini assistants...');
                     
-                    // ✅ /api/gemini-assistants
                     const response = await fetch(`${SERVER_URL}/api/gemini-assistants`, {
                         headers: {
                             'Authorization': `Bearer ${getAuthToken()}`
@@ -1545,7 +1699,6 @@
                     }
                     
                     const assistants = await response.json();
-                    
                     console.log('[CONFIG] Loaded Gemini assistants:', assistants.length);
                     
                     assistantSelect.innerHTML = '<option value="">-- Выберите Gemini ассистента --</option>';
@@ -1557,17 +1710,12 @@
                         assistantSelect.appendChild(option);
                     });
                     
-                    // ✅ v2.0: Приоритет выбора ассистента:
-                    // 1. URL параметр (для embed режима)
-                    // 2. localStorage (для обычного режима)
                     if (ASSISTANT_ID && assistantSelect.querySelector(`option[value="${ASSISTANT_ID}"]`)) {
-                        // URL параметр имеет приоритет
                         assistantSelect.value = ASSISTANT_ID;
                         testBtn.disabled = false;
                         copyBtn.disabled = false;
                         console.log('[CONFIG] Using assistant from URL:', ASSISTANT_ID);
                     } else {
-                        // Проверяем localStorage
                         const savedAssistantId = localStorage.getItem(STORAGE_KEY_ASSISTANT);
                         if (savedAssistantId && assistantSelect.querySelector(`option[value="${savedAssistantId}"]`)) {
                             assistantSelect.value = savedAssistantId;
@@ -1575,14 +1723,12 @@
                             testBtn.disabled = false;
                             copyBtn.disabled = false;
                             console.log('[CONFIG] ✅ Restored assistant from localStorage:', savedAssistantId);
-                        } else {
-                            console.log('[CONFIG] No saved assistant found');
                         }
                     }
                     
                 } catch (error) {
                     console.error('[CONFIG] Error loading Gemini assistants:', error);
-                    assistantSelect.innerHTML = '<option value="">Ошибка загрузки Gemini ассистентов</option>';
+                    assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
                 }
             }
             
@@ -1604,10 +1750,6 @@
                 }
             }
 
-            // ============================================================================
-            // ✅ v2.0: SAVE CONFIG WITH LOCALSTORAGE
-            // ============================================================================
-            
             window.saveConfig = async function() {
                 const selectedAssistantId = assistantSelect.value;
 
@@ -1618,33 +1760,23 @@
 
                 try {
                     setLoading(true);
-
-                    // Применяем assistant_id
                     ASSISTANT_ID = selectedAssistantId;
-                    
-                    // ✅ v2.0: Сохраняем в localStorage
                     localStorage.setItem(STORAGE_KEY_ASSISTANT, selectedAssistantId);
                     console.log('[CONFIG] ✅ Assistant saved to localStorage:', selectedAssistantId);
 
-                    // Включаем кнопки
                     testBtn.disabled = false;
                     copyBtn.disabled = false;
-
                     showSuccess(`✅ Gemini ассистент сохранён!`);
 
-                    // Переподключаем WebSocket
-                    if (websocket) {
-                        websocket.close();
+                    if (userActivated) {
+                        if (websocket) websocket.close();
+                        if (llmWebSocket) {
+                            llmWebSocket.close();
+                            llmWebSocket = null;
+                            isLLMConnected = false;
+                        }
+                        connectWebSocket();
                     }
-                    
-                    // Переподключаем LLM WebSocket с новым assistant_id
-                    if (llmWebSocket) {
-                        llmWebSocket.close();
-                        llmWebSocket = null;
-                        isLLMConnected = false;
-                    }
-                    
-                    connectWebSocket();
 
                 } catch (error) {
                     console.error('[CONFIG] Save error:', error);
@@ -1660,11 +1792,16 @@
                     return;
                 }
 
+                if (!userActivated) {
+                    startOverlay.classList.remove('hidden');
+                    return;
+                }
+
                 if (!isConnected) {
                     showSuccess('🔄 Подключение к Gemini...');
                     connectWebSocket();
                 } else {
-                    showSuccess('✅ Готов к тестированию! Нажмите на сферу и говорите');
+                    showSuccess('✅ Готов! Нажмите на сферу и говорите');
                 }
             };
             
@@ -1674,10 +1811,8 @@
                     return;
                 }
 
-                try {
-                    const embedUrl = `${SERVER_URL}/static/voice_llm_interface.html?assistant=${ASSISTANT_ID}`;
-                    
-                    const embedCode = `<!-- Voicyfy JARVIS AI (Gemini) Widget -->
+                const embedUrl = `${SERVER_URL}/static/voice_llm_interface.html?assistant=${ASSISTANT_ID}`;
+                const embedCode = `<!-- Voicyfy JARVIS AI (Gemini) Widget -->
 <iframe
     src="${embedUrl}"
     width="100%"
@@ -1687,34 +1822,26 @@
     style="border-radius: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);">
 </iframe>`;
 
-                    navigator.clipboard.writeText(embedCode).then(() => {
-                        showSuccess('✅ Код скопирован в буфер обмена!');
-                    }).catch(err => {
-                        const textarea = document.createElement('textarea');
-                        textarea.value = embedCode;
-                        textarea.style.position = 'fixed';
-                        textarea.style.opacity = '0';
-                        document.body.appendChild(textarea);
-                        textarea.select();
-                        document.execCommand('copy');
-                        document.body.removeChild(textarea);
-                        showSuccess('✅ Код скопирован!');
-                    });
-
-                } catch (error) {
-                    console.error('[CONFIG] Copy error:', error);
-                    alert('❌ Ошибка копирования: ' + error.message);
-                }
+                navigator.clipboard.writeText(embedCode).then(() => {
+                    showSuccess('✅ Код скопирован в буфер обмена!');
+                }).catch(() => {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = embedCode;
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    showSuccess('✅ Код скопирован!');
+                });
             };
             
             function showSuccess(message) {
                 const successText = document.getElementById('successText');
                 successText.textContent = message;
                 successMessage.classList.add('show');
-                
-                setTimeout(() => {
-                    successMessage.classList.remove('show');
-                }, 3000);
+                setTimeout(() => successMessage.classList.remove('show'), 3000);
             }
 
             // ============================================================================
@@ -1727,15 +1854,14 @@
             window.silentAudioBuffer = null;
 
             let websocket = null;
-            let llmWebSocket = null;  // 🆕 v3.2: Отдельный WebSocket для LLM текстового стриминга
+            let llmWebSocket = null;
             let isConnected = false;
-            let isLLMConnected = false;  // 🆕 Состояние LLM WebSocket
+            let isLLMConnected = false;
             let isListening = false;
             let audioProcessor = null;
             let isPlayingAudio = false;
             let reconnectAttempts = 0;
             let pingInterval = null;
-            let lastPingTime = Date.now();
             let lastPongTime = Date.now();
             let isReconnecting = false;
 
@@ -1743,42 +1869,44 @@
             let audioDataStartTime = 0;
             const minimumAudioLength = 300;
 
-            // 🆕 LLM Streaming state
             let isStreamingLLM = false;
             let streamingContent = "";
             let currentRequestId = null;
 
             // ============================================================================
-            // 🔧 SMOOTH AUDIO PLAYBACK SYSTEM v4.0 - NO CLICKS/POPS
-            // Uses larger buffers + proper scheduling + crossfade
+            // AUDIO PLAYBACK SYSTEM v4.0
             // ============================================================================
             
             const AUDIO_PLAYBACK_SAMPLE_RATE = 24000;
             let playbackAudioContext = null;
-            let audioBufferQueue = [];        // Накопленные Int16 сэмплы
+            let audioBufferQueue = [];
             let isSchedulingAudio = false;
             let nextPlayTime = 0;
-            let scheduledSources = [];        // Активные AudioBufferSourceNode
-            let schedulerInterval = null;     // 🆕 v4.0: Stable interval instead of rAF
+            let scheduledSources = [];
+            let schedulerInterval = null;
             
-            // 🔧 v4.0: Увеличенная буферизация для устранения треска
-            const MIN_BUFFER_SAMPLES = 12000;  // 500ms при 24kHz (было 200ms)
-            const CHUNK_SIZE = 4800;           // 200ms chunks (было 50ms)
-            const SCHEDULE_AHEAD_TIME = 0.3;   // 300ms ahead (было 100ms)
-            const SCHEDULER_INTERVAL_MS = 50;  // Check every 50ms
-            
-            // 🆕 v4.0: Crossfade для устранения щелчков
-            const CROSSFADE_SAMPLES = 64;      // ~2.7ms fade
+            const MIN_BUFFER_SAMPLES = 12000;
+            const CHUNK_SIZE = 4800;
+            const SCHEDULE_AHEAD_TIME = 0.3;
+            const SCHEDULER_INTERVAL_MS = 50;
+            const CROSSFADE_SAMPLES = 64;
             
             function initPlaybackAudioContext() {
                 if (!playbackAudioContext) {
                     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                     playbackAudioContext = new AudioContextClass({
                         sampleRate: AUDIO_PLAYBACK_SAMPLE_RATE,
-                        latencyHint: 'playback'  // 🆕 v4.0: Optimize for smooth playback
+                        latencyHint: 'playback'
                     });
-                    log('🔊 Playback AudioContext created (v4.0 anti-click)');
+                    log('🔊 Playback AudioContext created');
                 }
+                
+                if (playbackAudioContext.state === 'suspended') {
+                    playbackAudioContext.resume().then(() => {
+                        log('🔊 Playback AudioContext resumed');
+                    });
+                }
+                
                 return playbackAudioContext;
             }
             
@@ -1791,7 +1919,6 @@
                     }
                     return new Int16Array(bytes.buffer);
                 } catch (e) {
-                    log(`Ошибка декодирования base64: ${e.message}`, 'error');
                     return new Int16Array(0);
                 }
             }
@@ -1802,12 +1929,10 @@
                 const int16Samples = base64ToInt16Array(base64Data);
                 if (int16Samples.length === 0) return;
                 
-                // 🆕 v4.0: Добавляем сэмплы в буфер (более эффективно)
                 for (let i = 0; i < int16Samples.length; i++) {
                     audioBufferQueue.push(int16Samples[i]);
                 }
                 
-                // Запускаем планировщик если ещё не запущен и достаточно данных
                 if (!isSchedulingAudio && audioBufferQueue.length >= MIN_BUFFER_SAMPLES) {
                     startAudioScheduler();
                 }
@@ -1820,25 +1945,18 @@
                 isPlayingAudio = true;
                 
                 const ctx = initPlaybackAudioContext();
+                if (ctx.state === 'suspended') ctx.resume();
                 
-                // Возобновляем контекст если suspended
-                if (ctx.state === 'suspended') {
-                    ctx.resume();
-                }
-                
-                // 🆕 v4.0: Начинаем с небольшой задержкой для буферизации
                 nextPlayTime = ctx.currentTime + 0.15;
                 
-                // Обновляем UI
                 jarvisSphere.classList.add('speaking');
                 jarvisSphere.classList.remove('listening', 'processing', 'streaming');
                 updateStatus('speaking', 'Говорит...', 'speaking');
                 
                 interruptionState.is_assistant_speaking = true;
                 
-                // 🆕 v4.0: Используем стабильный setInterval вместо requestAnimationFrame
                 schedulerInterval = setInterval(scheduleNextChunk, SCHEDULER_INTERVAL_MS);
-                scheduleNextChunk(); // Сразу первый вызов
+                scheduleNextChunk();
             }
             
             function scheduleNextChunk() {
@@ -1853,32 +1971,23 @@
                 const ctx = playbackAudioContext;
                 if (!ctx) return;
                 
-                // 🆕 v4.0: Корректируем nextPlayTime если отстали
                 if (nextPlayTime < ctx.currentTime) {
-                    log('⚠️ Audio scheduler caught up, adjusting timing');
                     nextPlayTime = ctx.currentTime + 0.05;
                 }
                 
-                // Планируем чанки пока есть данные и время впереди
                 while (audioBufferQueue.length >= CHUNK_SIZE && nextPlayTime < ctx.currentTime + SCHEDULE_AHEAD_TIME) {
-                    // 🆕 v4.0: Берём большие чанки (200ms вместо 50ms)
                     const chunkSize = Math.min(CHUNK_SIZE, audioBufferQueue.length);
                     const chunk = audioBufferQueue.splice(0, chunkSize);
                     
-                    // Создаём AudioBuffer
                     const audioBuffer = ctx.createBuffer(1, chunk.length, AUDIO_PLAYBACK_SAMPLE_RATE);
                     const channelData = audioBuffer.getChannelData(0);
                     
-                    // 🆕 v4.0: Конвертируем Int16 -> Float32 с crossfade
                     for (let i = 0; i < chunk.length; i++) {
                         let sample = chunk[i] / 32768.0;
                         
-                        // Fade in первые CROSSFADE_SAMPLES
                         if (i < CROSSFADE_SAMPLES) {
                             sample *= (i / CROSSFADE_SAMPLES);
-                        }
-                        // Fade out последние CROSSFADE_SAMPLES
-                        else if (i >= chunk.length - CROSSFADE_SAMPLES) {
+                        } else if (i >= chunk.length - CROSSFADE_SAMPLES) {
                             const fadePos = chunk.length - i;
                             sample *= (fadePos / CROSSFADE_SAMPLES);
                         }
@@ -1886,28 +1995,19 @@
                         channelData[i] = sample;
                     }
                     
-                    // Создаём источник
                     const source = ctx.createBufferSource();
                     source.buffer = audioBuffer;
                     source.connect(ctx.destination);
-                    
-                    // Планируем воспроизведение
                     source.start(nextPlayTime);
-                    
-                    // Обновляем время следующего чанка
                     nextPlayTime += audioBuffer.duration;
                     
-                    // Сохраняем ссылку для возможной остановки
                     scheduledSources.push(source);
                     
-                    // Очищаем завершённые источники
                     source.onended = () => {
                         const idx = scheduledSources.indexOf(source);
                         if (idx > -1) scheduledSources.splice(idx, 1);
                         
-                        // Проверяем, закончилось ли воспроизведение
                         if (scheduledSources.length === 0 && audioBufferQueue.length < CHUNK_SIZE && isSchedulingAudio) {
-                            // 🆕 v4.0: Даём небольшую задержку на случай если придут ещё данные
                             setTimeout(() => {
                                 if (scheduledSources.length === 0 && audioBufferQueue.length < CHUNK_SIZE) {
                                     finishAudioPlayback();
@@ -1929,16 +2029,12 @@
                 isSchedulingAudio = false;
                 isPlayingAudio = false;
                 interruptionState.is_assistant_speaking = false;
-                
-                // 🆕 v4.0: Очищаем остатки буфера
                 audioBufferQueue = [];
                 
                 jarvisSphere.classList.remove('speaking');
                 
                 if (!isStreamingLLM) {
                     updateStatus('connected', 'Готов', 'connected');
-                    
-                    // Возобновляем прослушивание
                     setTimeout(() => {
                         if (!isPlayingAudio && !isStreamingLLM && !isReconnecting) {
                             startListening();
@@ -1948,8 +2044,6 @@
             }
             
             function stopAllAudioPlayback() {
-                log('🛑 Stopping all audio playback');
-                
                 if (schedulerInterval) {
                     clearInterval(schedulerInterval);
                     schedulerInterval = null;
@@ -1959,27 +2053,13 @@
                 isPlayingAudio = false;
                 interruptionState.is_assistant_speaking = false;
                 
-                // Останавливаем все запланированные источники
                 scheduledSources.forEach(source => {
-                    try {
-                        source.stop();
-                    } catch (e) {}
+                    try { source.stop(); } catch (e) {}
                 });
                 scheduledSources = [];
-                
-                // Очищаем буфер
                 audioBufferQueue = [];
                 
                 jarvisSphere.classList.remove('speaking');
-                
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    try {
-                        websocket.send(JSON.stringify({
-                            type: "audio_playback.stopped",
-                            timestamp: Date.now()
-                        }));
-                    } catch (e) {}
-                }
             }
 
             const interruptionState = {
@@ -1999,21 +2079,6 @@
                 amplificationFactor: isMobile ? 2.0 : 1.0
             };
 
-            // DOM Elements
-            const jarvisSphere = document.getElementById('jarvisSphere');
-            const circularViz = document.getElementById('circularViz');
-            const llmContent = document.getElementById('llmContent');
-            const llmMeta = document.getElementById('llmMeta');
-            const voiceStatus = document.getElementById('voiceStatus');
-            const statusText = document.getElementById('statusText');
-            const errorContainer = document.getElementById('errorContainer');
-            const hudFrames = [
-                document.getElementById('hudTL'),
-                document.getElementById('hudTR'),
-                document.getElementById('hudBL'),
-                document.getElementById('hudBR')
-            ];
-
             let threeScene, threeCamera, threeRenderer, threeParticles;
             let threeInitialized = false;
 
@@ -2024,30 +2089,22 @@
             function log(message, type = 'info') {
                 if (DEBUG_MODE || type === 'error') {
                     const prefix = '[JARVIS]';
-                    if (type === 'error') {
-                        console.error(`${prefix} ERROR:`, message);
-                    } else if (type === 'warn') {
-                        console.warn(`${prefix} WARNING:`, message);
-                    } else {
-                        console.log(`${prefix}`, message);
-                    }
+                    if (type === 'error') console.error(`${prefix} ERROR:`, message);
+                    else if (type === 'warn') console.warn(`${prefix} WARNING:`, message);
+                    else console.log(`${prefix}`, message);
                 }
             }
 
             function showError(title, text) {
                 const errorTitle = document.getElementById('errorTitle');
                 const errorText = document.getElementById('errorText');
-                
                 if (errorTitle) errorTitle.textContent = title;
                 if (errorText) errorText.textContent = text;
-                
                 errorContainer.classList.add('active');
-                
-                console.error('[JARVIS] Error:', title, text);
             }
 
             // ============================================================================
-            // 🆕 LLM STREAMING FUNCTIONS
+            // LLM STREAMING FUNCTIONS
             // ============================================================================
             
             function startStreamingUI(query) {
@@ -2056,13 +2113,10 @@
                 isStreamingLLM = true;
                 streamingContent = "";
                 
-                // Update UI state
                 jarvisSphere.classList.remove('listening', 'speaking', 'processing');
                 jarvisSphere.classList.add('streaming');
-                
                 updateStatus('streaming', 'Генерация ответа...', 'streaming');
                 
-                // Clear content and show streaming indicator
                 llmContent.innerHTML = `
                     <div class="streaming-indicator">
                         <span class="dot"></span>
@@ -2073,23 +2127,17 @@
                 `;
                 
                 llmMeta.textContent = 'Streaming...';
-                
-                // Hide copy button during streaming
                 const copyButton = document.getElementById('copyLlmButton');
                 if (copyButton) copyButton.style.display = 'none';
             }
             
             function appendStreamingText(content) {
                 if (!isStreamingLLM) return;
-                
                 streamingContent += content;
                 
                 const streamingText = document.getElementById('streamingText');
                 if (streamingText) {
-                    // Format and display
                     streamingText.innerHTML = formatMarkdown(streamingContent);
-                    
-                    // Auto-scroll to bottom
                     llmContent.scrollTop = llmContent.scrollHeight;
                 }
             }
@@ -2098,24 +2146,17 @@
                 log(`✅ LLM streaming finished`);
                 
                 isStreamingLLM = false;
-                
-                // Remove streaming state
                 jarvisSphere.classList.remove('streaming');
-                
-                // Update status
                 updateStatus('connected', 'Готов', 'connected');
                 
-                // Display final formatted content
                 const fullContent = data.full_content || streamingContent;
                 displayLLMContent(fullContent, data.model || 'gpt-4o-mini');
                 
-                // Show duration if available
                 if (data.duration_ms) {
                     const seconds = (data.duration_ms / 1000).toFixed(1);
                     llmMeta.textContent = `${data.model || 'gpt-4o-mini'} • ${seconds}s`;
                 }
                 
-                // Reset streaming content
                 streamingContent = "";
                 currentRequestId = null;
             }
@@ -2125,14 +2166,9 @@
                 
                 isStreamingLLM = false;
                 streamingContent = "";
-                
-                // Remove streaming state
                 jarvisSphere.classList.remove('streaming');
-                
-                // Update status
                 updateStatus('error', 'Ошибка', 'error');
                 
-                // Show error in LLM panel
                 llmContent.innerHTML = `
                     <div class="llm-error">
                         <div class="llm-error-icon">❌</div>
@@ -2140,18 +2176,13 @@
                         <div class="llm-error-text">${message}</div>
                     </div>
                 `;
-                
                 llmMeta.textContent = 'Ошибка';
                 
-                // Reset after delay
-                setTimeout(() => {
-                    updateStatus('connected', 'Готов', 'connected');
-                }, 3000);
+                setTimeout(() => updateStatus('connected', 'Готов', 'connected'), 3000);
             }
 
             function formatMarkdown(text) {
                 if (!text) return '<p>Нет контента</p>';
-
                 return text
                     .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
                     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
@@ -2180,30 +2211,21 @@
                 const copyButtonText = document.getElementById('copyButtonText');
                 const copyIcon = copyButton.querySelector('i');
 
-                try {
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = currentLLMContent;
-                    const plainText = tempDiv.textContent || tempDiv.innerText || '';
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = currentLLMContent;
+                const plainText = tempDiv.textContent || tempDiv.innerText || '';
 
-                    navigator.clipboard.writeText(plainText).then(() => {
-                        copyButton.classList.add('copied');
-                        copyIcon.className = 'fas fa-check';
-                        copyButtonText.textContent = 'Скопировано!';
+                navigator.clipboard.writeText(plainText).then(() => {
+                    copyButton.classList.add('copied');
+                    copyIcon.className = 'fas fa-check';
+                    copyButtonText.textContent = 'Скопировано!';
 
-                        setTimeout(() => {
-                            copyButton.classList.remove('copied');
-                            copyIcon.className = 'fas fa-copy';
-                            copyButtonText.textContent = 'Копировать';
-                        }, 2000);
-
-                    }).catch(err => {
-                        showSuccess('❌ Ошибка копирования');
-                    });
-
-                } catch (error) {
-                    console.error('[COPY] Error:', error);
-                    showSuccess('❌ Ошибка копирования');
-                }
+                    setTimeout(() => {
+                        copyButton.classList.remove('copied');
+                        copyIcon.className = 'fas fa-copy';
+                        copyButtonText.textContent = 'Копировать';
+                    }, 2000);
+                }).catch(() => showSuccess('❌ Ошибка копирования'));
             }
 
             function displayLLMContent(content, model = 'gpt-4o-mini') {
@@ -2216,9 +2238,7 @@
 
                 currentLLMContent = formattedContent;
                 const copyButton = document.getElementById('copyLlmButton');
-                if (copyButton) {
-                    copyButton.style.display = 'flex';
-                }
+                if (copyButton) copyButton.style.display = 'flex';
             }
 
             function updateStatus(status, text, className) {
@@ -2258,20 +2278,14 @@
                     threeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
                     threeCamera.position.z = 500;
 
-                    threeRenderer = new THREE.WebGLRenderer({
-                        canvas: canvas,
-                        alpha: true,
-                        antialias: !isMobile
-                    });
+                    threeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !isMobile });
                     threeRenderer.setSize(window.innerWidth, window.innerHeight);
                     threeRenderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
 
                     const particleCount = isMobile ? 800 : 1500;
                     const positions = new Float32Array(particleCount * 3);
                     const colors = new Float32Array(particleCount * 3);
-                    const sizes = new Float32Array(particleCount);
 
-                    // 🆕 Gemini purple color palette
                     const colorPalette = [
                         new THREE.Color(0x8b5cf6),
                         new THREE.Color(0x6366f1),
@@ -2288,17 +2302,11 @@
                         colors[i3] = color.r;
                         colors[i3 + 1] = color.g;
                         colors[i3 + 2] = color.b;
-
-                        const distance = Math.abs(positions[i3 + 2]);
-                        sizes[i] = (1 - distance / 1500) * 4 + 0.5;
                     }
 
                     const particleGeometry = new THREE.BufferGeometry();
                     particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
                     particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-                    particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-
-                    const circleTexture = createCircleTexture();
 
                     const particleMaterial = new THREE.PointsMaterial({
                         size: isMobile ? 2 : 3,
@@ -2307,7 +2315,7 @@
                         opacity: 0.6,
                         sizeAttenuation: true,
                         blending: THREE.AdditiveBlending,
-                        map: circleTexture
+                        map: createCircleTexture()
                     });
 
                     threeParticles = new THREE.Points(particleGeometry, particleMaterial);
@@ -2373,9 +2381,7 @@
                     let sum = 0;
                     for (let j = 0; j < step; j++) {
                         const index = i * step + j;
-                        if (index < audioData.length) {
-                            sum += Math.abs(audioData[index]);
-                        }
+                        if (index < audioData.length) sum += Math.abs(audioData[index]);
                     }
                     const average = sum / step;
                     const multiplier = isMobile ? 300 : 200;
@@ -2384,15 +2390,8 @@
                 }
             }
 
-            function resetCircularVisualization() {
-                const bars = circularViz.querySelectorAll('.viz-bar');
-                bars.forEach(bar => {
-                    bar.style.height = '20px';
-                });
-            }
-
             // ============================================================================
-            // AUDIO INPUT FUNCTIONS (MICROPHONE)
+            // AUDIO INPUT FUNCTIONS
             // ============================================================================
             
             function arrayBufferToBase64(buffer) {
@@ -2427,7 +2426,7 @@
                     }
 
                     if (!window.globalMicStream) {
-                        const constraints = {
+                        window.globalMicStream = await navigator.mediaDevices.getUserMedia({
                             audio: {
                                 echoCancellation: true,
                                 noiseSuppression: true,
@@ -2435,17 +2434,8 @@
                                 sampleRate: 24000,
                                 channelCount: 1
                             }
-                        };
-
-                        window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-                        log('Микрофон активирован');
-
-                        window.globalMicStream.getAudioTracks().forEach(track => {
-                            track.onended = () => {
-                                log('Поток микрофона завершен');
-                                window.globalMicStream = null;
-                            };
                         });
+                        log('Микрофон активирован');
                     }
 
                     if (isIOS && !window.silentAudioBuffer) {
@@ -2456,9 +2446,7 @@
                             silentSource.connect(window.globalAudioContext.destination);
                             silentSource.start(0);
                             log('iOS: Буфер тишины воспроизведен');
-                        } catch (iosError) {
-                            log(`Ошибка буфера тишины: ${iosError.message}`, 'warn');
-                        }
+                        } catch (e) {}
                     }
 
                     window.audioInitialized = true;
@@ -2467,24 +2455,17 @@
 
                 } catch (error) {
                     log(`Ошибка инициализации аудио: ${error.message}`, 'error');
-                    showError(
-                        'Ошибка доступа к микрофону',
-                        'Разрешите доступ к микрофону в настройках браузера для работы голосового ассистента.'
-                    );
+                    showError('Ошибка доступа к микрофону', 'Разрешите доступ к микрофону в настройках браузера.');
                     return false;
                 }
             }
 
             async function startListening() {
-                if (!isConnected || isPlayingAudio || isReconnecting || isListening || isStreamingLLM) {
-                    return;
-                }
+                if (!isConnected || isPlayingAudio || isReconnecting || isListening || isStreamingLLM) return;
                 
-                if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
+                if (!window.audioInitialized) {
                     const success = await initializeAudio();
-                    if (!success) {
-                        return;
-                    }
+                    if (!success) return;
                 }
                 
                 isListening = true;
@@ -2498,13 +2479,7 @@
                 }
                 
                 if (window.globalAudioContext.state === 'suspended') {
-                    try {
-                        await window.globalAudioContext.resume();
-                    } catch (error) {
-                        log(`Не удалось возобновить AudioContext: ${error}`, 'error');
-                        isListening = false;
-                        return;
-                    }
+                    await window.globalAudioContext.resume();
                 }
                 
                 if (!audioProcessor) {
@@ -2518,9 +2493,7 @@
                     
                     audioProcessor.onaudioprocess = function(e) {
                         if (isListening && websocket && websocket.readyState === WebSocket.OPEN && !isReconnecting) {
-                            const inputBuffer = e.inputBuffer;
-                            let inputData = inputBuffer.getChannelData(0);
-                            
+                            let inputData = e.inputBuffer.getChannelData(0);
                             if (inputData.length === 0) return;
                             
                             let maxAmplitude = 0;
@@ -2530,12 +2503,9 @@
                             
                             if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
                                 const amplifiedData = new Float32Array(inputData.length);
-                                const gainFactor = AUDIO_CONFIG.amplificationFactor;
-                                
                                 for (let i = 0; i < inputData.length; i++) {
-                                    amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * gainFactor));
+                                    amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * AUDIO_CONFIG.amplificationFactor));
                                 }
-                                
                                 inputData = amplifiedData;
                                 maxAmplitude = 0;
                                 for (let i = 0; i < inputData.length; i++) {
@@ -2552,20 +2522,17 @@
                             }
                             
                             try {
-                                const message = JSON.stringify({
+                                websocket.send(JSON.stringify({
                                     type: "input_audio_buffer.append",
                                     event_id: `audio_${Date.now()}`,
                                     audio: arrayBufferToBase64(pcm16Data.buffer)
-                                });
-                                
-                                websocket.send(message);
+                                }));
                                 hasSentAudioInCurrentSegment = true;
                                 
                                 if (!hasAudioData && hasSound) {
                                     hasAudioData = true;
                                     audioDataStartTime = Date.now();
                                 }
-                                
                             } catch (error) {
                                 log(`Ошибка отправки аудио: ${error.message}`, "error");
                             }
@@ -2624,10 +2591,7 @@
 
             function commitAudioBuffer() {
                 if (!isListening || !websocket || websocket.readyState !== WebSocket.OPEN || isReconnecting) return;
-                
-                if (!hasAudioData) {
-                    return;
-                }
+                if (!hasAudioData) return;
                 
                 const audioLength = Date.now() - audioDataStartTime;
                 if (audioLength < minimumAudioLength) {
@@ -2671,9 +2635,13 @@
                     updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
                     return;
                 }
+                
+                if (!userActivated) {
+                    log('Waiting for user activation before connecting WebSocket');
+                    return;
+                }
 
                 try {
-                    // ✅ WebSocket URL для Gemini + LLM Streaming
                     const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/gemini-browser/' + ASSISTANT_ID;
                     
                     log('Подключение к Gemini WebSocket...');
@@ -2682,9 +2650,7 @@
                     isReconnecting = true;
                     
                     if (websocket) {
-                        try {
-                            websocket.close();
-                        } catch (e) {}
+                        try { websocket.close(); } catch (e) {}
                     }
                     
                     if (pingInterval) {
@@ -2704,12 +2670,9 @@
                         hudFrames.forEach(frame => frame.classList.add('active'));
                         updateStatus('connected', 'Готов', 'connected');
                         
-                        // 🆕 v3.2: Подключаем изолированный LLM WebSocket с assistant_id
                         connectLLMWebSocket();
                         
-                        setTimeout(() => {
-                            startListening();
-                        }, 500);
+                        setTimeout(() => startListening(), 500);
                         
                         const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
                         pingInterval = setInterval(() => {
@@ -2727,25 +2690,14 @@
                                 const data = JSON.parse(event.data);
                                 lastPongTime = Date.now();
                                 
-                                // =============================================
-                                // 🆕 v3.2: LLM REQUEST EVENT (triggers LLM WebSocket)
-                                // =============================================
-                                
                                 if (data.type === 'llm.request') {
-                                    // Gemini handler отправил запрос на LLM
-                                    // Пересылаем его в отдельный LLM WebSocket
                                     log(`📝 LLM request received: ${data.query}`);
                                     startStreamingUI(data.query);
                                     sendLLMQuery(data.query, data.request_id);
                                     return;
                                 }
                                 
-                                // =============================================
-                                // LEGACY: LLM STREAMING EVENTS (fallback for old backend)
-                                // =============================================
-                                
                                 if (data.type === 'llm.stream.start') {
-                                    log(`📝 LLM Stream started: ${data.query}`);
                                     currentRequestId = data.request_id;
                                     startStreamingUI(data.query);
                                     return;
@@ -2759,20 +2711,14 @@
                                 }
                                 
                                 if (data.type === 'llm.stream.done') {
-                                    log(`✅ LLM Stream done`);
                                     finishStreamingUI(data);
                                     return;
                                 }
                                 
                                 if (data.type === 'llm.stream.error') {
-                                    log(`❌ LLM Stream error: ${data.message}`, 'error');
                                     showStreamingError(data.message);
                                     return;
                                 }
-                                
-                                // =============================================
-                                // GEMINI CONNECTION EVENTS
-                                // =============================================
                                 
                                 if (data.type === 'connection_status') {
                                     log(`Gemini connection: ${data.status}`);
@@ -2787,14 +2733,9 @@
                                     return;
                                 }
                                 
-                                // =============================================
-                                // FUNCTION CALL EVENTS
-                                // =============================================
-                                
                                 if (data.type === 'function_call.executing') {
                                     log(`🔧 Function executing: ${data.function}`);
                                     if (data.function === 'query_llm') {
-                                        // LLM streaming will handle UI
                                         updateStatus('processing', 'Запрос к ИИ...', 'processing');
                                         jarvisSphere.classList.add('processing');
                                     }
@@ -2806,38 +2747,22 @@
                                     return;
                                 }
                                 
-                                // =============================================
-                                // 🔧 AUDIO EVENTS - SMOOTH PLAYBACK (v4.0)
-                                // =============================================
-                                
                                 if (data.type === 'response.audio.delta') {
-                                    if (data.delta) {
-                                        // ✅ v4.0: Добавляем в буфер для плавного воспроизведения
-                                        addAudioChunkToBuffer(data.delta);
-                                    }
+                                    if (data.delta) addAudioChunkToBuffer(data.delta);
                                     return;
                                 }
                                 
                                 if (data.type === 'assistant.speech.started') {
                                     log('🔊 Assistant started speaking');
-                                    // UI обновится автоматически при начале воспроизведения
                                     return;
                                 }
                                 
                                 if (data.type === 'assistant.speech.ended') {
                                     log('🔇 Assistant speech ended (server)');
-                                    // Воспроизведение продолжится до окончания буфера
                                     return;
                                 }
                                 
-                                if (data.type === 'response.done') {
-                                    // Ничего не делаем - воспроизведение закончится само
-                                    return;
-                                }
-                                
-                                // =============================================
-                                // TRANSCRIPTION EVENTS
-                                // =============================================
+                                if (data.type === 'response.done') return;
                                 
                                 if (data.type === 'input.transcription') {
                                     log(`👤 User: ${data.text}`);
@@ -2849,18 +2774,12 @@
                                     return;
                                 }
                                 
-                                // =============================================
-                                // ERROR EVENTS
-                                // =============================================
-                                
                                 if (data.type === 'error') {
                                     log(`Gemini API Error: ${JSON.stringify(data.error)}`, 'error');
                                     
                                     if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
                                         if (!isPlayingAudio && !isReconnecting && !isStreamingLLM) {
-                                            setTimeout(() => { 
-                                                startListening(); 
-                                            }, 500);
+                                            setTimeout(() => startListening(), 500);
                                         }
                                         return;
                                     }
@@ -2872,7 +2791,6 @@
                             } catch (parseError) {
                                 if (event.data === 'pong') {
                                     lastPongTime = Date.now();
-                                    return;
                                 }
                             }
                         } catch (generalError) {
@@ -2890,26 +2808,18 @@
                             pingInterval = null;
                         }
                         
-                        if (event.code === 1000 || event.code === 1001) {
-                            return;
-                        }
+                        if (event.code === 1000 || event.code === 1001) return;
                         
                         const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-                        if (reconnectAttempts < maxAttempts) {
+                        if (reconnectAttempts < maxAttempts && userActivated) {
                             reconnectAttempts++;
                             const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
                             log(`Переподключение через ${delay}ms (попытка ${reconnectAttempts}/${maxAttempts})`);
                             updateStatus('connecting', 'Переподключение...', 'connecting');
-                            setTimeout(() => {
-                                connectWebSocket();
-                            }, delay);
+                            setTimeout(() => connectWebSocket(), delay);
                         } else {
-                            log('Достигнут лимит попыток переподключения', 'error');
                             updateStatus('error', 'Ошибка подключения', 'error');
-                            showError(
-                                'Ошибка подключения',
-                                'Не удалось подключиться к серверу. Пожалуйста, обновите страницу.'
-                            );
+                            showError('Ошибка подключения', 'Не удалось подключиться к серверу. Обновите страницу.');
                         }
                     };
                     
@@ -2927,7 +2837,7 @@
             }
 
             // ============================================================================
-            // 🆕 LLM WEBSOCKET CONNECTION (v3.2 - with assistant_id for User API key)
+            // LLM WEBSOCKET CONNECTION
             // ============================================================================
             
             function connectLLMWebSocket() {
@@ -2937,10 +2847,7 @@
                 }
                 
                 try {
-                    // ✅ v2.0: Добавляем assistant_id в URL для получения OpenAI ключа из User модели
                     let LLM_WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
-                    
-                    // Добавляем assistant_id если есть
                     if (ASSISTANT_ID) {
                         LLM_WS_URL += '?assistant_id=' + encodeURIComponent(ASSISTANT_ID);
                     }
@@ -2958,9 +2865,7 @@
                         try {
                             const data = JSON.parse(event.data);
                             
-                            // LLM Stream Events
                             if (data.type === 'llm.stream.start') {
-                                log(`📝 LLM Stream started: ${data.query}`);
                                 currentRequestId = data.request_id;
                                 startStreamingUI(data.query);
                                 return;
@@ -2974,19 +2879,16 @@
                             }
                             
                             if (data.type === 'llm.stream.done') {
-                                log(`✅ LLM Stream done`);
                                 finishStreamingUI(data);
                                 return;
                             }
                             
                             if (data.type === 'llm.stream.error') {
-                                log(`❌ LLM Stream error: ${data.message || data.error}`, 'error');
                                 showStreamingError(data.message || data.error);
                                 return;
                             }
                             
                             if (data.type === 'error') {
-                                log(`📝 LLM error: ${data.error}`, 'error');
                                 showStreamingError(data.error);
                                 return;
                             }
@@ -3004,9 +2906,8 @@
                     llmWebSocket.onclose = function() {
                         log('📝 LLM WebSocket disconnected');
                         isLLMConnected = false;
-                        // Автоматическое переподключение через 3 секунды
                         setTimeout(() => {
-                            if (isConnected && ASSISTANT_ID) {
+                            if (isConnected && ASSISTANT_ID && userActivated) {
                                 connectLLMWebSocket();
                             }
                         }, 3000);
@@ -3021,12 +2922,10 @@
                 }
             }
             
-            // 🆕 Send query to LLM WebSocket
             function sendLLMQuery(query, requestId) {
                 if (!llmWebSocket || llmWebSocket.readyState !== WebSocket.OPEN) {
                     log('📝 LLM WebSocket not connected, connecting...', 'warn');
                     connectLLMWebSocket();
-                    // Retry after connection
                     setTimeout(() => sendLLMQuery(query, requestId), 500);
                     return;
                 }
@@ -3044,15 +2943,16 @@
             // ============================================================================
             
             jarvisSphere.addEventListener('click', async function() {
-                if (!window.audioInitialized) {
-                    log('Инициализация аудио по клику');
-                    const success = await initializeAudio();
-                    if (!success) {
-                        return;
-                    }
+                if (!userActivated) {
+                    startOverlay.classList.remove('hidden');
+                    return;
                 }
                 
-                // Также инициализируем playback контекст по клику (важно для iOS)
+                if (!window.audioInitialized) {
+                    const success = await initializeAudio();
+                    if (!success) return;
+                }
+                
                 initPlaybackAudioContext();
                 
                 if (!isListening && !isPlayingAudio && !isReconnecting && !isStreamingLLM) {
@@ -3082,39 +2982,27 @@
             // INITIALIZATION
             // ============================================================================
 
-            log('🚀 JARVIS AI Interface v4.1 Starting...');
+            log('🚀 JARVIS AI Interface v4.2 Starting...');
             log(`Mode: Gemini Voice (WS1) + LLM Text (WS2) - Dual WebSocket`);
-            log(`Audio: v4.0 Anti-Click (500ms buffer, 200ms chunks, crossfade)`);
-            log(`API Keys: User model (via assistant_id)`);
+            log(`User Activation: Required before WebSocket connection`);
             log(`Assistant ID: ${ASSISTANT_ID || 'Not configured yet'}`);
             log(`Server URL: ${SERVER_URL}`);
 
             createCircularVisualizer();
             initThreeJS();
 
-            // Определяем режим работы
-            // Если есть assistant в URL - это embed режим
-            const isEmbedMode = urlParams.has('assistant');
-            
             if (isEmbedMode && ASSISTANT_ID) {
-                // Embed режим - скрываем config panel и sidebar
                 document.body.classList.add('embed-mode');
                 log('📦 Running in EMBED mode');
-                connectWebSocket();
             } else if (ASSISTANT_ID) {
-                // Обычный режим с сохранённым ассистентом
                 document.body.classList.remove('embed-mode');
                 log('🖥️ Running in NORMAL mode with saved assistant');
-                connectWebSocket();
             } else {
-                // Обычный режим без ассистента
                 document.body.classList.remove('embed-mode');
-                updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
-                if (jarvisSphere) {
-                    jarvisSphere.classList.remove('listening', 'speaking', 'processing', 'streaming');
-                }
                 log('🖥️ Running in NORMAL mode - waiting for assistant selection');
             }
+            
+            updateStatus('connecting', 'Нажмите чтобы начать', 'connecting');
         });
     </script>
 </body>
