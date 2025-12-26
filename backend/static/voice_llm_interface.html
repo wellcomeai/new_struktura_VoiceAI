@@ -72,6 +72,24 @@
             transition: opacity 0.5s ease, visibility 0.5s ease;
         }
 
+        /* 🆕 На платформе overlay не закрывает sidebar и config panel */
+        body:not(.embed-mode) .start-overlay {
+            top: 140px; /* Высота config panel */
+            left: var(--sidebar-width);
+            width: calc(100% - var(--sidebar-width));
+            height: calc(100% - 140px);
+            z-index: 80; /* Ниже config panel (90) и sidebar (100) */
+        }
+
+        @media (max-width: 768px) {
+            body:not(.embed-mode) .start-overlay {
+                top: 160px;
+                left: 0;
+                width: 100%;
+                height: calc(100% - 160px);
+            }
+        }
+
         .start-overlay.hidden {
             opacity: 0;
             visibility: hidden;
@@ -1371,6 +1389,16 @@
     </style>
 </head>
 <body>
+    <!-- 🆕 Раннее определение режима для правильного позиционирования overlay -->
+    <script>
+        (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('assistant')) {
+                document.body.classList.add('embed-mode');
+            }
+        })();
+    </script>
+
     <!-- ============================================================ -->
     <!-- 🆕 START OVERLAY - Обязательный клик для активации аудио -->
     <!-- ============================================================ -->
@@ -2992,13 +3020,11 @@
             initThreeJS();
 
             if (isEmbedMode && ASSISTANT_ID) {
-                document.body.classList.add('embed-mode');
+                // embed-mode класс уже добавлен ранним скриптом
                 log('📦 Running in EMBED mode');
             } else if (ASSISTANT_ID) {
-                document.body.classList.remove('embed-mode');
                 log('🖥️ Running in NORMAL mode with saved assistant');
             } else {
-                document.body.classList.remove('embed-mode');
                 log('🖥️ Running in NORMAL mode - waiting for assistant selection');
             }
             
