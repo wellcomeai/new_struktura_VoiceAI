@@ -181,6 +181,16 @@
             padding-top: 0;
         }
 
+        /* Скрываем sidebar в embed режиме */
+        body.embed-mode .sidebar {
+            display: none;
+        }
+
+        body.embed-mode .main-container {
+            margin-left: 0;
+            width: 100%;
+        }
+
         /* Кнопка копирования в LLM панели */
         .copy-button {
             background: none;
@@ -1475,6 +1485,9 @@
             const MOBILE_MAX_RECONNECT_ATTEMPTS = 10;
             const PING_INTERVAL = 15000;
             const MOBILE_PING_INTERVAL = 10000;
+            
+            // ✅ v2.0: localStorage key for saving assistant
+            const STORAGE_KEY_ASSISTANT = 'lastGeminiAssistantId';
 
             // ✅ Определяем SERVER_URL из текущего location
             const SERVER_URL = `${window.location.protocol}//${window.location.host}`;
@@ -1492,8 +1505,8 @@
             // ✅ ASSISTANT_ID - управляется через интерфейс (Gemini ассистенты)
             let ASSISTANT_ID = urlParams.get('assistant') || null;
 
-            console.log('[JARVIS] JARVIS AI Interface v4.0 (Gemini + Dual WebSocket LLM + Anti-Click Audio)');
-            console.log('[JARVIS] Assistant ID:', ASSISTANT_ID);
+            console.log('[JARVIS] JARVIS AI Interface v4.1 (Gemini + Dual WebSocket LLM + User API Keys)');
+            console.log('[JARVIS] Assistant ID from URL:', ASSISTANT_ID);
 
             // ============================================================================
             // UI ELEMENTS
@@ -1513,14 +1526,14 @@
             loadGeminiAssistantsList();
 
             // ============================================================================
-            // 🆕 LOAD GEMINI ASSISTANTS (changed from OpenAI)
+            // 🆕 LOAD GEMINI ASSISTANTS (with localStorage restore)
             // ============================================================================
             
             async function loadGeminiAssistantsList() {
                 try {
                     console.log('[CONFIG] Loading Gemini assistants...');
                     
-                    // ✅ Изменено: /api/gemini-assistants вместо /api/assistants
+                    // ✅ /api/gemini-assistants
                     const response = await fetch(`${SERVER_URL}/api/gemini-assistants`, {
                         headers: {
                             'Authorization': `Bearer ${getAuthToken()}`
@@ -1544,11 +1557,27 @@
                         assistantSelect.appendChild(option);
                     });
                     
-                    // Если передан assistant_id в URL, выбираем его
+                    // ✅ v2.0: Приоритет выбора ассистента:
+                    // 1. URL параметр (для embed режима)
+                    // 2. localStorage (для обычного режима)
                     if (ASSISTANT_ID && assistantSelect.querySelector(`option[value="${ASSISTANT_ID}"]`)) {
+                        // URL параметр имеет приоритет
                         assistantSelect.value = ASSISTANT_ID;
                         testBtn.disabled = false;
                         copyBtn.disabled = false;
+                        console.log('[CONFIG] Using assistant from URL:', ASSISTANT_ID);
+                    } else {
+                        // Проверяем localStorage
+                        const savedAssistantId = localStorage.getItem(STORAGE_KEY_ASSISTANT);
+                        if (savedAssistantId && assistantSelect.querySelector(`option[value="${savedAssistantId}"]`)) {
+                            assistantSelect.value = savedAssistantId;
+                            ASSISTANT_ID = savedAssistantId;
+                            testBtn.disabled = false;
+                            copyBtn.disabled = false;
+                            console.log('[CONFIG] ✅ Restored assistant from localStorage:', savedAssistantId);
+                        } else {
+                            console.log('[CONFIG] No saved assistant found');
+                        }
                     }
                     
                 } catch (error) {
@@ -1575,6 +1604,10 @@
                 }
             }
 
+            // ============================================================================
+            // ✅ v2.0: SAVE CONFIG WITH LOCALSTORAGE
+            // ============================================================================
+            
             window.saveConfig = async function() {
                 const selectedAssistantId = assistantSelect.value;
 
@@ -1588,17 +1621,29 @@
 
                     // Применяем assistant_id
                     ASSISTANT_ID = selectedAssistantId;
+                    
+                    // ✅ v2.0: Сохраняем в localStorage
+                    localStorage.setItem(STORAGE_KEY_ASSISTANT, selectedAssistantId);
+                    console.log('[CONFIG] ✅ Assistant saved to localStorage:', selectedAssistantId);
 
                     // Включаем кнопки
                     testBtn.disabled = false;
                     copyBtn.disabled = false;
 
-                    showSuccess(`✅ Gemini ассистент выбран!`);
+                    showSuccess(`✅ Gemini ассистент сохранён!`);
 
                     // Переподключаем WebSocket
                     if (websocket) {
                         websocket.close();
                     }
+                    
+                    // Переподключаем LLM WebSocket с новым assistant_id
+                    if (llmWebSocket) {
+                        llmWebSocket.close();
+                        llmWebSocket = null;
+                        isLLMConnected = false;
+                    }
+                    
                     connectWebSocket();
 
                 } catch (error) {
@@ -1643,7 +1688,7 @@
 </iframe>`;
 
                     navigator.clipboard.writeText(embedCode).then(() => {
-                        showSuccess('✅ Код скопирован!');
+                        showSuccess('✅ Код скопирован в буфер обмена!');
                     }).catch(err => {
                         const textarea = document.createElement('textarea');
                         textarea.value = embedCode;
@@ -2628,8 +2673,7 @@
                 }
 
                 try {
-                    // ✅ ИЗМЕНЕНО: WebSocket URL для Gemini + LLM Streaming
-                    // Используем /ws/gemini-browser/ для поддержки query_llm стриминга
+                    // ✅ WebSocket URL для Gemini + LLM Streaming
                     const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/gemini-browser/' + ASSISTANT_ID;
                     
                     log('Подключение к Gemini WebSocket...');
@@ -2660,7 +2704,7 @@
                         hudFrames.forEach(frame => frame.classList.add('active'));
                         updateStatus('connected', 'Готов', 'connected');
                         
-                        // 🆕 v3.2: Подключаем изолированный LLM WebSocket
+                        // 🆕 v3.2: Подключаем изолированный LLM WebSocket с assistant_id
                         connectLLMWebSocket();
                         
                         setTimeout(() => {
@@ -2883,9 +2927,7 @@
             }
 
             // ============================================================================
-            // 🆕 LLM WEBSOCKET CONNECTION (v3.2 - Dual WebSocket Architecture)
-            // Отдельный канал для текстового стриминга, изолированный от голоса
-            // 🔧 v3.3: Changed path from /ws/llm-stream to /llm-stream
+            // 🆕 LLM WEBSOCKET CONNECTION (v3.2 - with assistant_id for User API key)
             // ============================================================================
             
             function connectLLMWebSocket() {
@@ -2895,14 +2937,20 @@
                 }
                 
                 try {
-                    // 🔧 v3.3 FIX: Changed path to avoid conflict with /ws/{assistant_id}
-                    const LLM_WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
+                    // ✅ v2.0: Добавляем assistant_id в URL для получения OpenAI ключа из User модели
+                    let LLM_WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
+                    
+                    // Добавляем assistant_id если есть
+                    if (ASSISTANT_ID) {
+                        LLM_WS_URL += '?assistant_id=' + encodeURIComponent(ASSISTANT_ID);
+                    }
+                    
                     log(`📝 Connecting to LLM WebSocket: ${LLM_WS_URL}`);
                     
                     llmWebSocket = new WebSocket(LLM_WS_URL);
                     
                     llmWebSocket.onopen = function() {
-                        log('📝 ✅ LLM WebSocket connected (isolated text channel)');
+                        log('📝 ✅ LLM WebSocket connected (User API key mode)');
                         isLLMConnected = true;
                     };
                     
@@ -2932,13 +2980,19 @@
                             }
                             
                             if (data.type === 'llm.stream.error') {
-                                log(`❌ LLM Stream error: ${data.message}`, 'error');
-                                showStreamingError(data.message);
+                                log(`❌ LLM Stream error: ${data.message || data.error}`, 'error');
+                                showStreamingError(data.message || data.error);
+                                return;
+                            }
+                            
+                            if (data.type === 'error') {
+                                log(`📝 LLM error: ${data.error}`, 'error');
+                                showStreamingError(data.error);
                                 return;
                             }
                             
                             if (data.type === 'connection_status') {
-                                log(`📝 LLM connection: ${data.status}`);
+                                log(`📝 LLM connection: ${data.status} (API key source: ${data.api_key_source || 'unknown'})`);
                                 return;
                             }
                             
@@ -2952,7 +3006,7 @@
                         isLLMConnected = false;
                         // Автоматическое переподключение через 3 секунды
                         setTimeout(() => {
-                            if (isConnected) {
+                            if (isConnected && ASSISTANT_ID) {
                                 connectLLMWebSocket();
                             }
                         }, 3000);
@@ -2970,7 +3024,7 @@
             // 🆕 Send query to LLM WebSocket
             function sendLLMQuery(query, requestId) {
                 if (!llmWebSocket || llmWebSocket.readyState !== WebSocket.OPEN) {
-                    log('📝 LLM WebSocket not connected, connecting...', 'warning');
+                    log('📝 LLM WebSocket not connected, connecting...', 'warn');
                     connectLLMWebSocket();
                     // Retry after connection
                     setTimeout(() => sendLLMQuery(query, requestId), 500);
@@ -3028,9 +3082,10 @@
             // INITIALIZATION
             // ============================================================================
 
-            log('🚀 JARVIS AI Interface v4.0 Starting...');
+            log('🚀 JARVIS AI Interface v4.1 Starting...');
             log(`Mode: Gemini Voice (WS1) + LLM Text (WS2) - Dual WebSocket`);
             log(`Audio: v4.0 Anti-Click (500ms buffer, 200ms chunks, crossfade)`);
+            log(`API Keys: User model (via assistant_id)`);
             log(`Assistant ID: ${ASSISTANT_ID || 'Not configured yet'}`);
             log(`Server URL: ${SERVER_URL}`);
 
@@ -3038,15 +3093,27 @@
             initThreeJS();
 
             // Определяем режим работы
-            if (!ASSISTANT_ID) {
+            // Если есть assistant в URL - это embed режим
+            const isEmbedMode = urlParams.has('assistant');
+            
+            if (isEmbedMode && ASSISTANT_ID) {
+                // Embed режим - скрываем config panel и sidebar
+                document.body.classList.add('embed-mode');
+                log('📦 Running in EMBED mode');
+                connectWebSocket();
+            } else if (ASSISTANT_ID) {
+                // Обычный режим с сохранённым ассистентом
+                document.body.classList.remove('embed-mode');
+                log('🖥️ Running in NORMAL mode with saved assistant');
+                connectWebSocket();
+            } else {
+                // Обычный режим без ассистента
                 document.body.classList.remove('embed-mode');
                 updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
                 if (jarvisSphere) {
                     jarvisSphere.classList.remove('listening', 'speaking', 'processing', 'streaming');
                 }
-            } else {
-                document.body.classList.add('embed-mode');
-                connectWebSocket();
+                log('🖥️ Running in NORMAL mode - waiting for assistant selection');
             }
         });
     </script>
