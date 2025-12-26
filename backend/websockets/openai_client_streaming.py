@@ -1,9 +1,12 @@
 """
-🚀 LLM Stream WebSocket Handler v1.0
+🚀 LLM Stream WebSocket Handler v2.0
 =====================================
 
 Отдельный WebSocket эндпоинт для LLM текстового стриминга.
 Изолирован от голосового канала для предотвращения искажений аудио.
+
+🔧 v2.0: OpenAI API key from User model via assistant_id chain:
+    assistant_id → GeminiAssistantConfig → user_id → User → openai_api_key
 
 АРХИТЕКТУРА:
 ┌─────────────┐         ┌──────────────────┐
@@ -24,6 +27,7 @@ Server → Client:
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
 import json
 import asyncio
 import uuid
@@ -33,6 +37,8 @@ import aiohttp
 from typing import Optional, Dict, Any
 
 from backend.core.logging import get_logger
+from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.user import User
 
 logger = get_logger(__name__)
 
@@ -71,36 +77,128 @@ SYSTEM_PROMPT = """Ты — умный и полезный ассистент. �
 
 
 # ============================================================================
+# API KEY RESOLUTION
+# ============================================================================
+
+def get_openai_api_key_from_assistant(
+    db: Session,
+    assistant_id: Optional[str]
+) -> Optional[str]:
+    """
+    Получает OpenAI API ключ из модели User через цепочку:
+    assistant_id → GeminiAssistantConfig → user_id → User → openai_api_key
+    
+    Args:
+        db: Database session
+        assistant_id: UUID of Gemini assistant
+        
+    Returns:
+        OpenAI API key or None if not found
+    """
+    if not assistant_id or not db:
+        logger.warning("[LLM-WS] No assistant_id or db provided, falling back to env")
+        return os.environ.get('OPENAI_API_KEY')
+    
+    try:
+        # 1. Загружаем Gemini ассистента
+        try:
+            assistant_uuid = uuid.UUID(assistant_id)
+            assistant = db.query(GeminiAssistantConfig).get(assistant_uuid)
+        except ValueError:
+            # Если не UUID, пробуем как строку
+            assistant = db.query(GeminiAssistantConfig).filter(
+                GeminiAssistantConfig.id.cast(str) == assistant_id
+            ).first()
+        
+        if not assistant:
+            logger.warning(f"[LLM-WS] Assistant not found: {assistant_id}")
+            return os.environ.get('OPENAI_API_KEY')
+        
+        logger.info(f"[LLM-WS] Found assistant: {getattr(assistant, 'name', assistant_id)}")
+        
+        # 2. Получаем user_id из ассистента
+        if not assistant.user_id:
+            logger.warning(f"[LLM-WS] Assistant has no user_id")
+            return os.environ.get('OPENAI_API_KEY')
+        
+        # 3. Загружаем пользователя
+        user = db.query(User).get(assistant.user_id)
+        
+        if not user:
+            logger.warning(f"[LLM-WS] User not found: {assistant.user_id}")
+            return os.environ.get('OPENAI_API_KEY')
+        
+        logger.info(f"[LLM-WS] Found user: {user.email}")
+        
+        # 4. Получаем OpenAI ключ
+        api_key = user.openai_api_key
+        
+        if api_key:
+            logger.info(f"[LLM-WS] ✅ OpenAI API key loaded from User model: {api_key[:10]}...{api_key[-4:]}")
+            return api_key
+        else:
+            logger.warning(f"[LLM-WS] User {user.email} has no OpenAI API key configured")
+            # Fallback to environment variable
+            env_key = os.environ.get('OPENAI_API_KEY')
+            if env_key:
+                logger.info(f"[LLM-WS] ⚠️ Falling back to environment OPENAI_API_KEY")
+            return env_key
+            
+    except Exception as e:
+        logger.error(f"[LLM-WS] Error getting API key: {e}")
+        return os.environ.get('OPENAI_API_KEY')
+
+
+# ============================================================================
 # HANDLER
 # ============================================================================
 
-async def handle_openai_streaming_websocket(websocket: WebSocket) -> None:
+async def handle_openai_streaming_websocket(
+    websocket: WebSocket,
+    assistant_id: Optional[str] = None,
+    db: Optional[Session] = None
+) -> None:
     """
     WebSocket handler для LLM текстового стриминга.
     
-    Полностью изолирован от голосового канала.
+    🔧 v2.0: OpenAI API key берётся из модели User через assistant_id.
+    
+    Args:
+        websocket: WebSocket connection
+        assistant_id: UUID of Gemini assistant for API key lookup
+        db: Database session
     """
     client_id = str(uuid.uuid4())[:8]
-    api_key = os.environ.get('OPENAI_API_KEY')
     
-    logger.info(f"[LLM-WS] New connection: {client_id}")
+    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"[LLM-WS] 🔌 NEW CONNECTION (v2.0)")
+    logger.info(f"[LLM-WS]    Client ID: {client_id}")
+    logger.info(f"[LLM-WS]    Assistant ID: {assistant_id}")
+    logger.info(f"[LLM-WS]    API Key Source: User model")
+    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    # Получаем API ключ из User модели
+    api_key = get_openai_api_key_from_assistant(db, assistant_id)
     
     try:
         await websocket.accept()
         logger.info(f"[LLM-WS] ✅ Connected: {client_id}")
         
         if not api_key:
+            logger.error(f"[LLM-WS] ❌ No OpenAI API key available")
             await websocket.send_json({
                 "type": "error",
-                "error": "OpenAI API key not configured"
+                "error": "OpenAI API key not configured. Please add your OpenAI API key in Settings.",
+                "error_code": "no_api_key"
             })
-            await websocket.close()
+            await websocket.close(code=1008, reason="No API key")
             return
         
         await websocket.send_json({
             "type": "connection_status",
             "status": "connected",
-            "client_id": client_id
+            "client_id": client_id,
+            "api_key_source": "user_model" if assistant_id else "environment"
         })
         
         # Main loop
@@ -127,8 +225,11 @@ async def handle_openai_streaming_websocket(websocket: WebSocket) -> None:
             except WebSocketDisconnect:
                 logger.info(f"[LLM-WS] Disconnected: {client_id}")
                 break
+            except json.JSONDecodeError as e:
+                logger.warning(f"[LLM-WS] Invalid JSON: {e}")
+                continue
             except Exception as e:
-                logger.error(f"[LLM-WS] Error: {e}")
+                logger.error(f"[LLM-WS] Error in main loop: {e}")
                 try:
                     await websocket.send_json({
                         "type": "error",
@@ -140,7 +241,7 @@ async def handle_openai_streaming_websocket(websocket: WebSocket) -> None:
     except Exception as e:
         logger.error(f"[LLM-WS] Connection error: {e}")
     finally:
-        logger.info(f"[LLM-WS] Closed: {client_id}")
+        logger.info(f"[LLM-WS] 👋 Closed: {client_id}")
 
 
 async def stream_llm_response(
@@ -151,6 +252,12 @@ async def stream_llm_response(
 ) -> None:
     """
     Стримит ответ от OpenAI на WebSocket.
+    
+    Args:
+        websocket: WebSocket connection
+        query: User query
+        request_id: Request ID for tracking
+        api_key: OpenAI API key (from User model)
     """
     start_time = time.time()
     full_content = ""
@@ -158,14 +265,20 @@ async def stream_llm_response(
     last_flush = time.time()
     messages_sent = 0
     
-    logger.info(f"[LLM-WS] Query: {query[:100]}")
+    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    logger.info(f"[LLM-WS] 🚀 STREAM START")
+    logger.info(f"[LLM-WS]    Request ID: {request_id}")
+    logger.info(f"[LLM-WS]    Query: {query[:100]}{'...' if len(query) > 100 else ''}")
+    logger.info(f"[LLM-WS]    Model: {LLMStreamConfig.MODEL}")
+    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     try:
         # Start event
         await websocket.send_json({
             "type": "llm.stream.start",
             "request_id": request_id,
-            "query": query
+            "query": query,
+            "model": LLMStreamConfig.MODEL
         })
         
         # Stream from OpenAI
@@ -200,9 +313,21 @@ async def stream_llm_response(
                 
                 if response.status != 200:
                     error_text = await response.text()
-                    raise Exception(f"OpenAI error: {response.status}")
+                    logger.error(f"[LLM-WS] ❌ OpenAI API error: {response.status}")
+                    logger.error(f"[LLM-WS]    Response: {error_text[:500]}")
+                    
+                    # Parse OpenAI error
+                    try:
+                        error_data = json.loads(error_text)
+                        error_message = error_data.get("error", {}).get("message", error_text)
+                    except:
+                        error_message = error_text[:200]
+                    
+                    raise Exception(f"OpenAI API error ({response.status}): {error_message}")
                 
                 tokens_used = 0
+                
+                logger.info(f"[LLM-WS] 📥 Streaming response...")
                 
                 async for line in response.content:
                     line = line.decode('utf-8').strip()
@@ -213,6 +338,7 @@ async def stream_llm_response(
                     data_str = line[6:]
                     
                     if data_str == "[DONE]":
+                        logger.info(f"[LLM-WS] 📥 Stream finished")
                         break
                     
                     try:
@@ -232,7 +358,7 @@ async def stream_llm_response(
                                 should_flush = (
                                     len(buffer) >= LLMStreamConfig.BUFFER_MIN_CHARS or
                                     (current_time - last_flush) >= LLMStreamConfig.BUFFER_MAX_WAIT or
-                                    buffer.rstrip().endswith(('.', '!', '?', '\n'))
+                                    buffer.rstrip().endswith(('.', '!', '?', '\n', '。', '！', '？'))
                                 )
                                 
                                 if should_flush and buffer:
@@ -244,6 +370,9 @@ async def stream_llm_response(
                                     messages_sent += 1
                                     buffer = ""
                                     last_flush = current_time
+                                    
+                                    # Small delay to prevent browser overload
+                                    await asyncio.sleep(0.01)
                         
                         usage = data.get("usage")
                         if usage:
@@ -270,15 +399,42 @@ async def stream_llm_response(
             "full_content": full_content,
             "tokens_used": tokens_used,
             "duration_ms": duration_ms,
-            "messages_sent": messages_sent
+            "messages_sent": messages_sent,
+            "model": LLMStreamConfig.MODEL
         })
         
-        logger.info(f"[LLM-WS] ✅ Done: {duration_ms}ms, {messages_sent} messages")
+        logger.info(f"[LLM-WS] ✅ STREAM COMPLETE")
+        logger.info(f"[LLM-WS]    Duration: {duration_ms}ms")
+        logger.info(f"[LLM-WS]    Content: {len(full_content)} chars")
+        logger.info(f"[LLM-WS]    Tokens: {tokens_used}")
+        logger.info(f"[LLM-WS]    Messages: {messages_sent}")
         
-    except Exception as e:
-        logger.error(f"[LLM-WS] ❌ Error: {e}")
+    except asyncio.TimeoutError:
+        error_msg = "Request timeout - OpenAI API did not respond in time"
+        logger.error(f"[LLM-WS] ❌ TIMEOUT: {error_msg}")
         await websocket.send_json({
             "type": "llm.stream.error",
             "request_id": request_id,
-            "error": str(e)[:200]
+            "error": error_msg,
+            "error_code": "timeout"
+        })
+        
+    except aiohttp.ClientError as e:
+        error_msg = f"Connection error: {str(e)}"
+        logger.error(f"[LLM-WS] ❌ CONNECTION ERROR: {error_msg}")
+        await websocket.send_json({
+            "type": "llm.stream.error",
+            "request_id": request_id,
+            "error": error_msg,
+            "error_code": "connection_error"
+        })
+        
+    except Exception as e:
+        error_msg = str(e)[:200]
+        logger.error(f"[LLM-WS] ❌ ERROR: {e}")
+        await websocket.send_json({
+            "type": "llm.stream.error",
+            "request_id": request_id,
+            "error": error_msg,
+            "error_code": "internal_error"
         })
