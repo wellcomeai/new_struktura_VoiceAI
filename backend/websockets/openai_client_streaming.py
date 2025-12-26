@@ -1,5 +1,5 @@
 """
-🚀 LLM Stream WebSocket Handler v2.0
+🚀 LLM Stream WebSocket Handler v3.0
 =====================================
 
 Отдельный WebSocket эндпоинт для LLM текстового стриминга.
@@ -7,6 +7,8 @@
 
 🔧 v2.0: OpenAI API key from User model via assistant_id chain:
     assistant_id → GeminiAssistantConfig → user_id → User → openai_api_key
+
+🔧 v3.0: Chat history support (5 pairs = 10 messages context)
 
 АРХИТЕКТУРА:
 ┌─────────────┐         ┌──────────────────┐
@@ -17,7 +19,16 @@
 
 СОБЫТИЯ:
 Client → Server:
-- llm.query: Запрос к LLM
+- llm.query: Запрос к LLM (с опциональной историей)
+  {
+    "type": "llm.query",
+    "query": "текущий вопрос",
+    "history": [
+      {"role": "user", "content": "..."},
+      {"role": "assistant", "content": "..."}
+    ],
+    "request_id": "text_123"
+  }
 
 Server → Client:
 - llm.stream.start: Начало стриминга
@@ -34,7 +45,7 @@ import uuid
 import time
 import os
 import aiohttp
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from backend.core.logging import get_logger
 from backend.models.gemini_assistant import GeminiAssistantConfig
@@ -59,6 +70,9 @@ class LLMStreamConfig:
     # Буферизация для плавного вывода
     BUFFER_MIN_CHARS = 30
     BUFFER_MAX_WAIT = 0.2
+    
+    # 🆕 v3.0: Ограничение истории
+    MAX_HISTORY_MESSAGES = 10  # 5 пар
 
 
 SYSTEM_PROMPT = """Ты — умный и полезный ассистент. Отвечай подробно, структурированно и по существу.
@@ -73,7 +87,8 @@ SYSTEM_PROMPT = """Ты — умный и полезный ассистент. �
 Правила ответов:
 - Отвечай на языке вопроса
 - Будь конкретным и информативным
-- Приводи примеры где уместно"""
+- Приводи примеры где уместно
+- Учитывай контекст предыдущих сообщений в диалоге"""
 
 
 # ============================================================================
@@ -150,6 +165,53 @@ def get_openai_api_key_from_assistant(
 
 
 # ============================================================================
+# HISTORY PROCESSING (v3.0)
+# ============================================================================
+
+def process_chat_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """
+    Обрабатывает и валидирует историю чата.
+    
+    Args:
+        history: Список сообщений от клиента
+        
+    Returns:
+        Очищенный список сообщений для OpenAI API
+    """
+    if not history:
+        return []
+    
+    processed = []
+    
+    for msg in history:
+        if not isinstance(msg, dict):
+            continue
+            
+        role = msg.get("role", "").strip().lower()
+        content = msg.get("content", "").strip()
+        
+        # Валидация role
+        if role not in ("user", "assistant"):
+            continue
+            
+        # Пропускаем пустые сообщения
+        if not content:
+            continue
+            
+        processed.append({
+            "role": role,
+            "content": content
+        })
+    
+    # Ограничиваем количество сообщений
+    if len(processed) > LLMStreamConfig.MAX_HISTORY_MESSAGES:
+        processed = processed[-LLMStreamConfig.MAX_HISTORY_MESSAGES:]
+        logger.info(f"[LLM-WS] History trimmed to {LLMStreamConfig.MAX_HISTORY_MESSAGES} messages")
+    
+    return processed
+
+
+# ============================================================================
 # HANDLER
 # ============================================================================
 
@@ -162,6 +224,7 @@ async def handle_openai_streaming_websocket(
     WebSocket handler для LLM текстового стриминга.
     
     🔧 v2.0: OpenAI API key берётся из модели User через assistant_id.
+    🔧 v3.0: Поддержка истории чата (до 5 пар сообщений).
     
     Args:
         websocket: WebSocket connection
@@ -171,10 +234,11 @@ async def handle_openai_streaming_websocket(
     client_id = str(uuid.uuid4())[:8]
     
     logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"[LLM-WS] 🔌 NEW CONNECTION (v2.0)")
+    logger.info(f"[LLM-WS] 🔌 NEW CONNECTION (v3.0)")
     logger.info(f"[LLM-WS]    Client ID: {client_id}")
     logger.info(f"[LLM-WS]    Assistant ID: {assistant_id}")
     logger.info(f"[LLM-WS]    API Key Source: User model")
+    logger.info(f"[LLM-WS]    History Support: ✅ (max {LLMStreamConfig.MAX_HISTORY_MESSAGES} msgs)")
     logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     # Получаем API ключ из User модели
@@ -198,7 +262,9 @@ async def handle_openai_streaming_websocket(
             "type": "connection_status",
             "status": "connected",
             "client_id": client_id,
-            "api_key_source": "user_model" if assistant_id else "environment"
+            "api_key_source": "user_model" if assistant_id else "environment",
+            "history_support": True,
+            "max_history": LLMStreamConfig.MAX_HISTORY_MESSAGES
         })
         
         # Main loop
@@ -211,12 +277,17 @@ async def handle_openai_streaming_websocket(
                     query = data.get("query", "")
                     request_id = data.get("request_id", f"req_{uuid.uuid4().hex[:8]}")
                     
+                    # 🆕 v3.0: Получаем историю
+                    raw_history = data.get("history", [])
+                    history = process_chat_history(raw_history)
+                    
                     if query:
                         await stream_llm_response(
                             websocket=websocket,
                             query=query,
                             request_id=request_id,
-                            api_key=api_key
+                            api_key=api_key,
+                            history=history  # 🆕 Передаём историю
                         )
                 
                 elif msg_type == "ping":
@@ -248,7 +319,8 @@ async def stream_llm_response(
     websocket: WebSocket,
     query: str,
     request_id: str,
-    api_key: str
+    api_key: str,
+    history: List[Dict[str, str]] = None  # 🆕 v3.0
 ) -> None:
     """
     Стримит ответ от OpenAI на WebSocket.
@@ -258,7 +330,11 @@ async def stream_llm_response(
         query: User query
         request_id: Request ID for tracking
         api_key: OpenAI API key (from User model)
+        history: Chat history (list of {role, content} dicts)
     """
+    if history is None:
+        history = []
+    
     start_time = time.time()
     full_content = ""
     buffer = ""
@@ -269,6 +345,7 @@ async def stream_llm_response(
     logger.info(f"[LLM-WS] 🚀 STREAM START")
     logger.info(f"[LLM-WS]    Request ID: {request_id}")
     logger.info(f"[LLM-WS]    Query: {query[:100]}{'...' if len(query) > 100 else ''}")
+    logger.info(f"[LLM-WS]    History: {len(history)} messages")  # 🆕
     logger.info(f"[LLM-WS]    Model: {LLMStreamConfig.MODEL}")
     logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
@@ -278,8 +355,29 @@ async def stream_llm_response(
             "type": "llm.stream.start",
             "request_id": request_id,
             "query": query,
-            "model": LLMStreamConfig.MODEL
+            "model": LLMStreamConfig.MODEL,
+            "history_count": len(history)  # 🆕
         })
+        
+        # 🆕 v3.0: Формируем messages с историей
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT}
+        ]
+        
+        # Добавляем историю
+        for msg in history:
+            messages.append({
+                "role": msg["role"],
+                "content": msg["content"]
+            })
+        
+        # Добавляем текущий запрос
+        messages.append({
+            "role": "user",
+            "content": query
+        })
+        
+        logger.info(f"[LLM-WS]    Total messages to API: {len(messages)} (1 system + {len(history)} history + 1 current)")
         
         # Stream from OpenAI
         headers = {
@@ -289,10 +387,7 @@ async def stream_llm_response(
         
         payload = {
             "model": LLMStreamConfig.MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": query}
-            ],
+            "messages": messages,  # 🆕 Теперь с историей
             "max_tokens": LLMStreamConfig.MAX_TOKENS,
             "temperature": LLMStreamConfig.TEMPERATURE,
             "stream": True,
@@ -400,7 +495,8 @@ async def stream_llm_response(
             "tokens_used": tokens_used,
             "duration_ms": duration_ms,
             "messages_sent": messages_sent,
-            "model": LLMStreamConfig.MODEL
+            "model": LLMStreamConfig.MODEL,
+            "history_count": len(history)  # 🆕
         })
         
         logger.info(f"[LLM-WS] ✅ STREAM COMPLETE")
@@ -408,6 +504,7 @@ async def stream_llm_response(
         logger.info(f"[LLM-WS]    Content: {len(full_content)} chars")
         logger.info(f"[LLM-WS]    Tokens: {tokens_used}")
         logger.info(f"[LLM-WS]    Messages: {messages_sent}")
+        logger.info(f"[LLM-WS]    History used: {len(history)} msgs")  # 🆕
         
     except asyncio.TimeoutError:
         error_msg = "Request timeout - OpenAI API did not respond in time"
