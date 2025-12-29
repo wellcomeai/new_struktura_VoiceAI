@@ -1,6 +1,13 @@
+# backend/services/payment_service.py
+
 """
 Payment service for WellcomeAI application with partner commission integration.
 Handles Robokassa payment integration with automatic partner commission processing.
+
+✅ ВЕРСИЯ 2.0 - Поддержка разных периодов оплаты:
+   - 1 месяц: 1 490₽ (30 дней)
+   - 6 месяцев: 7 990₽ (180 дней, скидка 10%)
+   - 12 месяцев: 14 990₽ (365 дней, скидка 15%)
 """
 
 import hashlib
@@ -21,6 +28,86 @@ from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
 
+
+# =============================================================================
+# ✅ НАСТРОЙКИ ПОДПИСОК С РАЗНЫМИ ПЕРИОДАМИ
+# =============================================================================
+
+# Базовая месячная цена
+BASE_MONTHLY_PRICE = 1490.0
+
+# Конфигурация периодов подписки
+SUBSCRIPTION_PERIODS = {
+    1: {
+        "months": 1,
+        "days": 30,
+        "price": 1490.0,          # Без скидки
+        "discount_percent": 0,
+        "savings": 0,
+        "label": "1 месяц",
+        "description": "Ежемесячная подписка"
+    },
+    6: {
+        "months": 6,
+        "days": 180,
+        "price": 7990.0,          # Скидка 10% (было бы 8940)
+        "discount_percent": 10,
+        "savings": 950,           # 8940 - 7990
+        "label": "6 месяцев",
+        "description": "Полугодовая подписка со скидкой 10%"
+    },
+    12: {
+        "months": 12,
+        "days": 365,
+        "price": 14990.0,         # Скидка 15% (было бы 17880)
+        "discount_percent": 15,
+        "savings": 2890,          # 17880 - 14990
+        "label": "1 год",
+        "description": "Годовая подписка со скидкой 15%"
+    }
+}
+
+
+def get_subscription_days_by_amount(amount: float) -> int:
+    """
+    Определить количество дней подписки по сумме платежа
+    
+    Args:
+        amount: Сумма платежа
+        
+    Returns:
+        Количество дней подписки
+    """
+    # Округляем сумму для сравнения (убираем копейки)
+    amount_rounded = round(float(amount))
+    
+    for months, info in SUBSCRIPTION_PERIODS.items():
+        if round(info["price"]) == amount_rounded:
+            logger.info(f"💰 Matched amount {amount} to {months} months ({info['days']} days)")
+            return info["days"]
+    
+    # Если не нашли точное совпадение, используем дефолт
+    logger.warning(f"⚠️ Could not match amount {amount} to any period, using default 30 days")
+    return 30
+
+
+def get_subscription_days_by_duration(duration_months: int) -> int:
+    """
+    Получить количество дней по периоду подписки
+    
+    Args:
+        duration_months: Количество месяцев (1, 6, 12)
+        
+    Returns:
+        Количество дней подписки
+    """
+    if duration_months in SUBSCRIPTION_PERIODS:
+        return SUBSCRIPTION_PERIODS[duration_months]["days"]
+    
+    logger.warning(f"⚠️ Unknown duration {duration_months}, using default 30 days")
+    return 30
+
+
 class RobokassaService:
     """Service for Robokassa integration with partner commission processing"""
     
@@ -39,8 +126,8 @@ class RobokassaService:
     PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     TEST_MODE = settings.ROBOKASSA_TEST_MODE
     
-    # Константы для подписки
-    DEFAULT_SUBSCRIPTION_PRICE = 1490.0
+    # Константы для подписки (для обратной совместимости)
+    DEFAULT_SUBSCRIPTION_PRICE = BASE_MONTHLY_PRICE
     DEFAULT_SUBSCRIPTION_DURATION_DAYS = 30
     
     # 🔧 ДИАГНОСТИЧЕСКИЙ РЕЖИМ - для отключения Shp_ параметров при тестировании
@@ -180,7 +267,7 @@ class RobokassaService:
         form_data: Dict[str, Any]
     ) -> str:
         """
-        ⚠️ ВРЕМЕННАЯ ВЕРСИЯ обработки уведомления с отключенной проверкой подписи
+        ✅ ВЕРСИЯ 2.0: Обработка уведомления с поддержкой разных периодов подписки
         🆕 ИНТЕГРИРОВАНА с партнерской системой для автоматического начисления комиссий
         """
         try:
@@ -198,7 +285,7 @@ class RobokassaService:
             logger.info(f"📥 Processing payment result:")
             logger.info(f"   InvId: {inv_id}")
             logger.info(f"   OutSum: {out_sum}")
-            logger.info(f"   SignatureValue: {signature_value[:10]}...")
+            logger.info(f"   SignatureValue: {signature_value[:10] if signature_value else 'N/A'}...")
             logger.info(f"   Custom params: {custom_params}")
             
             # ⚠️ ВРЕМЕННО ОТКЛЮЧАЕМ ПРОВЕРКУ ПОДПИСИ
@@ -224,6 +311,30 @@ class RobokassaService:
             # Извлекаем пользовательские данные
             user_id = custom_params.get("Shp_user_id")
             plan_code = custom_params.get("Shp_plan_code", "start")
+            duration_str = custom_params.get("Shp_duration", "1")
+            
+            # ✅ НОВОЕ: Определяем количество дней подписки
+            try:
+                duration_months = int(duration_str)
+            except (ValueError, TypeError):
+                duration_months = 1
+                logger.warning(f"⚠️ Could not parse Shp_duration '{duration_str}', using default 1 month")
+            
+            # Получаем количество дней по периоду
+            subscription_days = get_subscription_days_by_duration(duration_months)
+            
+            # Если Shp_duration не передан, пробуем определить по сумме
+            if duration_str == "1" and out_sum:
+                try:
+                    amount = float(out_sum)
+                    detected_days = get_subscription_days_by_amount(amount)
+                    if detected_days != 30:
+                        subscription_days = detected_days
+                        logger.info(f"📊 Detected subscription period by amount: {subscription_days} days")
+                except (ValueError, TypeError):
+                    pass
+            
+            logger.info(f"📅 Subscription duration: {duration_months} months = {subscription_days} days")
             
             if not user_id:
                 logger.error(f"❌ Missing user_id in payment {inv_id}")
@@ -246,14 +357,26 @@ class RobokassaService:
             
             # Если у пользователя уже есть активная подписка, продлеваем от её окончания
             start_date = now
-            if user.subscription_end_date and user.subscription_end_date > now:
-                start_date = user.subscription_end_date
+            if user.subscription_end_date:
+                # Нормализуем дату
+                end_date = user.subscription_end_date
+                if end_date.tzinfo is None:
+                    end_date = end_date.replace(tzinfo=timezone.utc)
+                
+                if end_date > now:
+                    start_date = end_date
+                    logger.info(f"📅 Extending subscription from {end_date}")
             
-            duration_days = getattr(settings, 'SUBSCRIPTION_DURATION_DAYS', cls.DEFAULT_SUBSCRIPTION_DURATION_DAYS)
+            # ✅ ИСПОЛЬЗУЕМ ПРАВИЛЬНОЕ КОЛИЧЕСТВО ДНЕЙ
             user.subscription_start_date = start_date
-            user.subscription_end_date = start_date + timedelta(days=duration_days)
+            user.subscription_end_date = start_date + timedelta(days=subscription_days)
             user.subscription_plan_id = plan.id
             user.is_trial = False  # Больше не триал
+            
+            logger.info(f"📅 Setting subscription:")
+            logger.info(f"   Start: {user.subscription_start_date}")
+            logger.info(f"   End: {user.subscription_end_date}")
+            logger.info(f"   Days: {subscription_days}")
             
             # ✅ ОБНОВЛЯЕМ СТАТУС ТРАНЗАКЦИИ
             transaction = db.query(PaymentTransaction).filter(
@@ -265,13 +388,24 @@ class RobokassaService:
                 transaction.paid_at = now
                 transaction.processed_at = now
                 transaction.is_processed = True
+                
+                # Добавляем информацию о периоде
+                period_info = f"Duration: {duration_months} months ({subscription_days} days)"
                 if cls.DISABLE_SIGNATURE_VERIFICATION:
-                    transaction.payment_details += " [Signature verification disabled]"
+                    period_info += " [Signature verification disabled]"
+                
+                if transaction.payment_details:
+                    transaction.payment_details += f" | Processed: {period_info}"
+                else:
+                    transaction.payment_details = period_info
             
             # 🎯 ВАЖНО: Сначала сохраняем подписку, потом обрабатываем комиссию
             db.commit()
             
-            logger.info(f"✅ Subscription activated for user {user_id} until {user.subscription_end_date}")
+            logger.info(f"✅ Subscription activated for user {user_id}")
+            logger.info(f"   Period: {duration_months} months")
+            logger.info(f"   Days: {subscription_days}")
+            logger.info(f"   Until: {user.subscription_end_date}")
             
             # 🆕 ОБРАБОТКА ПАРТНЕРСКОЙ КОМИССИИ
             try:
@@ -290,6 +424,8 @@ class RobokassaService:
                 
                 logger.info(f"✅ Partner commission processing completed for payment {inv_id}")
                 
+            except ImportError:
+                logger.warning(f"⚠️ PartnerService not available, skipping commission processing")
             except Exception as partner_error:
                 logger.error(f"❌ Error processing partner commission: {str(partner_error)}")
                 # НЕ прерываем основной процесс платежа из-за ошибки партнерской системы
@@ -302,7 +438,14 @@ class RobokassaService:
                 action="payment_success",
                 plan_id=str(plan.id),
                 plan_code=plan_code,
-                details=f"Payment processed successfully. InvId: {inv_id}, Amount: {out_sum}, Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}. Signature verification: {'disabled' if cls.DISABLE_SIGNATURE_VERIFICATION else 'enabled'}"
+                details=(
+                    f"Payment processed successfully. "
+                    f"InvId: {inv_id}, "
+                    f"Amount: {out_sum}, "
+                    f"Duration: {duration_months} months ({subscription_days} days), "
+                    f"Subscription until: {user.subscription_end_date.strftime('%Y-%m-%d')}. "
+                    f"Signature verification: {'disabled' if cls.DISABLE_SIGNATURE_VERIFICATION else 'enabled'}"
+                )
             )
             
             logger.info(f"✅ Payment {inv_id} processed successfully for user {user_id}")
@@ -314,7 +457,7 @@ class RobokassaService:
             return f"OK{inv_id}"
             
         except Exception as e:
-            logger.error(f"❌ Error processing payment result: {str(e)}")
+            logger.error(f"❌ Error processing payment result: {str(e)}", exc_info=True)
             return "FAIL"
     
     @staticmethod
@@ -391,3 +534,33 @@ class RobokassaService:
                 "message": "Платеж не был завершен. Вы можете попробовать еще раз.",
                 "redirect_url": "/static/dashboard.html"
             }
+    
+    @classmethod
+    def get_subscription_periods_info(cls) -> Dict[str, Any]:
+        """
+        Получить информацию о всех периодах подписки
+        
+        Returns:
+            Словарь с информацией о периодах
+        """
+        periods = []
+        for months, info in SUBSCRIPTION_PERIODS.items():
+            periods.append({
+                "months": months,
+                "days": info["days"],
+                "price": info["price"],
+                "price_formatted": f"{info['price']:.0f} ₽",
+                "discount_percent": info["discount_percent"],
+                "savings": info["savings"],
+                "savings_formatted": f"{info['savings']:.0f} ₽" if info["savings"] > 0 else None,
+                "label": info["label"],
+                "description": info["description"],
+                "monthly_price": round(info["price"] / months, 2),
+                "monthly_price_formatted": f"{round(info['price'] / months):.0f} ₽/мес"
+            })
+        
+        return {
+            "periods": periods,
+            "base_monthly_price": BASE_MONTHLY_PRICE,
+            "currency": "RUB"
+        }
