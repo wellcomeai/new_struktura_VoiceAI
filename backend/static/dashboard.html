@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <!-- /static/dashboard.html -->
+<!-- ✅ ВЕРСИЯ 2.0: Поддержка разных периодов оплаты (1, 6, 12 месяцев) -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Панель управления | Voicyfy</title>
-  <!-- Добавленные теги для favicon -->
- <!-- Favicon -->
-<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-<link rel="manifest" href="/static/manifest.json">
-<meta name="theme-color" content="#2563eb">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     /* Основные стили */
     :root {
@@ -37,6 +37,10 @@
       --radius-full: 9999px;
       --transition-sm: all 0.2s ease;
       --transition-md: all 0.3s ease;
+      --green-500: #10b981;
+      --green-100: rgba(16, 185, 129, 0.1);
+      --orange-500: #f97316;
+      --orange-100: rgba(249, 115, 22, 0.1);
     }
     
     * {
@@ -774,7 +778,10 @@
       text-align: center;
     }
 
-    /* Стили для модального окна оплаты */
+    /* ========================================
+       ✅ СТИЛИ ДЛЯ МОДАЛЬНОГО ОКНА ОПЛАТЫ
+       С ТАБАМИ ВЫБОРА ПЕРИОДА
+       ======================================== */
     .payment-modal {
       position: fixed;
       top: 0;
@@ -808,7 +815,7 @@
       background-color: var(--white);
       border-radius: var(--radius-lg);
       box-shadow: var(--shadow-lg);
-      max-width: 500px;
+      max-width: 580px;
       width: 100%;
       max-height: 90vh;
       overflow-y: auto;
@@ -816,7 +823,7 @@
     }
 
     .payment-modal-header {
-      padding: 2rem 2rem 1rem;
+      padding: 1.5rem 2rem 1rem;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
@@ -856,17 +863,84 @@
       padding: 1.5rem 2rem;
     }
 
+    /* ✅ ТАБЫ ВЫБОРА ПЕРИОДА */
+    .period-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      background-color: var(--bg-light);
+      padding: 0.375rem;
+      border-radius: var(--radius-md);
+    }
+
+    .period-tab {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: none;
+      background: transparent;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      transition: var(--transition-sm);
+      position: relative;
+      text-align: center;
+    }
+
+    .period-tab:hover {
+      color: var(--text-dark);
+    }
+
+    .period-tab.active {
+      background-color: var(--white);
+      color: var(--primary-blue);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .period-tab .tab-label {
+      display: block;
+    }
+
+    .period-tab .tab-discount {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--green-500);
+      font-weight: 600;
+      margin-top: 0.125rem;
+    }
+
+    .period-tab.active .tab-discount {
+      color: var(--green-500);
+    }
+
+    /* Бейдж "Выгодно" */
+    .period-tab .best-value-badge {
+      position: absolute;
+      top: -8px;
+      right: -4px;
+      background: linear-gradient(135deg, var(--orange-500), #ea580c);
+      color: white;
+      font-size: 0.625rem;
+      padding: 0.125rem 0.375rem;
+      border-radius: var(--radius-full);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+    }
+
+    /* Информация о выбранном периоде */
     .payment-plan-info {
       text-align: center;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
     }
 
     .payment-plan-price {
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
     }
 
     .price-amount {
-      font-size: 2.5rem;
+      font-size: 2.75rem;
       font-weight: 700;
       color: var(--text-dark);
     }
@@ -890,18 +964,60 @@
       gap: 0.5rem;
       color: var(--text-gray);
       font-size: 0.95rem;
+      margin-bottom: 0.5rem;
     }
 
     .payment-plan-duration i {
       color: var(--primary-blue);
     }
 
+    /* Плашка экономии */
+    .savings-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.375rem;
+      background-color: var(--green-100);
+      color: var(--green-500);
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-full);
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+
+    .savings-badge i {
+      font-size: 1rem;
+    }
+
+    .savings-badge.hidden {
+      display: none;
+    }
+
+    /* Цена за месяц */
+    .monthly-price-info {
+      color: var(--text-gray);
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+
+    .monthly-price-info .old-price {
+      text-decoration: line-through;
+      color: var(--text-light);
+      margin-right: 0.5rem;
+    }
+
+    .monthly-price-info .new-price {
+      color: var(--green-500);
+      font-weight: 600;
+    }
+
+    /* Фичи плана */
     .payment-plan-features {
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
     }
 
     .payment-plan-features h3 {
-      font-size: 1.125rem;
+      font-size: 1rem;
       font-weight: 600;
       margin-bottom: 1rem;
       color: var(--text-dark);
@@ -917,7 +1033,7 @@
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      padding: 0.75rem 0;
+      padding: 0.625rem 0;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -933,52 +1049,12 @@
 
     .features-list li span {
       color: var(--text-dark);
-      font-size: 0.95rem;
+      font-size: 0.9rem;
     }
 
-    .payment-comparison {
-      background-color: var(--bg-blue-light);
-      border-radius: var(--radius-md);
-      padding: 1.5rem;
-      margin-bottom: 1rem;
-    }
-
-    .comparison-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-    }
-
-    .comparison-free,
-    .comparison-paid {
-      flex: 1;
-      text-align: center;
-    }
-
-    .comparison-label {
-      display: block;
-      font-size: 0.75rem;
-      color: var(--text-gray);
-      margin-bottom: 0.25rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .comparison-value {
-      display: block;
-      font-weight: 600;
-      color: var(--text-dark);
-    }
-
-    .comparison-arrow {
-      color: var(--primary-blue);
-      font-weight: 600;
-      font-size: 1.25rem;
-    }
-
+    /* Footer модалки */
     .payment-modal-footer {
-      padding: 1.5rem 2rem;
+      padding: 1.25rem 2rem;
       border-top: 1px solid var(--border-color);
       display: flex;
       gap: 1rem;
@@ -992,6 +1068,8 @@
     .payment-pay-btn {
       flex: 1;
       font-weight: 600;
+      font-size: 1rem;
+      padding: 0.875rem 1.5rem;
     }
 
     .payment-loading {
@@ -1023,7 +1101,10 @@
       font-size: 0.95rem;
     }
 
-    /* СТИЛИ ДЛЯ НЕЗАКРЫВАЕМОГО МОДАЛЬНОГО ОКНА ИСТЕКШЕЙ ПОДПИСКИ */
+    /* ========================================
+       ✅ СТИЛИ ДЛЯ МОДАЛЬНОГО ОКНА ИСТЕКШЕЙ ПОДПИСКИ
+       С ТАБАМИ ВЫБОРА ПЕРИОДА
+       ======================================== */
     .subscription-expired-modal {
       position: fixed;
       top: 0;
@@ -1059,45 +1140,45 @@
     .subscription-expired-header {
       background: linear-gradient(135deg, #ef4444, #dc2626);
       color: white;
-      padding: 2rem;
+      padding: 1.5rem 2rem;
       text-align: center;
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
 
     .subscription-expired-icon {
-      font-size: 4rem;
-      margin-bottom: 1rem;
+      font-size: 3rem;
+      margin-bottom: 0.75rem;
       display: block;
     }
 
     .subscription-expired-title {
-      font-size: 2rem;
+      font-size: 1.75rem;
       font-weight: 700;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.375rem;
     }
 
     .subscription-expired-subtitle {
-      font-size: 1.125rem;
+      font-size: 1rem;
       opacity: 0.9;
     }
 
     .subscription-expired-body {
-      padding: 2rem;
+      padding: 1.5rem 2rem;
     }
 
     .expired-notice {
       background-color: rgba(239, 68, 68, 0.1);
       border-left: 4px solid #ef4444;
-      padding: 1.5rem;
+      padding: 1rem 1.25rem;
       border-radius: 0 var(--radius-md) var(--radius-md) 0;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
     }
 
     .expired-notice-title {
-      font-size: 1.25rem;
+      font-size: 1rem;
       font-weight: 600;
       color: #ef4444;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
@@ -1105,77 +1186,112 @@
 
     .expired-notice-text {
       color: var(--text-dark);
-      line-height: 1.6;
+      line-height: 1.5;
+      font-size: 0.9rem;
     }
 
-    .plans-comparison {
-      margin-bottom: 2rem;
-    }
-
-    .plans-comparison h3 {
-      font-size: 1.25rem;
-      font-weight: 600;
+    /* Табы в модалке истекшей подписки */
+    .expired-period-tabs {
+      display: flex;
+      gap: 0.5rem;
       margin-bottom: 1.5rem;
-      text-align: center;
-      color: var(--text-dark);
-    }
-
-    .plans-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
-
-    .plan-card {
-      border: 2px solid var(--border-color);
+      background-color: var(--bg-light);
+      padding: 0.375rem;
       border-radius: var(--radius-md);
-      padding: 1.5rem;
-      text-align: center;
+    }
+
+    .expired-period-tab {
+      flex: 1;
+      padding: 0.75rem 0.5rem;
+      border: none;
+      background: transparent;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.8rem;
+      color: var(--text-gray);
       transition: var(--transition-sm);
+      position: relative;
+      text-align: center;
     }
 
-    .plan-card.featured {
-      border-color: var(--primary-blue);
-      background-color: var(--bg-blue-light);
-      transform: scale(1.05);
-    }
-
-    .plan-name {
-      font-size: 1.125rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
+    .expired-period-tab:hover {
       color: var(--text-dark);
     }
 
-    .plan-price {
-      font-size: 2rem;
-      font-weight: 700;
+    .expired-period-tab.active {
+      background-color: var(--white);
       color: var(--primary-blue);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .expired-period-tab .tab-price {
+      display: block;
+      font-size: 1rem;
+      font-weight: 700;
+      margin-top: 0.25rem;
+    }
+
+    .expired-period-tab .tab-discount {
+      display: block;
+      font-size: 0.65rem;
+      color: var(--green-500);
+      font-weight: 600;
+      margin-top: 0.125rem;
+    }
+
+    .expired-period-tab .best-value-badge {
+      position: absolute;
+      top: -6px;
+      right: 2px;
+      background: linear-gradient(135deg, var(--orange-500), #ea580c);
+      color: white;
+      font-size: 0.55rem;
+      padding: 0.1rem 0.3rem;
+      border-radius: var(--radius-full);
+      font-weight: 600;
+    }
+
+    /* Выбранный план в expired modal */
+    .expired-selected-plan {
+      background-color: var(--bg-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      text-align: center;
       margin-bottom: 1rem;
     }
 
-    .plan-features {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .expired-plan-price {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--primary-blue);
     }
 
-    .plan-features li {
-      padding: 0.5rem 0;
-      font-size: 0.875rem;
+    .expired-plan-period {
       color: var(--text-gray);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.5rem;
+      font-size: 0.9rem;
+      margin-top: 0.25rem;
     }
 
-    .plan-features li i {
-      color: #10b981;
+    .expired-savings-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      background-color: var(--green-100);
+      color: var(--green-500);
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-full);
+      font-weight: 600;
+      font-size: 0.8rem;
+      margin-top: 0.75rem;
+    }
+
+    .expired-savings-badge.hidden {
+      display: none;
     }
 
     .subscription-expired-footer {
-      padding: 2rem;
+      padding: 1.25rem 2rem;
       border-top: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
@@ -1188,7 +1304,7 @@
       padding: 1rem 2rem;
       border-radius: var(--radius-md);
       font-weight: 600;
-      font-size: 1.125rem;
+      font-size: 1rem;
       border: none;
       cursor: pointer;
       transition: var(--transition-sm);
@@ -1298,17 +1414,39 @@
         width: 100%;
       }
       
-      .plans-grid {
-        grid-template-columns: 1fr;
+      .period-tabs {
+        flex-direction: column;
+        gap: 0.375rem;
       }
-      
-      .plan-card.featured {
-        transform: none;
+
+      .period-tab {
+        padding: 0.625rem 1rem;
+      }
+
+      .period-tab .best-value-badge {
+        top: 50%;
+        transform: translateY(-50%);
+        right: 8px;
+      }
+
+      .expired-period-tabs {
+        flex-direction: column;
+        gap: 0.375rem;
+      }
+
+      .expired-period-tab .best-value-badge {
+        top: 50%;
+        transform: translateY(-50%);
+        right: 8px;
       }
       
       .subscription-expired-content {
         margin: 10px;
         max-height: calc(100vh - 20px);
+      }
+
+      .payment-modal-content {
+        margin: 10px;
       }
     }
     
@@ -1318,12 +1456,23 @@
       }
       
       .subscription-expired-header {
-        padding: 1rem;
+        padding: 1.25rem 1rem;
       }
       
       .subscription-expired-body,
       .subscription-expired-footer {
         padding: 1rem;
+      }
+
+      .payment-modal-header,
+      .payment-modal-body,
+      .payment-modal-footer {
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+
+      .price-amount {
+        font-size: 2.25rem;
       }
     }
   </style>
@@ -1537,7 +1686,7 @@
     </button>
   </div>
 
-  <!-- Модальное окно оплаты -->
+  <!-- ✅ МОДАЛЬНОЕ ОКНО ОПЛАТЫ С ТАБАМИ -->
   <div class="payment-modal" id="payment-modal">
     <div class="payment-modal-overlay" id="payment-modal-overlay"></div>
     <div class="payment-modal-content">
@@ -1551,16 +1700,43 @@
       </div>
       
       <div class="payment-modal-body">
+        <!-- ✅ ТАБЫ ВЫБОРА ПЕРИОДА -->
+        <div class="period-tabs" id="period-tabs">
+          <button class="period-tab active" data-months="1">
+            <span class="tab-label">1 месяц</span>
+          </button>
+          <button class="period-tab" data-months="6">
+            <span class="tab-label">6 месяцев</span>
+            <span class="tab-discount">-10%</span>
+          </button>
+          <button class="period-tab" data-months="12">
+            <span class="tab-label">1 год</span>
+            <span class="tab-discount">-15%</span>
+            <span class="best-value-badge">Выгодно</span>
+          </button>
+        </div>
+
         <div class="payment-plan-info">
           <div class="payment-plan-price">
-            <span class="price-amount">1 490</span>
+            <span class="price-amount" id="modal-price">1 490</span>
             <span class="price-currency">₽</span>
-            <span class="price-period">/месяц</span>
           </div>
           
           <div class="payment-plan-duration">
             <i class="fas fa-calendar-alt"></i>
-            <span>30 календарных дней</span>
+            <span id="modal-duration">30 дней</span>
+          </div>
+
+          <!-- Экономия -->
+          <div class="savings-badge hidden" id="modal-savings">
+            <i class="fas fa-piggy-bank"></i>
+            <span>Вы экономите <span id="modal-savings-amount">0</span> ₽</span>
+          </div>
+
+          <!-- Цена за месяц -->
+          <div class="monthly-price-info" id="modal-monthly-price" style="display: none;">
+            <span class="old-price">1 490 ₽/мес</span>
+            <span class="new-price" id="modal-monthly-value">1 332 ₽/мес</span>
           </div>
         </div>
         
@@ -1593,20 +1769,6 @@
             </li>
           </ul>
         </div>
-        
-        <div class="payment-comparison">
-          <div class="comparison-item">
-            <div class="comparison-free">
-              <span class="comparison-label">Бесплатно</span>
-              <span class="comparison-value">1 ассистент</span>
-            </div>
-            <div class="comparison-arrow">→</div>
-            <div class="comparison-paid">
-              <span class="comparison-label">Тариф "Старт"</span>
-              <span class="comparison-value">3 ассистента</span>
-            </div>
-          </div>
-        </div>
       </div>
       
       <div class="payment-modal-footer">
@@ -1615,7 +1777,7 @@
         </button>
         <button class="btn btn-primary payment-pay-btn" id="payment-pay-btn">
           <i class="fas fa-credit-card"></i>
-          Оплатить 1 490 ₽
+          <span id="pay-btn-text">Оплатить 1 490 ₽</span>
         </button>
       </div>
       
@@ -1626,7 +1788,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ИСТЕКШЕЙ ПОДПИСКИ -->
+  <!-- ✅ МОДАЛЬНОЕ ОКНО ИСТЕКШЕЙ ПОДПИСКИ С ТАБАМИ -->
   <div class="subscription-expired-modal" id="subscription-expired-modal">
     <div class="subscription-expired-content">
       <div class="subscription-expired-header">
@@ -1646,29 +1808,31 @@
           </div>
         </div>
         
-        <div class="plans-comparison">
-          <h3>Выберите подходящий тариф</h3>
-          <div class="plans-grid">
-            <div class="plan-card">
-              <div class="plan-name">Бесплатный</div>
-              <div class="plan-price">0 ₽</div>
-              <ul class="plan-features">
-                <li><i class="fas fa-check"></i> 1 ассистент</li>
-                <li><i class="fas fa-check"></i> Базовые функции</li>
-                <li><i class="fas fa-times"></i> Ограниченная поддержка</li>
-              </ul>
-            </div>
-            
-            <div class="plan-card featured">
-              <div class="plan-name">Старт</div>
-              <div class="plan-price">1 490 ₽</div>
-              <ul class="plan-features">
-                <li><i class="fas fa-check"></i> 3 ассистента</li>
-                <li><i class="fas fa-check"></i> Безлимитные диалоги</li>
-                <li><i class="fas fa-check"></i> База знаний</li>
-                <li><i class="fas fa-check"></i> Приоритетная поддержка</li>
-              </ul>
-            </div>
+        <!-- ✅ ТАБЫ ВЫБОРА ПЕРИОДА В EXPIRED MODAL -->
+        <div class="expired-period-tabs" id="expired-period-tabs">
+          <button class="expired-period-tab active" data-months="1">
+            <span class="tab-label">1 месяц</span>
+            <span class="tab-price">1 490 ₽</span>
+          </button>
+          <button class="expired-period-tab" data-months="6">
+            <span class="tab-label">6 месяцев</span>
+            <span class="tab-price">7 990 ₽</span>
+            <span class="tab-discount">-10%</span>
+          </button>
+          <button class="expired-period-tab" data-months="12">
+            <span class="tab-label">1 год</span>
+            <span class="tab-price">14 990 ₽</span>
+            <span class="tab-discount">-15%</span>
+            <span class="best-value-badge">Выгодно</span>
+          </button>
+        </div>
+
+        <div class="expired-selected-plan">
+          <div class="expired-plan-price" id="expired-price">1 490 ₽</div>
+          <div class="expired-plan-period" id="expired-period">30 дней доступа</div>
+          <div class="expired-savings-badge hidden" id="expired-savings">
+            <i class="fas fa-piggy-bank"></i>
+            <span>Экономия <span id="expired-savings-amount">0</span> ₽</span>
           </div>
         </div>
       </div>
@@ -1676,7 +1840,7 @@
       <div class="subscription-expired-footer">
         <button class="renew-subscription-btn" id="renew-subscription-btn">
           <i class="fas fa-credit-card"></i>
-          Продлить подписку за 1 490 ₽
+          <span id="renew-btn-text">Продлить подписку за 1 490 ₽</span>
         </button>
         
         <div class="contact-support">
@@ -1688,6 +1852,45 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      // ========================================
+      // ✅ КОНФИГУРАЦИЯ ПЕРИОДОВ ПОДПИСКИ
+      // ========================================
+      const SUBSCRIPTION_PERIODS = {
+        1: {
+          months: 1,
+          days: 30,
+          price: 1490,
+          discount: 0,
+          savings: 0,
+          label: '1 месяц',
+          daysLabel: '30 дней'
+        },
+        6: {
+          months: 6,
+          days: 180,
+          price: 7990,
+          discount: 10,
+          savings: 950,
+          label: '6 месяцев',
+          daysLabel: '180 дней'
+        },
+        12: {
+          months: 12,
+          days: 365,
+          price: 14990,
+          discount: 15,
+          savings: 2890,
+          label: '1 год',
+          daysLabel: '365 дней'
+        }
+      };
+
+      const BASE_MONTHLY_PRICE = 1490;
+
+      // Текущий выбранный период
+      let selectedPeriod = 1;
+      let expiredSelectedPeriod = 1;
+
       // Получаем элементы DOM
       const sidebar = document.getElementById('sidebar');
       const mainContent = document.getElementById('main-content');
@@ -1720,10 +1923,20 @@
       const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
       const contentContainer = document.getElementById('content-container');
       
+      // Элементы модального окна оплаты
+      const paymentModal = document.getElementById('payment-modal');
+      const paymentModalOverlay = document.getElementById('payment-modal-overlay');
+      const paymentModalClose = document.getElementById('payment-modal-close');
+      const paymentCancelBtn = document.getElementById('payment-cancel-btn');
+      const paymentPayBtn = document.getElementById('payment-pay-btn');
+      const paymentLoading = document.getElementById('payment-loading');
+      const periodTabs = document.getElementById('period-tabs');
+
       // Элементы для модального окна истекшей подписки
       const subscriptionExpiredModal = document.getElementById('subscription-expired-modal');
       const renewSubscriptionBtn = document.getElementById('renew-subscription-btn');
       const subscriptionTypeText = document.getElementById('subscription-type-text');
+      const expiredPeriodTabs = document.getElementById('expired-period-tabs');
       
       // Состояние приложения
       let hasApiKey = false;
@@ -1731,22 +1944,124 @@
       let isEditingKey = false;
       let currentUser = null;
       let subscriptionStatus = null;
+
+      // ========================================
+      // ✅ ФУНКЦИИ ОБНОВЛЕНИЯ UI МОДАЛЬНЫХ ОКОН
+      // ========================================
+
+      function formatPrice(price) {
+        return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      }
+
+      function updatePaymentModalUI(months) {
+        const period = SUBSCRIPTION_PERIODS[months];
+        if (!period) return;
+
+        // Обновляем активный таб
+        document.querySelectorAll('#period-tabs .period-tab').forEach(tab => {
+          tab.classList.toggle('active', parseInt(tab.dataset.months) === months);
+        });
+
+        // Обновляем цену
+        document.getElementById('modal-price').textContent = formatPrice(period.price);
+        
+        // Обновляем длительность
+        document.getElementById('modal-duration').textContent = period.daysLabel;
+        
+        // Обновляем экономию
+        const savingsBadge = document.getElementById('modal-savings');
+        const savingsAmount = document.getElementById('modal-savings-amount');
+        if (period.savings > 0) {
+          savingsBadge.classList.remove('hidden');
+          savingsAmount.textContent = formatPrice(period.savings);
+        } else {
+          savingsBadge.classList.add('hidden');
+        }
+
+        // Обновляем цену за месяц
+        const monthlyPriceInfo = document.getElementById('modal-monthly-price');
+        const monthlyValue = document.getElementById('modal-monthly-value');
+        if (months > 1) {
+          const monthlyPrice = Math.round(period.price / months);
+          monthlyValue.textContent = formatPrice(monthlyPrice) + ' ₽/мес';
+          monthlyPriceInfo.style.display = 'block';
+        } else {
+          monthlyPriceInfo.style.display = 'none';
+        }
+
+        // Обновляем кнопку оплаты
+        document.getElementById('pay-btn-text').textContent = `Оплатить ${formatPrice(period.price)} ₽`;
+      }
+
+      function updateExpiredModalUI(months) {
+        const period = SUBSCRIPTION_PERIODS[months];
+        if (!period) return;
+
+        // Обновляем активный таб
+        document.querySelectorAll('#expired-period-tabs .expired-period-tab').forEach(tab => {
+          tab.classList.toggle('active', parseInt(tab.dataset.months) === months);
+        });
+
+        // Обновляем цену
+        document.getElementById('expired-price').textContent = formatPrice(period.price) + ' ₽';
+        
+        // Обновляем период
+        document.getElementById('expired-period').textContent = period.daysLabel + ' доступа';
+        
+        // Обновляем экономию
+        const savingsBadge = document.getElementById('expired-savings');
+        const savingsAmount = document.getElementById('expired-savings-amount');
+        if (period.savings > 0) {
+          savingsBadge.classList.remove('hidden');
+          savingsAmount.textContent = formatPrice(period.savings);
+        } else {
+          savingsBadge.classList.add('hidden');
+        }
+
+        // Обновляем кнопку
+        document.getElementById('renew-btn-text').textContent = `Продлить подписку за ${formatPrice(period.price)} ₽`;
+      }
+
+      // ========================================
+      // ОБРАБОТЧИКИ ТАБОВ
+      // ========================================
+
+      // Табы в основном модальном окне
+      periodTabs.addEventListener('click', function(e) {
+        const tab = e.target.closest('.period-tab');
+        if (!tab) return;
+
+        const months = parseInt(tab.dataset.months);
+        if (months && SUBSCRIPTION_PERIODS[months]) {
+          selectedPeriod = months;
+          updatePaymentModalUI(months);
+        }
+      });
+
+      // Табы в модальном окне истекшей подписки
+      expiredPeriodTabs.addEventListener('click', function(e) {
+        const tab = e.target.closest('.expired-period-tab');
+        if (!tab) return;
+
+        const months = parseInt(tab.dataset.months);
+        if (months && SUBSCRIPTION_PERIODS[months]) {
+          expiredSelectedPeriod = months;
+          updateExpiredModalUI(months);
+        }
+      });
       
       // API клиент
       const api = {
         baseUrl: '/api',
         
-        // Получение токена авторизации
         getToken() {
           return localStorage.getItem('auth_token');
         },
         
-        // Проверка авторизации
         isAuthenticated() {
           return this.getToken() !== null;
         },
         
-        // Базовая функция для запросов к API
         async fetch(endpoint, options = {}) {
           if (this.isAuthenticated()) {
             options.headers = {
@@ -1785,7 +2100,6 @@
           }
         },
         
-        // Методы для различных типов запросов
         get(endpoint) {
           return this.fetch(endpoint, { method: 'GET' });
         },
@@ -1802,17 +2116,14 @@
           return this.fetch(endpoint, { method: 'DELETE' });
         },
         
-        // Получение текущего пользователя
         getCurrentUser() {
           return this.get('/users/me');
         },
         
-        // Сохранение API ключа
         saveApiKey(apiKey) {
           return this.put('/users/me', { openai_api_key: apiKey });
         },
         
-        // Получение списка ботов
         getAssistants() {
           return this.get('/assistants');
         }
@@ -1820,7 +2131,6 @@
       
       // Управление UI
       const ui = {
-        // Показать уведомление
         showNotification(message, type = 'success') {
           notificationMessage.textContent = message;
           
@@ -1843,12 +2153,10 @@
           }, 5000);
         },
         
-        // Скрыть уведомление
         hideNotification() {
           notification.classList.remove('show');
         },
         
-        // Разблокировка функций после добавления API ключа
         unlockFeatures() {
           hasApiKey = true;
           
@@ -1864,7 +2172,6 @@
           });
         },
         
-        // Блокировка функций
         lockFeatures() {
           hasApiKey = false;
           
@@ -1880,7 +2187,6 @@
           });
         },
         
-        // Режим просмотра API ключа
         viewKeyMode() {
           isEditingKey = false;
           
@@ -1894,7 +2200,6 @@
           apiKeyStatus.style.display = 'flex';
         },
         
-        // Режим редактирования API ключа
         editKeyMode() {
           isEditingKey = true;
           apiKeyStatus.style.display = 'none';
@@ -1910,7 +2215,6 @@
           }
         },
 
-        // Показать модальное окно истекшей подписки
         showSubscriptionExpiredModal(isTrialExpired = true) {
           console.log('Показываем модальное окно истекшей подписки:', isTrialExpired);
           
@@ -1920,13 +2224,16 @@
             subscriptionTypeText.textContent = 'ваша подписка';
           }
           
+          // Сбрасываем на 1 месяц
+          expiredSelectedPeriod = 1;
+          updateExpiredModalUI(1);
+          
           document.body.classList.add('subscription-expired');
           contentContainer.classList.add('content-blocked');
           
           subscriptionExpiredModal.classList.add('show');
         },
 
-        // Скрыть модальное окно истекшей подписки
         hideSubscriptionExpiredModal() {
           console.log('Скрываем модальное окно истекшей подписки');
           
@@ -1942,27 +2249,23 @@
         return userEmail === 'well96well@gmail.com';
       }
 
-      // Функция проверки статуса подписки (ОРИГИНАЛЬНАЯ ЛОГИКА)
+      // Функция проверки статуса подписки
       function checkSubscriptionStatus(userData, subscriptionData) {
         console.log('Проверяем статус подписки:', { userData, subscriptionData });
         
-        // Если пользователь - админ, всегда разрешаем доступ
         if (isAdmin(userData.email)) {
           console.log('Пользователь является админом, пропускаем проверку подписки');
           return { isValid: true, reason: 'admin' };
         }
 
-        // Проверяем наличие активной подписки
         if (subscriptionData && subscriptionData.subscription_plan) {
           const daysLeft = subscriptionData.days_left || 0;
           
-          // Если подписка истекла
           if (daysLeft <= 0) {
             console.log('Подписка истекла, дней осталось:', daysLeft);
             return { isValid: false, reason: 'subscription_expired', data: subscriptionData };
           }
           
-          // Если это триальный период и он закончился
           if (subscriptionData.is_trial && daysLeft <= 0) {
             console.log('Тестовый период истек');
             return { isValid: false, reason: 'trial_expired', data: subscriptionData };
@@ -1972,8 +2275,6 @@
           return { isValid: true, reason: 'active_subscription', data: subscriptionData };
         }
 
-        // Если нет подписки, проверяем есть ли тестовый период
-        // Пока считаем, что отсутствие подписки = истечение тестового периода
         console.log('Подписка не найдена, считаем что тестовый период истек');
         return { isValid: false, reason: 'trial_expired', data: null };
       }
@@ -1989,19 +2290,15 @@
           
           setTimeout(async () => {
             try {
-              // Обновляем данные пользователя из БД
               const userData = await api.getCurrentUser();
               currentUser = userData;
               
-              // Перезагружаем информацию о подписке
               await loadSubscriptionInfo();
               
-              // Если поп-ап был показан - скрываем его
               ui.hideSubscriptionExpiredModal();
               
               ui.showNotification('Оплата прошла успешно! Доступ к платформе восстановлен.', 'success');
               
-              // Очищаем URL от параметров оплаты
               window.history.replaceState({}, document.title, window.location.pathname);
               
             } catch (error) {
@@ -2021,7 +2318,7 @@
         return true;
       }
       
-      // ОРИГИНАЛЬНАЯ ФУНКЦИЯ: Загрузка данных пользователя
+      // Загрузка данных пользователя
       async function loadUserData() {
         try {
           const userData = await api.getCurrentUser();
@@ -2105,25 +2402,23 @@
         }
       }
       
-      // ОРИГИНАЛЬНАЯ ФУНКЦИЯ: Загрузка информации о подписке
+      // Загрузка информации о подписке
       async function loadSubscriptionInfo() {
         try {
           const subscriptionInfo = await api.get('/subscriptions/my-subscription');
           subscriptionStatus = subscriptionInfo;
           
-          // ДОБАВЛЕНА ПРОВЕРКА: Проверяем статус подписки после загрузки
           if (currentUser) {
             const subscriptionCheck = checkSubscriptionStatus(currentUser, subscriptionInfo);
             console.log('Результат проверки подписки:', subscriptionCheck);
             
             if (!subscriptionCheck.isValid) {
-              // Показываем модальное окно в зависимости от причины
               if (subscriptionCheck.reason === 'trial_expired') {
-                ui.showSubscriptionExpiredModal(true); // тестовый период
+                ui.showSubscriptionExpiredModal(true);
               } else if (subscriptionCheck.reason === 'subscription_expired') {
-                ui.showSubscriptionExpiredModal(false); // платная подписка
+                ui.showSubscriptionExpiredModal(false);
               }
-              return; // Прерываем дальнейшую обработку
+              return;
             }
           }
           
@@ -2313,15 +2608,15 @@
         });
       });
       
-      // Модальное окно оплаты
-      const paymentModal = document.getElementById('payment-modal');
-      const paymentModalOverlay = document.getElementById('payment-modal-overlay');
-      const paymentModalClose = document.getElementById('payment-modal-close');
-      const paymentCancelBtn = document.getElementById('payment-cancel-btn');
-      const paymentPayBtn = document.getElementById('payment-pay-btn');
-      const paymentLoading = document.getElementById('payment-loading');
+      // ========================================
+      // МОДАЛЬНОЕ ОКНО ОПЛАТЫ
+      // ========================================
       
       function showPaymentModal() {
+        // Сбрасываем на 1 месяц при открытии
+        selectedPeriod = 1;
+        updatePaymentModalUI(1);
+        
         paymentModal.classList.add('show');
         document.body.style.overflow = 'hidden';
       }
@@ -2344,15 +2639,20 @@
       paymentCancelBtn.addEventListener('click', hidePaymentModal);
       paymentModalOverlay.addEventListener('click', hidePaymentModal);
       
-      // Обработчик оплаты
-      async function handlePayment() {
+      // ========================================
+      // ✅ ОБРАБОТЧИК ОПЛАТЫ С ВЫБОРОМ ПЕРИОДА
+      // ========================================
+      async function handlePayment(durationMonths) {
         try {
           showPaymentLoading();
           
-          console.log('🚀 Создаем платеж через API...');
+          const period = SUBSCRIPTION_PERIODS[durationMonths];
+          console.log(`🚀 Создаем платеж: ${period.label}, ${period.price} ₽`);
           
+          // ✅ ОТПРАВЛЯЕМ duration_months в API
           const response = await api.post('/payments/create-payment', {
-            plan_code: 'start'
+            plan_code: 'start',
+            duration_months: durationMonths
           });
           
           console.log('📦 Ответ API:', response);
@@ -2406,13 +2706,18 @@
         }
       }
 
-      paymentPayBtn.addEventListener('click', handlePayment);
+      // Кнопка оплаты в основном модальном окне
+      paymentPayBtn.addEventListener('click', function() {
+        handlePayment(selectedPeriod);
+      });
+
+      // Кнопка продления в модальном окне истекшей подписки
       renewSubscriptionBtn.addEventListener('click', async function() {
         ui.hideSubscriptionExpiredModal();
-        await handlePayment();
+        await handlePayment(expiredSelectedPeriod);
       });
       
-      // Закрытие по клавише Escape (НЕ разрешаем закрывать поп-ап подписки)
+      // Закрытие по клавише Escape
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
           if (paymentModal.classList.contains('show')) {
@@ -2424,20 +2729,27 @@
           if (userDropdown.classList.contains('show')) {
             userDropdown.classList.remove('show');
           }
+          // НЕ закрываем модалку истекшей подписки по Escape
         }
       });
       
-      // ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ (ВОЗВРАТ К ОРИГИНАЛЬНОЙ ЛОГИКЕ + ПРОВЕРКА АДМИНА)
+      // ========================================
+      // ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ
+      // ========================================
       async function initializePage() {
         if (!checkAuth()) return;
         
-        // 1. Загружаем данные пользователя (ОРИГИНАЛЬНАЯ ЛОГИКА)
+        // Инициализируем UI модальных окон
+        updatePaymentModalUI(1);
+        updateExpiredModalUI(1);
+        
+        // 1. Загружаем данные пользователя
         await loadUserData();
         
         // 2. Проверяем результат оплаты
         await checkPaymentResult();
         
-        // 3. Загружаем информацию о подписке (включает проверку блокировки)
+        // 3. Загружаем информацию о подписке
         await loadSubscriptionInfo();
       }
       
