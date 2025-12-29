@@ -3,14 +3,19 @@
 """
 Payment API endpoints for WellcomeAI application.
 Handles Robokassa payment integration.
-ИСПРАВЛЕННАЯ ВЕРСИЯ - поддержка GET/POST для всех endpoints + фиксированная цена 1490 рублей
+
+✅ ВЕРСИЯ 2.0 - Поддержка разных периодов оплаты:
+   - 1 месяц: 1 490₽
+   - 6 месяцев: 7 990₽ (скидка 10%)
+   - 12 месяцев: 14 990₽ (скидка 15%)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
 
 from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user
@@ -23,9 +28,45 @@ from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
 
-# ✅ ФИКСИРОВАННЫЕ НАСТРОЙКИ ПОДПИСКИ
-FIXED_SUBSCRIPTION_PRICE = 1490.0  # Фиксированная цена в рублях
-SUBSCRIPTION_DURATION_DAYS = 30     # Длительность подписки в днях
+# =============================================================================
+# ✅ НАСТРОЙКИ ПОДПИСОК С РАЗНЫМИ ПЕРИОДАМИ
+# =============================================================================
+
+# Базовая месячная цена
+BASE_MONTHLY_PRICE = 1490.0
+
+# Конфигурация периодов подписки
+SUBSCRIPTION_PERIODS = {
+    1: {
+        "months": 1,
+        "days": 30,
+        "price": 1490.0,          # Без скидки
+        "discount_percent": 0,
+        "savings": 0,
+        "label": "1 месяц",
+        "description": "Ежемесячная подписка"
+    },
+    6: {
+        "months": 6,
+        "days": 180,
+        "price": 7990.0,          # Скидка 10% (было бы 8940)
+        "discount_percent": 10,
+        "savings": 950,           # 8940 - 7990
+        "label": "6 месяцев",
+        "description": "Полугодовая подписка со скидкой 10%"
+    },
+    12: {
+        "months": 12,
+        "days": 365,
+        "price": 14990.0,         # Скидка 15% (было бы 17880)
+        "discount_percent": 15,
+        "savings": 2890,          # 17880 - 14990
+        "label": "1 год",
+        "description": "Годовая подписка со скидкой 15%"
+    }
+}
+
+# Настройки плана по умолчанию
 SUBSCRIPTION_PLAN_NAME = "Тариф Старт"
 SUBSCRIPTION_DESCRIPTION = "Стартовый тариф с доступом ко всем функциям"
 MAX_ASSISTANTS = 3
@@ -33,17 +74,57 @@ MAX_ASSISTANTS = 3
 # Create router
 router = APIRouter()
 
+
+# =============================================================================
+# Pydantic модели для запросов
+# =============================================================================
+
+class CreatePaymentRequest(BaseModel):
+    """Модель запроса на создание платежа"""
+    plan_code: str = "start"
+    duration_months: Literal[1, 6, 12] = 1  # Допустимые значения: 1, 6, 12
+
+
+# =============================================================================
+# Вспомогательные функции
+# =============================================================================
+
+def get_subscription_period_info(duration_months: int) -> Dict[str, Any]:
+    """
+    Получить информацию о периоде подписки
+    
+    Args:
+        duration_months: Количество месяцев (1, 6, 12)
+        
+    Returns:
+        Словарь с информацией о периоде
+        
+    Raises:
+        ValueError: Если указан неподдерживаемый период
+    """
+    if duration_months not in SUBSCRIPTION_PERIODS:
+        raise ValueError(f"Неподдерживаемый период подписки: {duration_months}. Допустимые значения: 1, 6, 12")
+    
+    return SUBSCRIPTION_PERIODS[duration_months]
+
+
+# =============================================================================
+# API Endpoints
+# =============================================================================
+
 @router.post("/create-payment", response_model=Dict[str, Any])
 async def create_payment(
-    plan_code: str = "start",
+    request_data: CreatePaymentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Создание платежа для подписки с ФИКСИРОВАННОЙ ЦЕНОЙ 1490 рублей
+    Создание платежа для подписки с поддержкой разных периодов
+    
+    ✅ ВЕРСИЯ 2.0: Поддержка 1, 6, 12 месяцев
     
     Args:
-        plan_code: Код тарифного плана (по умолчанию "start")
+        request_data: Данные запроса (plan_code, duration_months)
         current_user: Текущий пользователь
         db: Сессия базы данных
         
@@ -51,16 +132,40 @@ async def create_payment(
         Данные для перенаправления на оплату
     """
     try:
-        logger.info(f"🚀 Creating payment for user {current_user.id}, plan {plan_code}")
+        plan_code = request_data.plan_code
+        duration_months = request_data.duration_months
         
-        # ДОБАВЛЕНО: Детальное логирование настроек
-        logger.info(f"📋 Payment settings (FIXED PRICE):")
+        logger.info(f"🚀 Creating payment for user {current_user.id}")
+        logger.info(f"   Plan: {plan_code}")
+        logger.info(f"   Duration: {duration_months} months")
+        
+        # Получаем информацию о выбранном периоде
+        try:
+            period_info = get_subscription_period_info(duration_months)
+        except ValueError as e:
+            logger.error(f"❌ Invalid duration_months: {duration_months}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        
+        subscription_price = period_info["price"]
+        subscription_days = period_info["days"]
+        discount_percent = period_info["discount_percent"]
+        savings = period_info["savings"]
+        period_label = period_info["label"]
+        
+        logger.info(f"📋 Payment settings:")
+        logger.info(f"   Period: {period_label}")
+        logger.info(f"   Price: {subscription_price} руб")
+        logger.info(f"   Days: {subscription_days}")
+        logger.info(f"   Discount: {discount_percent}%")
+        logger.info(f"   Savings: {savings} руб")
         logger.info(f"   HOST_URL: {settings.HOST_URL}")
         logger.info(f"   ROBOKASSA_MERCHANT_LOGIN: {settings.ROBOKASSA_MERCHANT_LOGIN}")
         logger.info(f"   ROBOKASSA_TEST_MODE: {settings.ROBOKASSA_TEST_MODE}")
-        logger.info(f"   FIXED_SUBSCRIPTION_PRICE: {FIXED_SUBSCRIPTION_PRICE} руб")
         
-        # ДОБАВЛЕНО: Проверка настроек перед созданием платежа
+        # Проверка настроек Robokassa
         if not settings.ROBOKASSA_MERCHANT_LOGIN:
             logger.error("❌ ROBOKASSA_MERCHANT_LOGIN is not configured")
             raise HTTPException(
@@ -75,8 +180,6 @@ async def create_payment(
                 detail="Payment system not configured: missing password. Contact administrator."
             )
         
-        # Проверяем, что у пользователя нет активной подписки (опционально)
-        # Можно убрать эту проверку, если разрешаем продление
         logger.info(f"👤 User info: email={current_user.email}, is_trial={current_user.is_trial}")
         
         # Получаем пользователя
@@ -88,14 +191,14 @@ async def create_payment(
                 detail="User not found"
             )
         
-        # Получаем или создаем план (только для записи в БД, цена фиксированная)
+        # Получаем или создаем план подписки
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
         if not plan:
             logger.info(f"📋 Creating subscription plan: {plan_code}")
             plan = SubscriptionPlan(
                 code=plan_code,
                 name=SUBSCRIPTION_PLAN_NAME,
-                price=FIXED_SUBSCRIPTION_PRICE,  # Сохраняем в БД для истории
+                price=BASE_MONTHLY_PRICE,  # Базовая месячная цена
                 max_assistants=MAX_ASSISTANTS,
                 description=SUBSCRIPTION_DESCRIPTION,
                 is_active=True
@@ -104,26 +207,39 @@ async def create_payment(
             db.flush()
             logger.info(f"✅ Created subscription plan: {plan_code}")
         
-        # ✅ ИСПОЛЬЗУЕМ ФИКСИРОВАННУЮ ЦЕНУ (не зависит от БД)
-        out_sum = f"{FIXED_SUBSCRIPTION_PRICE:.2f}"  # Всегда 1490.00
+        # Формируем параметры платежа
+        out_sum = f"{subscription_price:.2f}"
         inv_id = f"{int(datetime.now().timestamp())}"
-        description = f"Подписка на {SUBSCRIPTION_DURATION_DAYS} дней за {FIXED_SUBSCRIPTION_PRICE:.0f} рублей"
         
-        logger.info(f"💳 PAYMENT PARAMETERS (FIXED PRICE):")
-        logger.info(f"   out_sum: '{out_sum}' (FIXED: {FIXED_SUBSCRIPTION_PRICE} руб)")
+        # Формируем описание с учётом периода
+        if duration_months == 1:
+            description = f"Подписка на {subscription_days} дней за {subscription_price:.0f} рублей"
+        else:
+            description = f"Подписка на {period_label} за {subscription_price:.0f} рублей (скидка {discount_percent}%)"
+        
+        logger.info(f"💳 PAYMENT PARAMETERS:")
+        logger.info(f"   out_sum: '{out_sum}'")
         logger.info(f"   inv_id: '{inv_id}'")
         logger.info(f"   description: '{description}'")
         
         # Создаем запись транзакции
+        payment_details = (
+            f"Plan: {plan_code}, "
+            f"Duration: {duration_months} months ({subscription_days} days), "
+            f"Price: {subscription_price}, "
+            f"Discount: {discount_percent}%, "
+            f"Savings: {savings}"
+        )
+        
         transaction = PaymentTransaction(
             user_id=user.id,
             plan_id=plan.id,
             external_payment_id=inv_id,
             payment_system="robokassa",
-            amount=FIXED_SUBSCRIPTION_PRICE,  # Фиксированная сумма
+            amount=subscription_price,
             currency="RUB",
             status="pending",
-            payment_details=f"Plan: {plan_code}, Fixed price: {FIXED_SUBSCRIPTION_PRICE}"
+            payment_details=payment_details
         )
         db.add(transaction)
         db.commit()
@@ -131,12 +247,13 @@ async def create_payment(
         
         logger.info(f"📋 Created payment transaction: {transaction.id}")
         
-        # Дополнительные параметры
+        # Дополнительные параметры для callback
         custom_params = None
         if not RobokassaService.DISABLE_SHP_PARAMS:
             custom_params = {
-                "Shp_user_id": str(current_user.id),
-                "Shp_plan_code": plan_code
+                "Shp_duration": str(duration_months),
+                "Shp_plan_code": plan_code,
+                "Shp_user_id": str(current_user.id)
             }
             logger.info(f"✅ Using Shp_ parameters: {custom_params}")
         else:
@@ -181,29 +298,25 @@ async def create_payment(
             form_params["IsTest"] = "1"
             logger.info("🧪 Test mode enabled")
         
-        # Добавляем пользовательские параметры только если они не отключены
+        # Добавляем пользовательские параметры
         if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
             for key, value in custom_params.items():
                 form_params[key] = value
         
-        # ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ФИНАЛЬНЫХ ПАРАМЕТРОВ
         logger.info(f"📋 FINAL FORM PARAMETERS:")
         for key, value in form_params.items():
-            if key == "SignatureValue":
-                logger.info(f"   {key}: '{value}'")
-            else:
-                logger.info(f"   {key}: '{value}'")
+            logger.info(f"   {key}: '{value}'")
         
-        logger.info(f"✅ Payment created with FIXED PRICE: {FIXED_SUBSCRIPTION_PRICE} rubles")
+        logger.info(f"✅ Payment created: {subscription_price} rubles for {subscription_days} days")
         
-        # Логируем в базу
+        # Логируем событие
         await SubscriptionService.log_subscription_event(
             db=db,
             user_id=str(current_user.id),
             action="payment_started",
             plan_id=str(plan.id),
             plan_code=plan_code,
-            details=f"Payment initiated with fixed price: {FIXED_SUBSCRIPTION_PRICE} rubles, inv_id={inv_id}"
+            details=f"Payment initiated: {period_label}, price={subscription_price}, days={subscription_days}, inv_id={inv_id}"
         )
         
         return {
@@ -212,7 +325,15 @@ async def create_payment(
             "inv_id": inv_id,
             "amount": out_sum,
             "transaction_id": str(transaction.id),
-            "fixed_price": FIXED_SUBSCRIPTION_PRICE  # Для информации
+            # Дополнительная информация о периоде
+            "period_info": {
+                "months": duration_months,
+                "days": subscription_days,
+                "price": subscription_price,
+                "discount_percent": discount_percent,
+                "savings": savings,
+                "label": period_label
+            }
         }
         
     except HTTPException as he:
@@ -225,6 +346,45 @@ async def create_payment(
             detail=f"Failed to create payment: {str(e)}"
         )
 
+
+@router.get("/subscription-periods", response_model=Dict[str, Any])
+async def get_subscription_periods():
+    """
+    Получить информацию о доступных периодах подписки
+    
+    Возвращает список периодов с ценами и скидками для отображения на фронтенде
+    """
+    try:
+        periods = []
+        for months, info in SUBSCRIPTION_PERIODS.items():
+            periods.append({
+                "months": months,
+                "days": info["days"],
+                "price": info["price"],
+                "price_formatted": f"{info['price']:.0f} ₽",
+                "discount_percent": info["discount_percent"],
+                "savings": info["savings"],
+                "savings_formatted": f"{info['savings']:.0f} ₽" if info["savings"] > 0 else None,
+                "label": info["label"],
+                "description": info["description"],
+                "monthly_price": round(info["price"] / months, 2),
+                "monthly_price_formatted": f"{round(info['price'] / months):.0f} ₽/мес"
+            })
+        
+        return {
+            "periods": periods,
+            "base_monthly_price": BASE_MONTHLY_PRICE,
+            "currency": "RUB"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error in get_subscription_periods: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get subscription periods"
+        )
+
+
 @router.post("/robokassa-result")
 async def robokassa_result(
     request: Request,
@@ -233,12 +393,13 @@ async def robokassa_result(
     InvId: str = Form(...),
     SignatureValue: str = Form(...),
     Shp_user_id: Optional[str] = Form(None),
-    Shp_plan_code: Optional[str] = Form(None)
+    Shp_plan_code: Optional[str] = Form(None),
+    Shp_duration: Optional[str] = Form(None)  # ✅ НОВОЕ: период подписки
 ):
     """
     Обработка уведомления о результате платежа от Robokassa (ResultURL)
     
-    Этот endpoint вызывается Robokassa автоматически при успешной оплате
+    ✅ ВЕРСИЯ 2.0: Поддержка параметра Shp_duration для разных периодов
     """
     try:
         # Собираем все данные формы
@@ -251,6 +412,7 @@ async def robokassa_result(
         logger.info(f"   SignatureValue: {SignatureValue[:10]}...")
         logger.info(f"   Shp_user_id: {Shp_user_id}")
         logger.info(f"   Shp_plan_code: {Shp_plan_code}")
+        logger.info(f"   Shp_duration: {Shp_duration}")
         logger.info(f"   All form data: {form_dict}")
         
         # Обрабатываем результат платежа
@@ -263,10 +425,9 @@ async def robokassa_result(
         
     except Exception as e:
         logger.error(f"❌ Error in robokassa_result endpoint: {str(e)}", exc_info=True)
-        # В случае ошибки возвращаем FAIL
         return HTMLResponse(content="FAIL", status_code=200)
 
-# ✅ ИСПРАВЛЕНО: Поддержка как GET, так и POST для Success URL
+
 @router.get("/success", response_class=HTMLResponse)
 @router.post("/success", response_class=HTMLResponse)
 async def payment_success(
@@ -278,7 +439,6 @@ async def payment_success(
     """
     Страница успешной оплаты (SuccessURL)
     
-    Сюда перенаправляется пользователь после успешной оплаты
     Поддерживает как GET, так и POST запросы
     """
     try:
@@ -296,7 +456,6 @@ async def payment_success(
         logger.info(f"   Method: {request.method}")
         logger.info(f"   InvId: {InvId}")
         logger.info(f"   OutSum: {OutSum}")
-        logger.info(f"   SignatureValue: {SignatureValue[:10] if SignatureValue else None}...")
         
         # Получаем данные для отображения
         status_data = RobokassaService.get_payment_status_message(success=True)
@@ -383,7 +542,7 @@ async def payment_success(
         logger.error(f"❌ Error in payment_success endpoint: {str(e)}", exc_info=True)
         return HTMLResponse(content="<h1>Произошла ошибка</h1>", status_code=500)
 
-# ✅ ИСПРАВЛЕНО: Поддержка как GET, так и POST для Cancel URL
+
 @router.get("/cancel", response_class=HTMLResponse)
 @router.post("/cancel", response_class=HTMLResponse) 
 async def payment_cancel(
@@ -394,7 +553,6 @@ async def payment_cancel(
     """
     Страница отмены оплаты (FailURL)
     
-    Сюда перенаправляется пользователь при отмене или неуспешной оплате
     Поддерживает как GET, так и POST запросы
     """
     try:
@@ -497,6 +655,7 @@ async def payment_cancel(
         logger.error(f"❌ Error in payment_cancel endpoint: {str(e)}", exc_info=True)
         return HTMLResponse(content="<h1>Произошла ошибка</h1>", status_code=500)
 
+
 @router.get("/status/{user_id}")
 async def get_payment_status(
     user_id: str,
@@ -538,8 +697,9 @@ async def get_payment_status(
             detail="Failed to get payment status"
         )
 
+
 # =============================================================================
-# ДИАГНОСТИЧЕСКИЕ ЭНДПОИНТЫ для отладки проблем с Robokassa
+# ДИАГНОСТИЧЕСКИЕ ЭНДПОИНТЫ
 # =============================================================================
 
 @router.get("/debug-prices")
@@ -550,15 +710,21 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
     try:
         plans = db.query(SubscriptionPlan).all()
         result = {
-            "fixed_price_config": {
-                "FIXED_SUBSCRIPTION_PRICE": FIXED_SUBSCRIPTION_PRICE,
-                "SUBSCRIPTION_DURATION_DAYS": SUBSCRIPTION_DURATION_DAYS,
-                "SUBSCRIPTION_PLAN_NAME": SUBSCRIPTION_PLAN_NAME,
-                "MAX_ASSISTANTS": MAX_ASSISTANTS
-            },
+            "subscription_periods": {},
             "database_plans": {}
         }
         
+        # Информация о периодах
+        for months, info in SUBSCRIPTION_PERIODS.items():
+            result["subscription_periods"][f"{months}_months"] = {
+                "price": info["price"],
+                "days": info["days"],
+                "discount_percent": info["discount_percent"],
+                "savings": info["savings"],
+                "label": info["label"]
+            }
+        
+        # Информация из БД
         for plan in plans:
             result["database_plans"][plan.code] = {
                 "name": plan.name,
@@ -568,29 +734,25 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
                 "created_at": plan.created_at.isoformat() if plan.created_at else None
             }
         
-        logger.info(f"🔍 Debug prices requested - fixed: {FIXED_SUBSCRIPTION_PRICE}, db plans: {len(plans)}")
+        logger.info(f"🔍 Debug prices requested")
         return result
         
     except Exception as e:
         logger.error(f"❌ Error in debug_subscription_prices: {str(e)}")
         return {
             "error": str(e),
-            "fixed_price_config": {
-                "FIXED_SUBSCRIPTION_PRICE": FIXED_SUBSCRIPTION_PRICE,
-                "SUBSCRIPTION_DURATION_DAYS": SUBSCRIPTION_DURATION_DAYS
-            }
+            "subscription_periods": SUBSCRIPTION_PERIODS
         }
+
 
 @router.get("/config-check")
 async def check_robokassa_config():
     """
     🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки конфигурации Robokassa
-    Помогает диагностировать ошибку 29 и другие проблемы конфигурации
     """
     try:
         from backend.services.payment_service import RobokassaService
         
-        # Получаем результаты проверки конфигурации
         config_check = RobokassaService.validate_configuration()
         
         logger.info(f"🔍 Configuration check requested")
@@ -598,13 +760,15 @@ async def check_robokassa_config():
         logger.info(f"   Issues: {config_check['issues']}")
         logger.info(f"   Warnings: {config_check['warnings']}")
         
-        # Возвращаем результат (скрываем чувствительную информацию)
         return {
             "status": "ok" if config_check["valid"] else "error",
             "valid": config_check["valid"],
             "issues": config_check["issues"],
             "warnings": config_check["warnings"],
-            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
+            "subscription_periods": {
+                f"{m}m": {"price": i["price"], "days": i["days"]} 
+                for m, i in SUBSCRIPTION_PERIODS.items()
+            },
             "config": {
                 "merchant_login": config_check["config"]["merchant_login"],
                 "merchant_login_length": config_check["config"]["merchant_login_length"],
@@ -620,11 +784,6 @@ async def check_robokassa_config():
                 "Заполните блок 'Параметры проведения тестовых платежей' в кабинете",
                 "Используйте публичный домен (не localhost) для HOST_URL",
                 "Убедитесь, что магазин активирован в Robokassa"
-            ],
-            "help_links": [
-                "https://auth.robokassa.ru/ - Личный кабинет Robokassa",
-                "https://docs.robokassa.ru/ - Документация",
-                "https://robokassa.com/content/tipichnye-oshibki.html - Типичные ошибки"
             ]
         }
         
@@ -636,31 +795,32 @@ async def check_robokassa_config():
             "message": "Ошибка при проверке конфигурации Robokassa"
         }
 
+
 @router.post("/test-signature")
 async def test_signature_generation(
     request: dict = Body(...)
 ):
     """
     🔧 ДИАГНОСТИЧЕСКИЙ endpoint для тестирования генерации подписи
-    Помогает отладить проблемы с подписью при ошибке 29
     """
     try:
         from backend.services.payment_service import RobokassaService
         
-        # Получаем параметры из запроса
         merchant_login = request.get("merchant_login", RobokassaService.MERCHANT_LOGIN)
-        out_sum = request.get("out_sum", f"{FIXED_SUBSCRIPTION_PRICE:.2f}")  # Используем фиксированную цену
+        out_sum = request.get("out_sum", f"{SUBSCRIPTION_PERIODS[1]['price']:.2f}")
         inv_id = request.get("inv_id", "123456789")
         password = request.get("password", RobokassaService.PASSWORD_1)
-        custom_params = request.get("custom_params", {"Shp_user_id": "test", "Shp_plan_code": "start"})
+        duration_months = request.get("duration_months", 1)
+        
+        custom_params = {
+            "Shp_duration": str(duration_months),
+            "Shp_plan_code": "start",
+            "Shp_user_id": "test"
+        }
         
         logger.info(f"🔧 Testing signature generation")
-        logger.info(f"   merchant_login: '{merchant_login}'")
-        logger.info(f"   out_sum: '{out_sum}' (fixed price: {FIXED_SUBSCRIPTION_PRICE})")
-        logger.info(f"   inv_id: '{inv_id}'")
-        logger.info(f"   custom_params: {custom_params}")
+        logger.info(f"   duration_months: {duration_months}")
         
-        # Генерируем подпись
         signature = RobokassaService.generate_signature(
             merchant_login=merchant_login,
             out_sum=out_sum,
@@ -669,7 +829,6 @@ async def test_signature_generation(
             custom_params=custom_params
         )
         
-        # Формируем строку для подписи вручную для проверки
         sign_string = f"{merchant_login}:{out_sum}:{inv_id}:{password}"
         if custom_params and not RobokassaService.DISABLE_SHP_PARAMS:
             sorted_params = sorted(custom_params.items())
@@ -680,18 +839,13 @@ async def test_signature_generation(
             "status": "ok",
             "signature": signature,
             "sign_string": sign_string,
-            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
+            "subscription_periods": SUBSCRIPTION_PERIODS,
             "parameters": {
                 "merchant_login": merchant_login,
                 "out_sum": out_sum,
                 "inv_id": inv_id,
-                "password_length": len(password),
+                "duration_months": duration_months,
                 "custom_params": custom_params
-            },
-            "debug_info": {
-                "sign_string_length": len(sign_string),
-                "signature_length": len(signature),
-                "disable_shp_params": RobokassaService.DISABLE_SHP_PARAMS
             }
         }
         
@@ -699,20 +853,18 @@ async def test_signature_generation(
         logger.error(f"❌ Error testing signature: {str(e)}")
         return {
             "status": "error",
-            "error": str(e),
-            "message": "Ошибка при тестировании подписи"
+            "error": str(e)
         }
+
 
 @router.post("/enable-diagnostic-mode")
 async def enable_diagnostic_mode():
     """
     🔧 ДИАГНОСТИЧЕСКИЙ endpoint для включения режима без Shp_ параметров
-    Помогает протестировать платеж без дополнительных параметров при ошибке 29
     """
     try:
         from backend.services.payment_service import RobokassaService
         
-        # Включаем диагностический режим
         RobokassaService.DISABLE_SHP_PARAMS = True
         
         logger.info(f"🔧 Diagnostic mode enabled: Shp_ parameters disabled")
@@ -721,13 +873,7 @@ async def enable_diagnostic_mode():
             "status": "ok",
             "message": "Диагностический режим включен - Shp_ параметры отключены",
             "disable_shp_params": True,
-            "fixed_price": FIXED_SUBSCRIPTION_PRICE,
-            "instructions": [
-                "Попробуйте создать платеж снова",
-                "Если ошибка 29 исчезла, проблема в обработке Shp_ параметров",
-                "Проверьте формулу генерации подписи для Shp_ параметров",
-                "Не забудьте выключить диагностический режим после тестирования"
-            ]
+            "subscription_periods": SUBSCRIPTION_PERIODS
         }
         
     except Exception as e:
@@ -737,6 +883,7 @@ async def enable_diagnostic_mode():
             "error": str(e)
         }
 
+
 @router.post("/disable-diagnostic-mode")
 async def disable_diagnostic_mode():
     """
@@ -745,7 +892,6 @@ async def disable_diagnostic_mode():
     try:
         from backend.services.payment_service import RobokassaService
         
-        # Выключаем диагностический режим
         RobokassaService.DISABLE_SHP_PARAMS = False
         
         logger.info(f"🔧 Diagnostic mode disabled: Shp_ parameters enabled")
@@ -753,8 +899,7 @@ async def disable_diagnostic_mode():
         return {
             "status": "ok",
             "message": "Диагностический режим выключен - Shp_ параметры включены",
-            "disable_shp_params": False,
-            "fixed_price": FIXED_SUBSCRIPTION_PRICE
+            "disable_shp_params": False
         }
         
     except Exception as e:
