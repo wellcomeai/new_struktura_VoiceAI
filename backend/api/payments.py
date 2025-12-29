@@ -49,7 +49,7 @@ SUBSCRIPTION_PERIODS = {
     6: {
         "months": 6,
         "days": 180,
-        "price": 7990.0,          # Скидка 10% (было бы 8940)
+        "price": 1.0,          # Скидка 10% (было бы 8940)
         "discount_percent": 10,
         "savings": 950,           # 8940 - 7990
         "label": "6 месяцев",
@@ -58,7 +58,7 @@ SUBSCRIPTION_PERIODS = {
     12: {
         "months": 12,
         "days": 365,
-        "price": 14990.0,         # Скидка 15% (было бы 17880)
+        "price": 1.0,         # Скидка 15% (было бы 17880)
         "discount_percent": 15,
         "savings": 2890,          # 17880 - 14990
         "label": "1 год",
