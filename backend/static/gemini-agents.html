@@ -1652,6 +1652,18 @@
   <!-- JavaScript -->
   <script>
     // ============================================================================
+    // КОНСТАНТЫ ПРИВИЛЕГИЙ
+    // ============================================================================
+    
+    // Привилегированные пользователи (неограниченный лимит ассистентов)
+    const PRIVILEGED_USERS = ['well96well@gmail.com', 'stas@gmail.com'];
+    
+    // Специальные лимиты для отдельных пользователей
+    const SPECIAL_ASSISTANT_LIMITS = {
+      'v83839370@gmail.com': 25
+    };
+    
+    // ============================================================================
     // КОНСТАНТЫ И ПЕРЕМЕННЫЕ
     // ============================================================================
     
@@ -1662,7 +1674,7 @@
     let currentUser = null;
     let availableFunctions = []; // Список доступных функций из API
     
-    // ✅ НОВОЕ: Информация о лимитах ассистентов
+    // Информация о лимитах ассистентов
     let assistantsLimitInfo = {
       openaiCount: 0,
       geminiCount: 0,
@@ -1758,8 +1770,28 @@
     }
     
     // ============================================================================
-    // ✅ НОВОЕ: ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
+    // ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
     // ============================================================================
+    
+    /**
+     * Проверить, является ли пользователь привилегированным
+     * @returns {boolean} true если пользователь имеет неограниченный доступ
+     */
+    function isPrivilegedUser() {
+      if (!currentUser) return false;
+      return currentUser.is_admin || PRIVILEGED_USERS.includes(currentUser.email);
+    }
+    
+    /**
+     * Получить специальный лимит для пользователя
+     * @returns {number|null} Специальный лимит или null если нет
+     */
+    function getSpecialLimit() {
+      if (currentUser && currentUser.email && SPECIAL_ASSISTANT_LIMITS[currentUser.email]) {
+        return SPECIAL_ASSISTANT_LIMITS[currentUser.email];
+      }
+      return null;
+    }
     
     /**
      * Загрузить информацию о количестве ассистентов и лимитах
@@ -1768,6 +1800,19 @@
     async function loadAssistantsLimitInfo() {
       try {
         console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
+        
+        // Проверяем привилегированных пользователей сразу
+        if (isPrivilegedUser()) {
+          console.log('[LIMITS] Привилегированный пользователь - неограниченный доступ');
+          assistantsLimitInfo = {
+            openaiCount: 0,
+            geminiCount: 0,
+            totalCount: 0,
+            maxAllowed: 999999,
+            canCreate: true
+          };
+          return assistantsLimitInfo;
+        }
         
         // Параллельно запрашиваем все данные
         const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
@@ -1789,9 +1834,16 @@
         const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
         const totalCount = openaiCount + geminiCount;
         
-        // Получаем лимит из подписки или используем дефолтный
+        // Определяем лимит с учётом привилегий
         let maxAllowed = 3; // Дефолтный лимит
-        if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+        
+        // Проверяем специальный лимит для пользователя
+        const specialLimit = getSpecialLimit();
+        if (specialLimit !== null) {
+          maxAllowed = specialLimit;
+          console.log(`[LIMITS] Специальный лимит для ${currentUser.email}: ${maxAllowed}`);
+        } else if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+          // Лимит из подписки
           maxAllowed = subscription.subscription_plan.max_assistants;
         }
         
@@ -1826,6 +1878,10 @@
      * @returns {boolean} true если можно создать
      */
     function canCreateAssistant() {
+      // Привилегированные пользователи всегда могут создавать
+      if (isPrivilegedUser()) {
+        return true;
+      }
       return assistantsLimitInfo.canCreate;
     }
     
@@ -1968,6 +2024,8 @@
         currentUser = userInfo;
         currentUserApiKey = userInfo.gemini_api_key;
         
+        console.log(`[USER] Email: ${userInfo.email}, isAdmin: ${userInfo.is_admin || false}`);
+        
         // Обновляем UI пользователя
         updateUserUI(userInfo);
         
@@ -2039,14 +2097,14 @@
         showNotification('API ключ успешно сохранен!', 'success');
         document.getElementById('delete-api-key').style.display = 'block';
         
-        // ✅ НОВОЕ: Загружаем лимиты после сохранения API ключа
+        // Загружаем лимиты после сохранения API ключа
         await loadAssistantsLimitInfo();
         
         // БЕЗ перезагрузки - просто показываем контент
         checkApiKeyAndShowContent(true);
         await loadAgentsList();
         
-        // ✅ НОВОЕ: Обновляем состояние кнопки
+        // Обновляем состояние кнопки
         updateCreateButtonState();
       } catch (error) {
         showNotification(error.message || 'Ошибка сохранения API ключа', 'error');
@@ -2108,7 +2166,7 @@
         agentsListContainer.style.display = 'block';
         createBtn.style.display = 'inline-flex';
         
-        // ✅ НОВОЕ: Обновляем состояние кнопки
+        // Обновляем состояние кнопки
         updateCreateButtonState();
       } else {
         setupScreen.style.display = 'block';
@@ -2134,7 +2192,7 @@
       setTimeout(() => {
         notification.classList.remove('show');
         setTimeout(() => notification.style.display = 'none', 300);
-      }, 7000); // ✅ Увеличено время показа уведомления об ошибке
+      }, 7000); // Увеличено время показа уведомления об ошибке
     }
     
     function setLoading(loading) {
@@ -2258,8 +2316,11 @@
       container.innerHTML = '';
       
       if (agents.length === 0) {
-        // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в пустом состоянии
-        const limitText = `(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)`;
+        // Показываем информацию о лимитах в пустом состоянии
+        // Для привилегированных пользователей не показываем лимит
+        const limitText = isPrivilegedUser()
+          ? ''
+          : `<br><small style="color: var(--text-light);">(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)</small>`;
         const isDisabled = !canCreateAssistant();
         
         container.innerHTML = `
@@ -2270,7 +2331,7 @@
             <h3 class="empty-title">У вас еще нет Gemini агентов</h3>
             <p class="empty-description">
               Создайте вашего первого голосового ассистента на базе Google Gemini
-              <br><small style="color: var(--text-light);">${limitText}</small>
+              ${limitText}
             </p>
             <button class="btn btn-primary" id="empty-create-agent-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
               <i class="fas fa-plus"></i> Создать нового агента
@@ -2278,7 +2339,7 @@
           </div>
         `;
         
-        // ✅ НОВОЕ: Добавляем обработчик для кнопки в empty state
+        // Добавляем обработчик для кнопки в empty state
         const emptyBtn = document.getElementById('empty-create-agent-btn');
         if (emptyBtn) {
           emptyBtn.addEventListener('click', () => {
@@ -2292,15 +2353,18 @@
         return;
       }
       
-      // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в заголовке
+      // Показываем информацию о лимитах в заголовке
+      // Для привилегированных пользователей не показываем лимит
+      const limitInfo = isPrivilegedUser()
+        ? ''
+        : `<small style="color: var(--text-light); font-weight: normal;">(всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})</small>`;
+      
       const headerEl = document.createElement('div');
       headerEl.className = 'agent-list-header';
       headerEl.innerHTML = `
         <h4 class="agents-count">
           Gemini агентов: ${agents.length}
-          <small style="color: var(--text-light); font-weight: normal;">
-            (всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})
-          </small>
+          ${limitInfo}
         </h4>
       `;
       container.appendChild(headerEl);
@@ -2442,7 +2506,7 @@
           showNotification('Изменения успешно сохранены!', 'success');
           await loadAgentData(currentAgentId);
         } else {
-          // ✅ НОВОЕ: Проверяем лимит перед созданием
+          // Проверяем лимит перед созданием
           if (!canCreateAssistant()) {
             showLimitReachedNotification();
             setLoading(false);
@@ -2456,7 +2520,7 @@
           });
           showNotification('Агент успешно создан!', 'success');
           
-          // ✅ НОВОЕ: Обновляем информацию о лимитах после создания
+          // Обновляем информацию о лимитах после создания
           await loadAssistantsLimitInfo();
           
           setTimeout(() => {
@@ -2482,7 +2546,7 @@
         await apiRequest(`/gemini-assistants/${currentAgentId}`, { method: 'DELETE' });
         showNotification('Агент успешно удален!', 'success');
         
-        // ✅ НОВОЕ: Обновляем информацию о лимитах после удаления
+        // Обновляем информацию о лимитах после удаления
         await loadAssistantsLimitInfo();
         
         setTimeout(() => {
@@ -2500,7 +2564,7 @@
     // ============================================================================
     
     function navigateToCreateAgent() {
-      // ✅ НОВОЕ: Проверяем лимит перед переходом на страницу создания
+      // Проверяем лимит перед переходом на страницу создания
       if (!canCreateAssistant()) {
         showLimitReachedNotification();
         return;
@@ -2544,7 +2608,7 @@
       document.getElementById('save-agent').style.display = 'none';
       document.getElementById('create-new-agent-btn').style.display = 'inline-flex';
       
-      // ✅ НОВОЕ: Обновляем состояние кнопки создания
+      // Обновляем состояние кнопки создания
       updateCreateButtonState();
       
       currentAgentId = null;
@@ -2601,7 +2665,7 @@
       if (!hasApiKey) {
         checkApiKeyAndShowContent(false);
       } else {
-        // ✅ НОВОЕ: Загружаем лимиты только когда есть API ключ
+        // Загружаем лимиты только когда есть API ключ
         await loadAssistantsLimitInfo();
         
         if (id) {
@@ -2610,7 +2674,7 @@
           await loadAvailableFunctions(); // Загружаем функции
           await loadAgentData(id);
         } else if (mode === 'create') {
-          // ✅ НОВОЕ: Проверяем лимит при попытке создания через URL
+          // Проверяем лимит при попытке создания через URL
           if (!canCreateAssistant()) {
             showLimitReachedNotification();
             window.location.href = '/static/gemini-agents.html';
@@ -2698,7 +2762,7 @@
       document.getElementById('delete-agent').addEventListener('click', deleteAgent);
       document.getElementById('view-embed-code').addEventListener('click', () => switchTab('embed'));
       
-      // ✅ ОБНОВЛЕНО: Обработчик для кнопки создания в top-nav с проверкой лимита
+      // Обработчик для кнопки создания в top-nav с проверкой лимита
       document.getElementById('create-new-agent-btn').addEventListener('click', function() {
         if (canCreateAssistant()) {
           navigateToCreateAgent();
