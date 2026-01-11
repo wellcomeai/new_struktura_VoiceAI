@@ -3,6 +3,18 @@ import { api } from './api.js';
 import { ui } from './ui.js';
 
 // ============================================================================
+// КОНСТАНТЫ ПРИВИЛЕГИЙ
+// ============================================================================
+
+// Привилегированные пользователи (неограниченный лимит ассистентов)
+const PRIVILEGED_USERS = ['well96well@gmail.com', 'stas@gmail.com'];
+
+// Специальные лимиты для отдельных пользователей
+const SPECIAL_ASSISTANT_LIMITS = {
+  'v83839370@gmail.com': 25
+};
+
+// ============================================================================
 // ПЕРЕМЕННЫЕ СОСТОЯНИЯ
 // ============================================================================
 
@@ -13,9 +25,10 @@ let isTestWidgetInitialized = false;
 let isMicPermissionGranted = false;
 let isTestActive = false;
 let currentUserEmail = null;
+let currentUserIsAdmin = false; // ✅ НОВОЕ: Флаг администратора
 let availableFunctions = [];
 
-// ✅ НОВОЕ: Информация о лимитах ассистентов
+// Информация о лимитах ассистентов
 let assistantsLimitInfo = {
   openaiCount: 0,
   geminiCount: 0,
@@ -59,8 +72,27 @@ function debugLog(message) {
 }
 
 // ============================================================================
-// ✅ НОВОЕ: ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
+// ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
 // ============================================================================
+
+/**
+ * Проверить, является ли пользователь привилегированным
+ * @returns {boolean} true если пользователь имеет неограниченный доступ
+ */
+function isPrivilegedUser() {
+  return currentUserIsAdmin || PRIVILEGED_USERS.includes(currentUserEmail);
+}
+
+/**
+ * Получить специальный лимит для пользователя
+ * @returns {number|null} Специальный лимит или null если нет
+ */
+function getSpecialLimit() {
+  if (currentUserEmail && SPECIAL_ASSISTANT_LIMITS[currentUserEmail]) {
+    return SPECIAL_ASSISTANT_LIMITS[currentUserEmail];
+  }
+  return null;
+}
 
 /**
  * Загрузить информацию о количестве ассистентов и лимитах
@@ -69,6 +101,19 @@ function debugLog(message) {
 async function loadAssistantsLimitInfo() {
   try {
     console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
+    
+    // Проверяем привилегированных пользователей сразу
+    if (isPrivilegedUser()) {
+      console.log('[LIMITS] Привилегированный пользователь - неограниченный доступ');
+      assistantsLimitInfo = {
+        openaiCount: 0,
+        geminiCount: 0,
+        totalCount: 0,
+        maxAllowed: 999999,
+        canCreate: true
+      };
+      return assistantsLimitInfo;
+    }
     
     // Параллельно запрашиваем все данные
     const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
@@ -90,9 +135,16 @@ async function loadAssistantsLimitInfo() {
     const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
     const totalCount = openaiCount + geminiCount;
     
-    // Получаем лимит из подписки или используем дефолтный
+    // Определяем лимит с учётом привилегий
     let maxAllowed = 3; // Дефолтный лимит
-    if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+    
+    // Проверяем специальный лимит для пользователя
+    const specialLimit = getSpecialLimit();
+    if (specialLimit !== null) {
+      maxAllowed = specialLimit;
+      console.log(`[LIMITS] Специальный лимит для ${currentUserEmail}: ${maxAllowed}`);
+    } else if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+      // Лимит из подписки
       maxAllowed = subscription.subscription_plan.max_assistants;
     }
     
@@ -127,6 +179,10 @@ async function loadAssistantsLimitInfo() {
  * @returns {boolean} true если можно создать
  */
 function canCreateAssistant() {
+  // Привилегированные пользователи всегда могут создавать
+  if (isPrivilegedUser()) {
+    return true;
+  }
   return assistantsLimitInfo.canCreate;
 }
 
@@ -284,6 +340,9 @@ async function loadUserInfo() {
   try {
     const userInfo = await api.get('/users/me');
     currentUserEmail = userInfo.email;
+    currentUserIsAdmin = userInfo.is_admin || false; // ✅ НОВОЕ: Сохраняем флаг админа
+    
+    console.log(`[USER] Email: ${currentUserEmail}, isAdmin: ${currentUserIsAdmin}`);
     
     const firstName = userInfo.first_name || '';
     const lastName = userInfo.last_name || '';
@@ -427,8 +486,11 @@ function renderAgentsList(agents) {
   container.innerHTML = '';
   
   if (agents.length === 0) {
-    // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в пустом состоянии
-    const limitText = `(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)`;
+    // Показываем информацию о лимитах в пустом состоянии
+    // Для привилегированных пользователей не показываем лимит
+    const limitText = isPrivilegedUser() 
+      ? '' 
+      : `<br><small style="color: var(--text-light);">(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)</small>`;
     
     container.innerHTML = `
       <div class="empty-state">
@@ -438,7 +500,7 @@ function renderAgentsList(agents) {
         <h3 class="empty-title">У вас еще нет OpenAI агентов</h3>
         <p class="empty-description">
           Создайте вашего первого голосового ассистента, чтобы встроить его на сайт или приложение.
-          <br><small style="color: var(--text-light);">${limitText}</small>
+          ${limitText}
         </p>
         <button class="btn btn-primary" id="empty-create-agent-btn" ${!canCreateAssistant() ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
           <i class="fas fa-plus"></i> Создать нового агента
@@ -459,15 +521,18 @@ function renderAgentsList(agents) {
     return;
   }
   
-  // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в заголовке
+  // Показываем информацию о лимитах в заголовке
+  // Для привилегированных пользователей не показываем лимит
+  const limitInfo = isPrivilegedUser()
+    ? ''
+    : `<small style="color: var(--text-light); font-weight: normal;">(всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})</small>`;
+  
   const headerEl = document.createElement('div');
   headerEl.className = 'agent-list-header';
   headerEl.innerHTML = `
     <h4 class="agents-count">
       OpenAI агентов: ${agents.length} 
-      <small style="color: var(--text-light); font-weight: normal;">
-        (всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})
-      </small>
+      ${limitInfo}
     </h4>
   `;
   container.appendChild(headerEl);
@@ -540,7 +605,7 @@ function renderAgentsList(agents) {
 // ============================================================================
 
 function navigateToCreateAgent() {
-  // ✅ НОВОЕ: Проверяем лимит перед переходом на страницу создания
+  // Проверяем лимит перед переходом на страницу создания
   if (!canCreateAssistant()) {
     showLimitReachedNotification();
     return;
@@ -608,7 +673,7 @@ function switchToListMode() {
   saveAgentBtn.style.display = 'none';
   createNewAgentBtn.style.display = 'inline-flex';
   
-  // ✅ НОВОЕ: Обновляем состояние кнопки создания
+  // Обновляем состояние кнопки создания
   updateCreateButtonState();
   
   currentAgentId = null;
@@ -818,7 +883,7 @@ function setupEventHandlers() {
     ui.showNotification('Код для встраивания скопирован!', 'success');
   });
   
-  // ✅ ОБНОВЛЕНО: Создание нового агента с проверкой лимита
+  // Создание нового агента с проверкой лимита
   createNewAgentBtn.addEventListener('click', () => {
     if (canCreateAssistant()) {
       navigateToCreateAgent();
@@ -833,7 +898,7 @@ function setupEventHandlers() {
     agentForm.dispatchEvent(new Event('submit'));
   });
   
-  // ✅ ОБНОВЛЕНО: Отправка формы с проверкой лимита для создания
+  // Отправка формы с проверкой лимита для создания
   agentForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -844,7 +909,7 @@ function setupEventHandlers() {
       setLoading(true);
       
       if (params.mode === 'create') {
-        // ✅ НОВОЕ: Проверяем лимит перед созданием
+        // Проверяем лимит перед созданием
         if (!canCreateAssistant()) {
           showLimitReachedNotification();
           setLoading(false);
@@ -854,7 +919,7 @@ function setupEventHandlers() {
         const newAgent = await api.createAssistant(formData);
         ui.showNotification('Агент успешно создан!', 'success');
         
-        // ✅ НОВОЕ: Обновляем информацию о лимитах после создания
+        // Обновляем информацию о лимитах после создания
         await loadAssistantsLimitInfo();
         
         setTimeout(() => {
@@ -915,7 +980,7 @@ function setupEventHandlers() {
     }
   });
   
-  // ✅ ОБНОВЛЕНО: Удаление агента с обновлением лимитов
+  // Удаление агента с обновлением лимитов
   deleteAgentBtn.addEventListener('click', async () => {
     debugLog('Нажата кнопка "Удалить"');
     
@@ -932,7 +997,7 @@ function setupEventHandlers() {
         await api.deleteAgent(currentAgentId);
         ui.showNotification('Агент успешно удален!', 'success');
         
-        // ✅ НОВОЕ: Обновляем информацию о лимитах после удаления
+        // Обновляем информацию о лимитах после удаления
         await loadAssistantsLimitInfo();
         
         setTimeout(() => {
@@ -1077,9 +1142,10 @@ function initDOMElements() {
 async function initPage() {
   if (!api.checkAuth()) return;
   
-  loadUserInfo();
+  // Сначала загружаем информацию о пользователе (нужна для проверки привилегий)
+  await loadUserInfo();
   
-  // ✅ НОВОЕ: Загружаем информацию о лимитах в первую очередь
+  // Затем загружаем информацию о лимитах
   await loadAssistantsLimitInfo();
   
   const params = checkUrlParams();
@@ -1092,7 +1158,7 @@ async function initPage() {
     await loadAvailableFunctions();
     await loadAgentData();
   } else if (params.mode === 'create') {
-    // ✅ НОВОЕ: Проверяем лимит при попытке создания через URL
+    // Проверяем лимит при попытке создания через URL
     if (!canCreateAssistant()) {
       showLimitReachedNotification();
       window.location.href = '/static/agents.html';
