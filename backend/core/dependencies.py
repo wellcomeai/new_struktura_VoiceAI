@@ -2,6 +2,7 @@
 FastAPI dependencies for WellcomeAI application.
 Contains reusable dependency functions that can be used across API endpoints.
 ✅ FIXED: UUID conversion for database queries
+✅ UPDATED: Added special assistant limits for specific users
 """
 
 from fastapi import Depends, HTTPException, status
@@ -19,6 +20,13 @@ from backend.core.config import settings
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# ✅ НОВОЕ: Специальные лимиты ассистентов для отдельных пользователей
+# Эти пользователи имеют увеличенный лимит, но подписка всё равно проверяется
+SPECIAL_ASSISTANT_LIMITS = {
+    "v83839370@gmail.com": 15,
+}
+
 
 async def get_current_user(
     user_id: str = Depends(get_current_user_id),
@@ -67,6 +75,7 @@ async def get_current_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve user information"
         )
+
 
 async def get_assistant_by_id(
     assistant_id: str,
@@ -117,6 +126,7 @@ async def get_assistant_by_id(
             detail="Failed to retrieve assistant"
         )
 
+
 async def check_admin_access(
     current_user: User = Depends(get_current_user)
 ) -> User:
@@ -139,6 +149,7 @@ async def check_admin_access(
             detail="Admin access required"
         )
     return current_user
+
 
 async def check_subscription_active(
     db: Session = Depends(get_db),
@@ -179,6 +190,7 @@ async def check_subscription_active(
         )
     
     return current_user
+
 
 async def check_subscription_active_for_assistants(
     db: Session = Depends(get_db),
@@ -231,12 +243,15 @@ async def check_subscription_active_for_assistants(
     
     return current_user
 
+
 async def check_assistant_limit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> User:
     """
     Check if the current user has reached their assistant limit
+    
+    ✅ UPDATED: Added support for special assistant limits per user
     
     Args:
         db: Database session
@@ -286,8 +301,14 @@ async def check_assistant_limit(
         AssistantConfig.user_id == current_user.id
     ).count()
     
+    # ✅ НОВОЕ: Проверяем специальные лимиты для отдельных пользователей
+    if current_user.email in SPECIAL_ASSISTANT_LIMITS:
+        max_assistants = SPECIAL_ASSISTANT_LIMITS[current_user.email]
+        logger.info(f"User {current_user.email} has special assistant limit: {max_assistants}")
+    else:
+        max_assistants = subscription_status.get("max_assistants", 0)
+    
     # Check if limit reached
-    max_assistants = subscription_status.get("max_assistants", 0)
     if assistant_count >= max_assistants:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -300,6 +321,7 @@ async def check_assistant_limit(
         )
     
     return current_user
+
 
 async def check_subscription_or_show_popup(
     db: Session = Depends(get_db),
