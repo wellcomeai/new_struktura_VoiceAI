@@ -1662,6 +1662,15 @@
     let currentUser = null;
     let availableFunctions = []; // Список доступных функций из API
     
+    // ✅ НОВОЕ: Информация о лимитах ассистентов
+    let assistantsLimitInfo = {
+      openaiCount: 0,
+      geminiCount: 0,
+      totalCount: 0,
+      maxAllowed: 3,
+      canCreate: true
+    };
+    
     // Все голоса Gemini (30 штук)
     const GEMINI_VOICES = [
       { name: 'Puck', gender: 'Male' },
@@ -1745,6 +1754,109 @@
       } catch (error) {
         console.error('API Error:', error);
         throw error;
+      }
+    }
+    
+    // ============================================================================
+    // ✅ НОВОЕ: ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
+    // ============================================================================
+    
+    /**
+     * Загрузить информацию о количестве ассистентов и лимитах
+     * @returns {Promise<object>} Объект с информацией о лимитах
+     */
+    async function loadAssistantsLimitInfo() {
+      try {
+        console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
+        
+        // Параллельно запрашиваем все данные
+        const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
+          apiRequest('/assistants').catch(err => {
+            console.warn('[LIMITS] Ошибка загрузки OpenAI ассистентов:', err);
+            return [];
+          }),
+          apiRequest('/gemini-assistants').catch(err => {
+            console.warn('[LIMITS] Ошибка загрузки Gemini ассистентов:', err);
+            return [];
+          }),
+          apiRequest('/subscriptions/my-subscription').catch(err => {
+            console.warn('[LIMITS] Ошибка загрузки подписки:', err);
+            return null;
+          })
+        ]);
+        
+        const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
+        const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
+        const totalCount = openaiCount + geminiCount;
+        
+        // Получаем лимит из подписки или используем дефолтный
+        let maxAllowed = 3; // Дефолтный лимит
+        if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+          maxAllowed = subscription.subscription_plan.max_assistants;
+        }
+        
+        assistantsLimitInfo = {
+          openaiCount,
+          geminiCount,
+          totalCount,
+          maxAllowed,
+          canCreate: totalCount < maxAllowed
+        };
+        
+        console.log('[LIMITS] Информация о лимитах:', assistantsLimitInfo);
+        
+        return assistantsLimitInfo;
+        
+      } catch (error) {
+        console.error('[LIMITS] Ошибка загрузки информации о лимитах:', error);
+        // В случае ошибки разрешаем создание (проверка будет на бэкенде)
+        assistantsLimitInfo = {
+          openaiCount: 0,
+          geminiCount: 0,
+          totalCount: 0,
+          maxAllowed: 3,
+          canCreate: true
+        };
+        return assistantsLimitInfo;
+      }
+    }
+    
+    /**
+     * Проверить, можно ли создать нового ассистента
+     * @returns {boolean} true если можно создать
+     */
+    function canCreateAssistant() {
+      return assistantsLimitInfo.canCreate;
+    }
+    
+    /**
+     * Показать уведомление о достижении лимита
+     */
+    function showLimitReachedNotification() {
+      const { totalCount, maxAllowed } = assistantsLimitInfo;
+      showNotification(
+        `Достигнут лимит ассистентов (${totalCount}/${maxAllowed}). Улучшите тариф для создания новых.`,
+        'error'
+      );
+    }
+    
+    /**
+     * Обновить состояние кнопки создания агента
+     */
+    function updateCreateButtonState() {
+      const createBtn = document.getElementById('create-new-agent-btn');
+      if (!createBtn) return;
+      
+      if (!canCreateAssistant()) {
+        createBtn.disabled = true;
+        createBtn.title = `Достигнут лимит ассистентов (${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})`;
+        createBtn.style.opacity = '0.6';
+        createBtn.style.cursor = 'not-allowed';
+      } else {
+        createBtn.disabled = false;
+        createBtn.title = 'Создать нового агента';
+        createBtn.style.opacity = '1';
+        createBtn.style.cursor = 'pointer';
       }
     }
     
@@ -1927,9 +2039,15 @@
         showNotification('API ключ успешно сохранен!', 'success');
         document.getElementById('delete-api-key').style.display = 'block';
         
+        // ✅ НОВОЕ: Загружаем лимиты после сохранения API ключа
+        await loadAssistantsLimitInfo();
+        
         // БЕЗ перезагрузки - просто показываем контент
         checkApiKeyAndShowContent(true);
         await loadAgentsList();
+        
+        // ✅ НОВОЕ: Обновляем состояние кнопки
+        updateCreateButtonState();
       } catch (error) {
         showNotification(error.message || 'Ошибка сохранения API ключа', 'error');
       } finally {
@@ -1989,6 +2107,9 @@
         setupScreen.style.display = 'none';
         agentsListContainer.style.display = 'block';
         createBtn.style.display = 'inline-flex';
+        
+        // ✅ НОВОЕ: Обновляем состояние кнопки
+        updateCreateButtonState();
       } else {
         setupScreen.style.display = 'block';
         agentsListContainer.style.display = 'none';
@@ -2013,7 +2134,7 @@
       setTimeout(() => {
         notification.classList.remove('show');
         setTimeout(() => notification.style.display = 'none', 300);
-      }, 5000);
+      }, 7000); // ✅ Увеличено время показа уведомления об ошибке
     }
     
     function setLoading(loading) {
@@ -2137,6 +2258,10 @@
       container.innerHTML = '';
       
       if (agents.length === 0) {
+        // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в пустом состоянии
+        const limitText = `(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)`;
+        const isDisabled = !canCreateAssistant();
+        
         container.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">
@@ -2145,18 +2270,39 @@
             <h3 class="empty-title">У вас еще нет Gemini агентов</h3>
             <p class="empty-description">
               Создайте вашего первого голосового ассистента на базе Google Gemini
+              <br><small style="color: var(--text-light);">${limitText}</small>
             </p>
-            <button class="btn btn-primary" onclick="navigateToCreateAgent()">
+            <button class="btn btn-primary" id="empty-create-agent-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
               <i class="fas fa-plus"></i> Создать нового агента
             </button>
           </div>
         `;
+        
+        // ✅ НОВОЕ: Добавляем обработчик для кнопки в empty state
+        const emptyBtn = document.getElementById('empty-create-agent-btn');
+        if (emptyBtn) {
+          emptyBtn.addEventListener('click', () => {
+            if (canCreateAssistant()) {
+              navigateToCreateAgent();
+            } else {
+              showLimitReachedNotification();
+            }
+          });
+        }
         return;
       }
       
+      // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в заголовке
       const headerEl = document.createElement('div');
       headerEl.className = 'agent-list-header';
-      headerEl.innerHTML = `<h4 class="agents-count">Найдено агентов: ${agents.length}</h4>`;
+      headerEl.innerHTML = `
+        <h4 class="agents-count">
+          Gemini агентов: ${agents.length}
+          <small style="color: var(--text-light); font-weight: normal;">
+            (всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})
+          </small>
+        </h4>
+      `;
       container.appendChild(headerEl);
       
       const listEl = document.createElement('div');
@@ -2288,6 +2434,7 @@
         const formData = getFormData();
         
         if (currentAgentId) {
+          // Обновление существующего агента
           await apiRequest(`/gemini-assistants/${currentAgentId}`, {
             method: 'PUT',
             body: formData
@@ -2295,11 +2442,23 @@
           showNotification('Изменения успешно сохранены!', 'success');
           await loadAgentData(currentAgentId);
         } else {
+          // ✅ НОВОЕ: Проверяем лимит перед созданием
+          if (!canCreateAssistant()) {
+            showLimitReachedNotification();
+            setLoading(false);
+            return;
+          }
+          
+          // Создание нового агента
           const newAgent = await apiRequest('/gemini-assistants', {
             method: 'POST',
             body: formData
           });
           showNotification('Агент успешно создан!', 'success');
+          
+          // ✅ НОВОЕ: Обновляем информацию о лимитах после создания
+          await loadAssistantsLimitInfo();
+          
           setTimeout(() => {
             window.location.href = `/static/gemini-agents.html?id=${newAgent.id}`;
           }, 1000);
@@ -2322,6 +2481,10 @@
         setLoading(true);
         await apiRequest(`/gemini-assistants/${currentAgentId}`, { method: 'DELETE' });
         showNotification('Агент успешно удален!', 'success');
+        
+        // ✅ НОВОЕ: Обновляем информацию о лимитах после удаления
+        await loadAssistantsLimitInfo();
+        
         setTimeout(() => {
           window.location.href = '/static/gemini-agents.html';
         }, 1000);
@@ -2337,6 +2500,11 @@
     // ============================================================================
     
     function navigateToCreateAgent() {
+      // ✅ НОВОЕ: Проверяем лимит перед переходом на страницу создания
+      if (!canCreateAssistant()) {
+        showLimitReachedNotification();
+        return;
+      }
       window.location.href = '/static/gemini-agents.html?mode=create';
     }
     
@@ -2375,6 +2543,9 @@
       document.getElementById('delete-agent').style.display = 'none';
       document.getElementById('save-agent').style.display = 'none';
       document.getElementById('create-new-agent-btn').style.display = 'inline-flex';
+      
+      // ✅ НОВОЕ: Обновляем состояние кнопки создания
+      updateCreateButtonState();
       
       currentAgentId = null;
       
@@ -2429,18 +2600,30 @@
       
       if (!hasApiKey) {
         checkApiKeyAndShowContent(false);
-      } else if (id) {
-        currentAgentId = id;
-        switchToEditMode();
-        await loadAvailableFunctions(); // Загружаем функции
-        await loadAgentData(id);
-      } else if (mode === 'create') {
-        switchToEditMode();
-        await loadAvailableFunctions(); // Загружаем функции
-        initCreateMode();
       } else {
-        checkApiKeyAndShowContent(true);
-        await loadAgentsList();
+        // ✅ НОВОЕ: Загружаем лимиты только когда есть API ключ
+        await loadAssistantsLimitInfo();
+        
+        if (id) {
+          currentAgentId = id;
+          switchToEditMode();
+          await loadAvailableFunctions(); // Загружаем функции
+          await loadAgentData(id);
+        } else if (mode === 'create') {
+          // ✅ НОВОЕ: Проверяем лимит при попытке создания через URL
+          if (!canCreateAssistant()) {
+            showLimitReachedNotification();
+            window.location.href = '/static/gemini-agents.html';
+            return;
+          }
+          
+          switchToEditMode();
+          await loadAvailableFunctions(); // Загружаем функции
+          initCreateMode();
+        } else {
+          checkApiKeyAndShowContent(true);
+          await loadAgentsList();
+        }
       }
     }
     
@@ -2514,7 +2697,15 @@
       document.getElementById('save-agent').addEventListener('click', saveAgent);
       document.getElementById('delete-agent').addEventListener('click', deleteAgent);
       document.getElementById('view-embed-code').addEventListener('click', () => switchTab('embed'));
-      document.getElementById('create-new-agent-btn').addEventListener('click', navigateToCreateAgent);
+      
+      // ✅ ОБНОВЛЕНО: Обработчик для кнопки создания в top-nav с проверкой лимита
+      document.getElementById('create-new-agent-btn').addEventListener('click', function() {
+        if (canCreateAssistant()) {
+          navigateToCreateAgent();
+        } else {
+          showLimitReachedNotification();
+        }
+      });
       
       document.getElementById('copy-embed-code').addEventListener('click', function() {
         const embedCode = document.getElementById('embed-code').textContent;
