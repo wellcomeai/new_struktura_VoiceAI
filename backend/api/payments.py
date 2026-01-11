@@ -4,10 +4,14 @@
 Payment API endpoints for WellcomeAI application.
 Handles Robokassa payment integration.
 
-✅ ВЕРСИЯ 2.0 - Поддержка разных периодов оплаты:
-   - 1 месяц: 1 490₽
-   - 6 месяцев: 7 990₽ (скидка 10%)
-   - 12 месяцев: 14 990₽ (скидка 15%)
+✅ ВЕРСИЯ 3.0 - Поддержка нескольких тарифов:
+   - AI Voice: 1490₽/мес (3 ассистента)
+   - Старт: 2990₽/мес (5 ассистентов)
+   - Profi: 5990₽/мес (10 ассистентов)
+   
+   Скидки на длительные периоды:
+   - 6 месяцев: 20%
+   - 12 месяцев: 30%
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form, Body
@@ -16,6 +20,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, Literal
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
+from decimal import Decimal, ROUND_HALF_UP
 
 from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user
@@ -29,50 +34,234 @@ from backend.services.subscription_service import SubscriptionService
 logger = get_logger(__name__)
 
 # =============================================================================
-# ✅ НАСТРОЙКИ ПОДПИСОК С РАЗНЫМИ ПЕРИОДАМИ
+# ✅ КОНФИГУРАЦИЯ ТАРИФОВ И СКИДОК (v3.0)
 # =============================================================================
 
-# Базовая месячная цена
-BASE_MONTHLY_PRICE = 1490.0
+# Скидки на длительные периоды (одинаковые для всех тарифов)
+PERIOD_DISCOUNTS = {
+    1: 0,    # 1 месяц — без скидки
+    6: 20,   # 6 месяцев — 20% скидка
+    12: 30   # 12 месяцев — 30% скидка
+}
 
-# Конфигурация периодов подписки
-SUBSCRIPTION_PERIODS = {
-    1: {
-        "months": 1,
-        "days": 30,
-        "price": 1490.0,          # Без скидки
-        "discount_percent": 0,
-        "savings": 0,
-        "label": "1 месяц",
-        "description": "Ежемесячная подписка"
+# Конфигурация тарифов (базовые месячные цены)
+SUBSCRIPTION_PLANS_CONFIG = {
+    "ai_voice": {
+        "name": "AI Voice",
+        "base_price": 1490.0,
+        "max_assistants": 3,
+        "description": "Голосовые ассистенты без телефонии",
+        "features": [
+            "До 3 голосовых ассистентов",
+            "OpenAI и Gemini агенты",
+            "База знаний",
+            "Безлимитные диалоги",
+            "API доступ"
+        ],
+        "restricted_features": ["telephony", "outbound_calls", "crm"]
     },
-    6: {
-        "months": 6,
-        "days": 180,
-        "price": 6990.0,
-        "discount_percent": 20,
-        "savings": 1950,           # 8940 - 7990
-        "label": "6 месяцев",
-        "description": "Полугодовая подписка со скидкой 20%"
+    "start": {
+        "name": "Тариф Старт",
+        "base_price": 2990.0,
+        "max_assistants": 5,
+        "description": "Полный доступ со всеми функциями",
+        "features": [
+            "До 5 голосовых ассистентов",
+            "OpenAI и Gemini агенты",
+            "База знаний",
+            "Телефония и исходящие звонки",
+            "CRM система",
+            "Безлимитные диалоги",
+            "Приоритетная поддержка",
+            "API доступ"
+        ],
+        "restricted_features": []
     },
-    12: {
-        "months": 12,
-        "days": 365,
-        "price": 12490.0,         # Скидка 15% (было бы 17880)
-        "discount_percent": 30,
-        "savings": 5390,          # 17880 - 14990
-        "label": "1 год",
-        "description": "Годовая подписка со скидкой 30%"
+    "profi": {
+        "name": "Profi",
+        "base_price": 5990.0,
+        "max_assistants": 10,
+        "description": "Максимальные возможности для бизнеса",
+        "features": [
+            "До 10 голосовых ассистентов",
+            "OpenAI и Gemini агенты",
+            "База знаний",
+            "Телефония и исходящие звонки",
+            "CRM система",
+            "Безлимитные диалоги",
+            "Приоритетная поддержка 24/7",
+            "API доступ",
+            "Персональный менеджер"
+        ],
+        "restricted_features": []
     }
 }
 
-# Настройки плана по умолчанию
-SUBSCRIPTION_PLAN_NAME = "Тариф Старт"
-SUBSCRIPTION_DESCRIPTION = "Стартовый тариф с доступом ко всем функциям"
-MAX_ASSISTANTS = 3
+# Допустимые коды тарифов для оплаты
+ALLOWED_PLAN_CODES = list(SUBSCRIPTION_PLANS_CONFIG.keys())
 
 # Create router
 router = APIRouter()
+
+
+# =============================================================================
+# Вспомогательные функции
+# =============================================================================
+
+def calculate_period_price(base_price: float, months: int) -> Dict[str, Any]:
+    """
+    Рассчитать цену за период с учетом скидки
+    
+    Args:
+        base_price: Базовая месячная цена
+        months: Количество месяцев (1, 6, 12)
+        
+    Returns:
+        Словарь с информацией о цене
+    """
+    if months not in PERIOD_DISCOUNTS:
+        raise ValueError(f"Неподдерживаемый период: {months}. Допустимые: {list(PERIOD_DISCOUNTS.keys())}")
+    
+    discount_percent = PERIOD_DISCOUNTS[months]
+    
+    # Полная цена без скидки
+    full_price = base_price * months
+    
+    # Цена со скидкой (округляем до 10 рублей)
+    if discount_percent > 0:
+        discounted = full_price * (1 - discount_percent / 100)
+        # Округляем до 10 рублей
+        final_price = round(discounted / 10) * 10
+    else:
+        final_price = full_price
+    
+    # Экономия
+    savings = full_price - final_price
+    
+    # Эффективная месячная цена
+    monthly_effective = round(final_price / months)
+    
+    # Количество дней
+    if months == 1:
+        days = 30
+    elif months == 6:
+        days = 180
+    elif months == 12:
+        days = 365
+    else:
+        days = months * 30
+    
+    return {
+        "months": months,
+        "days": days,
+        "base_price": base_price,
+        "full_price": full_price,
+        "discount_percent": discount_percent,
+        "final_price": final_price,
+        "savings": savings,
+        "monthly_effective": monthly_effective,
+        "label": _get_period_label(months)
+    }
+
+
+def _get_period_label(months: int) -> str:
+    """Получить человекочитаемую метку периода"""
+    labels = {
+        1: "1 месяц",
+        6: "6 месяцев",
+        12: "1 год"
+    }
+    return labels.get(months, f"{months} месяцев")
+
+
+def get_plan_config(plan_code: str) -> Dict[str, Any]:
+    """
+    Получить конфигурацию тарифа
+    
+    Args:
+        plan_code: Код тарифа (ai_voice, start, profi)
+        
+    Returns:
+        Конфигурация тарифа
+        
+    Raises:
+        ValueError: Если тариф не найден
+    """
+    if plan_code not in SUBSCRIPTION_PLANS_CONFIG:
+        raise ValueError(
+            f"Неизвестный тариф: {plan_code}. "
+            f"Допустимые: {ALLOWED_PLAN_CODES}"
+        )
+    return SUBSCRIPTION_PLANS_CONFIG[plan_code]
+
+
+def get_plan_price_info(plan_code: str, months: int) -> Dict[str, Any]:
+    """
+    Получить полную информацию о цене тарифа за период
+    
+    Args:
+        plan_code: Код тарифа
+        months: Количество месяцев
+        
+    Returns:
+        Полная информация о цене
+    """
+    plan_config = get_plan_config(plan_code)
+    price_info = calculate_period_price(plan_config["base_price"], months)
+    
+    return {
+        "plan_code": plan_code,
+        "plan_name": plan_config["name"],
+        "max_assistants": plan_config["max_assistants"],
+        "description": plan_config["description"],
+        "features": plan_config["features"],
+        **price_info
+    }
+
+
+def get_all_plans_with_prices() -> Dict[str, Any]:
+    """
+    Получить все тарифы со всеми вариантами цен
+    
+    Returns:
+        Словарь со всеми тарифами и ценами
+    """
+    plans = {}
+    
+    for plan_code, config in SUBSCRIPTION_PLANS_CONFIG.items():
+        periods = {}
+        for months in PERIOD_DISCOUNTS.keys():
+            price_info = calculate_period_price(config["base_price"], months)
+            periods[months] = {
+                "months": months,
+                "days": price_info["days"],
+                "price": price_info["final_price"],
+                "price_formatted": f"{int(price_info['final_price']):,}".replace(",", " ") + " ₽",
+                "discount_percent": price_info["discount_percent"],
+                "savings": price_info["savings"],
+                "savings_formatted": f"{int(price_info['savings']):,}".replace(",", " ") + " ₽" if price_info["savings"] > 0 else None,
+                "monthly_effective": price_info["monthly_effective"],
+                "monthly_formatted": f"{int(price_info['monthly_effective']):,}".replace(",", " ") + " ₽/мес",
+                "label": price_info["label"]
+            }
+        
+        plans[plan_code] = {
+            "code": plan_code,
+            "name": config["name"],
+            "base_price": config["base_price"],
+            "base_price_formatted": f"{int(config['base_price']):,}".replace(",", " ") + " ₽/мес",
+            "max_assistants": config["max_assistants"],
+            "description": config["description"],
+            "features": config["features"],
+            "restricted_features": config.get("restricted_features", []),
+            "periods": periods
+        }
+    
+    return {
+        "plans": plans,
+        "discounts": PERIOD_DISCOUNTS,
+        "currency": "RUB"
+    }
 
 
 # =============================================================================
@@ -81,36 +270,64 @@ router = APIRouter()
 
 class CreatePaymentRequest(BaseModel):
     """Модель запроса на создание платежа"""
-    plan_code: str = "start"
-    duration_months: Literal[1, 6, 12] = 1  # Допустимые значения: 1, 6, 12
-
-
-# =============================================================================
-# Вспомогательные функции
-# =============================================================================
-
-def get_subscription_period_info(duration_months: int) -> Dict[str, Any]:
-    """
-    Получить информацию о периоде подписки
-    
-    Args:
-        duration_months: Количество месяцев (1, 6, 12)
-        
-    Returns:
-        Словарь с информацией о периоде
-        
-    Raises:
-        ValueError: Если указан неподдерживаемый период
-    """
-    if duration_months not in SUBSCRIPTION_PERIODS:
-        raise ValueError(f"Неподдерживаемый период подписки: {duration_months}. Допустимые значения: 1, 6, 12")
-    
-    return SUBSCRIPTION_PERIODS[duration_months]
+    plan_code: Literal["ai_voice", "start", "profi"] = "ai_voice"
+    duration_months: Literal[1, 6, 12] = 1
 
 
 # =============================================================================
 # API Endpoints
 # =============================================================================
+
+@router.get("/plans", response_model=Dict[str, Any])
+async def get_subscription_plans():
+    """
+    Получить информацию о всех доступных тарифах
+    
+    ✅ ВЕРСИЯ 3.0: Возвращает все тарифы со всеми вариантами цен
+    
+    Returns:
+        Словарь с тарифами, ценами и скидками
+    """
+    try:
+        return get_all_plans_with_prices()
+    except Exception as e:
+        logger.error(f"❌ Error in get_subscription_plans: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get subscription plans"
+        )
+
+
+@router.get("/plans/{plan_code}", response_model=Dict[str, Any])
+async def get_plan_details(plan_code: str):
+    """
+    Получить детали конкретного тарифа
+    
+    Args:
+        plan_code: Код тарифа (ai_voice, start, profi)
+        
+    Returns:
+        Детали тарифа со всеми вариантами цен
+    """
+    try:
+        if plan_code not in SUBSCRIPTION_PLANS_CONFIG:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Тариф '{plan_code}' не найден. Доступные: {ALLOWED_PLAN_CODES}"
+            )
+        
+        all_plans = get_all_plans_with_prices()
+        return all_plans["plans"][plan_code]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in get_plan_details: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get plan details"
+        )
+
 
 @router.post("/create-payment", response_model=Dict[str, Any])
 async def create_payment(
@@ -119,9 +336,9 @@ async def create_payment(
     db: Session = Depends(get_db)
 ):
     """
-    Создание платежа для подписки с поддержкой разных периодов
+    Создание платежа для подписки
     
-    ✅ ВЕРСИЯ 2.0: Поддержка 1, 6, 12 месяцев
+    ✅ ВЕРСИЯ 3.0: Поддержка тарифов ai_voice, start, profi
     
     Args:
         request_data: Данные запроса (plan_code, duration_months)
@@ -139,31 +356,32 @@ async def create_payment(
         logger.info(f"   Plan: {plan_code}")
         logger.info(f"   Duration: {duration_months} months")
         
-        # Получаем информацию о выбранном периоде
-        try:
-            period_info = get_subscription_period_info(duration_months)
-        except ValueError as e:
-            logger.error(f"❌ Invalid duration_months: {duration_months}")
+        # Проверяем план
+        if plan_code not in SUBSCRIPTION_PLANS_CONFIG:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
+                detail=f"Неизвестный тариф: {plan_code}. Доступные: {ALLOWED_PLAN_CODES}"
             )
         
-        subscription_price = period_info["price"]
-        subscription_days = period_info["days"]
-        discount_percent = period_info["discount_percent"]
-        savings = period_info["savings"]
-        period_label = period_info["label"]
+        # Получаем информацию о цене
+        price_info = get_plan_price_info(plan_code, duration_months)
+        
+        subscription_price = price_info["final_price"]
+        subscription_days = price_info["days"]
+        plan_name = price_info["plan_name"]
+        max_assistants = price_info["max_assistants"]
+        discount_percent = price_info["discount_percent"]
+        savings = price_info["savings"]
+        period_label = price_info["label"]
         
         logger.info(f"📋 Payment settings:")
+        logger.info(f"   Plan: {plan_name} ({plan_code})")
         logger.info(f"   Period: {period_label}")
         logger.info(f"   Price: {subscription_price} руб")
         logger.info(f"   Days: {subscription_days}")
+        logger.info(f"   Max assistants: {max_assistants}")
         logger.info(f"   Discount: {discount_percent}%")
         logger.info(f"   Savings: {savings} руб")
-        logger.info(f"   HOST_URL: {settings.HOST_URL}")
-        logger.info(f"   ROBOKASSA_MERCHANT_LOGIN: {settings.ROBOKASSA_MERCHANT_LOGIN}")
-        logger.info(f"   ROBOKASSA_TEST_MODE: {settings.ROBOKASSA_TEST_MODE}")
         
         # Проверка настроек Robokassa
         if not settings.ROBOKASSA_MERCHANT_LOGIN:
@@ -180,8 +398,6 @@ async def create_payment(
                 detail="Payment system not configured: missing password. Contact administrator."
             )
         
-        logger.info(f"👤 User info: email={current_user.email}, is_trial={current_user.is_trial}")
-        
         # Получаем пользователя
         user = db.query(User).filter(User.id == current_user.id).first()
         if not user:
@@ -191,16 +407,17 @@ async def create_payment(
                 detail="User not found"
             )
         
-        # Получаем или создаем план подписки
+        # Получаем или создаем план подписки в БД
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
         if not plan:
-            logger.info(f"📋 Creating subscription plan: {plan_code}")
+            logger.info(f"📋 Creating subscription plan in DB: {plan_code}")
+            plan_config = SUBSCRIPTION_PLANS_CONFIG[plan_code]
             plan = SubscriptionPlan(
                 code=plan_code,
-                name=SUBSCRIPTION_PLAN_NAME,
-                price=BASE_MONTHLY_PRICE,  # Базовая месячная цена
-                max_assistants=MAX_ASSISTANTS,
-                description=SUBSCRIPTION_DESCRIPTION,
+                name=plan_config["name"],
+                price=plan_config["base_price"],
+                max_assistants=plan_config["max_assistants"],
+                description=plan_config["description"],
                 is_active=True
             )
             db.add(plan)
@@ -211,11 +428,11 @@ async def create_payment(
         out_sum = f"{subscription_price:.2f}"
         inv_id = f"{int(datetime.now().timestamp())}"
         
-        # Формируем описание с учётом периода
+        # Формируем описание
         if duration_months == 1:
-            description = f"Подписка на {subscription_days} дней за {subscription_price:.0f} рублей"
+            description = f"{plan_name} на {subscription_days} дней за {subscription_price:.0f} руб"
         else:
-            description = f"Подписка на {period_label} за {subscription_price:.0f} рублей (скидка {discount_percent}%)"
+            description = f"{plan_name} на {period_label} за {subscription_price:.0f} руб (скидка {discount_percent}%)"
         
         logger.info(f"💳 PAYMENT PARAMETERS:")
         logger.info(f"   out_sum: '{out_sum}'")
@@ -224,11 +441,12 @@ async def create_payment(
         
         # Создаем запись транзакции
         payment_details = (
-            f"Plan: {plan_code}, "
+            f"Plan: {plan_code} ({plan_name}), "
             f"Duration: {duration_months} months ({subscription_days} days), "
             f"Price: {subscription_price}, "
             f"Discount: {discount_percent}%, "
-            f"Savings: {savings}"
+            f"Savings: {savings}, "
+            f"Max assistants: {max_assistants}"
         )
         
         transaction = PaymentTransaction(
@@ -307,7 +525,7 @@ async def create_payment(
         for key, value in form_params.items():
             logger.info(f"   {key}: '{value}'")
         
-        logger.info(f"✅ Payment created: {subscription_price} rubles for {subscription_days} days")
+        logger.info(f"✅ Payment created: {plan_name}, {subscription_price} руб for {subscription_days} days")
         
         # Логируем событие
         await SubscriptionService.log_subscription_event(
@@ -316,7 +534,7 @@ async def create_payment(
             action="payment_started",
             plan_id=str(plan.id),
             plan_code=plan_code,
-            details=f"Payment initiated: {period_label}, price={subscription_price}, days={subscription_days}, inv_id={inv_id}"
+            details=f"Payment initiated: {plan_name}, {period_label}, price={subscription_price}, days={subscription_days}, inv_id={inv_id}"
         )
         
         return {
@@ -325,7 +543,12 @@ async def create_payment(
             "inv_id": inv_id,
             "amount": out_sum,
             "transaction_id": str(transaction.id),
-            # Дополнительная информация о периоде
+            # Полная информация о тарифе и периоде
+            "plan_info": {
+                "code": plan_code,
+                "name": plan_name,
+                "max_assistants": max_assistants
+            },
             "period_info": {
                 "months": duration_months,
                 "days": subscription_days,
@@ -348,35 +571,55 @@ async def create_payment(
 
 
 @router.get("/subscription-periods", response_model=Dict[str, Any])
-async def get_subscription_periods():
+async def get_subscription_periods(plan_code: str = "ai_voice"):
     """
-    Получить информацию о доступных периодах подписки
+    Получить информацию о доступных периодах подписки для конкретного тарифа
     
-    Возвращает список периодов с ценами и скидками для отображения на фронтенде
+    ✅ ВЕРСИЯ 3.0: Принимает plan_code как параметр
+    
+    Args:
+        plan_code: Код тарифа (по умолчанию ai_voice)
+    
+    Returns:
+        Список периодов с ценами и скидками
     """
     try:
+        if plan_code not in SUBSCRIPTION_PLANS_CONFIG:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Неизвестный тариф: {plan_code}. Доступные: {ALLOWED_PLAN_CODES}"
+            )
+        
+        plan_config = SUBSCRIPTION_PLANS_CONFIG[plan_code]
+        base_price = plan_config["base_price"]
+        
         periods = []
-        for months, info in SUBSCRIPTION_PERIODS.items():
+        for months in PERIOD_DISCOUNTS.keys():
+            price_info = calculate_period_price(base_price, months)
             periods.append({
                 "months": months,
-                "days": info["days"],
-                "price": info["price"],
-                "price_formatted": f"{info['price']:.0f} ₽",
-                "discount_percent": info["discount_percent"],
-                "savings": info["savings"],
-                "savings_formatted": f"{info['savings']:.0f} ₽" if info["savings"] > 0 else None,
-                "label": info["label"],
-                "description": info["description"],
-                "monthly_price": round(info["price"] / months, 2),
-                "monthly_price_formatted": f"{round(info['price'] / months):.0f} ₽/мес"
+                "days": price_info["days"],
+                "price": price_info["final_price"],
+                "price_formatted": f"{int(price_info['final_price']):,}".replace(",", " ") + " ₽",
+                "discount_percent": price_info["discount_percent"],
+                "savings": price_info["savings"],
+                "savings_formatted": f"{int(price_info['savings']):,}".replace(",", " ") + " ₽" if price_info["savings"] > 0 else None,
+                "label": price_info["label"],
+                "description": f"{'Со скидкой ' + str(price_info['discount_percent']) + '%' if price_info['discount_percent'] > 0 else 'Без скидки'}",
+                "monthly_price": price_info["monthly_effective"],
+                "monthly_price_formatted": f"{int(price_info['monthly_effective']):,}".replace(",", " ") + " ₽/мес"
             })
         
         return {
+            "plan_code": plan_code,
+            "plan_name": plan_config["name"],
+            "base_monthly_price": base_price,
             "periods": periods,
-            "base_monthly_price": BASE_MONTHLY_PRICE,
             "currency": "RUB"
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Error in get_subscription_periods: {str(e)}")
         raise HTTPException(
@@ -394,12 +637,12 @@ async def robokassa_result(
     SignatureValue: str = Form(...),
     Shp_user_id: Optional[str] = Form(None),
     Shp_plan_code: Optional[str] = Form(None),
-    Shp_duration: Optional[str] = Form(None)  # ✅ НОВОЕ: период подписки
+    Shp_duration: Optional[str] = Form(None)
 ):
     """
     Обработка уведомления о результате платежа от Robokassa (ResultURL)
     
-    ✅ ВЕРСИЯ 2.0: Поддержка параметра Shp_duration для разных периодов
+    ✅ ВЕРСИЯ 3.0: Поддержка разных тарифов через Shp_plan_code
     """
     try:
         # Собираем все данные формы
@@ -438,8 +681,6 @@ async def payment_success(
 ):
     """
     Страница успешной оплаты (SuccessURL)
-    
-    Поддерживает как GET, так и POST запросы
     """
     try:
         # Получаем параметры из GET или POST
@@ -552,8 +793,6 @@ async def payment_cancel(
 ):
     """
     Страница отмены оплаты (FailURL)
-    
-    Поддерживает как GET, так и POST запросы
     """
     try:
         # Получаем параметры из GET или POST
@@ -709,20 +948,30 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
     """
     try:
         plans = db.query(SubscriptionPlan).all()
+        
         result = {
-            "subscription_periods": {},
-            "database_plans": {}
+            "config_plans": {},
+            "database_plans": {},
+            "calculated_prices": {}
         }
         
-        # Информация о периодах
-        for months, info in SUBSCRIPTION_PERIODS.items():
-            result["subscription_periods"][f"{months}_months"] = {
-                "price": info["price"],
-                "days": info["days"],
-                "discount_percent": info["discount_percent"],
-                "savings": info["savings"],
-                "label": info["label"]
+        # Конфигурация из кода
+        for plan_code, config in SUBSCRIPTION_PLANS_CONFIG.items():
+            result["config_plans"][plan_code] = {
+                "name": config["name"],
+                "base_price": config["base_price"],
+                "max_assistants": config["max_assistants"]
             }
+            
+            # Рассчитанные цены
+            result["calculated_prices"][plan_code] = {}
+            for months in PERIOD_DISCOUNTS.keys():
+                price_info = calculate_period_price(config["base_price"], months)
+                result["calculated_prices"][plan_code][f"{months}_months"] = {
+                    "price": price_info["final_price"],
+                    "discount": price_info["discount_percent"],
+                    "savings": price_info["savings"]
+                }
         
         # Информация из БД
         for plan in plans:
@@ -730,8 +979,7 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
                 "name": plan.name,
                 "price": float(plan.price),
                 "max_assistants": plan.max_assistants,
-                "is_active": plan.is_active,
-                "created_at": plan.created_at.isoformat() if plan.created_at else None
+                "is_active": plan.is_active
             }
         
         logger.info(f"🔍 Debug prices requested")
@@ -739,10 +987,7 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
         
     except Exception as e:
         logger.error(f"❌ Error in debug_subscription_prices: {str(e)}")
-        return {
-            "error": str(e),
-            "subscription_periods": SUBSCRIPTION_PERIODS
-        }
+        return {"error": str(e)}
 
 
 @router.get("/config-check")
@@ -751,24 +996,17 @@ async def check_robokassa_config():
     🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки конфигурации Robokassa
     """
     try:
-        from backend.services.payment_service import RobokassaService
-        
         config_check = RobokassaService.validate_configuration()
         
         logger.info(f"🔍 Configuration check requested")
-        logger.info(f"   Valid: {config_check['valid']}")
-        logger.info(f"   Issues: {config_check['issues']}")
-        logger.info(f"   Warnings: {config_check['warnings']}")
         
         return {
             "status": "ok" if config_check["valid"] else "error",
             "valid": config_check["valid"],
             "issues": config_check["issues"],
             "warnings": config_check["warnings"],
-            "subscription_periods": {
-                f"{m}m": {"price": i["price"], "days": i["days"]} 
-                for m, i in SUBSCRIPTION_PERIODS.items()
-            },
+            "available_plans": ALLOWED_PLAN_CODES,
+            "period_discounts": PERIOD_DISCOUNTS,
             "config": {
                 "merchant_login": config_check["config"]["merchant_login"],
                 "merchant_login_length": config_check["config"]["merchant_login_length"],
@@ -777,49 +1015,38 @@ async def check_robokassa_config():
                 "base_url": config_check["config"]["base_url"],
                 "test_mode": config_check["config"]["test_mode"],
                 "disable_shp_params": config_check["config"]["disable_shp_params"]
-            },
-            "recommendations": [
-                "Убедитесь, что MERCHANT_LOGIN точно скопирован из личного кабинета Robokassa",
-                "Проверьте, что пароли #1 и #2 совпадают с техническими настройками",
-                "Заполните блок 'Параметры проведения тестовых платежей' в кабинете",
-                "Используйте публичный домен (не localhost) для HOST_URL",
-                "Убедитесь, что магазин активирован в Robokassa"
-            ]
+            }
         }
         
     except Exception as e:
         logger.error(f"❌ Error checking configuration: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "message": "Ошибка при проверке конфигурации Robokassa"
-        }
+        return {"status": "error", "error": str(e)}
 
 
 @router.post("/test-signature")
-async def test_signature_generation(
-    request: dict = Body(...)
-):
+async def test_signature_generation(request: dict = Body(...)):
     """
     🔧 ДИАГНОСТИЧЕСКИЙ endpoint для тестирования генерации подписи
     """
     try:
-        from backend.services.payment_service import RobokassaService
+        plan_code = request.get("plan_code", "ai_voice")
+        duration_months = request.get("duration_months", 1)
+        
+        if plan_code not in SUBSCRIPTION_PLANS_CONFIG:
+            return {"status": "error", "error": f"Unknown plan: {plan_code}"}
+        
+        price_info = get_plan_price_info(plan_code, duration_months)
         
         merchant_login = request.get("merchant_login", RobokassaService.MERCHANT_LOGIN)
-        out_sum = request.get("out_sum", f"{SUBSCRIPTION_PERIODS[1]['price']:.2f}")
+        out_sum = request.get("out_sum", f"{price_info['final_price']:.2f}")
         inv_id = request.get("inv_id", "123456789")
         password = request.get("password", RobokassaService.PASSWORD_1)
-        duration_months = request.get("duration_months", 1)
         
         custom_params = {
             "Shp_duration": str(duration_months),
-            "Shp_plan_code": "start",
+            "Shp_plan_code": plan_code,
             "Shp_user_id": "test"
         }
-        
-        logger.info(f"🔧 Testing signature generation")
-        logger.info(f"   duration_months: {duration_months}")
         
         signature = RobokassaService.generate_signature(
             merchant_login=merchant_login,
@@ -839,11 +1066,12 @@ async def test_signature_generation(
             "status": "ok",
             "signature": signature,
             "sign_string": sign_string,
-            "subscription_periods": SUBSCRIPTION_PERIODS,
+            "plan_info": price_info,
             "parameters": {
                 "merchant_login": merchant_login,
                 "out_sum": out_sum,
                 "inv_id": inv_id,
+                "plan_code": plan_code,
                 "duration_months": duration_months,
                 "custom_params": custom_params
             }
@@ -851,60 +1079,30 @@ async def test_signature_generation(
         
     except Exception as e:
         logger.error(f"❌ Error testing signature: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
 
 
 @router.post("/enable-diagnostic-mode")
 async def enable_diagnostic_mode():
     """
-    🔧 ДИАГНОСТИЧЕСКИЙ endpoint для включения режима без Shp_ параметров
+    🔧 Включение диагностического режима (без Shp_ параметров)
     """
     try:
-        from backend.services.payment_service import RobokassaService
-        
         RobokassaService.DISABLE_SHP_PARAMS = True
-        
-        logger.info(f"🔧 Diagnostic mode enabled: Shp_ parameters disabled")
-        
-        return {
-            "status": "ok",
-            "message": "Диагностический режим включен - Shp_ параметры отключены",
-            "disable_shp_params": True,
-            "subscription_periods": SUBSCRIPTION_PERIODS
-        }
-        
+        logger.info(f"🔧 Diagnostic mode enabled")
+        return {"status": "ok", "message": "Diagnostic mode enabled", "disable_shp_params": True}
     except Exception as e:
-        logger.error(f"❌ Error enabling diagnostic mode: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
 
 
 @router.post("/disable-diagnostic-mode")
 async def disable_diagnostic_mode():
     """
-    🔧 ДИАГНОСТИЧЕСКИЙ endpoint для выключения режима без Shp_ параметров
+    🔧 Выключение диагностического режима
     """
     try:
-        from backend.services.payment_service import RobokassaService
-        
         RobokassaService.DISABLE_SHP_PARAMS = False
-        
-        logger.info(f"🔧 Diagnostic mode disabled: Shp_ parameters enabled")
-        
-        return {
-            "status": "ok",
-            "message": "Диагностический режим выключен - Shp_ параметры включены",
-            "disable_shp_params": False
-        }
-        
+        logger.info(f"🔧 Diagnostic mode disabled")
+        return {"status": "ok", "message": "Diagnostic mode disabled", "disable_shp_params": False}
     except Exception as e:
-        logger.error(f"❌ Error disabling diagnostic mode: {str(e)}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        return {"status": "error", "error": str(e)}
