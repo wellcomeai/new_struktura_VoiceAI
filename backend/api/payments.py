@@ -62,7 +62,7 @@ SUBSCRIPTION_PLANS_CONFIG = {
     },
     "start": {
         "name": "Тариф Старт",
-        "base_price": 1.0,
+        "base_price": 2990.0,
         "max_assistants": 5,
         "description": "Полный доступ со всеми функциями",
         "features": [
@@ -79,7 +79,7 @@ SUBSCRIPTION_PLANS_CONFIG = {
     },
     "profi": {
         "name": "Profi",
-        "base_price": 1.0,
+        "base_price": 5990.0,
         "max_assistants": 10,
         "description": "Максимальные возможности для бизнеса",
         "features": [
