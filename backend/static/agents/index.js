@@ -13,7 +13,16 @@ let isTestWidgetInitialized = false;
 let isMicPermissionGranted = false;
 let isTestActive = false;
 let currentUserEmail = null;
-let availableFunctions = []; // ДОБАВЛЕНО: Список доступных функций
+let availableFunctions = [];
+
+// ✅ НОВОЕ: Информация о лимитах ассистентов
+let assistantsLimitInfo = {
+  openaiCount: 0,
+  geminiCount: 0,
+  totalCount: 0,
+  maxAllowed: 3,
+  canCreate: true
+};
 
 // ============================================================================
 // ЭЛЕМЕНТЫ DOM
@@ -27,7 +36,6 @@ let mobileMenuToggle, sidebar, sidebarOverlay;
 let userMenuButton, userDropdown, userEmailDisplay, userAvatar, dropdownLogout;
 let googleSheetIdInput, testSheetBtn, sheetConnectionStatus;
 let agentIdDisplay, copyAgentIdBtn;
-// УДАЛЕНО: все переменные для конкретных чекбоксов (webhookCheckbox, pineconeCheckbox и т.д.)
 
 // ============================================================================
 // РЕЖИМ ОТЛАДКИ
@@ -51,7 +59,110 @@ function debugLog(message) {
 }
 
 // ============================================================================
-// ДИНАМИЧЕСКАЯ ЗАГРУЗКА ФУНКЦИЙ (ДОБАВЛЕНО)
+// ✅ НОВОЕ: ПРОВЕРКА ЛИМИТА АССИСТЕНТОВ
+// ============================================================================
+
+/**
+ * Загрузить информацию о количестве ассистентов и лимитах
+ * @returns {Promise<object>} Объект с информацией о лимитах
+ */
+async function loadAssistantsLimitInfo() {
+  try {
+    console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
+    
+    // Параллельно запрашиваем все данные
+    const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
+      api.getAssistants().catch(err => {
+        console.warn('[LIMITS] Ошибка загрузки OpenAI ассистентов:', err);
+        return [];
+      }),
+      api.getGeminiAssistants().catch(err => {
+        console.warn('[LIMITS] Ошибка загрузки Gemini ассистентов:', err);
+        return [];
+      }),
+      api.getSubscription().catch(err => {
+        console.warn('[LIMITS] Ошибка загрузки подписки:', err);
+        return null;
+      })
+    ]);
+    
+    const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
+    const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
+    const totalCount = openaiCount + geminiCount;
+    
+    // Получаем лимит из подписки или используем дефолтный
+    let maxAllowed = 3; // Дефолтный лимит
+    if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+      maxAllowed = subscription.subscription_plan.max_assistants;
+    }
+    
+    assistantsLimitInfo = {
+      openaiCount,
+      geminiCount,
+      totalCount,
+      maxAllowed,
+      canCreate: totalCount < maxAllowed
+    };
+    
+    console.log('[LIMITS] Информация о лимитах:', assistantsLimitInfo);
+    
+    return assistantsLimitInfo;
+    
+  } catch (error) {
+    console.error('[LIMITS] Ошибка загрузки информации о лимитах:', error);
+    // В случае ошибки разрешаем создание (проверка будет на бэкенде)
+    assistantsLimitInfo = {
+      openaiCount: 0,
+      geminiCount: 0,
+      totalCount: 0,
+      maxAllowed: 3,
+      canCreate: true
+    };
+    return assistantsLimitInfo;
+  }
+}
+
+/**
+ * Проверить, можно ли создать нового ассистента
+ * @returns {boolean} true если можно создать
+ */
+function canCreateAssistant() {
+  return assistantsLimitInfo.canCreate;
+}
+
+/**
+ * Показать уведомление о достижении лимита
+ */
+function showLimitReachedNotification() {
+  const { totalCount, maxAllowed } = assistantsLimitInfo;
+  ui.showNotification(
+    `Достигнут лимит ассистентов (${totalCount}/${maxAllowed}). Улучшите тариф для создания новых.`,
+    'error',
+    7000
+  );
+}
+
+/**
+ * Обновить состояние кнопки создания агента
+ */
+function updateCreateButtonState() {
+  if (!createNewAgentBtn) return;
+  
+  if (!canCreateAssistant()) {
+    createNewAgentBtn.disabled = true;
+    createNewAgentBtn.title = `Достигнут лимит ассистентов (${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})`;
+    createNewAgentBtn.style.opacity = '0.6';
+    createNewAgentBtn.style.cursor = 'not-allowed';
+  } else {
+    createNewAgentBtn.disabled = false;
+    createNewAgentBtn.title = 'Создать нового агента';
+    createNewAgentBtn.style.opacity = '1';
+    createNewAgentBtn.style.cursor = 'pointer';
+  }
+}
+
+// ============================================================================
+// ДИНАМИЧЕСКАЯ ЗАГРУЗКА ФУНКЦИЙ
 // ============================================================================
 
 /**
@@ -62,7 +173,6 @@ async function loadAvailableFunctions() {
     console.log('[FUNCTIONS] Загружаем список доступных функций...');
     const functions = await api.getFunctions();
     availableFunctions = functions;
-    // ВАЖНО: Экспортируем в window для доступа из ui.js
     window.availableFunctions = availableFunctions;
     console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
     renderFunctions(functions);
@@ -103,11 +213,9 @@ function renderFunctions(functions) {
     const functionId = `function-${func.name}`;
     const infoId = `${func.name}-info`;
     
-    // Создаем контейнер для функции
     const funcGroup = document.createElement('div');
     funcGroup.className = 'form-group';
     
-    // Чекбокс с названием функции
     const label = document.createElement('label');
     label.className = 'function-option';
     label.innerHTML = `
@@ -117,13 +225,11 @@ function renderFunctions(functions) {
     
     funcGroup.appendChild(label);
     
-    // Блок с информацией о функции (скрыт по умолчанию)
     const infoDiv = document.createElement('div');
     infoDiv.id = infoId;
     infoDiv.className = 'function-info';
     infoDiv.style.display = 'none';
     
-    // Схема функции
     const schemaHtml = `
       <h4>Информация о функции:</h4>
       <pre class="function-schema">${JSON.stringify({
@@ -133,7 +239,6 @@ function renderFunctions(functions) {
       }, null, 2)}</pre>
     `;
     
-    // Пример промпта (если есть)
     const exampleHtml = func.example_prompt ? `
       <h4>Пример использования в промпте:</h4>
       <div class="prompt-example">
@@ -146,7 +251,6 @@ function renderFunctions(functions) {
     
     container.appendChild(funcGroup);
     
-    // Добавляем обработчик для показа/скрытия информации
     const checkbox = document.getElementById(functionId);
     checkbox.addEventListener('change', function() {
       infoDiv.style.display = this.checked ? 'block' : 'none';
@@ -156,7 +260,6 @@ function renderFunctions(functions) {
   console.log('[FUNCTIONS] Отрендерено функций:', functions.length);
 }
 
-// Экспортируем для глобального доступа (для кнопки "Попробовать снова")
 window.loadAvailableFunctions = loadAvailableFunctions;
 
 // ============================================================================
@@ -203,16 +306,12 @@ async function loadUserInfo() {
     // Показываем админ панель для well96well@gmail.com
     if (userInfo.email === 'well96well@gmail.com') {
       console.log('Проверка email для админ панели:', userInfo.email);
-      console.log('Email подтвержден, добавляем админ панель');
       
       const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
         section => section.textContent.trim() === 'Администрирование'
       );
-      console.log('Существующие админ разделы:', adminSections.length);
       
       if (adminSections.length === 0) {
-        console.log('Создаем новый раздел администрирования');
-        
         const adminSection = document.createElement('div');
         adminSection.className = 'sidebar-section';
         adminSection.textContent = 'Администрирование';
@@ -228,17 +327,12 @@ async function loadUserInfo() {
         );
         
         if (accountSection && sidebarNav) {
-          console.log('Вставляем перед разделом Аккаунт');
           sidebarNav.insertBefore(adminSection, accountSection);
           sidebarNav.insertBefore(adminNavItem, accountSection);
         } else {
-          console.log('Добавляем в конец навигации');
           sidebarNav.appendChild(adminSection);
           sidebarNav.appendChild(adminNavItem);
         }
-        console.log('Админ панель добавлена успешно');
-      } else {
-        console.log('Админ раздел уже существует');
       }
     }
   } catch (error) {
@@ -333,28 +427,48 @@ function renderAgentsList(agents) {
   container.innerHTML = '';
   
   if (agents.length === 0) {
+    // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в пустом состоянии
+    const limitText = `(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)`;
+    
     container.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">
           <i class="fas fa-robot"></i>
         </div>
-        <h3 class="empty-title">У вас еще нет агентов</h3>
+        <h3 class="empty-title">У вас еще нет OpenAI агентов</h3>
         <p class="empty-description">
-          Создайте вашего первого голосового ассистента, чтобы встроить его на сайт или приложение
+          Создайте вашего первого голосового ассистента, чтобы встроить его на сайт или приложение.
+          <br><small style="color: var(--text-light);">${limitText}</small>
         </p>
-        <button class="btn btn-primary" id="empty-create-agent-btn">
+        <button class="btn btn-primary" id="empty-create-agent-btn" ${!canCreateAssistant() ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
           <i class="fas fa-plus"></i> Создать нового агента
         </button>
       </div>
     `;
-    document.getElementById('empty-create-agent-btn').addEventListener('click', navigateToCreateAgent);
+    
+    const emptyBtn = document.getElementById('empty-create-agent-btn');
+    if (emptyBtn) {
+      emptyBtn.addEventListener('click', () => {
+        if (canCreateAssistant()) {
+          navigateToCreateAgent();
+        } else {
+          showLimitReachedNotification();
+        }
+      });
+    }
     return;
   }
   
+  // ✅ ОБНОВЛЕНО: Показываем информацию о лимитах в заголовке
   const headerEl = document.createElement('div');
   headerEl.className = 'agent-list-header';
   headerEl.innerHTML = `
-    <h4 class="agents-count">Найдено агентов: ${agents.length}</h4>
+    <h4 class="agents-count">
+      OpenAI агентов: ${agents.length} 
+      <small style="color: var(--text-light); font-weight: normal;">
+        (всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})
+      </small>
+    </h4>
   `;
   container.appendChild(headerEl);
   
@@ -407,7 +521,6 @@ function renderAgentsList(agents) {
         currentAgentId = agentId;
         switchToEditMode();
         
-        // ИСПРАВЛЕНО: Сначала загружаем функции, потом данные агента
         await loadAvailableFunctions();
         await loadAgentData();
         
@@ -427,6 +540,11 @@ function renderAgentsList(agents) {
 // ============================================================================
 
 function navigateToCreateAgent() {
+  // ✅ НОВОЕ: Проверяем лимит перед переходом на страницу создания
+  if (!canCreateAssistant()) {
+    showLimitReachedNotification();
+    return;
+  }
   window.location.href = '/static/agents.html?mode=create';
 }
 
@@ -446,7 +564,6 @@ function initCreateMode() {
     voiceInput.checked = true;
   }
   
-  // ДОБАВЛЕНО: Сброс функций
   document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(checkbox => {
     checkbox.checked = false;
     const infoDiv = document.getElementById(`${checkbox.dataset.functionName}-info`);
@@ -490,6 +607,9 @@ function switchToListMode() {
   deleteAgentBtn.style.display = 'none';
   saveAgentBtn.style.display = 'none';
   createNewAgentBtn.style.display = 'inline-flex';
+  
+  // ✅ НОВОЕ: Обновляем состояние кнопки создания
+  updateCreateButtonState();
   
   currentAgentId = null;
   
@@ -622,7 +742,6 @@ function setupTestingTab() {
         }
       }
       
-      // ДОБАВЛЕНО: Загрузка функций при переходе на таб "Функции"
       if (tabId === 'functions' && availableFunctions.length === 0) {
         loadAvailableFunctions();
       }
@@ -657,9 +776,6 @@ function setupEventHandlers() {
       userDropdown.classList.remove('show');
     }
   });
-  
-  // УДАЛЕНО: обработчики для конкретных чекбоксов функций
-  // (теперь они добавляются динамически в renderFunctions)
   
   // Переключение вкладок
   tabs.forEach(tab => {
@@ -702,9 +818,13 @@ function setupEventHandlers() {
     ui.showNotification('Код для встраивания скопирован!', 'success');
   });
   
-  // Создание нового агента
+  // ✅ ОБНОВЛЕНО: Создание нового агента с проверкой лимита
   createNewAgentBtn.addEventListener('click', () => {
-    navigateToCreateAgent();
+    if (canCreateAssistant()) {
+      navigateToCreateAgent();
+    } else {
+      showLimitReachedNotification();
+    }
   });
   
   // Сохранение изменений (кнопка в верхней панели)
@@ -713,7 +833,7 @@ function setupEventHandlers() {
     agentForm.dispatchEvent(new Event('submit'));
   });
   
-  // Отправка формы
+  // ✅ ОБНОВЛЕНО: Отправка формы с проверкой лимита для создания
   agentForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -724,8 +844,18 @@ function setupEventHandlers() {
       setLoading(true);
       
       if (params.mode === 'create') {
+        // ✅ НОВОЕ: Проверяем лимит перед созданием
+        if (!canCreateAssistant()) {
+          showLimitReachedNotification();
+          setLoading(false);
+          return;
+        }
+        
         const newAgent = await api.createAssistant(formData);
         ui.showNotification('Агент успешно создан!', 'success');
+        
+        // ✅ НОВОЕ: Обновляем информацию о лимитах после создания
+        await loadAssistantsLimitInfo();
         
         setTimeout(() => {
           window.location.href = `/static/agents.html?id=${newAgent.id}`;
@@ -785,7 +915,7 @@ function setupEventHandlers() {
     }
   });
   
-  // Удаление агента
+  // ✅ ОБНОВЛЕНО: Удаление агента с обновлением лимитов
   deleteAgentBtn.addEventListener('click', async () => {
     debugLog('Нажата кнопка "Удалить"');
     
@@ -801,6 +931,9 @@ function setupEventHandlers() {
         setLoading(true);
         await api.deleteAgent(currentAgentId);
         ui.showNotification('Агент успешно удален!', 'success');
+        
+        // ✅ НОВОЕ: Обновляем информацию о лимитах после удаления
+        await loadAssistantsLimitInfo();
         
         setTimeout(() => {
           window.location.href = '/static/agents.html';
@@ -935,17 +1068,19 @@ function initDOMElements() {
   sheetConnectionStatus = document.getElementById('sheet-connection-status');
   agentIdDisplay = document.getElementById('agent-id-display');
   copyAgentIdBtn = document.getElementById('copy-agent-id');
-  // УДАЛЕНО: инициализация конкретных чекбоксов функций
 }
 
 // ============================================================================
-// ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ (ИСПРАВЛЕНО)
+// ИНИЦИАЛИЗАЦИЯ СТРАНИЦЫ
 // ============================================================================
 
 async function initPage() {
   if (!api.checkAuth()) return;
   
   loadUserInfo();
+  
+  // ✅ НОВОЕ: Загружаем информацию о лимитах в первую очередь
+  await loadAssistantsLimitInfo();
   
   const params = checkUrlParams();
   
@@ -954,15 +1089,19 @@ async function initPage() {
     debugLog(`Инициализация страницы с ID агента: ${currentAgentId}`);
     
     switchToEditMode();
-    // ИСПРАВЛЕНО: Сначала загружаем функции (рендерим чекбоксы в DOM),
-    // потом загружаем данные агента (заполняем форму и ставим галочки)
     await loadAvailableFunctions();
     await loadAgentData();
   } else if (params.mode === 'create') {
+    // ✅ НОВОЕ: Проверяем лимит при попытке создания через URL
+    if (!canCreateAssistant()) {
+      showLimitReachedNotification();
+      window.location.href = '/static/agents.html';
+      return;
+    }
+    
     debugLog('Инициализация страницы в режиме создания');
     
     switchToEditMode();
-    // ИСПРАВЛЕНО: Сначала загружаем функции, потом инициализируем форму
     await loadAvailableFunctions();
     initCreateMode();
   } else {
