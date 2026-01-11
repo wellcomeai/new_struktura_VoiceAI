@@ -2214,6 +2214,10 @@
           <span id="renew-btn-text">Продлить подписку за 1 490 ₽</span>
         </button>
         
+        <button class="btn btn-secondary" id="expired-logout-btn" style="width: 100%; justify-content: center;">
+          <i class="fas fa-sign-out-alt"></i> Выйти
+        </button>
+        
         <div class="contact-support">
           Нужна помощь? <a href="mailto:support@voicyfy.ru">Свяжитесь с поддержкой</a>
         </div>
@@ -2379,6 +2383,7 @@
       // Элементы для модального окна истекшей подписки
       const subscriptionExpiredModal = document.getElementById('subscription-expired-modal');
       const renewSubscriptionBtn = document.getElementById('renew-subscription-btn');
+      const expiredLogoutBtn = document.getElementById('expired-logout-btn');
       const subscriptionTypeText = document.getElementById('subscription-type-text');
       const expiredPlanTabs = document.getElementById('expired-plan-tabs');
       const expiredPeriodTabs = document.getElementById('expired-period-tabs');
@@ -3351,6 +3356,12 @@
       renewSubscriptionBtn.addEventListener('click', async function() {
         ui.hideSubscriptionExpiredModal();
         await handlePayment(expiredSelectedPlan, expiredSelectedPeriod);
+      });
+
+      // Кнопка выхода в модалке истекшей подписки
+      expiredLogoutBtn.addEventListener('click', function() {
+        localStorage.removeItem('auth_token');
+        window.location.href = 'https://voicyfy.ru/static/index.html';
       });
       
       // Закрытие по клавише Escape
