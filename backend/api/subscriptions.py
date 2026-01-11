@@ -1,6 +1,6 @@
 """
 Subscription API endpoints for WellcomeAI application.
-✅ PRODUCTION v3.0: Поддержка отображения лимитов для реферальных триалов
+✅ PRODUCTION v3.1: Исправлено - max_assistants берётся из БД, а не захардкожен
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,7 +31,7 @@ async def get_my_subscription(
     """
     Get current user's subscription information.
     
-    ✅ ОБНОВЛЕНО v3.0: Поддержка отображения лимитов для плана referral_trial
+    ✅ ОБНОВЛЕНО v3.1: max_assistants берётся из БД
     
     Args:
         current_user: Current authenticated user
@@ -91,7 +91,7 @@ async def get_my_subscription(
             days_left = 0
         
         # ========================================
-        # ✅ ОБНОВЛЕНО v3.0: Правильное определение max_assistants
+        # ✅ ИСПРАВЛЕНО v3.1: max_assistants из БД
         # ========================================
         max_assistants = 1  # Default для тестового периода
         
@@ -101,13 +101,8 @@ async def get_my_subscription(
             # Форсируем активность подписки для админа
             days_left = 999  # Админу не нужно беспокоиться о сроках
         elif subscription_plan:
-            # Для обычных пользователей - проверяем код плана
-            if subscription_plan.code == "free":
-                max_assistants = 1  # 📝 Обычный тестовый период
-            elif subscription_plan.code == "referral_trial":
-                max_assistants = 3  # 🎁 Реферальный тестовый период
-            else:
-                max_assistants = 3  # 💎 Оплаченные тарифы
+            # ✅ ИСПРАВЛЕНО: Берём max_assistants напрямую из БД
+            max_assistants = subscription_plan.max_assistants
         
         # Get current assistants count
         current_assistants = db.query(AssistantConfig).filter(
@@ -128,7 +123,7 @@ async def get_my_subscription(
                 "code": subscription_plan.code,
                 "name": subscription_plan.name,
                 "price": float(subscription_plan.price) if hasattr(subscription_plan, "price") else 0,
-                "max_assistants": max_assistants,  # Используем определенный выше max_assistants
+                "max_assistants": subscription_plan.max_assistants,  # ✅ ИСПРАВЛЕНО: из БД
                 "description": subscription_plan.description
             }
         
@@ -192,6 +187,8 @@ async def get_subscription_plans(
     """
     Get available subscription plans.
     
+    ✅ ОБНОВЛЕНО v3.1: max_assistants берётся из БД
+    
     Args:
         include_inactive: Whether to include inactive plans
         current_user: Current authenticated user
@@ -228,40 +225,40 @@ async def get_subscription_plans(
                     "is_active": True
                 },
                 {
-                    "code": "start",
-                    "name": "Start",
-                    "price": 19.99,
+                    "code": "ai_voice",
+                    "name": "AI Voice",
+                    "price": 1490,
                     "max_assistants": 3,
+                    "description": "AI Voice plan",
+                    "is_active": True
+                },
+                {
+                    "code": "start",
+                    "name": "Тариф Старт",
+                    "price": 2990,
+                    "max_assistants": 5,
                     "description": "Start plan with extended features",
                     "is_active": True
                 },
                 {
-                    "code": "pro",
-                    "name": "Professional",
-                    "price": 49.99,
+                    "code": "profi",
+                    "name": "Profi",
+                    "price": 5990,
                     "max_assistants": 10,
                     "description": "Professional plan with all features",
                     "is_active": True
                 }
             ]
             
-        # Format plans
+        # Format plans - ✅ ИСПРАВЛЕНО: берём max_assistants из БД
         result = []
         for plan in plans:
-            # Определяем max_assistants в зависимости от кода плана
-            if plan.code == "free":
-                max_assistants = 1
-            elif plan.code == "referral_trial":
-                max_assistants = 3
-            else:
-                max_assistants = 3
-                
             result.append({
                 "id": str(plan.id),
                 "code": plan.code,
                 "name": plan.name,
                 "price": float(plan.price) if hasattr(plan, "price") else 0,
-                "max_assistants": max_assistants,  # Используем определенный выше max_assistants
+                "max_assistants": plan.max_assistants,  # ✅ ИСПРАВЛЕНО: напрямую из БД
                 "description": plan.description,
                 "is_active": plan.is_active
             })
@@ -290,11 +287,27 @@ async def get_subscription_plans(
                 "is_active": True
             },
             {
-                "code": "start",
-                "name": "Start (Default)",
-                "price": 19.99,
+                "code": "ai_voice",
+                "name": "AI Voice (Default)",
+                "price": 1490,
                 "max_assistants": 3,
+                "description": "AI Voice plan",
+                "is_active": True
+            },
+            {
+                "code": "start",
+                "name": "Тариф Старт (Default)",
+                "price": 2990,
+                "max_assistants": 5,
                 "description": "Start plan with extended features",
+                "is_active": True
+            },
+            {
+                "code": "profi",
+                "name": "Profi (Default)",
+                "price": 5990,
+                "max_assistants": 10,
+                "description": "Professional plan with all features",
                 "is_active": True
             }
         ]
@@ -330,10 +343,13 @@ async def subscribe_to_plan(
             elif plan_code == "referral_trial":
                 is_trial = True
                 max_assistants = 3
-            elif plan_code == "start":
+            elif plan_code == "ai_voice":
                 is_trial = False
                 max_assistants = 3
-            elif plan_code == "pro":
+            elif plan_code == "start":
+                is_trial = False
+                max_assistants = 5
+            elif plan_code == "profi":
                 is_trial = False
                 max_assistants = 10
             else:
@@ -343,10 +359,18 @@ async def subscribe_to_plan(
                 )
                 
             # Создаем план, если он не существует
+            price_map = {
+                "free": 0,
+                "referral_trial": 0,
+                "ai_voice": 1490,
+                "start": 2990,
+                "profi": 5990
+            }
+            
             plan = SubscriptionPlan(
                 code=plan_code,
                 name=plan_code.capitalize(),
-                price=0 if plan_code in ["free", "referral_trial"] else (19.99 if plan_code == "start" else 49.99),
+                price=price_map.get(plan_code, 0),
                 max_assistants=max_assistants,
                 description=f"{plan_code.capitalize()} subscription plan",
                 is_active=True
