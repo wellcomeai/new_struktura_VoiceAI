@@ -203,15 +203,28 @@ const api = {
   },
   
   // ============================================================================
-  // АГЕНТЫ (АССИСТЕНТЫ)
+  // ПОДПИСКИ (НОВОЕ)
   // ============================================================================
   
   /**
-   * Получение списка всех агентов пользователя
+   * Получение информации о подписке текущего пользователя
+   * @returns {Promise<object>} Информация о подписке
+   */
+  getSubscription() {
+    console.log('[API] Запрос информации о подписке');
+    return this.get('/subscriptions/my-subscription');
+  },
+  
+  // ============================================================================
+  // АГЕНТЫ (АССИСТЕНТЫ) - OpenAI
+  // ============================================================================
+  
+  /**
+   * Получение списка всех OpenAI агентов пользователя
    * @returns {Promise<Array>} Массив агентов
    */
   getAssistants() {
-    console.log('[API] Запрос списка агентов');
+    console.log('[API] Запрос списка OpenAI агентов');
     return this.get('/assistants');
   },
   
@@ -286,7 +299,72 @@ const api = {
   },
   
   // ============================================================================
-  // ФУНКЦИИ (ДОБАВЛЕНО)
+  // АГЕНТЫ (АССИСТЕНТЫ) - Gemini (НОВОЕ)
+  // ============================================================================
+  
+  /**
+   * Получение списка всех Gemini агентов пользователя
+   * @returns {Promise<Array>} Массив Gemini агентов
+   */
+  getGeminiAssistants() {
+    console.log('[API] Запрос списка Gemini агентов');
+    return this.get('/gemini-assistants');
+  },
+  
+  /**
+   * Получение данных конкретного Gemini агента по ID
+   * @param {string} id - ID агента
+   * @returns {Promise<object>} Данные агента
+   */
+  getGeminiAgent(id) {
+    console.log(`[API] Запрос Gemini агента по ID: ${id}`);
+    return this.get(`/gemini-assistants/${id}`);
+  },
+  
+  /**
+   * Создание нового Gemini агента
+   * @param {object} data - Данные нового агента
+   * @returns {Promise<object>} Созданный агент
+   */
+  createGeminiAssistant(data) {
+    console.log('[API] Создание нового Gemini агента');
+    console.log('[API] Данные агента:', JSON.stringify(data, null, 2));
+    return this.post('/gemini-assistants', data);
+  },
+  
+  /**
+   * Обновление существующего Gemini агента
+   * @param {string} id - ID агента
+   * @param {object} data - Данные для обновления
+   * @returns {Promise<object>} Обновленный агент
+   */
+  updateGeminiAgent(id, data) {
+    console.log(`[API] Обновление Gemini агента ${id}`);
+    return this.put(`/gemini-assistants/${id}`, data);
+  },
+  
+  /**
+   * Удаление Gemini агента
+   * @param {string} id - ID агента
+   * @returns {Promise<object>} Результат удаления
+   */
+  deleteGeminiAgent(id) {
+    console.log(`[API] Удаление Gemini агента ${id}`);
+    return this.delete(`/gemini-assistants/${id}`);
+  },
+  
+  /**
+   * Получение кода для встраивания виджета Gemini
+   * @param {string} id - ID агента
+   * @returns {Promise<object>} Объект с embed_code
+   */
+  getGeminiEmbedCode(id) {
+    console.log(`[API] Получение кода встраивания для Gemini агента ${id}`);
+    return this.get(`/gemini-assistants/${id}/embed-code`);
+  },
+  
+  // ============================================================================
+  // ФУНКЦИИ
   // ============================================================================
   
   /**
@@ -567,15 +645,6 @@ const api = {
   // ============================================================================
   // БИЛЛИНГ И ПОДПИСКИ
   // ============================================================================
-  
-  /**
-   * Получение информации о подписке
-   * @returns {Promise<object>} Информация о подписке
-   */
-  getSubscription() {
-    console.log('[API] Получение информации о подписке');
-    return this.get('/billing/subscription');
-  },
   
   /**
    * Получение истории платежей
