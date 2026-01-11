@@ -1914,7 +1914,7 @@
           </div>
         </div>
         
-        <div class="subscription-upgrade" id="subscription-upgrade" style="display: none;">
+        <div class="subscription-upgrade" id="subscription-upgrade">
           <button class="btn btn-primary" id="upgrade-subscription-btn">
             <i class="fas fa-arrow-up"></i> Улучшить тариф
           </button>
@@ -3008,6 +3008,10 @@
           // Применяем матрицу доступа к сайдбару
           applyFeatureAccessToSidebar();
           
+          // Показываем кнопку улучшения тарифа для ВСЕХ пользователей
+          const upgradeSection = document.getElementById('subscription-upgrade');
+          upgradeSection.style.display = 'flex';
+          
           if (currentUser) {
             const subscriptionCheck = checkSubscriptionStatus(currentUser, subscriptionInfo);
             console.log('Результат проверки подписки:', subscriptionCheck);
@@ -3023,7 +3027,6 @@
           }
           
           const subscriptionDetails = document.getElementById('subscription-details');
-          const upgradeSection = document.getElementById('subscription-upgrade');
           
           if (subscriptionInfo.subscription_plan) {
             let endDateDisplay = 'Не указана';
@@ -3086,13 +3089,6 @@
                 </div>
               </div>
             `;
-            
-            // Показываем кнопку улучшения для всех кроме profi
-            if (currentUserPlanCode !== 'profi') {
-              upgradeSection.style.display = 'flex';
-            } else {
-              upgradeSection.style.display = 'none';
-            }
           } else {
             subscriptionDetails.innerHTML = `
               <div class="subscription-empty">
@@ -3100,7 +3096,6 @@
                    Приобретите тариф для доступа ко всем функциям.</p>
               </div>
             `;
-            upgradeSection.style.display = 'flex';
           }
           
           const loadingIndicator = document.querySelector('.subscription-loading');
