@@ -29,6 +29,7 @@
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-md: 0.5rem;
       --radius-lg: 1rem;
+      --orange-500: #f97316;
     }
     
     * {
@@ -114,6 +115,7 @@
       text-decoration: none;
       transition: background-color 0.2s, color 0.2s;
       border-left: 3px solid transparent;
+      position: relative;
     }
     
     .sidebar-nav-item.active {
@@ -141,6 +143,39 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
       font-weight: 600;
+    }
+
+    /* Заблокированные фичи по API ключу */
+    .locked-feature {
+      opacity: 0.6;
+      cursor: not-allowed;
+      position: relative;
+    }
+    
+    .locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+
+    /* ✅ НОВОЕ: Заблокированные фичи по тарифу */
+    .plan-locked-feature {
+      opacity: 0.6;
+      cursor: pointer !important;
+      position: relative;
+    }
+    
+    .plan-locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+
+    .plan-locked-feature:hover {
+      opacity: 0.8;
+      background-color: var(--bg-blue-light);
     }
     
     /* Основной контент */
@@ -1054,6 +1089,123 @@
       display: block;
     }
 
+    /* ✅ МОДАЛКА БЛОКИРОВКИ ФУНКЦИИ */
+    .feature-blocked-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .feature-blocked-modal.show {
+      display: flex;
+      animation: modal-fade-in 0.3s ease-in-out;
+    }
+
+    .feature-blocked-modal .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+
+    .feature-blocked-modal .modal-content {
+      position: relative;
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      max-width: 450px;
+      width: 100%;
+      animation: modal-slide-up 0.3s ease-out;
+      overflow: hidden;
+    }
+
+    .feature-blocked-modal .modal-header {
+      background: linear-gradient(135deg, var(--orange-500), #ea580c);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .feature-blocked-modal .modal-header i {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .feature-blocked-modal .modal-header h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .feature-blocked-modal .modal-body {
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .feature-blocked-modal .modal-body p {
+      color: var(--text-gray);
+      margin-bottom: 1rem;
+      line-height: 1.6;
+    }
+
+    .feature-blocked-modal .current-plan-info {
+      background-color: var(--bg-light);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+    }
+
+    .feature-blocked-modal .current-plan-info span {
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+
+    .feature-blocked-modal .required-plans {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    .feature-blocked-modal .required-plans strong {
+      color: var(--primary-blue);
+    }
+
+    .feature-blocked-modal .modal-footer {
+      padding: 1rem 1.5rem 1.5rem;
+      display: flex;
+      gap: 1rem;
+    }
+
+    .feature-blocked-modal .modal-footer .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    @keyframes modal-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes modal-slide-up {
+      from { 
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
     /* Мобильная адаптация */
     @media (max-width: 768px) {
       .sidebar {
@@ -1227,16 +1379,16 @@
       <a href="/static/knowledge-base.html" class="sidebar-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
-      <a href="/static/outbound-calls.html" class="sidebar-nav-item">
+      <a href="/static/outbound-calls.html" class="sidebar-nav-item" data-feature="outbound_calls">
         <i class="fas fa-phone-alt"></i> Исходящие звонки
       </a>
-      <a href="/static/telephony.html" class="sidebar-nav-item">
+      <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony">
         <i class="fas fa-phone"></i> Телефония
       </a>
       <a href="/static/conversations.html" class="sidebar-nav-item">
         <i class="fas fa-comments"></i> Диалоги
        </a>
-      <a href="/static/crm.html" class="sidebar-nav-item">
+      <a href="/static/crm.html" class="sidebar-nav-item" data-feature="crm">
         <i class="fas fa-address-book"></i> CRM
        </a>
 
@@ -1602,6 +1754,32 @@
       Виджет голосового ассистента доступен здесь
     </div>
   </main>
+
+  <!-- ✅ МОДАЛКА БЛОКИРОВКИ ФУНКЦИИ -->
+  <div class="feature-blocked-modal" id="feature-blocked-modal">
+    <div class="modal-overlay" id="feature-modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <i class="fas fa-lock"></i>
+        <h3>Функция недоступна</h3>
+      </div>
+      <div class="modal-body">
+        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт или Profi.</p>
+        <div class="current-plan-info">
+          Ваш текущий тариф: <span id="current-plan-name-display">AI Voice</span>
+        </div>
+        <p class="required-plans">
+          Необходим тариф: <strong id="required-plans-text">Старт или Profi</strong>
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="feature-modal-close">Закрыть</button>
+        <button class="btn btn-primary" id="feature-modal-upgrade">
+          <i class="fas fa-arrow-up"></i> Выбрать тариф
+        </button>
+      </div>
+    </div>
+  </div>
   
   <!-- Подключаем модульный JS -->
   <script type="module" src="/static/agents/index.js"></script>
