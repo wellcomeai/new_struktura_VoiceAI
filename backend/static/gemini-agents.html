@@ -139,6 +139,142 @@
       font-weight: 600;
     }
     
+    /* Заблокированные фичи по тарифу */
+    .plan-locked-feature {
+      opacity: 0.6;
+      cursor: pointer !important;
+      position: relative;
+    }
+
+    .plan-locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+
+    .plan-locked-feature:hover {
+      opacity: 0.8;
+      background-color: var(--bg-blue-light);
+    }
+
+    /* МОДАЛКА БЛОКИРОВКИ ФУНКЦИИ */
+    .feature-blocked-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .feature-blocked-modal.show {
+      display: flex;
+      animation: modal-fade-in 0.3s ease-in-out;
+    }
+
+    .feature-blocked-modal .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+
+    .feature-blocked-modal .modal-content {
+      position: relative;
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      max-width: 450px;
+      width: 100%;
+      animation: modal-slide-up 0.3s ease-out;
+      overflow: hidden;
+    }
+
+    .feature-blocked-modal .modal-header {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .feature-blocked-modal .modal-header i {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .feature-blocked-modal .modal-header h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .feature-blocked-modal .modal-body {
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .feature-blocked-modal .modal-body p {
+      color: var(--text-gray);
+      margin-bottom: 1rem;
+      line-height: 1.6;
+    }
+
+    .feature-blocked-modal .current-plan-info {
+      background-color: var(--bg-light);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+    }
+
+    .feature-blocked-modal .current-plan-info span {
+      font-weight: 600;
+      color: var(--text-dark);
+    }
+
+    .feature-blocked-modal .required-plans {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    .feature-blocked-modal .required-plans strong {
+      color: var(--primary-blue);
+    }
+
+    .feature-blocked-modal .modal-footer {
+      padding: 1rem 1.5rem 1.5rem;
+      display: flex;
+      gap: 1rem;
+    }
+
+    .feature-blocked-modal .modal-footer .btn {
+      flex: 1;
+      justify-content: center;
+    }
+
+    @keyframes modal-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes modal-slide-up {
+      from { 
+        opacity: 0;
+        transform: translateY(30px) scale(0.95);
+      }
+      to { 
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    
     /* Основной контент */
     .main-content {
       flex: 1;
@@ -1278,18 +1414,18 @@
       <a href="/static/knowledge-base.html" class="sidebar-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
-      <a href="/static/outbound-calls.html" class="sidebar-nav-item">
+      <a href="/static/outbound-calls.html" class="sidebar-nav-item" data-feature="outbound_calls">
         <i class="fas fa-phone-alt"></i> Исходящие звонки
       </a>
-      <a href="/static/telephony.html" class="sidebar-nav-item">
+      <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony">
         <i class="fas fa-phone"></i> Телефония
       </a>
       <a href="/static/conversations.html" class="sidebar-nav-item">
         <i class="fas fa-comments"></i> Диалоги
-       </a>
-      <a href="/static/crm.html" class="sidebar-nav-item">
+      </a>
+      <a href="/static/crm.html" class="sidebar-nav-item" data-feature="crm">
         <i class="fas fa-address-book"></i> CRM
-       </a>
+      </a>
 
       <div class="sidebar-section">ИИ Интерфейс</div>
       <a href="/static/voice_llm_interface.html" class="sidebar-nav-item">
@@ -1642,6 +1778,32 @@
     <div class="loading-overlay" id="loading-overlay" style="display: none;">
       <div class="loading-spinner"></div>
     </div>
+
+    <!-- МОДАЛКА БЛОКИРОВКИ ФУНКЦИИ -->
+    <div class="feature-blocked-modal" id="feature-blocked-modal">
+      <div class="modal-overlay" id="feature-modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <i class="fas fa-lock"></i>
+          <h3>Функция недоступна</h3>
+        </div>
+        <div class="modal-body">
+          <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт или Profi.</p>
+          <div class="current-plan-info">
+            Ваш текущий тариф: <span id="current-plan-name-display">AI Voice</span>
+          </div>
+          <p class="required-plans">
+            Необходим тариф: <strong id="required-plans-text">Старт или Profi</strong>
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="feature-modal-close">Закрыть</button>
+          <button class="btn btn-primary" id="feature-modal-upgrade">
+            <i class="fas fa-arrow-up"></i> Выбрать тариф
+          </button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- ЖИВОЙ ДЕМО ВИДЖЕТ (только если агент выбран) -->
@@ -1664,6 +1826,34 @@
     };
     
     // ============================================================================
+    // МАТРИЦА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФАМ
+    // ============================================================================
+
+    // Какие планы имеют доступ к каким функциям
+    // ВАЖНО: ai_voice НЕ включен → для него эти функции заблокированы
+    const FEATURE_ACCESS = {
+      crm: ['free', 'referral_trial', 'start', 'profi'],
+      telephony: ['free', 'referral_trial', 'start', 'profi'],
+      outbound_calls: ['free', 'referral_trial', 'start', 'profi']
+    };
+
+    // Названия функций для модалки
+    const FEATURE_NAMES = {
+      crm: 'CRM',
+      telephony: 'Телефония',
+      outbound_calls: 'Исходящие звонки'
+    };
+
+    // Названия тарифов для отображения
+    const PLAN_NAMES = {
+      'free': 'Пробный период',
+      'referral_trial': 'Реферальный триал',
+      'ai_voice': 'AI Voice',
+      'start': 'Тариф Старт',
+      'profi': 'Profi'
+    };
+    
+    // ============================================================================
     // КОНСТАНТЫ И ПЕРЕМЕННЫЕ
     // ============================================================================
     
@@ -1673,6 +1863,9 @@
     let currentUserApiKey = null;
     let currentUser = null;
     let availableFunctions = []; // Список доступных функций из API
+    
+    // Код текущего тарифа пользователя
+    let currentUserPlanCode = 'free';
     
     // Информация о лимитах ассистентов
     let assistantsLimitInfo = {
@@ -1834,6 +2027,12 @@
         const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
         const totalCount = openaiCount + geminiCount;
         
+        // Сохраняем код текущего плана
+        if (subscription && subscription.subscription_plan && subscription.subscription_plan.code) {
+          currentUserPlanCode = subscription.subscription_plan.code;
+          console.log('[LIMITS] Код тарифа пользователя:', currentUserPlanCode);
+        }
+        
         // Определяем лимит с учётом привилегий
         let maxAllowed = 3; // Дефолтный лимит
         
@@ -1914,6 +2113,74 @@
         createBtn.style.opacity = '1';
         createBtn.style.cursor = 'pointer';
       }
+    }
+    
+    // ============================================================================
+    // ПРОВЕРКА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФУ
+    // ============================================================================
+
+    /**
+     * Проверить, имеет ли пользователь доступ к функции
+     */
+    function canAccessFeature(feature, planCode) {
+      if (!planCode) return true;
+      
+      // Привилегированные пользователи имеют доступ ко всему
+      if (isPrivilegedUser()) return true;
+      
+      const allowedPlans = FEATURE_ACCESS[feature];
+      if (!allowedPlans) return true;
+      
+      return allowedPlans.includes(planCode);
+    }
+
+    /**
+     * Получить отображаемое имя тарифа
+     */
+    function getPlanDisplayName(planCode) {
+      return PLAN_NAMES[planCode] || planCode;
+    }
+
+    /**
+     * Применить матрицу доступа к элементам сайдбара
+     */
+    function applyFeatureAccessToSidebar() {
+      console.log('[ACCESS] Применяем матрицу доступа для плана:', currentUserPlanCode);
+
+      document.querySelectorAll('.plan-locked-feature').forEach(el => {
+        el.classList.remove('plan-locked-feature');
+      });
+
+      document.querySelectorAll('[data-feature]').forEach(element => {
+        const feature = element.getAttribute('data-feature');
+        const hasAccess = canAccessFeature(feature, currentUserPlanCode);
+        
+        if (!hasAccess) {
+          element.classList.add('plan-locked-feature');
+          console.log(`[ACCESS] Заблокирована функция: ${feature}`);
+        }
+      });
+    }
+
+    /**
+     * Показать модалку блокировки функции
+     */
+    function showFeatureBlockedModal(feature) {
+      const featureName = FEATURE_NAMES[feature] || feature;
+      const planName = getPlanDisplayName(currentUserPlanCode);
+
+      document.getElementById('feature-blocked-message').textContent = 
+        `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+      document.getElementById('current-plan-name-display').textContent = planName;
+      document.getElementById('required-plans-text').textContent = 'Старт или Profi';
+      document.getElementById('feature-blocked-modal').classList.add('show');
+    }
+
+    /**
+     * Скрыть модалку блокировки функции
+     */
+    function hideFeatureBlockedModal() {
+      document.getElementById('feature-blocked-modal').classList.remove('show');
     }
     
     // ============================================================================
@@ -2099,6 +2366,9 @@
         
         // Загружаем лимиты после сохранения API ключа
         await loadAssistantsLimitInfo();
+        
+        // Применяем матрицу доступа к сайдбару
+        applyFeatureAccessToSidebar();
         
         // БЕЗ перезагрузки - просто показываем контент
         checkApiKeyAndShowContent(true);
@@ -2668,6 +2938,9 @@
         // Загружаем лимиты только когда есть API ключ
         await loadAssistantsLimitInfo();
         
+        // Применяем матрицу доступа к сайдбару
+        applyFeatureAccessToSidebar();
+        
         if (id) {
           currentAgentId = id;
           switchToEditMode();
@@ -2821,6 +3094,24 @@
         const notification = document.getElementById('notification');
         notification.classList.remove('show');
         setTimeout(() => notification.style.display = 'none', 300);
+      });
+      
+      // Обработчики модалки блокировки функции
+      document.getElementById('feature-modal-overlay').addEventListener('click', hideFeatureBlockedModal);
+      document.getElementById('feature-modal-close').addEventListener('click', hideFeatureBlockedModal);
+      document.getElementById('feature-modal-upgrade').addEventListener('click', function() {
+        hideFeatureBlockedModal();
+        window.location.href = '/static/dashboard.html';
+      });
+
+      // Блокировка переходов на заблокированные по тарифу страницы
+      document.querySelectorAll('[data-feature]').forEach(link => {
+        link.addEventListener('click', function(e) {
+          if (this.classList.contains('plan-locked-feature')) {
+            e.preventDefault();
+            showFeatureBlockedModal(this.getAttribute('data-feature'));
+          }
+        });
       });
     });
   </script>
