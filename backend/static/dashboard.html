@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- /static/dashboard.html -->
-<!-- ✅ ВЕРСИЯ 3.0: Поддержка нескольких тарифов + матрица доступа к функциям -->
+<!-- ✅ ВЕРСИЯ 3.1: Исправлен подсчёт ассистентов (OpenAI + Gemini) -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -400,6 +400,12 @@
     .stat-title {
       color: var(--text-gray);
       font-size: 0.875rem;
+    }
+
+    .stat-breakdown {
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--text-light);
     }
     
     /* ========================================
@@ -1896,6 +1902,7 @@
           </div>
           <div class="stat-value" id="bots-count">0</div>
           <div class="stat-title">Активных ассистентов</div>
+          <div class="stat-breakdown" id="bots-breakdown"></div>
         </div>
       </div>
       
@@ -2349,6 +2356,7 @@
       const userName = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
       const botsCount = document.getElementById('bots-count');
+      const botsBreakdown = document.getElementById('bots-breakdown');
       const noKeyNotice = document.getElementById('no-key-notice');
       const hasKeyNotice = document.getElementById('has-key-notice');
       const geminiAgentsNavItem = document.getElementById('gemini-agents-nav-item');
@@ -2708,6 +2716,10 @@
         
         getAssistants() {
           return this.get('/assistants');
+        },
+
+        getGeminiAssistants() {
+          return this.get('/gemini-assistants');
         }
       };
       
@@ -2983,13 +2995,38 @@
         }
       }
       
-      // Загрузка статистики
+      // ✅ ИСПРАВЛЕНО: Загрузка статистики (OpenAI + Gemini ассистенты)
       async function loadStats() {
         if (!hasApiKey) return;
         
         try {
-          const bots = await api.getAssistants();
-          botsCount.textContent = bots.length;
+          // Загружаем оба типа ассистентов параллельно
+          const [openaiAssistants, geminiAssistants] = await Promise.all([
+            api.getAssistants().catch(err => {
+              console.warn('Ошибка загрузки OpenAI ассистентов:', err);
+              return [];
+            }),
+            api.getGeminiAssistants().catch(err => {
+              console.warn('Ошибка загрузки Gemini ассистентов:', err);
+              return [];
+            })
+          ]);
+          
+          const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
+          const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
+          const totalCount = openaiCount + geminiCount;
+          
+          // Обновляем общее количество
+          botsCount.textContent = totalCount;
+          
+          // Показываем разбивку по типам, если есть хотя бы один ассистент
+          if (totalCount > 0) {
+            botsBreakdown.textContent = `OpenAI: ${openaiCount}, Gemini: ${geminiCount}`;
+          } else {
+            botsBreakdown.textContent = '';
+          }
+          
+          console.log(`[STATS] Ассистентов: OpenAI=${openaiCount}, Gemini=${geminiCount}, Всего=${totalCount}`);
         } catch (error) {
           console.error('Ошибка при загрузке статистики:', error);
         }
