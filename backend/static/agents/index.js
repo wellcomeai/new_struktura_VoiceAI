@@ -15,6 +15,34 @@ const SPECIAL_ASSISTANT_LIMITS = {
 };
 
 // ============================================================================
+// ✅ МАТРИЦА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФАМ
+// ============================================================================
+
+// Какие планы имеют доступ к каким функциям
+// ВАЖНО: ai_voice НЕ включен → для него эти функции заблокированы
+const FEATURE_ACCESS = {
+  crm: ['free', 'referral_trial', 'start', 'profi'],
+  telephony: ['free', 'referral_trial', 'start', 'profi'],
+  outbound_calls: ['free', 'referral_trial', 'start', 'profi']
+};
+
+// Названия функций для модалки
+const FEATURE_NAMES = {
+  crm: 'CRM',
+  telephony: 'Телефония',
+  outbound_calls: 'Исходящие звонки'
+};
+
+// Названия тарифов для отображения
+const PLAN_NAMES = {
+  'free': 'Пробный период',
+  'referral_trial': 'Реферальный триал',
+  'ai_voice': 'AI Voice',
+  'start': 'Тариф Старт',
+  'profi': 'Profi'
+};
+
+// ============================================================================
 // ПЕРЕМЕННЫЕ СОСТОЯНИЯ
 // ============================================================================
 
@@ -25,8 +53,11 @@ let isTestWidgetInitialized = false;
 let isMicPermissionGranted = false;
 let isTestActive = false;
 let currentUserEmail = null;
-let currentUserIsAdmin = false; // ✅ НОВОЕ: Флаг администратора
+let currentUserIsAdmin = false;
 let availableFunctions = [];
+
+// ✅ Код текущего тарифа пользователя
+let currentUserPlanCode = 'free';
 
 // Информация о лимитах ассистентов
 let assistantsLimitInfo = {
@@ -138,6 +169,12 @@ async function loadAssistantsLimitInfo() {
     // Определяем лимит с учётом привилегий
     let maxAllowed = 3; // Дефолтный лимит
     
+    // ✅ НОВОЕ: Сохраняем код текущего плана
+    if (subscription && subscription.subscription_plan && subscription.subscription_plan.code) {
+      currentUserPlanCode = subscription.subscription_plan.code;
+      console.log('[LIMITS] Код тарифа пользователя:', currentUserPlanCode);
+    }
+    
     // Проверяем специальный лимит для пользователя
     const specialLimit = getSpecialLimit();
     if (specialLimit !== null) {
@@ -214,6 +251,97 @@ function updateCreateButtonState() {
     createNewAgentBtn.title = 'Создать нового агента';
     createNewAgentBtn.style.opacity = '1';
     createNewAgentBtn.style.cursor = 'pointer';
+  }
+}
+
+// ============================================================================
+// ✅ НОВОЕ: ПРОВЕРКА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФУ
+// ============================================================================
+
+/**
+ * Проверить, имеет ли пользователь доступ к функции
+ * @param {string} feature - Код функции (crm, telephony, outbound_calls)
+ * @param {string} planCode - Код тарифа пользователя
+ * @returns {boolean} true если доступ разрешен
+ */
+function canAccessFeature(feature, planCode) {
+  if (!planCode) return true;
+  
+  // Привилегированные пользователи имеют доступ ко всему
+  if (isPrivilegedUser()) return true;
+  
+  const allowedPlans = FEATURE_ACCESS[feature];
+  if (!allowedPlans) return true; // Функция не в матрице = доступна всем
+  
+  return allowedPlans.includes(planCode);
+}
+
+/**
+ * Получить отображаемое имя тарифа
+ * @param {string} planCode - Код тарифа
+ * @returns {string} Название тарифа
+ */
+function getPlanDisplayName(planCode) {
+  return PLAN_NAMES[planCode] || planCode;
+}
+
+/**
+ * Применить матрицу доступа к элементам сайдбара
+ */
+function applyFeatureAccessToSidebar() {
+  console.log('[ACCESS] Применяем матрицу доступа для плана:', currentUserPlanCode);
+
+  // Сначала убираем все блокировки по тарифу
+  document.querySelectorAll('.plan-locked-feature').forEach(el => {
+    el.classList.remove('plan-locked-feature');
+  });
+
+  // Проверяем каждый элемент с data-feature
+  document.querySelectorAll('[data-feature]').forEach(element => {
+    const feature = element.getAttribute('data-feature');
+    const hasAccess = canAccessFeature(feature, currentUserPlanCode);
+    
+    if (!hasAccess) {
+      element.classList.add('plan-locked-feature');
+      console.log(`[ACCESS] Заблокирована функция: ${feature}`);
+    }
+  });
+}
+
+/**
+ * Показать модалку блокировки функции
+ * @param {string} feature - Код заблокированной функции
+ */
+function showFeatureBlockedModal(feature) {
+  const featureName = FEATURE_NAMES[feature] || feature;
+  const planName = getPlanDisplayName(currentUserPlanCode);
+
+  const messageEl = document.getElementById('feature-blocked-message');
+  const currentPlanEl = document.getElementById('current-plan-name-display');
+  const requiredPlansEl = document.getElementById('required-plans-text');
+  const modal = document.getElementById('feature-blocked-modal');
+
+  if (messageEl) {
+    messageEl.textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+  }
+  if (currentPlanEl) {
+    currentPlanEl.textContent = planName;
+  }
+  if (requiredPlansEl) {
+    requiredPlansEl.textContent = 'Старт или Profi';
+  }
+  if (modal) {
+    modal.classList.add('show');
+  }
+}
+
+/**
+ * Скрыть модалку блокировки функции
+ */
+function hideFeatureBlockedModal() {
+  const modal = document.getElementById('feature-blocked-modal');
+  if (modal) {
+    modal.classList.remove('show');
   }
 }
 
@@ -340,7 +468,7 @@ async function loadUserInfo() {
   try {
     const userInfo = await api.get('/users/me');
     currentUserEmail = userInfo.email;
-    currentUserIsAdmin = userInfo.is_admin || false; // ✅ НОВОЕ: Сохраняем флаг админа
+    currentUserIsAdmin = userInfo.is_admin || false;
     
     console.log(`[USER] Email: ${currentUserEmail}, isAdmin: ${currentUserIsAdmin}`);
     
@@ -1096,6 +1224,38 @@ function setupEventHandlers() {
       }
     });
   }
+
+  // ✅ НОВОЕ: Обработчики модалки блокировки функции
+  const featureModalOverlay = document.getElementById('feature-modal-overlay');
+  const featureModalClose = document.getElementById('feature-modal-close');
+  const featureModalUpgrade = document.getElementById('feature-modal-upgrade');
+
+  if (featureModalOverlay) {
+    featureModalOverlay.addEventListener('click', hideFeatureBlockedModal);
+  }
+  
+  if (featureModalClose) {
+    featureModalClose.addEventListener('click', hideFeatureBlockedModal);
+  }
+  
+  if (featureModalUpgrade) {
+    featureModalUpgrade.addEventListener('click', function() {
+      hideFeatureBlockedModal();
+      // Перенаправляем на дашборд для выбора тарифа
+      window.location.href = '/static/dashboard.html';
+    });
+  }
+
+  // ✅ НОВОЕ: Блокировка переходов на заблокированные по тарифу страницы
+  document.querySelectorAll('[data-feature]').forEach(link => {
+    link.addEventListener('click', function(e) {
+      if (this.classList.contains('plan-locked-feature')) {
+        e.preventDefault();
+        const feature = this.getAttribute('data-feature');
+        showFeatureBlockedModal(feature);
+      }
+    });
+  });
 }
 
 // ============================================================================
@@ -1147,6 +1307,9 @@ async function initPage() {
   
   // Затем загружаем информацию о лимитах
   await loadAssistantsLimitInfo();
+  
+  // ✅ НОВОЕ: Применяем матрицу доступа к сайдбару
+  applyFeatureAccessToSidebar();
   
   const params = checkUrlParams();
   
