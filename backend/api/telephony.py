@@ -46,6 +46,9 @@ Routes:
          - Endpoint /start-outbound-call для запуска исходящих
          - Endpoint /outbound-config для конфига исходящих сценариев
          - Admin endpoint /admin/setup-outbound-rules для миграции
+✅ v3.1: PHONE INFO - добавлена информация о номерах из Voximplant API:
+         - phone_next_renewal - дата следующей оплаты
+         - phone_price - стоимость аренды номера в месяц
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -182,6 +185,8 @@ class MyNumberInfo(BaseModel):
     assistant_name: Optional[str] = None
     first_phrase: Optional[str] = None
     is_active: bool
+    phone_next_renewal: Optional[str] = None  # 🆕 v3.1 Дата следующей оплаты (YYYY-MM-DD)
+    phone_price: Optional[float] = None       # 🆕 v3.1 Стоимость аренды в месяц
 
 
 class BindAssistantRequest(BaseModel):
@@ -1143,7 +1148,13 @@ async def get_my_numbers(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Получить список моих номеров."""
+    """
+    Получить список моих номеров.
+    
+    🆕 v3.1: Возвращает дополнительную информацию из Voximplant API:
+    - phone_next_renewal: дата следующей оплаты (YYYY-MM-DD)
+    - phone_price: стоимость аренды номера в месяц
+    """
     try:
         child_account = db.query(VoximplantChildAccount).filter(
             VoximplantChildAccount.user_id == current_user.id
@@ -1156,6 +1167,29 @@ async def get_my_numbers(
             )
         
         numbers = child_account.phone_numbers if child_account else []
+        
+        # =====================================================================
+        # 🆕 v3.1: Получаем актуальные данные из Voximplant API
+        # =====================================================================
+        vox_map = {}
+        try:
+            service = get_voximplant_partner_service()
+            vox_result = await service.get_phone_numbers(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key
+            )
+            if vox_result.get("success"):
+                for n in vox_result.get("numbers", []):
+                    # Нормализуем номер для сопоставления (берём последние 10 цифр)
+                    phone = normalize_phone_number(n.get("phone_number", ""))
+                    if phone:
+                        vox_map[phone] = n
+                        # Также добавляем по последним 10 цифрам для надёжности
+                        if len(phone) > 10:
+                            vox_map[phone[-10:]] = n
+                logger.info(f"[TELEPHONY] Loaded {len(vox_result.get('numbers', []))} numbers from Voximplant API")
+        except Exception as e:
+            logger.warning(f"[TELEPHONY] Failed to fetch Voximplant data: {e}")
         
         result = []
         for num in numbers:
@@ -1175,6 +1209,10 @@ async def get_my_numbers(
                     ).first()
                     assistant_name = assistant.name if assistant else None
             
+            # 🆕 v3.1: Получаем данные из Voximplant по нормализованному номеру
+            normalized = normalize_phone_number(num.phone_number)
+            vox_info = vox_map.get(normalized) or vox_map.get(normalized[-10:] if len(normalized) > 10 else normalized, {})
+            
             result.append(MyNumberInfo(
                 id=str(num.id),
                 phone_number=num.phone_number,
@@ -1183,7 +1221,9 @@ async def get_my_numbers(
                 assistant_id=str(num.assistant_id) if num.assistant_id else None,
                 assistant_name=assistant_name,
                 first_phrase=num.first_phrase,
-                is_active=num.is_active
+                is_active=num.is_active,
+                phone_next_renewal=vox_info.get("phone_next_renewal"),  # 🆕 v3.1
+                phone_price=vox_info.get("phone_price"),                # 🆕 v3.1
             ))
         
         return {"numbers": result, "total": len(result)}
