@@ -777,6 +777,7 @@ class VoximplantPartnerService:
                     "phone_number": n.get("phone_number"),
                     "phone_region_name": n.get("phone_region_name"),
                     "phone_next_renewal": n.get("phone_next_renewal"),
+                    "phone_price": n.get("phone_price"),
                     "application_id": n.get("application_id"),
                     "application_name": n.get("application_name"),
                 }
