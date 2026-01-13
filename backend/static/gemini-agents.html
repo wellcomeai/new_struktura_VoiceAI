@@ -2682,7 +2682,7 @@
     function generateScreenCaptureEmbedCode(assistantId) {
       const serverUrl = window.location.origin;
       return `<!-- WellcomeAI Gemini Voice Assistant + Screen Capture -->
-<script>
+<scr` + `ipt>
     (function() {
         var script = document.createElement('script');
         script.src = '${serverUrl}/static/test-gemini-widget.js';
@@ -2692,7 +2692,7 @@
         script.async = true;
         document.head.appendChild(script);
     })();
-</script>
+</scr` + `ipt>
 <!-- End WellcomeAI Gemini + Screen Capture -->`;
     }
     
