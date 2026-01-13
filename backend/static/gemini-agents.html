@@ -726,6 +726,83 @@
       margin-top: 1rem;
     }
     
+    /* Стили для блоков виджетов */
+    .widget-type-block {
+      margin-top: 1.5rem;
+      padding: 1.25rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      background-color: var(--white);
+    }
+    
+    .widget-type-block:first-of-type {
+      margin-top: 1rem;
+    }
+    
+    .widget-type-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    
+    .widget-type-header i {
+      font-size: 1.25rem;
+    }
+    
+    .widget-type-header h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin: 0;
+    }
+    
+    .widget-type-description {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+      margin-bottom: 1rem;
+      line-height: 1.5;
+    }
+    
+    /* Голосовой ассистент - синий акцент */
+    .widget-type-block.voice-only {
+      border-left: 4px solid var(--primary-blue);
+    }
+    
+    .widget-type-block.voice-only .widget-type-header i {
+      color: var(--primary-blue);
+    }
+    
+    /* Ассистент с захватом экрана - фиолетовый акцент */
+    .widget-type-block.screen-capture {
+      border-left: 4px solid #8B5CF6;
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.03), rgba(236, 72, 153, 0.03));
+    }
+    
+    .widget-type-block.screen-capture .widget-type-header i {
+      color: #8B5CF6;
+    }
+    
+    .widget-type-block .embed-container {
+      margin-top: 0;
+      background-color: var(--bg-light);
+    }
+    
+    .widget-badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      border-radius: 4px;
+      margin-left: 0.5rem;
+    }
+    
+    .widget-badge.beta {
+      background-color: rgba(139, 92, 246, 0.15);
+      color: #8B5CF6;
+    }
+    
     /* Стили для блока ID агента */
     .agent-id-info {
       display: flex;
@@ -1716,14 +1793,47 @@
               </button>
             </div>
             
-            <div class="embed-container">
-              <div class="embed-code" id="embed-code">
-              <!-- Код будет загружен динамически -->
+            <!-- Блок 1: Голосовой ассистент -->
+            <div class="widget-type-block voice-only">
+              <div class="widget-type-header">
+                <i class="fas fa-microphone"></i>
+                <h4>Голосовой ассистент</h4>
               </div>
-              <div class="embed-actions">
-                <button class="btn btn-primary" id="copy-embed-code">
-                  <i class="fas fa-copy"></i> Копировать код
-                </button>
+              <p class="widget-type-description">
+                Стандартный виджет с голосовым общением. Пользователи могут общаться с ассистентом голосом.
+              </p>
+              <div class="embed-container">
+                <div class="embed-code" id="embed-code">
+                <!-- Код будет загружен динамически -->
+                </div>
+                <div class="embed-actions">
+                  <button class="btn btn-primary" id="copy-embed-code">
+                    <i class="fas fa-copy"></i> Копировать код
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Блок 2: Голосовой ассистент + захват экрана -->
+            <div class="widget-type-block screen-capture">
+              <div class="widget-type-header">
+                <i class="fas fa-desktop"></i>
+                <h4>Голосовой ассистент + захват экрана</h4>
+                <span class="widget-badge beta">Beta</span>
+              </div>
+              <p class="widget-type-description">
+                Ассистент видит экран пользователя и может комментировать происходящее. 
+                Требуется разрешение пользователя на захват экрана. Скриншоты делаются каждые 3 секунды.
+              </p>
+              <div class="embed-container">
+                <div class="embed-code" id="embed-code-screen">
+                <!-- Код будет загружен динамически -->
+                </div>
+                <div class="embed-actions">
+                  <button class="btn btn-primary" id="copy-embed-code-screen">
+                    <i class="fas fa-copy"></i> Копировать код
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2566,6 +2676,27 @@
     }
     
     // ============================================================================
+    // ГЕНЕРАЦИЯ EMBED-КОДА ДЛЯ ВИДЖЕТА С ЗАХВАТОМ ЭКРАНА
+    // ============================================================================
+    
+    function generateScreenCaptureEmbedCode(assistantId) {
+      const serverUrl = window.location.origin;
+      return `<!-- WellcomeAI Gemini Voice Assistant + Screen Capture -->
+<script>
+    (function() {
+        var script = document.createElement('script');
+        script.src = '${serverUrl}/static/test-gemini-widget.js';
+        script.dataset.assistantId = '${assistantId}';
+        script.dataset.server = '${serverUrl}';
+        script.dataset.position = 'bottom-right';
+        script.async = true;
+        document.head.appendChild(script);
+    })();
+</script>
+<!-- End WellcomeAI Gemini + Screen Capture -->`;
+    }
+    
+    // ============================================================================
     // РАБОТА С АГЕНТАМИ
     // ============================================================================
     
@@ -2683,6 +2814,10 @@
         
         const embedData = await apiRequest(`/gemini-assistants/${id}/embed-code`);
         document.getElementById('embed-code').textContent = embedData.embed_code;
+        
+        // Генерируем код для виджета с захватом экрана
+        const screenCaptureEmbedCode = generateScreenCaptureEmbedCode(id);
+        document.getElementById('embed-code-screen').textContent = screenCaptureEmbedCode;
         
         document.getElementById('view-embed-code').style.display = 'inline-flex';
         document.getElementById('delete-agent').style.display = 'inline-flex';
@@ -2915,6 +3050,8 @@
       document.getElementById('create-new-agent-btn').style.display = 'none';
       
       document.getElementById('agent-id-display').textContent = '-';
+      document.getElementById('embed-code').textContent = '<!-- Код появится после сохранения агента -->';
+      document.getElementById('embed-code-screen').textContent = '<!-- Код появится после сохранения агента -->';
     }
     
     // ============================================================================
@@ -3048,6 +3185,13 @@
         const embedCode = document.getElementById('embed-code').textContent;
         navigator.clipboard.writeText(embedCode).then(() => {
           showNotification('Код для встраивания скопирован!', 'success');
+        });
+      });
+      
+      document.getElementById('copy-embed-code-screen').addEventListener('click', function() {
+        const embedCode = document.getElementById('embed-code-screen').textContent;
+        navigator.clipboard.writeText(embedCode).then(() => {
+          showNotification('Код виджета с захватом экрана скопирован!', 'success');
         });
       });
       
