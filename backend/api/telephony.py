@@ -241,7 +241,7 @@ class StartOutboundCallRequest(BaseModel):
     assistant_type: str = Field(..., description="Тип ассистента: openai или gemini")
     first_phrase: Optional[str] = Field(None, description="Первая фраза (опционально)")
     mute_duration_ms: int = Field(default=3000, ge=0, le=10000, description="Время мьюта микрофона клиента (мс)")
-
+    task: Optional[str] = Field(None, description="Задача/контекст для звонка (инжектируется в начало промпта)")
 
 class StartOutboundCallResponse(BaseModel):
     """Ответ на запуск исходящих звонков"""
