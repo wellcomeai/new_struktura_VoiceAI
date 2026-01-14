@@ -1397,7 +1397,7 @@ class VoximplantPartnerService:
         task_title: Optional[str] = None,
         task_description: Optional[str] = None,
         custom_greeting: Optional[str] = None,
-        timezone: str = "Europe/Moscow"
+        timezone: str = "Europe/Moscow",
         task: Optional[str] = None
     ) -> Dict[str, Any]:
         """
