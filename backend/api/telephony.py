@@ -1826,6 +1826,7 @@ async def start_outbound_call(
                     caller_id=caller_id,
                     first_phrase=first_phrase,
                     mute_duration_ms=request.mute_duration_ms
+                    task=request.task
                 )
                 
                 if call_result.get("success"):
