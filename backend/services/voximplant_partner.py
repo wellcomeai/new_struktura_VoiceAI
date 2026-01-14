@@ -1398,6 +1398,7 @@ class VoximplantPartnerService:
         task_description: Optional[str] = None,
         custom_greeting: Optional[str] = None,
         timezone: str = "Europe/Moscow"
+        task: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         🆕 v3.0 + v3.1: Запустить исходящий звонок с полным контекстом CRM.
@@ -1436,6 +1437,7 @@ class VoximplantPartnerService:
             "task_description": task_description or "",
             "custom_greeting": custom_greeting or "",
             "timezone": timezone,
+            "task": task or "",
         }
         
         # Для обратной совместимости: first_phrase как fallback для custom_greeting
