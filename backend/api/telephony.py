@@ -1825,7 +1825,7 @@ async def start_outbound_call(
                     assistant_id=str(assistant.id),
                     caller_id=caller_id,
                     first_phrase=first_phrase,
-                    mute_duration_ms=request.mute_duration_ms
+                    mute_duration_ms=request.mute_duration_ms,
                     task=request.task
                 )
                 
