@@ -23,6 +23,7 @@ Routes:
     GET    /api/telephony/config             - Конфиг для сценария (публичный, inbound)
     GET    /api/telephony/outbound-config    - Конфиг для исходящего сценария (публичный)
     POST   /api/telephony/start-outbound-call - Запустить исходящий звонок
+    POST   /api/telephony/public/call        - 🆕 Публичный эндпоинт для исходящих звонков
     POST   /api/telephony/register-webhook   - Зарегистрировать webhook
     GET    /api/telephony/scenarios          - Список сценариев аккаунта
     POST   /api/telephony/setup-scenarios    - Настроить сценарии
@@ -49,6 +50,10 @@ Routes:
 ✅ v3.1: PHONE INFO - добавлена информация о номерах из Voximplant API:
          - phone_next_renewal - дата следующей оплаты
          - phone_price - стоимость аренды номера в месяц
+✅ v3.2: PUBLIC CALL API - публичный эндпоинт для внешних интеграций:
+         - POST /api/telephony/public/call - без авторизации
+         - Автоопределение типа ассистента
+         - Автовыбор caller_phone если не указан
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -110,6 +115,38 @@ def validate_phone_id(phone_id: any) -> Optional[str]:
 def normalize_phone_number(phone: str) -> str:
     """Нормализация номера телефона - только цифры."""
     return ''.join(filter(str.isdigit, phone))
+
+
+def find_assistant_by_id(db: Session, assistant_id: uuid.UUID) -> tuple[Any, str, uuid.UUID]:
+    """
+    Найти ассистента по UUID в обеих таблицах.
+    
+    Args:
+        db: Сессия БД
+        assistant_id: UUID ассистента
+        
+    Returns:
+        tuple[assistant, assistant_type, user_id] или raises HTTPException
+    """
+    # Сначала ищем в OpenAI
+    from backend.models.assistant import AssistantConfig
+    assistant = db.query(AssistantConfig).filter(
+        AssistantConfig.id == assistant_id
+    ).first()
+    
+    if assistant:
+        return assistant, "openai", assistant.user_id
+    
+    # Если не нашли - ищем в Gemini
+    from backend.models.gemini_assistant import GeminiAssistantConfig
+    assistant = db.query(GeminiAssistantConfig).filter(
+        GeminiAssistantConfig.id == assistant_id
+    ).first()
+    
+    if assistant:
+        return assistant, "gemini", assistant.user_id
+    
+    return None, None, None
 
 
 # =============================================================================
@@ -283,6 +320,32 @@ class OutboundConfigResponse(BaseModel):
     # Gemini
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
+
+
+# =============================================================================
+# 🆕 v3.2: PYDANTIC SCHEMAS ДЛЯ ПУБЛИЧНОГО API
+# =============================================================================
+
+class PublicCallRequest(BaseModel):
+    """
+    🆕 v3.2: Запрос на запуск исходящего звонка через публичный API.
+    
+    Не требует авторизации - assistant_id служит идентификатором.
+    """
+    assistant_id: str = Field(..., description="UUID ассистента (служит ключом доступа)")
+    target_phones: List[str] = Field(..., min_length=1, max_length=50, description="Список номеров для обзвона (до 50)")
+    caller_phone: Optional[str] = Field(None, description="Номер для caller_id. Если не указан - берётся первый доступный")
+    first_phrase: Optional[str] = Field(None, description="Первая фраза (опционально)")
+    mute_duration_ms: int = Field(default=3000, ge=0, le=10000, description="Время мьюта микрофона клиента (мс)")
+    task: Optional[str] = Field(None, description="Задача/контекст для звонка (инжектируется в начало промпта)")
+
+
+class PublicCallResponse(BaseModel):
+    """🆕 v3.2: Ответ на запуск исходящих звонков через публичный API."""
+    success: bool
+    message: str
+    started: int = 0
+    failed: int = 0
 
 
 # =============================================================================
@@ -1878,6 +1941,246 @@ async def start_outbound_call(
         )
     except Exception as e:
         logger.error(f"[TELEPHONY-OUTBOUND] Error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+# =============================================================================
+# 🆕 v3.2: ПУБЛИЧНЫЙ API ДЛЯ ИСХОДЯЩИХ ЗВОНКОВ
+# =============================================================================
+
+@router.post("/public/call", response_model=PublicCallResponse)
+async def public_outbound_call(
+    request: PublicCallRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    🆕 v3.2: Публичный эндпоинт для запуска исходящих звонков.
+    
+    ⚠️ НЕ требует авторизации - assistant_id служит ключом доступа.
+    
+    Автоматически определяет:
+    - Тип ассистента (openai/gemini)
+    - Пользователя по ассистенту
+    - Voximplant аккаунт
+    - Номер для caller_id (если не указан - берёт первый доступный)
+    
+    **Пример вызова:**
+    ```
+    curl -X POST "https://api.voicyfy.com/api/telephony/public/call" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "assistant_id": "550e8400-e29b-41d4-a716-446655440000",
+        "target_phones": ["+79161234567"],
+        "task": "Напомнить о встрече в 15:00"
+      }'
+    ```
+    """
+    try:
+        logger.info(f"[TELEPHONY-PUBLIC] Public call request")
+        logger.info(f"[TELEPHONY-PUBLIC]    Assistant ID: {request.assistant_id}")
+        logger.info(f"[TELEPHONY-PUBLIC]    Target phones: {len(request.target_phones)}")
+        logger.info(f"[TELEPHONY-PUBLIC]    Caller phone: {request.caller_phone or 'auto'}")
+        
+        # =====================================================================
+        # 1. Валидация и поиск ассистента
+        # =====================================================================
+        try:
+            assistant_uuid = uuid.UUID(request.assistant_id)
+        except ValueError:
+            logger.warning(f"[TELEPHONY-PUBLIC] Invalid assistant_id format: {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Неверный формат assistant_id"
+            )
+        
+        assistant, assistant_type, user_id = find_assistant_by_id(db, assistant_uuid)
+        
+        if not assistant:
+            logger.warning(f"[TELEPHONY-PUBLIC] Assistant not found: {request.assistant_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ассистент не найден"
+            )
+        
+        logger.info(f"[TELEPHONY-PUBLIC] Found assistant: {assistant.name} ({assistant_type})")
+        logger.info(f"[TELEPHONY-PUBLIC] User ID: {user_id}")
+        
+        # =====================================================================
+        # 2. Получаем Voximplant аккаунт пользователя
+        # =====================================================================
+        child_account = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == user_id
+        ).first()
+        
+        if not child_account:
+            logger.warning(f"[TELEPHONY-PUBLIC] No telephony account for user {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Телефония не подключена для этого ассистента"
+            )
+        
+        if not child_account.is_verified:
+            logger.warning(f"[TELEPHONY-PUBLIC] Account not verified: {child_account.vox_account_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Аккаунт телефонии не верифицирован"
+            )
+        
+        if not child_account.is_active:
+            logger.warning(f"[TELEPHONY-PUBLIC] Account not active: {child_account.vox_account_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Аккаунт телефонии неактивен"
+            )
+        
+        # =====================================================================
+        # 3. Проверяем наличие outbound rules
+        # =====================================================================
+        if not child_account.vox_rule_ids:
+            logger.warning(f"[TELEPHONY-PUBLIC] No outbound rules for account {child_account.vox_account_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Правила для исходящих звонков не настроены"
+            )
+        
+        rule_name = f"outbound_{assistant_type}"
+        rule_id = child_account.vox_rule_ids.get(rule_name)
+        
+        if not rule_id:
+            logger.warning(f"[TELEPHONY-PUBLIC] Rule '{rule_name}' not found")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Правило для {assistant_type} не найдено"
+            )
+        
+        # =====================================================================
+        # 4. Определяем caller_id
+        # =====================================================================
+        phone_record = None
+        
+        if request.caller_phone:
+            # Ищем указанный номер
+            normalized_caller = normalize_phone_number(request.caller_phone)
+            
+            for num in child_account.phone_numbers or []:
+                if not num.is_active:
+                    continue
+                normalized_num = normalize_phone_number(num.phone_number)
+                # Сравниваем по последним 10 цифрам
+                if normalized_num[-10:] == normalized_caller[-10:]:
+                    phone_record = num
+                    break
+            
+            if not phone_record:
+                logger.warning(f"[TELEPHONY-PUBLIC] Caller phone not found: {request.caller_phone}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Номер {request.caller_phone} не найден или неактивен"
+                )
+        else:
+            # Берём первый активный номер
+            for num in child_account.phone_numbers or []:
+                if num.is_active:
+                    phone_record = num
+                    break
+            
+            if not phone_record:
+                logger.warning(f"[TELEPHONY-PUBLIC] No active phone numbers for account {child_account.vox_account_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Нет доступных номеров для исходящих звонков"
+                )
+        
+        caller_id = phone_record.phone_number
+        logger.info(f"[TELEPHONY-PUBLIC] Using caller_id: {caller_id}")
+        
+        # =====================================================================
+        # 5. Определяем first_phrase
+        # =====================================================================
+        first_phrase = request.first_phrase
+        if not first_phrase and hasattr(assistant, 'greeting_message'):
+            first_phrase = assistant.greeting_message
+        
+        # =====================================================================
+        # 6. Запускаем звонки
+        # =====================================================================
+        service = get_voximplant_partner_service()
+        
+        started_count = 0
+        failed_count = 0
+        
+        for target_phone in request.target_phones:
+            # Нормализуем номер
+            normalized_target = normalize_phone_number(target_phone)
+            
+            # Форматируем для звонка
+            if not target_phone.startswith("+"):
+                target_phone_formatted = f"+{normalized_target}"
+            else:
+                target_phone_formatted = target_phone
+            
+            logger.info(f"[TELEPHONY-PUBLIC] Calling {target_phone_formatted}...")
+            
+            try:
+                call_result = await service.start_outbound_call(
+                    child_account_id=child_account.vox_account_id,
+                    child_api_key=child_account.vox_api_key,
+                    rule_id=int(rule_id),
+                    phone_number=target_phone_formatted,
+                    assistant_id=str(assistant.id),
+                    caller_id=caller_id,
+                    first_phrase=first_phrase,
+                    mute_duration_ms=request.mute_duration_ms,
+                    task=request.task
+                )
+                
+                if call_result.get("success"):
+                    started_count += 1
+                    logger.info(f"[TELEPHONY-PUBLIC] ✅ Started call to {target_phone}")
+                else:
+                    failed_count += 1
+                    logger.error(f"[TELEPHONY-PUBLIC] ❌ Failed call to {target_phone}: {call_result.get('error')}")
+                    
+            except Exception as call_error:
+                failed_count += 1
+                logger.error(f"[TELEPHONY-PUBLIC] ❌ Exception for {target_phone}: {call_error}")
+        
+        # =====================================================================
+        # 7. Формируем ответ
+        # =====================================================================
+        total = len(request.target_phones)
+        logger.info(f"[TELEPHONY-PUBLIC] ✅ Completed: {started_count}/{total} started, {failed_count} failed")
+        
+        if started_count == 0:
+            return PublicCallResponse(
+                success=False,
+                message=f"Не удалось запустить звонки (0 из {total})",
+                started=0,
+                failed=failed_count
+            )
+        
+        if failed_count > 0:
+            return PublicCallResponse(
+                success=True,
+                message=f"Запущено {started_count} из {total} звонков",
+                started=started_count,
+                failed=failed_count
+            )
+        
+        return PublicCallResponse(
+            success=True,
+            message=f"Запущено {started_count} звонков",
+            started=started_count,
+            failed=0
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-PUBLIC] Error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
