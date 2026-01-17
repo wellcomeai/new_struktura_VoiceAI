@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<!-- /static/api-docs.html -->
+<!-- ✅ ВЕРСИЯ 1.0: API Документация Voicyfy -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Документация | Voicyfy</title>
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* ========================================
+       ОСНОВНЫЕ СТИЛИ (из фирменного стиля)
+       ======================================== */
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --accent-blue: #4a86e8;
+      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --radius-full: 9999px;
+      --transition-sm: all 0.2s ease;
+      --transition-md: all 0.3s ease;
+      --green-500: #10b981;
+      --green-100: rgba(16, 185, 129, 0.1);
+      --orange-500: #f97316;
+      --orange-100: rgba(249, 115, 22, 0.1);
+      --red-500: #ef4444;
+      --red-100: rgba(239, 68, 68, 0.1);
+      --purple-500: #8b5cf6;
+      --purple-100: rgba(139, 92, 246, 0.1);
+      --code-bg: #1e293b;
+      --code-text: #e2e8f0;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    body {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.6;
+    }
+
+    /* ========================================
+       ШАПКА
+       ======================================== */
+    .header {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      color: var(--text-dark);
+      font-weight: 700;
+      font-size: 1.25rem;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .header-title {
+      font-size: 1rem;
+      color: var(--text-gray);
+      padding-left: 1.5rem;
+      border-left: 1px solid var(--border-color);
+    }
+
+    .header-nav {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .header-nav a {
+      color: var(--text-gray);
+      text-decoration: none;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: var(--transition-sm);
+    }
+
+    .header-nav a:hover {
+      background-color: var(--bg-light);
+      color: var(--primary-blue);
+    }
+
+    .mobile-menu-btn {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      cursor: pointer;
+    }
+
+    /* ========================================
+       ОСНОВНОЙ LAYOUT
+       ======================================== */
+    .main-container {
+      display: flex;
+      flex: 1;
+    }
+
+    /* ========================================
+       САЙДБАР
+       ======================================== */
+    .sidebar {
+      width: 280px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      padding: 1.5rem 0;
+      position: sticky;
+      top: 65px;
+      height: calc(100vh - 65px);
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.5rem;
+      margin-top: 1.5rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+
+    .sidebar-section:first-child {
+      margin-top: 0;
+    }
+
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      padding: 0.625rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+      border-left: 3px solid transparent;
+    }
+
+    .sidebar-item:hover {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+    }
+
+    .sidebar-item.active {
+      background-color: var(--bg-blue-light);
+      color: var(--primary-blue);
+      border-left-color: var(--primary-blue);
+      font-weight: 500;
+    }
+
+    .sidebar-item i {
+      margin-right: 0.75rem;
+      width: 18px;
+      text-align: center;
+      font-size: 0.875rem;
+    }
+
+    .method-badge {
+      font-size: 0.625rem;
+      font-weight: 700;
+      padding: 0.125rem 0.375rem;
+      border-radius: var(--radius-md);
+      margin-left: auto;
+      text-transform: uppercase;
+    }
+
+    .method-badge.post {
+      background-color: var(--green-100);
+      color: var(--green-500);
+    }
+
+    .method-badge.get {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+
+    .sidebar-item.coming-soon {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .sidebar-item.coming-soon::after {
+      content: "скоро";
+      font-size: 0.625rem;
+      background-color: var(--orange-100);
+      color: var(--orange-500);
+      padding: 0.125rem 0.375rem;
+      border-radius: var(--radius-full);
+      margin-left: auto;
+    }
+
+    /* ========================================
+       КОНТЕНТ
+       ======================================== */
+    .content {
+      flex: 1;
+      padding: 2rem 3rem;
+      max-width: 900px;
+    }
+
+    .endpoint-header {
+      margin-bottom: 2rem;
+    }
+
+    .endpoint-method-url {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .method-tag {
+      font-size: 0.875rem;
+      font-weight: 700;
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-md);
+      text-transform: uppercase;
+    }
+
+    .method-tag.post {
+      background-color: var(--green-500);
+      color: var(--white);
+    }
+
+    .endpoint-url {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 1rem;
+      color: var(--text-dark);
+      background-color: var(--bg-light);
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .endpoint-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      color: var(--text-dark);
+    }
+
+    .endpoint-description {
+      color: var(--text-gray);
+      font-size: 1rem;
+      line-height: 1.7;
+    }
+
+    /* ========================================
+       СЕКЦИИ КОНТЕНТА
+       ======================================== */
+    .content-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .section-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .section-title i {
+      color: var(--primary-blue);
+    }
+
+    .section-body {
+      padding: 1.5rem;
+    }
+
+    /* ========================================
+       ТАБЛИЦА ПАРАМЕТРОВ
+       ======================================== */
+    .params-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .params-table th,
+    .params-table td {
+      text-align: left;
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .params-table th {
+      background-color: var(--bg-light);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-gray);
+    }
+
+    .params-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .param-name {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.875rem;
+      color: var(--primary-blue);
+      font-weight: 500;
+    }
+
+    .param-type {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      background-color: var(--bg-light);
+      padding: 0.125rem 0.5rem;
+      border-radius: var(--radius-full);
+      display: inline-block;
+    }
+
+    .param-required {
+      font-size: 0.625rem;
+      font-weight: 600;
+      padding: 0.125rem 0.375rem;
+      border-radius: var(--radius-full);
+      text-transform: uppercase;
+    }
+
+    .param-required.required {
+      background-color: var(--red-100);
+      color: var(--red-500);
+    }
+
+    .param-required.optional {
+      background-color: var(--bg-light);
+      color: var(--text-light);
+    }
+
+    .param-description {
+      font-size: 0.875rem;
+      color: var(--text-gray);
+    }
+
+    .param-default {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-top: 0.25rem;
+    }
+
+    /* ========================================
+       БЛОКИ КОДА
+       ======================================== */
+    .code-block {
+      position: relative;
+      background-color: var(--code-bg);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      background-color: rgba(0, 0, 0, 0.2);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .code-lang {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      color: var(--text-light);
+      cursor: pointer;
+      font-size: 0.875rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: var(--radius-md);
+      transition: var(--transition-sm);
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .copy-btn:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: var(--white);
+    }
+
+    .copy-btn.copied {
+      color: var(--green-500);
+    }
+
+    .code-content {
+      padding: 1rem 1.25rem;
+      overflow-x: auto;
+    }
+
+    .code-content pre {
+      margin: 0;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      color: var(--code-text);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Подсветка синтаксиса */
+    .code-string { color: #a5d6ff; }
+    .code-key { color: #7ee787; }
+    .code-number { color: #f9826c; }
+    .code-boolean { color: #ff7b72; }
+    .code-comment { color: #8b949e; }
+
+    /* ========================================
+       ПРИМЕРЫ ОТВЕТОВ
+       ======================================== */
+    .response-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .response-tab {
+      padding: 0.5rem 1rem;
+      border: none;
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: var(--transition-sm);
+      display: flex;
+      align-items: center;
+      gap: 0.375rem;
+    }
+
+    .response-tab:hover {
+      background-color: var(--border-color);
+    }
+
+    .response-tab.active {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+
+    .response-tab.success.active {
+      background-color: var(--green-500);
+    }
+
+    .response-tab.error.active {
+      background-color: var(--red-500);
+    }
+
+    .response-content {
+      display: none;
+    }
+
+    .response-content.active {
+      display: block;
+    }
+
+    /* ========================================
+       ИНТЕРАКТИВНЫЙ ТЕСТЕР
+       ======================================== */
+    .tester-warning {
+      background-color: var(--orange-100);
+      border: 1px solid var(--orange-500);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .tester-warning i {
+      color: var(--orange-500);
+      font-size: 1.25rem;
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+
+    .tester-warning-text {
+      font-size: 0.875rem;
+      color: var(--text-dark);
+    }
+
+    .tester-warning-text strong {
+      color: var(--orange-500);
+    }
+
+    .tester-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .form-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-dark);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .form-label .required-mark {
+      color: var(--red-500);
+    }
+
+    .form-label .optional-mark {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      font-weight: 400;
+    }
+
+    .form-input {
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      transition: var(--transition-sm);
+      font-family: inherit;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary-blue-light);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+    }
+
+    .form-input::placeholder {
+      color: var(--text-light);
+    }
+
+    .form-hint {
+      font-size: 0.75rem;
+      color: var(--text-light);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .tester-submit {
+      display: flex;
+      gap: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: var(--transition-sm);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+    }
+
+    .btn-primary {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-blue-dark);
+    }
+
+    .btn-primary:disabled {
+      background-color: var(--text-light);
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--border-color);
+    }
+
+    /* Результат тестера */
+    .tester-result {
+      margin-top: 1.5rem;
+      display: none;
+    }
+
+    .tester-result.show {
+      display: block;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .result-status {
+      font-size: 0.875rem;
+      font-weight: 600;
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-full);
+    }
+
+    .result-status.success {
+      background-color: var(--green-100);
+      color: var(--green-500);
+    }
+
+    .result-status.error {
+      background-color: var(--red-100);
+      color: var(--red-500);
+    }
+
+    .result-time {
+      font-size: 0.75rem;
+      color: var(--text-light);
+    }
+
+    /* ========================================
+       АДАПТИВНЫЙ ДИЗАЙН
+       ======================================== */
+    @media (max-width: 1024px) {
+      .content {
+        padding: 1.5rem 2rem;
+      }
+
+      .sidebar {
+        width: 240px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .header {
+        padding: 1rem;
+      }
+
+      .header-title {
+        display: none;
+      }
+
+      .header-nav {
+        display: none;
+      }
+
+      .mobile-menu-btn {
+        display: block;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: -100%;
+        top: 0;
+        height: 100vh;
+        z-index: 200;
+        transition: var(--transition-md);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .sidebar.open {
+        left: 0;
+      }
+
+      .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        z-index: 150;
+      }
+
+      .sidebar-overlay.show {
+        display: block;
+      }
+
+      .content {
+        padding: 1.5rem 1rem;
+      }
+
+      .endpoint-method-url {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+
+      .endpoint-url {
+        font-size: 0.8125rem;
+        word-break: break-all;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .params-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .endpoint-title {
+        font-size: 1.375rem;
+      }
+
+      .section-body {
+        padding: 1rem;
+      }
+
+      .code-content {
+        padding: 0.75rem 1rem;
+      }
+
+      .code-content pre {
+        font-size: 0.75rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Шапка -->
+  <header class="header">
+    <div class="header-left">
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" onerror="this.parentElement.innerHTML='<i class=\'fas fa-robot\' style=\'color: var(--primary-blue);\'></i>'">
+        </div>
+        <span>Voicyfy</span>
+      </a>
+      <span class="header-title">API Документация</span>
+    </div>
+
+    <nav class="header-nav">
+    </nav>
+
+    <button class="mobile-menu-btn" id="mobile-menu-btn">
+      <i class="fas fa-bars"></i>
+    </button>
+  </header>
+
+  <!-- Overlay для мобильного меню -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="main-container">
+    <!-- Сайдбар -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">Звонки</div>
+      <a href="#public-call" class="sidebar-item active">
+        <i class="fas fa-phone-alt"></i> /public/call
+        <span class="method-badge post">POST</span>
+      </a>
+
+    </aside>
+
+    <!-- Основной контент -->
+    <main class="content">
+      <!-- Заголовок эндпоинта -->
+      <div class="endpoint-header" id="public-call">
+        <div class="endpoint-method-url">
+          <span class="method-tag post">POST</span>
+          <code class="endpoint-url">/api/telephony/public/call</code>
+        </div>
+        <h1 class="endpoint-title">Запуск исходящего звонка</h1>
+        <p class="endpoint-description">
+          Публичный эндпоинт для запуска исходящих звонков через вашего AI-ассистента. 
+          Не требует авторизации — <code>assistant_id</code> служит ключом доступа. 
+          Идеально подходит для интеграции с CRM, планировщиками задач и другими внешними системами.
+        </p>
+      </div>
+
+      <!-- Параметры запроса -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-list"></i> Параметры запроса
+          </h2>
+        </div>
+        <div class="section-body" style="padding: 0;">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th>Параметр</th>
+                <th>Тип</th>
+                <th>Обязательный</th>
+                <th>Описание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-name">assistant_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><span class="param-required required">Да</span></td>
+                <td>
+                  <div class="param-description">UUID вашего ассистента. Служит ключом доступа к API.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">target_phones</span></td>
+                <td><span class="param-type">array</span></td>
+                <td><span class="param-required required">Да</span></td>
+                <td>
+                  <div class="param-description">Список номеров телефонов для обзвона. Максимум 50 номеров за запрос.</div>
+                  <div class="param-default">Формат: +79161234567</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">caller_phone</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><span class="param-required optional">Нет</span></td>
+                <td>
+                  <div class="param-description">Номер для Caller ID (с какого номера звоним).</div>
+                  <div class="param-default">По умолчанию: первый доступный номер аккаунта</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">first_phrase</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><span class="param-required optional">Нет</span></td>
+                <td>
+                  <div class="param-description">Первая фраза, которую скажет ассистент.</div>
+                  <div class="param-default">По умолчанию: приветствие из настроек ассистента</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">task</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><span class="param-required optional">Нет</span></td>
+                <td>
+                  <div class="param-description">Задача или контекст для звонка. Добавляется в начало промпта ассистента.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">mute_duration_ms</span></td>
+                <td><span class="param-type">integer</span></td>
+                <td><span class="param-required optional">Нет</span></td>
+                <td>
+                  <div class="param-description">Время мьюта микрофона клиента в миллисекундах (0-10000).</div>
+                  <div class="param-default">По умолчанию: 3000</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Пример запроса -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-code"></i> Пример запроса
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">curl</span>
+              <button class="copy-btn" onclick="copyCode(this, 'curl-example')">
+                <i class="fas fa-copy"></i> Копировать
+              </button>
+            </div>
+            <div class="code-content">
+              <pre id="curl-example">curl -X POST "https://api.voicyfy.com/api/telephony/public/call" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "assistant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "target_phones": ["+79161234567"],
+    "task": "Напомнить о встрече в 15:00"
+  }'</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Примеры ответов -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-reply"></i> Примеры ответов
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="response-tabs">
+            <button class="response-tab success active" onclick="showResponse('success')">
+              <i class="fas fa-check-circle"></i> Успех (200)
+            </button>
+            <button class="response-tab error" onclick="showResponse('error-404')">
+              <i class="fas fa-times-circle"></i> Ошибка 404
+            </button>
+            <button class="response-tab error" onclick="showResponse('error-400')">
+              <i class="fas fa-times-circle"></i> Ошибка 400
+            </button>
+          </div>
+
+          <div class="response-content active" id="response-success">
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">JSON</span>
+                <button class="copy-btn" onclick="copyCode(this, 'response-success-code')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="response-success-code">{
+  <span class="code-key">"success"</span>: <span class="code-boolean">true</span>,
+  <span class="code-key">"message"</span>: <span class="code-string">"Запущено 1 звонков"</span>,
+  <span class="code-key">"started"</span>: <span class="code-number">1</span>,
+  <span class="code-key">"failed"</span>: <span class="code-number">0</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="response-content" id="response-error-404">
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">JSON</span>
+                <button class="copy-btn" onclick="copyCode(this, 'response-404-code')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="response-404-code">{
+  <span class="code-key">"detail"</span>: <span class="code-string">"Ассистент не найден"</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="response-content" id="response-error-400">
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">JSON</span>
+                <button class="copy-btn" onclick="copyCode(this, 'response-400-code')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="response-400-code">{
+  <span class="code-key">"detail"</span>: <span class="code-string">"Телефония не подключена для этого ассистента"</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Интерактивный тестер -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-flask"></i> Тестер API
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="tester-warning">
+            <i class="fas fa-exclamation-triangle"></i>
+            <div class="tester-warning-text">
+              <strong>Внимание!</strong> Это отправит реальный запрос и запустит настоящий звонок. 
+              Убедитесь, что указан корректный номер телефона и вы готовы принять звонок.
+            </div>
+          </div>
+
+          <form class="tester-form" id="tester-form">
+            <div class="form-group">
+              <label class="form-label">
+                assistant_id <span class="required-mark">*</span>
+              </label>
+              <input 
+                type="text" 
+                class="form-input" 
+                id="test-assistant-id"
+                placeholder="550e8400-e29b-41d4-a716-446655440000"
+                required
+              >
+              <span class="form-hint">UUID вашего ассистента из личного кабинета</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                target_phones <span class="required-mark">*</span>
+              </label>
+              <input 
+                type="text" 
+                class="form-input" 
+                id="test-target-phones"
+                placeholder="+79161234567"
+                required
+              >
+              <span class="form-hint">Номер телефона для звонка (с кодом страны)</span>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">
+                  caller_phone <span class="optional-mark">(опционально)</span>
+                </label>
+                <input 
+                  type="text" 
+                  class="form-input" 
+                  id="test-caller-phone"
+                  placeholder="+79160000000"
+                >
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">
+                  first_phrase <span class="optional-mark">(опционально)</span>
+                </label>
+                <input 
+                  type="text" 
+                  class="form-input" 
+                  id="test-first-phrase"
+                  placeholder="Здравствуйте!"
+                >
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                task <span class="optional-mark">(опционально)</span>
+              </label>
+              <input 
+                type="text" 
+                class="form-input" 
+                id="test-task"
+                placeholder="Напомнить о встрече в 15:00"
+              >
+              <span class="form-hint">Контекст или задача для звонка</span>
+            </div>
+
+            <div class="tester-submit">
+              <button type="submit" class="btn btn-primary" id="test-submit-btn">
+                <i class="fas fa-paper-plane"></i> Отправить запрос
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="clearTesterForm()">
+                <i class="fas fa-eraser"></i> Очистить
+              </button>
+            </div>
+          </form>
+
+          <!-- Результат тестера -->
+          <div class="tester-result" id="tester-result">
+            <div class="result-header">
+              <span class="result-status" id="result-status">200 OK</span>
+              <span class="result-time" id="result-time">123 мс</span>
+            </div>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">Response</span>
+                <button class="copy-btn" onclick="copyCode(this, 'result-json')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="result-json"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // ========================================
+    // МОБИЛЬНОЕ МЕНЮ
+    // ========================================
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+    mobileMenuBtn.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
+      sidebarOverlay.classList.toggle('show');
+    });
+
+    sidebarOverlay.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      sidebarOverlay.classList.remove('show');
+    });
+
+    // ========================================
+    // КОПИРОВАНИЕ КОДА
+    // ========================================
+    function copyCode(button, codeId) {
+      const codeElement = document.getElementById(codeId);
+      const text = codeElement.textContent;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        const icon = button.querySelector('i');
+        const originalHTML = button.innerHTML;
+        
+        button.innerHTML = '<i class="fas fa-check"></i> Скопировано';
+        button.classList.add('copied');
+        
+        setTimeout(() => {
+          button.innerHTML = originalHTML;
+          button.classList.remove('copied');
+        }, 2000);
+      }).catch(err => {
+        console.error('Ошибка копирования:', err);
+      });
+    }
+
+    // ========================================
+    // ПЕРЕКЛЮЧЕНИЕ ОТВЕТОВ
+    // ========================================
+    function showResponse(type) {
+      // Убираем активный класс со всех табов и контента
+      document.querySelectorAll('.response-tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.response-content').forEach(content => content.classList.remove('active'));
+      
+      // Активируем нужный таб и контент
+      event.target.closest('.response-tab').classList.add('active');
+      document.getElementById('response-' + type).classList.add('active');
+    }
+
+    // ========================================
+    // ТЕСТЕР API
+    // ========================================
+    const testerForm = document.getElementById('tester-form');
+    const testerResult = document.getElementById('tester-result');
+    const resultStatus = document.getElementById('result-status');
+    const resultTime = document.getElementById('result-time');
+    const resultJson = document.getElementById('result-json');
+    const submitBtn = document.getElementById('test-submit-btn');
+
+    testerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      // Собираем данные формы
+      const assistantId = document.getElementById('test-assistant-id').value.trim();
+      const targetPhones = document.getElementById('test-target-phones').value.trim();
+      const callerPhone = document.getElementById('test-caller-phone').value.trim();
+      const firstPhrase = document.getElementById('test-first-phrase').value.trim();
+      const task = document.getElementById('test-task').value.trim();
+
+      if (!assistantId || !targetPhones) {
+        alert('Заполните обязательные поля: assistant_id и target_phones');
+        return;
+      }
+
+      // Формируем тело запроса
+      const requestBody = {
+        assistant_id: assistantId,
+        target_phones: [targetPhones]
+      };
+
+      if (callerPhone) requestBody.caller_phone = callerPhone;
+      if (firstPhrase) requestBody.first_phrase = firstPhrase;
+      if (task) requestBody.task = task;
+
+      // Блокируем кнопку
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Отправка...';
+
+      const startTime = performance.now();
+
+      try {
+        const response = await fetch('/api/telephony/public/call', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        const endTime = performance.now();
+        const duration = Math.round(endTime - startTime);
+
+        const data = await response.json();
+
+        // Показываем результат
+        testerResult.classList.add('show');
+        resultTime.textContent = duration + ' мс';
+
+        if (response.ok) {
+          resultStatus.textContent = response.status + ' OK';
+          resultStatus.className = 'result-status success';
+        } else {
+          resultStatus.textContent = response.status + ' Error';
+          resultStatus.className = 'result-status error';
+        }
+
+        // Форматируем JSON с подсветкой
+        resultJson.innerHTML = formatJSON(data);
+
+      } catch (error) {
+        const endTime = performance.now();
+        const duration = Math.round(endTime - startTime);
+
+        testerResult.classList.add('show');
+        resultTime.textContent = duration + ' мс';
+        resultStatus.textContent = 'Ошибка сети';
+        resultStatus.className = 'result-status error';
+        resultJson.innerHTML = formatJSON({ error: error.message });
+      }
+
+      // Разблокируем кнопку
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить запрос';
+    });
+
+    function clearTesterForm() {
+      testerForm.reset();
+      testerResult.classList.remove('show');
+    }
+
+    // ========================================
+    // ФОРМАТИРОВАНИЕ JSON С ПОДСВЕТКОЙ
+    // ========================================
+    function formatJSON(obj) {
+      const json = JSON.stringify(obj, null, 2);
+      
+      return json
+        .replace(/"([^"]+)":/g, '<span class="code-key">"$1"</span>:')
+        .replace(/: "([^"]+)"/g, ': <span class="code-string">"$1"</span>')
+        .replace(/: (\d+)/g, ': <span class="code-number">$1</span>')
+        .replace(/: (true|false)/g, ': <span class="code-boolean">$1</span>')
+        .replace(/: (null)/g, ': <span class="code-boolean">$1</span>');
+    }
+
+    // ========================================
+    // ПЛАВНЫЙ СКРОЛЛ ДЛЯ ЯКОРЕЙ
+    // ========================================
+    document.querySelectorAll('.sidebar-item[href^="#"]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        const href = link.getAttribute('href');
+        if (href && href !== '#') {
+          e.preventDefault();
+          const target = document.querySelector(href);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+        
+        // Закрываем мобильное меню
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('show');
+      });
+    });
+  </script>
+</body>
+</html>
