@@ -1,4 +1,4 @@
-# backend/api/voximplant.py - Production Version 3.3
+# backend/api/voximplant.py - Production Version 3.4
 
 """
 Voximplant API endpoints для WellcomeAI, обновленные для гибкой архитектуры.
@@ -7,6 +7,7 @@ Voximplant API endpoints для WellcomeAI, обновленные для гиб
 🆕 v3.1: Phone normalization and call direction extraction
 🆕 v3.2: Support for both OpenAI and Gemini assistants in logging
 🆕 v3.3: Cloudflare R2 Storage for permanent call recordings
+🆕 v3.4: Service Account JWT авторизация для secure записей Voximplant
 """
 
 from fastapi import APIRouter, WebSocket, Depends, Query, HTTPException, status, Header, Body
@@ -21,14 +22,15 @@ from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.assistant import AssistantConfig
-from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
+from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.user import User
 from backend.models.conversation import Conversation
+from backend.models.voximplant_child import VoximplantChildAccount  # 🆕 v3.4
 from backend.services.user_service import UserService
 from backend.functions import get_function_definitions, get_enabled_functions, normalize_function_name, execute_function
 from backend.services.google_sheets_service import GoogleSheetsService
 from backend.services.conversation_service import ConversationService
-from backend.services.r2_storage import R2StorageService  # 🆕 v3.3
+from backend.services.r2_storage import R2StorageService
 
 logger = get_logger(__name__)
 
@@ -37,7 +39,7 @@ router = APIRouter()
 
 
 # =============================================================================
-# 🆕 v3.2: HELPER FUNCTION - Найти ассистента любого типа
+# HELPER FUNCTION - Найти ассистента любого типа
 # =============================================================================
 
 def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
@@ -354,7 +356,6 @@ async def execute_assistant_function(
 ):
     """
     Выполняет функцию для ассистента из Voximplant по ID функции.
-    🆕 v3.2: Поддержка OpenAI и Gemini ассистентов
     """
     try:
         function_id = request_data.get("function_id")
@@ -384,7 +385,7 @@ async def execute_assistant_function(
                 "status": "error"
             }
         
-        # 🆕 v3.2: Загружаем ассистента (OpenAI или Gemini)
+        # Загружаем ассистента (OpenAI или Gemini)
         assistant, assistant_type = find_assistant_by_id(db, assistant_id)
             
         if not assistant:
@@ -423,7 +424,7 @@ async def execute_assistant_function(
             # Подготавливаем контекст выполнения
             context = {
                 "assistant_config": assistant,
-                "assistant_type": assistant_type,  # 🆕 v3.2
+                "assistant_type": assistant_type,
                 "client_id": call_data.get("chat_id", f"voximplant_{call_data.get('call_id', uuid.uuid4())}"),
                 "db_session": db,
                 "call_data": call_data
@@ -590,7 +591,75 @@ async def voximplant_transcript_webhook(
 
 
 # =============================================================================
-# 🆕 v3.3: ГЛАВНЫЙ ЭНДПОИНТ /log С ПОДДЕРЖКОЙ R2 STORAGE
+# 🆕 v3.4: HELPER - Получение Service Account credentials
+# =============================================================================
+
+def get_voximplant_credentials(db: Session, user_id: uuid.UUID) -> Optional[Dict[str, Any]]:
+    """
+    🆕 v3.4: Получает Service Account credentials для пользователя.
+    
+    Находит дочерний аккаунт Voximplant и извлекает credentials
+    для JWT авторизации при скачивании secure записей.
+    
+    Args:
+        db: Сессия БД
+        user_id: UUID пользователя (владельца ассистента)
+        
+    Returns:
+        Dict с credentials или None
+        {
+            "account_id": int,
+            "key_id": str,
+            "private_key": str
+        }
+    """
+    try:
+        # Находим дочерний аккаунт по user_id
+        child_account = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == user_id
+        ).first()
+        
+        if not child_account:
+            logger.warning(f"[VOXIMPLANT-v3.4] No child account found for user {user_id}")
+            return None
+        
+        # Проверяем наличие Service Account credentials
+        if not child_account.vox_service_account_key:
+            logger.warning(f"[VOXIMPLANT-v3.4] No Service Account credentials for account {child_account.vox_account_id}")
+            logger.warning(f"[VOXIMPLANT-v3.4] Run admin/setup-service-accounts to create them")
+            return None
+        
+        # Парсим JSON с credentials
+        try:
+            credentials = json.loads(child_account.vox_service_account_key)
+            
+            # Валидируем обязательные поля
+            if not credentials.get("account_id"):
+                logger.error(f"[VOXIMPLANT-v3.4] Missing account_id in credentials")
+                return None
+            if not credentials.get("key_id"):
+                logger.error(f"[VOXIMPLANT-v3.4] Missing key_id in credentials")
+                return None
+            if not credentials.get("private_key"):
+                logger.error(f"[VOXIMPLANT-v3.4] Missing private_key in credentials")
+                return None
+            
+            logger.info(f"[VOXIMPLANT-v3.4] ✅ Loaded credentials for child account {child_account.vox_account_id}")
+            logger.info(f"[VOXIMPLANT-v3.4]    Key ID: {credentials.get('key_id')}")
+            
+            return credentials
+            
+        except json.JSONDecodeError as json_error:
+            logger.error(f"[VOXIMPLANT-v3.4] Failed to parse credentials JSON: {json_error}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"[VOXIMPLANT-v3.4] Error getting credentials: {e}")
+        return None
+
+
+# =============================================================================
+# 🆕 v3.4: ГЛАВНЫЙ ЭНДПОИНТ /log С ПОДДЕРЖКОЙ SERVICE ACCOUNT JWT
 # =============================================================================
 
 @router.post("/log")
@@ -605,6 +674,7 @@ async def log_conversation_data(
     🆕 v3.1: Извлекает call_direction из caller_number и нормализует номер
     🆕 v3.2: Поддержка OpenAI И Gemini ассистентов
     🆕 v3.3: Сохранение записей звонков в Cloudflare R2
+    🆕 v3.4: Service Account JWT авторизация для secure записей
     
     Формат запроса:
     {
@@ -612,7 +682,7 @@ async def log_conversation_data(
         "chat_id": "string",
         "call_id": "string",
         "caller_number": "string",  // Номер телефона с префиксом INBOUND:/OUTBOUND:
-        "record_url": "string",     // 🆕 v3.3: Временный URL записи от Voximplant
+        "record_url": "string",     // Временный URL записи от Voximplant
         "type": "conversation",
         "data": {
             "user_message": "string",
@@ -626,22 +696,22 @@ async def log_conversation_data(
         chat_id = request_data.get("chat_id")
         call_id = request_data.get("call_id")
         caller_number = request_data.get("caller_number")
-        record_url = request_data.get("record_url")  # 🆕 v3.3
+        record_url = request_data.get("record_url")
         data_type = request_data.get("type", "general")
         data = request_data.get("data", {})
         
-        logger.info(f"[VOXIMPLANT-v3.3] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(f"[VOXIMPLANT-v3.3] 📥 Получены данные для логирования:")
-        logger.info(f"[VOXIMPLANT-v3.3]   📋 Тип: {data_type}")
-        logger.info(f"[VOXIMPLANT-v3.3]   🆔 Assistant ID: {assistant_id}")
-        logger.info(f"[VOXIMPLANT-v3.3]   💬 Chat ID: {chat_id}")
-        logger.info(f"[VOXIMPLANT-v3.3]   📞 Call ID: {call_id}")
-        logger.info(f"[VOXIMPLANT-v3.3]   📱 Caller Number (raw): {caller_number}")
-        logger.info(f"[VOXIMPLANT-v3.3]   🎙️ Record URL: {'✅ Есть' if record_url else '❌ Нет'}")
-        logger.info(f"[VOXIMPLANT-v3.3] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.4] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.4] 📥 Получены данные для логирования:")
+        logger.info(f"[VOXIMPLANT-v3.4]   📋 Тип: {data_type}")
+        logger.info(f"[VOXIMPLANT-v3.4]   🆔 Assistant ID: {assistant_id}")
+        logger.info(f"[VOXIMPLANT-v3.4]   💬 Chat ID: {chat_id}")
+        logger.info(f"[VOXIMPLANT-v3.4]   📞 Call ID: {call_id}")
+        logger.info(f"[VOXIMPLANT-v3.4]   📱 Caller Number (raw): {caller_number}")
+        logger.info(f"[VOXIMPLANT-v3.4]   🎙️ Record URL: {'✅ Есть' if record_url else '❌ Нет'}")
+        logger.info(f"[VOXIMPLANT-v3.4] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         if not assistant_id or not (chat_id or call_id):
-            logger.warning("[VOXIMPLANT-v3.3] ❌ Отсутствуют обязательные параметры")
+            logger.warning("[VOXIMPLANT-v3.4] ❌ Отсутствуют обязательные параметры")
             return {
                 "success": False,
                 "message": "Missing required parameters (assistant_id and chat_id/call_id)"
@@ -649,17 +719,17 @@ async def log_conversation_data(
         
         # Если тип данных - разговор, сохраняем и в Sheets и в БД
         if data_type == "conversation":
-            # 🆕 v3.2: Получаем ассистента (проверяем ОБА типа)
+            # Получаем ассистента (проверяем ОБА типа)
             assistant, assistant_type = find_assistant_by_id(db, assistant_id)
             
             if not assistant:
-                logger.error(f"[VOXIMPLANT-v3.3] ❌ Ассистент не найден ни в OpenAI, ни в Gemini: {assistant_id}")
+                logger.error(f"[VOXIMPLANT-v3.4] ❌ Ассистент не найден ни в OpenAI, ни в Gemini: {assistant_id}")
                 return {
                     "success": False,
                     "message": "Assistant not found in any table"
                 }
             
-            logger.info(f"[VOXIMPLANT-v3.3] ✅ Найден ассистент типа {assistant_type}: {assistant.name}")
+            logger.info(f"[VOXIMPLANT-v3.4] ✅ Найден ассистент типа {assistant_type}: {assistant.name}")
             
             # Получаем данные сообщений
             user_message = data.get("user_message", "")
@@ -667,11 +737,11 @@ async def log_conversation_data(
             function_result = data.get("function_result")
             
             # Логируем длину сообщений
-            logger.info(f"[VOXIMPLANT-v3.3] 📏 Длина сообщения пользователя: {len(user_message)} символов")
-            logger.info(f"[VOXIMPLANT-v3.3] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
+            logger.info(f"[VOXIMPLANT-v3.4] 📏 Длина сообщения пользователя: {len(user_message)} символов")
+            logger.info(f"[VOXIMPLANT-v3.4] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
             
             if not user_message and not assistant_message:
-                logger.warning("[VOXIMPLANT-v3.3] ⚠️ Пустые сообщения для логирования, пропускаем")
+                logger.warning("[VOXIMPLANT-v3.4] ⚠️ Пустые сообщения для логирования, пропускаем")
                 return {
                     "success": False,
                     "message": "Empty messages, logging skipped"
@@ -680,56 +750,70 @@ async def log_conversation_data(
             # Определяем conversation_id (приоритет - call_id, fallback - chat_id)
             conversation_id = call_id or chat_id
             
-            # 🆕 v3.1: ИЗВЛЕКАЕМ направление звонка и нормализуем номер
+            # Извлекаем направление звонка и нормализуем номер
             call_direction = ConversationService._extract_call_direction(caller_number)
             normalized_phone = ConversationService._normalize_phone(caller_number) if caller_number else "unknown"
             
-            logger.info(f"[VOXIMPLANT-v3.3] 🔍 Extracted:")
-            logger.info(f"[VOXIMPLANT-v3.3]   📞 Direction: {call_direction}")
-            logger.info(f"[VOXIMPLANT-v3.3]   📱 Normalized phone: {normalized_phone}")
-            logger.info(f"[VOXIMPLANT-v3.3]   🤖 Assistant type: {assistant_type}")
+            logger.info(f"[VOXIMPLANT-v3.4] 🔍 Extracted:")
+            logger.info(f"[VOXIMPLANT-v3.4]   📞 Direction: {call_direction}")
+            logger.info(f"[VOXIMPLANT-v3.4]   📱 Normalized phone: {normalized_phone}")
+            logger.info(f"[VOXIMPLANT-v3.4]   🤖 Assistant type: {assistant_type}")
             
             # ================================================================
-            # 🆕 v3.3: СОХРАНЕНИЕ ЗАПИСИ В CLOUDFLARE R2
+            # 🆕 v3.4: СОХРАНЕНИЕ ЗАПИСИ В CLOUDFLARE R2 С JWT АВТОРИЗАЦИЕЙ
             # ================================================================
             permanent_record_url = None
             r2_saved = False
             
             if record_url:
-                logger.info(f"[VOXIMPLANT-v3.3] 🎙️ Обработка записи звонка...")
-                logger.info(f"[VOXIMPLANT-v3.3]   Voximplant URL: {record_url[:60]}...")
+                logger.info(f"[VOXIMPLANT-v3.4] 🎙️ Обработка записи звонка...")
+                logger.info(f"[VOXIMPLANT-v3.4]   Voximplant URL: {record_url[:60]}...")
                 
                 if R2StorageService.is_configured():
                     try:
-                        logger.info(f"[VOXIMPLANT-v3.3] 📤 Загрузка в R2 Storage...")
+                        # 🆕 v3.4: Получаем Service Account credentials для JWT авторизации
+                        voximplant_credentials = None
                         
+                        if assistant.user_id:
+                            voximplant_credentials = get_voximplant_credentials(db, assistant.user_id)
+                            
+                            if voximplant_credentials:
+                                logger.info(f"[VOXIMPLANT-v3.4] 🔐 Service Account credentials loaded")
+                            else:
+                                logger.warning(f"[VOXIMPLANT-v3.4] ⚠️ No Service Account credentials available")
+                                logger.warning(f"[VOXIMPLANT-v3.4] ⚠️ Secure recordings may fail to download")
+                        
+                        logger.info(f"[VOXIMPLANT-v3.4] 📤 Загрузка в R2 Storage...")
+                        
+                        # Передаём credentials в R2StorageService
                         permanent_record_url = await R2StorageService.upload_recording(
                             record_url=record_url,
                             call_id=call_id or chat_id or str(uuid.uuid4()),
-                            assistant_id=assistant_id
+                            assistant_id=assistant_id,
+                            voximplant_credentials=voximplant_credentials  # 🆕 v3.4
                         )
                         
                         if permanent_record_url:
                             r2_saved = True
-                            logger.info(f"[VOXIMPLANT-v3.3] ✅ Запись сохранена в R2:")
-                            logger.info(f"[VOXIMPLANT-v3.3]   URL: {permanent_record_url}")
+                            logger.info(f"[VOXIMPLANT-v3.4] ✅ Запись сохранена в R2:")
+                            logger.info(f"[VOXIMPLANT-v3.4]   URL: {permanent_record_url}")
                         else:
-                            logger.warning(f"[VOXIMPLANT-v3.3] ⚠️ Не удалось сохранить в R2, используем временный URL")
+                            logger.warning(f"[VOXIMPLANT-v3.4] ⚠️ Не удалось сохранить в R2, используем временный URL")
                             permanent_record_url = record_url
                             
                     except Exception as r2_error:
-                        logger.error(f"[VOXIMPLANT-v3.3] ❌ Ошибка R2: {r2_error}")
-                        logger.error(f"[VOXIMPLANT-v3.3] Traceback: {traceback.format_exc()}")
+                        logger.error(f"[VOXIMPLANT-v3.4] ❌ Ошибка R2: {r2_error}")
+                        logger.error(f"[VOXIMPLANT-v3.4] Traceback: {traceback.format_exc()}")
                         # Используем временный URL как fallback
                         permanent_record_url = record_url
                 else:
-                    logger.info(f"[VOXIMPLANT-v3.3] ℹ️ R2 не настроен, используем временный Voximplant URL")
+                    logger.info(f"[VOXIMPLANT-v3.4] ℹ️ R2 не настроен, используем временный Voximplant URL")
                     permanent_record_url = record_url
             
             # ================================================================
             # СОХРАНЕНИЕ В БД через ConversationService
             # ================================================================
-            logger.info(f"[VOXIMPLANT-v3.3] 💾 Сохранение в БД...")
+            logger.info(f"[VOXIMPLANT-v3.4] 💾 Сохранение в БД...")
             db_result = None
             
             try:
@@ -746,25 +830,25 @@ async def log_conversation_data(
                         "chat_id": chat_id,
                         "source": "voximplant",
                         "assistant_type": assistant_type,
-                        "record_url": permanent_record_url  # 🆕 v3.3
+                        "record_url": permanent_record_url
                     },
                     audio_duration=None,
                     tokens_used=0
                 )
                 
                 if db_result:
-                    logger.info(f"[VOXIMPLANT-v3.3] ✅ Сохранено в БД:")
-                    logger.info(f"[VOXIMPLANT-v3.3]   ID: {db_result.id}")
-                    logger.info(f"[VOXIMPLANT-v3.3]   Direction: {db_result.call_direction}")
-                    logger.info(f"[VOXIMPLANT-v3.3]   Phone: {db_result.caller_number}")
-                    logger.info(f"[VOXIMPLANT-v3.3]   Contact: {db_result.contact_id}")
-                    logger.info(f"[VOXIMPLANT-v3.3]   Record URL: {'✅' if permanent_record_url else '❌'}")
+                    logger.info(f"[VOXIMPLANT-v3.4] ✅ Сохранено в БД:")
+                    logger.info(f"[VOXIMPLANT-v3.4]   ID: {db_result.id}")
+                    logger.info(f"[VOXIMPLANT-v3.4]   Direction: {db_result.call_direction}")
+                    logger.info(f"[VOXIMPLANT-v3.4]   Phone: {db_result.caller_number}")
+                    logger.info(f"[VOXIMPLANT-v3.4]   Contact: {db_result.contact_id}")
+                    logger.info(f"[VOXIMPLANT-v3.4]   Record URL: {'✅' if permanent_record_url else '❌'}")
                 else:
-                    logger.warning(f"[VOXIMPLANT-v3.3] ⚠️ Не удалось сохранить в БД")
+                    logger.warning(f"[VOXIMPLANT-v3.4] ⚠️ Не удалось сохранить в БД")
                     
             except Exception as db_error:
-                logger.error(f"[VOXIMPLANT-v3.3] ❌ Ошибка сохранения в БД: {db_error}")
-                logger.error(f"[VOXIMPLANT-v3.3] Traceback: {traceback.format_exc()}")
+                logger.error(f"[VOXIMPLANT-v3.4] ❌ Ошибка сохранения в БД: {db_error}")
+                logger.error(f"[VOXIMPLANT-v3.4] Traceback: {traceback.format_exc()}")
             
             # ================================================================
             # СОХРАНЕНИЕ В GOOGLE SHEETS (оригинальная логика)
@@ -772,7 +856,7 @@ async def log_conversation_data(
             sheets_result = False
             if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
                 log_sheet_id = assistant.google_sheet_id
-                logger.info(f"[VOXIMPLANT-v3.3] 📊 Запись в Google Sheets: {log_sheet_id}")
+                logger.info(f"[VOXIMPLANT-v3.4] 📊 Запись в Google Sheets: {log_sheet_id}")
                 
                 try:
                     sheets_result = await GoogleSheetsService.log_conversation(
@@ -785,26 +869,26 @@ async def log_conversation_data(
                     )
                     
                     if sheets_result:
-                        logger.info(f"[VOXIMPLANT-v3.3] ✅ Данные записаны в Google Sheets")
+                        logger.info(f"[VOXIMPLANT-v3.4] ✅ Данные записаны в Google Sheets")
                     else:
-                        logger.error(f"[VOXIMPLANT-v3.3] ❌ Ошибка записи в Google Sheets")
+                        logger.error(f"[VOXIMPLANT-v3.4] ❌ Ошибка записи в Google Sheets")
                         
                 except Exception as sheets_error:
-                    logger.error(f"[VOXIMPLANT-v3.3] ❌ Ошибка Google Sheets: {sheets_error}")
-                    logger.error(f"[VOXIMPLANT-v3.3] Traceback: {traceback.format_exc()}")
+                    logger.error(f"[VOXIMPLANT-v3.4] ❌ Ошибка Google Sheets: {sheets_error}")
+                    logger.error(f"[VOXIMPLANT-v3.4] Traceback: {traceback.format_exc()}")
             else:
-                logger.info(f"[VOXIMPLANT-v3.3] ⚠️ Google Sheets логирование не настроено")
+                logger.info(f"[VOXIMPLANT-v3.4] ⚠️ Google Sheets логирование не настроено")
             
             # ================================================================
             # ФОРМИРУЕМ ОТВЕТ
             # ================================================================
-            logger.info(f"[VOXIMPLANT-v3.3] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            logger.info(f"[VOXIMPLANT-v3.3] 📊 РЕЗУЛЬТАТЫ ЛОГИРОВАНИЯ:")
-            logger.info(f"[VOXIMPLANT-v3.3]   🤖 Тип ассистента: {assistant_type}")
-            logger.info(f"[VOXIMPLANT-v3.3]   💾 БД: {'✅ OK' if db_result else '❌ FAIL'}")
-            logger.info(f"[VOXIMPLANT-v3.3]   📊 Sheets: {'✅ OK' if sheets_result else '❌ FAIL/SKIP'}")
-            logger.info(f"[VOXIMPLANT-v3.3]   🎙️ Запись: {'✅ R2' if r2_saved else '⚠️ Temp' if permanent_record_url else '❌ НЕТ'}")
-            logger.info(f"[VOXIMPLANT-v3.3] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"[VOXIMPLANT-v3.4] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"[VOXIMPLANT-v3.4] 📊 РЕЗУЛЬТАТЫ ЛОГИРОВАНИЯ:")
+            logger.info(f"[VOXIMPLANT-v3.4]   🤖 Тип ассистента: {assistant_type}")
+            logger.info(f"[VOXIMPLANT-v3.4]   💾 БД: {'✅ OK' if db_result else '❌ FAIL'}")
+            logger.info(f"[VOXIMPLANT-v3.4]   📊 Sheets: {'✅ OK' if sheets_result else '❌ FAIL/SKIP'}")
+            logger.info(f"[VOXIMPLANT-v3.4]   🎙️ Запись: {'✅ R2' if r2_saved else '⚠️ Temp' if permanent_record_url else '❌ НЕТ'}")
+            logger.info(f"[VOXIMPLANT-v3.4] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             return {
                 "success": bool(db_result) or sheets_result,
@@ -812,13 +896,13 @@ async def log_conversation_data(
                 "saved_to": {
                     "database": bool(db_result),
                     "google_sheets": sheets_result,
-                    "r2_storage": r2_saved  # 🆕 v3.3
+                    "r2_storage": r2_saved
                 },
                 "conversation_id": str(db_result.id) if db_result else conversation_id,
                 "caller_number": normalized_phone,
                 "call_direction": call_direction,
                 "assistant_type": assistant_type,
-                "record_url": permanent_record_url  # 🆕 v3.3
+                "record_url": permanent_record_url
             }
         
         return {
@@ -827,8 +911,8 @@ async def log_conversation_data(
         }
         
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.3] ❌ Ошибка логирования: {e}")
-        logger.error(f"[VOXIMPLANT-v3.3] Трассировка: {traceback.format_exc()}")
+        logger.error(f"[VOXIMPLANT-v3.4] ❌ Ошибка логирования: {e}")
+        logger.error(f"[VOXIMPLANT-v3.4] Трассировка: {traceback.format_exc()}")
         return {
             "success": False,
             "message": f"Error logging data: {str(e)}"
@@ -847,27 +931,25 @@ async def verify_google_sheet(
 ):
     """
     Проверяет подключение к Google Sheets и настраивает заголовки таблицы
-    🆕 v2.1: Устанавливает заголовки для 6 колонок включая Caller Number
-    🆕 v3.2: Поддержка OpenAI и Gemini ассистентов
     """
     try:
         sheet_id = sheet_data.get("sheet_id")
         if not sheet_id:
             return {"success": False, "message": "ID таблицы не указан"}
         
-        logger.info(f"[SHEETS-v3.3] 🔍 Проверка подключения к таблице: {sheet_id}")
+        logger.info(f"[SHEETS-v3.4] 🔍 Проверка подключения к таблице: {sheet_id}")
         
         # Проверяем доступ к таблице
         verify_result = await GoogleSheetsService.verify_sheet_access(sheet_id)
         
         if verify_result["success"]:
-            # Настраиваем заголовки таблицы (v2.1 - 6 колонок)
+            # Настраиваем заголовки таблицы
             setup_result = await GoogleSheetsService.setup_sheet(sheet_id)
             
             # Сохраняем google_sheet_id
             if assistant_id != "new":
                 try:
-                    # 🆕 v3.2: Ищем в обеих таблицах
+                    # Ищем в обеих таблицах
                     assistant, assistant_type = find_assistant_by_id(db, assistant_id)
                     
                     if assistant:
@@ -876,13 +958,13 @@ async def verify_google_sheet(
                         if hasattr(assistant, 'log_enabled'):
                             assistant.log_enabled = True
                         db.commit()
-                        logger.info(f"[SHEETS-v3.3] ✅ ID таблицы сохранен для {assistant_type} ассистента {assistant_id}")
+                        logger.info(f"[SHEETS-v3.4] ✅ ID таблицы сохранен для {assistant_type} ассистента {assistant_id}")
                 except Exception as e:
-                    logger.error(f"[SHEETS-v3.3] ❌ Ошибка при сохранении ID таблицы: {str(e)}")
+                    logger.error(f"[SHEETS-v3.4] ❌ Ошибка при сохранении ID таблицы: {str(e)}")
                     
             return {
                 "success": True,
-                "message": "Подключение к таблице успешно проверено и настроено (v3.3 - 6 колонок)",
+                "message": "Подключение к таблице успешно проверено и настроено",
                 "sheet_title": verify_result.get("title"),
                 "columns": ["Timestamp", "User", "Assistant", "Function Result", "Conversation ID", "Caller Number"]
             }
@@ -890,7 +972,7 @@ async def verify_google_sheet(
             return verify_result
             
     except Exception as e:
-        logger.error(f"[SHEETS-v3.3] ❌ Ошибка при проверке таблицы: {str(e)}")
+        logger.error(f"[SHEETS-v3.4] ❌ Ошибка при проверке таблицы: {str(e)}")
         logger.error(traceback.format_exc())
         return {
             "success": False,
