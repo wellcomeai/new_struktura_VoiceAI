@@ -192,27 +192,9 @@ async def get_conversation_sessions(
         )
         
         # =============================================================================
-        # 🆕 v3.0: Подзапрос для record_url из последней записи сессии
-        # Используем DISTINCT ON (PostgreSQL-specific) для получения последней записи
-        # =============================================================================
-        record_subquery = (
-            db.query(
-                Conversation.session_id.label('rec_session_id'),
-                Conversation.client_info['record_url'].astext.label('record_url')
-            )
-            .filter(
-                Conversation.assistant_id.in_(user_assistant_ids),
-                Conversation.client_info['record_url'].astext.isnot(None),
-                Conversation.client_info['record_url'].astext != ''
-            )
-            .distinct(Conversation.session_id)
-            .order_by(Conversation.session_id, Conversation.created_at.desc())
-            .subquery()
-        )
-        
-        # =============================================================================
         # Основной запрос - группировка по session_id
         # 🆕 v3.0: Добавлена агрегация call_cost
+        # NOTE: record_url получаем только в детальном просмотре (слишком сложный подзапрос)
         # =============================================================================
         query = (
             db.query(
@@ -225,23 +207,17 @@ async def get_conversation_sessions(
                 func.sum(Conversation.tokens_used).label('total_tokens'),
                 func.sum(Conversation.duration_seconds).label('total_duration'),
                 func.sum(Conversation.call_cost).label('total_cost'),  # 🆕 v3.0
-                preview_subquery.c.preview,
-                record_subquery.c.record_url  # 🆕 v3.0
+                preview_subquery.c.preview
             )
             .outerjoin(
                 preview_subquery,
                 Conversation.session_id == preview_subquery.c.session_id
             )
-            .outerjoin(
-                record_subquery,
-                Conversation.session_id == record_subquery.c.rec_session_id
-            )
             .group_by(
                 Conversation.session_id,
                 Conversation.assistant_id,
                 Conversation.caller_number,
-                preview_subquery.c.preview,
-                record_subquery.c.record_url
+                preview_subquery.c.preview
             )
         )
         
@@ -289,7 +265,8 @@ async def get_conversation_sessions(
         
         # =============================================================================
         # Форматируем результат в формате совместимом с фронтом
-        # 🆕 v3.0: Добавлены call_cost и record_url
+        # 🆕 v3.0: Добавлен call_cost
+        # NOTE: record_url доступен только в детальном просмотре
         # =============================================================================
         conversations = []
         for s in sessions:
@@ -314,7 +291,7 @@ async def get_conversation_sessions(
                 "tokens_used": s.total_tokens or 0,
                 "duration_seconds": s.total_duration or 0,
                 "call_cost": call_cost,  # 🆕 v3.0: Стоимость звонка в рублях
-                "record_url": s.record_url if s.record_url else None,  # 🆕 v3.0: Ссылка на запись
+                "record_url": None,  # 🆕 v3.0: Доступно только в детальном просмотре
                 "client_info": {"assistant_type": assistant_type}  # 🆕 Добавляем тип
             })
         
