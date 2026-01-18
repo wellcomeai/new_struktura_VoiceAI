@@ -2,12 +2,15 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 2.0 - Added OpenAI + Gemini support
+Version: 3.0 - Added call_cost and record_url support
+🆕 v2.0: Added OpenAI + Gemini support
+🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, case, or_
+from sqlalchemy import func, desc, case, or_, text
+from sqlalchemy.dialects.postgresql import JSONB
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
@@ -96,8 +99,9 @@ async def get_conversation_sessions(
     db: Session = Depends(get_db)
 ):
     """
-    🆕 v2.0: Получить список СЕССИЙ (группированных диалогов).
+    🆕 v3.0: Получить список СЕССИЙ (группированных диалогов).
     Поддерживает OpenAI И Gemini ассистентов.
+    Включает call_cost (стоимость) и record_url (запись звонка).
     
     Каждая сессия = одна карточка диалога на фронте.
     Группирует все сообщения по session_id.
@@ -118,9 +122,13 @@ async def get_conversation_sessions(
     - total: Общее количество сессий
     - page: Текущая страница
     - page_size: Размер страницы
+    
+    🆕 v3.0: Каждая сессия теперь включает:
+    - call_cost: Общая стоимость звонка (рубли) или null
+    - record_url: Ссылка на запись звонка или null
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v2.0] Get sessions request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Get sessions request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -183,7 +191,29 @@ async def get_conversation_sessions(
             .subquery()
         )
         
-        # Основной запрос - группировка по session_id (БЕЗ client_info - JSON нельзя в GROUP BY)
+        # =============================================================================
+        # 🆕 v3.0: Подзапрос для record_url из последней записи сессии
+        # Используем DISTINCT ON (PostgreSQL-specific) для получения последней записи
+        # =============================================================================
+        record_subquery = (
+            db.query(
+                Conversation.session_id.label('rec_session_id'),
+                Conversation.client_info['record_url'].astext.label('record_url')
+            )
+            .filter(
+                Conversation.assistant_id.in_(user_assistant_ids),
+                Conversation.client_info['record_url'].astext.isnot(None),
+                Conversation.client_info['record_url'].astext != ''
+            )
+            .distinct(Conversation.session_id)
+            .order_by(Conversation.session_id, Conversation.created_at.desc())
+            .subquery()
+        )
+        
+        # =============================================================================
+        # Основной запрос - группировка по session_id
+        # 🆕 v3.0: Добавлена агрегация call_cost
+        # =============================================================================
         query = (
             db.query(
                 Conversation.session_id,
@@ -194,17 +224,24 @@ async def get_conversation_sessions(
                 func.max(Conversation.created_at).label('updated_at'),
                 func.sum(Conversation.tokens_used).label('total_tokens'),
                 func.sum(Conversation.duration_seconds).label('total_duration'),
-                preview_subquery.c.preview
+                func.sum(Conversation.call_cost).label('total_cost'),  # 🆕 v3.0
+                preview_subquery.c.preview,
+                record_subquery.c.record_url  # 🆕 v3.0
             )
             .outerjoin(
                 preview_subquery,
                 Conversation.session_id == preview_subquery.c.session_id
             )
+            .outerjoin(
+                record_subquery,
+                Conversation.session_id == record_subquery.c.rec_session_id
+            )
             .group_by(
                 Conversation.session_id,
                 Conversation.assistant_id,
                 Conversation.caller_number,
-                preview_subquery.c.preview
+                preview_subquery.c.preview,
+                record_subquery.c.record_url
             )
         )
         
@@ -250,11 +287,19 @@ async def get_conversation_sessions(
         
         logger.info(f"✅ Found {len(sessions)} sessions (total: {total})")
         
+        # =============================================================================
         # Форматируем результат в формате совместимом с фронтом
+        # 🆕 v3.0: Добавлены call_cost и record_url
+        # =============================================================================
         conversations = []
         for s in sessions:
             # 🆕 v2.0: Определяем тип по ID ассистента
             assistant_type = 'gemini' if str(s.assistant_id) in gemini_id_set else 'openai'
+            
+            # 🆕 v3.0: Форматируем стоимость
+            call_cost = None
+            if s.total_cost is not None and s.total_cost > 0:
+                call_cost = round(float(s.total_cost), 2)
             
             conversations.append({
                 "id": s.session_id,  # session_id используется как ID карточки
@@ -268,6 +313,8 @@ async def get_conversation_sessions(
                 "assistant_message": "",  # Оставляем пустым
                 "tokens_used": s.total_tokens or 0,
                 "duration_seconds": s.total_duration or 0,
+                "call_cost": call_cost,  # 🆕 v3.0: Стоимость звонка в рублях
+                "record_url": s.record_url if s.record_url else None,  # 🆕 v3.0: Ссылка на запись
                 "client_info": {"assistant_type": assistant_type}  # 🆕 Добавляем тип
             })
         
@@ -327,7 +374,7 @@ async def get_conversations(
     - page_size: Размер страницы
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v2.0] Get conversations request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Get conversations request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"session={session_id}, date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -394,6 +441,7 @@ async def get_conversation_detail(
     Получить ПОЛНЫЙ диалог (все сообщения из сессии).
     
     🆕 v2.0: Поддерживает OpenAI и Gemini ассистентов.
+    🆕 v3.0: Включает call_cost и record_url.
     
     Требуется авторизация. Можно получить только свои диалоги.
     
@@ -410,10 +458,12 @@ async def get_conversation_detail(
     - caller_number: Номер телефона (если есть)
     - total_tokens: Сумма токенов
     - total_duration: Сумма длительности
+    - call_cost: Стоимость звонка в рублях (🆕 v3.0)
+    - record_url: Ссылка на запись звонка (🆕 v3.0)
     - function_calls: Все вызовы функций из сессии
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v2.0] Get full dialog for: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Get full dialog for: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую (для нового API /sessions)
@@ -470,6 +520,8 @@ async def get_conversation_detail(
         messages = []
         total_tokens = 0
         total_duration = 0
+        total_cost = 0.0
+        record_url = None
         
         for msg in all_messages:
             # User message
@@ -493,6 +545,14 @@ async def get_conversation_detail(
             # Суммируем метрики
             total_tokens += msg.tokens_used or 0
             total_duration += msg.duration_seconds or 0
+            
+            # 🆕 v3.0: Суммируем стоимость
+            if msg.call_cost:
+                total_cost += float(msg.call_cost)
+            
+            # 🆕 v3.0: Берём record_url из client_info (последний непустой)
+            if msg.client_info and msg.client_info.get('record_url'):
+                record_url = msg.client_info.get('record_url')
         
         # Загружаем function calls если нужно
         function_calls = []
@@ -522,6 +582,9 @@ async def get_conversation_detail(
         client_info = conversation.client_info or {}
         detected_type = client_info.get('assistant_type', assistant_type)
         
+        # 🆕 v3.0: Форматируем стоимость
+        call_cost = round(total_cost, 2) if total_cost > 0 else None
+        
         # Формируем ответ
         result = {
             "session_id": session_id,
@@ -534,11 +597,14 @@ async def get_conversation_detail(
             "total_messages": len(messages),
             "total_tokens": total_tokens,
             "total_duration": total_duration,
+            "call_cost": call_cost,  # 🆕 v3.0: Стоимость в рублях
+            "record_url": record_url,  # 🆕 v3.0: Ссылка на запись
             "function_calls": function_calls if include_functions else [],
             "client_info": client_info  # 🆕 v2.0
         }
         
         logger.info(f"✅ Full dialog returned: {len(messages)} messages, type: {detected_type}")
+        logger.info(f"   Call cost: {call_cost}, Record URL: {'✅' if record_url else '❌'}")
         
         return result
         
@@ -577,7 +643,7 @@ async def delete_conversation(
     - assistant_type: Тип ассистента (openai/gemini)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v2.0] Delete conversation request: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Delete conversation request: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую
@@ -681,6 +747,8 @@ async def get_conversations_stats(
     """
     Получить статистику по диалогам.
     
+    🆕 v3.0: Добавлена статистика по стоимости звонков.
+    
     Требуется авторизация.
     
     **Параметры:**
@@ -693,9 +761,10 @@ async def get_conversations_stats(
     - conversations_today: Диалоги за сегодня
     - avg_duration_seconds: Средняя длительность диалога
     - total_tokens_used: Общее количество использованных токенов
+    - total_call_cost: Общая стоимость звонков (🆕 v3.0)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API] Get stats for user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Get stats for user {current_user.id}")
         logger.info(f"   Assistant ID: {assistant_id}")
         logger.info(f"   Days: {days}")
         
@@ -706,6 +775,31 @@ async def get_conversations_stats(
             user_id=str(current_user.id),
             days=days
         )
+        
+        # 🆕 v3.0: Добавляем статистику по стоимости
+        user_assistant_ids = get_user_assistant_ids(db, current_user.id)
+        
+        if user_assistant_ids:
+            from datetime import timedelta
+            start_date = datetime.utcnow() - timedelta(days=days)
+            
+            cost_query = db.query(
+                func.sum(Conversation.call_cost)
+            ).filter(
+                Conversation.assistant_id.in_(user_assistant_ids),
+                Conversation.call_cost.isnot(None)
+            )
+            
+            if assistant_id:
+                try:
+                    cost_query = cost_query.filter(Conversation.assistant_id == UUID(assistant_id))
+                except ValueError:
+                    pass
+            
+            total_cost = cost_query.scalar() or 0.0
+            stats["total_call_cost"] = round(float(total_cost), 2)
+        else:
+            stats["total_call_cost"] = 0.0
         
         logger.info(f"✅ Stats returned: {stats}")
         
@@ -747,7 +841,7 @@ async def get_conversations_by_caller(
     - Отсортировано по дате (новые первые)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v2.0] Get conversations by caller: {caller_number}")
+        logger.info(f"[CONVERSATIONS-API-v3.0] Get conversations by caller: {caller_number}")
         logger.info(f"   User: {current_user.id}")
         logger.info(f"   Assistant filter: {assistant_id}")
         
