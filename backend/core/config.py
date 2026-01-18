@@ -4,6 +4,7 @@
 Configuration settings for the WellcomeAI application.
 ОБНОВЛЕНО: Добавлены настройки Email для верификации
 ✅ ОБНОВЛЕНО v3.0: Добавлены настройки Voximplant Partner Integration
+✅ ОБНОВЛЕНО v3.3: Добавлены настройки Cloudflare R2 Storage
 """
 
 import os
@@ -100,6 +101,16 @@ class Settings(BaseSettings):
     # Создай его вручную в Voximplant, настрой приложение и сценарии,
     # затем укажи здесь ID для автоматического клонирования
     VOXIMPLANT_TEMPLATE_ACCOUNT_ID: Optional[str] = os.getenv("VOXIMPLANT_TEMPLATE_ACCOUNT_ID")
+    
+    # =========================================================================
+    # ✅ НОВОЕ v3.3: Cloudflare R2 Storage для записей звонков
+    # =========================================================================
+    
+    R2_ACCESS_KEY: str = os.getenv("R2_ACCESS_KEY", "")
+    R2_SECRET_KEY: str = os.getenv("R2_SECRET_KEY", "")
+    R2_ENDPOINT: str = os.getenv("R2_ENDPOINT", "")
+    R2_BUCKET: str = os.getenv("R2_BUCKET", "voicyfy")
+    R2_PUBLIC_URL: str = os.getenv("R2_PUBLIC_URL", "")
     
     # =========================================================================
     
@@ -259,6 +270,27 @@ class Settings(BaseSettings):
         
         return v
     
+    # ✅ НОВОЕ v3.3: Validator для Cloudflare R2
+    @validator("R2_PUBLIC_URL")
+    def validate_r2_config(cls, v, values):
+        """Проверяем конфигурацию R2"""
+        access_key = values.get('R2_ACCESS_KEY')
+        secret_key = values.get('R2_SECRET_KEY')
+        endpoint = values.get('R2_ENDPOINT')
+        bucket = values.get('R2_BUCKET')
+        
+        if access_key and secret_key and endpoint:
+            if v:
+                print(f"✅ Cloudflare R2 configured: {bucket}")
+            else:
+                print("⚠️ WARNING: R2 credentials set but R2_PUBLIC_URL is missing!")
+        else:
+            if any([access_key, secret_key, endpoint, v]):
+                print("⚠️ WARNING: Partial R2 configuration - recordings will not be saved!")
+            # Не выводим предупреждение если R2 полностью не настроен - это опционально
+        
+        return v
+    
     class Config:
         """Pydantic settings configuration"""
         env_file = ".env"
@@ -276,7 +308,7 @@ try:
     else:
         print("⚠️ Email not configured - verification emails will not work")
     
-    # ✅ НОВОЕ: Проверяем Voximplant Partner настройки
+    # ✅ Проверяем Voximplant Partner настройки
     if settings.VOXIMPLANT_PARENT_ACCOUNT_ID and settings.VOXIMPLANT_PARENT_API_KEY:
         print(f"📞 Voximplant Partner configured: Account {settings.VOXIMPLANT_PARENT_ACCOUNT_ID}")
         if settings.VOXIMPLANT_TEMPLATE_ACCOUNT_ID:
@@ -284,7 +316,17 @@ try:
         else:
             print("   ⚠️ No template account - will create empty child accounts")
     else:
-        print("⚠️ Voximplant Partner not configured - telephony features disabled")
+        print("ℹ️  Voximplant Partner not configured - telephony features disabled")
+    
+    # ✅ НОВОЕ v3.3: Проверяем R2 настройки
+    if settings.R2_ACCESS_KEY and settings.R2_SECRET_KEY and settings.R2_ENDPOINT:
+        print(f"💾 R2 Storage configured: {settings.R2_BUCKET}")
+        if settings.R2_PUBLIC_URL:
+            print(f"   Public URL: {settings.R2_PUBLIC_URL}")
+        else:
+            print("   ⚠️ R2_PUBLIC_URL not set - recordings won't be publicly accessible")
+    else:
+        print("ℹ️  R2 Storage not configured - call recordings will use temporary Voximplant URLs")
         
 except Exception as e:
     print(f"❌ Configuration error: {str(e)}")
