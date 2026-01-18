@@ -3,6 +3,7 @@
 Cloudflare R2 Storage Service для сохранения записей звонков.
 ✅ v1.0: Загрузка аудиофайлов от Voximplant в R2
 ✅ v2.0: JWT авторизация для secure записей Voximplant
+✅ v2.1: Исправлена генерация JWT - правильный формат kid в header
 
 Использование:
     from backend.services.r2_storage import R2StorageService
@@ -41,22 +42,35 @@ class VoximplantAuth:
     
     Используется для скачивания secure записей звонков.
     Требует credentials Service Account дочернего аккаунта.
+    
+    JWT формат:
+    - Header: {"typ": "JWT", "alg": "RS256", "kid": key_id}
+    - Payload: {"iat": timestamp, "iss": account_id, "exp": timestamp+60}
     """
     
     def __init__(self, credentials: Dict[str, Any]):
         """
         Args:
             credentials: Dict с полями:
-                - account_id: ID аккаунта Voximplant
-                - key_id: ID ключа Service Account
-                - private_key: RSA приватный ключ в PEM формате
+                - account_id: ID аккаунта Voximplant (int или str)
+                - key_id: ID ключа Service Account (str)
+                - private_key: RSA приватный ключ в PEM формате (str)
         """
         self.account_id = credentials.get("account_id")
         self.key_id = credentials.get("key_id")
         self.private_key = credentials.get("private_key")
         
-        if not all([self.account_id, self.key_id, self.private_key]):
-            raise ValueError("Missing required Voximplant credentials")
+        # Валидация
+        if not self.account_id:
+            raise ValueError("Missing account_id in Voximplant credentials")
+        if not self.key_id:
+            raise ValueError("Missing key_id in Voximplant credentials")
+        if not self.private_key:
+            raise ValueError("Missing private_key in Voximplant credentials")
+        
+        # Проверяем формат private_key
+        if not self.private_key.startswith("-----BEGIN"):
+            logger.warning("[VoximplantAuth] private_key doesn't look like PEM format")
     
     def build_auth_header(self) -> str:
         """
@@ -67,20 +81,35 @@ class VoximplantAuth:
         """
         ts = int(time.time())
         
+        # Payload с account_id в iss
         payload = {
-            "iss": self.account_id,
-            "iat": ts - 5,  # Небольшой запас на рассинхрон времени
-            "exp": ts + 60   # Токен действителен 60 секунд
+            "iss": int(self.account_id),  # Voximplant ожидает int
+            "iat": ts - 5,                # Небольшой запас на рассинхрон времени
+            "exp": ts + 60                # Токен действителен 60 секунд
         }
         
-        token = jwt.encode(
-            payload,
-            self.private_key,
-            algorithm='RS256',
-            headers={"kid": self.key_id}
-        )
+        # Header с key_id в kid
+        headers = {
+            "kid": str(self.key_id)
+        }
         
-        return f'Bearer {token}'
+        try:
+            token = jwt.encode(
+                payload,
+                self.private_key,
+                algorithm='RS256',
+                headers=headers
+            )
+            
+            logger.debug(f"[VoximplantAuth] JWT generated successfully")
+            logger.debug(f"[VoximplantAuth]   iss (account_id): {self.account_id}")
+            logger.debug(f"[VoximplantAuth]   kid (key_id): {self.key_id}")
+            
+            return f'Bearer {token}'
+            
+        except Exception as e:
+            logger.error(f"[VoximplantAuth] Failed to generate JWT: {e}")
+            raise
 
 
 class R2StorageService:
@@ -119,18 +148,30 @@ class R2StorageService:
         Secure записи имеют характерные признаки в URL:
         - voximplant-records-secure
         - securerecords
+        - records-secure
         """
         if not url:
             return False
         
+        url_lower = url.lower()
+        
         secure_indicators = [
             'voximplant-records-secure',
             'securerecords',
+            'records-secure',
             '-secure.',
-            '/secure/'
+            '/secure/',
+            'secure-records'
         ]
         
-        return any(indicator in url.lower() for indicator in secure_indicators)
+        is_secure = any(indicator in url_lower for indicator in secure_indicators)
+        
+        if is_secure:
+            logger.debug(f"[R2] URL identified as SECURE: {url[:60]}...")
+        else:
+            logger.debug(f"[R2] URL identified as NON-SECURE: {url[:60]}...")
+        
+        return is_secure
     
     @classmethod
     async def upload_recording(
@@ -144,6 +185,7 @@ class R2StorageService:
         Скачивает запись от Voximplant и загружает в R2.
         
         ✅ v2.0: Поддержка secure записей с JWT авторизацией
+        ✅ v2.1: Исправлена генерация JWT
         
         Args:
             record_url: Временный URL записи от Voximplant
@@ -183,9 +225,14 @@ class R2StorageService:
                         auth = VoximplantAuth(voximplant_credentials)
                         headers['Authorization'] = auth.build_auth_header()
                         logger.info(f"[R2] ✅ JWT authorization header generated")
+                        logger.info(f"[R2]    Account ID: {voximplant_credentials.get('account_id')}")
+                        logger.info(f"[R2]    Key ID: {voximplant_credentials.get('key_id')}")
+                    except ValueError as auth_error:
+                        logger.error(f"[R2] ❌ Invalid credentials: {auth_error}")
+                        logger.warning(f"[R2] ⚠️ Attempting download without auth (will likely fail)...")
                     except Exception as auth_error:
                         logger.error(f"[R2] ❌ Failed to generate JWT: {auth_error}")
-                        logger.warning(f"[R2] ⚠️ Attempting download without auth (may fail)...")
+                        logger.warning(f"[R2] ⚠️ Attempting download without auth (will likely fail)...")
                 else:
                     logger.warning(f"[R2] ⚠️ Secure URL but no credentials provided!")
                     logger.warning(f"[R2] ⚠️ Download will likely fail with 403...")
@@ -205,12 +252,20 @@ class R2StorageService:
                 # Проверяем статус
                 if response.status_code == 403:
                     logger.error(f"[R2] ❌ 403 Forbidden - authorization failed!")
-                    if is_secure and not voximplant_credentials:
-                        logger.error(f"[R2] ❌ Secure recording requires Service Account credentials!")
+                    if is_secure:
+                        if not voximplant_credentials:
+                            logger.error(f"[R2] ❌ Secure recording requires Service Account credentials!")
+                            logger.error(f"[R2] ❌ Run admin/setup-service-accounts to create them")
+                        else:
+                            logger.error(f"[R2] ❌ JWT token was rejected - check credentials")
                     return None
                 
                 if response.status_code == 404:
                     logger.error(f"[R2] ❌ 404 Not Found - recording may have expired")
+                    return None
+                
+                if response.status_code == 401:
+                    logger.error(f"[R2] ❌ 401 Unauthorized - invalid JWT token")
                     return None
                 
                 response.raise_for_status()
