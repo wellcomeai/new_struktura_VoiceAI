@@ -2,24 +2,85 @@
 """
 Cloudflare R2 Storage Service для сохранения записей звонков.
 ✅ v1.0: Загрузка аудиофайлов от Voximplant в R2
+✅ v2.0: JWT авторизация для secure записей Voximplant
 
 Использование:
     from backend.services.r2_storage import R2StorageService
     
     # Проверка настроек
     if R2StorageService.is_configured():
-        url = await R2StorageService.upload_recording(record_url, call_id, assistant_id)
+        # Для secure записей нужны credentials дочернего аккаунта
+        url = await R2StorageService.upload_recording(
+            record_url, 
+            call_id, 
+            assistant_id,
+            voximplant_credentials={
+                "account_id": 12345,
+                "key_id": "abc123",
+                "private_key": "-----BEGIN RSA PRIVATE KEY-----..."
+            }
+        )
 """
 
 import boto3
 import httpx
+import jwt
+import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
 
 logger = get_logger(__name__)
+
+
+class VoximplantAuth:
+    """
+    Генератор JWT токенов для авторизации в Voximplant API.
+    
+    Используется для скачивания secure записей звонков.
+    Требует credentials Service Account дочернего аккаунта.
+    """
+    
+    def __init__(self, credentials: Dict[str, Any]):
+        """
+        Args:
+            credentials: Dict с полями:
+                - account_id: ID аккаунта Voximplant
+                - key_id: ID ключа Service Account
+                - private_key: RSA приватный ключ в PEM формате
+        """
+        self.account_id = credentials.get("account_id")
+        self.key_id = credentials.get("key_id")
+        self.private_key = credentials.get("private_key")
+        
+        if not all([self.account_id, self.key_id, self.private_key]):
+            raise ValueError("Missing required Voximplant credentials")
+    
+    def build_auth_header(self) -> str:
+        """
+        Генерирует JWT токен для авторизации.
+        
+        Returns:
+            Строка вида "Bearer <jwt_token>"
+        """
+        ts = int(time.time())
+        
+        payload = {
+            "iss": self.account_id,
+            "iat": ts - 5,  # Небольшой запас на рассинхрон времени
+            "exp": ts + 60   # Токен действителен 60 секунд
+        }
+        
+        token = jwt.encode(
+            payload,
+            self.private_key,
+            algorithm='RS256',
+            headers={"kid": self.key_id}
+        )
+        
+        return f'Bearer {token}'
 
 
 class R2StorageService:
@@ -51,19 +112,49 @@ class R2StorageService:
         return cls._client
     
     @classmethod
+    def _is_secure_url(cls, url: str) -> bool:
+        """
+        Проверяет, является ли URL secure записью Voximplant.
+        
+        Secure записи имеют характерные признаки в URL:
+        - voximplant-records-secure
+        - securerecords
+        """
+        if not url:
+            return False
+        
+        secure_indicators = [
+            'voximplant-records-secure',
+            'securerecords',
+            '-secure.',
+            '/secure/'
+        ]
+        
+        return any(indicator in url.lower() for indicator in secure_indicators)
+    
+    @classmethod
     async def upload_recording(
         cls,
         record_url: str,
         call_id: str,
-        assistant_id: str
+        assistant_id: str,
+        voximplant_credentials: Optional[Dict[str, Any]] = None
     ) -> Optional[str]:
         """
         Скачивает запись от Voximplant и загружает в R2.
+        
+        ✅ v2.0: Поддержка secure записей с JWT авторизацией
         
         Args:
             record_url: Временный URL записи от Voximplant
             call_id: ID звонка
             assistant_id: ID ассистента
+            voximplant_credentials: Опционально - credentials для secure записей:
+                {
+                    "account_id": int,     # ID аккаунта Voximplant
+                    "key_id": str,         # ID ключа Service Account
+                    "private_key": str     # RSA приватный ключ (PEM)
+                }
             
         Returns:
             Публичный URL записи в R2 или None при ошибке
@@ -76,11 +167,52 @@ class R2StorageService:
             
             logger.info(f"[R2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             logger.info(f"[R2] 📥 Downloading recording from Voximplant...")
-            logger.info(f"[R2]    Source URL: {record_url[:60]}...")
+            logger.info(f"[R2]    Source URL: {record_url[:80]}...")
             
-            # Скачиваем файл от Voximplant с увеличенным таймаутом
+            # =====================================================================
+            # ✅ v2.0: Определяем нужна ли авторизация
+            # =====================================================================
+            headers = {}
+            is_secure = cls._is_secure_url(record_url)
+            
+            if is_secure:
+                logger.info(f"[R2] 🔐 Detected SECURE recording URL")
+                
+                if voximplant_credentials:
+                    try:
+                        auth = VoximplantAuth(voximplant_credentials)
+                        headers['Authorization'] = auth.build_auth_header()
+                        logger.info(f"[R2] ✅ JWT authorization header generated")
+                    except Exception as auth_error:
+                        logger.error(f"[R2] ❌ Failed to generate JWT: {auth_error}")
+                        logger.warning(f"[R2] ⚠️ Attempting download without auth (may fail)...")
+                else:
+                    logger.warning(f"[R2] ⚠️ Secure URL but no credentials provided!")
+                    logger.warning(f"[R2] ⚠️ Download will likely fail with 403...")
+            else:
+                logger.info(f"[R2] 📂 Non-secure recording URL (no auth needed)")
+            
+            # =====================================================================
+            # Скачиваем файл
+            # =====================================================================
             async with httpx.AsyncClient(timeout=120.0) as http_client:
-                response = await http_client.get(record_url)
+                response = await http_client.get(
+                    record_url, 
+                    headers=headers,
+                    follow_redirects=True
+                )
+                
+                # Проверяем статус
+                if response.status_code == 403:
+                    logger.error(f"[R2] ❌ 403 Forbidden - authorization failed!")
+                    if is_secure and not voximplant_credentials:
+                        logger.error(f"[R2] ❌ Secure recording requires Service Account credentials!")
+                    return None
+                
+                if response.status_code == 404:
+                    logger.error(f"[R2] ❌ 404 Not Found - recording may have expired")
+                    return None
+                
                 response.raise_for_status()
                 audio_data = response.content
             
@@ -92,7 +224,9 @@ class R2StorageService:
             else:
                 logger.info(f"[R2] ✅ Downloaded: {file_size_kb:.2f} KB")
             
-            # Формируем путь: recordings/{assistant_id}/2025/01/18/{call_id}.mp3
+            # =====================================================================
+            # Формируем путь и загружаем в R2
+            # =====================================================================
             now = datetime.utcnow()
             
             # Очищаем call_id от потенциально проблемных символов
@@ -125,7 +259,7 @@ class R2StorageService:
             
         except httpx.HTTPStatusError as e:
             logger.error(f"[R2] ❌ Failed to download from Voximplant: HTTP {e.response.status_code}")
-            logger.error(f"[R2]    URL was: {record_url[:60]}...")
+            logger.error(f"[R2]    URL was: {record_url[:80]}...")
             return None
             
         except httpx.TimeoutException:
