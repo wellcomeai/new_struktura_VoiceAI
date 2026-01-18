@@ -1793,14 +1793,7 @@
           `;
         }
         
-        // 🆕 v3.0: Иконка записи (только если есть)
-        if (conversation.record_url) {
-          metaItems += `
-            <div class="meta-item recording" title="Есть запись звонка">
-              <i class="fas fa-headphones"></i>
-            </div>
-          `;
-        }
+        // NOTE: Иконка записи показывается только в модалке (детальный просмотр)
         
         card.innerHTML = `
           <div class="card-header">
