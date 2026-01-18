@@ -32,6 +32,7 @@
       --success-green: #10b981;
       --error-red: #ef4444;
       --gemini-purple: #8b5cf6;
+      --cost-orange: #f59e0b;
     }
     
     * {
@@ -502,17 +503,39 @@
       border-top: 1px solid var(--border-color);
       font-size: 0.8rem;
       color: var(--text-light);
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
     
     .card-meta {
       display: flex;
       gap: 1rem;
+      flex-wrap: wrap;
     }
     
     .meta-item {
       display: flex;
       align-items: center;
       gap: 0.35rem;
+    }
+    
+    /* 🆕 v3.0: Стоимость звонка */
+    .meta-item.cost {
+      color: var(--cost-orange);
+      font-weight: 600;
+    }
+    
+    .meta-item.cost i {
+      color: var(--cost-orange);
+    }
+    
+    /* 🆕 v3.0: Иконка записи */
+    .meta-item.recording {
+      color: var(--success-green);
+    }
+    
+    .meta-item.recording i {
+      color: var(--success-green);
     }
     
     /* Пустое состояние */
@@ -793,6 +816,49 @@
       color: var(--primary-blue);
     }
     
+    /* 🆕 v3.0: Стиль для стоимости в модалке */
+    .footer-item.cost {
+      color: var(--cost-orange);
+      font-weight: 600;
+    }
+    
+    .footer-item.cost i {
+      color: var(--cost-orange);
+    }
+    
+    /* 🆕 v3.0: Аудиоплеер в модалке */
+    .audio-player-section {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .audio-player-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-light);
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .audio-player-title i {
+      color: var(--success-green);
+    }
+    
+    .audio-player {
+      width: 100%;
+      height: 40px;
+      border-radius: var(--radius-md);
+    }
+    
+    .audio-player::-webkit-media-controls-panel {
+      background-color: var(--white);
+    }
+    
     .functions-section {
       margin-top: 1rem;
       padding-top: 1rem;
@@ -826,6 +892,12 @@
       font-size: 0.8rem;
       color: var(--primary-blue);
       font-weight: 500;
+    }
+    
+    /* 🆕 v3.0: Бейдж стоимости */
+    .stat-badge.cost {
+      background-color: rgba(245, 158, 11, 0.1);
+      color: var(--cost-orange);
     }
     
     /* Уведомление */
@@ -1351,10 +1423,10 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 2.0 - OpenAI + Gemini support
-     * ✅ Поддержка обоих типов ассистентов
-     * ✅ Визуальное различие в UI
-     * ✅ Фильтрация по типу
+     * Version: 3.0 - Call Cost & Recording Support
+     * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
+     * ✅ Отображение стоимости звонка (call_cost)
+     * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
      */
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -1399,7 +1471,6 @@
       const PRIVILEGED_USERS = ['well96well@gmail.com', 'stas@gmail.com'];
 
       // Матрица доступа к функциям по тарифам
-      // ВАЖНО: ai_voice НЕ включен → для него эти функции заблокированы
       const FEATURE_ACCESS = {
         crm: ['free', 'referral_trial', 'start', 'profi'],
         telephony: ['free', 'referral_trial', 'start', 'profi'],
@@ -1513,49 +1584,30 @@
       // ПРОВЕРКА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФУ
       // ============================================================================
 
-      /**
-       * Проверить, является ли пользователь привилегированным
-       */
       function isPrivilegedUser() {
         return PRIVILEGED_USERS.includes(currentUserEmail);
       }
 
-      /**
-       * Проверить, имеет ли пользователь доступ к функции
-       */
       function canAccessFeature(feature, planCode) {
         if (!planCode) return true;
-        
-        // Привилегированные пользователи имеют доступ ко всему
         if (isPrivilegedUser()) return true;
-        
         const allowedPlans = FEATURE_ACCESS[feature];
         if (!allowedPlans) return true;
-        
         return allowedPlans.includes(planCode);
       }
 
-      /**
-       * Получить отображаемое имя тарифа
-       */
       function getPlanDisplayName(planCode) {
         return PLAN_NAMES[planCode] || planCode;
       }
 
-      /**
-       * Применить матрицу доступа к элементам сайдбара
-       */
       function applyFeatureAccessToSidebar() {
         console.log('[ACCESS] Применяем матрицу доступа для плана:', currentUserPlanCode);
-
         document.querySelectorAll('.plan-locked-feature').forEach(el => {
           el.classList.remove('plan-locked-feature');
         });
-
         document.querySelectorAll('[data-feature]').forEach(element => {
           const feature = element.getAttribute('data-feature');
           const hasAccess = canAccessFeature(feature, currentUserPlanCode);
-          
           if (!hasAccess) {
             element.classList.add('plan-locked-feature');
             console.log(`[ACCESS] Заблокирована функция: ${feature}`);
@@ -1563,13 +1615,9 @@
         });
       }
 
-      /**
-       * Показать модалку блокировки функции
-       */
       function showFeatureBlockedModal(feature) {
         const featureName = FEATURE_NAMES[feature] || feature;
         const planName = getPlanDisplayName(currentUserPlanCode);
-
         document.getElementById('feature-blocked-message').textContent = 
           `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
         document.getElementById('current-plan-name-display').textContent = planName;
@@ -1577,16 +1625,10 @@
         document.getElementById('feature-blocked-modal').classList.add('show');
       }
 
-      /**
-       * Скрыть модалку блокировки функции
-       */
       function hideFeatureBlockedModal() {
         document.getElementById('feature-blocked-modal').classList.remove('show');
       }
 
-      /**
-       * Загрузить информацию о подписке пользователя
-       */
       async function loadSubscriptionInfo() {
         try {
           const subscription = await api.get('/subscriptions/my-subscription');
@@ -1598,6 +1640,10 @@
           console.warn('[SUBSCRIPTION] Ошибка загрузки подписки:', error);
         }
       }
+      
+      // ============================================================================
+      // ФОРМАТИРОВАНИЕ
+      // ============================================================================
       
       function formatDate(dateString) {
         const date = new Date(dateString);
@@ -1629,34 +1675,34 @@
       }
       
       /**
-       * Найти ассистента по ID
+       * 🆕 v3.0: Форматирование стоимости в рублях
        */
+      function formatCost(cost) {
+        if (cost === null || cost === undefined || cost === 0) return null;
+        return cost.toFixed(2) + ' ₽';
+      }
+      
       function getAssistantById(id) {
         return assistants.find(a => a.id === id);
       }
       
-      /**
-       * Определить тип ассистента из client_info или по ID
-       */
       function getAssistantType(conversation) {
-        // 1. Проверяем client_info
         if (conversation.client_info && conversation.client_info.assistant_type) {
           return conversation.client_info.assistant_type;
         }
-        
-        // 2. Проверяем по ID в загруженных ассистентах
         const assistant = getAssistantById(conversation.assistant_id);
         if (assistant) {
           return assistant.type;
         }
-        
-        // 3. По умолчанию - openai
         return 'openai';
       }
       
-      // 🆕 Функция удаления диалога
+      // ============================================================================
+      // УДАЛЕНИЕ ДИАЛОГА
+      // ============================================================================
+      
       async function deleteConversation(event, conversationId) {
-        event.stopPropagation(); // Не открывать модалку при клике на кнопку
+        event.stopPropagation();
         
         if (!confirm('Вы уверены, что хотите удалить этот диалог? Это действие необратимо.')) {
           return;
@@ -1664,14 +1710,9 @@
         
         try {
           setLoading(true);
-          
           await api.delete(`/conversations/${conversationId}`);
-          
           showNotification('Диалог успешно удален', 'success');
-          
-          // Перезагружаем список диалогов
           loadConversations();
-          
         } catch (error) {
           console.error('Error deleting conversation:', error);
           showNotification(error.message || 'Ошибка при удалении диалога', 'error');
@@ -1680,12 +1721,12 @@
         }
       }
       
-      // Делаем функцию глобальной для onclick
       window.deleteConversation = deleteConversation;
       
-      /**
-       * Создать карточку диалога с учётом типа ассистента
-       */
+      // ============================================================================
+      // 🆕 v3.0: СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА С COST И RECORDING
+      // ============================================================================
+      
       function createConversationCard(conversation) {
         const assistant = getAssistantById(conversation.assistant_id);
         const assistantName = assistant ? assistant.name : 'Неизвестный ассистент';
@@ -1696,6 +1737,7 @@
         card.className = 'conversation-card';
         card.onclick = () => openConversationDetail(conversation.id, assistantType);
         
+        // Номер телефона или Web чат
         const callerDisplay = conversation.caller_number 
           ? `<div class="caller-info">
               <i class="fas fa-phone"></i>
@@ -1706,17 +1748,59 @@
               <span>Web чат</span>
             </div>`;
         
+        // Превью сообщения
         const preview = conversation.user_message 
           ? conversation.user_message.substring(0, 100) + (conversation.user_message.length > 100 ? '...' : '')
           : conversation.assistant_message 
             ? conversation.assistant_message.substring(0, 100) + (conversation.assistant_message.length > 100 ? '...' : '')
             : 'Нет сообщений';
         
-        // Определяем стили в зависимости от типа
+        // Стили в зависимости от типа ассистента
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini' 
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
+        
+        // 🆕 v3.0: Метрики в футере
+        let metaItems = '';
+        
+        // Длительность
+        if (conversation.duration_seconds) {
+          metaItems += `
+            <div class="meta-item">
+              <i class="fas fa-clock"></i>
+              ${formatDuration(conversation.duration_seconds)}
+            </div>
+          `;
+        }
+        
+        // Токены
+        metaItems += `
+          <div class="meta-item">
+            <i class="fas fa-brain"></i>
+            ${conversation.tokens_used || 0} токенов
+          </div>
+        `;
+        
+        // 🆕 v3.0: Стоимость звонка (только если есть)
+        const costFormatted = formatCost(conversation.call_cost);
+        if (costFormatted) {
+          metaItems += `
+            <div class="meta-item cost">
+              <i class="fas fa-ruble-sign"></i>
+              ${costFormatted}
+            </div>
+          `;
+        }
+        
+        // 🆕 v3.0: Иконка записи (только если есть)
+        if (conversation.record_url) {
+          metaItems += `
+            <div class="meta-item recording" title="Есть запись звонка">
+              <i class="fas fa-headphones"></i>
+            </div>
+          `;
+        }
         
         card.innerHTML = `
           <div class="card-header">
@@ -1739,16 +1823,7 @@
           
           <div class="card-footer">
             <div class="card-meta">
-              ${conversation.duration_seconds ? `
-                <div class="meta-item">
-                  <i class="fas fa-clock"></i>
-                  ${formatDuration(conversation.duration_seconds)}
-                </div>
-              ` : ''}
-              <div class="meta-item">
-                <i class="fas fa-brain"></i>
-                ${conversation.tokens_used || 0} токенов
-              </div>
+              ${metaItems}
             </div>
           </div>
         `;
@@ -1767,54 +1842,40 @@
         pagination.style.display = 'none';
       }
       
-      /**
-       * 🆕 v2.0: Загрузка ассистентов для фильтра (OpenAI + Gemini)
-       */
+      // ============================================================================
+      // ЗАГРУЗКА АССИСТЕНТОВ
+      // ============================================================================
+      
       async function loadAssistants() {
         try {
           assistants = [];
-          
           console.log('[ASSISTANTS] Loading assistants for filter...');
           
-          // 1. Загружаем OpenAI ассистентов
+          // OpenAI
           try {
             const openaiData = await api.get('/assistants');
             const openaiList = Array.isArray(openaiData) ? openaiData : [];
-            
             openaiList.forEach(a => {
-              assistants.push({
-                id: a.id,
-                name: a.name,
-                type: 'openai'
-              });
+              assistants.push({ id: a.id, name: a.name, type: 'openai' });
             });
-            
             console.log(`[ASSISTANTS] ✅ Loaded ${openaiList.length} OpenAI assistants`);
           } catch (e) {
             console.warn('[ASSISTANTS] ⚠️ Error loading OpenAI assistants:', e.message);
           }
           
-          // 2. Загружаем Gemini ассистентов
+          // Gemini
           try {
             const geminiData = await api.get('/gemini-assistants');
             const geminiList = Array.isArray(geminiData) ? geminiData : [];
-            
             geminiList.forEach(a => {
-              assistants.push({
-                id: a.id,
-                name: a.name,
-                type: 'gemini'
-              });
+              assistants.push({ id: a.id, name: a.name, type: 'gemini' });
             });
-            
             console.log(`[ASSISTANTS] ✅ Loaded ${geminiList.length} Gemini assistants`);
           } catch (e) {
             console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
           }
           
           console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
-          
-          // 3. Рендерим select с группами
           renderAssistantFilter();
           
         } catch (error) {
@@ -1824,9 +1885,6 @@
         }
       }
       
-      /**
-       * Рендеринг фильтра ассистентов с группировкой по типу
-       */
       function renderAssistantFilter() {
         assistantFilter.innerHTML = '<option value="">Все ассистенты</option>';
         
@@ -1838,40 +1896,37 @@
         const openaiAssistants = assistants.filter(a => a.type === 'openai');
         const geminiAssistants = assistants.filter(a => a.type === 'gemini');
         
-        // OpenAI group
         if (openaiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
           optgroup.label = '🤖 OpenAI';
-          
           openaiAssistants.forEach(assistant => {
             const option = document.createElement('option');
             option.value = assistant.id;
             option.textContent = assistant.name;
             optgroup.appendChild(option);
           });
-          
           assistantFilter.appendChild(optgroup);
         }
         
-        // Gemini group
         if (geminiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
           optgroup.label = '✨ Gemini';
-          
           geminiAssistants.forEach(assistant => {
             const option = document.createElement('option');
             option.value = assistant.id;
             option.textContent = assistant.name;
             optgroup.appendChild(option);
           });
-          
           assistantFilter.appendChild(optgroup);
         }
         
         console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI and', geminiAssistants.length, 'Gemini');
       }
       
-      // Загрузка диалогов
+      // ============================================================================
+      // ЗАГРУЗКА ДИАЛОГОВ
+      // ============================================================================
+      
       async function loadConversations() {
         try {
           setLoading(true);
@@ -1896,7 +1951,7 @@
             return;
           }
           
-          // Сортировка на клиенте (если нужно)
+          // Сортировка на клиенте
           const sortOrder = sortFilter.value;
           const sorted = [...response.conversations].sort((a, b) => {
             const dateA = new Date(a.created_at);
@@ -1919,7 +1974,6 @@
         }
       }
       
-      // Обновление пагинации
       function updatePagination() {
         if (totalPages <= 1) {
           pagination.style.display = 'none';
@@ -1933,19 +1987,18 @@
         nextBtn.disabled = currentPage >= totalPages - 1;
       }
       
-      /**
-       * 🆕 Открытие детального просмотра с полным диалогом
-       * Учитываем тип ассистента для стилизации
-       */
+      // ============================================================================
+      // 🆕 v3.0: ДЕТАЛЬНЫЙ ПРОСМОТР С ПЛЕЕРОМ
+      // ============================================================================
+      
       async function openConversationDetail(conversationId, assistantType = 'openai') {
         try {
           setLoading(true);
           
           const dialog = await api.get(`/conversations/${conversationId}?include_functions=true`);
           
-          // Определяем тип из ответа или параметра
+          // Тип ассистента
           const type = dialog.client_info?.assistant_type || assistantType || 'openai';
-          const typeIcon = type === 'gemini' ? '✨' : '🤖';
           const typeBadge = type === 'gemini' 
             ? '<span class="assistant-type-badge gemini" style="margin-left: 0.5rem;">Gemini</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
@@ -1957,6 +2010,12 @@
           const callerBadge = dialog.caller_number 
             ? `<span class="stat-badge"><i class="fas fa-phone"></i> ${dialog.caller_number}</span>`
             : `<span class="stat-badge"><i class="fas fa-globe"></i> Web чат</span>`;
+          
+          // 🆕 v3.0: Бейдж стоимости
+          const costFormatted = formatCost(dialog.call_cost);
+          const costBadge = costFormatted 
+            ? `<span class="stat-badge cost"><i class="fas fa-ruble-sign"></i> ${costFormatted}</span>`
+            : '';
           
           modalSubtitle.innerHTML = `
             ${callerBadge}
@@ -1971,9 +2030,10 @@
             <span class="stat-badge">
               <i class="fas fa-comments"></i> ${dialog.total_messages} сообщений
             </span>
+            ${costBadge}
           `;
           
-          // 🆕 Telegram-style chat с учётом типа
+          // Чат с сообщениями
           chatContainer.innerHTML = '';
           
           if (dialog.messages && dialog.messages.length > 0) {
@@ -1997,7 +2057,6 @@
               chatContainer.appendChild(messageDiv);
             });
             
-            // Авто-скролл вниз
             setTimeout(() => {
               chatContainer.scrollTop = chatContainer.scrollHeight;
             }, 100);
@@ -2005,7 +2064,10 @@
             chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
           }
           
-          // Футер с токенами и функциями
+          // ============================================================================
+          // 🆕 v3.0: ФУТЕР С ПЛЕЕРОМ
+          // ============================================================================
+          
           let footerHtml = `
             <div class="footer-info">
               <div class="footer-item">
@@ -2016,9 +2078,33 @@
                 <i class="${type === 'gemini' ? 'fas fa-gem' : 'fas fa-robot'}"></i>
                 <span>${type === 'gemini' ? 'Gemini AI' : 'OpenAI'}</span>
               </div>
+              ${costFormatted ? `
+                <div class="footer-item cost">
+                  <i class="fas fa-ruble-sign"></i>
+                  <span>${costFormatted}</span>
+                </div>
+              ` : ''}
             </div>
           `;
           
+          // 🆕 v3.0: Аудиоплеер (если есть запись)
+          if (dialog.record_url) {
+            footerHtml += `
+              <div class="audio-player-section">
+                <div class="audio-player-title">
+                  <i class="fas fa-headphones"></i>
+                  Запись звонка
+                </div>
+                <audio class="audio-player" controls preload="metadata">
+                  <source src="${dialog.record_url}" type="audio/mpeg">
+                  <source src="${dialog.record_url}" type="audio/wav">
+                  Ваш браузер не поддерживает воспроизведение аудио.
+                </audio>
+              </div>
+            `;
+          }
+          
+          // Функции (если есть)
           if (dialog.function_calls && dialog.function_calls.length > 0) {
             footerHtml += `
               <div class="functions-section">
@@ -2046,17 +2132,24 @@
         }
       }
       
-      // Закрытие модального окна
       function closeModal() {
+        // Останавливаем аудио при закрытии
+        const audioPlayer = modalFooter.querySelector('audio');
+        if (audioPlayer) {
+          audioPlayer.pause();
+          audioPlayer.currentTime = 0;
+        }
         modalOverlay.classList.remove('show');
       }
       
-      // Загрузка информации о пользователе
+      // ============================================================================
+      // ЗАГРУЗКА ИНФОРМАЦИИ О ПОЛЬЗОВАТЕЛЕ
+      // ============================================================================
+      
       async function loadUserInfo() {
         try {
           const userInfo = await api.get('/users/me');
           
-          // Сохраняем email для проверки привилегий
           currentUserEmail = userInfo.email;
           
           const firstName = userInfo.first_name || '';
@@ -2064,7 +2157,6 @@
           
           if (firstName || lastName) {
             userEmailDisplay.textContent = firstName + (lastName ? ` ${lastName}` : '');
-            
             let initials = '';
             if (firstName) initials += firstName[0];
             if (lastName) initials += lastName[0];
@@ -2081,7 +2173,10 @@
         }
       }
       
-      // Обработчики событий
+      // ============================================================================
+      // ОБРАБОТЧИКИ СОБЫТИЙ
+      // ============================================================================
+      
       assistantFilter.addEventListener('change', () => {
         currentPage = 0;
         loadConversations();
@@ -2142,7 +2237,6 @@
         }
       });
       
-      // Закрытие уведомления
       notificationClose.addEventListener('click', hideNotification);
       
       // Keyboard shortcuts
@@ -2158,7 +2252,10 @@
         return;
       }
       
-      // Инициализация
+      // ============================================================================
+      // ИНИЦИАЛИЗАЦИЯ
+      // ============================================================================
+      
       loadUserInfo();
       loadSubscriptionInfo().then(() => {
         applyFeatureAccessToSidebar();
