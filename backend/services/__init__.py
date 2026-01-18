@@ -2,6 +2,7 @@
 Service module for WellcomeAI application.
 Contains business logic services that act as intermediaries between API endpoints and data models.
 ✅ ОБНОВЛЕНО v3.0: Добавлен VoximplantPartnerService для партнёрской интеграции
+✅ ОБНОВЛЕНО v3.3: Добавлен R2StorageService для записей звонков
 """
 
 from .auth_service import AuthService
@@ -16,6 +17,9 @@ from .browser_agent_service import BrowserAgentService, browser_agent_service
 
 # ✅ НОВОЕ v3.0: Voximplant Partner Service
 from .voximplant_partner import VoximplantPartnerService, get_voximplant_partner_service
+
+# ✅ НОВОЕ v3.3: R2 Storage Service
+from .r2_storage import R2StorageService
 
 # Export services
 __all__ = [
@@ -32,4 +36,6 @@ __all__ = [
     # ✅ НОВОЕ v3.0: Voximplant Partner
     "VoximplantPartnerService",
     "get_voximplant_partner_service",
+    # ✅ НОВОЕ v3.3: R2 Storage
+    "R2StorageService",
 ]
