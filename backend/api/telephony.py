@@ -9,6 +9,7 @@ API Endpoints для страницы "Телефония".
 - Привязка номеров к ассистентам
 - Конфигурация для сценариев Voximplant
 - Исходящие звонки (outbound calls)
+- Service Account для JWT авторизации (secure records)
 
 Routes:
     POST   /api/telephony/setup              - Подключить телефонию
@@ -23,13 +24,14 @@ Routes:
     GET    /api/telephony/config             - Конфиг для сценария (публичный, inbound)
     GET    /api/telephony/outbound-config    - Конфиг для исходящего сценария (публичный)
     POST   /api/telephony/start-outbound-call - Запустить исходящий звонок
-    POST   /api/telephony/public/call        - 🆕 Публичный эндпоинт для исходящих звонков
+    POST   /api/telephony/public/call        - Публичный эндпоинт для исходящих звонков
     POST   /api/telephony/register-webhook   - Зарегистрировать webhook
     GET    /api/telephony/scenarios          - Список сценариев аккаунта
     POST   /api/telephony/setup-scenarios    - Настроить сценарии
     POST   /api/telephony/repair-numbers     - Починить номера с отсутствующим phone_id
     POST   /api/telephony/admin/update-all-scenarios - 🔐 Обновить сценарии у всех аккаунтов
     POST   /api/telephony/admin/setup-outbound-rules - 🔐 Создать outbound rules для всех аккаунтов
+    POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
 
 ✅ v1.0: Базовый функционал партнёрской интеграции
 ✅ v1.1: Исправлен регистр enum (lowercase)
@@ -50,10 +52,10 @@ Routes:
 ✅ v3.1: PHONE INFO - добавлена информация о номерах из Voximplant API:
          - phone_next_renewal - дата следующей оплаты
          - phone_price - стоимость аренды номера в месяц
-✅ v3.2: PUBLIC CALL API - публичный эндпоинт для внешних интеграций:
-         - POST /api/telephony/public/call - без авторизации
-         - Автоопределение типа ассистента
-         - Автовыбор caller_phone если не указан
+✅ v3.2: SERVICE ACCOUNT - JWT авторизация для secure записей:
+         - Автоматическое создание Service Account при setup_telephony
+         - Admin endpoint /admin/setup-service-accounts для миграции
+         - Сохранение vox_service_account_id и vox_service_account_key
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -168,7 +170,8 @@ class TelephonySetupResponse(BaseModel):
     account_id: Optional[str] = None
     verification_url: Optional[str] = None
     scenarios_copied: Optional[int] = None
-    outbound_rules_created: Optional[int] = None  # 🆕 v3.0
+    outbound_rules_created: Optional[int] = None
+    service_account_created: Optional[bool] = None  # 🆕 v3.2
 
 
 class TelephonyStatusResponse(BaseModel):
@@ -180,8 +183,9 @@ class TelephonyStatusResponse(BaseModel):
     numbers_count: int = 0
     account_id: Optional[str] = None
     has_scenarios: bool = False
-    has_outbound_rules: bool = False  # 🆕 v3.0
-    can_make_outbound_calls: bool = False  # 🆕 v3.0
+    has_outbound_rules: bool = False
+    can_make_outbound_calls: bool = False
+    has_service_account: bool = False  # 🆕 v3.2
 
 
 class PhoneNumberInfo(BaseModel):
@@ -222,53 +226,35 @@ class MyNumberInfo(BaseModel):
     assistant_name: Optional[str] = None
     first_phrase: Optional[str] = None
     is_active: bool
-    phone_next_renewal: Optional[str] = None  # 🆕 v3.1 Дата следующей оплаты (YYYY-MM-DD)
-    phone_price: Optional[float] = None       # 🆕 v3.1 Стоимость аренды в месяц
+    phone_next_renewal: Optional[str] = None
+    phone_price: Optional[float] = None
 
 
 class BindAssistantRequest(BaseModel):
     """Запрос на привязку ассистента к номеру"""
-    phone_number_id: str  # UUID нашей записи
-    assistant_type: str  # 'openai', 'gemini', 'yandex'
-    assistant_id: str  # UUID ассистента
+    phone_number_id: str
+    assistant_type: str
+    assistant_id: str
     first_phrase: Optional[str] = None
 
 
 class ScenarioConfigResponse(BaseModel):
-    """Конфиг для сценария Voximplant (v2.2)"""
+    """Конфиг для сценария Voximplant"""
     success: bool
-    
-    # Основные
-    assistant_type: Optional[str] = None      # "openai" или "gemini"
+    assistant_type: Optional[str] = None
     assistant_id: Optional[str] = None
-    assistant_name: Optional[str] = None      # Для логов
-    
-    # API ключ (один, в зависимости от типа)
+    assistant_name: Optional[str] = None
     api_key: Optional[str] = None
-    
-    # Настройки ассистента
     system_prompt: Optional[str] = None
     first_phrase: Optional[str] = None
     voice: Optional[str] = None
-    language: Optional[str] = None            # Язык транскрипции
-    
-    # Функции
-    functions: Optional[List[Dict]] = None    # Массив функций
-    
-    # Логирование
+    language: Optional[str] = None
+    functions: Optional[List[Dict]] = None
     google_sheet_id: Optional[str] = None
-    
-    # OpenAI-специфичное
     model: Optional[str] = None
-    
-    # Gemini-специфичное
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
 
-
-# =============================================================================
-# 🆕 v3.0: PYDANTIC SCHEMAS ДЛЯ ИСХОДЯЩИХ ЗВОНКОВ
-# =============================================================================
 
 class StartOutboundCallRequest(BaseModel):
     """Запрос на запуск исходящего звонка"""
@@ -279,6 +265,7 @@ class StartOutboundCallRequest(BaseModel):
     first_phrase: Optional[str] = Field(None, description="Первая фраза (опционально)")
     mute_duration_ms: int = Field(default=3000, ge=0, le=10000, description="Время мьюта микрофона клиента (мс)")
     task: Optional[str] = Field(None, description="Задача/контекст для звонка (инжектируется в начало промпта)")
+
 
 class StartOutboundCallResponse(BaseModel):
     """Ответ на запуск исходящих звонков"""
@@ -293,45 +280,23 @@ class StartOutboundCallResponse(BaseModel):
 class OutboundConfigResponse(BaseModel):
     """Конфиг для исходящего сценария Voximplant"""
     success: bool
-    
-    # Основные
     assistant_type: Optional[str] = None
     assistant_id: Optional[str] = None
     assistant_name: Optional[str] = None
-    
-    # API ключ
     api_key: Optional[str] = None
-    
-    # Настройки
     system_prompt: Optional[str] = None
     first_phrase: Optional[str] = None
     voice: Optional[str] = None
     language: Optional[str] = None
-    
-    # Функции
     functions: Optional[List[Dict]] = None
-    
-    # Логирование
     google_sheet_id: Optional[str] = None
-    
-    # OpenAI
     model: Optional[str] = None
-    
-    # Gemini
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
 
 
-# =============================================================================
-# 🆕 v3.2: PYDANTIC SCHEMAS ДЛЯ ПУБЛИЧНОГО API
-# =============================================================================
-
 class PublicCallRequest(BaseModel):
-    """
-    🆕 v3.2: Запрос на запуск исходящего звонка через публичный API.
-    
-    Не требует авторизации - assistant_id служит идентификатором.
-    """
+    """Запрос на запуск исходящего звонка через публичный API."""
     assistant_id: str = Field(..., description="UUID ассистента (служит ключом доступа)")
     target_phones: List[str] = Field(..., min_length=1, max_length=50, description="Список номеров для обзвона (до 50)")
     caller_phone: Optional[str] = Field(None, description="Номер для caller_id. Если не указан - берётся первый доступный")
@@ -341,7 +306,7 @@ class PublicCallRequest(BaseModel):
 
 
 class PublicCallResponse(BaseModel):
-    """🆕 v3.2: Ответ на запуск исходящих звонков через публичный API."""
+    """Ответ на запуск исходящих звонков через публичный API."""
     success: bool
     message: str
     started: int = 0
@@ -364,16 +329,17 @@ async def setup_telephony(
     Создаёт дочерний аккаунт Voximplant для пользователя.
     Возвращает ссылку на верификацию.
     
-    **Процесс v3.0:**
+    **Процесс v3.2:**
     1. Проверяем, нет ли уже аккаунта
     2. Создаём/клонируем дочерний аккаунт
-    3. Создаём SubUser для верификации
+    3. Создаём SubUser для верификации/биллинга
     4. Получаем приложение и правило (если клонировали)
     5. Создаём Application и копируем сценарии с родителя
-    6. 🆕 Создаём Rules для outbound сценариев
-    7. Сохраняем в БД (включая vox_rule_ids)
-    8. Регистрируем webhook для обновлений статуса
-    9. Возвращаем ссылку на верификацию
+    6. Создаём Rules для outbound сценариев
+    7. 🆕 Создаём Service Account для JWT авторизации (secure records)
+    8. Сохраняем в БД (включая vox_rule_ids и service account)
+    9. Регистрируем webhook для обновлений статуса
+    10. Возвращаем ссылку на верификацию
     """
     try:
         logger.info(f"[TELEPHONY] Setup request from user {current_user.id}")
@@ -463,9 +429,9 @@ async def setup_telephony(
         app_name = None
         rule_id = None
         scenario_ids = {}
-        rule_ids = {}  # 🆕 v3.0
+        rule_ids = {}
         scenarios_copied = 0
-        outbound_rules_created = 0  # 🆕 v3.0
+        outbound_rules_created = 0
         
         if apps_result.get("success") and apps_result.get("applications"):
             app = apps_result["applications"][0]
@@ -485,7 +451,7 @@ async def setup_telephony(
             logger.info(f"[TELEPHONY] Found cloned app: {app_id}, rule: {rule_id}")
         
         # =====================================================================
-        # 4. ✅ Если нет приложения - создаём и копируем сценарии + outbound rules
+        # 4. Если нет приложения - создаём и копируем сценарии + outbound rules
         # =====================================================================
         if not app_id:
             try:
@@ -499,21 +465,46 @@ async def setup_telephony(
                     app_id = str(setup_result.get("application_id"))
                     app_name = setup_result.get("application_name")
                     scenario_ids = setup_result.get("scenario_ids", {})
-                    rule_ids = setup_result.get("rule_ids", {})  # 🆕 v3.0
+                    rule_ids = setup_result.get("rule_ids", {})
                     scenarios_copied = setup_result.get("scenarios_copied", 0)
-                    outbound_rules_created = setup_result.get("outbound_rules_created", 0)  # 🆕 v3.0
+                    outbound_rules_created = setup_result.get("outbound_rules_created", 0)
                     
                     logger.info(f"[TELEPHONY] ✅ Scenarios setup complete:")
                     logger.info(f"[TELEPHONY]    App: {app_id}")
                     logger.info(f"[TELEPHONY]    Scenarios: {list(scenario_ids.keys())}")
-                    logger.info(f"[TELEPHONY]    Outbound Rules: {list(rule_ids.keys())}")  # 🆕 v3.0
+                    logger.info(f"[TELEPHONY]    Outbound Rules: {list(rule_ids.keys())}")
                 else:
                     logger.warning(f"[TELEPHONY] ⚠️ Failed to setup scenarios: {setup_result.get('error')}")
             except Exception as e:
                 logger.warning(f"[TELEPHONY] ⚠️ Scenarios setup failed: {e}")
         
         # =====================================================================
-        # 5. Сохраняем в БД
+        # 5. 🆕 v3.2: Создаём Service Account для JWT авторизации (secure records)
+        # =====================================================================
+        service_account_id = None
+        service_account_key = None
+        service_account_created = False
+        
+        try:
+            logger.info(f"[TELEPHONY] Creating Service Account for JWT authorization...")
+            
+            sa_result = await service.setup_service_account(
+                child_account_id=account_result["account_id"],
+                child_api_key=account_result["api_key"]
+            )
+            
+            if sa_result.get("success"):
+                service_account_id = sa_result.get("service_account_id")
+                service_account_key = sa_result.get("service_account_key")
+                service_account_created = True
+                logger.info(f"[TELEPHONY] ✅ Service Account created: {service_account_id}")
+            else:
+                logger.warning(f"[TELEPHONY] ⚠️ Failed to create Service Account: {sa_result.get('error')}")
+        except Exception as e:
+            logger.warning(f"[TELEPHONY] ⚠️ Service Account creation failed: {e}")
+        
+        # =====================================================================
+        # 6. Сохраняем в БД
         # =====================================================================
         child_account = VoximplantChildAccount(
             user_id=current_user.id,
@@ -525,9 +516,12 @@ async def setup_telephony(
             vox_subuser_password=subuser_result.get("subuser_password") if subuser_result.get("success") else None,
             vox_application_id=app_id,
             vox_application_name=app_name,
-            vox_rule_id=rule_id,  # Обратная совместимость
+            vox_rule_id=rule_id,
             vox_scenario_ids=scenario_ids,
-            vox_rule_ids=rule_ids,  # 🆕 v3.0: Сохраняем outbound rules
+            vox_rule_ids=rule_ids,
+            # 🆕 v3.2: Service Account для JWT авторизации
+            vox_service_account_id=service_account_id,
+            vox_service_account_key=service_account_key,
             verification_status=VoximplantVerificationStatus.not_started,
         )
         
@@ -538,7 +532,7 @@ async def setup_telephony(
         logger.info(f"[TELEPHONY] ✅ Child account saved to DB: {child_account.id}")
         
         # =====================================================================
-        # 6. Регистрируем webhook для автоматических обновлений статуса
+        # 7. Регистрируем webhook для автоматических обновлений статуса
         # =====================================================================
         try:
             callback_result = await service.set_account_callback(
@@ -553,7 +547,7 @@ async def setup_telephony(
             logger.warning(f"[TELEPHONY] ⚠️ Webhook registration failed: {e}")
         
         # =====================================================================
-        # 7. Получаем ссылку на верификацию
+        # 8. Получаем ссылку на верификацию
         # =====================================================================
         verification_url = None
         if subuser_result.get("success"):
@@ -572,7 +566,8 @@ async def setup_telephony(
             account_id=account_result["account_id"],
             verification_url=verification_url,
             scenarios_copied=scenarios_copied,
-            outbound_rules_created=outbound_rules_created  # 🆕 v3.0
+            outbound_rules_created=outbound_rules_created,
+            service_account_created=service_account_created  # 🆕 v3.2
         )
         
     except HTTPException:
@@ -599,7 +594,8 @@ async def get_telephony_status(
     - Баланс
     - Количество номеров
     - Есть ли сценарии
-    - 🆕 v3.0: Есть ли outbound rules, можно ли делать исходящие
+    - Есть ли outbound rules, можно ли делать исходящие
+    - 🆕 v3.2: Есть ли Service Account
     """
     try:
         logger.info(f"[TELEPHONY] Status request from user {current_user.id}")
@@ -617,7 +613,8 @@ async def get_telephony_status(
                 numbers_count=0,
                 has_scenarios=False,
                 has_outbound_rules=False,
-                can_make_outbound_calls=False
+                can_make_outbound_calls=False,
+                has_service_account=False
             )
         
         # Получаем актуальный статус из Voximplant
@@ -661,10 +658,13 @@ async def get_telephony_status(
         # Проверяем наличие сценариев
         has_scenarios = bool(child_account.vox_scenario_ids and len(child_account.vox_scenario_ids) > 0)
         
-        # 🆕 v3.0: Проверяем наличие outbound rules
+        # Проверяем наличие outbound rules
         has_outbound_rules = bool(child_account.vox_rule_ids and len(child_account.vox_rule_ids) > 0)
         
-        # 🆕 v3.0: Можно ли делать исходящие звонки
+        # 🆕 v3.2: Проверяем наличие Service Account
+        has_service_account = bool(child_account.vox_service_account_id and child_account.vox_service_account_key)
+        
+        # Можно ли делать исходящие звонки
         can_make_outbound_calls = (
             child_account.is_verified 
             and child_account.is_active 
@@ -681,7 +681,8 @@ async def get_telephony_status(
             account_id=child_account.vox_account_id,
             has_scenarios=has_scenarios,
             has_outbound_rules=has_outbound_rules,
-            can_make_outbound_calls=can_make_outbound_calls
+            can_make_outbound_calls=can_make_outbound_calls,
+            has_service_account=has_service_account  # 🆕 v3.2
         )
         
     except Exception as e:
@@ -1214,7 +1215,7 @@ async def get_my_numbers(
     """
     Получить список моих номеров.
     
-    🆕 v3.1: Возвращает дополнительную информацию из Voximplant API:
+    Возвращает дополнительную информацию из Voximplant API:
     - phone_next_renewal: дата следующей оплаты (YYYY-MM-DD)
     - phone_price: стоимость аренды номера в месяц
     """
@@ -1232,7 +1233,7 @@ async def get_my_numbers(
         numbers = child_account.phone_numbers if child_account else []
         
         # =====================================================================
-        # 🆕 v3.1: Получаем актуальные данные из Voximplant API
+        # Получаем актуальные данные из Voximplant API
         # =====================================================================
         vox_map = {}
         try:
@@ -1272,7 +1273,7 @@ async def get_my_numbers(
                     ).first()
                     assistant_name = assistant.name if assistant else None
             
-            # 🆕 v3.1: Получаем данные из Voximplant по нормализованному номеру
+            # Получаем данные из Voximplant по нормализованному номеру
             normalized = normalize_phone_number(num.phone_number)
             vox_info = vox_map.get(normalized) or vox_map.get(normalized[-10:] if len(normalized) > 10 else normalized, {})
             
@@ -1285,8 +1286,8 @@ async def get_my_numbers(
                 assistant_name=assistant_name,
                 first_phrase=num.first_phrase,
                 is_active=num.is_active,
-                phone_next_renewal=vox_info.get("phone_next_renewal"),  # 🆕 v3.1
-                phone_price=vox_info.get("phone_price"),                # 🆕 v3.1
+                phone_next_renewal=vox_info.get("phone_next_renewal"),
+                phone_price=vox_info.get("phone_price"),
             ))
         
         return {"numbers": result, "total": len(result)}
@@ -1456,9 +1457,10 @@ async def get_account_scenarios(
         return {
             "success": True,
             "scenario_ids": child_account.vox_scenario_ids or {},
-            "rule_ids": child_account.vox_rule_ids or {},  # 🆕 v3.0
+            "rule_ids": child_account.vox_rule_ids or {},
             "application_id": child_account.vox_application_id,
-            "application_name": child_account.vox_application_name
+            "application_name": child_account.vox_application_name,
+            "has_service_account": bool(child_account.vox_service_account_id)  # 🆕 v3.2
         }
         
     except HTTPException:
@@ -1479,7 +1481,7 @@ async def setup_scenarios(
     """
     Создать приложение и скопировать сценарии.
     
-    🆕 v3.0: Также создаёт Rules для outbound сценариев.
+    Также создаёт Rules для outbound сценариев.
     """
     try:
         child_account = db.query(VoximplantChildAccount).filter(
@@ -1554,7 +1556,7 @@ async def setup_scenarios(
         child_account.vox_application_id = str(setup_result.get("application_id"))
         child_account.vox_application_name = setup_result.get("application_name")
         child_account.vox_scenario_ids = setup_result.get("scenario_ids", {})
-        child_account.vox_rule_ids = setup_result.get("rule_ids", {})  # 🆕 v3.0
+        child_account.vox_rule_ids = setup_result.get("rule_ids", {})
         db.commit()
         
         logger.info(f"[TELEPHONY] ✅ Scenarios and rules setup for user {current_user.id}")
@@ -1735,7 +1737,7 @@ async def repair_phone_numbers(
 
 
 # =============================================================================
-# 🆕 v3.0: ИСХОДЯЩИЕ ЗВОНКИ (OUTBOUND CALLS)
+# ИСХОДЯЩИЕ ЗВОНКИ (OUTBOUND CALLS)
 # =============================================================================
 
 @router.post("/start-outbound-call", response_model=StartOutboundCallResponse)
@@ -1745,7 +1747,7 @@ async def start_outbound_call(
     current_user: User = Depends(get_current_user),
 ):
     """
-    🆕 v3.0: Запустить исходящие звонки.
+    Запустить исходящие звонки.
     
     Запускает сценарий для каждого номера из списка target_phones.
     Максимум 50 номеров за один запрос.
@@ -1948,7 +1950,7 @@ async def start_outbound_call(
 
 
 # =============================================================================
-# 🆕 v3.2: ПУБЛИЧНЫЙ API ДЛЯ ИСХОДЯЩИХ ЗВОНКОВ
+# ПУБЛИЧНЫЙ API ДЛЯ ИСХОДЯЩИХ ЗВОНКОВ
 # =============================================================================
 
 @router.post("/public/call", response_model=PublicCallResponse)
@@ -1957,7 +1959,7 @@ async def public_outbound_call(
     db: Session = Depends(get_db),
 ):
     """
-    🆕 v3.2: Публичный эндпоинт для запуска исходящих звонков.
+    Публичный эндпоинт для запуска исходящих звонков.
     
     ⚠️ НЕ требует авторизации - assistant_id служит ключом доступа.
     
@@ -2194,7 +2196,7 @@ async def get_outbound_config(
     db: Session = Depends(get_db),
 ):
     """
-    🆕 v3.0: Получить конфигурацию для исходящего сценария Voximplant.
+    Получить конфигурацию для исходящего сценария Voximplant.
     
     ⚠️ Это ПУБЛИЧНЫЙ endpoint - НЕ требует авторизации.
     Вызывается из сценария Voximplant при исходящем звонке.
@@ -2450,7 +2452,7 @@ async def admin_setup_outbound_rules(
     """
     🔐 ADMIN ONLY: Создать outbound rules для ВСЕХ дочерних аккаунтов.
     
-    🆕 v3.0: Миграция существующих аккаунтов - создаёт Rules для
+    Миграция существующих аккаунтов - создаёт Rules для
     outbound сценариев у аккаунтов, где их ещё нет.
     """
     # Проверка админа
@@ -2536,6 +2538,111 @@ async def admin_setup_outbound_rules(
         return {
             "success": True,
             "message": f"Created outbound rules for {results['updated']} accounts",
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Error: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 🆕 v3.2: ADMIN ENDPOINT ДЛЯ МИГРАЦИИ SERVICE ACCOUNTS
+# =============================================================================
+
+@router.post("/admin/setup-service-accounts")
+async def admin_setup_service_accounts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN ONLY: Создать Service Account для ВСЕХ дочерних аккаунтов.
+    
+    🆕 v3.2: Миграция существующих аккаунтов - создаёт Service Account
+    для JWT авторизации при скачивании secure записей.
+    
+    После выполнения все аккаунты смогут скачивать записи с secure URLs.
+    """
+    # Проверка админа
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        service = get_voximplant_partner_service()
+        
+        # Получаем все дочерние аккаунты
+        child_accounts = db.query(VoximplantChildAccount).all()
+        logger.info(f"[TELEPHONY-ADMIN] Found {len(child_accounts)} child accounts for Service Account setup")
+        
+        results = {
+            "total_accounts": len(child_accounts),
+            "created": 0,
+            "skipped": 0,
+            "failed": 0,
+            "details": []
+        }
+        
+        for child in child_accounts:
+            account_result = {
+                "account_id": child.vox_account_id,
+                "user_id": str(child.user_id),
+                "status": "skipped",
+                "service_account_id": None,
+                "error": None
+            }
+            
+            # Пропускаем если уже есть Service Account
+            if child.vox_service_account_id and child.vox_service_account_key:
+                logger.info(f"[TELEPHONY-ADMIN] Skipping {child.vox_account_id} - already has Service Account")
+                results["skipped"] += 1
+                account_result["status"] = "skipped_has_sa"
+                account_result["service_account_id"] = child.vox_service_account_id
+                results["details"].append(account_result)
+                continue
+            
+            # Создаём Service Account
+            logger.info(f"[TELEPHONY-ADMIN] Creating Service Account for {child.vox_account_id}...")
+            
+            try:
+                sa_result = await service.setup_service_account(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key
+                )
+                
+                if sa_result.get("success"):
+                    child.vox_service_account_id = sa_result.get("service_account_id")
+                    child.vox_service_account_key = sa_result.get("service_account_key")
+                    db.commit()
+                    
+                    results["created"] += 1
+                    account_result["status"] = "created"
+                    account_result["service_account_id"] = child.vox_service_account_id
+                    logger.info(f"[TELEPHONY-ADMIN] ✅ Created Service Account for {child.vox_account_id}: {child.vox_service_account_id}")
+                else:
+                    results["failed"] += 1
+                    account_result["status"] = "failed"
+                    account_result["error"] = sa_result.get("error")
+                    logger.error(f"[TELEPHONY-ADMIN] ❌ Failed for {child.vox_account_id}: {sa_result.get('error')}")
+                    
+            except Exception as sa_error:
+                results["failed"] += 1
+                account_result["status"] = "error"
+                account_result["error"] = str(sa_error)
+                logger.error(f"[TELEPHONY-ADMIN] ❌ Exception for {child.vox_account_id}: {sa_error}")
+            
+            results["details"].append(account_result)
+        
+        logger.info(f"[TELEPHONY-ADMIN] ✅ Service Account setup complete:")
+        logger.info(f"[TELEPHONY-ADMIN]    Created: {results['created']}")
+        logger.info(f"[TELEPHONY-ADMIN]    Skipped: {results['skipped']}")
+        logger.info(f"[TELEPHONY-ADMIN]    Failed: {results['failed']}")
+        
+        return {
+            "success": True,
+            "message": f"Created Service Accounts for {results['created']} accounts",
             "results": results
         }
         
