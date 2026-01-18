@@ -9,6 +9,7 @@
 - Проверка статуса верификации
 - Управление сценариями и правилами маршрутизации
 - Запуск исходящих звонков
+- Service Account для JWT авторизации (secure records)
 
 Документация Voximplant API:
 https://voximplant.com/docs/references/httpapi/accounts
@@ -30,6 +31,11 @@ https://voximplant.com/docs/references/httpapi/accounts
 ✅ v3.1: CRM INTEGRATION - расширена передача контекста в start_outbound_call():
          - contact_name, task_title, task_description, custom_greeting, timezone
          - Полная поддержка Task-based звонков из CRM
+✅ v3.2: SERVICE ACCOUNT - добавлена поддержка JWT авторизации для secure записей:
+         - create_key() - создание Service Account через CreateKey API
+         - get_keys() - получение списка Service Accounts
+         - delete_key() - удаление Service Account
+         - setup_service_account() - комплексная настройка с сохранением credentials
 """
 
 import httpx
@@ -87,7 +93,7 @@ class VoximplantPartnerService:
     async def _get_client(self) -> httpx.AsyncClient:
         """Получить или создать HTTP клиент"""
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=60.0)  # Увеличен таймаут для больших сценариев
+            self._client = httpx.AsyncClient(timeout=60.0)
         return self._client
     
     async def close(self):
@@ -332,9 +338,7 @@ class VoximplantPartnerService:
         
         client = await self._get_client()
         
-        # =====================================================================
-        # ШАГ 1: Проверяем доступность номеров (главный индикатор верификации)
-        # =====================================================================
+        # ШАГ 1: Проверяем доступность номеров
         try:
             check_url = f"{self.API_BASE_URL}/GetNewPhoneNumbers"
             check_params = {
@@ -349,7 +353,6 @@ class VoximplantPartnerService:
             
             logger.info(f"[VOXIMPLANT] GetNewPhoneNumbers response: total_count={result.get('total_count', 0)}")
             
-            # Если номера доступны - верификация точно пройдена!
             if "result" in result and len(result.get("result", [])) > 0:
                 total_available = result.get("total_count", len(result.get("result", [])))
                 logger.info(f"[VOXIMPLANT] ✅ Account {child_account_id} is VERIFIED (numbers available: {total_available})")
@@ -363,9 +366,7 @@ class VoximplantPartnerService:
         except Exception as e:
             logger.warning(f"[VOXIMPLANT] Numbers check failed: {e}")
         
-        # =====================================================================
-        # ШАГ 2: Если номера недоступны - проверяем детальный статус
-        # =====================================================================
+        # ШАГ 2: Проверяем детальный статус
         url = f"{self.API_BASE_URL}/GetAccountDocuments"
         params = {
             "account_id": child_account_id,
@@ -416,7 +417,7 @@ class VoximplantPartnerService:
         }
     
     # =========================================================================
-    # WEBHOOK (CALLBACK) ДЛЯ АВТОМАТИЧЕСКИХ УВЕДОМЛЕНИЙ
+    # WEBHOOK (CALLBACK)
     # =========================================================================
     
     async def set_account_callback(
@@ -425,11 +426,7 @@ class VoximplantPartnerService:
         child_api_key: str,
         callback_url: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Установить webhook URL для получения уведомлений об изменении статуса верификации.
-        
-        ✅ v1.6: Регистрация callback для автоматических обновлений статуса.
-        """
+        """Установить webhook URL для уведомлений."""
         url = f"{self.API_BASE_URL}/SetAccountCallback"
         
         if callback_url is None:
@@ -448,8 +445,6 @@ class VoximplantPartnerService:
         response = await client.post(url, data=params)
         result = response.json()
         
-        logger.info(f"[VOXIMPLANT] SetAccountCallback response: {result}")
-        
         if "error" in result:
             logger.error(f"[VOXIMPLANT] SetAccountCallback failed: {result}")
             return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
@@ -463,13 +458,9 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str
     ) -> Dict[str, Any]:
-        """Получить текущие настройки callback для аккаунта."""
+        """Получить текущие настройки callback."""
         url = f"{self.API_BASE_URL}/GetAccountCallback"
-        
-        params = {
-            "account_id": child_account_id,
-            "api_key": child_api_key,
-        }
+        params = {"account_id": child_account_id, "api_key": child_api_key}
         
         client = await self._get_client()
         response = await client.post(url, data=params)
@@ -582,15 +573,7 @@ class VoximplantPartnerService:
         count: int = 20,
         offset: int = 0
     ) -> Dict[str, Any]:
-        """
-        Получить список доступных номеров для покупки.
-        
-        Args:
-            region_id: ID региона (получить из get_phone_regions)
-            category: Категория номеров - GEOGRAPHIC (городские), MOBILE, TOLLFREE (8-800)
-            count: Количество номеров
-            offset: Смещение для пагинации
-        """
+        """Получить список доступных номеров для покупки."""
         url = f"{self.API_BASE_URL}/GetNewPhoneNumbers"
         
         params = {
@@ -653,7 +636,6 @@ class VoximplantPartnerService:
         response = await client.post(url, data=params)
         result = response.json()
         
-        # ✅ v2.1: Логируем полный ответ для отладки
         logger.info(f"[VOXIMPLANT] AttachPhoneNumber response: {result}")
         
         if "error" in result:
@@ -662,7 +644,7 @@ class VoximplantPartnerService:
         
         phone_id = result.get("phone_id")
         
-        # ✅ v2.1: Fallback - если phone_id не вернулся, получаем через GetPhoneNumbers
+        # Fallback если phone_id не вернулся
         if not phone_id:
             logger.warning(f"[VOXIMPLANT] ⚠️ No phone_id in response, fetching via GetPhoneNumbers...")
             phone_id = await self.find_phone_id_by_number(
@@ -673,7 +655,7 @@ class VoximplantPartnerService:
         
         if not phone_id:
             logger.error(f"[VOXIMPLANT] ❌ Could not get phone_id for {phone_number}")
-            return {"success": False, "error": "Номер куплен, но не удалось получить ID. Обратитесь в поддержку."}
+            return {"success": False, "error": "Номер куплен, но не удалось получить ID."}
         
         logger.info(f"[VOXIMPLANT] ✅ Phone number purchased: {phone_number} (id: {phone_id})")
         
@@ -685,11 +667,7 @@ class VoximplantPartnerService:
         child_api_key: str,
         phone_number: str
     ) -> Optional[int]:
-        """
-        Найти phone_id по номеру телефона через GetPhoneNumbers.
-        
-        ✅ v2.1: Fallback-метод если AttachPhoneNumber не вернул phone_id.
-        """
+        """Найти phone_id по номеру через GetPhoneNumbers."""
         try:
             result = await self.get_phone_numbers(
                 child_account_id=child_account_id,
@@ -697,20 +675,15 @@ class VoximplantPartnerService:
             )
             
             if not result.get("success"):
-                logger.error(f"[VOXIMPLANT] GetPhoneNumbers failed: {result.get('error')}")
                 return None
             
-            # Нормализуем искомый номер (только цифры)
             normalized_search = ''.join(filter(str.isdigit, phone_number))
             
             for num in result.get("numbers", []):
                 normalized_num = ''.join(filter(str.isdigit, num.get("phone_number", "")))
                 if normalized_num == normalized_search or normalized_num.endswith(normalized_search[-10:]):
-                    phone_id = num.get("phone_id")
-                    logger.info(f"[VOXIMPLANT] ✅ Found phone_id via GetPhoneNumbers: {phone_id}")
-                    return phone_id
+                    return num.get("phone_id")
             
-            logger.warning(f"[VOXIMPLANT] Phone {phone_number} not found in GetPhoneNumbers response")
             return None
             
         except Exception as e:
@@ -725,7 +698,7 @@ class VoximplantPartnerService:
         application_id: str,
         rule_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Привязать номер к приложению и правилу роутинга."""
+        """Привязать номер к приложению."""
         url = f"{self.API_BASE_URL}/BindPhoneNumberToApplication"
         
         params = {
@@ -756,7 +729,7 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str
     ) -> Dict[str, Any]:
-        """Получить список купленных номеров аккаунта."""
+        """Получить список купленных номеров."""
         url = f"{self.API_BASE_URL}/GetPhoneNumbers"
         params = {"account_id": child_account_id, "api_key": child_api_key}
         
@@ -795,7 +768,7 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str
     ) -> Dict[str, Any]:
-        """Получить список приложений аккаунта"""
+        """Получить список приложений"""
         url = f"{self.API_BASE_URL}/GetApplications"
         params = {"account_id": child_account_id, "api_key": child_api_key}
         
@@ -814,12 +787,7 @@ class VoximplantPartnerService:
         child_api_key: str,
         application_name: str
     ) -> Dict[str, Any]:
-        """
-        Создать приложение на дочернем аккаунте.
-        
-        Args:
-            application_name: Имя приложения (например, 'voicyfy')
-        """
+        """Создать приложение."""
         url = f"{self.API_BASE_URL}/AddApplication"
         
         params = {
@@ -858,26 +826,10 @@ class VoximplantPartnerService:
         with_script: bool = False,
         scenario_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        Получить список сценариев аккаунта.
-        
-        ⚠️ ВАЖНО: Voximplant API quirk!
-        При массовом запросе (без scenario_id) параметр with_script=true 
-        НЕ возвращает код сценариев. Код возвращается только при запросе
-        конкретного сценария по scenario_id.
-        
-        Args:
-            account_id: ID аккаунта
-            api_key: API ключ аккаунта
-            with_script: Включить код сценариев в ответ
-            scenario_id: Опциональный ID конкретного сценария (нужен для получения кода!)
-        """
+        """Получить список сценариев."""
         url = f"{self.API_BASE_URL}/GetScenarios"
         
-        params = {
-            "account_id": account_id,
-            "api_key": api_key,
-        }
+        params = {"account_id": account_id, "api_key": api_key}
         
         if with_script:
             params["with_script"] = "true"
@@ -911,13 +863,7 @@ class VoximplantPartnerService:
         }
     
     async def get_parent_scenarios(self, with_script: bool = False) -> Dict[str, Any]:
-        """
-        Получить сценарии с родительского аккаунта.
-        Используется для копирования на дочерние аккаунты.
-        
-        ⚠️ ВАЖНО: with_script=True НЕ вернёт код при массовом запросе!
-        Для получения кода используйте get_scenario_with_script() для каждого сценария.
-        """
+        """Получить сценарии с родительского аккаунта."""
         return await self.get_scenarios(
             account_id=self.parent_account_id,
             api_key=self.parent_api_key,
@@ -930,12 +876,7 @@ class VoximplantPartnerService:
         api_key: str,
         scenario_id: int
     ) -> Dict[str, Any]:
-        """
-        Получить конкретный сценарий С КОДОМ.
-        
-        ✅ v1.8: Этот метод гарантированно возвращает код сценария,
-        т.к. запрашивает конкретный сценарий по ID.
-        """
+        """Получить конкретный сценарий С КОДОМ."""
         result = await self.get_scenarios(
             account_id=account_id,
             api_key=api_key,
@@ -959,13 +900,7 @@ class VoximplantPartnerService:
         scenario_name: str,
         scenario_script: str
     ) -> Dict[str, Any]:
-        """
-        Создать сценарий на дочернем аккаунте.
-        
-        Args:
-            scenario_name: Имя сценария (например, 'inbound_gemini')
-            scenario_script: Код сценария (VoxEngine JavaScript)
-        """
+        """Создать сценарий."""
         url = f"{self.API_BASE_URL}/AddScenario"
         
         params = {
@@ -1002,14 +937,7 @@ class VoximplantPartnerService:
         scenario_script: Optional[str] = None,
         scenario_name: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Обновить сценарий на дочернем аккаунте.
-        
-        Args:
-            scenario_id: ID сценария для обновления
-            scenario_script: Новый код сценария (опционально)
-            scenario_name: Новое имя сценария (опционально)
-        """
+        """Обновить сценарий."""
         url = f"{self.API_BASE_URL}/SetScenarioInfo"
         
         params = {
@@ -1045,21 +973,7 @@ class VoximplantPartnerService:
         scenario_id: int,
         scenario_script: str
     ) -> Dict[str, Any]:
-        """
-        Обновить код сценария на дочернем аккаунте.
-        
-        ✅ v2.2: Метод для массового обновления сценариев.
-        Используется в admin_update_all_scenarios endpoint.
-        
-        Args:
-            child_account_id: ID дочернего аккаунта
-            child_api_key: API ключ дочернего аккаунта
-            scenario_id: ID сценария для обновления
-            scenario_script: Новый код сценария
-            
-        Returns:
-            Dict с success и result/error
-        """
+        """Обновить код сценария (алиас для set_scenario_info)."""
         return await self.set_scenario_info(
             child_account_id=child_account_id,
             child_api_key=child_api_key,
@@ -1072,23 +986,10 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str
     ) -> Dict[str, Any]:
-        """
-        Скопировать все сценарии с родительского аккаунта на дочерний.
-        
-        ✅ v1.8: ИСПРАВЛЕНО! Теперь для каждого сценария делается отдельный
-        запрос с scenario_id, чтобы получить код сценария.
-        
-        Voximplant API quirk: при массовом запросе with_script=true
-        НЕ возвращает scenario_script. Код возвращается только при
-        запросе конкретного сценария по scenario_id.
-        
-        Возвращает маппинг {scenario_name: scenario_id} для сохранения в БД.
-        """
+        """Скопировать все сценарии с родителя."""
         logger.info(f"[VOXIMPLANT] Copying scenarios from parent to child {child_account_id}")
         
-        # =====================================================================
-        # ШАГ 1: Получаем СПИСОК сценариев с родителя (БЕЗ кода)
-        # =====================================================================
+        # Получаем список сценариев
         parent_result = await self.get_parent_scenarios(with_script=False)
         
         if not parent_result.get("success"):
@@ -1106,18 +1007,15 @@ class VoximplantPartnerService:
         copied_count = 0
         errors = []
         
-        # =====================================================================
-        # ШАГ 2: Для КАЖДОГО сценария получаем код ОТДЕЛЬНЫМ запросом
-        # =====================================================================
+        # Для каждого сценария получаем код отдельным запросом
         for scenario in parent_scenarios:
             scenario_name = scenario.get("scenario_name")
             scenario_id = scenario.get("scenario_id")
             
             if not scenario_name or not scenario_id:
-                logger.warning(f"[VOXIMPLANT] Skipping scenario without name or id")
                 continue
             
-            # Получаем код сценария отдельным запросом
+            # Получаем код сценария
             script_result = await self.get_scenario_with_script(
                 account_id=self.parent_account_id,
                 api_key=self.parent_api_key,
@@ -1126,21 +1024,17 @@ class VoximplantPartnerService:
             
             if not script_result.get("success"):
                 errors.append(f"{scenario_name}: не удалось получить код")
-                logger.warning(f"[VOXIMPLANT] Failed to get script for {scenario_name}")
                 continue
             
             scenario_script = script_result.get("scenario", {}).get("scenario_script")
             
             if not scenario_script:
                 errors.append(f"{scenario_name}: код пустой")
-                logger.warning(f"[VOXIMPLANT] Empty script for {scenario_name}")
                 continue
             
             logger.info(f"[VOXIMPLANT] Got script for {scenario_name}: {len(scenario_script)} chars")
             
-            # =====================================================================
-            # ШАГ 3: Создаём сценарий на дочке
-            # =====================================================================
+            # Создаём сценарий на дочке
             result = await self.add_scenario(
                 child_account_id=child_account_id,
                 child_api_key=child_api_key,
@@ -1154,12 +1048,8 @@ class VoximplantPartnerService:
                 logger.info(f"[VOXIMPLANT] ✅ Copied {scenario_name}")
             else:
                 errors.append(f"{scenario_name}: {result.get('error')}")
-                logger.warning(f"[VOXIMPLANT] Failed to copy {scenario_name}: {result.get('error')}")
         
         logger.info(f"[VOXIMPLANT] ✅ Copied {copied_count}/{len(parent_scenarios)} scenarios")
-        
-        if errors:
-            logger.warning(f"[VOXIMPLANT] Errors during copy: {errors}")
         
         return {
             "success": True,
@@ -1179,7 +1069,7 @@ class VoximplantPartnerService:
         child_api_key: str,
         application_id: str
     ) -> Dict[str, Any]:
-        """Получить правила роутинга приложения"""
+        """Получить правила роутинга."""
         url = f"{self.API_BASE_URL}/GetRules"
         params = {
             "account_id": child_account_id,
@@ -1205,15 +1095,7 @@ class VoximplantPartnerService:
         rule_pattern: str,
         scenario_id: int
     ) -> Dict[str, Any]:
-        """
-        Создать правило маршрутизации.
-        
-        Args:
-            application_id: ID приложения
-            rule_name: Имя правила (например, 'inbound_74951234567')
-            rule_pattern: Паттерн номера (например, '74951234567' или '.*')
-            scenario_id: ID сценария для обработки
-        """
+        """Создать правило маршрутизации."""
         url = f"{self.API_BASE_URL}/AddRule"
         
         params = {
@@ -1225,7 +1107,7 @@ class VoximplantPartnerService:
             "scenario_id": scenario_id,
         }
         
-        logger.info(f"[VOXIMPLANT] Creating rule '{rule_name}' (pattern: {rule_pattern}) for app {application_id}")
+        logger.info(f"[VOXIMPLANT] Creating rule '{rule_name}' (pattern: {rule_pattern})")
         
         client = await self._get_client()
         response = await client.post(url, data=params)
@@ -1238,11 +1120,7 @@ class VoximplantPartnerService:
         rule_id = result.get("rule_id")
         logger.info(f"[VOXIMPLANT] ✅ Rule created: {rule_name} (ID: {rule_id})")
         
-        return {
-            "success": True,
-            "rule_id": rule_id,
-            "rule_name": rule_name,
-        }
+        return {"success": True, "rule_id": rule_id, "rule_name": rule_name}
     
     async def set_rule_info(
         self,
@@ -1253,15 +1131,7 @@ class VoximplantPartnerService:
         rule_name: Optional[str] = None,
         rule_pattern: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Обновить правило маршрутизации.
-        
-        Args:
-            rule_id: ID правила для обновления
-            scenario_id: Новый ID сценария (для смены обработчика)
-            rule_name: Новое имя правила
-            rule_pattern: Новый паттерн
-        """
+        """Обновить правило маршрутизации."""
         url = f"{self.API_BASE_URL}/SetRuleInfo"
         
         params = {
@@ -1272,24 +1142,17 @@ class VoximplantPartnerService:
         
         if scenario_id:
             params["scenario_id"] = scenario_id
-        
         if rule_name:
             params["rule_name"] = rule_name
-        
         if rule_pattern:
             params["rule_pattern"] = rule_pattern
-        
-        logger.info(f"[VOXIMPLANT] Updating rule {rule_id}")
         
         client = await self._get_client()
         response = await client.post(url, data=params)
         result = response.json()
         
         if "error" in result:
-            logger.error(f"[VOXIMPLANT] Failed to update rule: {result}")
             return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
-        
-        logger.info(f"[VOXIMPLANT] ✅ Rule updated: {rule_id}")
         
         return {"success": True, "result": result.get("result")}
     
@@ -1301,29 +1164,23 @@ class VoximplantPartnerService:
     ) -> Dict[str, Any]:
         """Удалить правило маршрутизации."""
         url = f"{self.API_BASE_URL}/DelRule"
-        
         params = {
             "account_id": child_account_id,
             "api_key": child_api_key,
             "rule_id": rule_id,
         }
         
-        logger.info(f"[VOXIMPLANT] Deleting rule {rule_id}")
-        
         client = await self._get_client()
         response = await client.post(url, data=params)
         result = response.json()
         
         if "error" in result:
-            logger.error(f"[VOXIMPLANT] Failed to delete rule: {result}")
             return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
-        
-        logger.info(f"[VOXIMPLANT] ✅ Rule deleted: {rule_id}")
         
         return {"success": True, "result": result.get("result")}
     
     # =========================================================================
-    # 🆕 v3.0 + v3.1: ИСХОДЯЩИЕ ЗВОНКИ (OUTBOUND CALLS) С КОНТЕКСТОМ CRM
+    # 🆕 v3.0 + v3.1: ИСХОДЯЩИЕ ЗВОНКИ (OUTBOUND CALLS)
     # =========================================================================
     
     async def start_scenarios(
@@ -1333,21 +1190,7 @@ class VoximplantPartnerService:
         rule_id: int,
         script_custom_data: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Запустить сценарий через Voximplant API.
-        
-        ✅ v3.0: Основной метод для запуска исходящих звонков.
-        
-        Args:
-            child_account_id: ID дочернего аккаунта
-            child_api_key: API ключ дочернего аккаунта  
-            rule_id: ID правила (Rule), к которому привязан сценарий
-            script_custom_data: JSON-строка с данными для сценария
-                               (phone_number, assistant_id, caller_id, etc.)
-        
-        Returns:
-            Dict с call_session_history_id и media_session_access_url
-        """
+        """Запустить сценарий через StartScenarios API."""
         url = f"{self.API_BASE_URL}/StartScenarios"
         
         params = {
@@ -1360,7 +1203,6 @@ class VoximplantPartnerService:
             params["script_custom_data"] = script_custom_data
         
         logger.info(f"[VOXIMPLANT] Starting scenario via rule {rule_id}")
-        logger.info(f"[VOXIMPLANT] Custom data: {script_custom_data[:200] if script_custom_data else 'None'}...")
         
         client = await self._get_client()
         response = await client.post(url, data=params)
@@ -1392,7 +1234,6 @@ class VoximplantPartnerService:
         caller_id: str,
         first_phrase: Optional[str] = None,
         mute_duration_ms: int = 3000,
-        # ✅ v3.1: Новые параметры для CRM контекста
         contact_name: Optional[str] = None,
         task_title: Optional[str] = None,
         task_description: Optional[str] = None,
@@ -1400,38 +1241,12 @@ class VoximplantPartnerService:
         timezone: str = "Europe/Moscow",
         task: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        🆕 v3.0 + v3.1: Запустить исходящий звонок с полным контекстом CRM.
-        
-        Формирует script_custom_data и вызывает StartScenarios API.
-        
-        Args:
-            child_account_id: ID дочернего аккаунта
-            child_api_key: API ключ
-            rule_id: ID правила для outbound сценария
-            phone_number: Номер телефона для звонка (target)
-            assistant_id: UUID ассистента
-            caller_id: Номер, с которого звоним (Caller ID)
-            first_phrase: Первая фраза (опционально, устаревший параметр)
-            mute_duration_ms: Время мьюта микрофона клиента (мс)
-            
-            # ✅ v3.1: CRM контекст
-            contact_name: Имя контакта (для персонализации)
-            task_title: Название задачи
-            task_description: Описание задачи (контекст для ассистента)
-            custom_greeting: Персонализированное приветствие из задачи
-            timezone: Часовой пояс (по умолчанию Europe/Moscow)
-            
-        Returns:
-            Dict с результатом запуска звонка
-        """
-        # Формируем данные для сценария
+        """Запустить исходящий звонок с полным контекстом CRM."""
         custom_data = {
             "phone_number": phone_number,
             "assistant_id": assistant_id,
             "caller_id": caller_id,
             "mute_duration_ms": mute_duration_ms,
-            # ✅ v3.1: CRM контекст
             "contact_name": contact_name or "",
             "task_title": task_title or "",
             "task_description": task_description or "",
@@ -1440,7 +1255,6 @@ class VoximplantPartnerService:
             "task": task or "",
         }
         
-        # Для обратной совместимости: first_phrase как fallback для custom_greeting
         if first_phrase and not custom_greeting:
             custom_data["custom_greeting"] = first_phrase
         
@@ -1450,16 +1264,6 @@ class VoximplantPartnerService:
         logger.info(f"[VOXIMPLANT]    Target: {phone_number}")
         logger.info(f"[VOXIMPLANT]    Caller ID: {caller_id}")
         logger.info(f"[VOXIMPLANT]    Assistant: {assistant_id}")
-        logger.info(f"[VOXIMPLANT]    Rule ID: {rule_id}")
-        if contact_name:
-            logger.info(f"[VOXIMPLANT]    👤 Contact: {contact_name}")
-        if task_title:
-            logger.info(f"[VOXIMPLANT]    📋 Task: {task_title}")
-        if task_description:
-            logger.info(f"[VOXIMPLANT]    📝 Description: {task_description[:80]}...")
-        if custom_greeting:
-            logger.info(f"[VOXIMPLANT]    💬 Custom Greeting: {custom_greeting[:80]}...")
-        logger.info(f"[VOXIMPLANT]    🌍 Timezone: {timezone}")
         
         result = await self.start_scenarios(
             child_account_id=child_account_id,
@@ -1482,22 +1286,7 @@ class VoximplantPartnerService:
         application_id: str,
         scenario_ids: Dict[str, int]
     ) -> Dict[str, Any]:
-        """
-        🆕 v3.0: Создать Rules для исходящих сценариев.
-        
-        Используется для:
-        - Новых аккаунтов (вызывается из setup_child_account_scenarios)
-        - Существующих аккаунтов (миграция через admin endpoint)
-        
-        Args:
-            child_account_id: ID дочернего аккаунта
-            child_api_key: API ключ
-            application_id: ID приложения
-            scenario_ids: Маппинг {scenario_name: scenario_id}
-            
-        Returns:
-            Dict с rule_ids: {"outbound_openai": 123, "outbound_gemini": 124}
-        """
+        """Создать Rules для исходящих сценариев."""
         logger.info(f"[VOXIMPLANT] Setting up outbound rules for account {child_account_id}")
         
         rule_ids = {}
@@ -1507,35 +1296,189 @@ class VoximplantPartnerService:
             scenario_id = scenario_ids.get(scenario_type)
             
             if not scenario_id:
-                logger.warning(f"[VOXIMPLANT] Scenario '{scenario_type}' not found, skipping rule creation")
                 continue
             
-            # Создаём Rule для этого outbound сценария
-            # Pattern не важен для outbound - он не используется
             rule_result = await self.add_rule(
                 child_account_id=child_account_id,
                 child_api_key=child_api_key,
                 application_id=application_id,
                 rule_name=scenario_type,
-                rule_pattern=scenario_type,  # Любой уникальный pattern
+                rule_pattern=scenario_type,
                 scenario_id=scenario_id
             )
             
             if rule_result.get("success"):
                 rule_ids[scenario_type] = rule_result.get("rule_id")
-                logger.info(f"[VOXIMPLANT] ✅ Created rule for {scenario_type}: {rule_ids[scenario_type]}")
             else:
-                error_msg = f"{scenario_type}: {rule_result.get('error')}"
-                errors.append(error_msg)
-                logger.error(f"[VOXIMPLANT] ❌ Failed to create rule for {scenario_type}: {rule_result.get('error')}")
-        
-        logger.info(f"[VOXIMPLANT] Outbound rules setup complete: {len(rule_ids)} created, {len(errors)} failed")
+                errors.append(f"{scenario_type}: {rule_result.get('error')}")
         
         return {
             "success": len(rule_ids) > 0,
             "rule_ids": rule_ids,
             "created": len(rule_ids),
             "errors": errors if errors else None
+        }
+    
+    # =========================================================================
+    # 🆕 v3.2: SERVICE ACCOUNT ДЛЯ JWT АВТОРИЗАЦИИ
+    # =========================================================================
+    
+    async def create_key(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        key_name: str = "voicyfy_service_account",
+        description: str = "Service account for Voicyfy platform",
+        roles: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        🆕 v3.2: Создать Service Account (ключевую пару).
+        
+        ВАЖНО: Voximplant возвращает private_key ТОЛЬКО ОДИН РАЗ!
+        
+        API: https://voximplant.com/docs/references/httpapi/rolesystem#createkey
+        """
+        url = f"{self.API_BASE_URL}/CreateKey"
+        
+        if roles is None:
+            roles = ["Owner", "Accountant"]
+        
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "key_name": key_name,
+            "description": description,
+            "role_name": ";".join(roles),
+        }
+        
+        logger.info(f"[VOXIMPLANT] Creating Service Account for child {child_account_id}")
+        logger.info(f"[VOXIMPLANT]    Key name: {key_name}")
+        logger.info(f"[VOXIMPLANT]    Roles: {roles}")
+        
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+        
+        if "error" in result:
+            logger.error(f"[VOXIMPLANT] Failed to create Service Account: {result}")
+            return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+        
+        key_data = result.get("result", result)
+        key_id = key_data.get("key_id")
+        private_key = key_data.get("private_key")
+        
+        if not key_id or not private_key:
+            logger.error(f"[VOXIMPLANT] CreateKey response missing key_id or private_key: {result}")
+            return {"success": False, "error": "Invalid response from CreateKey API"}
+        
+        logger.info(f"[VOXIMPLANT] ✅ Service Account created:")
+        logger.info(f"[VOXIMPLANT]    Key ID: {key_id}")
+        logger.info(f"[VOXIMPLANT]    Private key length: {len(private_key)} chars")
+        
+        return {
+            "success": True,
+            "key_id": str(key_id),
+            "private_key": private_key,
+            "account_id": child_account_id,
+        }
+    
+    async def get_keys(
+        self,
+        child_account_id: str,
+        child_api_key: str
+    ) -> Dict[str, Any]:
+        """Получить список Service Accounts."""
+        url = f"{self.API_BASE_URL}/GetKeys"
+        params = {"account_id": child_account_id, "api_key": child_api_key}
+        
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+        
+        if "error" in result:
+            return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+        
+        keys = result.get("result", [])
+        
+        return {
+            "success": True,
+            "keys": [
+                {
+                    "key_id": k.get("key_id"),
+                    "key_name": k.get("key_name"),
+                    "description": k.get("description"),
+                    "roles": k.get("roles", []),
+                }
+                for k in keys
+            ],
+            "total": len(keys),
+        }
+    
+    async def delete_key(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        key_id: str
+    ) -> Dict[str, Any]:
+        """Удалить Service Account."""
+        url = f"{self.API_BASE_URL}/DeleteKey"
+        
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "key_id": key_id,
+        }
+        
+        logger.info(f"[VOXIMPLANT] Deleting Service Account key {key_id}")
+        
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+        
+        if "error" in result:
+            logger.error(f"[VOXIMPLANT] Failed to delete key: {result}")
+            return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+        
+        logger.info(f"[VOXIMPLANT] ✅ Service Account key deleted: {key_id}")
+        
+        return {"success": True, "result": result.get("result")}
+    
+    async def setup_service_account(
+        self,
+        child_account_id: str,
+        child_api_key: str
+    ) -> Dict[str, Any]:
+        """
+        🆕 v3.2: Комплексная настройка Service Account.
+        
+        Создаёт Service Account и возвращает данные для сохранения в БД.
+        """
+        logger.info(f"[VOXIMPLANT] Setting up Service Account for child {child_account_id}")
+        
+        result = await self.create_key(
+            child_account_id=child_account_id,
+            child_api_key=child_api_key,
+            key_name="voicyfy_records_access",
+            description="Service account for accessing call recordings",
+            roles=["Owner", "Accountant"]
+        )
+        
+        if not result.get("success"):
+            return result
+        
+        credentials = {
+            "account_id": int(child_account_id),
+            "key_id": result.get("key_id"),
+            "private_key": result.get("private_key"),
+        }
+        
+        logger.info(f"[VOXIMPLANT] ✅ Service Account setup complete for {child_account_id}")
+        
+        return {
+            "success": True,
+            "service_account_id": result.get("key_id"),
+            "service_account_key": json.dumps(credentials),
+            "credentials": credentials,
         }
     
     # =========================================================================
@@ -1548,23 +1491,10 @@ class VoximplantPartnerService:
         child_api_key: str,
         application_name: str = "voicyfy"
     ) -> Dict[str, Any]:
-        """
-        Комплексная настройка сценариев для дочернего аккаунта.
-        
-        ✅ v3.0: Теперь создаёт Rules для OUTBOUND сценариев!
-        
-        1. Создаёт приложение
-        2. Копирует сценарии с родителя (inbound + outbound)
-        3. 🆕 Создаёт Rules для outbound сценариев
-        4. Возвращает application_id, scenario_ids и rule_ids для сохранения в БД
-        
-        Вызывается при setup_telephony после создания аккаунта.
-        """
+        """Комплексная настройка сценариев для дочернего аккаунта."""
         logger.info(f"[VOXIMPLANT] Setting up scenarios for child account {child_account_id}")
         
-        # =====================================================================
-        # ШАГ 1: Создаём приложение
-        # =====================================================================
+        # Создаём приложение
         app_result = await self.add_application(
             child_account_id=child_account_id,
             child_api_key=child_api_key,
@@ -1576,9 +1506,7 @@ class VoximplantPartnerService:
         
         application_id = app_result.get("application_id")
         
-        # =====================================================================
-        # ШАГ 2: Копируем сценарии (теперь с правильной логикой!)
-        # =====================================================================
+        # Копируем сценарии
         copy_result = await self.copy_scenarios_from_parent(
             child_account_id=child_account_id,
             child_api_key=child_api_key
@@ -1589,9 +1517,7 @@ class VoximplantPartnerService:
         
         scenario_ids = copy_result.get("scenario_ids", {})
         
-        # =====================================================================
-        # 🆕 ШАГ 3: Создаём Rules для OUTBOUND сценариев
-        # =====================================================================
+        # Создаём Rules для outbound
         rule_ids = {}
         outbound_errors = []
         
@@ -1604,14 +1530,9 @@ class VoximplantPartnerService:
         
         if outbound_result.get("success"):
             rule_ids = outbound_result.get("rule_ids", {})
-            logger.info(f"[VOXIMPLANT] ✅ Outbound rules created: {list(rule_ids.keys())}")
         else:
             outbound_errors = outbound_result.get("errors", [])
-            logger.warning(f"[VOXIMPLANT] ⚠️ Some outbound rules failed: {outbound_errors}")
         
-        # =====================================================================
-        # ШАГ 4: Формируем результат
-        # =====================================================================
         all_errors = copy_result.get("errors", []) or []
         if outbound_errors:
             all_errors.extend(outbound_errors)
@@ -1626,10 +1547,10 @@ class VoximplantPartnerService:
             "application_id": application_id,
             "application_name": application_name,
             "scenario_ids": scenario_ids,
-            "rule_ids": rule_ids,  # 🆕 v3.0
+            "rule_ids": rule_ids,
             "scenarios_copied": copy_result.get("copied", 0),
             "scenarios_total": copy_result.get("total", 0),
-            "outbound_rules_created": len(rule_ids),  # 🆕 v3.0
+            "outbound_rules_created": len(rule_ids),
             "errors": all_errors if all_errors else None,
         }
 
