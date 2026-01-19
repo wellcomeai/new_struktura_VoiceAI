@@ -2,9 +2,11 @@
 """
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
-Version: 3.0 - Added call_cost and record_url support
+
+Version: 3.1 - Structured dialog support for chat UI
 🆕 v2.0: Added OpenAI + Gemini support
 🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
+🆕 v3.1: STRUCTURED DIALOG - каждая реплика отдельным пузырьком в UI (backward compatible)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -128,7 +130,7 @@ async def get_conversation_sessions(
     - record_url: Ссылка на запись звонка или null
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Get sessions request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Get sessions request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -351,7 +353,7 @@ async def get_conversations(
     - page_size: Размер страницы
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Get conversations request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Get conversations request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"session={session_id}, date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -419,6 +421,9 @@ async def get_conversation_detail(
     
     🆕 v2.0: Поддерживает OpenAI и Gemini ассистентов.
     🆕 v3.0: Включает call_cost и record_url.
+    🆕 v3.1: STRUCTURED DIALOG - если в client_info есть dialog[], 
+             каждая реплика возвращается отдельным пузырьком.
+             Backward compatible со старыми записями.
     
     Требуется авторизация. Можно получить только свои диалоги.
     
@@ -438,9 +443,10 @@ async def get_conversation_detail(
     - call_cost: Стоимость звонка в рублях (🆕 v3.0)
     - record_url: Ссылка на запись звонка (🆕 v3.0)
     - function_calls: Все вызовы функций из сессии
+    - has_structured_dialog: Флаг наличия структурированного диалога (🆕 v3.1)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Get full dialog for: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Get full dialog for: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую (для нового API /sessions)
@@ -490,36 +496,80 @@ async def get_conversation_detail(
             Conversation.assistant_id == conversation.assistant_id
         ).order_by(Conversation.created_at.asc()).all()  # Сортировка по времени
         
-        logger.info(f"   Found {len(all_messages)} messages in session {session_id}")
+        logger.info(f"   Found {len(all_messages)} DB records in session {session_id}")
         logger.info(f"   Assistant type: {assistant_type}")
         
-        # Формируем массив сообщений
+        # =============================================================================
+        # 🆕 v3.1: STRUCTURED DIALOG SUPPORT
+        # Проверяем наличие dialog[] в client_info для каждой записи
+        # Если есть - используем его, если нет - fallback на legacy формат
+        # =============================================================================
         messages = []
         total_tokens = 0
         total_duration = 0
         total_cost = 0.0
         record_url = None
+        has_structured_dialog = False
         
         for msg in all_messages:
-            # User message
-            if msg.user_message:
-                messages.append({
-                    "id": str(msg.id),
-                    "type": "user",
-                    "text": msg.user_message,
-                    "timestamp": msg.created_at.isoformat() if msg.created_at else None
-                })
+            client_info = msg.client_info or {}
+            dialog = client_info.get('dialog', [])
             
-            # Assistant message
-            if msg.assistant_message:
-                messages.append({
-                    "id": str(msg.id),
-                    "type": "assistant",
-                    "text": msg.assistant_message,
-                    "timestamp": msg.created_at.isoformat() if msg.created_at else None
-                })
+            # 🆕 v3.1: Проверяем наличие структурированного диалога
+            if dialog and isinstance(dialog, list) and len(dialog) > 0:
+                has_structured_dialog = True
+                logger.info(f"   📝 Found structured dialog with {len(dialog)} turns in record {msg.id}")
+                
+                # Используем structured dialog - каждая реплика отдельно
+                for turn in dialog:
+                    role = turn.get('role', 'unknown')
+                    text = turn.get('text', '')
+                    ts = turn.get('ts')
+                    
+                    # Конвертируем timestamp (миллисекунды) в ISO формат
+                    timestamp = None
+                    if ts:
+                        try:
+                            timestamp = datetime.fromtimestamp(ts / 1000).isoformat()
+                        except (ValueError, TypeError, OSError):
+                            timestamp = msg.created_at.isoformat() if msg.created_at else None
+                    else:
+                        timestamp = msg.created_at.isoformat() if msg.created_at else None
+                    
+                    # Добавляем реплику как отдельное сообщение
+                    if text:  # Пропускаем пустые реплики
+                        messages.append({
+                            "id": str(msg.id),  # ID записи БД для reference
+                            "type": "user" if role == "user" else "assistant",
+                            "text": text,
+                            "timestamp": timestamp
+                        })
+            else:
+                # =============================================================================
+                # LEGACY FORMAT: Fallback для старых записей без structured dialog
+                # Каждая запись БД содержит user_message и assistant_message как единые блоки
+                # =============================================================================
+                logger.info(f"   📄 Using legacy format for record {msg.id}")
+                
+                # User message
+                if msg.user_message:
+                    messages.append({
+                        "id": str(msg.id),
+                        "type": "user",
+                        "text": msg.user_message,
+                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                    })
+                
+                # Assistant message
+                if msg.assistant_message:
+                    messages.append({
+                        "id": str(msg.id),
+                        "type": "assistant",
+                        "text": msg.assistant_message,
+                        "timestamp": msg.created_at.isoformat() if msg.created_at else None
+                    })
             
-            # Суммируем метрики
+            # Суммируем метрики (независимо от формата)
             total_tokens += msg.tokens_used or 0
             total_duration += msg.duration_seconds or 0
             
@@ -528,8 +578,11 @@ async def get_conversation_detail(
                 total_cost += float(msg.call_cost)
             
             # 🆕 v3.0: Берём record_url из client_info (последний непустой)
-            if msg.client_info and msg.client_info.get('record_url'):
-                record_url = msg.client_info.get('record_url')
+            if client_info.get('record_url'):
+                record_url = client_info.get('record_url')
+        
+        logger.info(f"   Total messages after processing: {len(messages)}")
+        logger.info(f"   Has structured dialog: {has_structured_dialog}")
         
         # Загружаем function calls если нужно
         function_calls = []
@@ -556,8 +609,8 @@ async def get_conversation_detail(
             logger.info(f"   Found {len(function_calls)} function calls")
         
         # 🆕 v2.0: Извлекаем assistant_type из client_info или используем определённый
-        client_info = conversation.client_info or {}
-        detected_type = client_info.get('assistant_type', assistant_type)
+        main_client_info = conversation.client_info or {}
+        detected_type = main_client_info.get('assistant_type', assistant_type)
         
         # 🆕 v3.0: Форматируем стоимость
         call_cost = round(total_cost, 2) if total_cost > 0 else None
@@ -576,12 +629,14 @@ async def get_conversation_detail(
             "total_duration": total_duration,
             "call_cost": call_cost,  # 🆕 v3.0: Стоимость в рублях
             "record_url": record_url,  # 🆕 v3.0: Ссылка на запись
+            "has_structured_dialog": has_structured_dialog,  # 🆕 v3.1: Флаг формата
             "function_calls": function_calls if include_functions else [],
-            "client_info": client_info  # 🆕 v2.0
+            "client_info": main_client_info  # 🆕 v2.0
         }
         
         logger.info(f"✅ Full dialog returned: {len(messages)} messages, type: {detected_type}")
         logger.info(f"   Call cost: {call_cost}, Record URL: {'✅' if record_url else '❌'}")
+        logger.info(f"   Structured dialog: {'✅' if has_structured_dialog else '❌ (legacy)'}")
         
         return result
         
@@ -620,7 +675,7 @@ async def delete_conversation(
     - assistant_type: Тип ассистента (openai/gemini)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Delete conversation request: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Delete conversation request: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую
@@ -741,7 +796,7 @@ async def get_conversations_stats(
     - total_call_cost: Общая стоимость звонков (🆕 v3.0)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Get stats for user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Get stats for user {current_user.id}")
         logger.info(f"   Assistant ID: {assistant_id}")
         logger.info(f"   Days: {days}")
         
@@ -818,7 +873,7 @@ async def get_conversations_by_caller(
     - Отсортировано по дате (новые первые)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.0] Get conversations by caller: {caller_number}")
+        logger.info(f"[CONVERSATIONS-API-v3.1] Get conversations by caller: {caller_number}")
         logger.info(f"   User: {current_user.id}")
         logger.info(f"   Assistant filter: {assistant_id}")
         
