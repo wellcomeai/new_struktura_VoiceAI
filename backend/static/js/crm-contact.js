@@ -2,10 +2,12 @@
 /**
  * Contact Detail Page для Voicyfy CRM
  * Детальный просмотр контакта с историей диалогов, заметками и задачами
- * Version: 4.0 - PRODUCTION READY
+ * Version: 5.0 - CALL COST & RECORDING SUPPORT
  * ✅ v4.0: Исправлено раскрытие диалогов (session_id вместо id)
  * ✅ v4.0: Добавлено удаление задач для всех статусов
  * ✅ v4.0: Компактный аватар с инициалами
+ * ✅ v5.0: Отображение стоимости звонка (call_cost)
+ * ✅ v5.0: Аудиоплеер для записи звонка (record_url)
  * ✅ OpenAI + Gemini assistants support
  * ✅ Tasks with auto-calls
  * ✅ Notes feed
@@ -324,6 +326,16 @@ document.addEventListener('DOMContentLoaded', function() {
       return `+7 (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7, 9)}-${cleaned.slice(9)}`;
     }
     return phone;
+  }
+  
+  /**
+   * 🆕 v5.0: Форматирование стоимости в рублях
+   * @param {number|null} cost - стоимость
+   * @returns {string|null} форматированная строка или null
+   */
+  function formatCost(cost) {
+    if (cost === null || cost === undefined || cost === 0) return null;
+    return cost.toFixed(2) + ' ₽';
   }
   
   /**
@@ -811,33 +823,80 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // ==================== Load Conversation Messages ====================
+  // 🆕 v5.0: Добавлена поддержка call_cost и record_url
   async function loadConversationMessages(sessionId, container) {
     try {
       console.log('[MESSAGES] Loading for sessionId:', sessionId);
       const data = await api.get(`/conversations/${sessionId}?include_functions=false`);
       
+      container.innerHTML = '';
+      
+      // Рендерим сообщения
       if (!data.messages || data.messages.length === 0) {
         container.innerHTML = `
           <div style="text-align: center; padding: 1rem; color: var(--text-light);">
             Нет сообщений
           </div>
         `;
-        return;
+      } else {
+        data.messages.forEach(msg => {
+          const messageDiv = document.createElement('div');
+          messageDiv.className = msg.type === 'user' ? 'message message-user' : 'message message-assistant';
+          
+          messageDiv.innerHTML = `
+            <div class="message-role">${msg.type === 'user' ? '👤 Клиент' : '🤖 Ассистент'}</div>
+            <div class="message-text">${escapeHtml(msg.text)}</div>
+          `;
+          
+          container.appendChild(messageDiv);
+        });
       }
       
-      container.innerHTML = '';
+      // =============================================================================
+      // 🆕 v5.0: Секция информации о звонке (стоимость + запись)
+      // =============================================================================
+      const callCostFormatted = formatCost(data.call_cost);
+      const hasRecording = !!data.record_url;
       
-      data.messages.forEach(msg => {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = msg.type === 'user' ? 'message message-user' : 'message message-assistant';
+      // Показываем секцию только если есть стоимость или запись
+      if (callCostFormatted || hasRecording) {
+        const callInfoSection = document.createElement('div');
+        callInfoSection.className = 'conversation-call-info';
         
-        messageDiv.innerHTML = `
-          <div class="message-role">${msg.type === 'user' ? '👤 Клиент' : '🤖 Ассистент'}</div>
-          <div class="message-text">${escapeHtml(msg.text)}</div>
-        `;
+        let callInfoHtml = '';
         
-        container.appendChild(messageDiv);
-      });
+        // Стоимость звонка
+        if (callCostFormatted) {
+          callInfoHtml += `
+            <div class="call-info-row cost">
+              <i class="fas fa-ruble-sign"></i>
+              <span>Стоимость звонка: ${callCostFormatted}</span>
+            </div>
+          `;
+        }
+        
+        // Аудиоплеер
+        if (hasRecording) {
+          callInfoHtml += `
+            <div class="audio-player-section">
+              <div class="audio-player-title">
+                <i class="fas fa-headphones"></i>
+                Запись звонка
+              </div>
+              <audio class="audio-player" controls preload="metadata">
+                <source src="${data.record_url}" type="audio/mpeg">
+                <source src="${data.record_url}" type="audio/wav">
+                Ваш браузер не поддерживает воспроизведение аудио.
+              </audio>
+            </div>
+          `;
+        }
+        
+        callInfoSection.innerHTML = callInfoHtml;
+        container.appendChild(callInfoSection);
+        
+        console.log('[MESSAGES] ✅ Call info added - Cost:', callCostFormatted, 'Recording:', hasRecording);
+      }
       
     } catch (error) {
       console.error('Error loading messages:', error);
