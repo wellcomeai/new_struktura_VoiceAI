@@ -1,4 +1,4 @@
-# backend/api/voximplant.py - Production Version 3.7
+# backend/api/voximplant.py - Production Version 3.8
 
 """
 Voximplant API endpoints для WellcomeAI, обновленные для гибкой архитектуры.
@@ -11,6 +11,7 @@ Voximplant API endpoints для WellcomeAI, обновленные для гиб
 🆕 v3.5: Поддержка call_cost и call_duration для биллинга
 🆕 v3.6: ПОЛНАЯ стоимость звонка через GetCallHistory API (calls + records + other_resource_usage)
 🆕 v3.7: ОТЛОЖЕННЫЙ ПЕРЕСЧЁТ стоимости через 15 секунд если GetCallHistory не вернул данные сразу
+🆕 v3.8: СТРУКТУРИРОВАННЫЙ ДИАЛОГ (dialog) для отображения чат-интерфейса в UI
 """
 
 from fastapi import APIRouter, WebSocket, Depends, Query, HTTPException, status, Header, Body
@@ -212,15 +213,15 @@ def get_voximplant_api_credentials(db: Session, user_id: uuid.UUID) -> Optional[
         ).first()
         
         if not child_account:
-            logger.warning(f"[VOXIMPLANT-v3.7] No child account found for user {user_id}")
+            logger.warning(f"[VOXIMPLANT-v3.8] No child account found for user {user_id}")
             return None
         
         # Проверяем наличие API credentials
         if not child_account.vox_account_id or not child_account.vox_api_key:
-            logger.warning(f"[VOXIMPLANT-v3.7] Missing API credentials for user {user_id}")
+            logger.warning(f"[VOXIMPLANT-v3.8] Missing API credentials for user {user_id}")
             return None
         
-        logger.info(f"[VOXIMPLANT-v3.7] ✅ Loaded API credentials for account {child_account.vox_account_id}")
+        logger.info(f"[VOXIMPLANT-v3.8] ✅ Loaded API credentials for account {child_account.vox_account_id}")
         
         return {
             "account_id": child_account.vox_account_id,
@@ -228,7 +229,7 @@ def get_voximplant_api_credentials(db: Session, user_id: uuid.UUID) -> Optional[
         }
             
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] Error getting API credentials: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] Error getting API credentials: {e}")
         return None
 
 
@@ -267,7 +268,7 @@ async def get_full_call_cost(
         }
     """
     try:
-        logger.info(f"[VOXIMPLANT-v3.7] 📊 Getting full call cost for session {call_session_history_id}")
+        logger.info(f"[VOXIMPLANT-v3.8] 📊 Getting full call cost for session {call_session_history_id}")
         
         # URL Voximplant API
         voximplant_url = "https://api.voximplant.com/platform_api/GetCallHistory"
@@ -282,17 +283,17 @@ async def get_full_call_cost(
             "with_other_resources": "true"
         }
         
-        logger.info(f"[VOXIMPLANT-v3.7] 📡 Requesting GetCallHistory...")
-        logger.info(f"[VOXIMPLANT-v3.7]    Account ID: {account_id}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Session ID: {call_session_history_id}")
+        logger.info(f"[VOXIMPLANT-v3.8] 📡 Requesting GetCallHistory...")
+        logger.info(f"[VOXIMPLANT-v3.8]    Account ID: {account_id}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Session ID: {call_session_history_id}")
         
         # Выполняем запрос
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(voximplant_url, data=params)
             
             if response.status_code != 200:
-                logger.error(f"[VOXIMPLANT-v3.7] ❌ HTTP Error: {response.status_code}")
-                logger.error(f"[VOXIMPLANT-v3.7]    Response: {response.text[:500]}")
+                logger.error(f"[VOXIMPLANT-v3.8] ❌ HTTP Error: {response.status_code}")
+                logger.error(f"[VOXIMPLANT-v3.8]    Response: {response.text[:500]}")
                 return {
                     "success": False,
                     "error": f"HTTP {response.status_code}",
@@ -307,7 +308,7 @@ async def get_full_call_cost(
         
         # Проверяем наличие результатов
         if not result.get("result") or len(result["result"]) == 0:
-            logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ No results found for session {call_session_history_id}")
+            logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ No results found for session {call_session_history_id}")
             return {
                 "success": False,
                 "error": "No results found",
@@ -333,7 +334,7 @@ async def get_full_call_cost(
             if duration:
                 total_duration = max(total_duration, int(duration))
         
-        logger.info(f"[VOXIMPLANT-v3.7]    📞 Calls cost: {calls_cost} ({len(calls_list)} calls)")
+        logger.info(f"[VOXIMPLANT-v3.8]    📞 Calls cost: {calls_cost} ({len(calls_list)} calls)")
         
         # Суммируем стоимость из records[]
         records_cost = 0.0
@@ -343,7 +344,7 @@ async def get_full_call_cost(
             if cost:
                 records_cost += float(cost)
         
-        logger.info(f"[VOXIMPLANT-v3.7]    🎙️ Records cost: {records_cost} ({len(records_list)} records)")
+        logger.info(f"[VOXIMPLANT-v3.8]    🎙️ Records cost: {records_cost} ({len(records_list)} records)")
         
         # Суммируем стоимость из other_resource_usage[]
         other_cost = 0.0
@@ -353,7 +354,7 @@ async def get_full_call_cost(
             if cost:
                 other_cost += float(cost)
         
-        logger.info(f"[VOXIMPLANT-v3.7]    ⚡ Other resources cost: {other_cost} ({len(other_list)} resources)")
+        logger.info(f"[VOXIMPLANT-v3.8]    ⚡ Other resources cost: {other_cost} ({len(other_list)} resources)")
         
         # Общая стоимость
         total_cost = calls_cost + records_cost + other_cost
@@ -362,13 +363,13 @@ async def get_full_call_cost(
         if call_data.get("duration"):
             total_duration = max(total_duration, int(call_data["duration"]))
         
-        logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(f"[VOXIMPLANT-v3.7] 💰 TOTAL COST: {total_cost}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Calls:   {calls_cost}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Records: {records_cost}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Other:   {other_cost}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Duration: {total_duration}s")
-        logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.8] 💰 TOTAL COST: {total_cost}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Calls:   {calls_cost}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Records: {records_cost}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Other:   {other_cost}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Duration: {total_duration}s")
+        logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         return {
             "success": True,
@@ -389,7 +390,7 @@ async def get_full_call_cost(
         }
         
     except httpx.TimeoutException:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Timeout calling GetCallHistory")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Timeout calling GetCallHistory")
         return {
             "success": False,
             "error": "Timeout",
@@ -400,7 +401,7 @@ async def get_full_call_cost(
             "duration": 0
         }
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Error getting call cost: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Error getting call cost: {e}")
         logger.error(traceback.format_exc())
         return {
             "success": False,
@@ -547,13 +548,13 @@ def get_voximplant_credentials(db: Session, user_id: uuid.UUID) -> Optional[Dict
         ).first()
         
         if not child_account:
-            logger.warning(f"[VOXIMPLANT-v3.7] No child account found for user {user_id}")
+            logger.warning(f"[VOXIMPLANT-v3.8] No child account found for user {user_id}")
             return None
         
         # Проверяем наличие Service Account credentials
         if not child_account.vox_service_account_key:
-            logger.warning(f"[VOXIMPLANT-v3.7] No Service Account credentials for account {child_account.vox_account_id}")
-            logger.warning(f"[VOXIMPLANT-v3.7] Run admin/setup-service-accounts to create them")
+            logger.warning(f"[VOXIMPLANT-v3.8] No Service Account credentials for account {child_account.vox_account_id}")
+            logger.warning(f"[VOXIMPLANT-v3.8] Run admin/setup-service-accounts to create them")
             return None
         
         # Парсим JSON с credentials
@@ -562,26 +563,26 @@ def get_voximplant_credentials(db: Session, user_id: uuid.UUID) -> Optional[Dict
             
             # Валидируем обязательные поля
             if not credentials.get("account_id"):
-                logger.error(f"[VOXIMPLANT-v3.7] Missing account_id in credentials")
+                logger.error(f"[VOXIMPLANT-v3.8] Missing account_id in credentials")
                 return None
             if not credentials.get("key_id"):
-                logger.error(f"[VOXIMPLANT-v3.7] Missing key_id in credentials")
+                logger.error(f"[VOXIMPLANT-v3.8] Missing key_id in credentials")
                 return None
             if not credentials.get("private_key"):
-                logger.error(f"[VOXIMPLANT-v3.7] Missing private_key in credentials")
+                logger.error(f"[VOXIMPLANT-v3.8] Missing private_key in credentials")
                 return None
             
-            logger.info(f"[VOXIMPLANT-v3.7] ✅ Loaded credentials for child account {child_account.vox_account_id}")
-            logger.info(f"[VOXIMPLANT-v3.7]    Key ID: {credentials.get('key_id')}")
+            logger.info(f"[VOXIMPLANT-v3.8] ✅ Loaded credentials for child account {child_account.vox_account_id}")
+            logger.info(f"[VOXIMPLANT-v3.8]    Key ID: {credentials.get('key_id')}")
             
             return credentials
             
         except json.JSONDecodeError as json_error:
-            logger.error(f"[VOXIMPLANT-v3.7] Failed to parse credentials JSON: {json_error}")
+            logger.error(f"[VOXIMPLANT-v3.8] Failed to parse credentials JSON: {json_error}")
             return None
             
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] Error getting credentials: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] Error getting credentials: {e}")
         return None
 
 
@@ -998,7 +999,7 @@ async def voximplant_transcript_webhook(
 
 
 # =============================================================================
-# 🆕 v3.7: ГЛАВНЫЙ ЭНДПОИНТ /log С ОТЛОЖЕННЫМ ПЕРЕСЧЁТОМ СТОИМОСТИ
+# 🆕 v3.8: ГЛАВНЫЙ ЭНДПОИНТ /log С СТРУКТУРИРОВАННЫМ ДИАЛОГОМ
 # =============================================================================
 
 @router.post("/log")
@@ -1017,6 +1018,7 @@ async def log_conversation_data(
     🆕 v3.5: Поддержка call_cost и call_duration для биллинга
     🆕 v3.6: ПОЛНАЯ стоимость через GetCallHistory API (calls + records + other_resource_usage)
     🆕 v3.7: ОТЛОЖЕННЫЙ ПЕРЕСЧЁТ стоимости через 15 секунд если GetCallHistory не вернул данные сразу
+    🆕 v3.8: СТРУКТУРИРОВАННЫЙ ДИАЛОГ (dialog) для отображения чат-интерфейса в UI
     
     Формат запроса:
     {
@@ -1030,9 +1032,13 @@ async def log_conversation_data(
         "call_duration": 125,                   // Длительность звонка в секундах
         "type": "conversation",
         "data": {
-            "user_message": "string",
-            "assistant_message": "string",
-            "function_result": "object"
+            "user_message": "string",           // Сводный текст пользователя (для поиска)
+            "assistant_message": "string",      // Сводный текст ассистента (для поиска)
+            "function_result": "object",
+            "dialog": [                         // 🆕 v3.8: Структурированный диалог для UI
+                {"role": "assistant", "text": "Здравствуйте!", "ts": 1737267554000},
+                {"role": "user", "text": "Привет", "ts": 1737267558000}
+            ]
         }
     }
     """
@@ -1052,21 +1058,21 @@ async def log_conversation_data(
         call_cost_from_script = request_data.get("call_cost")
         call_duration_from_script = request_data.get("call_duration")
         
-        logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        logger.info(f"[VOXIMPLANT-v3.7] 📥 Получены данные для логирования:")
-        logger.info(f"[VOXIMPLANT-v3.7]   📋 Тип: {data_type}")
-        logger.info(f"[VOXIMPLANT-v3.7]   🆔 Assistant ID: {assistant_id}")
-        logger.info(f"[VOXIMPLANT-v3.7]   💬 Chat ID: {chat_id}")
-        logger.info(f"[VOXIMPLANT-v3.7]   📞 Call ID: {call_id}")
-        logger.info(f"[VOXIMPLANT-v3.7]   📱 Caller Number (raw): {caller_number}")
-        logger.info(f"[VOXIMPLANT-v3.7]   🎙️ Record URL: {'✅ Есть' if record_url else '❌ Нет'}")
-        logger.info(f"[VOXIMPLANT-v3.7]   🔑 Session History ID: {call_session_history_id or 'НЕТ'}")
-        logger.info(f"[VOXIMPLANT-v3.7]   💰 Script Cost (fallback): {call_cost_from_script}")
-        logger.info(f"[VOXIMPLANT-v3.7]   ⏱️ Script Duration: {call_duration_from_script}s")
-        logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        logger.info(f"[VOXIMPLANT-v3.8] 📥 Получены данные для логирования:")
+        logger.info(f"[VOXIMPLANT-v3.8]   📋 Тип: {data_type}")
+        logger.info(f"[VOXIMPLANT-v3.8]   🆔 Assistant ID: {assistant_id}")
+        logger.info(f"[VOXIMPLANT-v3.8]   💬 Chat ID: {chat_id}")
+        logger.info(f"[VOXIMPLANT-v3.8]   📞 Call ID: {call_id}")
+        logger.info(f"[VOXIMPLANT-v3.8]   📱 Caller Number (raw): {caller_number}")
+        logger.info(f"[VOXIMPLANT-v3.8]   🎙️ Record URL: {'✅ Есть' if record_url else '❌ Нет'}")
+        logger.info(f"[VOXIMPLANT-v3.8]   🔑 Session History ID: {call_session_history_id or 'НЕТ'}")
+        logger.info(f"[VOXIMPLANT-v3.8]   💰 Script Cost (fallback): {call_cost_from_script}")
+        logger.info(f"[VOXIMPLANT-v3.8]   ⏱️ Script Duration: {call_duration_from_script}s")
+        logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         
         if not assistant_id or not (chat_id or call_id):
-            logger.warning("[VOXIMPLANT-v3.7] ❌ Отсутствуют обязательные параметры")
+            logger.warning("[VOXIMPLANT-v3.8] ❌ Отсутствуют обязательные параметры")
             return {
                 "success": False,
                 "message": "Missing required parameters (assistant_id and chat_id/call_id)"
@@ -1078,28 +1084,42 @@ async def log_conversation_data(
             assistant, assistant_type = find_assistant_by_id(db, assistant_id)
             
             if not assistant:
-                logger.error(f"[VOXIMPLANT-v3.7] ❌ Ассистент не найден ни в OpenAI, ни в Gemini: {assistant_id}")
+                logger.error(f"[VOXIMPLANT-v3.8] ❌ Ассистент не найден ни в OpenAI, ни в Gemini: {assistant_id}")
                 return {
                     "success": False,
                     "message": "Assistant not found in any table"
                 }
             
-            logger.info(f"[VOXIMPLANT-v3.7] ✅ Найден ассистент типа {assistant_type}: {assistant.name}")
+            logger.info(f"[VOXIMPLANT-v3.8] ✅ Найден ассистент типа {assistant_type}: {assistant.name}")
             
             # Получаем данные сообщений
             user_message = data.get("user_message", "")
             assistant_message = data.get("assistant_message", "")
             function_result = data.get("function_result")
             
-            # Логируем длину сообщений
-            logger.info(f"[VOXIMPLANT-v3.7] 📏 Длина сообщения пользователя: {len(user_message)} символов")
-            logger.info(f"[VOXIMPLANT-v3.7] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
+            # 🆕 v3.8: Получаем структурированный диалог для UI
+            dialog = data.get("dialog", [])
             
-            if not user_message and not assistant_message:
-                logger.warning("[VOXIMPLANT-v3.7] ⚠️ Пустые сообщения для логирования, пропускаем")
+            if dialog and isinstance(dialog, list) and len(dialog) > 0:
+                logger.info(f"[VOXIMPLANT-v3.8] 📝 Received structured dialog: {len(dialog)} turns")
+                for i, turn in enumerate(dialog[:3]):  # Логируем первые 3 реплики
+                    role = turn.get('role', 'unknown')
+                    text = turn.get('text', '')[:50]
+                    logger.info(f"[VOXIMPLANT-v3.8]    [{i+1}] {role}: {text}...")
+                if len(dialog) > 3:
+                    logger.info(f"[VOXIMPLANT-v3.8]    ... и ещё {len(dialog) - 3} реплик")
+            else:
+                logger.info(f"[VOXIMPLANT-v3.8] ⚠️ No structured dialog in payload, using legacy format")
+            
+            # Логируем длину сообщений
+            logger.info(f"[VOXIMPLANT-v3.8] 📏 Длина сообщения пользователя: {len(user_message)} символов")
+            logger.info(f"[VOXIMPLANT-v3.8] 📏 Длина сообщения ассистента: {len(assistant_message)} символов")
+            
+            if not user_message and not assistant_message and not dialog:
+                logger.warning("[VOXIMPLANT-v3.8] ⚠️ Пустые сообщения и диалог для логирования, пропускаем")
                 return {
                     "success": False,
-                    "message": "Empty messages, logging skipped"
+                    "message": "Empty messages and dialog, logging skipped"
                 }
             
             # Определяем conversation_id (приоритет - call_id, fallback - chat_id)
@@ -1109,10 +1129,10 @@ async def log_conversation_data(
             call_direction = ConversationService._extract_call_direction(caller_number)
             normalized_phone = ConversationService._normalize_phone(caller_number) if caller_number else "unknown"
             
-            logger.info(f"[VOXIMPLANT-v3.7] 🔍 Extracted:")
-            logger.info(f"[VOXIMPLANT-v3.7]   📞 Direction: {call_direction}")
-            logger.info(f"[VOXIMPLANT-v3.7]   📱 Normalized phone: {normalized_phone}")
-            logger.info(f"[VOXIMPLANT-v3.7]   🤖 Assistant type: {assistant_type}")
+            logger.info(f"[VOXIMPLANT-v3.8] 🔍 Extracted:")
+            logger.info(f"[VOXIMPLANT-v3.8]   📞 Direction: {call_direction}")
+            logger.info(f"[VOXIMPLANT-v3.8]   📱 Normalized phone: {normalized_phone}")
+            logger.info(f"[VOXIMPLANT-v3.8]   🤖 Assistant type: {assistant_type}")
             
             # ================================================================
             # 🆕 v3.7: ПОЛУЧЕНИЕ ПОЛНОЙ СТОИМОСТИ ЧЕРЕЗ GetCallHistory
@@ -1123,7 +1143,7 @@ async def log_conversation_data(
             api_credentials = None
             
             if call_session_history_id and assistant.user_id:
-                logger.info(f"[VOXIMPLANT-v3.7] 💰 Запрашиваем полную стоимость через GetCallHistory...")
+                logger.info(f"[VOXIMPLANT-v3.8] 💰 Запрашиваем полную стоимость через GetCallHistory...")
                 
                 # Получаем API credentials
                 api_credentials = get_voximplant_api_credentials(db, assistant.user_id)
@@ -1145,30 +1165,30 @@ async def log_conversation_data(
                             "other_cost": cost_result["other_cost"],
                             "details": cost_result["details"]
                         }
-                        logger.info(f"[VOXIMPLANT-v3.7] ✅ Получена ПОЛНАЯ стоимость: {call_cost}")
+                        logger.info(f"[VOXIMPLANT-v3.8] ✅ Получена ПОЛНАЯ стоимость: {call_cost}")
                     else:
-                        logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Не удалось получить полную стоимость: {cost_result.get('error')}")
-                        logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Будет запланирован отложенный пересчёт")
+                        logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Не удалось получить полную стоимость: {cost_result.get('error')}")
+                        logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Будет запланирован отложенный пересчёт")
                 else:
-                    logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Нет API credentials")
+                    logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Нет API credentials")
             else:
                 if not call_session_history_id:
-                    logger.info(f"[VOXIMPLANT-v3.7] ℹ️ Нет call_session_history_id, используем значения от скрипта")
+                    logger.info(f"[VOXIMPLANT-v3.8] ℹ️ Нет call_session_history_id, используем значения от скрипта")
                 if not assistant.user_id:
-                    logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Нет user_id у ассистента")
+                    logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Нет user_id у ассистента")
             
             # Fallback на значения от скрипта если не получили через API
             if call_cost is None and call_cost_from_script is not None:
                 try:
                     call_cost = float(call_cost_from_script)
-                    logger.info(f"[VOXIMPLANT-v3.7] 💰 Используем cost от скрипта (fallback): {call_cost}")
+                    logger.info(f"[VOXIMPLANT-v3.8] 💰 Используем cost от скрипта (fallback): {call_cost}")
                 except (ValueError, TypeError):
                     pass
             
             if call_duration is None and call_duration_from_script is not None:
                 try:
                     call_duration = float(call_duration_from_script)
-                    logger.info(f"[VOXIMPLANT-v3.7] ⏱️ Используем duration от скрипта (fallback): {call_duration}")
+                    logger.info(f"[VOXIMPLANT-v3.8] ⏱️ Используем duration от скрипта (fallback): {call_duration}")
                 except (ValueError, TypeError):
                     pass
             
@@ -1179,8 +1199,8 @@ async def log_conversation_data(
             r2_saved = False
             
             if record_url:
-                logger.info(f"[VOXIMPLANT-v3.7] 🎙️ Обработка записи звонка...")
-                logger.info(f"[VOXIMPLANT-v3.7]   Voximplant URL: {record_url[:60]}...")
+                logger.info(f"[VOXIMPLANT-v3.8] 🎙️ Обработка записи звонка...")
+                logger.info(f"[VOXIMPLANT-v3.8]   Voximplant URL: {record_url[:60]}...")
                 
                 if R2StorageService.is_configured():
                     try:
@@ -1191,12 +1211,12 @@ async def log_conversation_data(
                             voximplant_credentials = get_voximplant_credentials(db, assistant.user_id)
                             
                             if voximplant_credentials:
-                                logger.info(f"[VOXIMPLANT-v3.7] 🔐 Service Account credentials loaded")
+                                logger.info(f"[VOXIMPLANT-v3.8] 🔐 Service Account credentials loaded")
                             else:
-                                logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ No Service Account credentials available")
-                                logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Secure recordings may fail to download")
+                                logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ No Service Account credentials available")
+                                logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Secure recordings may fail to download")
                         
-                        logger.info(f"[VOXIMPLANT-v3.7] 📤 Загрузка в R2 Storage...")
+                        logger.info(f"[VOXIMPLANT-v3.8] 📤 Загрузка в R2 Storage...")
                         
                         # Передаём credentials в R2StorageService
                         permanent_record_url = await R2StorageService.upload_recording(
@@ -1208,25 +1228,25 @@ async def log_conversation_data(
                         
                         if permanent_record_url:
                             r2_saved = True
-                            logger.info(f"[VOXIMPLANT-v3.7] ✅ Запись сохранена в R2:")
-                            logger.info(f"[VOXIMPLANT-v3.7]   URL: {permanent_record_url}")
+                            logger.info(f"[VOXIMPLANT-v3.8] ✅ Запись сохранена в R2:")
+                            logger.info(f"[VOXIMPLANT-v3.8]   URL: {permanent_record_url}")
                         else:
-                            logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Не удалось сохранить в R2, используем временный URL")
+                            logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Не удалось сохранить в R2, используем временный URL")
                             permanent_record_url = record_url
                             
                     except Exception as r2_error:
-                        logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка R2: {r2_error}")
-                        logger.error(f"[VOXIMPLANT-v3.7] Traceback: {traceback.format_exc()}")
+                        logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка R2: {r2_error}")
+                        logger.error(f"[VOXIMPLANT-v3.8] Traceback: {traceback.format_exc()}")
                         # Используем временный URL как fallback
                         permanent_record_url = record_url
                 else:
-                    logger.info(f"[VOXIMPLANT-v3.7] ℹ️ R2 не настроен, используем временный Voximplant URL")
+                    logger.info(f"[VOXIMPLANT-v3.8] ℹ️ R2 не настроен, используем временный Voximplant URL")
                     permanent_record_url = record_url
             
             # ================================================================
             # СОХРАНЕНИЕ В БД
             # ================================================================
-            logger.info(f"[VOXIMPLANT-v3.7] 💾 Сохранение в БД...")
+            logger.info(f"[VOXIMPLANT-v3.8] 💾 Сохранение в БД...")
             db_result = None
             
             try:
@@ -1238,6 +1258,11 @@ async def log_conversation_data(
                     "assistant_type": assistant_type,
                     "record_url": permanent_record_url
                 }
+                
+                # 🆕 v3.8: Сохраняем структурированный диалог для UI
+                if dialog and isinstance(dialog, list) and len(dialog) > 0:
+                    client_info["dialog"] = dialog
+                    logger.info(f"[VOXIMPLANT-v3.8] 📝 Saved dialog with {len(dialog)} turns to client_info")
                 
                 # 🆕 v3.6: Добавляем call_session_history_id и breakdown
                 if call_session_history_id:
@@ -1275,42 +1300,43 @@ async def log_conversation_data(
                         try:
                             db_result.call_cost = float(call_cost)
                             update_needed = True
-                            logger.info(f"[VOXIMPLANT-v3.7] 💰 Call cost set: {call_cost}")
+                            logger.info(f"[VOXIMPLANT-v3.8] 💰 Call cost set: {call_cost}")
                         except (ValueError, TypeError) as e:
-                            logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Invalid call_cost value: {call_cost}, error: {e}")
+                            logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Invalid call_cost value: {call_cost}, error: {e}")
                     
                     # Сохраняем call_duration в duration_seconds
                     if call_duration is not None:
                         try:
                             db_result.duration_seconds = float(call_duration)
                             update_needed = True
-                            logger.info(f"[VOXIMPLANT-v3.7] ⏱️ Duration set: {call_duration}s")
+                            logger.info(f"[VOXIMPLANT-v3.8] ⏱️ Duration set: {call_duration}s")
                         except (ValueError, TypeError) as e:
-                            logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Invalid call_duration value: {call_duration}, error: {e}")
+                            logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Invalid call_duration value: {call_duration}, error: {e}")
                     
                     # Коммитим изменения если были обновления
                     if update_needed:
                         db.commit()
                         db.refresh(db_result)
                     
-                    logger.info(f"[VOXIMPLANT-v3.7] ✅ Сохранено в БД:")
-                    logger.info(f"[VOXIMPLANT-v3.7]   ID: {db_result.id}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Direction: {db_result.call_direction}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Phone: {db_result.caller_number}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Contact: {db_result.contact_id}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Record URL: {'✅' if permanent_record_url else '❌'}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Call Cost: {db_result.call_cost}")
-                    logger.info(f"[VOXIMPLANT-v3.7]   Duration: {db_result.duration_seconds}s")
+                    logger.info(f"[VOXIMPLANT-v3.8] ✅ Сохранено в БД:")
+                    logger.info(f"[VOXIMPLANT-v3.8]   ID: {db_result.id}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Direction: {db_result.call_direction}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Phone: {db_result.caller_number}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Contact: {db_result.contact_id}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Record URL: {'✅' if permanent_record_url else '❌'}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Call Cost: {db_result.call_cost}")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Duration: {db_result.duration_seconds}s")
+                    logger.info(f"[VOXIMPLANT-v3.8]   Dialog turns: {len(dialog) if dialog else 0}")
                     if cost_breakdown:
-                        logger.info(f"[VOXIMPLANT-v3.7]   Cost Source: GetCallHistory API (FULL)")
+                        logger.info(f"[VOXIMPLANT-v3.8]   Cost Source: GetCallHistory API (FULL)")
                     else:
-                        logger.info(f"[VOXIMPLANT-v3.7]   Cost Source: Script fallback (PARTIAL)")
+                        logger.info(f"[VOXIMPLANT-v3.8]   Cost Source: Script fallback (PARTIAL)")
                 else:
-                    logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Не удалось сохранить в БД")
+                    logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Не удалось сохранить в БД")
                     
             except Exception as db_error:
-                logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка сохранения в БД: {db_error}")
-                logger.error(f"[VOXIMPLANT-v3.7] Traceback: {traceback.format_exc()}")
+                logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка сохранения в БД: {db_error}")
+                logger.error(f"[VOXIMPLANT-v3.8] Traceback: {traceback.format_exc()}")
             
             # ================================================================
             # 🆕 v3.7: ЗАПУСК ОТЛОЖЕННОГО ПЕРЕСЧЁТА ЕСЛИ НЕ ПОЛУЧИЛИ BREAKDOWN
@@ -1322,7 +1348,7 @@ async def log_conversation_data(
                 and not cost_breakdown 
                 and db_result):
                 try:
-                    logger.info(f"[VOXIMPLANT-v3.7] 📅 Планируем отложенный пересчёт через 15 секунд...")
+                    logger.info(f"[VOXIMPLANT-v3.8] 📅 Планируем отложенный пересчёт через 15 секунд...")
                     
                     asyncio.create_task(
                         delayed_cost_recalculation(
@@ -1335,10 +1361,10 @@ async def log_conversation_data(
                     )
                     
                     delayed_recalc_scheduled = True
-                    logger.info(f"[VOXIMPLANT-v3.7] ✅ Отложенный пересчёт запланирован")
+                    logger.info(f"[VOXIMPLANT-v3.8] ✅ Отложенный пересчёт запланирован")
                     
                 except Exception as task_error:
-                    logger.warning(f"[VOXIMPLANT-v3.7] ⚠️ Не удалось запланировать отложенный пересчёт: {task_error}")
+                    logger.warning(f"[VOXIMPLANT-v3.8] ⚠️ Не удалось запланировать отложенный пересчёт: {task_error}")
             
             # ================================================================
             # СОХРАНЕНИЕ В GOOGLE SHEETS (оригинальная логика)
@@ -1346,7 +1372,7 @@ async def log_conversation_data(
             sheets_result = False
             if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
                 log_sheet_id = assistant.google_sheet_id
-                logger.info(f"[VOXIMPLANT-v3.7] 📊 Запись в Google Sheets: {log_sheet_id}")
+                logger.info(f"[VOXIMPLANT-v3.8] 📊 Запись в Google Sheets: {log_sheet_id}")
                 
                 try:
                     sheets_result = await GoogleSheetsService.log_conversation(
@@ -1361,33 +1387,34 @@ async def log_conversation_data(
                     )
                     
                     if sheets_result:
-                        logger.info(f"[VOXIMPLANT-v3.7] ✅ Данные записаны в Google Sheets")
+                        logger.info(f"[VOXIMPLANT-v3.8] ✅ Данные записаны в Google Sheets")
                     else:
-                        logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка записи в Google Sheets")
+                        logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка записи в Google Sheets")
                         
                 except Exception as sheets_error:
-                    logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка Google Sheets: {sheets_error}")
-                    logger.error(f"[VOXIMPLANT-v3.7] Traceback: {traceback.format_exc()}")
+                    logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка Google Sheets: {sheets_error}")
+                    logger.error(f"[VOXIMPLANT-v3.8] Traceback: {traceback.format_exc()}")
             else:
-                logger.info(f"[VOXIMPLANT-v3.7] ⚠️ Google Sheets логирование не настроено")
+                logger.info(f"[VOXIMPLANT-v3.8] ⚠️ Google Sheets логирование не настроено")
             
             # ================================================================
             # ФОРМИРУЕМ ОТВЕТ
             # ================================================================
-            logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            logger.info(f"[VOXIMPLANT-v3.7] 📊 РЕЗУЛЬТАТЫ ЛОГИРОВАНИЯ:")
-            logger.info(f"[VOXIMPLANT-v3.7]   🤖 Тип ассистента: {assistant_type}")
-            logger.info(f"[VOXIMPLANT-v3.7]   💾 БД: {'✅ OK' if db_result else '❌ FAIL'}")
-            logger.info(f"[VOXIMPLANT-v3.7]   📊 Sheets: {'✅ OK' if sheets_result else '❌ FAIL/SKIP'}")
-            logger.info(f"[VOXIMPLANT-v3.7]   🎙️ Запись: {'✅ R2' if r2_saved else '⚠️ Temp' if permanent_record_url else '❌ НЕТ'}")
-            logger.info(f"[VOXIMPLANT-v3.7]   💰 Total Cost: {call_cost}")
+            logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            logger.info(f"[VOXIMPLANT-v3.8] 📊 РЕЗУЛЬТАТЫ ЛОГИРОВАНИЯ:")
+            logger.info(f"[VOXIMPLANT-v3.8]   🤖 Тип ассистента: {assistant_type}")
+            logger.info(f"[VOXIMPLANT-v3.8]   💾 БД: {'✅ OK' if db_result else '❌ FAIL'}")
+            logger.info(f"[VOXIMPLANT-v3.8]   📊 Sheets: {'✅ OK' if sheets_result else '❌ FAIL/SKIP'}")
+            logger.info(f"[VOXIMPLANT-v3.8]   🎙️ Запись: {'✅ R2' if r2_saved else '⚠️ Temp' if permanent_record_url else '❌ НЕТ'}")
+            logger.info(f"[VOXIMPLANT-v3.8]   📝 Dialog: {len(dialog) if dialog else 0} turns")
+            logger.info(f"[VOXIMPLANT-v3.8]   💰 Total Cost: {call_cost}")
             if cost_breakdown:
-                logger.info(f"[VOXIMPLANT-v3.7]      ├─ Calls: {cost_breakdown['calls_cost']}")
-                logger.info(f"[VOXIMPLANT-v3.7]      ├─ Records: {cost_breakdown['records_cost']}")
-                logger.info(f"[VOXIMPLANT-v3.7]      └─ Other: {cost_breakdown['other_cost']}")
-            logger.info(f"[VOXIMPLANT-v3.7]   ⏱️ Duration: {call_duration}s")
-            logger.info(f"[VOXIMPLANT-v3.7]   📅 Delayed Recalc: {'✅ Scheduled' if delayed_recalc_scheduled else '❌ Not needed'}")
-            logger.info(f"[VOXIMPLANT-v3.7] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                logger.info(f"[VOXIMPLANT-v3.8]      ├─ Calls: {cost_breakdown['calls_cost']}")
+                logger.info(f"[VOXIMPLANT-v3.8]      ├─ Records: {cost_breakdown['records_cost']}")
+                logger.info(f"[VOXIMPLANT-v3.8]      └─ Other: {cost_breakdown['other_cost']}")
+            logger.info(f"[VOXIMPLANT-v3.8]   ⏱️ Duration: {call_duration}s")
+            logger.info(f"[VOXIMPLANT-v3.8]   📅 Delayed Recalc: {'✅ Scheduled' if delayed_recalc_scheduled else '❌ Not needed'}")
+            logger.info(f"[VOXIMPLANT-v3.8] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             return {
                 "success": bool(db_result) or sheets_result,
@@ -1402,7 +1429,9 @@ async def log_conversation_data(
                 "call_direction": call_direction,
                 "assistant_type": assistant_type,
                 "record_url": permanent_record_url,
-                # 🆕 v3.7: Возвращаем полную стоимость и статус отложенного пересчёта
+                # 🆕 v3.8: Возвращаем информацию о диалоге
+                "dialog_turns": len(dialog) if dialog else 0,
+                # v3.7: Возвращаем полную стоимость и статус отложенного пересчёта
                 "call_cost": float(call_cost) if call_cost is not None else None,
                 "call_duration": float(call_duration) if call_duration is not None else None,
                 "cost_source": "GetCallHistory" if cost_breakdown else "script_fallback",
@@ -1416,8 +1445,8 @@ async def log_conversation_data(
         }
         
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка логирования: {e}")
-        logger.error(f"[VOXIMPLANT-v3.7] Трассировка: {traceback.format_exc()}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка логирования: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] Трассировка: {traceback.format_exc()}")
         return {
             "success": False,
             "message": f"Error logging data: {str(e)}"
@@ -1442,7 +1471,7 @@ async def verify_google_sheet(
         if not sheet_id:
             return {"success": False, "message": "ID таблицы не указан"}
         
-        logger.info(f"[SHEETS-v3.7] 🔍 Проверка подключения к таблице: {sheet_id}")
+        logger.info(f"[SHEETS-v3.8] 🔍 Проверка подключения к таблице: {sheet_id}")
         
         # Проверяем доступ к таблице
         verify_result = await GoogleSheetsService.verify_sheet_access(sheet_id)
@@ -1463,9 +1492,9 @@ async def verify_google_sheet(
                         if hasattr(assistant, 'log_enabled'):
                             assistant.log_enabled = True
                         db.commit()
-                        logger.info(f"[SHEETS-v3.7] ✅ ID таблицы сохранен для {assistant_type} ассистента {assistant_id}")
+                        logger.info(f"[SHEETS-v3.8] ✅ ID таблицы сохранен для {assistant_type} ассистента {assistant_id}")
                 except Exception as e:
-                    logger.error(f"[SHEETS-v3.7] ❌ Ошибка при сохранении ID таблицы: {str(e)}")
+                    logger.error(f"[SHEETS-v3.8] ❌ Ошибка при сохранении ID таблицы: {str(e)}")
                     
             return {
                 "success": True,
@@ -1477,7 +1506,7 @@ async def verify_google_sheet(
             return verify_result
             
     except Exception as e:
-        logger.error(f"[SHEETS-v3.7] ❌ Ошибка при проверке таблицы: {str(e)}")
+        logger.error(f"[SHEETS-v3.8] ❌ Ошибка при проверке таблицы: {str(e)}")
         logger.error(traceback.format_exc())
         return {
             "success": False,
@@ -1655,7 +1684,7 @@ async def get_assistant_call_costs(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка аналитики: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка аналитики: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1770,7 +1799,7 @@ async def get_user_call_costs(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Ошибка аналитики пользователя: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Ошибка аналитики пользователя: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1872,8 +1901,8 @@ async def recalculate_call_cost(
         db.commit()
         db.refresh(conversation)
         
-        logger.info(f"[VOXIMPLANT-v3.7] ✅ Recalculated cost for {conversation_id}")
-        logger.info(f"[VOXIMPLANT-v3.7]    Old: {old_cost} → New: {new_cost}")
+        logger.info(f"[VOXIMPLANT-v3.8] ✅ Recalculated cost for {conversation_id}")
+        logger.info(f"[VOXIMPLANT-v3.8]    Old: {old_cost} → New: {new_cost}")
         
         return {
             "success": True,
@@ -1891,7 +1920,7 @@ async def recalculate_call_cost(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Error recalculating cost: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Error recalculating cost: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1969,7 +1998,7 @@ async def recalculate_costs_batch(
         # Получаем записи
         conversations = query.order_by(Conversation.created_at.desc()).limit(limit).all()
         
-        logger.info(f"[VOXIMPLANT-v3.7] 🔄 Batch recalculation: {len(conversations)} records")
+        logger.info(f"[VOXIMPLANT-v3.8] 🔄 Batch recalculation: {len(conversations)} records")
         
         # Кэш для API credentials
         credentials_cache = {}
@@ -2045,7 +2074,7 @@ async def recalculate_costs_batch(
         # Коммитим все изменения
         db.commit()
         
-        logger.info(f"[VOXIMPLANT-v3.7] ✅ Batch complete: {results['updated']}/{results['processed']} updated")
+        logger.info(f"[VOXIMPLANT-v3.8] ✅ Batch complete: {results['updated']}/{results['processed']} updated")
         
         return {
             "success": True,
@@ -2055,6 +2084,6 @@ async def recalculate_costs_batch(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-v3.7] ❌ Batch recalculation error: {e}")
+        logger.error(f"[VOXIMPLANT-v3.8] ❌ Batch recalculation error: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
