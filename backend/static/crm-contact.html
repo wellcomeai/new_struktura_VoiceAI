@@ -40,6 +40,7 @@
       --task-completed: #10b981;
       --task-failed: #ef4444;
       --task-cancelled: #6b7280;
+      --cost-orange: #f59e0b;
     }
     
     * {
@@ -460,6 +461,12 @@
       flex-wrap: wrap;
     }
     
+    /* 🆕 v5.0: Стоимость в мета-информации */
+    .timeline-item-meta .meta-cost {
+      color: var(--cost-orange);
+      font-weight: 600;
+    }
+    
     .timeline-item-toggle {
       color: var(--text-gray);
       font-size: 1.25rem;
@@ -531,6 +538,68 @@
       font-size: 0.875rem;
       line-height: 1.5;
       color: var(--text-dark);
+    }
+    
+    /* 🆕 v5.0: Секция информации о звонке (стоимость + запись) */
+    .conversation-call-info {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    
+    .call-info-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+    }
+    
+    .call-info-row i {
+      width: 20px;
+      text-align: center;
+    }
+    
+    .call-info-row.cost {
+      color: var(--cost-orange);
+      font-weight: 600;
+    }
+    
+    .call-info-row.cost i {
+      color: var(--cost-orange);
+    }
+    
+    /* 🆕 v5.0: Аудиоплеер */
+    .audio-player-section {
+      margin-top: 0.5rem;
+    }
+    
+    .audio-player-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-light);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .audio-player-title i {
+      color: var(--success-green);
+    }
+    
+    .audio-player {
+      width: 100%;
+      height: 40px;
+      border-radius: var(--radius-md);
+    }
+    
+    .audio-player::-webkit-media-controls-panel {
+      background-color: var(--bg-light);
     }
     
     /* Task Status Badge */
