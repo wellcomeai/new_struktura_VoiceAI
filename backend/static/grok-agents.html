@@ -2863,7 +2863,7 @@
         voice: document.querySelector('input[name="voice"]:checked').value,
         google_sheet_id: googleSheetId || null,
         greeting_message: document.getElementById('greeting-message').value || 'Здравствуйте! Чем я могу вам помочь?',
-        functions: enabledFunctions,
+        functions: enabledFunctions.length > 0 ? enabledFunctions : null,  // ✅ null вместо пустого массива
         enable_web_search: document.getElementById('enable-web-search').checked,
         enable_x_search: document.getElementById('enable-x-search').checked
       };
