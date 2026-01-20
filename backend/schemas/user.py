@@ -2,6 +2,7 @@
 User schemas for WellcomeAI application.
 Defines schemas for user-related requests and responses.
 ✅ ОБНОВЛЕНО: Добавлены поля gemini_api_key и elevenlabs_api_key
+✅ ОБНОВЛЕНО v3.0: Добавлено поле grok_api_key для xAI Grok Voice API
 """
 
 from pydantic import BaseModel, Field, EmailStr, validator
@@ -32,8 +33,9 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = Field(None, description="User last name")
     company_name: Optional[str] = Field(None, description="Company name")
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
-    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")  # ✅ ДОБАВЛЕНО
-    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")  # ✅ ДОБАВЛЕНО
+    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")
+    grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
     
     class Config:
         json_schema_extra = {
@@ -43,7 +45,8 @@ class UserUpdate(BaseModel):
                 "company_name": "ACME Inc.",
                 "openai_api_key": "sk-...",
                 "elevenlabs_api_key": "el-...",
-                "gemini_api_key": "AIza..."
+                "gemini_api_key": "AIza...",
+                "grok_api_key": "xai-..."
             }
         }
 
@@ -69,13 +72,15 @@ class UserResponse(UserBase):
     
     # ✅ API ключи
     openai_api_key: Optional[str] = Field(None, description="OpenAI API key")
-    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")  # ✅ ДОБАВЛЕНО
-    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")  # ✅ ДОБАВЛЕНО
+    elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")
+    grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
     
     # ✅ Статусы наличия API ключей
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
-    has_elevenlabs_api_key: bool = Field(False, description="Whether user has ElevenLabs API key set")  # ✅ ДОБАВЛЕНО
-    has_gemini_api_key: bool = Field(False, description="Whether user has Gemini API key set")  # ✅ ДОБАВЛЕНО
+    has_elevenlabs_api_key: bool = Field(False, description="Whether user has ElevenLabs API key set")
+    has_gemini_api_key: bool = Field(False, description="Whether user has Gemini API key set")
+    has_grok_api_key: bool = Field(False, description="Whether user has Grok API key set")  # 🆕 v3.0
     
     # ✅ Поля тарификации
     is_trial: bool = Field(False, description="Whether user is in trial period")
