@@ -1,6 +1,6 @@
 # backend/websockets/handler_grok.py
 """
-🚀 PRODUCTION VERSION 1.0 - xAI Grok Voice Agent API Handler
+🚀 PRODUCTION VERSION 1.1 - xAI Grok Voice Agent API Handler
 WebSocket endpoint: wss://api.x.ai/v1/realtime
 
 ✨ Features:
@@ -14,6 +14,9 @@ WebSocket endpoint: wss://api.x.ai/v1/realtime
 ✅ Telephony support (Voximplant)
 
 Based on OpenAI Realtime handler architecture for Voicyfy platform.
+
+CHANGELOG v1.1:
+- Fixed: AssistantConfig -> GrokAssistantConfig (correct table lookup)
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -31,7 +34,7 @@ from websockets.exceptions import ConnectionClosed
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
-from backend.models.assistant import AssistantConfig
+from backend.models.grok_assistant import GrokAssistantConfig
 from backend.models.conversation import Conversation
 from backend.utils.audio_utils import base64_to_audio_buffer
 from backend.websockets.grok_client import GrokVoiceClient, map_voice_to_grok
@@ -60,7 +63,7 @@ ENABLE_DETAILED_LOGGING = True
 def log_to_render(message: str, level: str = "INFO"):
     """Force log to stdout immediately"""
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    log_msg = f"{timestamp} - [GROK-HANDLER v1.0] {level} - {message}"
+    log_msg = f"{timestamp} - [GROK-HANDLER v1.1] {level} - {message}"
     print(log_msg, flush=True)
     if level == "ERROR":
         logger.error(message)
@@ -288,7 +291,7 @@ async def handle_grok_websocket_connection(
     sample_rate: int = 24000
 ) -> None:
     """
-    🚀 PRODUCTION v1.0 - Main WebSocket handler for Grok Voice Agent API
+    🚀 PRODUCTION v1.1 - Main WebSocket handler for Grok Voice Agent API
     
     Args:
         websocket: FastAPI WebSocket connection
@@ -302,7 +305,7 @@ async def handle_grok_websocket_connection(
     connection_start = time.time()
     
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    log_to_render(f"🚀 NEW GROK CONNECTION INITIATED (v1.0)")
+    log_to_render(f"🚀 NEW GROK CONNECTION INITIATED (v1.1)")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
     log_to_render(f"   Telephony: {is_telephony}")
@@ -322,30 +325,49 @@ async def handle_grok_websocket_connection(
         active_grok_connections.setdefault(assistant_id, []).append(websocket)
         log_to_render(f"📝 Active Grok connections for {assistant_id}: {len(active_grok_connections.get(assistant_id, []))}")
 
-        # Load assistant
-        log_to_render(f"🔍 Loading assistant: {assistant_id}")
+        # Load assistant from GrokAssistantConfig table
+        log_to_render(f"🔍 Loading Grok assistant: {assistant_id}")
+        assistant = None
+        
         if assistant_id == "demo":
-            assistant = db.query(AssistantConfig).filter(AssistantConfig.is_public.is_(True)).first()
+            # Demo mode - try to find public assistant first
+            assistant = db.query(GrokAssistantConfig).filter(GrokAssistantConfig.is_public.is_(True)).first()
             if not assistant:
-                assistant = db.query(AssistantConfig).first()
+                assistant = db.query(GrokAssistantConfig).first()
+            if assistant:
+                log_to_render(f"✅ Demo assistant loaded: {getattr(assistant, 'name', 'unnamed')}")
         else:
+            # Normal mode - load by UUID
             try:
                 uuid_obj = uuid.UUID(assistant_id)
-                assistant = db.query(AssistantConfig).get(uuid_obj)
+                assistant = db.query(GrokAssistantConfig).get(uuid_obj)
+                if assistant:
+                    log_to_render(f"✅ Assistant loaded by UUID: {getattr(assistant, 'name', assistant_id)}")
             except ValueError:
-                assistant = db.query(AssistantConfig).filter(AssistantConfig.id.cast(str) == assistant_id).first()
+                # Fallback: try string comparison
+                log_to_render(f"⚠️ Invalid UUID format, trying string match...")
+                assistant = db.query(GrokAssistantConfig).filter(
+                    GrokAssistantConfig.id.cast(str) == assistant_id
+                ).first()
 
         if not assistant:
-            log_to_render(f"❌ Assistant not found: {assistant_id}", "ERROR")
+            log_to_render(f"❌ Grok Assistant not found: {assistant_id}", "ERROR")
+            log_to_render(f"   Table: grok_assistant_configs", "ERROR")
             await websocket.send_json({
                 "type": "error",
-                "error": {"code": "assistant_not_found", "message": "Assistant not found"}
+                "error": {
+                    "code": "assistant_not_found", 
+                    "message": f"Grok assistant not found: {assistant_id}",
+                    "table": "grok_assistant_configs"
+                }
             })
             await websocket.close(code=1008)
             return
 
         grok_voice = map_voice_to_grok(getattr(assistant, 'voice', 'alloy'))
-        log_to_render(f"✅ Assistant loaded: {getattr(assistant, 'name', assistant_id)}")
+        log_to_render(f"✅ Grok Assistant loaded successfully:")
+        log_to_render(f"   Name: {getattr(assistant, 'name', assistant_id)}")
+        log_to_render(f"   ID: {assistant.id}")
         log_to_render(f"   Voice: {grok_voice}")
         log_to_render(f"   Provider: xAI Grok")
 
@@ -436,7 +458,7 @@ async def handle_grok_websocket_connection(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Grok Voice Agent API (v1.0)",
+            "message": "Connected to Grok Voice Agent API (v1.1)",
             "provider": "xai",
             "model": "grok-voice",
             "voice": grok_voice,
