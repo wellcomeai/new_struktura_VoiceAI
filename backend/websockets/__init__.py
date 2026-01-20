@@ -1,10 +1,12 @@
+# backend/websockets/__init__.py
 """
-WebSocket module for WellcomeAI application.
+WebSocket module for Voicyfy application.
 Handles real-time communication with clients.
 
 🆕 Now includes GA Realtime API support (gpt-realtime model)
 🆕 Now includes Google Gemini Live API support (gemini-2.5-flash-native-audio)
 🆕 Now includes Browser Agent support (gemini-2.0-flash + DOM control)
+🆕 Now includes xAI Grok Voice Agent API support
 🧪 Experimental: Streaming TTS with sentence detection + ElevenLabs
 """
 
@@ -22,6 +24,10 @@ from .handler_gemini import handle_gemini_websocket_connection
 
 # 🤖 Google Gemini + Browser Agent (v2.0)
 from .browser_handler_gemini import handle_gemini_websocket_connection as handle_gemini_browser_websocket_connection
+
+# 🆕 xAI Grok Voice Agent API
+from .grok_client import GrokVoiceClient, map_voice_to_grok
+from .handler_grok import handle_grok_websocket_connection
 
 # 📞 Voximplant интеграция
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
@@ -47,6 +53,11 @@ __all__ = [
     
     # 🤖 Google Gemini + Browser Agent (v2.0)
     "handle_gemini_browser_websocket_connection",
+    
+    # 🆕 xAI Grok Voice Agent API
+    "GrokVoiceClient",
+    "handle_grok_websocket_connection",
+    "map_voice_to_grok",
     
     # 🧪 Streaming TTS (экспериментальная версия)
     "handle_websocket_connection_streaming",
