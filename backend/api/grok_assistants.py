@@ -3,18 +3,19 @@
 REST API endpoints for xAI Grok Voice assistants management.
 Handles CRUD operations for Grok Voice Agent API assistants.
 
-🚀 PRODUCTION VERSION 1.0
+🚀 PRODUCTION VERSION 1.1
 ✅ Complete CRUD operations
 ✅ Authorization validation
 ✅ Subscription validation
 ✅ Error handling
 ✅ Grok-specific features (web_search, x_search)
+✅ Fixed functions field type (List[dict] instead of dict)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import List, Optional
+from typing import List, Optional, Any
 import uuid
 
 from backend.core.logging import get_logger
@@ -54,7 +55,8 @@ class GrokAssistantCreate(BaseModel):
     google_sheet_id: Optional[str] = Field(None, description="Google Sheets ID for logging")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Model temperature")
     max_tokens: int = Field(default=4096, ge=1, le=8192, description="Maximum tokens")
-    functions: Optional[dict] = Field(default=None, description="Enabled functions config")
+    # ✅ ИСПРАВЛЕНО: functions теперь List[dict] или None
+    functions: Optional[List[dict]] = Field(default=None, description="Enabled functions config")
     
     # Grok-specific features
     enable_web_search: bool = Field(default=False, description="Enable native Grok web search")
@@ -77,7 +79,8 @@ class GrokAssistantUpdate(BaseModel):
     google_sheet_id: Optional[str] = None
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=1, le=8192)
-    functions: Optional[dict] = None
+    # ✅ ИСПРАВЛЕНО: functions теперь List[dict] или None
+    functions: Optional[List[dict]] = None
     is_active: Optional[bool] = None
     is_public: Optional[bool] = None
     enable_web_search: Optional[bool] = None
@@ -100,7 +103,8 @@ class GrokAssistantResponse(BaseModel):
     audio_format: str
     greeting_message: Optional[str]
     google_sheet_id: Optional[str]
-    functions: Optional[dict]
+    # ✅ ИСПРАВЛЕНО: functions теперь Any для гибкости
+    functions: Optional[Any]
     is_active: bool
     is_public: bool
     created_at: datetime
