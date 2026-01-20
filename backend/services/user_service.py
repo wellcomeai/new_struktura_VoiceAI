@@ -2,6 +2,7 @@
 User service for WellcomeAI application.
 Handles user account management operations.
 ✅ ОБНОВЛЕНО: Добавлена поддержка gemini_api_key и elevenlabs_api_key
+✅ ОБНОВЛЕНО v3.0: Добавлена поддержка grok_api_key для xAI Grok Voice API
 """
 
 from fastapi import HTTPException, status
@@ -72,11 +73,13 @@ class UserService:
             openai_api_key=user.openai_api_key,
             elevenlabs_api_key=user.elevenlabs_api_key,
             gemini_api_key=user.gemini_api_key,
+            grok_api_key=user.grok_api_key,  # 🆕 v3.0
             
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
             has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
             has_gemini_api_key=bool(user.gemini_api_key),
+            has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -124,11 +127,13 @@ class UserService:
             openai_api_key=user.openai_api_key,
             elevenlabs_api_key=user.elevenlabs_api_key,
             gemini_api_key=user.gemini_api_key,
+            grok_api_key=user.grok_api_key,  # 🆕 v3.0
             
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
             has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
             has_gemini_api_key=bool(user.gemini_api_key),
+            has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -183,6 +188,10 @@ class UserService:
             if 'gemini_api_key' in update_data:
                 user.gemini_api_key = update_data.pop('gemini_api_key')
             
+            # 🆕 v3.0: Обработка Grok API ключа
+            if 'grok_api_key' in update_data:
+                user.grok_api_key = update_data.pop('grok_api_key')
+            
             # Обновляем остальные поля
             for key, value in update_data.items():
                 setattr(user, key, value)
@@ -204,11 +213,13 @@ class UserService:
                 openai_api_key=user.openai_api_key,
                 elevenlabs_api_key=user.elevenlabs_api_key,
                 gemini_api_key=user.gemini_api_key,
+                grok_api_key=user.grok_api_key,  # 🆕 v3.0
                 
                 # ✅ Статусы наличия ключей
                 has_api_key=bool(user.openai_api_key),
                 has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
                 has_gemini_api_key=bool(user.gemini_api_key),
+                has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
                 
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
