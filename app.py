@@ -9,6 +9,7 @@ This file configures all application components: routes, middleware, logging, et
 ✅ v2.5: Added CRM (Contacts) API support
 ✅ v2.6: Fixed UTM parameters preservation in redirect
 ✅ v2.7: Added Task Scheduler for automated calls (simplified startup)
+🆕 v3.0: Added xAI Grok Voice Agent API support
 """
 import os
 import asyncio
@@ -32,6 +33,8 @@ from backend.api import (
     embeds,
     gemini_ws,  # ✅ Gemini WebSocket API
     gemini_assistants,  # ✅ Gemini Assistants CRUD API
+    grok_ws,  # 🆕 v3.0: Grok WebSocket API
+    grok_assistants,  # 🆕 v3.0: Grok Assistants CRUD API
     contacts,  # ✅ CRM API
     functions,
     voximplant_settings,
@@ -40,7 +43,7 @@ from backend.api import (
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
-from backend.core.task_scheduler import start_task_scheduler  # ✅ НОВОЕ: Task Scheduler
+from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.api.partners import router as partners_router
 
 # Alembic для миграций
@@ -65,8 +68,8 @@ logger = get_logger(__name__)
 # Create and configure FastAPI application
 app = FastAPI(
     title="WellcomeAI - SaaS Voice Assistant",
-    description="API for managing personalized voice assistants based on OpenAI and Google Gemini",
-    version="2.7.0",  # ✅ Обновлена версия
+    description="API for managing personalized voice assistants based on OpenAI, Google Gemini and xAI Grok",
+    version="3.0.0",  # 🆕 Обновлена версия
     docs_url="/api/docs" if not settings.PRODUCTION else None,
     redoc_url="/api/redoc" if not settings.PRODUCTION else None
 )
@@ -157,10 +160,12 @@ else:
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
-app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])  # ✅ Gemini CRUD
+app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])
+app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])
+app.include_router(grok_ws.router, tags=["Grok WebSocket"])  # 🆕 v3.0
 app.include_router(healthcheck.router, tags=["Health"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(subscription_logs.router, prefix="/api/subscription-logs", tags=["Subscription Logs"])
@@ -171,12 +176,13 @@ app.include_router(voximplant.router, prefix="/api/voximplant", tags=["Voximplan
 app.include_router(elevenlabs.router, prefix="/api/elevenlabs", tags=["ElevenLabs"])
 app.include_router(partners_router, prefix="/api/partners", tags=["Partners"])
 app.include_router(conversations.router, prefix="/api/conversations", tags=["Conversations"])
-app.include_router(contacts.router, prefix="/api/contacts", tags=["CRM"])  # ✅ CRM API
+app.include_router(contacts.router, prefix="/api/contacts", tags=["CRM"])
 app.include_router(email_verification.router, prefix="/api/email-verification", tags=["Email Verification"])
 app.include_router(embeds.router, tags=["Embeds"])
 app.include_router(functions.router, prefix="/api/functions", tags=["Functions"])
 app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voximplant Settings"])
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
+
 # ============================================================================
 # STATIC FILES
 # ============================================================================
@@ -383,6 +389,74 @@ def create_gemini_tables():
             raise
 
 
+def create_grok_tables():
+    """
+    🆕 v3.0: Create Grok assistant tables and check missing columns
+    """
+    try:
+        from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+        
+        logger.info("🤖 Creating Grok tables and checking missing columns...")
+        
+        # Создаем таблицы Grok
+        Base.metadata.create_all(engine)
+        
+        inspector = inspect(engine)
+        
+        # Проверяем таблицу users для grok_api_key
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+                
+                if 'grok_api_key' not in existing_columns:
+                    logger.info("➕ Adding grok_api_key column to users table...")
+                    
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                conn.execute(text("ALTER TABLE users ADD COLUMN grok_api_key VARCHAR NULL"))
+                                trans.commit()
+                                logger.info("✅ Successfully added grok_api_key column")
+                            except Exception as e:
+                                trans.rollback()
+                                if "already exists" not in str(e).lower():
+                                    logger.error(f"❌ Failed to add grok_api_key: {str(e)}")
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error: {str(conn_error)}")
+                else:
+                    logger.info("✅ Column grok_api_key already exists")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+        
+        # Проверяем таблицы Grok
+        required_tables = {
+            'grok_assistant_configs': GrokAssistantConfig,
+            'grok_conversations': GrokConversation,
+        }
+        
+        for table_name, model_class in required_tables.items():
+            if not inspector.has_table(table_name):
+                logger.info(f"➕ Creating missing table: {table_name}")
+                try:
+                    model_class.__table__.create(engine)
+                    logger.info(f"✅ Successfully created table: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create table {table_name}: {str(e)}")
+            else:
+                logger.info(f"✅ Table {table_name} already exists")
+        
+        logger.info("✅ Grok tables and columns setup completed")
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating Grok tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
+
 def create_crm_tables():
     """
     Create CRM (Contacts) tables and check missing columns
@@ -480,6 +554,7 @@ def check_and_fix_all_missing_columns():
             'users': {
                 'elevenlabs_api_key': 'VARCHAR NULL',
                 'gemini_api_key': 'VARCHAR NULL',
+                'grok_api_key': 'VARCHAR NULL',  # 🆕 v3.0
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
@@ -655,7 +730,7 @@ def create_embed_configs_table():
 async def startup_event():
     """Application startup event"""
     try:
-        logger.info("🚀 Starting WellcomeAI application v2.7...")
+        logger.info("🚀 Starting WellcomeAI application v3.0...")
         
         # Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
@@ -693,6 +768,9 @@ async def startup_event():
                 
                 # Шаг 8: Создаем таблицы CRM (Contacts)
                 create_crm_tables()
+                
+                # 🆕 Шаг 9: Создаем таблицы Grok
+                create_grok_tables()
                 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
@@ -793,7 +871,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing CRM API: {str(e)}")
         
-        # ✅ НОВОЕ: Логирование инициализации Tasks API
+        # ✅ Логирование инициализации Tasks API
         try:
             logger.info("📅 Tasks API initialized")
             logger.info(f"   List tasks: GET {settings.HOST_URL}/api/contacts/{{contact_id}}/tasks")
@@ -850,6 +928,40 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Gemini Assistants API: {str(e)}")
         
+        # 🆕 v3.0: Логирование инициализации Grok Voice API
+        try:
+            logger.info("🤖 xAI Grok Voice Agent API initialized")
+            logger.info(f"   WebSocket (web): {settings.HOST_URL}/ws/grok/{{assistant_id}}")
+            logger.info(f"   WebSocket (telephony): {settings.HOST_URL}/ws/grok/voximplant/{{assistant_id}}")
+            logger.info(f"   WebSocket (custom): {settings.HOST_URL}/ws/grok/custom/{{assistant_id}}?sample_rate=X")
+            logger.info(f"   API endpoint: wss://api.x.ai/v1/realtime")
+            logger.info(f"   Health check: {settings.HOST_URL}/grok/health")
+            logger.info(f"   Info: {settings.HOST_URL}/grok/info")
+            logger.info("   Features:")
+            logger.info("     - Native G.711 μ-law telephony (no codec conversion)")
+            logger.info("     - 5 voices: Ara, Rex, Sal, Eve, Leo")
+            logger.info("     - Native web_search tool")
+            logger.info("     - Native x_search (Twitter) tool")
+            logger.info("     - Native file_search (vector store) tool")
+            logger.info("     - PCM 8-48kHz for web")
+            logger.info("     - Server-side VAD")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Grok Voice API: {str(e)}")
+        
+        # 🆕 v3.0: Логирование инициализации Grok Assistants API
+        try:
+            logger.info("🤖 Grok Assistants CRUD API initialized")
+            logger.info(f"   List: GET {settings.HOST_URL}/api/grok-assistants")
+            logger.info(f"   Get: GET {settings.HOST_URL}/api/grok-assistants/{{id}}")
+            logger.info(f"   Create: POST {settings.HOST_URL}/api/grok-assistants")
+            logger.info(f"   Update: PUT {settings.HOST_URL}/api/grok-assistants/{{id}}")
+            logger.info(f"   Delete: DELETE {settings.HOST_URL}/api/grok-assistants/{{id}}")
+            logger.info(f"   Conversations: GET {settings.HOST_URL}/api/grok-assistants/{{id}}/conversations")
+            logger.info(f"   Embed code: GET {settings.HOST_URL}/api/grok-assistants/{{id}}/embed-code")
+            logger.info(f"   Voices: GET {settings.HOST_URL}/api/grok-assistants/voices/list")
+        except Exception as e:
+            logger.error(f"❌ Error initializing Grok Assistants API: {str(e)}")
+        
         # Логирование инициализации Partners API
         try:
             logger.info("🤝 Partners API initialized")
@@ -865,7 +977,7 @@ async def startup_event():
         except Exception as e:
             logger.error(f"❌ Error initializing Partners API: {str(e)}")
         
-        logger.info("✅ Application started successfully (v2.7 with Task Scheduler)")
+        logger.info("✅ Application started successfully (v3.0 with Grok Voice API)")
         
     except Exception as e:
         logger.error(f"❌ Startup error: {str(e)}", exc_info=True)
@@ -912,18 +1024,20 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "wellcome-ai",
-        "version": "2.7.0",  # ✅ Обновлена версия
+        "version": "3.0.0",  # 🆕 Обновлена версия
         "features": {
             "openai_realtime": True,
             "gemini_live": True,
             "gemini_assistants_crud": True,
+            "grok_voice": True,  # 🆕 v3.0
+            "grok_assistants_crud": True,  # 🆕 v3.0
             "elevenlabs": True,
             "voximplant": True,
             "embeds": True,
             "email_verification": True,
             "crm": True,
-            "tasks": True,  # ✅ НОВОЕ: Tasks API
-            "task_scheduler": True,  # ✅ НОВОЕ: Task Scheduler
+            "tasks": True,
+            "task_scheduler": True,
             "partners": True,
             "utm_tracking": True
         }
