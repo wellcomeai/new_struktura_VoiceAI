@@ -1,5 +1,6 @@
+# backend/models/__init__.py
 """
-Database models module for WellcomeAI application.
+Database models module for Voicyfy application.
 This module contains SQLAlchemy ORM models that represent database tables.
 ✅ ОБНОВЛЕНО: Добавлена модель EmailVerification для верификации email
 ✅ ОБНОВЛЕНО: Добавлены модели Gemini Assistant и Gemini Conversation
@@ -7,6 +8,7 @@ This module contains SQLAlchemy ORM models that represent database tables.
 ✅ ОБНОВЛЕНО: Добавлена модель ContactNote для ленты заметок
 ✅ ОБНОВЛЕНО: Добавлены модели Partner для партнерской программы
 ✅ ОБНОВЛЕНО v3.0: Добавлены модели Voximplant Partner Integration
+✅ ОБНОВЛЕНО v3.1: Добавлены модели Grok Assistant для xAI Voice API
 """
 
 from .base import Base, engine, create_tables_with_full_tracking
@@ -31,6 +33,9 @@ from .embed_config import EmbedConfig
 
 # ✅ НОВОЕ: Импортируем Gemini модели
 from .gemini_assistant import GeminiAssistantConfig, GeminiConversation
+
+# ✅ НОВОЕ v3.1: Импортируем Grok модели для xAI Voice API
+from .grok_assistant import GrokAssistantConfig, GrokConversation, GrokVoice
 
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
@@ -72,6 +77,10 @@ __all__ = [
     # ✅ НОВОЕ: Gemini модели
     "GeminiAssistantConfig",
     "GeminiConversation",
+    # ✅ НОВОЕ v3.1: Grok модели для xAI Voice API
+    "GrokAssistantConfig",
+    "GrokConversation",
+    "GrokVoice",
     # ✅ НОВОЕ: CRM модели
     "Contact",
     "ContactNote",
