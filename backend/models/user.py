@@ -1,9 +1,11 @@
+# backend/models/user.py
 """
 Модель пользователя для приложения WellcomeAI.
 Представляет пользователя с данными аутентификации и профиля.
 ✅ ОБНОВЛЕНО: Добавлено поле email_verified для верификации email
 ✅ ОБНОВЛЕНО: Добавлено поле gemini_api_key для Google Gemini API
 ✅ ОБНОВЛЕНО v2.8: Добавлены поля Voximplant для автоматических звонков
+✅ ОБНОВЛЕНО v2.9: Добавлено поле grok_api_key для xAI Grok Voice API
 """
 
 import uuid
@@ -29,6 +31,7 @@ class User(Base, BaseModel):
     openai_api_key = Column(String, nullable=True)
     elevenlabs_api_key = Column(String, nullable=True)
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
+    grok_api_key = Column(String, nullable=True)    # ✅ НОВОЕ v2.9: xAI Grok API key
     
     # ✅ НОВОЕ v2.8: Voximplant настройки для автоматических звонков
     voximplant_account_id = Column(String(100), nullable=True)
@@ -57,6 +60,7 @@ class User(Base, BaseModel):
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
+    grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ НОВОЕ v2.9
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
     elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")
@@ -83,7 +87,8 @@ class User(Base, BaseModel):
         data.pop("openai_api_key", None)
         data.pop("elevenlabs_api_key", None)
         data.pop("gemini_api_key", None)
-        data.pop("voximplant_api_key", None)  # ✅ НОВОЕ: Скрываем Voximplant API key
+        data.pop("grok_api_key", None)         # ✅ НОВОЕ v2.9: Скрываем Grok API key
+        data.pop("voximplant_api_key", None)
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -105,6 +110,10 @@ class User(Base, BaseModel):
     def has_gemini_api_key(self):
         """Проверить, настроен ли ключ Gemini API у пользователя"""
         return bool(self.gemini_api_key)
+    
+    def has_grok_api_key(self):
+        """✅ НОВЫЙ МЕТОД v2.9: Проверить, настроен ли ключ xAI Grok API у пользователя"""
+        return bool(self.grok_api_key)
     
     def has_voximplant_config(self):
         """✅ НОВЫЙ МЕТОД v2.8: Проверить, настроены ли данные Voximplant"""
@@ -145,3 +154,18 @@ class User(Base, BaseModel):
     def needs_email_verification(self):
         """Проверить, требуется ли верификация email"""
         return not self.email_verified
+    
+    def get_available_providers(self):
+        """✅ НОВЫЙ МЕТОД v2.9: Получить список доступных AI провайдеров"""
+        providers = []
+        
+        if self.openai_api_key:
+            providers.append("openai")
+        if self.gemini_api_key:
+            providers.append("gemini")
+        if self.grok_api_key:
+            providers.append("grok")
+        if self.elevenlabs_api_key:
+            providers.append("elevenlabs")
+            
+        return providers
