@@ -1,5 +1,5 @@
 /**
- * 🚀 Grok Voice Widget v1.0 - PRODUCTION (xAI Grok + VOICYFY UI)
+ * 🚀 Grok Voice Widget v1.1 - PRODUCTION (xAI Grok + VOICYFY UI)
  * xAI Grok Voice Agent API Integration with Voicyfy Branding
  * 
  * ✅ UI: 100% Match with OpenAI/Gemini Widget (Blue/Clean/Voicyfy)
@@ -8,7 +8,12 @@
  * ✅ Instant interruptions & Zero-latency playback
  * ✅ 5 Voices: Ara, Rex, Sal, Eve, Leo
  * 
- * @version 1.0
+ * CHANGELOG v1.1:
+ * 🔧 FIXED: Audio buffer race condition - first chunks were lost
+ * 🔧 FIXED: AudioWorklet now pre-initialized before audio arrives
+ * 🔧 FIXED: Added pendingAudioQueue for buffering early chunks
+ * 
+ * @version 1.1
  * @author Voicyfy Team
  * @license MIT
  */
@@ -81,6 +86,11 @@
         audioWorkletReady: false,
         streamWorkletReady: false,
         playbackAnimationId: null,
+        
+        // v1.1: Audio buffering for race condition fix
+        pendingAudioQueue: [],
+        audioStreamInitialized: false,
+        
         ui: {} 
     };
 
@@ -191,7 +201,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GROK-WIDGET] 🚀 Initializing v1.0 (Voicyfy UI)...');
+        console.log('[GROK-WIDGET] 🚀 Initializing v1.1 (Voicyfy UI + Audio Fix)...');
         
         const getScriptTag = () => {
             const scripts = document.querySelectorAll('script');
@@ -261,6 +271,9 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         }
         
         await loadAudioWorklets();
+        
+        // v1.1: Pre-initialize audio stream node
+        await initAudioStreamNode();
     }
 
     async function loadAudioWorklets() {
@@ -280,6 +293,34 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             console.log('[GROK-WIDGET] ✅ AudioWorklets loaded');
         } catch (error) {
             console.error('[GROK-WIDGET] ❌ AudioWorklet load failed:', error);
+        }
+    }
+    
+    // v1.1: Pre-initialize audio stream node to avoid race condition
+    async function initAudioStreamNode() {
+        if (STATE.audioStreamInitialized || !STATE.streamWorkletReady) {
+            return;
+        }
+        
+        try {
+            console.log('[GROK-WIDGET] 🔊 Pre-initializing AudioStreamNode...');
+            
+            STATE.audioStreamNode = new AudioWorkletNode(STATE.audioContext, 'audio-stream-processor');
+            STATE.audioStreamNode.connect(STATE.audioContext.destination);
+            
+            STATE.audioStreamNode.port.onmessage = (event) => {
+                if (event.data.type === 'started') {
+                    console.log('[GROK-WIDGET] 🔊 AudioStream started playing');
+                } else if (event.data.type === 'stats') {
+                    // Optional: log stats for debugging
+                }
+            };
+            
+            STATE.audioStreamInitialized = true;
+            console.log('[GROK-WIDGET] ✅ AudioStreamNode pre-initialized');
+            
+        } catch (error) {
+            console.error('[GROK-WIDGET] ❌ Failed to pre-initialize AudioStreamNode:', error);
         }
     }
 
@@ -1073,12 +1114,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 case 'assistant.speech.started':
                     STATE.isSpeaking = true;
                     updateUIState('playing', 'Ассистент говорит');
-                    if (!STATE.isPlaying) startAudioStream();
                     break;
                     
                 case 'assistant.speech.ended':
                     STATE.isSpeaking = false;
-                    stopPlayback();
+                    // Don't stop playback immediately - let queue finish
                     if (STATE.isRecording) updateUIState('recording', 'Слушаю...');
                     break;
                     
@@ -1102,7 +1142,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     }
 
     // ============================================================================
-    // AUDIO HANDLING
+    // AUDIO HANDLING - v1.1 FIXED
     // ============================================================================
 
     function handleAudioDelta(data) {
@@ -1126,14 +1166,49 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 audioData = resampleAudio(float32, CONFIG.audio.outputSampleRate, CONFIG.audio.actualSampleRate);
             }
             
-            if (STATE.audioStreamNode) {
+            // v1.1 FIX: Check if AudioStreamNode is ready
+            if (STATE.audioStreamNode && STATE.audioStreamInitialized) {
+                // Send directly to worklet
+                STATE.audioStreamNode.port.postMessage({ type: 'audioData', buffer: audioData });
+                
+                if (!STATE.isPlaying) {
+                    STATE.isPlaying = true;
+                    updateUIState('playing', 'Ассистент говорит');
+                }
+            } else {
+                // v1.1 FIX: Buffer audio until stream is ready
+                console.log('[GROK-WIDGET] ⏳ Buffering audio chunk (stream not ready yet)');
+                STATE.pendingAudioQueue.push(audioData);
+                
+                // Try to initialize stream and flush buffer
+                initAudioStreamNode().then(() => {
+                    flushPendingAudioQueue();
+                });
+            }
+            
+        } catch (error) {
+            console.error('[GROK-WIDGET] Audio decode error:', error);
+        }
+    }
+    
+    // v1.1: Flush pending audio queue after stream is initialized
+    function flushPendingAudioQueue() {
+        if (!STATE.audioStreamNode || !STATE.audioStreamInitialized) {
+            return;
+        }
+        
+        if (STATE.pendingAudioQueue.length > 0) {
+            console.log(`[GROK-WIDGET] 🔊 Flushing ${STATE.pendingAudioQueue.length} buffered audio chunks`);
+            
+            while (STATE.pendingAudioQueue.length > 0) {
+                const audioData = STATE.pendingAudioQueue.shift();
                 STATE.audioStreamNode.port.postMessage({ type: 'audioData', buffer: audioData });
             }
             
-            if (!STATE.isPlaying) startAudioStream();
-            
-        } catch (error) {
-            console.error(error);
+            if (!STATE.isPlaying) {
+                STATE.isPlaying = true;
+                updateUIState('playing', 'Ассистент говорит');
+            }
         }
     }
 
@@ -1214,26 +1289,15 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         console.log('[GROK-WIDGET] 🛑 Recording stopped');
     }
 
-    async function startAudioStream() {
-        if (STATE.isPlaying) return;
-        
-        try {
-            if (!STATE.audioStreamNode && STATE.streamWorkletReady) {
-                STATE.audioStreamNode = new AudioWorkletNode(STATE.audioContext, 'audio-stream-processor');
-                STATE.audioStreamNode.connect(STATE.audioContext.destination);
-            }
-            STATE.isPlaying = true;
-        } catch (error) {
-            console.error('Stream Error:', error);
-        }
-    }
-
     function stopPlayback() {
         if (!STATE.isPlaying) return;
         
         if (STATE.audioStreamNode) {
             STATE.audioStreamNode.port.postMessage({ type: 'clear' });
         }
+        
+        // v1.1: Clear pending queue too
+        STATE.pendingAudioQueue = [];
         
         STATE.isPlaying = false;
         resetAudioVisualization();
