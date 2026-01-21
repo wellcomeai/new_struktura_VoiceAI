@@ -1,17 +1,19 @@
 """
-API endpoints для управления настройками Voximplant.
-Позволяет пользователям сохранять и получать свои учетные данные Voximplant.
+API endpoints для управления настройками Voximplant и Telegram.
+Позволяет пользователям сохранять и получать свои учетные данные.
 ✅ v2.9: БЕЗ маскирования API Key - показываем полный ключ для простоты
+✅ v3.9: Добавлены эндпоинты для Telegram уведомлений о звонках
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional
 
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.services.auth_service import AuthService
+from backend.services.telegram_notification import TelegramNotificationService
 from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -20,7 +22,7 @@ router = APIRouter()
 
 
 # ============================================================================
-# SCHEMAS
+# VOXIMPLANT SCHEMAS
 # ============================================================================
 
 class VoximplantConfigUpdate(BaseModel):
@@ -68,7 +70,77 @@ class VoximplantConfigDeleteResponse(BaseModel):
 
 
 # ============================================================================
-# API ENDPOINTS
+# 🆕 v3.9: TELEGRAM SCHEMAS
+# ============================================================================
+
+class TelegramConfigUpdate(BaseModel):
+    """Схема для обновления настроек Telegram"""
+    bot_token: str = Field(
+        ..., 
+        min_length=20, 
+        max_length=100, 
+        description="Telegram Bot Token (получить у @BotFather)"
+    )
+    chat_id: str = Field(
+        ..., 
+        min_length=1, 
+        max_length=50, 
+        description="Chat ID (личный чат, группа или канал)"
+    )
+    
+    @validator('bot_token')
+    def validate_bot_token(cls, v):
+        """Валидация формата токена бота"""
+        if not TelegramNotificationService.validate_bot_token(v):
+            raise ValueError(
+                'Неверный формат токена. Токен должен быть в формате: 123456789:ABCdefGHI...'
+            )
+        return v.strip()
+    
+    @validator('chat_id')
+    def validate_chat_id(cls, v):
+        """Валидация формата chat_id"""
+        if not TelegramNotificationService.validate_chat_id(v):
+            raise ValueError(
+                'Неверный формат Chat ID. Должен быть числом (положительным для личного чата, '
+                'отрицательным для группы/канала) или @username канала'
+            )
+        return v.strip()
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "bot_token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+                "chat_id": "-1001234567890"
+            }
+        }
+
+
+class TelegramConfigResponse(BaseModel):
+    """Схема ответа с настройками Telegram"""
+    bot_token: Optional[str] = None  # Маскированный токен для безопасности
+    chat_id: Optional[str] = None
+    is_configured: bool = False
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "bot_token": "123456789:ABCdef***",
+                "chat_id": "-1001234567890",
+                "is_configured": True
+            }
+        }
+
+
+class TelegramTestResponse(BaseModel):
+    """Схема ответа при тестировании Telegram"""
+    success: bool
+    message: str
+    message_id: Optional[int] = None
+
+
+# ============================================================================
+# VOXIMPLANT API ENDPOINTS
 # ============================================================================
 
 @router.get("/voximplant-settings", response_model=VoximplantConfigResponse)
@@ -248,4 +320,232 @@ async def test_voximplant_settings(
         
     except Exception as e:
         logger.error(f"[VOXIMPLANT-SETTINGS] Error testing settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка проверки настроек: {str(e)}")
+
+
+# ============================================================================
+# 🆕 v3.9: TELEGRAM API ENDPOINTS
+# ============================================================================
+
+@router.get("/telegram-settings", response_model=TelegramConfigResponse)
+async def get_telegram_settings(
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получить настройки Telegram уведомлений текущего пользователя.
+    
+    **Использование:**
+    - GET /api/users/telegram-settings
+    
+    **Ответ:**
+    - bot_token: Маскированный токен бота (для безопасности)
+    - chat_id: ID чата/группы/канала
+    - is_configured: true если настройки заполнены
+    
+    **Примечание:**
+    - Токен бота маскируется при отображении
+    - Для обновления токена используйте PUT запрос
+    """
+    try:
+        logger.info(f"[TELEGRAM-SETTINGS] Getting settings for user {current_user.id}")
+        
+        is_configured = current_user.has_telegram_config()
+        
+        # Маскируем токен для безопасности
+        masked_token = None
+        if current_user.telegram_bot_token:
+            token = current_user.telegram_bot_token
+            # Показываем первые 10 символов и последние 4
+            if len(token) > 20:
+                masked_token = token[:10] + "***" + token[-4:]
+            else:
+                masked_token = token[:5] + "***"
+        
+        return TelegramConfigResponse(
+            bot_token=masked_token,
+            chat_id=current_user.telegram_chat_id,
+            is_configured=is_configured
+        )
+        
+    except Exception as e:
+        logger.error(f"[TELEGRAM-SETTINGS] Error getting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка получения настроек: {str(e)}")
+
+
+@router.put("/telegram-settings", response_model=TelegramConfigResponse)
+async def update_telegram_settings(
+    config: TelegramConfigUpdate,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Обновить настройки Telegram уведомлений.
+    
+    **Использование:**
+    - PUT /api/users/telegram-settings
+    
+    **Body:**
+    ```json
+    {
+        "bot_token": "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
+        "chat_id": "-1001234567890"
+    }
+    ```
+    
+    **Как получить данные:**
+    
+    1. **Bot Token:**
+       - Создайте бота через @BotFather в Telegram
+       - Используйте команду /newbot
+       - Скопируйте полученный токен
+    
+    2. **Chat ID:**
+       - Для личного чата: отправьте сообщение боту @userinfobot
+       - Для группы: добавьте бота @RawDataBot в группу
+       - Для канала: перешлите сообщение из канала боту @RawDataBot
+       - Chat ID группы/канала начинается с минуса (например: -1001234567890)
+    
+    **Примечание:**
+    - После сохранения рекомендуется проверить настройки через /test
+    - Уведомления будут приходить при каждом новом звонке с записью
+    """
+    try:
+        logger.info(f"[TELEGRAM-SETTINGS] Updating settings for user {current_user.id}")
+        
+        # Обновляем настройки
+        current_user.telegram_bot_token = config.bot_token
+        current_user.telegram_chat_id = config.chat_id
+        
+        db.commit()
+        db.refresh(current_user)
+        
+        logger.info(f"[TELEGRAM-SETTINGS] ✅ Settings updated for user {current_user.id}")
+        
+        # Маскируем токен для ответа
+        token = current_user.telegram_bot_token
+        masked_token = token[:10] + "***" + token[-4:] if len(token) > 20 else token[:5] + "***"
+        
+        return TelegramConfigResponse(
+            bot_token=masked_token,
+            chat_id=current_user.telegram_chat_id,
+            is_configured=True
+        )
+        
+    except ValueError as ve:
+        # Ошибки валидации Pydantic
+        logger.warning(f"[TELEGRAM-SETTINGS] Validation error: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[TELEGRAM-SETTINGS] Error updating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка обновления настроек: {str(e)}")
+
+
+@router.delete("/telegram-settings")
+async def delete_telegram_settings(
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Удалить настройки Telegram уведомлений.
+    
+    **Использование:**
+    - DELETE /api/users/telegram-settings
+    
+    **Примечание:**
+    - После удаления уведомления о звонках отправляться не будут
+    - Для возобновления уведомлений заполните настройки заново
+    """
+    try:
+        logger.info(f"[TELEGRAM-SETTINGS] Deleting settings for user {current_user.id}")
+        
+        # Удаляем настройки
+        current_user.telegram_bot_token = None
+        current_user.telegram_chat_id = None
+        
+        db.commit()
+        
+        logger.info(f"[TELEGRAM-SETTINGS] ✅ Settings deleted for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": "Настройки Telegram успешно удалены"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[TELEGRAM-SETTINGS] Error deleting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка удаления настроек: {str(e)}")
+
+
+@router.post("/telegram-settings/test", response_model=TelegramTestResponse)
+async def test_telegram_settings(
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Проверить настройки Telegram отправкой тестового сообщения.
+    
+    **Использование:**
+    - POST /api/users/telegram-settings/test
+    
+    **Ответ:**
+    - success: true/false
+    - message: Результат проверки
+    - message_id: ID отправленного сообщения (если успешно)
+    
+    **Примечание:**
+    - Отправляет тестовое сообщение в указанный чат
+    - Если сообщение доставлено — настройки корректны
+    - Проверьте, что бот добавлен в группу/канал и имеет права на отправку
+    """
+    try:
+        logger.info(f"[TELEGRAM-SETTINGS] Testing settings for user {current_user.id}")
+        
+        # Проверяем наличие настроек
+        if not current_user.has_telegram_config():
+            return TelegramTestResponse(
+                success=False,
+                message="Настройки Telegram не заполнены. Сначала укажите токен бота и Chat ID."
+            )
+        
+        # Отправляем тестовое сообщение
+        result = await TelegramNotificationService.test_connection(
+            bot_token=current_user.telegram_bot_token,
+            chat_id=current_user.telegram_chat_id
+        )
+        
+        if result["success"]:
+            logger.info(f"[TELEGRAM-SETTINGS] ✅ Test passed for user {current_user.id}")
+            return TelegramTestResponse(
+                success=True,
+                message="✅ Тестовое сообщение успешно отправлено! Проверьте Telegram.",
+                message_id=result.get("message_id")
+            )
+        else:
+            error = result.get("error", "Неизвестная ошибка")
+            logger.warning(f"[TELEGRAM-SETTINGS] Test failed for user {current_user.id}: {error}")
+            
+            # Формируем понятное сообщение об ошибке
+            user_message = "Не удалось отправить сообщение. "
+            
+            if "chat not found" in error.lower():
+                user_message += "Chat ID не найден. Проверьте правильность ID."
+            elif "bot was blocked" in error.lower():
+                user_message += "Бот заблокирован пользователем."
+            elif "not enough rights" in error.lower():
+                user_message += "У бота нет прав на отправку сообщений в этот чат."
+            elif "unauthorized" in error.lower():
+                user_message += "Неверный токен бота. Проверьте токен."
+            else:
+                user_message += f"Ошибка: {error}"
+            
+            return TelegramTestResponse(
+                success=False,
+                message=user_message
+            )
+        
+    except Exception as e:
+        logger.error(f"[TELEGRAM-SETTINGS] Error testing settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка проверки настроек: {str(e)}")
