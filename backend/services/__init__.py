@@ -3,6 +3,7 @@ Service module for WellcomeAI application.
 Contains business logic services that act as intermediaries between API endpoints and data models.
 ✅ ОБНОВЛЕНО v3.0: Добавлен VoximplantPartnerService для партнёрской интеграции
 ✅ ОБНОВЛЕНО v3.3: Добавлен R2StorageService для записей звонков
+✅ ОБНОВЛЕНО v3.9: Добавлен TelegramNotificationService для уведомлений о звонках
 """
 
 from .auth_service import AuthService
@@ -21,6 +22,9 @@ from .voximplant_partner import VoximplantPartnerService, get_voximplant_partner
 # ✅ НОВОЕ v3.3: R2 Storage Service
 from .r2_storage import R2StorageService
 
+# ✅ НОВОЕ v3.9: Telegram Notification Service
+from .telegram_notification import TelegramNotificationService, send_call_notification_safe
+
 # Export services
 __all__ = [
     "AuthService",
@@ -38,4 +42,7 @@ __all__ = [
     "get_voximplant_partner_service",
     # ✅ НОВОЕ v3.3: R2 Storage
     "R2StorageService",
+    # ✅ НОВОЕ v3.9: Telegram Notifications
+    "TelegramNotificationService",
+    "send_call_notification_safe",
 ]
