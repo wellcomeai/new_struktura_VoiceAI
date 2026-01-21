@@ -33,6 +33,7 @@
       --error-red: #ef4444;
       --gemini-purple: #8b5cf6;
       --cost-orange: #f59e0b;
+      --telegram-blue: #0088cc;
     }
     
     * {
@@ -293,6 +294,34 @@
       cursor: not-allowed;
     }
     
+    /* 🆕 Telegram кнопка */
+    .btn-telegram {
+      background-color: var(--telegram-blue);
+      color: var(--white);
+      border: none;
+      position: relative;
+    }
+    
+    .btn-telegram:hover {
+      background-color: #006699;
+    }
+    
+    .btn-telegram .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-left: 0.25rem;
+    }
+    
+    .btn-telegram .status-dot.configured {
+      background-color: #10b981;
+      box-shadow: 0 0 4px #10b981;
+    }
+    
+    .btn-telegram .status-dot.not-configured {
+      background-color: rgba(255, 255, 255, 0.5);
+    }
+    
     /* Контейнер для содержимого */
     .content-container {
       padding: 2rem;
@@ -340,6 +369,13 @@
       outline: none;
       border-color: var(--primary-blue-light);
       box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+    }
+    
+    .filter-actions {
+      display: flex;
+      align-items: flex-end;
+      gap: 0.75rem;
+      flex-wrap: wrap;
     }
     
     /* Grid карточек */
@@ -900,6 +936,198 @@
       color: var(--cost-orange);
     }
     
+    /* ============================================================================
+       🆕 TELEGRAM SETTINGS MODAL
+       ============================================================================ */
+    
+    .telegram-modal {
+      max-width: 520px;
+    }
+    
+    .telegram-modal .modal-header {
+      background: linear-gradient(135deg, var(--telegram-blue), #006699);
+      color: white;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    }
+    
+    .telegram-modal .modal-title {
+      color: white;
+    }
+    
+    .telegram-modal .modal-title i {
+      font-size: 1.5rem;
+    }
+    
+    .telegram-modal .modal-close {
+      color: rgba(255, 255, 255, 0.8);
+    }
+    
+    .telegram-modal .modal-close:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      color: white;
+    }
+    
+    .telegram-modal-body {
+      padding: 1.5rem;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+    
+    .telegram-instruction {
+      background-color: var(--bg-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+    
+    .telegram-instruction h4 {
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+      color: var(--primary-blue);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .telegram-instruction ol {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: var(--text-gray);
+    }
+    
+    .telegram-instruction li {
+      margin-bottom: 0.5rem;
+    }
+    
+    .telegram-instruction code {
+      background-color: rgba(0, 0, 0, 0.05);
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.8rem;
+    }
+    
+    .telegram-instruction a {
+      color: var(--telegram-blue);
+      text-decoration: none;
+    }
+    
+    .telegram-instruction a:hover {
+      text-decoration: underline;
+    }
+    
+    .telegram-form-group {
+      margin-bottom: 1.25rem;
+    }
+    
+    .telegram-form-group label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--text-dark);
+    }
+    
+    .telegram-form-group .input-hint {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-top: 0.35rem;
+    }
+    
+    .telegram-input-wrapper {
+      position: relative;
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .telegram-input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    
+    .telegram-input:focus {
+      outline: none;
+      border-color: var(--telegram-blue);
+      box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.15);
+    }
+    
+    .telegram-input.error {
+      border-color: var(--error-red);
+    }
+    
+    .btn-toggle-visibility {
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--white);
+      cursor: pointer;
+      color: var(--text-gray);
+      transition: all 0.2s;
+    }
+    
+    .btn-toggle-visibility:hover {
+      background-color: var(--bg-light);
+      color: var(--text-dark);
+    }
+    
+    .telegram-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+    
+    .telegram-status.configured {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--success-green);
+    }
+    
+    .telegram-status.not-configured {
+      background-color: rgba(148, 163, 184, 0.1);
+      color: var(--text-gray);
+    }
+    
+    .telegram-modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    
+    .telegram-modal-footer .btn {
+      flex: 1;
+      justify-content: center;
+      min-width: 120px;
+    }
+    
+    .btn-test {
+      background-color: var(--success-green);
+      color: white;
+    }
+    
+    .btn-test:hover {
+      background-color: #0d9668;
+    }
+    
+    .btn-danger {
+      background-color: var(--error-red);
+      color: white;
+    }
+    
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+    
     /* Уведомление */
     .notification {
       position: fixed;
@@ -1162,6 +1390,15 @@
         width: 100%;
       }
       
+      .filter-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+      
+      .filter-actions .btn {
+        flex: 1;
+      }
+      
       .modal {
         margin: 1rem;
         max-height: calc(100vh - 2rem);
@@ -1177,6 +1414,14 @@
       
       .footer-info {
         font-size: 0.75rem;
+      }
+      
+      .telegram-modal-footer {
+        flex-direction: column;
+      }
+      
+      .telegram-modal-footer .btn {
+        width: 100%;
       }
     }
 
@@ -1328,9 +1573,13 @@
           </select>
         </div>
         
-        <div class="filter-group" style="display: flex; align-items: flex-end;">
+        <div class="filter-actions">
           <button class="btn btn-primary" id="refresh-btn">
             <i class="fas fa-sync-alt"></i> Обновить
+          </button>
+          <button class="btn btn-telegram" id="telegram-settings-btn">
+            <i class="fab fa-telegram"></i> Telegram
+            <span class="status-dot not-configured" id="telegram-status-dot"></span>
           </button>
         </div>
       </div>
@@ -1355,7 +1604,7 @@
     </div>
   </main>
   
-  <!-- Модальное окно -->
+  <!-- Модальное окно диалога -->
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
       <div class="modal-header">
@@ -1374,6 +1623,81 @@
       
       <div class="modal-footer" id="modal-footer">
         <!-- Футер загрузится динамически -->
+      </div>
+    </div>
+  </div>
+  
+  <!-- 🆕 Модальное окно Telegram настроек -->
+  <div class="modal-overlay" id="telegram-modal-overlay">
+    <div class="modal telegram-modal">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <h2 class="modal-title">
+            <i class="fab fa-telegram"></i> Telegram уведомления
+          </h2>
+        </div>
+        <button class="modal-close" id="telegram-modal-close">&times;</button>
+      </div>
+      
+      <div class="telegram-modal-body">
+        <!-- Статус -->
+        <div class="telegram-status not-configured" id="telegram-status">
+          <i class="fas fa-circle"></i>
+          <span id="telegram-status-text">Не настроено</span>
+        </div>
+        
+        <!-- Инструкция -->
+        <div class="telegram-instruction">
+          <h4><i class="fas fa-info-circle"></i> Как это работает?</h4>
+          <p style="margin-bottom: 0.75rem; color: var(--text-dark);">
+            После завершения каждого звонка вы получите уведомление в Telegram с:
+          </p>
+          <ul style="margin-left: 1rem; margin-bottom: 1rem; color: var(--text-gray);">
+            <li>📞 Номером звонящего и направлением звонка</li>
+            <li>⏱️ Длительностью и стоимостью</li>
+            <li>💬 Полным диалогом (текст разговора)</li>
+            <li>🎧 Ссылкой на аудиозапись</li>
+          </ul>
+          
+          <h4><i class="fas fa-cog"></i> Настройка за 2 минуты:</h4>
+          <ol>
+            <li>Откройте <a href="https://t.me/BotFather" target="_blank">@BotFather</a> в Telegram</li>
+            <li>Отправьте команду <code>/newbot</code> и следуйте инструкциям</li>
+            <li>Скопируйте полученный <strong>токен бота</strong></li>
+            <li>Напишите вашему боту любое сообщение (чтобы активировать чат)</li>
+            <li>Откройте <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> и скопируйте ваш <strong>Chat ID</strong></li>
+          </ol>
+        </div>
+        
+        <!-- Форма -->
+        <div class="telegram-form-group">
+          <label for="telegram-bot-token">Bot Token</label>
+          <div class="telegram-input-wrapper">
+            <input type="password" id="telegram-bot-token" class="telegram-input" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+            <button type="button" class="btn-toggle-visibility" id="toggle-token-visibility">
+              <i class="fas fa-eye"></i>
+            </button>
+          </div>
+          <div class="input-hint">Токен от @BotFather (формат: 123456789:ABC...)</div>
+        </div>
+        
+        <div class="telegram-form-group">
+          <label for="telegram-chat-id">Chat ID</label>
+          <input type="text" id="telegram-chat-id" class="telegram-input" placeholder="123456789">
+          <div class="input-hint">Ваш числовой ID из @userinfobot (или ID группы/канала)</div>
+        </div>
+      </div>
+      
+      <div class="telegram-modal-footer">
+        <button class="btn btn-danger" id="telegram-delete-btn" style="display: none;">
+          <i class="fas fa-trash"></i> Удалить
+        </button>
+        <button class="btn btn-test" id="telegram-test-btn" disabled>
+          <i class="fas fa-paper-plane"></i> Тест
+        </button>
+        <button class="btn btn-primary" id="telegram-save-btn">
+          <i class="fas fa-save"></i> Сохранить
+        </button>
       </div>
     </div>
   </div>
@@ -1423,10 +1747,11 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 3.0 - Call Cost & Recording Support
+     * Version: 3.1 - Telegram Notifications Support
      * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
      * ✅ Отображение стоимости звонка (call_cost)
      * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
+     * ✅ 🆕 Настройка Telegram уведомлений о звонках
      */
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -1456,12 +1781,29 @@
       const userEmailDisplay = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
       
+      // 🆕 Telegram элементы
+      const telegramSettingsBtn = document.getElementById('telegram-settings-btn');
+      const telegramStatusDot = document.getElementById('telegram-status-dot');
+      const telegramModalOverlay = document.getElementById('telegram-modal-overlay');
+      const telegramModalClose = document.getElementById('telegram-modal-close');
+      const telegramStatus = document.getElementById('telegram-status');
+      const telegramStatusText = document.getElementById('telegram-status-text');
+      const telegramBotToken = document.getElementById('telegram-bot-token');
+      const telegramChatId = document.getElementById('telegram-chat-id');
+      const toggleTokenVisibility = document.getElementById('toggle-token-visibility');
+      const telegramSaveBtn = document.getElementById('telegram-save-btn');
+      const telegramTestBtn = document.getElementById('telegram-test-btn');
+      const telegramDeleteBtn = document.getElementById('telegram-delete-btn');
+      
       // Состояние
       let currentPage = 0;
       let totalPages = 1;
       let totalConversations = 0;
       let assistants = [];
       const perPage = 20;
+      
+      // 🆕 Telegram состояние
+      let telegramConfigured = false;
       
       // Код текущего тарифа пользователя
       let currentUserPlanCode = 'free';
@@ -1540,6 +1882,14 @@
         
         get(endpoint) {
           return this.fetch(endpoint, { method: 'GET' });
+        },
+        
+        post(endpoint, data) {
+          return this.fetch(endpoint, { method: 'POST', body: data });
+        },
+        
+        put(endpoint, data) {
+          return this.fetch(endpoint, { method: 'PUT', body: data });
         },
         
         delete(endpoint) {
@@ -1674,9 +2024,6 @@
         return mins > 0 ? `${mins} мин ${secs} сек` : `${secs} сек`;
       }
       
-      /**
-       * 🆕 v3.0: Форматирование стоимости в рублях
-       */
       function formatCost(cost) {
         if (cost === null || cost === undefined || cost === 0) return null;
         return cost.toFixed(2) + ' ₽';
@@ -1696,6 +2043,180 @@
         }
         return 'openai';
       }
+      
+      // ============================================================================
+      // 🆕 TELEGRAM НАСТРОЙКИ
+      // ============================================================================
+      
+      function updateTelegramUI(configured) {
+        telegramConfigured = configured;
+        
+        // Обновляем точку на кнопке
+        if (configured) {
+          telegramStatusDot.classList.remove('not-configured');
+          telegramStatusDot.classList.add('configured');
+        } else {
+          telegramStatusDot.classList.remove('configured');
+          telegramStatusDot.classList.add('not-configured');
+        }
+        
+        // Обновляем статус в модалке
+        if (configured) {
+          telegramStatus.classList.remove('not-configured');
+          telegramStatus.classList.add('configured');
+          telegramStatusText.textContent = '✓ Настроено и активно';
+          telegramDeleteBtn.style.display = 'flex';
+          telegramTestBtn.disabled = false;
+        } else {
+          telegramStatus.classList.remove('configured');
+          telegramStatus.classList.add('not-configured');
+          telegramStatusText.textContent = 'Не настроено';
+          telegramDeleteBtn.style.display = 'none';
+          telegramTestBtn.disabled = true;
+        }
+      }
+      
+      async function loadTelegramSettings() {
+        try {
+          const settings = await api.get('/users/telegram-settings');
+          
+          if (settings.configured) {
+            telegramBotToken.value = settings.bot_token_masked || '';
+            telegramChatId.value = settings.chat_id || '';
+            updateTelegramUI(true);
+          } else {
+            telegramBotToken.value = '';
+            telegramChatId.value = '';
+            updateTelegramUI(false);
+          }
+        } catch (error) {
+          console.error('[TELEGRAM] Error loading settings:', error);
+          updateTelegramUI(false);
+        }
+      }
+      
+      async function saveTelegramSettings() {
+        const botToken = telegramBotToken.value.trim();
+        const chatId = telegramChatId.value.trim();
+        
+        if (!botToken || !chatId) {
+          showNotification('Заполните оба поля', 'error');
+          return;
+        }
+        
+        // Валидация формата токена (базовая)
+        if (!botToken.includes(':') && !botToken.includes('*')) {
+          showNotification('Неверный формат токена бота', 'error');
+          telegramBotToken.classList.add('error');
+          return;
+        }
+        
+        telegramBotToken.classList.remove('error');
+        
+        try {
+          setLoading(true);
+          
+          await api.put('/users/telegram-settings', {
+            bot_token: botToken,
+            chat_id: chatId
+          });
+          
+          showNotification('Настройки Telegram сохранены', 'success');
+          updateTelegramUI(true);
+          
+          // Перезагружаем настройки чтобы получить маскированный токен
+          await loadTelegramSettings();
+          
+        } catch (error) {
+          console.error('[TELEGRAM] Save error:', error);
+          showNotification(error.message || 'Ошибка сохранения настроек', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      async function testTelegramSettings() {
+        try {
+          setLoading(true);
+          
+          const result = await api.post('/users/telegram-settings/test', {});
+          
+          if (result.success) {
+            showNotification('Тестовое сообщение отправлено! Проверьте Telegram', 'success');
+          } else {
+            showNotification(result.message || 'Ошибка отправки', 'error');
+          }
+          
+        } catch (error) {
+          console.error('[TELEGRAM] Test error:', error);
+          showNotification(error.message || 'Ошибка отправки тестового сообщения', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      async function deleteTelegramSettings() {
+        if (!confirm('Вы уверены, что хотите удалить настройки Telegram? Уведомления о звонках перестанут приходить.')) {
+          return;
+        }
+        
+        try {
+          setLoading(true);
+          
+          await api.delete('/users/telegram-settings');
+          
+          telegramBotToken.value = '';
+          telegramChatId.value = '';
+          updateTelegramUI(false);
+          
+          showNotification('Настройки Telegram удалены', 'success');
+          
+        } catch (error) {
+          console.error('[TELEGRAM] Delete error:', error);
+          showNotification(error.message || 'Ошибка удаления настроек', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+      
+      function openTelegramModal() {
+        loadTelegramSettings();
+        telegramModalOverlay.classList.add('show');
+      }
+      
+      function closeTelegramModal() {
+        telegramModalOverlay.classList.remove('show');
+      }
+      
+      // Обработчики Telegram
+      telegramSettingsBtn.addEventListener('click', openTelegramModal);
+      telegramModalClose.addEventListener('click', closeTelegramModal);
+      telegramModalOverlay.addEventListener('click', (e) => {
+        if (e.target === telegramModalOverlay) {
+          closeTelegramModal();
+        }
+      });
+      
+      telegramSaveBtn.addEventListener('click', saveTelegramSettings);
+      telegramTestBtn.addEventListener('click', testTelegramSettings);
+      telegramDeleteBtn.addEventListener('click', deleteTelegramSettings);
+      
+      // Toggle видимости токена
+      toggleTokenVisibility.addEventListener('click', () => {
+        const isPassword = telegramBotToken.type === 'password';
+        telegramBotToken.type = isPassword ? 'text' : 'password';
+        toggleTokenVisibility.innerHTML = isPassword ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+      });
+      
+      // Активация кнопки "Тест" при вводе
+      function checkTelegramInputs() {
+        const hasToken = telegramBotToken.value.trim().length > 0;
+        const hasChatId = telegramChatId.value.trim().length > 0;
+        telegramTestBtn.disabled = !(hasToken && hasChatId);
+      }
+      
+      telegramBotToken.addEventListener('input', checkTelegramInputs);
+      telegramChatId.addEventListener('input', checkTelegramInputs);
       
       // ============================================================================
       // УДАЛЕНИЕ ДИАЛОГА
@@ -1724,7 +2245,7 @@
       window.deleteConversation = deleteConversation;
       
       // ============================================================================
-      // 🆕 v3.0: СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА С COST И RECORDING
+      // СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА
       // ============================================================================
       
       function createConversationCard(conversation) {
@@ -1737,7 +2258,6 @@
         card.className = 'conversation-card';
         card.onclick = () => openConversationDetail(conversation.id, assistantType);
         
-        // Номер телефона или Web чат
         const callerDisplay = conversation.caller_number 
           ? `<div class="caller-info">
               <i class="fas fa-phone"></i>
@@ -1748,23 +2268,19 @@
               <span>Web чат</span>
             </div>`;
         
-        // Превью сообщения
         const preview = conversation.user_message 
           ? conversation.user_message.substring(0, 100) + (conversation.user_message.length > 100 ? '...' : '')
           : conversation.assistant_message 
             ? conversation.assistant_message.substring(0, 100) + (conversation.assistant_message.length > 100 ? '...' : '')
             : 'Нет сообщений';
         
-        // Стили в зависимости от типа ассистента
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini' 
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
         
-        // 🆕 v3.0: Метрики в футере
         let metaItems = '';
         
-        // Длительность
         if (conversation.duration_seconds) {
           metaItems += `
             <div class="meta-item">
@@ -1774,7 +2290,6 @@
           `;
         }
         
-        // Токены
         metaItems += `
           <div class="meta-item">
             <i class="fas fa-brain"></i>
@@ -1782,7 +2297,6 @@
           </div>
         `;
         
-        // 🆕 v3.0: Стоимость звонка (только если есть)
         const costFormatted = formatCost(conversation.call_cost);
         if (costFormatted) {
           metaItems += `
@@ -1792,8 +2306,6 @@
             </div>
           `;
         }
-        
-        // NOTE: Иконка записи показывается только в модалке (детальный просмотр)
         
         card.innerHTML = `
           <div class="card-header">
@@ -1844,7 +2356,6 @@
           assistants = [];
           console.log('[ASSISTANTS] Loading assistants for filter...');
           
-          // OpenAI
           try {
             const openaiData = await api.get('/assistants');
             const openaiList = Array.isArray(openaiData) ? openaiData : [];
@@ -1856,7 +2367,6 @@
             console.warn('[ASSISTANTS] ⚠️ Error loading OpenAI assistants:', e.message);
           }
           
-          // Gemini
           try {
             const geminiData = await api.get('/gemini-assistants');
             const geminiList = Array.isArray(geminiData) ? geminiData : [];
@@ -1944,7 +2454,6 @@
             return;
           }
           
-          // Сортировка на клиенте
           const sortOrder = sortFilter.value;
           const sorted = [...response.conversations].sort((a, b) => {
             const dateA = new Date(a.created_at);
@@ -1981,7 +2490,7 @@
       }
       
       // ============================================================================
-      // 🆕 v3.0: ДЕТАЛЬНЫЙ ПРОСМОТР С ПЛЕЕРОМ
+      // ДЕТАЛЬНЫЙ ПРОСМОТР
       // ============================================================================
       
       async function openConversationDetail(conversationId, assistantType = 'openai') {
@@ -1990,21 +2499,17 @@
           
           const dialog = await api.get(`/conversations/${conversationId}?include_functions=true`);
           
-          // Тип ассистента
           const type = dialog.client_info?.assistant_type || assistantType || 'openai';
           const typeBadge = type === 'gemini' 
             ? '<span class="assistant-type-badge gemini" style="margin-left: 0.5rem;">Gemini</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
           
-          // Заголовок
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
           
-          // Подзаголовок с метаданными
           const callerBadge = dialog.caller_number 
             ? `<span class="stat-badge"><i class="fas fa-phone"></i> ${dialog.caller_number}</span>`
             : `<span class="stat-badge"><i class="fas fa-globe"></i> Web чат</span>`;
           
-          // 🆕 v3.0: Бейдж стоимости
           const costFormatted = formatCost(dialog.call_cost);
           const costBadge = costFormatted 
             ? `<span class="stat-badge cost"><i class="fas fa-ruble-sign"></i> ${costFormatted}</span>`
@@ -2026,7 +2531,6 @@
             ${costBadge}
           `;
           
-          // Чат с сообщениями
           chatContainer.innerHTML = '';
           
           if (dialog.messages && dialog.messages.length > 0) {
@@ -2057,10 +2561,6 @@
             chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
           }
           
-          // ============================================================================
-          // 🆕 v3.0: ФУТЕР С ПЛЕЕРОМ
-          // ============================================================================
-          
           let footerHtml = `
             <div class="footer-info">
               <div class="footer-item">
@@ -2080,7 +2580,6 @@
             </div>
           `;
           
-          // 🆕 v3.0: Аудиоплеер (если есть запись)
           if (dialog.record_url) {
             footerHtml += `
               <div class="audio-player-section">
@@ -2097,7 +2596,6 @@
             `;
           }
           
-          // Функции (если есть)
           if (dialog.function_calls && dialog.function_calls.length > 0) {
             footerHtml += `
               <div class="functions-section">
@@ -2126,7 +2624,6 @@
       }
       
       function closeModal() {
-        // Останавливаем аудио при закрытии
         const audioPlayer = modalFooter.querySelector('audio');
         if (audioPlayer) {
           audioPlayer.pause();
@@ -2234,8 +2731,12 @@
       
       // Keyboard shortcuts
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modalOverlay.classList.contains('show')) {
-          closeModal();
+        if (e.key === 'Escape') {
+          if (telegramModalOverlay.classList.contains('show')) {
+            closeTelegramModal();
+          } else if (modalOverlay.classList.contains('show')) {
+            closeModal();
+          }
         }
       });
       
@@ -2256,6 +2757,9 @@
       loadAssistants().then(() => {
         loadConversations();
       });
+      
+      // 🆕 Загружаем статус Telegram при старте
+      loadTelegramSettings();
 
       // Обработчики модалки блокировки функции
       document.getElementById('feature-modal-overlay').addEventListener('click', hideFeatureBlockedModal);
