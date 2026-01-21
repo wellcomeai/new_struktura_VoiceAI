@@ -6,6 +6,7 @@
 ✅ ОБНОВЛЕНО: Добавлено поле gemini_api_key для Google Gemini API
 ✅ ОБНОВЛЕНО v2.8: Добавлены поля Voximplant для автоматических звонков
 ✅ ОБНОВЛЕНО v2.9: Добавлено поле grok_api_key для xAI Grok Voice API
+✅ ОБНОВЛЕНО v3.9: Добавлены поля Telegram для уведомлений о звонках
 """
 
 import uuid
@@ -15,6 +16,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .pinecone_config import PineconeConfig
 from .base import Base, BaseModel
+
 
 class User(Base, BaseModel):
     """
@@ -31,13 +33,17 @@ class User(Base, BaseModel):
     openai_api_key = Column(String, nullable=True)
     elevenlabs_api_key = Column(String, nullable=True)
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
-    grok_api_key = Column(String, nullable=True)    # ✅ НОВОЕ v2.9: xAI Grok API key
+    grok_api_key = Column(String, nullable=True)    # ✅ v2.9: xAI Grok API key
     
-    # ✅ НОВОЕ v2.8: Voximplant настройки для автоматических звонков
+    # ✅ v2.8: Voximplant настройки для автоматических звонков
     voximplant_account_id = Column(String(100), nullable=True)
     voximplant_api_key = Column(String(500), nullable=True)
     voximplant_rule_id = Column(String(100), nullable=True)
     voximplant_caller_id = Column(String(50), nullable=True)
+    
+    # ✅ НОВОЕ v3.9: Telegram настройки для уведомлений о звонках
+    telegram_bot_token = Column(String(100), nullable=True)
+    telegram_chat_id = Column(String(50), nullable=True)  # Может быть отрицательным для групп/каналов
     
     subscription_plan = Column(String, default="free")
     usage_tokens = Column(Integer, default=0)
@@ -60,7 +66,7 @@ class User(Base, BaseModel):
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
-    grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ НОВОЕ v2.9
+    grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v2.9
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
     elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")
@@ -87,8 +93,9 @@ class User(Base, BaseModel):
         data.pop("openai_api_key", None)
         data.pop("elevenlabs_api_key", None)
         data.pop("gemini_api_key", None)
-        data.pop("grok_api_key", None)         # ✅ НОВОЕ v2.9: Скрываем Grok API key
+        data.pop("grok_api_key", None)           # ✅ v2.9: Скрываем Grok API key
         data.pop("voximplant_api_key", None)
+        data.pop("telegram_bot_token", None)     # ✅ v3.9: Скрываем Telegram токен
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -112,11 +119,11 @@ class User(Base, BaseModel):
         return bool(self.gemini_api_key)
     
     def has_grok_api_key(self):
-        """✅ НОВЫЙ МЕТОД v2.9: Проверить, настроен ли ключ xAI Grok API у пользователя"""
+        """✅ v2.9: Проверить, настроен ли ключ xAI Grok API у пользователя"""
         return bool(self.grok_api_key)
     
     def has_voximplant_config(self):
-        """✅ НОВЫЙ МЕТОД v2.8: Проверить, настроены ли данные Voximplant"""
+        """✅ v2.8: Проверить, настроены ли данные Voximplant"""
         return bool(
             self.voximplant_account_id and 
             self.voximplant_api_key and 
@@ -125,7 +132,7 @@ class User(Base, BaseModel):
         )
     
     def get_voximplant_config(self):
-        """✅ НОВЫЙ МЕТОД v2.8: Получить настройки Voximplant"""
+        """✅ v2.8: Получить настройки Voximplant"""
         if not self.has_voximplant_config():
             return None
         
@@ -134,6 +141,20 @@ class User(Base, BaseModel):
             "api_key": self.voximplant_api_key,
             "rule_id": self.voximplant_rule_id,
             "caller_id": self.voximplant_caller_id
+        }
+    
+    def has_telegram_config(self):
+        """✅ НОВОЕ v3.9: Проверить, настроены ли данные Telegram"""
+        return bool(self.telegram_bot_token and self.telegram_chat_id)
+    
+    def get_telegram_config(self):
+        """✅ НОВОЕ v3.9: Получить настройки Telegram"""
+        if not self.has_telegram_config():
+            return None
+        
+        return {
+            "bot_token": self.telegram_bot_token,
+            "chat_id": self.telegram_chat_id
         }
     
     def has_active_subscription(self):
@@ -156,7 +177,7 @@ class User(Base, BaseModel):
         return not self.email_verified
     
     def get_available_providers(self):
-        """✅ НОВЫЙ МЕТОД v2.9: Получить список доступных AI провайдеров"""
+        """✅ v2.9: Получить список доступных AI провайдеров"""
         providers = []
         
         if self.openai_api_key:
