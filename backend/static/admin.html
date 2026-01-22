@@ -6,12 +6,12 @@
   <title>Администрирование | Voicyfy</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Favicon -->
-<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-<link rel="manifest" href="/static/manifest.json">
-<meta name="theme-color" content="#2563eb">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
   <style>
     /* Основные стили */
     :root {
@@ -42,6 +42,12 @@
       --orange-light: #ffedd5;
       --orange: #f97316;
       --orange-dark: #ea580c;
+      --purple-light: #f3e8ff;
+      --purple: #a855f7;
+      --purple-dark: #9333ea;
+      --cyan-light: #cffafe;
+      --cyan: #06b6d4;
+      --cyan-dark: #0891b2;
     }
     
     * {
@@ -417,6 +423,32 @@
       color: var(--orange-dark);
     }
     
+    /* Бейджи для типов ассистентов */
+    .assistant-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-right: 0.25rem;
+    }
+    
+    .badge-openai {
+      background-color: var(--green-light);
+      color: var(--green-dark);
+    }
+    
+    .badge-gemini {
+      background-color: var(--purple-light);
+      color: var(--purple-dark);
+    }
+    
+    .badge-grok {
+      background-color: var(--cyan-light);
+      color: var(--cyan-dark);
+    }
+    
     /* Таблица пользователей */
     .table-container {
       overflow-x: auto;
@@ -572,7 +604,7 @@
     /* Статистика */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
       gap: 1.5rem;
       margin-bottom: 2rem;
     }
@@ -598,6 +630,26 @@
       margin-bottom: 1rem;
     }
     
+    .stat-icon.green {
+      background-color: var(--green-light);
+      color: var(--green-dark);
+    }
+    
+    .stat-icon.purple {
+      background-color: var(--purple-light);
+      color: var(--purple-dark);
+    }
+    
+    .stat-icon.orange {
+      background-color: var(--orange-light);
+      color: var(--orange-dark);
+    }
+    
+    .stat-icon.cyan {
+      background-color: var(--cyan-light);
+      color: var(--cyan-dark);
+    }
+    
     .stat-value {
       font-size: 1.75rem;
       font-weight: 700;
@@ -607,6 +659,27 @@
     .stat-label {
       color: var(--text-gray);
       font-size: 0.875rem;
+    }
+    
+    .stat-subtext {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-top: 0.25rem;
+    }
+    
+    /* Секции статистики */
+    .stats-section {
+      margin-bottom: 2rem;
+    }
+    
+    .stats-section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     
     /* Модальное окно */
@@ -696,6 +769,18 @@
       outline: none;
       border-color: var(--primary-blue);
       box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    
+    .form-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      cursor: pointer;
+    }
+    
+    .form-checkbox input {
+      width: 18px;
+      height: 18px;
     }
     
     /* Уведомление */
@@ -810,6 +895,10 @@
       
       .filters {
         flex-direction: column;
+      }
+      
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
       }
     }
   </style>
@@ -929,7 +1018,7 @@
                   <th>Email</th>
                   <th>Подписка</th>
                   <th>Дней осталось</th>
-                  <th>Ассистентов</th>
+                  <th>Ассистенты</th>
                   <th>Дата регистрации</th>
                   <th>Действия</th>
                 </tr>
@@ -948,40 +1037,169 @@
       
       <!-- Таб со статистикой -->
       <div class="tab-content" id="stats-tab">
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i class="fas fa-users"></i>
+        <!-- Пользователи -->
+        <div class="stats-section">
+          <h3 class="stats-section-title"><i class="fas fa-users"></i> Пользователи</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-users"></i>
+              </div>
+              <div class="stat-value" id="total-users">0</div>
+              <div class="stat-label">Всего пользователей</div>
             </div>
-            <div class="stat-value" id="total-users">0</div>
-            <div class="stat-label">Всего пользователей</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i class="fas fa-user-check"></i>
+            
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-user-check"></i>
+              </div>
+              <div class="stat-value" id="active-users">0</div>
+              <div class="stat-label">Активных пользователей</div>
             </div>
-            <div class="stat-value" id="active-users">0</div>
-            <div class="stat-label">Активных пользователей</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i class="fas fa-crown"></i>
+            
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-crown"></i>
+              </div>
+              <div class="stat-value" id="paid-subscriptions">0</div>
+              <div class="stat-label">Оплаченных подписок</div>
             </div>
-            <div class="stat-value" id="paid-subscriptions">0</div>
-            <div class="stat-label">Оплаченных подписок</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-icon">
-              <i class="fas fa-robot"></i>
+            
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <i class="fas fa-hourglass-half"></i>
+              </div>
+              <div class="stat-value" id="trial-users">0</div>
+              <div class="stat-label">Пробный период</div>
             </div>
-            <div class="stat-value" id="total-assistants">0</div>
-            <div class="stat-label">Всего ассистентов</div>
           </div>
         </div>
         
+        <!-- Ассистенты -->
+        <div class="stats-section">
+          <h3 class="stats-section-title"><i class="fas fa-robot"></i> Ассистенты</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-robot"></i>
+              </div>
+              <div class="stat-value" id="total-assistants">0</div>
+              <div class="stat-label">Всего ассистентов</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-brain"></i>
+              </div>
+              <div class="stat-value" id="openai-assistants">0</div>
+              <div class="stat-label">OpenAI</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-gem"></i>
+              </div>
+              <div class="stat-value" id="gemini-assistants">0</div>
+              <div class="stat-label">Gemini</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon cyan">
+                <i class="fas fa-bolt"></i>
+              </div>
+              <div class="stat-value" id="grok-assistants">0</div>
+              <div class="stat-label">Grok</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Доходы -->
+        <div class="stats-section">
+          <h3 class="stats-section-title"><i class="fas fa-ruble-sign"></i> Доходы</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-ruble-sign"></i>
+              </div>
+              <div class="stat-value" id="revenue-current-month">0 ₽</div>
+              <div class="stat-label">За текущий месяц</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-calendar-alt"></i>
+              </div>
+              <div class="stat-value" id="revenue-prev-month">0 ₽</div>
+              <div class="stat-label">За прошлый месяц</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-coins"></i>
+              </div>
+              <div class="stat-value" id="revenue-total">0 ₽</div>
+              <div class="stat-label">Всего за всё время</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <i class="fas fa-receipt"></i>
+              </div>
+              <div class="stat-value" id="total-payments">0</div>
+              <div class="stat-label">Успешных платежей</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Звонки -->
+        <div class="stats-section">
+          <h3 class="stats-section-title"><i class="fas fa-phone"></i> Звонки</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-phone"></i>
+              </div>
+              <div class="stat-value" id="total-calls">0</div>
+              <div class="stat-label">Всего звонков</div>
+              <div class="stat-subtext" id="calls-this-month">За месяц: 0</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-phone-volume"></i>
+              </div>
+              <div class="stat-value" id="inbound-calls">0</div>
+              <div class="stat-label">Входящих</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-phone-arrow-up-right"></i>
+              </div>
+              <div class="stat-value" id="outbound-calls">0</div>
+              <div class="stat-label">Исходящих</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <i class="fas fa-clock"></i>
+              </div>
+              <div class="stat-value" id="total-call-duration">0 мин</div>
+              <div class="stat-label">Общая длительность</div>
+            </div>
+            
+            <div class="stat-card">
+              <div class="stat-icon cyan">
+                <i class="fas fa-ruble-sign"></i>
+              </div>
+              <div class="stat-value" id="total-call-cost">0 ₽</div>
+              <div class="stat-label">Стоимость звонков</div>
+              <div class="stat-subtext" id="call-cost-this-month">За месяц: 0 ₽</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Недавние пользователи -->
         <div class="card">
           <div class="card-header">
             <h2 class="card-title">Недавно зарегистрированные пользователи</h2>
@@ -1039,7 +1257,8 @@
               <thead>
                 <tr>
                   <th>Название</th>
-                  <th>Описание</th>
+                  <th>Тип</th>
+                  <th>Голос</th>
                   <th>Дата создания</th>
                   <th>Кол-во диалогов</th>
                 </tr>
@@ -1086,8 +1305,8 @@
               <label class="form-label" for="plan-code">Тариф</label>
               <select id="plan-code" class="form-control" required>
                 <option value="free">Бесплатный</option>
-                <option value="start">Старт</option>
-                <option value="pro">Профессиональный</option>
+                <option value="start">Старт (1490 ₽)</option>
+                <option value="pro">Профессиональный (4990 ₽)</option>
               </select>
             </div>
             
@@ -1166,11 +1385,33 @@
       const userAvatar = document.getElementById('user-avatar');
       const dropdownLogout = document.getElementById('dropdown-logout');
       
+      // Элементы статистики - Пользователи
       const totalUsersElement = document.getElementById('total-users');
       const activeUsersElement = document.getElementById('active-users');
       const paidSubscriptionsElement = document.getElementById('paid-subscriptions');
-      const totalAssistantsElement = document.getElementById('total-assistants');
+      const trialUsersElement = document.getElementById('trial-users');
       const recentUsersElement = document.getElementById('recent-users');
+      
+      // Элементы статистики - Ассистенты
+      const totalAssistantsElement = document.getElementById('total-assistants');
+      const openaiAssistantsElement = document.getElementById('openai-assistants');
+      const geminiAssistantsElement = document.getElementById('gemini-assistants');
+      const grokAssistantsElement = document.getElementById('grok-assistants');
+      
+      // Элементы статистики - Доходы
+      const revenueCurrentMonthElement = document.getElementById('revenue-current-month');
+      const revenuePrevMonthElement = document.getElementById('revenue-prev-month');
+      const revenueTotalElement = document.getElementById('revenue-total');
+      const totalPaymentsElement = document.getElementById('total-payments');
+      
+      // Элементы статистики - Звонки
+      const totalCallsElement = document.getElementById('total-calls');
+      const callsThisMonthElement = document.getElementById('calls-this-month');
+      const inboundCallsElement = document.getElementById('inbound-calls');
+      const outboundCallsElement = document.getElementById('outbound-calls');
+      const totalCallDurationElement = document.getElementById('total-call-duration');
+      const totalCallCostElement = document.getElementById('total-call-cost');
+      const callCostThisMonthElement = document.getElementById('call-cost-this-month');
       
       // Выпадающее меню пользователя
       userMenuButton.addEventListener('click', function(e) {
@@ -1198,17 +1439,14 @@
       const api = {
         baseUrl: '/api',
         
-        // Получение токена авторизации
         getToken() {
           return localStorage.getItem('auth_token');
         },
         
-        // Проверка авторизации
         isAuthenticated() {
           return this.getToken() !== null;
         },
         
-        // Базовая функция для запросов к API
         async fetch(endpoint, options = {}) {
           if (this.isAuthenticated()) {
             options.headers = {
@@ -1247,7 +1485,6 @@
           }
         },
         
-        // Методы для различных типов запросов
         get(endpoint) {
           return this.fetch(endpoint, { method: 'GET' });
         },
@@ -1264,12 +1501,10 @@
           return this.fetch(endpoint, { method: 'DELETE' });
         },
         
-        // Получение текущего пользователя
         getCurrentUser() {
           return this.get('/users/me');
         },
         
-        // Методы для админ-панели
         getAllUsers(skip = 0, limit = 10, search = '', subscription_status = '') {
           let endpoint = `/admin/users?skip=${skip}&limit=${limit}`;
           
@@ -1288,6 +1523,7 @@
           return this.get(`/admin/users/${userId}`);
         },
         
+        // ✅ v2.2: Исправлено - теперь отправляем JSON body
         updateUserSubscription(userId, data) {
           return this.post(`/admin/users/${userId}/subscription`, data);
         },
@@ -1303,33 +1539,27 @@
       
       // Управление UI
       const ui = {
-        // Показать уведомление
         showNotification(message, type = 'success') {
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
           notification.classList.add(`notification-${type}`);
           
-          // Изменяем иконку
           const iconElement = notification.querySelector('.notification-icon i');
           iconElement.className = type === 'success' ? 'fas fa-check-circle' : 
                                type === 'error' ? 'fas fa-exclamation-circle' : 
                                'fas fa-info-circle';
           
-          // Устанавливаем сообщение
           notificationMessage.textContent = message;
           
-          // Показываем уведомление
           notification.style.display = 'flex';
           setTimeout(() => {
             notification.classList.add('show');
           }, 10);
           
-          // Автоматически скрываем через 5 секунд
           setTimeout(() => {
             this.hideNotification();
           }, 5000);
         },
         
-        // Скрыть уведомление
         hideNotification() {
           notification.classList.remove('show');
           setTimeout(() => {
@@ -1337,19 +1567,16 @@
           }, 300);
         },
         
-        // Переключение вкладок
         switchTab(tabId) {
-          // Обновляем классы вкладок
           tabs.forEach(tab => {
             if (tab.getAttribute('data-tab') === tabId) {
               tab.classList.add('active');
-              tab.style.display = ''; // Показываем, если скрыта
+              tab.style.display = '';
             } else {
               tab.classList.remove('active');
             }
           });
           
-          // Обновляем содержимое вкладок
           tabContents.forEach(content => {
             if (content.id === `${tabId}-tab`) {
               content.classList.add('active');
@@ -1359,7 +1586,6 @@
           });
         },
         
-        // Установка состояния загрузки
         setLoading(loading) {
           if (loading) {
             loadingOverlay.style.display = 'flex';
@@ -1368,18 +1594,16 @@
           }
         },
         
-        // Показать модальное окно
         showModal() {
           subscriptionModal.classList.add('visible');
         },
         
-        // Скрыть модальное окно
         hideModal() {
           subscriptionModal.classList.remove('visible');
         },
         
-        // Форматирование даты
         formatDate(dateString) {
+          if (!dateString) return 'Не указано';
           const date = new Date(dateString);
           return date.toLocaleDateString('ru-RU', {
             day: '2-digit',
@@ -1388,7 +1612,21 @@
           });
         },
         
-        // Отрисовка списка пользователей
+        formatMoney(amount) {
+          return new Intl.NumberFormat('ru-RU').format(Math.round(amount)) + ' ₽';
+        },
+        
+        formatDuration(minutes) {
+          if (minutes < 60) {
+            return Math.round(minutes) + ' мин';
+          } else {
+            const hours = Math.floor(minutes / 60);
+            const mins = Math.round(minutes % 60);
+            return hours + ' ч ' + mins + ' мин';
+          }
+        },
+        
+        // ✅ v2.0: Отрисовка с типами ассистентов
         renderUsersList(users) {
           usersList.innerHTML = '';
           
@@ -1404,7 +1642,6 @@
           }
           
           users.forEach(user => {
-            // Определяем статус подписки
             let statusClass = 'status-expired';
             let statusText = 'Истекла';
             
@@ -1413,12 +1650,26 @@
               statusText = user.is_trial ? 'Пробный период' : 'Активна';
             }
             
-            // Определяем имя пользователя для отображения
             let displayName = 'Пользователь';
             if (user.first_name || user.last_name) {
               displayName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
             } else if (user.company_name) {
               displayName = user.company_name;
+            }
+            
+            // ✅ v2.0: Формируем бейджи по типам ассистентов
+            let assistantsBadges = '';
+            if (user.openai_assistants > 0) {
+              assistantsBadges += `<span class="assistant-badge badge-openai">O:${user.openai_assistants}</span>`;
+            }
+            if (user.gemini_assistants > 0) {
+              assistantsBadges += `<span class="assistant-badge badge-gemini">G:${user.gemini_assistants}</span>`;
+            }
+            if (user.grok_assistants > 0) {
+              assistantsBadges += `<span class="assistant-badge badge-grok">X:${user.grok_assistants}</span>`;
+            }
+            if (!assistantsBadges) {
+              assistantsBadges = '0';
             }
             
             const row = document.createElement('tr');
@@ -1427,7 +1678,7 @@
               <td>${user.email}</td>
               <td><span class="status-badge ${statusClass}">${statusText}</span></td>
               <td>${user.days_left || 0}</td>
-              <td>${user.assistant_count || 0}</td>
+              <td>${assistantsBadges}</td>
               <td>${this.formatDate(user.created_at)}</td>
               <td>
                 <button class="table-action view-user" data-id="${user.id}" title="Просмотр">
@@ -1442,7 +1693,6 @@
             usersList.appendChild(row);
           });
           
-          // Добавляем обработчики для кнопок
           document.querySelectorAll('.view-user').forEach(button => {
             button.addEventListener('click', function() {
               const userId = this.getAttribute('data-id');
@@ -1458,7 +1708,6 @@
           });
         },
         
-        // Отрисовка пагинации
         renderPagination(currentPage, totalPages) {
           pagination.innerHTML = '';
           
@@ -1466,7 +1715,6 @@
             return;
           }
           
-          // Кнопка "Назад"
           const prevButton = document.createElement('button');
           prevButton.className = `pagination-item ${currentPage === 1 ? 'disabled' : ''}`;
           prevButton.innerHTML = '<i class="fas fa-chevron-left"></i>';
@@ -1478,7 +1726,6 @@
           });
           pagination.appendChild(prevButton);
           
-          // Страницы
           const startPage = Math.max(1, currentPage - 2);
           const endPage = Math.min(totalPages, startPage + 4);
           
@@ -1492,7 +1739,6 @@
             pagination.appendChild(pageButton);
           }
           
-          // Кнопка "Вперед"
           const nextButton = document.createElement('button');
           nextButton.className = `pagination-item ${currentPage === totalPages ? 'disabled' : ''}`;
           nextButton.innerHTML = '<i class="fas fa-chevron-right"></i>';
@@ -1505,13 +1751,13 @@
           pagination.appendChild(nextButton);
         },
         
-        // Отрисовка деталей пользователя
+        // ✅ v2.0: Обновлённый рендеринг деталей с типами ассистентов
         renderUserDetails(userData) {
           const userProfile = document.getElementById('user-profile');
           const user = userData.user;
           const subscription = userData.subscription;
+          const assistants = userData.assistants;
           
-          // Основная информация о пользователе
           userProfile.innerHTML = `
             <div class="profile-section">
               <h3 class="section-title"><i class="fas fa-user"></i> Основная информация</h3>
@@ -1552,7 +1798,7 @@
               
               <div class="section-item">
                 <div class="item-label">Текущий тариф</div>
-                <div class="item-value">${subscription.plan || 'Не указан'}</div>
+                <div class="item-value">${subscription.plan || user.subscription_plan || 'Не указан'}</div>
               </div>
               
               <div class="section-item">
@@ -1562,12 +1808,12 @@
               
               <div class="section-item">
                 <div class="item-label">Дата начала</div>
-                <div class="item-value">${subscription.start_date ? this.formatDate(subscription.start_date) : 'Не указана'}</div>
+                <div class="item-value">${this.formatDate(subscription.start_date)}</div>
               </div>
               
               <div class="section-item">
                 <div class="item-label">Дата окончания</div>
-                <div class="item-value">${subscription.end_date ? this.formatDate(subscription.end_date) : 'Не указана'}</div>
+                <div class="item-value">${this.formatDate(subscription.end_date)}</div>
               </div>
               
               <div class="section-item">
@@ -1586,16 +1832,32 @@
             </div>
             
             <div class="profile-section">
-              <h3 class="section-title"><i class="fas fa-robot"></i> Статистика</h3>
+              <h3 class="section-title"><i class="fas fa-robot"></i> Ассистенты</h3>
               
               <div class="section-item">
-                <div class="item-label">Использовано токенов</div>
-                <div class="item-value">${user.usage_tokens || 0}</div>
+                <div class="item-label">Всего ассистентов</div>
+                <div class="item-value">${assistants.count || 0}</div>
               </div>
               
               <div class="section-item">
-                <div class="item-label">Количество ассистентов</div>
-                <div class="item-value">${userData.assistants.count || 0}</div>
+                <div class="item-label">OpenAI</div>
+                <div class="item-value">
+                  <span class="assistant-badge badge-openai">${assistants.openai_count || 0}</span>
+                </div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Gemini</div>
+                <div class="item-value">
+                  <span class="assistant-badge badge-gemini">${assistants.gemini_count || 0}</span>
+                </div>
+              </div>
+              
+              <div class="section-item">
+                <div class="item-label">Grok</div>
+                <div class="item-value">
+                  <span class="assistant-badge badge-grok">${assistants.grok_count || 0}</span>
+                </div>
               </div>
               
               <div class="section-item">
@@ -1605,16 +1867,15 @@
             </div>
           `;
           
-          // Информация о подписке для блока управления
           const subscriptionInfo = document.getElementById('subscription-info');
           subscriptionInfo.innerHTML = `
             <div class="section-item">
               <div class="item-label">Текущий тариф:</div>
-              <div class="item-value">${subscription.plan || 'Бесплатный'}</div>
+              <div class="item-value">${subscription.plan || user.subscription_plan || 'Бесплатный'}</div>
             </div>
             <div class="section-item">
               <div class="item-label">Дата окончания:</div>
-              <div class="item-value">${subscription.end_date ? this.formatDate(subscription.end_date) : 'Не указана'}</div>
+              <div class="item-value">${this.formatDate(subscription.end_date)}</div>
             </div>
             <div class="section-item">
               <div class="item-label">Статус:</div>
@@ -1626,16 +1887,32 @@
             </div>
           `;
           
-          // Ассистенты пользователя
+          // ✅ v2.0: Ассистенты с типами
           const userAssistants = document.getElementById('user-assistants');
           userAssistants.innerHTML = '';
           
-          if (userData.assistants.list && userData.assistants.list.length > 0) {
-            userData.assistants.list.forEach(assistant => {
+          if (assistants.list && assistants.list.length > 0) {
+            assistants.list.forEach(assistant => {
+              let typeBadge = '';
+              switch (assistant.type) {
+                case 'openai':
+                  typeBadge = '<span class="assistant-badge badge-openai">OpenAI</span>';
+                  break;
+                case 'gemini':
+                  typeBadge = '<span class="assistant-badge badge-gemini">Gemini</span>';
+                  break;
+                case 'grok':
+                  typeBadge = '<span class="assistant-badge badge-grok">Grok</span>';
+                  break;
+                default:
+                  typeBadge = assistant.type || 'Unknown';
+              }
+              
               const row = document.createElement('tr');
               row.innerHTML = `
                 <td>${assistant.name}</td>
-                <td>${assistant.description || 'Нет описания'}</td>
+                <td>${typeBadge}</td>
+                <td>${assistant.voice || '-'}</td>
                 <td>${this.formatDate(assistant.created_at)}</td>
                 <td>${assistant.total_conversations || 0}</td>
               `;
@@ -1644,14 +1921,13 @@
           } else {
             userAssistants.innerHTML = `
               <tr>
-                <td colspan="4" style="text-align: center; padding: 1rem;">
+                <td colspan="5" style="text-align: center; padding: 1rem;">
                   У пользователя нет ассистентов
                 </td>
               </tr>
             `;
           }
           
-          // История подписок
           const subscriptionLogs = document.getElementById('subscription-logs');
           subscriptionLogs.innerHTML = '';
           
@@ -1676,11 +1952,9 @@
             `;
           }
           
-          // Сохраняем ID выбранного пользователя
           selectedUserId = user.id;
         },
         
-        // Перевод действий с подписками
         translateAction(action) {
           const translations = {
             'subscribe': 'Подписка активирована',
@@ -1689,18 +1963,45 @@
             'renew': 'Подписка продлена',
             'trial_activate': 'Пробный период активирован',
             'trial_expired': 'Пробный период истек',
-            'admin_update': 'Обновлена администратором'
+            'admin_update': 'Обновлена администратором',
+            'payment_success': 'Оплата успешна'
           };
           
           return translations[action] || action;
         },
         
-        // Отображение статистики
+        // ✅ v2.1: Расширенная статистика
         renderStats(stats) {
+          // Пользователи
           totalUsersElement.textContent = stats.users.total;
           activeUsersElement.textContent = stats.users.active;
           paidSubscriptionsElement.textContent = stats.users.with_subscription - stats.users.trial;
+          trialUsersElement.textContent = stats.users.trial;
+          
+          // Ассистенты (все типы)
           totalAssistantsElement.textContent = stats.assistants.total;
+          openaiAssistantsElement.textContent = stats.assistants.openai || 0;
+          geminiAssistantsElement.textContent = stats.assistants.gemini || 0;
+          grokAssistantsElement.textContent = stats.assistants.grok || 0;
+          
+          // Доходы
+          if (stats.revenue) {
+            revenueCurrentMonthElement.textContent = this.formatMoney(stats.revenue.current_month);
+            revenuePrevMonthElement.textContent = this.formatMoney(stats.revenue.previous_month);
+            revenueTotalElement.textContent = this.formatMoney(stats.revenue.total);
+            totalPaymentsElement.textContent = stats.revenue.total_payments;
+          }
+          
+          // Звонки
+          if (stats.calls) {
+            totalCallsElement.textContent = stats.calls.total;
+            callsThisMonthElement.textContent = `За месяц: ${stats.calls.this_month}`;
+            inboundCallsElement.textContent = stats.calls.inbound;
+            outboundCallsElement.textContent = stats.calls.outbound;
+            totalCallDurationElement.textContent = this.formatDuration(stats.calls.total_duration_minutes);
+            totalCallCostElement.textContent = this.formatMoney(stats.calls.total_cost);
+            callCostThisMonthElement.textContent = `За месяц: ${this.formatMoney(stats.calls.cost_this_month)}`;
+          }
           
           // Недавние пользователи
           recentUsersElement.innerHTML = '';
@@ -1743,14 +2044,12 @@
           ui.setLoading(true);
           currentUser = await api.getCurrentUser();
           
-          // Обновляем имя пользователя и аватар
           const firstName = currentUser.first_name || '';
           const lastName = currentUser.last_name || '';
           
           if (firstName || lastName) {
             userNameDisplay.textContent = firstName + (lastName ? ` ${lastName}` : '');
             
-            // Инициалы для аватара
             let initials = '';
             if (firstName) initials += firstName[0];
             if (lastName) initials += lastName[0];
@@ -1763,11 +2062,9 @@
             userAvatar.textContent = currentUser.email.substring(0, 2).toUpperCase();
           }
           
-          // Проверяем, является ли пользователь администратором
           isAdmin = currentUser.is_admin || currentUser.email === 'well96well@gmail.com';
           
           if (!isAdmin) {
-            // Если пользователь не администратор, перенаправляем на дашборд
             window.location.href = '/static/dashboard.html';
             ui.showNotification('У вас нет прав для доступа к панели администратора', 'error');
             return false;
@@ -1783,7 +2080,6 @@
         }
       }
       
-      // Загрузка списка пользователей
       async function loadUsers(page = 1, limit = 10) {
         try {
           ui.setLoading(true);
@@ -1794,12 +2090,8 @@
           
           const usersData = await api.getAllUsers(skip, limit, search, subscriptionStatus);
           
-          // Предполагаем, что API возвращает массив пользователей
-          // В реальной реализации API может также возвращать информацию о пагинации
           ui.renderUsersList(usersData);
           
-          // Для примера считаем, что всего 100 пользователей
-          // В реальной реализации получаем общее количество из API
           totalPages = Math.ceil(100 / limit);
           currentPage = page;
           
@@ -1811,18 +2103,15 @@
         }
       }
       
-      // Загрузка деталей пользователя
       async function viewUserDetails(userId) {
         try {
           ui.setLoading(true);
           
           const userData = await api.getUserDetails(userId);
           
-          // Показываем вкладку с деталями пользователя
           document.querySelector('.tab[data-tab="user-details"]').style.display = '';
           ui.switchTab('user-details');
           
-          // Отображаем данные пользователя
           ui.renderUserDetails(userData);
         } catch (error) {
           ui.showNotification(error.message || 'Ошибка при загрузке данных пользователя', 'error');
@@ -1831,7 +2120,6 @@
         }
       }
       
-      // Загрузка статистики
       async function loadStats() {
         try {
           ui.setLoading(true);
@@ -1845,12 +2133,10 @@
         }
       }
       
-      // Открытие модального окна изменения подписки
       async function openSubscriptionModal(userId) {
         try {
           ui.setLoading(true);
           
-          // Если ID пользователя не передан, используем выбранного пользователя
           if (!userId && selectedUserId) {
             userId = selectedUserId;
           }
@@ -1859,12 +2145,10 @@
             throw new Error('ID пользователя не указан');
           }
           
-          // Получаем данные пользователя, если не загружены
           if (!selectedUserId || selectedUserId !== userId) {
             const userData = await api.getUserDetails(userId);
             selectedUserId = userId;
             
-            // Заполняем форму данными текущей подписки
             const subscription = userData.subscription;
             planCodeSelect.value = userData.user.subscription_plan || 'free';
             isTrialCheckbox.checked = userData.user.is_trial || false;
@@ -1878,7 +2162,6 @@
         }
       }
       
-      // Проверка истекших подписок
       async function checkExpiredSubscriptions() {
         try {
           ui.setLoading(true);
@@ -1888,7 +2171,6 @@
           if (result.success) {
             ui.showNotification(`Проверка завершена успешно. Обновлено подписок: ${result.updated_count}`, 'success');
             
-            // Перезагружаем данные
             await loadUsers(currentPage);
             if (selectedUserId) {
               await viewUserDetails(selectedUserId);
@@ -1905,22 +2187,18 @@
       
       // Обработчики событий
       
-      // Переключение вкладок
       tabs.forEach(tab => {
         tab.addEventListener('click', function() {
-          // Пропускаем вкладку с деталями пользователя, если нажали напрямую
           if (this.getAttribute('data-tab') === 'user-details') {
             return;
           }
           
           ui.switchTab(this.getAttribute('data-tab'));
           
-          // Скрываем вкладку с деталями пользователя при переходе на другие вкладки
           if (this.getAttribute('data-tab') !== 'user-details') {
             document.querySelector('.tab[data-tab="user-details"]').style.display = 'none';
           }
           
-          // Загружаем данные для вкладки
           if (this.getAttribute('data-tab') === 'users') {
             loadUsers();
           } else if (this.getAttribute('data-tab') === 'stats') {
@@ -1929,39 +2207,32 @@
         });
       });
       
-      // Поиск пользователей
       searchInput.addEventListener('input', function() {
-        // Задержка для предотвращения частых запросов при вводе
         clearTimeout(this.searchTimeout);
         this.searchTimeout = setTimeout(() => {
           loadUsers(1);
         }, 300);
       });
       
-      // Фильтрация по статусу подписки
       subscriptionFilter.addEventListener('change', function() {
         loadUsers(1);
       });
       
-      // Кнопка "Назад к списку" на странице деталей пользователя
       backToUsersBtn.addEventListener('click', function() {
         document.querySelector('.tab[data-tab="user-details"]').style.display = 'none';
         ui.switchTab('users');
       });
       
-      // Редактирование подписки из деталей пользователя
       editSubscriptionBtn.addEventListener('click', function() {
         openSubscriptionModal(selectedUserId);
       });
       
-      // Проверка истекших подписок
       checkSubscriptionsBtn.addEventListener('click', checkExpiredSubscriptions);
       
-      // Закрытие модального окна
       modalClose.addEventListener('click', ui.hideModal);
       modalCancel.addEventListener('click', ui.hideModal);
       
-      // Сохранение изменений подписки
+      // ✅ v2.2: Исправленное сохранение подписки
       modalSave.addEventListener('click', async function() {
         if (!selectedUserId) {
           ui.showNotification('ID пользователя не указан', 'error');
@@ -1971,35 +2242,35 @@
         try {
           ui.setLoading(true);
           
+          // ✅ Отправляем как JSON body (не query params)
           const subscriptionData = {
             plan_code: planCodeSelect.value,
             duration_days: parseInt(durationDaysInput.value, 10),
             is_trial: isTrialCheckbox.checked
           };
           
+          console.log('Отправляем данные:', subscriptionData);
+          
           const result = await api.updateUserSubscription(selectedUserId, subscriptionData);
           
           ui.showNotification('Подписка успешно изменена', 'success');
           ui.hideModal();
           
-          // Обновляем данные пользователя
           if (document.querySelector('.tab[data-tab="user-details"]').style.display !== 'none') {
             viewUserDetails(selectedUserId);
           }
           
-          // Обновляем список пользователей
           loadUsers(currentPage);
         } catch (error) {
+          console.error('Ошибка при сохранении:', error);
           ui.showNotification(error.message || 'Ошибка при изменении подписки', 'error');
         } finally {
           ui.setLoading(false);
         }
       });
       
-      // Закрытие уведомления
       notificationClose.addEventListener('click', ui.hideNotification);
       
-      // Выход из системы
       logoutButton.addEventListener('click', function() {
         localStorage.removeItem('auth_token');
         window.location.href = 'https://voicyfy.ru/static/index.html';
@@ -2008,10 +2279,7 @@
       // Инициализация страницы
       async function init() {
         if (await checkAuth()) {
-          // Загружаем список пользователей
           loadUsers();
-          
-          // Загружаем статистику
           loadStats();
         }
       }
