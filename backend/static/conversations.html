@@ -268,7 +268,7 @@
       align-items: center;
       gap: 0.5rem;
       border: none;
-      height: 42px; /* Совпадает с высотой select */
+      height: 42px;
     }
     
     .btn-primary {
@@ -295,7 +295,7 @@
       cursor: not-allowed;
     }
     
-    /* 🆕 Telegram кнопка */
+    /* Telegram кнопка */
     .btn-telegram {
       background-color: var(--telegram-blue);
       color: var(--white);
@@ -340,7 +340,7 @@
       display: flex;
       gap: 1rem;
       flex-wrap: wrap;
-      align-items: flex-end; /* Выравнивание по нижнему краю */
+      align-items: flex-end;
     }
     
     .filter-group {
@@ -364,7 +364,7 @@
       font-size: 0.875rem;
       background-color: var(--white);
       cursor: pointer;
-      height: 42px; /* Фиксированная высота для выравнивания с кнопками */
+      height: 42px;
     }
     
     .filter-select:focus {
@@ -471,7 +471,7 @@
       color: var(--text-light);
     }
     
-    /* 🆕 Кнопка удаления */
+    /* Кнопка удаления */
     .btn-delete {
       position: absolute;
       top: 0;
@@ -557,7 +557,7 @@
       gap: 0.35rem;
     }
     
-    /* 🆕 v3.0: Стоимость звонка */
+    /* Стоимость звонка */
     .meta-item.cost {
       color: var(--cost-orange);
       font-weight: 600;
@@ -567,7 +567,7 @@
       color: var(--cost-orange);
     }
     
-    /* 🆕 v3.0: Иконка записи */
+    /* Иконка записи */
     .meta-item.recording {
       color: var(--success-green);
     }
@@ -736,7 +736,7 @@
       color: var(--text-dark);
     }
     
-    /* 🆕 Telegram-style chat */
+    /* Telegram-style chat */
     .chat-container {
       flex: 1;
       overflow-y: auto;
@@ -854,7 +854,7 @@
       color: var(--primary-blue);
     }
     
-    /* 🆕 v3.0: Стиль для стоимости в модалке */
+    /* Стиль для стоимости в модалке */
     .footer-item.cost {
       color: var(--cost-orange);
       font-weight: 600;
@@ -864,7 +864,7 @@
       color: var(--cost-orange);
     }
     
-    /* 🆕 v3.0: Аудиоплеер в модалке */
+    /* Аудиоплеер в модалке */
     .audio-player-section {
       margin-top: 1rem;
       padding-top: 1rem;
@@ -932,14 +932,14 @@
       font-weight: 500;
     }
     
-    /* 🆕 v3.0: Бейдж стоимости */
+    /* Бейдж стоимости */
     .stat-badge.cost {
       background-color: rgba(245, 158, 11, 0.1);
       color: var(--cost-orange);
     }
     
     /* ============================================================================
-       🆕 TELEGRAM SETTINGS MODAL
+       TELEGRAM SETTINGS MODAL
        ============================================================================ */
     
     .telegram-modal {
@@ -1358,7 +1358,7 @@
     }
     
     /* ============================================================================
-       🆕 v3.2: FUNCTION CALLS ПОД СООБЩЕНИЯМИ В МОДАЛКЕ
+       FUNCTION CALLS ПОД СООБЩЕНИЯМИ В МОДАЛКЕ
        ============================================================================ */
     
     .message-functions {
@@ -1782,7 +1782,7 @@
     </div>
   </div>
   
-  <!-- 🆕 Модальное окно Telegram настроек -->
+  <!-- Модальное окно Telegram настроек -->
   <div class="modal-overlay" id="telegram-modal-overlay">
     <div class="modal telegram-modal">
       <div class="modal-header">
@@ -1902,14 +1902,15 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 3.5 - Fix preview display & caller_number handling
+     * Version: 3.6 - Production Ready
      * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
      * ✅ Отображение стоимости звонка (call_cost)
      * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
      * ✅ Настройка Telegram уведомлений о звонках
-     * ✅ 🆕 Function calls отображаются под сообщениями ассистента
-     * ✅ 🆕 v3.5: Исправлено отображение "[no user input]" и "Нет сообщений"
-     * ✅ 🆕 v3.5: Пустой caller_number = Web чат
+     * ✅ Function calls отображаются под сообщениями ассистента
+     * ✅ v3.5: Исправлено отображение "[no user input]" и "Нет сообщений"
+     * ✅ v3.5: "unknown" caller_number = Web чат
+     * ✅ v3.6: Fallback preview "🎤 Голосовой диалог" когда данных нет
      */
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -1939,7 +1940,7 @@
       const userEmailDisplay = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
       
-      // 🆕 Telegram элементы
+      // Telegram элементы
       const telegramSettingsBtn = document.getElementById('telegram-settings-btn');
       const telegramStatusDot = document.getElementById('telegram-status-dot');
       const telegramModalOverlay = document.getElementById('telegram-modal-overlay');
@@ -1960,7 +1961,7 @@
       let assistants = [];
       const perPage = 20;
       
-      // 🆕 Telegram состояние
+      // Telegram состояние
       let telegramConfigured = false;
       
       // Код текущего тарифа пользователя
@@ -1993,8 +1994,72 @@
         'profi': 'Profi'
       };
       
-      // 🆕 v3.5: Системные сообщения которые нужно скрывать
-      const SYSTEM_MESSAGES = ['[no user input]', '[no_user_input]', '[system]'];
+      // ==========================================================================
+      // 🆕 v3.6: КОНСТАНТЫ И ХЕЛПЕРЫ ДЛЯ ФИЛЬТРАЦИИ
+      // ==========================================================================
+      
+      // Системные сообщения которые нужно скрывать
+      const SYSTEM_MESSAGES = [
+        '[no user input]', 
+        '[no_user_input]', 
+        '[system]', 
+        '[silence]', 
+        '[timeout]'
+      ];
+      
+      // Значения caller_number которые означают "нет номера"
+      const EMPTY_CALLER_VALUES = ['', 'null', 'none', 'undefined', 'unknown'];
+      
+      /**
+       * 🆕 v3.6: Проверяет, является ли текст системным сообщением
+       */
+      function isSystemMessage(text) {
+        if (!text) return true;
+        const trimmed = text.trim().toLowerCase();
+        if (!trimmed) return true;
+        return SYSTEM_MESSAGES.some(sm => trimmed === sm.toLowerCase());
+      }
+      
+      /**
+       * 🆕 v3.6: Проверяет, есть ли реальный caller_number (не пустой, не unknown)
+       */
+      function hasRealCallerNumber(callerNumber) {
+        if (!callerNumber) return false;
+        const trimmed = callerNumber.trim().toLowerCase();
+        return !EMPTY_CALLER_VALUES.includes(trimmed);
+      }
+      
+      /**
+       * 🆕 v3.6: Получает чистый текст для превью с fallback
+       * Возвращает первое непустое НЕсистемное сообщение или дефолтный текст
+       */
+      function getCleanPreviewText(conversation) {
+        // Пробуем user_message
+        let text = (conversation.user_message || '').trim();
+        if (text && !isSystemMessage(text)) {
+          return text;
+        }
+        
+        // Пробуем assistant_message
+        text = (conversation.assistant_message || '').trim();
+        if (text && !isSystemMessage(text)) {
+          return text;
+        }
+        
+        // 🆕 v3.6: Если есть function_calls - показываем это
+        if (conversation.function_calls && conversation.function_calls.length > 0) {
+          const funcCount = conversation.function_calls.length;
+          return `🔧 ${funcCount} ${funcCount === 1 ? 'функция вызвана' : 'функций вызвано'}`;
+        }
+        
+        // 🆕 v3.6: Если есть длительность - это голосовой диалог
+        if (conversation.duration_seconds && conversation.duration_seconds > 0) {
+          return '🎤 Голосовой диалог';
+        }
+        
+        // 🆕 v3.6: Дефолтный текст вместо "Нет сообщений"
+        return '💬 Диалог';
+      }
       
       // API функции
       const api = {
@@ -2206,49 +2271,7 @@
       }
       
       // ============================================================================
-      // 🆕 v3.5: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ФИЛЬТРАЦИИ СИСТЕМНЫХ СООБЩЕНИЙ
-      // ============================================================================
-      
-      /**
-       * Проверяет, является ли текст системным сообщением
-       */
-      function isSystemMessage(text) {
-        if (!text) return true;
-        const trimmed = text.trim().toLowerCase();
-        return SYSTEM_MESSAGES.some(sm => trimmed === sm.toLowerCase());
-      }
-      
-      /**
-       * Получает чистый текст для превью, фильтруя системные сообщения
-       */
-      function getCleanPreviewText(conversation) {
-        // Пробуем user_message
-        let text = (conversation.user_message || '').trim();
-        if (text && !isSystemMessage(text)) {
-          return text;
-        }
-        
-        // Пробуем assistant_message
-        text = (conversation.assistant_message || '').trim();
-        if (text && !isSystemMessage(text)) {
-          return text;
-        }
-        
-        // Ничего нет
-        return '';
-      }
-      
-      /**
-       * Проверяет, есть ли реальный caller_number
-       */
-      function hasRealCallerNumber(callerNumber) {
-        if (!callerNumber) return false;
-        const trimmed = callerNumber.trim();
-        return trimmed !== '' && trimmed.toLowerCase() !== 'null';
-      }
-      
-      // ============================================================================
-      // 🆕 v3.2: ФУНКЦИИ ДЛЯ FUNCTION CALLS В МОДАЛКЕ
+      // FUNCTION CALLS В МОДАЛКЕ
       // ============================================================================
       
       // Toggle function details в модальном окне
@@ -2270,7 +2293,7 @@
       }
       
       // ============================================================================
-      // 🆕 TELEGRAM НАСТРОЙКИ
+      // TELEGRAM НАСТРОЙКИ
       // ============================================================================
       
       function updateTelegramUI(configured) {
@@ -2305,7 +2328,6 @@
         try {
           const settings = await api.get('/users/telegram-settings');
           
-          // API возвращает: { bot_token, chat_id, is_configured }
           if (settings.is_configured) {
             telegramBotToken.value = settings.bot_token || '';
             telegramChatId.value = settings.chat_id || '';
@@ -2471,7 +2493,7 @@
       window.deleteConversation = deleteConversation;
       
       // ============================================================================
-      // СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА (🆕 v3.5: исправлено)
+      // СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА (🆕 v3.6: улучшенный preview)
       // ============================================================================
       
       function createConversationCard(conversation) {
@@ -2484,7 +2506,7 @@
         card.className = 'conversation-card';
         card.onclick = () => openConversationDetail(conversation.id, assistantType);
         
-        // 🆕 v3.5 FIX: Проверяем реальный caller_number
+        // 🆕 v3.6: Используем улучшенную проверку caller_number
         const callerDisplay = hasRealCallerNumber(conversation.caller_number)
           ? `<div class="caller-info">
               <i class="fas fa-phone"></i>
@@ -2495,11 +2517,9 @@
               <span>Web чат</span>
             </div>`;
         
-        // 🆕 v3.5 FIX: Получаем чистый preview без системных сообщений
+        // 🆕 v3.6: Используем улучшенный preview с fallback
         const previewText = getCleanPreviewText(conversation);
-        const preview = previewText 
-          ? (previewText.length > 100 ? previewText.substring(0, 100) + '...' : previewText)
-          : 'Нет сообщений';
+        const preview = previewText.length > 100 ? previewText.substring(0, 100) + '...' : previewText;
         
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini' 
@@ -2717,7 +2737,7 @@
       }
       
       // ============================================================================
-      // ДЕТАЛЬНЫЙ ПРОСМОТР (🆕 v3.5: фильтрация системных сообщений)
+      // ДЕТАЛЬНЫЙ ПРОСМОТР (🆕 v3.6: улучшенная фильтрация)
       // ============================================================================
       
       async function openConversationDetail(conversationId, assistantType = 'openai') {
@@ -2733,7 +2753,7 @@
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
           
-          // 🆕 v3.5 FIX: Проверяем реальный caller_number
+          // 🆕 v3.6: Используем улучшенную проверку caller_number
           const callerBadge = hasRealCallerNumber(dialog.caller_number)
             ? `<span class="stat-badge"><i class="fas fa-phone"></i> ${dialog.caller_number}</span>`
             : `<span class="stat-badge"><i class="fas fa-globe"></i> Web чат</span>`;
@@ -2762,7 +2782,7 @@
           chatContainer.innerHTML = '';
           
           if (dialog.messages && dialog.messages.length > 0) {
-            // 🆕 v3.5 FIX: Фильтруем системные сообщения
+            // 🆕 v3.6: Фильтруем системные сообщения используя isSystemMessage
             const filteredMessages = dialog.messages.filter(msg => {
               const text = (msg.text || '').trim();
               return text && !isSystemMessage(text);
@@ -2775,7 +2795,7 @@
               
               const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : '🤖');
               
-              // 🆕 v3.2: Генерируем HTML для function_calls если есть
+              // Function calls под сообщениями
               let functionCallsHtml = '';
               if (msg.function_calls && msg.function_calls.length > 0) {
                 const functionsItems = msg.function_calls.map(fc => {
@@ -2839,14 +2859,14 @@
             
             // Показываем сообщение если все отфильтровано
             if (filteredMessages.length === 0) {
-              chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
+              chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">🎤 Голосовой диалог без текстовых сообщений</div>';
             }
             
             setTimeout(() => {
               chatContainer.scrollTop = chatContainer.scrollHeight;
             }, 100);
           } else {
-            chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
+            chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">🎤 Голосовой диалог без текстовых сообщений</div>';
           }
           
           let footerHtml = `
@@ -2884,7 +2904,7 @@
             `;
           }
           
-          // 🆕 v3.2: Упрощённый футер - только счётчик функций (детали под сообщениями)
+          // Упрощённый футер - только счётчик функций
           if (dialog.function_calls && dialog.function_calls.length > 0) {
             const successCount = dialog.function_calls.filter(f => f.status === 'success').length;
             const errorCount = dialog.function_calls.length - successCount;
@@ -3051,7 +3071,7 @@
         loadConversations();
       });
       
-      // 🆕 Загружаем статус Telegram при старте
+      // Загружаем статус Telegram при старте
       loadTelegramSettings();
 
       // Обработчики модалки блокировки функции
