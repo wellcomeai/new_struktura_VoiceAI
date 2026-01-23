@@ -1,6 +1,6 @@
 # backend/websockets/handler_gemini.py
 """
-🚀 PRODUCTION VERSION 1.5.1 - Google Gemini Live API Handler
+🚀 PRODUCTION VERSION 1.6.0 - Google Gemini Live API Handler
 ✅ PURE GEMINI VAD - removed client-side commit logic
 ✅ Continuous audio streaming - Gemini decides when to respond
 ✅ Complete function calling support with toolCall event handler
@@ -28,6 +28,12 @@ CRITICAL FIXES in v1.4:
 ✨✨✨ FIX in v1.5.1 - SESSION MANAGEMENT: ✨✨✨
 🔧 FIX: async_save_function_log создаёт НОВУЮ сессию БД внутри задачи
 🔧 Исправлена ошибка "Session is closed" при асинхронном логировании
+
+✨✨✨ NEW in v1.6.0 - STRUCTURED DIALOG TURNS: ✨✨✨
+🎯 Разделение диалога на отдельные реплики (turns)
+🎯 Поддержка finished/is_final для определения границ реплик
+🎯 Каждая реплика сохраняется отдельно в БД и Google Sheets
+🎯 Debug-логирование полной структуры транскрипт-событий
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -50,7 +56,7 @@ from backend.utils.audio_utils import base64_to_audio_buffer
 from backend.websockets.gemini_client import GeminiLiveClient
 from backend.services.google_sheets_service import GoogleSheetsService
 from backend.services.conversation_service import ConversationService
-from backend.services.function_log_service import FunctionLogService  # 🆕 v1.5
+from backend.services.function_log_service import FunctionLogService
 from backend.functions import execute_function, normalize_function_name
 
 logger = get_logger(__name__)
@@ -69,12 +75,14 @@ active_gemini_connections: Dict[str, List[WebSocket]] = {}
 
 # Debug mode
 ENABLE_DETAILED_LOGGING = True
+# 🆕 v1.6.0: Включить подробное логирование структуры транскриптов
+ENABLE_TRANSCRIPT_DEBUG = True
 
 
 def log_to_render(message: str, level: str = "INFO"):
     """Force log to Render stdout immediately"""
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    log_msg = f"{timestamp} - [GEMINI v1.5.1] {level} - {message}"
+    log_msg = f"{timestamp} - [GEMINI v1.6.0] {level} - {message}"
     print(log_msg, flush=True)
     if level == "ERROR":
         logger.error(message)
@@ -143,18 +151,19 @@ async def handle_gemini_websocket_connection(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v1.5.1 - Main WebSocket handler for Gemini Live API
+    🚀 PRODUCTION v1.6.0 - Main WebSocket handler for Gemini Live API
     ✅ Pure Gemini VAD - continuous audio streaming
     ✅ Audio transcription support
     🆕 v1.5: FunctionLog tracking
     🔧 v1.5.1: Fixed db_session issue in async_save_function_log
+    🎯 v1.6.0: Structured dialog turns support
     """
     client_id = str(uuid.uuid4())
     gemini_client = None
     connection_start = time.time()
     
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    log_to_render(f"🚀 NEW GEMINI CONNECTION INITIATED (v1.5.1 - FunctionLog FIX)")
+    log_to_render(f"🚀 NEW GEMINI CONNECTION INITIATED (v1.6.0 - Structured Dialog)")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
     log_to_render(f"   Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -202,6 +211,7 @@ async def handle_gemini_websocket_connection(
         log_to_render(f"   Model: gemini-2.5-flash-native-audio-preview-09-2025")
         log_to_render(f"   Thinking enabled: {getattr(assistant, 'enable_thinking', False)}")
         log_to_render(f"   Transcription: ENABLED")
+        log_to_render(f"   🎯 Structured dialog: ENABLED (v1.6.0)")
 
         # Extract enabled functions
         functions = getattr(assistant, "functions", None)
@@ -297,7 +307,7 @@ async def handle_gemini_websocket_connection(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Gemini Live API (Production v1.5.1 - FunctionLog FIX)",
+            "message": "Connected to Gemini Live API (Production v1.6.0 - Structured Dialog)",
             "model": "gemini-2.5-flash-native-audio-preview-09-2025",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
@@ -305,7 +315,8 @@ async def handle_gemini_websocket_connection(
             "transcription_enabled": True,
             "client_id": client_id,
             "vad_mode": "gemini_native",
-            "function_logging": True  # 🆕 v1.5
+            "function_logging": True,
+            "structured_dialog": True  # 🆕 v1.6.0
         })
 
         # Interruption state
@@ -318,7 +329,7 @@ async def handle_gemini_websocket_connection(
             "last_interruption_time": 0
         }
 
-        log_to_render(f"🎬 Starting Gemini message handler (v1.5.1 - FunctionLog FIX)...")
+        log_to_render(f"🎬 Starting Gemini message handler (v1.6.0 - Structured Dialog)...")
         # Start Gemini message handler
         gemini_task = asyncio.create_task(
             handle_gemini_messages(gemini_client, websocket, interruption_state)
@@ -496,7 +507,7 @@ async def handle_gemini_messages(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v1.5.1 - Handle messages from Gemini Live API
+    🚀 PRODUCTION v1.6.0 - Handle messages from Gemini Live API
     ✅ Complete function calling support
     ✅ Google Sheets logging
     ✅ Database integration
@@ -504,14 +515,24 @@ async def handle_gemini_messages(
     ✅ Maximum logging for debugging
     🆕 v1.5: FunctionLog tracking for all function calls
     🔧 v1.5.1: Fixed db_session issue in async_save_function_log
+    🎯 v1.6.0: Structured dialog turns - каждая реплика сохраняется отдельно
     """
     if not gemini_client.is_connected or not gemini_client.ws:
         log_to_render(f"❌ Gemini client not connected", "ERROR")
         return
     
-    # Transcripts
-    user_transcript = ""
-    assistant_transcript = ""
+    # 🆕 v1.6.0: Структурированные реплики диалога
+    # Списки завершённых реплик
+    user_turns: List[str] = []  # Завершённые реплики пользователя
+    assistant_turns: List[str] = []  # Завершённые реплики ассистента
+    
+    # Текущие (незавершённые) реплики - накапливаем стриминговые части
+    current_user_utterance = ""
+    current_assistant_utterance = ""
+    
+    # Счётчик реплик для отладки
+    user_turn_count = 0
+    assistant_turn_count = 0
     
     # Function tracking
     pending_function_call = {
@@ -526,12 +547,13 @@ async def handle_gemini_messages(
     transcript_events_received = 0
     
     try:
-        log_to_render(f"🎭 Gemini message handler started (v1.5.1 - FunctionLog FIX)")
+        log_to_render(f"🎭 Gemini message handler started (v1.6.0 - Structured Dialog)")
         log_to_render(f"   Client ID: {gemini_client.client_id}")
         log_to_render(f"   Session ID: {gemini_client.session_id}")
         log_to_render(f"   Enabled functions: {gemini_client.enabled_functions}")
         log_to_render(f"   VAD mode: Pure Gemini (automatic)")
         log_to_render(f"   Transcription: ENABLED")
+        log_to_render(f"   🎯 Structured dialog turns: ENABLED")
         log_to_render(f"   📝 All function calls will be logged to function_logs table!")
         
         while True:
@@ -562,11 +584,12 @@ async def handle_gemini_messages(
                 
                 # Setup complete
                 if "setupComplete" in response_data:
-                    log_to_render(f"✅ Gemini setup complete (transcription enabled)")
+                    log_to_render(f"✅ Gemini setup complete (transcription enabled, structured dialog)")
                     await websocket.send_json({
                         "type": "gemini.setup.complete",
                         "timestamp": time.time(),
-                        "transcription_enabled": True
+                        "transcription_enabled": True,
+                        "structured_dialog": True
                     })
                     continue
                 
@@ -576,7 +599,7 @@ async def handle_gemini_messages(
                     function_calls = tool_call.get("functionCalls", [])
                     
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    log_to_render(f"🔧 TOOL CALL EVENT (top-level) - v1.5.1 FunctionLog FIX")
+                    log_to_render(f"🔧 TOOL CALL EVENT (top-level) - v1.6.0")
                     log_to_render(f"   Function calls: {len(function_calls)}")
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
@@ -627,7 +650,7 @@ async def handle_gemini_messages(
                             
                             log_to_render(f"✅ Function executed: {execution_time:.3f}s ({execution_time_ms:.2f}ms)")
                             
-                            # 🆕 v1.5.1: Log to FunctionLog (async) - БЕЗ db_session!
+                            # 🆕 v1.5.1: Log to FunctionLog (async)
                             user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                             assistant_id = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                             
@@ -644,7 +667,7 @@ async def handle_gemini_messages(
                                     error_message=None
                                 )
                             )
-                            log_to_render(f"⚡ [v1.5.1] FunctionLog save task created")
+                            log_to_render(f"⚡ [v1.6.0] FunctionLog save task created")
                             
                             # Send result to Gemini
                             log_to_render(f"📤 Sending function result to Gemini...")
@@ -681,7 +704,7 @@ async def handle_gemini_messages(
                             log_to_render(f"❌ Function execution error: {e}", "ERROR")
                             log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
                             
-                            # 🆕 v1.5.1: Log error to FunctionLog (async) - БЕЗ db_session!
+                            # Log error to FunctionLog
                             user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                             assistant_id = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                             
@@ -698,7 +721,6 @@ async def handle_gemini_messages(
                                     error_message=error_message
                                 )
                             )
-                            log_to_render(f"⚡ [v1.5.1] Error FunctionLog save task created")
                             
                             await websocket.send_json({
                                 "type": "error",
@@ -711,33 +733,111 @@ async def handle_gemini_messages(
                 if "serverContent" in response_data:
                     server_content = response_data["serverContent"]
                     
-                    # ✅ ТРАНСКРИПЦИЯ ВХОДЯЩЕГО АУДИО (пользователя)
+                    # ═══════════════════════════════════════════════════════════════
+                    # 🆕 v1.6.0: ТРАНСКРИПЦИЯ ВХОДЯЩЕГО АУДИО (пользователя)
+                    # ═══════════════════════════════════════════════════════════════
                     if "inputTranscription" in server_content:
                         input_trans = server_content["inputTranscription"]
+                        
+                        # 🔍 DEBUG: Логируем полную структуру события
+                        if ENABLE_TRANSCRIPT_DEBUG:
+                            log_to_render(f"🔍 INPUT_TRANS KEYS: {list(input_trans.keys())}")
+                            log_to_render(f"🔍 INPUT_TRANS RAW: {json.dumps(input_trans, ensure_ascii=False)[:500]}")
+                        
                         if "text" in input_trans:
                             transcript_text = input_trans["text"]
-                            user_transcript += transcript_text
                             transcript_events_received += 1
-                            log_to_render(f"👤 USER TRANSCRIPT: {transcript_text}")
                             
+                            # Накапливаем текущую реплику
+                            current_user_utterance += transcript_text
+                            
+                            log_to_render(f"👤 USER TRANSCRIPT CHUNK: '{transcript_text}'")
+                            log_to_render(f"   Current utterance: '{current_user_utterance}'")
+                            
+                            # Отправляем клиенту стриминговый чанк
                             await websocket.send_json({
                                 "type": "input.transcription",
-                                "text": transcript_text
+                                "text": transcript_text,
+                                "is_chunk": True
                             })
+                        
+                        # 🎯 v1.6.0: Проверяем маркеры завершения реплики
+                        is_finished = input_trans.get("finished", False)
+                        is_final = input_trans.get("is_final", False)
+                        end_of_turn = input_trans.get("endOfTurn", False)
+                        
+                        if is_finished or is_final or end_of_turn:
+                            if current_user_utterance.strip():
+                                user_turn_count += 1
+                                completed_utterance = current_user_utterance.strip()
+                                user_turns.append(completed_utterance)
+                                
+                                log_to_render(f"✅ USER TURN #{user_turn_count} COMPLETED: '{completed_utterance}'")
+                                log_to_render(f"   Trigger: finished={is_finished}, is_final={is_final}, endOfTurn={end_of_turn}")
+                                
+                                # Отправляем клиенту завершённую реплику
+                                await websocket.send_json({
+                                    "type": "input.transcription.complete",
+                                    "text": completed_utterance,
+                                    "turn_number": user_turn_count,
+                                    "is_final": True
+                                })
+                                
+                                # Сбрасываем буфер
+                                current_user_utterance = ""
                     
-                    # ✅ ТРАНСКРИПЦИЯ ОТВЕТА МОДЕЛИ (ассистента)
+                    # ═══════════════════════════════════════════════════════════════
+                    # 🆕 v1.6.0: ТРАНСКРИПЦИЯ ОТВЕТА МОДЕЛИ (ассистента)
+                    # ═══════════════════════════════════════════════════════════════
                     if "outputTranscription" in server_content:
                         output_trans = server_content["outputTranscription"]
+                        
+                        # 🔍 DEBUG: Логируем полную структуру события
+                        if ENABLE_TRANSCRIPT_DEBUG:
+                            log_to_render(f"🔍 OUTPUT_TRANS KEYS: {list(output_trans.keys())}")
+                            log_to_render(f"🔍 OUTPUT_TRANS RAW: {json.dumps(output_trans, ensure_ascii=False)[:500]}")
+                        
                         if "text" in output_trans:
                             transcript_text = output_trans["text"]
-                            assistant_transcript += transcript_text
                             transcript_events_received += 1
-                            log_to_render(f"🤖 ASSISTANT TRANSCRIPT: {transcript_text}")
                             
+                            # Накапливаем текущую реплику
+                            current_assistant_utterance += transcript_text
+                            
+                            log_to_render(f"🤖 ASSISTANT TRANSCRIPT CHUNK: '{transcript_text}'")
+                            log_to_render(f"   Current utterance length: {len(current_assistant_utterance)} chars")
+                            
+                            # Отправляем клиенту стриминговый чанк
                             await websocket.send_json({
                                 "type": "output.transcription",
-                                "text": transcript_text
+                                "text": transcript_text,
+                                "is_chunk": True
                             })
+                        
+                        # 🎯 v1.6.0: Проверяем маркеры завершения реплики
+                        is_finished = output_trans.get("finished", False)
+                        is_final = output_trans.get("is_final", False)
+                        end_of_turn = output_trans.get("endOfTurn", False)
+                        
+                        if is_finished or is_final or end_of_turn:
+                            if current_assistant_utterance.strip():
+                                assistant_turn_count += 1
+                                completed_utterance = current_assistant_utterance.strip()
+                                assistant_turns.append(completed_utterance)
+                                
+                                log_to_render(f"✅ ASSISTANT TURN #{assistant_turn_count} COMPLETED: '{completed_utterance[:100]}...'")
+                                log_to_render(f"   Trigger: finished={is_finished}, is_final={is_final}, endOfTurn={end_of_turn}")
+                                
+                                # Отправляем клиенту завершённую реплику
+                                await websocket.send_json({
+                                    "type": "output.transcription.complete",
+                                    "text": completed_utterance,
+                                    "turn_number": assistant_turn_count,
+                                    "is_final": True
+                                })
+                                
+                                # Сбрасываем буфер
+                                current_assistant_utterance = ""
                     
                     # Check for interruption
                     if server_content.get("interrupted"):
@@ -746,6 +846,14 @@ async def handle_gemini_messages(
                         interruption_state["last_interruption_time"] = time.time()
                         interruption_state["is_assistant_speaking"] = False
                         gemini_client.set_assistant_speaking(False)
+                        
+                        # 🆕 v1.6.0: При прерывании сохраняем незавершённые реплики
+                        if current_assistant_utterance.strip():
+                            assistant_turn_count += 1
+                            completed_utterance = current_assistant_utterance.strip() + " [прервано]"
+                            assistant_turns.append(completed_utterance)
+                            log_to_render(f"⚡ ASSISTANT TURN #{assistant_turn_count} INTERRUPTED: '{completed_utterance[:50]}...'")
+                            current_assistant_utterance = ""
                         
                         await websocket.send_json({
                             "type": "conversation.interrupted",
@@ -799,7 +907,7 @@ async def handle_gemini_messages(
                                 arguments = function_call.get("args", {})
                                 
                                 log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                log_to_render(f"🔧 FUNCTION CALL DETECTED (modelTurn) - v1.5.1 FunctionLog FIX")
+                                log_to_render(f"🔧 FUNCTION CALL DETECTED (modelTurn) - v1.6.0")
                                 log_to_render(f"   Function: {function_name}")
                                 log_to_render(f"   Arguments: {json.dumps(arguments, ensure_ascii=False)[:200]}")
                                 log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -865,7 +973,7 @@ async def handle_gemini_messages(
                                     log_to_render(f"✅ FUNCTION EXECUTED SUCCESSFULLY")
                                     log_to_render(f"   Execution time: {execution_time:.3f}s ({execution_time_ms:.2f}ms)")
                                     
-                                    # 🆕 v1.5.1: Log to FunctionLog (async) - БЕЗ db_session!
+                                    # Log to FunctionLog (async)
                                     user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                                     assistant_id_str = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                                     
@@ -882,7 +990,6 @@ async def handle_gemini_messages(
                                             error_message=None
                                         )
                                     )
-                                    log_to_render(f"⚡ [v1.5.1] FunctionLog save task created (modelTurn)")
                                     
                                     # Fast display for query_llm
                                     if normalized_name == "query_llm":
@@ -915,8 +1022,9 @@ async def handle_gemini_messages(
                                             if conv:
                                                 function_summary = f"[Function: {normalized_name}] Result: {json.dumps(result, ensure_ascii=False)[:200]}"
                                                 conv.assistant_message = function_summary
-                                                if user_transcript and not conv.user_message:
-                                                    conv.user_message = user_transcript
+                                                # 🆕 v1.6.0: Сохраняем последнюю реплику пользователя
+                                                if user_turns and not conv.user_message:
+                                                    conv.user_message = user_turns[-1]
                                                 gemini_client.db_session.commit()
                                                 log_to_render(f"✅ DATABASE UPDATE SUCCESSFUL")
                                         except Exception as e:
@@ -927,9 +1035,12 @@ async def handle_gemini_messages(
                                         sheet_id = gemini_client.assistant_config.google_sheet_id
                                         
                                         try:
+                                            # 🆕 v1.6.0: Используем последнюю реплику пользователя
+                                            user_msg = user_turns[-1] if user_turns else f"[Function call: {normalized_name}]"
+                                            
                                             sheets_result = await GoogleSheetsService.log_conversation(
                                                 sheet_id=sheet_id,
-                                                user_message=user_transcript or f"[Function call: {normalized_name}]",
+                                                user_message=user_msg,
                                                 assistant_message=f"[Function executed: {normalized_name}]",
                                                 function_result=result,
                                                 conversation_id=gemini_client.conversation_record_id
@@ -977,7 +1088,7 @@ async def handle_gemini_messages(
                                     log_to_render(f"❌ Function execution ERROR: {e}", "ERROR")
                                     log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
                                     
-                                    # 🆕 v1.5.1: Log error to FunctionLog (async) - БЕЗ db_session!
+                                    # Log error to FunctionLog
                                     user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                                     assistant_id_str = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                                     
@@ -994,7 +1105,6 @@ async def handle_gemini_messages(
                                             error_message=error_message
                                         )
                                     )
-                                    log_to_render(f"⚡ [v1.5.1] Error FunctionLog save task created (modelTurn)")
                                     
                                     await websocket.send_json({
                                         "type": "error",
@@ -1004,10 +1114,29 @@ async def handle_gemini_messages(
                                 # Clear pending
                                 pending_function_call = {"name": None, "call_id": None, "arguments": {}}
                         
-                        # Turn complete
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🆕 v1.6.0: Turn complete - сохраняем все реплики
+                        # ═══════════════════════════════════════════════════════════════
                         if server_content.get("turnComplete"):
                             log_to_render(f"🏁 Turn complete")
-                            log_to_render(f"📊 TRANSCRIPTS - User: {len(user_transcript)} chars | Assistant: {len(assistant_transcript)} chars")
+                            log_to_render(f"📊 DIALOG STATS:")
+                            log_to_render(f"   User turns: {len(user_turns)}")
+                            log_to_render(f"   Assistant turns: {len(assistant_turns)}")
+                            log_to_render(f"   Current user buffer: {len(current_user_utterance)} chars")
+                            log_to_render(f"   Current assistant buffer: {len(current_assistant_utterance)} chars")
+                            
+                            # Сохраняем незавершённые реплики (если есть)
+                            if current_user_utterance.strip():
+                                user_turn_count += 1
+                                user_turns.append(current_user_utterance.strip())
+                                log_to_render(f"✅ USER TURN #{user_turn_count} (from buffer): '{current_user_utterance.strip()}'")
+                                current_user_utterance = ""
+                            
+                            if current_assistant_utterance.strip():
+                                assistant_turn_count += 1
+                                assistant_turns.append(current_assistant_utterance.strip())
+                                log_to_render(f"✅ ASSISTANT TURN #{assistant_turn_count} (from buffer): '{current_assistant_utterance.strip()[:100]}...'")
+                                current_assistant_utterance = ""
                             
                             if interruption_state["is_assistant_speaking"]:
                                 interruption_state["is_assistant_speaking"] = False
@@ -1018,59 +1147,77 @@ async def handle_gemini_messages(
                                     "timestamp": time.time()
                                 })
                             
-                            # ✅ ЛОГИРОВАНИЕ С ТРАНСКРИПТАМИ
-                            if user_transcript or assistant_transcript:
-                                final_user = user_transcript or "[Voice input - no text transcript]"
-                                final_assistant = assistant_transcript or "[Voice response - no text transcript]"
+                            # ═══════════════════════════════════════════════════════════════
+                            # 🆕 v1.6.0: СОХРАНЕНИЕ КАЖДОЙ ПАРЫ РЕПЛИК ОТДЕЛЬНО
+                            # ═══════════════════════════════════════════════════════════════
+                            if user_turns or assistant_turns:
+                                log_to_render(f"💾 Saving structured dialog turns...")
+                                log_to_render(f"   User turns to save: {user_turns}")
+                                log_to_render(f"   Assistant turns to save: {[t[:50]+'...' for t in assistant_turns]}")
                                 
-                                log_to_render(f"💾 Saving dialog with transcripts")
-                                log_to_render(f"   User: {final_user[:100]}...")
-                                log_to_render(f"   Assistant: {final_assistant[:100]}...")
+                                # Определяем максимальное количество пар
+                                max_pairs = max(len(user_turns), len(assistant_turns))
                                 
-                                # Save to DB
-                                try:
-                                    await ConversationService.save_conversation(
-                                        db=gemini_client.db_session,
-                                        assistant_id=str(gemini_client.assistant_config.id),
-                                        user_message=final_user,
-                                        assistant_message=final_assistant,
-                                        session_id=gemini_client.session_id,
-                                        caller_number=None,
-                                        tokens_used=0
-                                    )
-                                    log_to_render(f"✅ Dialog saved to DB")
-                                except Exception as e:
-                                    log_to_render(f"❌ Error saving dialog: {e}", "ERROR")
-                                
-                                # ✅ Google Sheets logging for regular dialog
-                                if gemini_client.assistant_config and gemini_client.assistant_config.google_sheet_id:
-                                    log_to_render(f"📊 Attempting Google Sheets log...")
-                                    log_to_render(f"   Sheet ID: {gemini_client.assistant_config.google_sheet_id[:20]}...")
+                                for i in range(max_pairs):
+                                    user_msg = user_turns[i] if i < len(user_turns) else ""
+                                    assistant_msg = assistant_turns[i] if i < len(assistant_turns) else ""
                                     
+                                    if not user_msg and not assistant_msg:
+                                        continue
+                                    
+                                    log_to_render(f"💾 Saving turn pair #{i+1}:")
+                                    log_to_render(f"   User: '{user_msg[:50]}...' ({len(user_msg)} chars)")
+                                    log_to_render(f"   Assistant: '{assistant_msg[:50]}...' ({len(assistant_msg)} chars)")
+                                    
+                                    # Save to DB
                                     try:
-                                        sheets_result = await GoogleSheetsService.log_conversation(
-                                            sheet_id=gemini_client.assistant_config.google_sheet_id,
-                                            user_message=final_user,
-                                            assistant_message=final_assistant,
-                                            function_result=None,
-                                            conversation_id=gemini_client.conversation_record_id
+                                        await ConversationService.save_conversation(
+                                            db=gemini_client.db_session,
+                                            assistant_id=str(gemini_client.assistant_config.id),
+                                            user_message=user_msg or "[no user input]",
+                                            assistant_message=assistant_msg or "[no response]",
+                                            session_id=gemini_client.session_id,
+                                            caller_number=None,
+                                            tokens_used=0
                                         )
-                                        
-                                        if sheets_result:
-                                            log_to_render(f"✅ ✅ ✅ GOOGLE SHEETS LOGGED SUCCESSFULLY ✅ ✅ ✅")
-                                        else:
-                                            log_to_render(f"❌ Google Sheets returned False", "ERROR")
+                                        log_to_render(f"✅ Turn pair #{i+1} saved to DB")
                                     except Exception as e:
-                                        log_to_render(f"❌ Sheets error: {e}", "ERROR")
-                                        log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
-                                else:
-                                    log_to_render(f"⚠️ Skipping Sheets: no google_sheet_id configured", "WARNING")
+                                        log_to_render(f"❌ Error saving turn pair #{i+1} to DB: {e}", "ERROR")
+                                    
+                                    # Save to Google Sheets
+                                    if gemini_client.assistant_config and gemini_client.assistant_config.google_sheet_id:
+                                        try:
+                                            sheets_result = await GoogleSheetsService.log_conversation(
+                                                sheet_id=gemini_client.assistant_config.google_sheet_id,
+                                                user_message=user_msg or "[no user input]",
+                                                assistant_message=assistant_msg or "[no response]",
+                                                function_result=None,
+                                                conversation_id=gemini_client.conversation_record_id
+                                            )
+                                            
+                                            if sheets_result:
+                                                log_to_render(f"✅ Turn pair #{i+1} saved to Google Sheets")
+                                            else:
+                                                log_to_render(f"❌ Google Sheets save failed for turn #{i+1}", "ERROR")
+                                        except Exception as e:
+                                            log_to_render(f"❌ Sheets error for turn #{i+1}: {e}", "ERROR")
+                                
+                                # Отправляем клиенту структурированный диалог
+                                await websocket.send_json({
+                                    "type": "dialog.turns.complete",
+                                    "user_turns": user_turns,
+                                    "assistant_turns": assistant_turns,
+                                    "total_pairs": max_pairs
+                                })
+                                
                             else:
-                                log_to_render(f"⚠️ Skipping dialog save: both transcripts empty", "WARNING")
+                                log_to_render(f"⚠️ Skipping dialog save: no turns collected", "WARNING")
                             
-                            # Reset transcripts
-                            user_transcript = ""
-                            assistant_transcript = ""
+                            # Очищаем списки реплик для следующего цикла
+                            user_turns = []
+                            assistant_turns = []
+                            user_turn_count = 0
+                            assistant_turn_count = 0
                 
                 # User transcript from clientContent (если есть)
                 if "clientContent" in response_data:
@@ -1103,49 +1250,70 @@ async def handle_gemini_messages(
         log_to_render(f"❌ CRITICAL Handler error: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
     finally:
-        # ✅ РЕЗЕРВНОЕ ЛОГИРОВАНИЕ если есть несохранённые транскрипты
-        if (user_transcript or assistant_transcript) and gemini_client.assistant_config:
-            log_to_render(f"💾 FINAL SAVE: Found unsaved transcripts on disconnect")
-            log_to_render(f"   User: {len(user_transcript)} chars")
-            log_to_render(f"   Assistant: {len(assistant_transcript)} chars")
+        # ═══════════════════════════════════════════════════════════════
+        # 🆕 v1.6.0: РЕЗЕРВНОЕ СОХРАНЕНИЕ при disconnect
+        # ═══════════════════════════════════════════════════════════════
+        log_to_render(f"💾 FINAL SAVE CHECK on disconnect...")
+        log_to_render(f"   Pending user turns: {len(user_turns)}")
+        log_to_render(f"   Pending assistant turns: {len(assistant_turns)}")
+        log_to_render(f"   Current user buffer: {len(current_user_utterance)} chars")
+        log_to_render(f"   Current assistant buffer: {len(current_assistant_utterance)} chars")
+        
+        # Добавляем незавершённые буферы
+        if current_user_utterance.strip():
+            user_turns.append(current_user_utterance.strip())
+        if current_assistant_utterance.strip():
+            assistant_turns.append(current_assistant_utterance.strip() + " [disconnected]")
+        
+        # Сохраняем оставшиеся реплики
+        if (user_turns or assistant_turns) and gemini_client.assistant_config:
+            log_to_render(f"💾 FINAL SAVE: Found unsaved turns on disconnect")
             
-            final_user = user_transcript or "[Voice input - no text transcript]"
-            final_assistant = assistant_transcript or "[Voice response - incomplete]"
+            max_pairs = max(len(user_turns), len(assistant_turns))
             
-            # Save to DB
-            try:
-                await ConversationService.save_conversation(
-                    db=gemini_client.db_session,
-                    assistant_id=str(gemini_client.assistant_config.id),
-                    user_message=final_user,
-                    assistant_message=final_assistant,
-                    session_id=gemini_client.session_id,
-                    caller_number=None,
-                    tokens_used=0
-                )
-                log_to_render(f"✅ Final transcripts saved to DB")
-            except Exception as e:
-                log_to_render(f"❌ Final DB save error: {e}", "ERROR")
-            
-            # Save to Google Sheets
-            if gemini_client.assistant_config.google_sheet_id:
+            for i in range(max_pairs):
+                user_msg = user_turns[i] if i < len(user_turns) else ""
+                assistant_msg = assistant_turns[i] if i < len(assistant_turns) else ""
+                
+                if not user_msg and not assistant_msg:
+                    continue
+                
+                # Save to DB
                 try:
-                    sheets_result = await GoogleSheetsService.log_conversation(
-                        sheet_id=gemini_client.assistant_config.google_sheet_id,
-                        user_message=final_user,
-                        assistant_message=final_assistant,
-                        function_result=None,
-                        conversation_id=gemini_client.conversation_record_id
+                    await ConversationService.save_conversation(
+                        db=gemini_client.db_session,
+                        assistant_id=str(gemini_client.assistant_config.id),
+                        user_message=user_msg or "[no user input]",
+                        assistant_message=assistant_msg or "[incomplete - disconnected]",
+                        session_id=gemini_client.session_id,
+                        caller_number=None,
+                        tokens_used=0
                     )
-                    
-                    if sheets_result:
-                        log_to_render(f"✅ Final transcripts saved to Google Sheets")
-                    else:
-                        log_to_render(f"❌ Final Sheets save failed", "ERROR")
+                    log_to_render(f"✅ Final turn #{i+1} saved to DB")
                 except Exception as e:
-                    log_to_render(f"❌ Final Sheets error: {e}", "ERROR")
+                    log_to_render(f"❌ Final DB save error for turn #{i+1}: {e}", "ERROR")
+                
+                # Save to Google Sheets
+                if gemini_client.assistant_config.google_sheet_id:
+                    try:
+                        sheets_result = await GoogleSheetsService.log_conversation(
+                            sheet_id=gemini_client.assistant_config.google_sheet_id,
+                            user_message=user_msg or "[no user input]",
+                            assistant_message=assistant_msg or "[incomplete - disconnected]",
+                            function_result=None,
+                            conversation_id=gemini_client.conversation_record_id
+                        )
+                        
+                        if sheets_result:
+                            log_to_render(f"✅ Final turn #{i+1} saved to Google Sheets")
+                        else:
+                            log_to_render(f"❌ Final Sheets save failed for turn #{i+1}", "ERROR")
+                    except Exception as e:
+                        log_to_render(f"❌ Final Sheets error for turn #{i+1}: {e}", "ERROR")
         
         log_to_render(f"📊 Final handler stats:")
         log_to_render(f"   Total events processed: {event_count}")
         log_to_render(f"   Functions executed: {function_execution_count}")
         log_to_render(f"   Transcript events received: {transcript_events_received}")
+        log_to_render(f"   Total user turns: {user_turn_count}")
+        log_to_render(f"   Total assistant turns: {assistant_turn_count}")
