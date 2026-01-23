@@ -1,6 +1,6 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 PRODUCTION VERSION 2.11.1 - OpenAI Realtime API Handler (Async Function Calls + FunctionLog)
+🚀 PRODUCTION VERSION 2.11.2 - OpenAI Realtime API Handler (Async Function Calls + FunctionLog)
 ✅ Fixed: Function name detection from multiple sources
 ✅ Enhanced: Maximum logging for debugging
 ✅ Fixed: conversation.item.created tracking
@@ -25,6 +25,11 @@
 ✨✨✨ FIX in v2.11.1 - SESSION MANAGEMENT: ✨✨✨
 🔧 FIX: async_save_function_log создаёт НОВУЮ сессию БД внутри задачи
 🔧 Исправлена ошибка "Session is closed" при асинхронном логировании
+
+✨✨✨ FIX in v2.11.2 - NO FUNCTION RESULT IN ASSISTANT_MESSAGE: ✨✨✨
+🔧 FIX: НЕ записываем результат функции как assistant_message
+🔧 Функция уже логируется в function_logs таблицу - не нужно дублировать!
+🔧 assistant_message теперь правильно заполняется из response.done
 
 ✅ Ready for production deployment
 """
@@ -75,7 +80,7 @@ ENABLE_DETAILED_LOGGING = True
 def log_to_render(message: str, level: str = "INFO"):
     """Force log to Render stdout immediately"""
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    log_msg = f"{timestamp} - [REALTIME-GA v2.11.1] {level} - {message}"
+    log_msg = f"{timestamp} - [REALTIME-GA v2.11.2] {level} - {message}"
     print(log_msg, flush=True)  # Force flush to stdout
     if level == "ERROR":
         logger.error(message)
@@ -231,7 +236,7 @@ async def async_save_function_log(
             db.close()
 
 
-# 🔥🔥🔥 v2.10/v2.11/v2.11.1: Async function execution with FunctionLog tracking
+# 🔥🔥🔥 v2.10/v2.11/v2.11.2: Async function execution with FunctionLog tracking
 async def execute_and_send_function_result(
     openai_client: 'OpenAIRealtimeClientNew',
     websocket: WebSocket,
@@ -242,9 +247,10 @@ async def execute_and_send_function_result(
     user_transcript: str = ""
 ):
     """
-    🔥 v2.10/v2.11/v2.11.1: Execute function in background WITHOUT blocking assistant speech!
+    🔥 v2.10/v2.11/v2.11.2: Execute function in background WITHOUT blocking assistant speech!
     🆕 v2.11: Added full FunctionLog tracking!
     🔧 v2.11.1: Fixed db_session parameter removal
+    🔧 v2.11.2: НЕ записываем результат функции как assistant_message (дубликат!)
     
     This is the KILLER FEATURE of GA API:
     - Function executes in background
@@ -267,7 +273,7 @@ async def execute_and_send_function_result(
     
     try:
         log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        log_to_render(f"🔥 [ASYNC FUNCTION v2.11.1] Background execution started")
+        log_to_render(f"🔥 [ASYNC FUNCTION v2.11.2] Background execution started")
         log_to_render(f"   Function: {function_name}")
         log_to_render(f"   Call ID: {function_call_id}")
         log_to_render(f"   Arguments: {json.dumps(arguments, ensure_ascii=False)[:200]}")
@@ -286,7 +292,7 @@ async def execute_and_send_function_result(
         status = "success"  # 🆕 v2.11: Update status on success
         
         log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        log_to_render(f"✅ [ASYNC FUNCTION v2.11.1] Execution completed!")
+        log_to_render(f"✅ [ASYNC FUNCTION v2.11.2] Execution completed!")
         log_to_render(f"   Function: {function_name}")
         log_to_render(f"   Execution time: {execution_time:.3f}s ({execution_time_ms:.2f}ms)")
         log_to_render(f"   Result preview: {str(result)[:200]}...")
@@ -295,7 +301,7 @@ async def execute_and_send_function_result(
         
         # 🚀 v2.8 maintained: Fast LLM result display for query_llm
         if function_name == "query_llm":
-            log_to_render(f"⚡ [ASYNC v2.11.1] QUERY_LLM - sending immediate result to frontend")
+            log_to_render(f"⚡ [ASYNC v2.11.2] QUERY_LLM - sending immediate result to frontend")
             
             llm_response_content = ""
             llm_model = "gpt-4"
@@ -306,7 +312,7 @@ async def execute_and_send_function_result(
             else:
                 llm_response_content = str(result)
             
-            log_to_render(f"📤 [ASYNC v2.11.1] Sending llm_result to frontend:")
+            log_to_render(f"📤 [ASYNC v2.11.2] Sending llm_result to frontend:")
             log_to_render(f"   Content length: {len(llm_response_content)}")
             log_to_render(f"   Model: {llm_model}")
             
@@ -321,25 +327,25 @@ async def execute_and_send_function_result(
                 "async_execution": True
             })
             
-            log_to_render(f"🎯 [ASYNC v2.11.1] llm_result sent! (execution was in background)")
+            log_to_render(f"🎯 [ASYNC v2.11.2] llm_result sent! (execution was in background)")
         
-        # 🚀 v2.9 maintained: Async background logging (non-blocking)
-        log_to_render(f"💾 [ASYNC v2.11.1] Starting background logging for function result")
+        # 🚀 v2.9/v2.11.2: Async background logging (non-blocking)
+        log_to_render(f"💾 [ASYNC v2.11.2] Starting background logging for function result")
         
         # Database save (async, non-blocking)
-        if openai_client.db_session and openai_client.conversation_record_id:
-            function_summary = f"[Function: {function_name}] Result: {json.dumps(result, ensure_ascii=False)[:200]}"
-            
+        # 🔧 v2.11.2 FIX: НЕ записываем результат функции как assistant_message
+        # Функция уже логируется в function_logs таблицу!
+        if openai_client.db_session and openai_client.conversation_record_id and user_transcript:
             asyncio.create_task(
                 async_save_to_database(
                     openai_client.db_session,
                     openai_client.conversation_record_id,
-                    user_transcript if user_transcript else None,
-                    None,
-                    function_summary
+                    user_transcript,
+                    None,  # assistant_message придёт позже в response.done
+                    None   # НЕ перезаписываем function_summary!
                 )
             )
-            log_to_render(f"⚡ [ASYNC v2.11.1] Database save task created")
+            log_to_render(f"⚡ [ASYNC v2.11.2] User transcript saved (function result in function_logs)")
         
         # Google Sheets logging (async, non-blocking)
         if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
@@ -352,10 +358,10 @@ async def execute_and_send_function_result(
                     assistant_message=f"[Async function executed: {function_name}]",
                     function_result=result,
                     conversation_id=openai_client.conversation_record_id,
-                    context="Async Function Call v2.11.1"
+                    context="Async Function Call v2.11.2"
                 )
             )
-            log_to_render(f"⚡ [ASYNC v2.11.1] Google Sheets task created")
+            log_to_render(f"⚡ [ASYNC v2.11.2] Google Sheets task created")
         
         # 🆕 v2.11.1: FunctionLog save (async, non-blocking) - БЕЗ db_session!
         user_id = str(openai_client.assistant_config.user_id) if openai_client.assistant_config and openai_client.assistant_config.user_id else None
@@ -374,22 +380,22 @@ async def execute_and_send_function_result(
                 error_message=None
             )
         )
-        log_to_render(f"⚡ [ASYNC v2.11.1] FunctionLog save task created")
+        log_to_render(f"⚡ [ASYNC v2.11.2] FunctionLog save task created")
         
-        log_to_render(f"✅ [ASYNC v2.11.1] All background logging tasks created")
+        log_to_render(f"✅ [ASYNC v2.11.2] All background logging tasks created")
         
         # Send result to OpenAI (v3.1 client with auto response.create)
-        log_to_render(f"📤 [ASYNC v2.11.1] Sending function result to OpenAI...")
+        log_to_render(f"📤 [ASYNC v2.11.2] Sending function result to OpenAI...")
         
         delivery_status = await openai_client.send_function_result(function_call_id, result)
         
-        log_to_render(f"📬 [ASYNC v2.11.1] Delivery status:")
+        log_to_render(f"📬 [ASYNC v2.11.2] Delivery status:")
         log_to_render(f"   Success: {delivery_status['success']}")
         if not delivery_status['success']:
             log_to_render(f"   Error: {delivery_status['error']}", "ERROR")
         
         if delivery_status["success"]:
-            log_to_render(f"✅ [ASYNC v2.11.1] Function result delivered to OpenAI")
+            log_to_render(f"✅ [ASYNC v2.11.2] Function result delivered to OpenAI")
             log_to_render(f"   🎭 Assistant will integrate result into ongoing speech!")
             
             # Notify frontend
@@ -402,7 +408,7 @@ async def execute_and_send_function_result(
                 "async_execution": True
             })
         else:
-            log_to_render(f"❌ [ASYNC v2.11.1] Function result delivery FAILED", "ERROR")
+            log_to_render(f"❌ [ASYNC v2.11.2] Function result delivery FAILED", "ERROR")
             
             await websocket.send_json({
                 "type": "function_call.delivery_error",
@@ -417,7 +423,7 @@ async def execute_and_send_function_result(
         status = "error"
         error_message = str(e)
         
-        log_to_render(f"❌ [ASYNC FUNCTION v2.11.1] Execution ERROR: {e}", "ERROR")
+        log_to_render(f"❌ [ASYNC FUNCTION v2.11.2] Execution ERROR: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
         
         # 🆕 v2.11.1: Log error to FunctionLog - БЕЗ db_session!
@@ -437,7 +443,7 @@ async def execute_and_send_function_result(
                 error_message=error_message
             )
         )
-        log_to_render(f"⚡ [ASYNC v2.11.1] Error FunctionLog save task created")
+        log_to_render(f"⚡ [ASYNC v2.11.2] Error FunctionLog save task created")
         
         # Send error to frontend
         await websocket.send_json({
@@ -455,9 +461,12 @@ async def handle_websocket_connection_new(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v2.11.1 - Main WebSocket handler with async function calls + FunctionLog
+    🚀 PRODUCTION v2.11.2 - Main WebSocket handler with async function calls + FunctionLog
     
-    v2.11.1 improvements:
+    v2.11.2 improvements:
+    - НЕ записываем результат функции как assistant_message (дубликат!)
+    
+    v2.11.1 maintained:
     - Fixed db_session issue in async_save_function_log
     
     v2.11 maintained:
@@ -472,7 +481,7 @@ async def handle_websocket_connection_new(
     connection_start = time.time()
     
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    log_to_render(f"🚀 NEW CONNECTION INITIATED (v2.11.1 - Async Functions + FunctionLog FIX)")
+    log_to_render(f"🚀 NEW CONNECTION INITIATED (v2.11.2 - Async Functions + FunctionLog + No Duplicate)")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
     log_to_render(f"   Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -545,7 +554,7 @@ async def handle_websocket_connection_new(
         log_to_render(f"🔧 Functions configuration:")
         log_to_render(f"   Enabled count: {len(enabled_functions)}")
         log_to_render(f"   Functions: {enabled_functions}")
-        log_to_render(f"   🔥 v2.11.1: All function calls will be logged to function_logs table!")
+        log_to_render(f"   🔥 v2.11.2: All function calls will be logged to function_logs table!")
 
         # Check Google Sheets config
         if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
@@ -630,7 +639,7 @@ async def handle_websocket_connection_new(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Realtime API (v2.11.1 - Async Functions + FunctionLog FIX)",
+            "message": "Connected to Realtime API (v2.11.2 - Async Functions + FunctionLog + No Duplicate)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
@@ -654,7 +663,7 @@ async def handle_websocket_connection_new(
             "last_interruption_time": 0
         }
 
-        log_to_render(f"🎬 Starting OpenAI message handler (v2.11.1 - Async Functions + FunctionLog FIX)...")
+        log_to_render(f"🎬 Starting OpenAI message handler (v2.11.2 - Async Functions + FunctionLog + No Duplicate)...")
         # Start OpenAI message handler
         openai_task = asyncio.create_task(
             handle_openai_messages_new(openai_client, websocket, interruption_state)
@@ -868,7 +877,10 @@ async def handle_openai_messages_new(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v2.11.1 - Handle messages from OpenAI with async function calls + FunctionLog
+    🚀 PRODUCTION v2.11.2 - Handle messages from OpenAI with async function calls + FunctionLog
+    
+    ✨ NEW in v2.11.2 - FIX:
+    - НЕ записываем результат функции как assistant_message (дубликат!)
     
     ✨ NEW in v2.11.1 - FIX:
     - Fixed db_session issue in async_save_function_log
@@ -908,7 +920,7 @@ async def handle_openai_messages_new(
     function_execution_count = 0
     
     try:
-        log_to_render(f"🎭 OpenAI message handler started (v2.11.1 - Async Functions + FunctionLog FIX)")
+        log_to_render(f"🎭 OpenAI message handler started (v2.11.2 - Async Functions + FunctionLog + No Duplicate)")
         log_to_render(f"   Client ID: {openai_client.client_id}")
         log_to_render(f"   Session ID: {openai_client.session_id}")
         log_to_render(f"   Enabled functions: {openai_client.enabled_functions}")
@@ -1183,10 +1195,10 @@ async def handle_openai_messages_new(
                     
                     pending_function_call["arguments_buffer"] += delta
                 
-                # 🔥🔥🔥 v2.10/v2.11/v2.11.1 CRITICAL: ASYNC FUNCTION EXECUTION + LOGGING
+                # 🔥🔥🔥 v2.10/v2.11/v2.11.2 CRITICAL: ASYNC FUNCTION EXECUTION + LOGGING
                 elif msg_type == "response.function_call_arguments.done":
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    log_to_render(f"📋 FUNCTION ARGUMENTS DONE (v2.11.1 ASYNC + LOG)")
+                    log_to_render(f"📋 FUNCTION ARGUMENTS DONE (v2.11.2 ASYNC + LOG)")
                     log_to_render(f"   Event count: {event_count}")
                     
                     # Multi-source detection strategy (maintained from v2.8)
@@ -1284,9 +1296,9 @@ async def handle_openai_messages_new(
                         
                         function_execution_count += 1
                         
-                        # 🔥🔥🔥 v2.10/v2.11/v2.11.1 GAME CHANGER: ASYNC EXECUTION (NON-BLOCKING!) + LOGGING
+                        # 🔥🔥🔥 v2.10/v2.11/v2.11.2 GAME CHANGER: ASYNC EXECUTION (NON-BLOCKING!) + LOGGING
                         log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        log_to_render(f"🔥 v2.11.1: LAUNCHING ASYNC FUNCTION EXECUTION + LOG")
+                        log_to_render(f"🔥 v2.11.2: LAUNCHING ASYNC FUNCTION EXECUTION + LOG")
                         log_to_render(f"   Function: {normalized_name}")
                         log_to_render(f"   ⚡ Assistant will CONTINUE speaking while function executes!")
                         log_to_render(f"   ⚡ NO BLOCKING - NO SILENCE!")
@@ -1311,7 +1323,7 @@ async def handle_openai_messages_new(
                             )
                         )
                         
-                        log_to_render(f"🎯 v2.11.1: Function task created!")
+                        log_to_render(f"🎯 v2.11.2: Function task created!")
                         log_to_render(f"   ⚡ Continuing to process messages immediately!")
                         log_to_render(f"   ⚡ Assistant speech NOT blocked!")
                         
@@ -1383,7 +1395,7 @@ async def handle_openai_messages_new(
                 # v2.9: ASYNC LOGGING for response.done
                 if msg_type == "response.done":
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    log_to_render(f"🏁 RESPONSE DONE EVENT RECEIVED (v2.11.1)")
+                    log_to_render(f"🏁 RESPONSE DONE EVENT RECEIVED (v2.11.2)")
                     log_to_render(f"   user_transcript: '{user_transcript}' (len={len(user_transcript)})")
                     log_to_render(f"   assistant_transcript: '{assistant_transcript}' (len={len(assistant_transcript)})")
                     
@@ -1440,7 +1452,7 @@ async def handle_openai_messages_new(
                                     assistant_message=assistant_transcript,
                                     function_result=None,
                                     conversation_id=openai_client.conversation_record_id,
-                                    context="Regular Dialog v2.11.1"
+                                    context="Regular Dialog v2.11.2"
                                 )
                             )
                             log_to_render(f"⚡ [v2.9] Google Sheets task created for dialog (async)")
