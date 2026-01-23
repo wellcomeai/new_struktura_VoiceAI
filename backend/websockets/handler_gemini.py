@@ -1,6 +1,6 @@
 # backend/websockets/handler_gemini.py
 """
-🚀 PRODUCTION VERSION 1.5 - Google Gemini Live API Handler
+🚀 PRODUCTION VERSION 1.5.1 - Google Gemini Live API Handler
 ✅ PURE GEMINI VAD - removed client-side commit logic
 ✅ Continuous audio streaming - Gemini decides when to respond
 ✅ Complete function calling support with toolCall event handler
@@ -24,6 +24,10 @@ CRITICAL FIXES in v1.4:
 🔥 Tracks: function_name, arguments, result, execution_time, status
 🔥 Links to user_id, assistant_id, conversation_id
 🔥 Error tracking with error_message field
+
+✨✨✨ FIX in v1.5.1 - SESSION MANAGEMENT: ✨✨✨
+🔧 FIX: async_save_function_log создаёт НОВУЮ сессию БД внутри задачи
+🔧 Исправлена ошибка "Session is closed" при асинхронном логировании
 """
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -70,7 +74,7 @@ ENABLE_DETAILED_LOGGING = True
 def log_to_render(message: str, level: str = "INFO"):
     """Force log to Render stdout immediately"""
     timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-    log_msg = f"{timestamp} - [GEMINI v1.5] {level} - {message}"
+    log_msg = f"{timestamp} - [GEMINI v1.5.1] {level} - {message}"
     print(log_msg, flush=True)
     if level == "ERROR":
         logger.error(message)
@@ -80,9 +84,8 @@ def log_to_render(message: str, level: str = "INFO"):
         logger.info(message)
 
 
-# 🆕 v1.5: Async function log save
+# 🆕 v1.5.1: Async function log save (FIX: создаём новую сессию внутри задачи)
 async def async_save_function_log(
-    db_session,
     function_name: str,
     arguments: dict,
     result: dict,
@@ -94,12 +97,14 @@ async def async_save_function_log(
     error_message: str = None
 ):
     """
-    🆕 v1.5: Async function log save to function_logs table (non-blocking)
+    🆕 v1.5.1: Async function log save to function_logs table (non-blocking)
+    ✅ FIX: Создаём НОВУЮ сессию внутри задачи, т.к. оригинальная уже закрыта
     """
+    from backend.db.session import SessionLocal
+    
+    db = None
     try:
-        if not db_session:
-            log_to_render(f"⚠️ [FUNC-LOG] No db_session, skipping function log", "WARNING")
-            return
+        db = SessionLocal()
         
         log_to_render(f"📝 [FUNC-LOG] Saving function call to database")
         log_to_render(f"   Function: {function_name}")
@@ -107,7 +112,7 @@ async def async_save_function_log(
         log_to_render(f"   Execution time: {execution_time_ms:.2f}ms")
         
         log_entry = await FunctionLogService.log_function_call(
-            db=db_session,
+            db=db,
             function_name=function_name,
             arguments=arguments,
             result=result,
@@ -127,6 +132,9 @@ async def async_save_function_log(
     except Exception as e:
         log_to_render(f"❌ [FUNC-LOG] Error saving function log: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+    finally:
+        if db:
+            db.close()
 
 
 async def handle_gemini_websocket_connection(
@@ -135,17 +143,18 @@ async def handle_gemini_websocket_connection(
     db: Session
 ) -> None:
     """
-    🚀 PRODUCTION v1.5 - Main WebSocket handler for Gemini Live API
+    🚀 PRODUCTION v1.5.1 - Main WebSocket handler for Gemini Live API
     ✅ Pure Gemini VAD - continuous audio streaming
     ✅ Audio transcription support
     🆕 v1.5: FunctionLog tracking
+    🔧 v1.5.1: Fixed db_session issue in async_save_function_log
     """
     client_id = str(uuid.uuid4())
     gemini_client = None
     connection_start = time.time()
     
     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    log_to_render(f"🚀 NEW GEMINI CONNECTION INITIATED (v1.5 - FunctionLog)")
+    log_to_render(f"🚀 NEW GEMINI CONNECTION INITIATED (v1.5.1 - FunctionLog FIX)")
     log_to_render(f"   Client ID: {client_id}")
     log_to_render(f"   Assistant ID: {assistant_id}")
     log_to_render(f"   Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -205,7 +214,7 @@ async def handle_gemini_websocket_connection(
         log_to_render(f"🔧 Functions configuration:")
         log_to_render(f"   Enabled count: {len(enabled_functions)}")
         log_to_render(f"   Functions: {enabled_functions}")
-        log_to_render(f"   🔥 v1.5: All function calls will be logged to function_logs table!")
+        log_to_render(f"   🔥 v1.5.1: All function calls will be logged to function_logs table!")
 
         # Check Google Sheets config
         if hasattr(assistant, 'google_sheet_id') and assistant.google_sheet_id:
@@ -288,7 +297,7 @@ async def handle_gemini_websocket_connection(
         await websocket.send_json({
             "type": "connection_status", 
             "status": "connected", 
-            "message": "Connected to Gemini Live API (Production v1.5 - FunctionLog)",
+            "message": "Connected to Gemini Live API (Production v1.5.1 - FunctionLog FIX)",
             "model": "gemini-2.5-flash-native-audio-preview-09-2025",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
@@ -309,7 +318,7 @@ async def handle_gemini_websocket_connection(
             "last_interruption_time": 0
         }
 
-        log_to_render(f"🎬 Starting Gemini message handler (v1.5 - FunctionLog)...")
+        log_to_render(f"🎬 Starting Gemini message handler (v1.5.1 - FunctionLog FIX)...")
         # Start Gemini message handler
         gemini_task = asyncio.create_task(
             handle_gemini_messages(gemini_client, websocket, interruption_state)
@@ -487,13 +496,14 @@ async def handle_gemini_messages(
     interruption_state: Dict
 ):
     """
-    🚀 PRODUCTION v1.5 - Handle messages from Gemini Live API
+    🚀 PRODUCTION v1.5.1 - Handle messages from Gemini Live API
     ✅ Complete function calling support
     ✅ Google Sheets logging
     ✅ Database integration
     ✅ Audio transcription support (input + output)
     ✅ Maximum logging for debugging
     🆕 v1.5: FunctionLog tracking for all function calls
+    🔧 v1.5.1: Fixed db_session issue in async_save_function_log
     """
     if not gemini_client.is_connected or not gemini_client.ws:
         log_to_render(f"❌ Gemini client not connected", "ERROR")
@@ -516,7 +526,7 @@ async def handle_gemini_messages(
     transcript_events_received = 0
     
     try:
-        log_to_render(f"🎭 Gemini message handler started (v1.5 - FunctionLog)")
+        log_to_render(f"🎭 Gemini message handler started (v1.5.1 - FunctionLog FIX)")
         log_to_render(f"   Client ID: {gemini_client.client_id}")
         log_to_render(f"   Session ID: {gemini_client.session_id}")
         log_to_render(f"   Enabled functions: {gemini_client.enabled_functions}")
@@ -566,7 +576,7 @@ async def handle_gemini_messages(
                     function_calls = tool_call.get("functionCalls", [])
                     
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    log_to_render(f"🔧 TOOL CALL EVENT (top-level) - v1.5 FunctionLog")
+                    log_to_render(f"🔧 TOOL CALL EVENT (top-level) - v1.5.1 FunctionLog FIX")
                     log_to_render(f"   Function calls: {len(function_calls)}")
                     log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                     
@@ -617,13 +627,12 @@ async def handle_gemini_messages(
                             
                             log_to_render(f"✅ Function executed: {execution_time:.3f}s ({execution_time_ms:.2f}ms)")
                             
-                            # 🆕 v1.5: Log to FunctionLog (async)
+                            # 🆕 v1.5.1: Log to FunctionLog (async) - БЕЗ db_session!
                             user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                             assistant_id = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                             
                             asyncio.create_task(
                                 async_save_function_log(
-                                    db_session=gemini_client.db_session,
                                     function_name=normalized_name,
                                     arguments=arguments,
                                     result=result if isinstance(result, dict) else {"result": str(result)},
@@ -635,7 +644,7 @@ async def handle_gemini_messages(
                                     error_message=None
                                 )
                             )
-                            log_to_render(f"⚡ [v1.5] FunctionLog save task created")
+                            log_to_render(f"⚡ [v1.5.1] FunctionLog save task created")
                             
                             # Send result to Gemini
                             log_to_render(f"📤 Sending function result to Gemini...")
@@ -672,13 +681,12 @@ async def handle_gemini_messages(
                             log_to_render(f"❌ Function execution error: {e}", "ERROR")
                             log_to_render(f"   Traceback: {traceback.format_exc()}", "ERROR")
                             
-                            # 🆕 v1.5: Log error to FunctionLog (async)
+                            # 🆕 v1.5.1: Log error to FunctionLog (async) - БЕЗ db_session!
                             user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                             assistant_id = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                             
                             asyncio.create_task(
                                 async_save_function_log(
-                                    db_session=gemini_client.db_session,
                                     function_name=normalize_function_name(function_name) or function_name,
                                     arguments=arguments,
                                     result={"error": error_message},
@@ -690,7 +698,7 @@ async def handle_gemini_messages(
                                     error_message=error_message
                                 )
                             )
-                            log_to_render(f"⚡ [v1.5] Error FunctionLog save task created")
+                            log_to_render(f"⚡ [v1.5.1] Error FunctionLog save task created")
                             
                             await websocket.send_json({
                                 "type": "error",
@@ -791,7 +799,7 @@ async def handle_gemini_messages(
                                 arguments = function_call.get("args", {})
                                 
                                 log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                                log_to_render(f"🔧 FUNCTION CALL DETECTED (modelTurn) - v1.5 FunctionLog")
+                                log_to_render(f"🔧 FUNCTION CALL DETECTED (modelTurn) - v1.5.1 FunctionLog FIX")
                                 log_to_render(f"   Function: {function_name}")
                                 log_to_render(f"   Arguments: {json.dumps(arguments, ensure_ascii=False)[:200]}")
                                 log_to_render(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -857,13 +865,12 @@ async def handle_gemini_messages(
                                     log_to_render(f"✅ FUNCTION EXECUTED SUCCESSFULLY")
                                     log_to_render(f"   Execution time: {execution_time:.3f}s ({execution_time_ms:.2f}ms)")
                                     
-                                    # 🆕 v1.5: Log to FunctionLog (async)
+                                    # 🆕 v1.5.1: Log to FunctionLog (async) - БЕЗ db_session!
                                     user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                                     assistant_id_str = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                                     
                                     asyncio.create_task(
                                         async_save_function_log(
-                                            db_session=gemini_client.db_session,
                                             function_name=normalized_name,
                                             arguments=arguments,
                                             result=result if isinstance(result, dict) else {"result": str(result)},
@@ -875,7 +882,7 @@ async def handle_gemini_messages(
                                             error_message=None
                                         )
                                     )
-                                    log_to_render(f"⚡ [v1.5] FunctionLog save task created (modelTurn)")
+                                    log_to_render(f"⚡ [v1.5.1] FunctionLog save task created (modelTurn)")
                                     
                                     # Fast display for query_llm
                                     if normalized_name == "query_llm":
@@ -970,13 +977,12 @@ async def handle_gemini_messages(
                                     log_to_render(f"❌ Function execution ERROR: {e}", "ERROR")
                                     log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
                                     
-                                    # 🆕 v1.5: Log error to FunctionLog (async)
+                                    # 🆕 v1.5.1: Log error to FunctionLog (async) - БЕЗ db_session!
                                     user_id = str(gemini_client.assistant_config.user_id) if gemini_client.assistant_config and gemini_client.assistant_config.user_id else None
                                     assistant_id_str = str(gemini_client.assistant_config.id) if gemini_client.assistant_config else None
                                     
                                     asyncio.create_task(
                                         async_save_function_log(
-                                            db_session=gemini_client.db_session,
                                             function_name=normalized_name,
                                             arguments=arguments,
                                             result={"error": error_message},
@@ -988,7 +994,7 @@ async def handle_gemini_messages(
                                             error_message=error_message
                                         )
                                     )
-                                    log_to_render(f"⚡ [v1.5] Error FunctionLog save task created (modelTurn)")
+                                    log_to_render(f"⚡ [v1.5.1] Error FunctionLog save task created (modelTurn)")
                                     
                                     await websocket.send_json({
                                         "type": "error",
