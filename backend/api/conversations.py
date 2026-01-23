@@ -3,14 +3,16 @@
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
 
-Version: 3.4 - Fix duplicate cards by caller_number
+Version: 3.5 - Fix preview display & caller_number normalization
 🆕 v2.0: Added OpenAI + Gemini support
 🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
 🆕 v3.1: STRUCTURED DIALOG - каждая реплика отдельным пузырьком в UI (backward compatible)
 🆕 v3.2: Function calls загружаются в список сессий + привязываются к сообщениям по времени
 🆕 v3.3: FIX - function_logs теперь ищутся и в gemini_conversations (не только в conversations)
 🆕 v3.4: FIX - убран caller_number из GROUP BY, теперь используется MAX() агрегация
-         Исправлено дублирование карточек когда caller_number меняется в рамках сессии
+🆕 v3.5: FIX - Правильный preview (первое сообщение по времени, а не MIN())
+         FIX - Нормализация caller_number ("unknown" → None)
+         FIX - Фильтрация системных сообщений из preview
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -29,13 +31,26 @@ from backend.services.auth_service import AuthService
 from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
-from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation  # 🆕 v2.0, v3.3
+from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+
+# =============================================================================
+# 🆕 v3.5: Константы для фильтрации системных сообщений
+# =============================================================================
+
+SYSTEM_MESSAGE_PATTERNS = [
+    '[no user input]',
+    '[no_user_input]',
+    '[system]',
+    '[silence]',
+    '[timeout]',
+]
 
 
 # =============================================================================
@@ -88,6 +103,61 @@ def find_assistant_by_id(db: Session, assistant_id: UUID):
         return assistant, 'gemini'
     
     return None, None
+
+
+def normalize_caller_number(caller_number: Optional[str]) -> Optional[str]:
+    """
+    🆕 v3.5: Нормализует caller_number.
+    
+    Возвращает None для:
+    - None
+    - Пустая строка
+    - "unknown"
+    - "null"
+    
+    Returns:
+        str | None: Нормализованный номер или None
+    """
+    if not caller_number:
+        return None
+    
+    trimmed = caller_number.strip().lower()
+    
+    if trimmed in ('', 'unknown', 'null', 'none', 'undefined'):
+        return None
+    
+    return caller_number.strip()
+
+
+def is_system_message(text: Optional[str]) -> bool:
+    """
+    🆕 v3.5: Проверяет, является ли текст системным сообщением.
+    
+    Returns:
+        bool: True если это системное сообщение
+    """
+    if not text:
+        return True
+    
+    trimmed = text.strip().lower()
+    
+    if not trimmed:
+        return True
+    
+    for pattern in SYSTEM_MESSAGE_PATTERNS:
+        if trimmed == pattern.lower():
+            return True
+    
+    return False
+
+
+def get_clean_text(text: Optional[str]) -> Optional[str]:
+    """
+    🆕 v3.5: Возвращает текст если он не системный, иначе None.
+    """
+    if is_system_message(text):
+        return None
+    return text.strip() if text else None
 
 
 def attach_functions_to_messages(messages: List[dict], function_calls: List[dict]) -> List[dict]:
@@ -164,16 +234,16 @@ async def get_conversation_sessions(
     db: Session = Depends(get_db)
 ):
     """
-    🆕 v3.4: Получить список СЕССИЙ (группированных диалогов).
+    🆕 v3.5: Получить список СЕССИЙ (группированных диалогов).
     Поддерживает OpenAI И Gemini ассистентов.
     Включает call_cost (стоимость), record_url (запись звонка) и function_calls.
     
     Каждая сессия = одна карточка диалога на фронте.
     Группирует все сообщения по session_id.
     
-    🆕 v3.4 FIX: caller_number теперь агрегируется через MAX(), 
-    чтобы избежать дублирования карточек когда caller_number 
-    меняется в рамках одной сессии (NULL -> "unknown").
+    🆕 v3.5 FIX: Preview теперь берётся из ПЕРВОГО сообщения по времени
+    🆕 v3.5 FIX: caller_number нормализуется ("unknown" → null)
+    🆕 v3.5 FIX: Системные сообщения фильтруются из preview
     
     Требуется авторизация.
     
@@ -191,16 +261,9 @@ async def get_conversation_sessions(
     - total: Общее количество сессий
     - page: Текущая страница
     - page_size: Размер страницы
-    
-    🆕 v3.0: Каждая сессия теперь включает:
-    - call_cost: Общая стоимость звонка (рубли) или null
-    - record_url: Ссылка на запись звонка или null
-    
-    🆕 v3.2: Каждая сессия теперь включает:
-    - function_calls: Список вызовов функций для сессии
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Get sessions request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Get sessions request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -249,52 +312,28 @@ async def get_conversation_sessions(
         ).all()
         gemini_id_set = {str(g.id) for g in gemini_ids}
         
-        # Подзапрос для preview (первое непустое сообщение)
-        preview_subquery = (
-            db.query(
-                Conversation.session_id,
-                func.coalesce(
-                    func.nullif(func.min(Conversation.user_message), ''),
-                    func.nullif(func.min(Conversation.assistant_message), '')
-                ).label('preview')
-            )
-            .filter(Conversation.assistant_id.in_(user_assistant_ids))
-            .group_by(Conversation.session_id)
-            .subquery()
-        )
-        
         # =============================================================================
-        # Основной запрос - группировка по session_id
-        # 🆕 v3.0: Добавлена агрегация call_cost
-        # 🆕 v3.4 FIX: caller_number теперь через MAX() агрегацию, убран из GROUP BY
-        # NOTE: record_url получаем только в детальном просмотре (слишком сложный подзапрос)
+        # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
         # =============================================================================
         query = (
             db.query(
                 Conversation.session_id,
                 Conversation.assistant_id,
-                func.max(Conversation.caller_number).label('caller_number'),  # 🆕 v3.4 FIX: MAX() вместо прямого поля
+                func.max(Conversation.caller_number).label('caller_number'),
                 func.count(Conversation.id).label('messages_count'),
                 func.min(Conversation.created_at).label('created_at'),
                 func.max(Conversation.created_at).label('updated_at'),
                 func.sum(Conversation.tokens_used).label('total_tokens'),
                 func.sum(Conversation.duration_seconds).label('total_duration'),
-                func.sum(Conversation.call_cost).label('total_cost'),  # 🆕 v3.0
-                preview_subquery.c.preview
-            )
-            .outerjoin(
-                preview_subquery,
-                Conversation.session_id == preview_subquery.c.session_id
+                func.sum(Conversation.call_cost).label('total_cost'),
             )
             .group_by(
                 Conversation.session_id,
                 Conversation.assistant_id,
-                # 🆕 v3.4 FIX: caller_number УБРАН из GROUP BY
-                preview_subquery.c.preview
             )
         )
         
-        # 🆕 v2.0: Фильтр по пользователю (OpenAI + Gemini)
+        # Фильтр по пользователю (OpenAI + Gemini)
         query = query.filter(Conversation.assistant_id.in_(user_assistant_ids))
         
         # Фильтр по конкретному assistant_id
@@ -315,7 +354,7 @@ async def get_conversation_sessions(
         if caller_number:
             query = query.having(func.max(Conversation.caller_number) == caller_number)
         
-        # Фильтр по датам (используем created_at первого сообщения в сессии)
+        # Фильтр по датам
         if date_from_parsed:
             query = query.having(func.min(Conversation.created_at) >= date_from_parsed)
         if date_to_parsed:
@@ -337,10 +376,53 @@ async def get_conversation_sessions(
         logger.info(f"✅ Found {len(sessions)} sessions (total: {total})")
         
         # =============================================================================
-        # 🆕 v3.2: Загружаем function_calls для всех сессий одним запросом
-        # 🆕 v3.3: Поддержка Gemini conversations для function_logs
+        # 🆕 v3.5: Загружаем правильные preview - ПЕРВОЕ сообщение по времени
+        # Используем PostgreSQL DISTINCT ON для эффективности
         # =============================================================================
         session_ids = [s.session_id for s in sessions]
+        preview_map = {}
+        
+        if session_ids:
+            # PostgreSQL DISTINCT ON - берём первую запись для каждой сессии по времени
+            preview_sql = text("""
+                SELECT DISTINCT ON (session_id) 
+                    session_id,
+                    COALESCE(
+                        NULLIF(
+                            CASE 
+                                WHEN LOWER(TRIM(user_message)) IN ('[no user input]', '[no_user_input]', '[system]', '[silence]', '[timeout]')
+                                THEN NULL 
+                                ELSE user_message 
+                            END, 
+                            ''
+                        ), 
+                        NULLIF(assistant_message, '')
+                    ) as preview
+                FROM conversations
+                WHERE session_id = ANY(:session_ids)
+                ORDER BY session_id, created_at ASC
+            """)
+            
+            try:
+                preview_results = db.execute(preview_sql, {"session_ids": session_ids}).fetchall()
+                preview_map = {row.session_id: row.preview for row in preview_results if row.preview}
+                logger.info(f"   📝 Loaded {len(preview_map)} previews via DISTINCT ON")
+            except Exception as e:
+                logger.warning(f"   ⚠️ DISTINCT ON failed, using fallback: {e}")
+                # Fallback - загружаем по одному (медленнее, но работает везде)
+                for session_id in session_ids:
+                    first_msg = db.query(Conversation).filter(
+                        Conversation.session_id == session_id
+                    ).order_by(Conversation.created_at.asc()).first()
+                    
+                    if first_msg:
+                        preview = get_clean_text(first_msg.user_message) or get_clean_text(first_msg.assistant_message)
+                        if preview:
+                            preview_map[session_id] = preview
+        
+        # =============================================================================
+        # 🆕 v3.2: Загружаем function_calls для всех сессий одним запросом
+        # =============================================================================
         
         # Получаем все conversation_id для этих сессий (OpenAI)
         conv_ids_query = db.query(Conversation.id, Conversation.session_id).filter(
@@ -388,10 +470,8 @@ async def get_conversation_sessions(
         logger.info(f"   Loaded {len(function_logs)} function logs for {len(logs_by_session)} sessions")
         
         # =============================================================================
-        # Форматируем результат в формате совместимом с фронтом
-        # 🆕 v3.0: Добавлен call_cost
-        # 🆕 v3.2: Добавлен function_calls
-        # NOTE: record_url доступен только в детальном просмотре
+        # Форматируем результат
+        # 🆕 v3.5: Используем preview_map и нормализуем caller_number
         # =============================================================================
         conversations = []
         for s in sessions:
@@ -403,22 +483,28 @@ async def get_conversation_sessions(
             if s.total_cost is not None and s.total_cost > 0:
                 call_cost = round(float(s.total_cost), 2)
             
+            # 🆕 v3.5: Нормализуем caller_number
+            normalized_caller = normalize_caller_number(s.caller_number)
+            
+            # 🆕 v3.5: Берём preview из предзагруженного словаря
+            preview_text = preview_map.get(s.session_id, "")
+            
             conversations.append({
-                "id": s.session_id,  # session_id используется как ID карточки
+                "id": s.session_id,
                 "session_id": s.session_id,
                 "assistant_id": str(s.assistant_id),
-                "caller_number": s.caller_number,  # 🆕 v3.4: Теперь из MAX() агрегации
+                "caller_number": normalized_caller,  # 🆕 v3.5: Нормализованный
                 "messages_count": s.messages_count,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
-                "user_message": (s.preview or "")[:200],  # Preview для карточки
-                "assistant_message": "",  # Оставляем пустым
+                "user_message": (preview_text or "")[:200],  # 🆕 v3.5: Правильный preview
+                "assistant_message": "",
                 "tokens_used": s.total_tokens or 0,
                 "duration_seconds": s.total_duration or 0,
-                "call_cost": call_cost,  # 🆕 v3.0: Стоимость звонка в рублях
-                "record_url": None,  # 🆕 v3.0: Доступно только в детальном просмотре
-                "client_info": {"assistant_type": assistant_type},  # 🆕 Добавляем тип
-                "function_calls": logs_by_session.get(s.session_id, [])  # 🆕 v3.2
+                "call_cost": call_cost,
+                "record_url": None,  # Доступно только в детальном просмотре
+                "client_info": {"assistant_type": assistant_type},
+                "function_calls": logs_by_session.get(s.session_id, [])
             })
         
         return {
@@ -477,7 +563,7 @@ async def get_conversations(
     - page_size: Размер страницы
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Get conversations request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Get conversations request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"session={session_id}, date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -510,7 +596,7 @@ async def get_conversations(
         result = ConversationService.get_conversations_advanced(
             db=db,
             assistant_id=assistant_id,
-            user_id=str(current_user.id),  # Фильтр по текущему пользователю (только его ассистенты)
+            user_id=str(current_user.id),
             caller_number=caller_number,
             session_id=session_id,
             date_from=date_from_parsed,
@@ -547,9 +633,8 @@ async def get_conversation_detail(
     🆕 v3.0: Включает call_cost и record_url.
     🆕 v3.1: STRUCTURED DIALOG - если в client_info есть dialog[], 
              каждая реплика возвращается отдельным пузырьком.
-             Backward compatible со старыми записями.
     🆕 v3.2: Function calls привязываются к сообщениям по времени.
-             Каждое сообщение теперь содержит поле function_calls[].
+    🆕 v3.5: Фильтрация системных сообщений, нормализация caller_number.
     
     Требуется авторизация. Можно получить только свои диалоги.
     
@@ -558,25 +643,19 @@ async def get_conversation_detail(
     - include_functions: Включить список вызванных функций (по умолчанию true)
     
     **Возвращает:**
-    - messages: Массив всех сообщений из сессии (отсортировано по времени)
-      - Каждое сообщение содержит function_calls[] привязанные по времени (🆕 v3.2)
-    - assistant_id: ID ассистента
-    - assistant_name: Имя ассистента
-    - assistant_type: Тип ассистента (openai/gemini)
-    - session_id: ID сессии
-    - caller_number: Номер телефона (если есть)
-    - total_tokens: Сумма токенов
-    - total_duration: Сумма длительности
-    - call_cost: Стоимость звонка в рублях (🆕 v3.0)
-    - record_url: Ссылка на запись звонка (🆕 v3.0)
-    - function_calls: Все вызовы функций из сессии (общий список)
-    - has_structured_dialog: Флаг наличия структурированного диалога (🆕 v3.1)
+    - messages: Массив всех сообщений из сессии
+    - assistant_id, assistant_name, assistant_type
+    - session_id, caller_number
+    - total_tokens, total_duration
+    - call_cost, record_url
+    - function_calls
+    - has_structured_dialog
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Get full dialog for: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Get full dialog for: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
-        # Пробуем найти по session_id напрямую (для нового API /sessions)
+        # Пробуем найти по session_id напрямую
         conversation = db.query(Conversation).filter(
             Conversation.session_id == conversation_id
         ).first()
@@ -598,7 +677,7 @@ async def get_conversation_detail(
                 detail="Conversation not found"
             )
         
-        # 🆕 v2.0: Проверяем права доступа (OpenAI ИЛИ Gemini)
+        # Проверяем права доступа
         assistant, assistant_type = find_assistant_by_id(db, conversation.assistant_id)
         
         if not assistant:
@@ -615,21 +694,19 @@ async def get_conversation_detail(
                 detail="Access denied: this conversation doesn't belong to you"
             )
         
-        # 🆕 Загружаем ВСЕ сообщения из этой сессии
+        # Загружаем ВСЕ сообщения из этой сессии
         session_id = conversation.session_id
         
         all_messages = db.query(Conversation).filter(
             Conversation.session_id == session_id,
             Conversation.assistant_id == conversation.assistant_id
-        ).order_by(Conversation.created_at.asc()).all()  # Сортировка по времени
+        ).order_by(Conversation.created_at.asc()).all()
         
         logger.info(f"   Found {len(all_messages)} DB records in session {session_id}")
         logger.info(f"   Assistant type: {assistant_type}")
         
         # =============================================================================
-        # 🆕 v3.1: STRUCTURED DIALOG SUPPORT
-        # Проверяем наличие dialog[] в client_info для каждой записи
-        # Если есть - используем его, если нет - fallback на legacy формат
+        # 🆕 v3.1: STRUCTURED DIALOG SUPPORT + v3.5: Фильтрация системных сообщений
         # =============================================================================
         messages = []
         total_tokens = 0
@@ -638,22 +715,34 @@ async def get_conversation_detail(
         record_url = None
         has_structured_dialog = False
         
+        # 🆕 v3.5: Собираем caller_number из всех записей (берём первый непустой)
+        session_caller_number = None
+        
         for msg in all_messages:
             client_info = msg.client_info or {}
             dialog = client_info.get('dialog', [])
+            
+            # 🆕 v3.5: Собираем caller_number
+            if not session_caller_number:
+                normalized = normalize_caller_number(msg.caller_number)
+                if normalized:
+                    session_caller_number = normalized
             
             # 🆕 v3.1: Проверяем наличие структурированного диалога
             if dialog and isinstance(dialog, list) and len(dialog) > 0:
                 has_structured_dialog = True
                 logger.info(f"   📝 Found structured dialog with {len(dialog)} turns in record {msg.id}")
                 
-                # Используем structured dialog - каждая реплика отдельно
                 for turn in dialog:
                     role = turn.get('role', 'unknown')
                     text = turn.get('text', '')
                     ts = turn.get('ts')
                     
-                    # Конвертируем timestamp (миллисекунды) в ISO формат
+                    # 🆕 v3.5: Фильтруем системные сообщения
+                    if is_system_message(text):
+                        continue
+                    
+                    # Конвертируем timestamp
                     timestamp = None
                     if ts:
                         try:
@@ -663,61 +752,56 @@ async def get_conversation_detail(
                     else:
                         timestamp = msg.created_at.isoformat() if msg.created_at else None
                     
-                    # Добавляем реплику как отдельное сообщение
-                    if text:  # Пропускаем пустые реплики
+                    if text:
                         messages.append({
-                            "id": str(msg.id),  # ID записи БД для reference
+                            "id": str(msg.id),
                             "type": "user" if role == "user" else "assistant",
                             "text": text,
                             "timestamp": timestamp
                         })
             else:
-                # =============================================================================
-                # LEGACY FORMAT: Fallback для старых записей без structured dialog
-                # Каждая запись БД содержит user_message и assistant_message как единые блоки
-                # =============================================================================
+                # LEGACY FORMAT
                 logger.info(f"   📄 Using legacy format for record {msg.id}")
                 
-                # User message
-                if msg.user_message:
+                # User message - с фильтрацией
+                user_text = get_clean_text(msg.user_message)
+                if user_text:
                     messages.append({
                         "id": str(msg.id),
                         "type": "user",
-                        "text": msg.user_message,
+                        "text": user_text,
                         "timestamp": msg.created_at.isoformat() if msg.created_at else None
                     })
                 
-                # Assistant message
-                if msg.assistant_message:
+                # Assistant message - с фильтрацией
+                assistant_text = get_clean_text(msg.assistant_message)
+                if assistant_text:
                     messages.append({
                         "id": str(msg.id),
                         "type": "assistant",
-                        "text": msg.assistant_message,
+                        "text": assistant_text,
                         "timestamp": msg.created_at.isoformat() if msg.created_at else None
                     })
             
-            # Суммируем метрики (независимо от формата)
+            # Суммируем метрики
             total_tokens += msg.tokens_used or 0
             total_duration += msg.duration_seconds or 0
             
-            # 🆕 v3.0: Суммируем стоимость
             if msg.call_cost:
                 total_cost += float(msg.call_cost)
             
-            # 🆕 v3.0: Берём record_url из client_info (последний непустой)
             if client_info.get('record_url'):
                 record_url = client_info.get('record_url')
         
         logger.info(f"   Total messages after processing: {len(messages)}")
         logger.info(f"   Has structured dialog: {has_structured_dialog}")
         
-        # Загружаем function calls если нужно
+        # Загружаем function calls
         function_calls = []
         if include_functions:
-            # Собираем все ID сообщений из сессии
             message_ids = [msg.id for msg in all_messages]
             
-            # 🆕 v3.3 FIX: Для Gemini ассистентов также ищем в gemini_conversations
+            # Для Gemini также ищем в gemini_conversations
             if assistant_type == 'gemini':
                 gemini_messages = db.query(GeminiConversation.id).filter(
                     GeminiConversation.session_id == session_id
@@ -744,47 +828,44 @@ async def get_conversation_detail(
             
             logger.info(f"   Found {len(function_calls)} function calls")
         
-        # =============================================================================
-        # 🆕 v3.2: Привязываем function_calls к сообщениям по времени
-        # Каждое сообщение ассистента получает список своих function_calls
-        # =============================================================================
+        # 🆕 v3.2: Привязываем function_calls к сообщениям
         if include_functions and function_calls:
             messages = attach_functions_to_messages(messages, function_calls)
-            logger.info(f"   Attached function calls to messages")
         else:
-            # Инициализируем пустые function_calls для всех сообщений
             for msg in messages:
                 msg['function_calls'] = []
         
-        # 🆕 v2.0: Извлекаем assistant_type из client_info или используем определённый
+        # Извлекаем assistant_type из client_info
         main_client_info = conversation.client_info or {}
         detected_type = main_client_info.get('assistant_type', assistant_type)
         
-        # 🆕 v3.0: Форматируем стоимость
+        # Форматируем стоимость
         call_cost = round(total_cost, 2) if total_cost > 0 else None
         
-        # Формируем ответ
+        # 🆕 v3.5: Используем нормализованный caller_number
+        final_caller_number = session_caller_number or normalize_caller_number(conversation.caller_number)
+        
         result = {
             "session_id": session_id,
             "assistant_id": str(conversation.assistant_id),
             "assistant_name": assistant.name,
-            "assistant_type": detected_type,  # 🆕 v2.0
-            "caller_number": conversation.caller_number,
+            "assistant_type": detected_type,
+            "caller_number": final_caller_number,  # 🆕 v3.5: Нормализованный
             "created_at": all_messages[0].created_at.isoformat() if all_messages else None,
             "messages": messages,
             "total_messages": len(messages),
             "total_tokens": total_tokens,
             "total_duration": total_duration,
-            "call_cost": call_cost,  # 🆕 v3.0: Стоимость в рублях
-            "record_url": record_url,  # 🆕 v3.0: Ссылка на запись
-            "has_structured_dialog": has_structured_dialog,  # 🆕 v3.1: Флаг формата
+            "call_cost": call_cost,
+            "record_url": record_url,
+            "has_structured_dialog": has_structured_dialog,
             "function_calls": function_calls if include_functions else [],
-            "client_info": main_client_info  # 🆕 v2.0
+            "client_info": main_client_info
         }
         
         logger.info(f"✅ Full dialog returned: {len(messages)} messages, type: {detected_type}")
         logger.info(f"   Call cost: {call_cost}, Record URL: {'✅' if record_url else '❌'}")
-        logger.info(f"   Structured dialog: {'✅' if has_structured_dialog else '❌ (legacy)'}")
+        logger.info(f"   Caller: {final_caller_number or 'Web chat'}")
         
         return result
         
@@ -823,7 +904,7 @@ async def delete_conversation(
     - assistant_type: Тип ассистента (openai/gemini)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Delete conversation request: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Delete conversation request: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую
@@ -848,7 +929,7 @@ async def delete_conversation(
                 detail="Conversation not found"
             )
         
-        # 🆕 v2.0: Проверяем права доступа (OpenAI ИЛИ Gemini)
+        # Проверяем права доступа
         assistant, assistant_type = find_assistant_by_id(db, conversation.assistant_id)
         
         if not assistant:
@@ -867,7 +948,7 @@ async def delete_conversation(
         
         session_id = conversation.session_id
         
-        # Получаем все сообщения из сессии для подсчета
+        # Получаем все сообщения из сессии
         all_messages = db.query(Conversation).filter(
             Conversation.session_id == session_id,
             Conversation.assistant_id == conversation.assistant_id
@@ -903,7 +984,7 @@ async def delete_conversation(
             "session_id": session_id,
             "deleted_messages": deleted_messages,
             "deleted_functions": deleted_functions,
-            "assistant_type": assistant_type  # 🆕 v2.0
+            "assistant_type": assistant_type
         }
         
     except HTTPException:
@@ -941,10 +1022,10 @@ async def get_conversations_stats(
     - conversations_today: Диалоги за сегодня
     - avg_duration_seconds: Средняя длительность диалога
     - total_tokens_used: Общее количество использованных токенов
-    - total_call_cost: Общая стоимость звонков (🆕 v3.0)
+    - total_call_cost: Общая стоимость звонков
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Get stats for user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Get stats for user {current_user.id}")
         logger.info(f"   Assistant ID: {assistant_id}")
         logger.info(f"   Days: {days}")
         
@@ -956,7 +1037,7 @@ async def get_conversations_stats(
             days=days
         )
         
-        # 🆕 v3.0: Добавляем статистику по стоимости
+        # Добавляем статистику по стоимости
         user_assistant_ids = get_user_assistant_ids(db, current_user.id)
         
         if user_assistant_ids:
@@ -1021,11 +1102,10 @@ async def get_conversations_by_caller(
     - Отсортировано по дате (новые первые)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.4] Get conversations by caller: {caller_number}")
+        logger.info(f"[CONVERSATIONS-API-v3.5] Get conversations by caller: {caller_number}")
         logger.info(f"   User: {current_user.id}")
         logger.info(f"   Assistant filter: {assistant_id}")
         
-        # 🆕 v2.0: ConversationService.get_conversations_advanced уже поддерживает оба типа
         result = ConversationService.get_conversations_advanced(
             db=db,
             assistant_id=assistant_id,
