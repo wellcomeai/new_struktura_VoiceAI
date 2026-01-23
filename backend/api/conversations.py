@@ -3,11 +3,12 @@
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
 
-Version: 3.2 - Function calls in sessions list + attached to messages
+Version: 3.3 - Gemini function_logs support fix
 🆕 v2.0: Added OpenAI + Gemini support
 🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
 🆕 v3.1: STRUCTURED DIALOG - каждая реплика отдельным пузырьком в UI (backward compatible)
 🆕 v3.2: Function calls загружаются в список сессий + привязываются к сообщениям по времени
+🆕 v3.3: FIX - function_logs теперь ищутся и в gemini_conversations (не только в conversations)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -26,7 +27,7 @@ from backend.services.auth_service import AuthService
 from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
-from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v2.0
+from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation  # 🆕 v2.0, v3.3
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
@@ -330,10 +331,11 @@ async def get_conversation_sessions(
         
         # =============================================================================
         # 🆕 v3.2: Загружаем function_calls для всех сессий одним запросом
+        # 🆕 v3.3: Поддержка Gemini conversations для function_logs
         # =============================================================================
         session_ids = [s.session_id for s in sessions]
         
-        # Получаем все conversation_id для этих сессий
+        # Получаем все conversation_id для этих сессий (OpenAI)
         conv_ids_query = db.query(Conversation.id, Conversation.session_id).filter(
             Conversation.session_id.in_(session_ids)
         ).all()
@@ -341,6 +343,17 @@ async def get_conversation_sessions(
         # Маппинг conversation_id -> session_id
         conv_to_session = {str(c.id): c.session_id for c in conv_ids_query}
         conv_ids = [c.id for c in conv_ids_query]
+        
+        # 🆕 v3.3 FIX: Также получаем conversation_id из gemini_conversations
+        gemini_conv_query = db.query(GeminiConversation.id, GeminiConversation.session_id).filter(
+            GeminiConversation.session_id.in_(session_ids)
+        ).all()
+        
+        for gc in gemini_conv_query:
+            conv_to_session[str(gc.id)] = gc.session_id
+            conv_ids.append(gc.id)
+        
+        logger.info(f"   🔧 Total conversation IDs for function lookup: {len(conv_ids)} (OpenAI: {len(conv_ids_query)}, Gemini: {len(gemini_conv_query)})")
         
         # Загружаем все function_logs для этих conversations
         function_logs = []
@@ -696,6 +709,15 @@ async def get_conversation_detail(
         if include_functions:
             # Собираем все ID сообщений из сессии
             message_ids = [msg.id for msg in all_messages]
+            
+            # 🆕 v3.3 FIX: Для Gemini ассистентов также ищем в gemini_conversations
+            if assistant_type == 'gemini':
+                gemini_messages = db.query(GeminiConversation.id).filter(
+                    GeminiConversation.session_id == session_id
+                ).all()
+                gemini_ids = [m.id for m in gemini_messages]
+                message_ids.extend(gemini_ids)
+                logger.info(f"   🔧 Added {len(gemini_ids)} Gemini conversation IDs for function lookup")
             
             logs = db.query(FunctionLog).filter(
                 FunctionLog.conversation_id.in_(message_ids)
