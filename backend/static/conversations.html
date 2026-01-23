@@ -1902,12 +1902,14 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 3.2 - Function Calls под сообщениями в модалке
+     * Version: 3.5 - Fix preview display & caller_number handling
      * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
      * ✅ Отображение стоимости звонка (call_cost)
      * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
      * ✅ Настройка Telegram уведомлений о звонках
      * ✅ 🆕 Function calls отображаются под сообщениями ассистента
+     * ✅ 🆕 v3.5: Исправлено отображение "[no user input]" и "Нет сообщений"
+     * ✅ 🆕 v3.5: Пустой caller_number = Web чат
      */
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -1990,6 +1992,9 @@
         'start': 'Тариф Старт',
         'profi': 'Profi'
       };
+      
+      // 🆕 v3.5: Системные сообщения которые нужно скрывать
+      const SYSTEM_MESSAGES = ['[no user input]', '[no_user_input]', '[system]'];
       
       // API функции
       const api = {
@@ -2198,6 +2203,48 @@
           return assistant.type;
         }
         return 'openai';
+      }
+      
+      // ============================================================================
+      // 🆕 v3.5: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ФИЛЬТРАЦИИ СИСТЕМНЫХ СООБЩЕНИЙ
+      // ============================================================================
+      
+      /**
+       * Проверяет, является ли текст системным сообщением
+       */
+      function isSystemMessage(text) {
+        if (!text) return true;
+        const trimmed = text.trim().toLowerCase();
+        return SYSTEM_MESSAGES.some(sm => trimmed === sm.toLowerCase());
+      }
+      
+      /**
+       * Получает чистый текст для превью, фильтруя системные сообщения
+       */
+      function getCleanPreviewText(conversation) {
+        // Пробуем user_message
+        let text = (conversation.user_message || '').trim();
+        if (text && !isSystemMessage(text)) {
+          return text;
+        }
+        
+        // Пробуем assistant_message
+        text = (conversation.assistant_message || '').trim();
+        if (text && !isSystemMessage(text)) {
+          return text;
+        }
+        
+        // Ничего нет
+        return '';
+      }
+      
+      /**
+       * Проверяет, есть ли реальный caller_number
+       */
+      function hasRealCallerNumber(callerNumber) {
+        if (!callerNumber) return false;
+        const trimmed = callerNumber.trim();
+        return trimmed !== '' && trimmed.toLowerCase() !== 'null';
       }
       
       // ============================================================================
@@ -2424,7 +2471,7 @@
       window.deleteConversation = deleteConversation;
       
       // ============================================================================
-      // СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА
+      // СОЗДАНИЕ КАРТОЧКИ ДИАЛОГА (🆕 v3.5: исправлено)
       // ============================================================================
       
       function createConversationCard(conversation) {
@@ -2437,7 +2484,8 @@
         card.className = 'conversation-card';
         card.onclick = () => openConversationDetail(conversation.id, assistantType);
         
-        const callerDisplay = conversation.caller_number 
+        // 🆕 v3.5 FIX: Проверяем реальный caller_number
+        const callerDisplay = hasRealCallerNumber(conversation.caller_number)
           ? `<div class="caller-info">
               <i class="fas fa-phone"></i>
               <span class="caller-number">${conversation.caller_number}</span>
@@ -2447,11 +2495,11 @@
               <span>Web чат</span>
             </div>`;
         
-        const preview = conversation.user_message 
-          ? conversation.user_message.substring(0, 100) + (conversation.user_message.length > 100 ? '...' : '')
-          : conversation.assistant_message 
-            ? conversation.assistant_message.substring(0, 100) + (conversation.assistant_message.length > 100 ? '...' : '')
-            : 'Нет сообщений';
+        // 🆕 v3.5 FIX: Получаем чистый preview без системных сообщений
+        const previewText = getCleanPreviewText(conversation);
+        const preview = previewText 
+          ? (previewText.length > 100 ? previewText.substring(0, 100) + '...' : previewText)
+          : 'Нет сообщений';
         
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini' 
@@ -2669,7 +2717,7 @@
       }
       
       // ============================================================================
-      // ДЕТАЛЬНЫЙ ПРОСМОТР (🆕 v3.2: с function_calls под сообщениями)
+      // ДЕТАЛЬНЫЙ ПРОСМОТР (🆕 v3.5: фильтрация системных сообщений)
       // ============================================================================
       
       async function openConversationDetail(conversationId, assistantType = 'openai') {
@@ -2685,7 +2733,8 @@
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
           
-          const callerBadge = dialog.caller_number 
+          // 🆕 v3.5 FIX: Проверяем реальный caller_number
+          const callerBadge = hasRealCallerNumber(dialog.caller_number)
             ? `<span class="stat-badge"><i class="fas fa-phone"></i> ${dialog.caller_number}</span>`
             : `<span class="stat-badge"><i class="fas fa-globe"></i> Web чат</span>`;
           
@@ -2713,7 +2762,13 @@
           chatContainer.innerHTML = '';
           
           if (dialog.messages && dialog.messages.length > 0) {
-            dialog.messages.forEach(msg => {
+            // 🆕 v3.5 FIX: Фильтруем системные сообщения
+            const filteredMessages = dialog.messages.filter(msg => {
+              const text = (msg.text || '').trim();
+              return text && !isSystemMessage(text);
+            });
+            
+            filteredMessages.forEach(msg => {
               const messageDiv = document.createElement('div');
               const assistantClass = type === 'gemini' ? 'message assistant gemini' : 'message assistant';
               messageDiv.className = msg.type === 'user' ? 'message user' : assistantClass;
@@ -2781,6 +2836,11 @@
               
               chatContainer.appendChild(messageDiv);
             });
+            
+            // Показываем сообщение если все отфильтровано
+            if (filteredMessages.length === 0) {
+              chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">Нет сообщений</div>';
+            }
             
             setTimeout(() => {
               chatContainer.scrollTop = chatContainer.scrollHeight;
