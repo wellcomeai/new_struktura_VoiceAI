@@ -3,10 +3,11 @@
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
 
-Version: 3.1 - Structured dialog support for chat UI
+Version: 3.2 - Function calls in sessions list + attached to messages
 🆕 v2.0: Added OpenAI + Gemini support
 🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
 🆕 v3.1: STRUCTURED DIALOG - каждая реплика отдельным пузырьком в UI (backward compatible)
+🆕 v3.2: Function calls загружаются в список сессий + привязываются к сообщениям по времени
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -16,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
+from collections import defaultdict
 
 from backend.core.logging import get_logger
 from backend.db.session import get_db
@@ -85,6 +87,64 @@ def find_assistant_by_id(db: Session, assistant_id: UUID):
     return None, None
 
 
+def attach_functions_to_messages(messages: List[dict], function_calls: List[dict]) -> List[dict]:
+    """
+    🆕 v3.2: Привязывает функции к ближайшему предшествующему сообщению ассистента.
+    
+    Логика:
+    - Каждая функция привязывается к последнему сообщению ассистента,
+      которое было ДО или ВО ВРЕМЯ вызова функции
+    - Если такого нет - привязываем к первому сообщению ассистента
+    
+    Args:
+        messages: Список сообщений с полями type, timestamp
+        function_calls: Список вызовов функций с полем created_at
+    
+    Returns:
+        messages с добавленным полем function_calls для каждого сообщения
+    """
+    # Инициализируем function_calls для всех сообщений
+    for msg in messages:
+        msg['function_calls'] = []
+    
+    if not function_calls:
+        return messages
+    
+    # Сортируем функции по времени
+    sorted_functions = sorted(
+        function_calls, 
+        key=lambda f: f.get('created_at') or ''
+    )
+    
+    # Находим сообщения ассистента
+    assistant_messages = [m for m in messages if m['type'] == 'assistant']
+    
+    if not assistant_messages:
+        return messages
+    
+    for func in sorted_functions:
+        func_time = func.get('created_at')
+        if not func_time:
+            # Если нет времени - привязываем к первому сообщению ассистента
+            assistant_messages[0]['function_calls'].append(func)
+            continue
+        
+        # Находим последнее сообщение ассистента ДО или ВО ВРЕМЯ вызова функции
+        best_match = None
+        for msg in assistant_messages:
+            msg_time = msg.get('timestamp')
+            if msg_time and msg_time <= func_time:
+                best_match = msg
+        
+        # Если не нашли - привязываем к первому сообщению ассистента
+        if best_match is None:
+            best_match = assistant_messages[0]
+        
+        best_match['function_calls'].append(func)
+    
+    return messages
+
+
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -101,9 +161,9 @@ async def get_conversation_sessions(
     db: Session = Depends(get_db)
 ):
     """
-    🆕 v3.0: Получить список СЕССИЙ (группированных диалогов).
+    🆕 v3.2: Получить список СЕССИЙ (группированных диалогов).
     Поддерживает OpenAI И Gemini ассистентов.
-    Включает call_cost (стоимость) и record_url (запись звонка).
+    Включает call_cost (стоимость), record_url (запись звонка) и function_calls.
     
     Каждая сессия = одна карточка диалога на фронте.
     Группирует все сообщения по session_id.
@@ -128,9 +188,12 @@ async def get_conversation_sessions(
     🆕 v3.0: Каждая сессия теперь включает:
     - call_cost: Общая стоимость звонка (рубли) или null
     - record_url: Ссылка на запись звонка или null
+    
+    🆕 v3.2: Каждая сессия теперь включает:
+    - function_calls: Список вызовов функций для сессии
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Get sessions request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Get sessions request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -266,8 +329,48 @@ async def get_conversation_sessions(
         logger.info(f"✅ Found {len(sessions)} sessions (total: {total})")
         
         # =============================================================================
+        # 🆕 v3.2: Загружаем function_calls для всех сессий одним запросом
+        # =============================================================================
+        session_ids = [s.session_id for s in sessions]
+        
+        # Получаем все conversation_id для этих сессий
+        conv_ids_query = db.query(Conversation.id, Conversation.session_id).filter(
+            Conversation.session_id.in_(session_ids)
+        ).all()
+        
+        # Маппинг conversation_id -> session_id
+        conv_to_session = {str(c.id): c.session_id for c in conv_ids_query}
+        conv_ids = [c.id for c in conv_ids_query]
+        
+        # Загружаем все function_logs для этих conversations
+        function_logs = []
+        if conv_ids:
+            function_logs = db.query(FunctionLog).filter(
+                FunctionLog.conversation_id.in_(conv_ids)
+            ).order_by(FunctionLog.created_at).all()
+        
+        # Группируем function_logs по session_id
+        logs_by_session = defaultdict(list)
+        for log in function_logs:
+            session_id = conv_to_session.get(str(log.conversation_id))
+            if session_id:
+                logs_by_session[session_id].append({
+                    "id": str(log.id),
+                    "function_name": log.function_name,
+                    "arguments": log.arguments,
+                    "result": log.result,
+                    "status": log.status,
+                    "execution_time_ms": log.execution_time_ms,
+                    "error_message": log.error_message,
+                    "created_at": log.created_at.isoformat() if log.created_at else None
+                })
+        
+        logger.info(f"   Loaded {len(function_logs)} function logs for {len(logs_by_session)} sessions")
+        
+        # =============================================================================
         # Форматируем результат в формате совместимом с фронтом
         # 🆕 v3.0: Добавлен call_cost
+        # 🆕 v3.2: Добавлен function_calls
         # NOTE: record_url доступен только в детальном просмотре
         # =============================================================================
         conversations = []
@@ -294,7 +397,8 @@ async def get_conversation_sessions(
                 "duration_seconds": s.total_duration or 0,
                 "call_cost": call_cost,  # 🆕 v3.0: Стоимость звонка в рублях
                 "record_url": None,  # 🆕 v3.0: Доступно только в детальном просмотре
-                "client_info": {"assistant_type": assistant_type}  # 🆕 Добавляем тип
+                "client_info": {"assistant_type": assistant_type},  # 🆕 Добавляем тип
+                "function_calls": logs_by_session.get(s.session_id, [])  # 🆕 v3.2
             })
         
         return {
@@ -353,7 +457,7 @@ async def get_conversations(
     - page_size: Размер страницы
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Get conversations request from user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Get conversations request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"session={session_id}, date_from={date_from}, date_to={date_to}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
@@ -424,6 +528,8 @@ async def get_conversation_detail(
     🆕 v3.1: STRUCTURED DIALOG - если в client_info есть dialog[], 
              каждая реплика возвращается отдельным пузырьком.
              Backward compatible со старыми записями.
+    🆕 v3.2: Function calls привязываются к сообщениям по времени.
+             Каждое сообщение теперь содержит поле function_calls[].
     
     Требуется авторизация. Можно получить только свои диалоги.
     
@@ -433,6 +539,7 @@ async def get_conversation_detail(
     
     **Возвращает:**
     - messages: Массив всех сообщений из сессии (отсортировано по времени)
+      - Каждое сообщение содержит function_calls[] привязанные по времени (🆕 v3.2)
     - assistant_id: ID ассистента
     - assistant_name: Имя ассистента
     - assistant_type: Тип ассистента (openai/gemini)
@@ -442,11 +549,11 @@ async def get_conversation_detail(
     - total_duration: Сумма длительности
     - call_cost: Стоимость звонка в рублях (🆕 v3.0)
     - record_url: Ссылка на запись звонка (🆕 v3.0)
-    - function_calls: Все вызовы функций из сессии
+    - function_calls: Все вызовы функций из сессии (общий список)
     - has_structured_dialog: Флаг наличия структурированного диалога (🆕 v3.1)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Get full dialog for: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Get full dialog for: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую (для нового API /sessions)
@@ -608,6 +715,18 @@ async def get_conversation_detail(
             
             logger.info(f"   Found {len(function_calls)} function calls")
         
+        # =============================================================================
+        # 🆕 v3.2: Привязываем function_calls к сообщениям по времени
+        # Каждое сообщение ассистента получает список своих function_calls
+        # =============================================================================
+        if include_functions and function_calls:
+            messages = attach_functions_to_messages(messages, function_calls)
+            logger.info(f"   Attached function calls to messages")
+        else:
+            # Инициализируем пустые function_calls для всех сообщений
+            for msg in messages:
+                msg['function_calls'] = []
+        
         # 🆕 v2.0: Извлекаем assistant_type из client_info или используем определённый
         main_client_info = conversation.client_info or {}
         detected_type = main_client_info.get('assistant_type', assistant_type)
@@ -675,7 +794,7 @@ async def delete_conversation(
     - assistant_type: Тип ассистента (openai/gemini)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Delete conversation request: {conversation_id}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Delete conversation request: {conversation_id}")
         logger.info(f"   User: {current_user.id}")
         
         # Пробуем найти по session_id напрямую
@@ -796,7 +915,7 @@ async def get_conversations_stats(
     - total_call_cost: Общая стоимость звонков (🆕 v3.0)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Get stats for user {current_user.id}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Get stats for user {current_user.id}")
         logger.info(f"   Assistant ID: {assistant_id}")
         logger.info(f"   Days: {days}")
         
@@ -873,7 +992,7 @@ async def get_conversations_by_caller(
     - Отсортировано по дате (новые первые)
     """
     try:
-        logger.info(f"[CONVERSATIONS-API-v3.1] Get conversations by caller: {caller_number}")
+        logger.info(f"[CONVERSATIONS-API-v3.2] Get conversations by caller: {caller_number}")
         logger.info(f"   User: {current_user.id}")
         logger.info(f"   Assistant filter: {assistant_id}")
         
