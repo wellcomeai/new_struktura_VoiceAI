@@ -1357,6 +1357,159 @@
       }
     }
     
+    /* ============================================================================
+       🆕 v3.2: FUNCTION CALLS ПОД СООБЩЕНИЯМИ В МОДАЛКЕ
+       ============================================================================ */
+    
+    .message-functions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+      margin-left: 0;
+    }
+    
+    .message.user .message-functions {
+      align-items: flex-end;
+    }
+    
+    .message.assistant .message-functions {
+      align-items: flex-start;
+    }
+    
+    .message-function {
+      background-color: rgba(37, 99, 235, 0.08);
+      border: 1px solid rgba(37, 99, 235, 0.15);
+      border-radius: 0.5rem;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      max-width: 280px;
+      border-left: 3px solid var(--success-green);
+    }
+    
+    .message-function:hover {
+      background-color: rgba(37, 99, 235, 0.12);
+      border-color: rgba(37, 99, 235, 0.25);
+    }
+    
+    .message-function.error {
+      background-color: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.15);
+      border-left-color: var(--error-red);
+    }
+    
+    .message-function.error:hover {
+      background-color: rgba(239, 68, 68, 0.12);
+    }
+    
+    .mfn-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    
+    .mfn-name {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-weight: 600;
+      color: var(--text-dark);
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.72rem;
+    }
+    
+    .mfn-name i {
+      color: var(--primary-blue);
+      font-size: 0.65rem;
+    }
+    
+    .mfn-status {
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--success-green);
+      white-space: nowrap;
+    }
+    
+    .message-function.error .mfn-status {
+      color: var(--error-red);
+    }
+    
+    .mfn-details {
+      display: none;
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    
+    .mfn-details.expanded {
+      display: block;
+    }
+    
+    .mfn-section {
+      margin-bottom: 0.5rem;
+    }
+    
+    .mfn-section:last-child {
+      margin-bottom: 0;
+    }
+    
+    .mfn-section-title {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: var(--text-light);
+      margin-bottom: 0.25rem;
+    }
+    
+    .mfn-code {
+      background-color: var(--white);
+      border: 1px solid var(--border-color);
+      border-radius: 0.25rem;
+      padding: 0.4rem 0.5rem;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.65rem;
+      line-height: 1.4;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 120px;
+      overflow-y: auto;
+      color: var(--text-dark);
+    }
+    
+    .mfn-code.error-text {
+      color: var(--error-red);
+      background-color: rgba(239, 68, 68, 0.05);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    
+    .mfn-expand-hint {
+      font-size: 0.6rem;
+      color: var(--text-light);
+      margin-top: 0.25rem;
+      text-align: center;
+    }
+    
+    /* Анимация раскрытия */
+    .message-function .mfn-details {
+      animation: mfn-expand 0.2s ease-out;
+    }
+    
+    @keyframes mfn-expand {
+      from {
+        opacity: 0;
+        max-height: 0;
+      }
+      to {
+        opacity: 1;
+        max-height: 500px;
+      }
+    }
+    
     /* Мобильная адаптация */
     @media (max-width: 768px) {
       .sidebar {
@@ -1749,11 +1902,12 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 3.1 - Telegram Notifications Support
+     * Version: 3.2 - Function Calls под сообщениями в модалке
      * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
      * ✅ Отображение стоимости звонка (call_cost)
      * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
-     * ✅ 🆕 Настройка Telegram уведомлений о звонках
+     * ✅ Настройка Telegram уведомлений о звонках
+     * ✅ 🆕 Function calls отображаются под сообщениями ассистента
      */
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -2044,6 +2198,28 @@
           return assistant.type;
         }
         return 'openai';
+      }
+      
+      // ============================================================================
+      // 🆕 v3.2: ФУНКЦИИ ДЛЯ FUNCTION CALLS В МОДАЛКЕ
+      // ============================================================================
+      
+      // Toggle function details в модальном окне
+      function toggleMessageFunction(element) {
+        const details = element.querySelector('.mfn-details');
+        if (details) {
+          details.classList.toggle('expanded');
+        }
+      }
+      
+      // Expose globally
+      window.toggleMessageFunction = toggleMessageFunction;
+      
+      // Escape HTML для безопасного отображения JSON
+      function escapeHtmlForModal(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
       }
       
       // ============================================================================
@@ -2493,7 +2669,7 @@
       }
       
       // ============================================================================
-      // ДЕТАЛЬНЫЙ ПРОСМОТР
+      // ДЕТАЛЬНЫЙ ПРОСМОТР (🆕 v3.2: с function_calls под сообщениями)
       // ============================================================================
       
       async function openConversationDetail(conversationId, assistantType = 'openai') {
@@ -2544,12 +2720,61 @@
               
               const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : '🤖');
               
+              // 🆕 v3.2: Генерируем HTML для function_calls если есть
+              let functionCallsHtml = '';
+              if (msg.function_calls && msg.function_calls.length > 0) {
+                const functionsItems = msg.function_calls.map(fc => {
+                  const isError = fc.status === 'error';
+                  const statusIcon = isError ? '✗' : '✓';
+                  const execTime = fc.execution_time_ms ? `${Math.round(fc.execution_time_ms)}ms` : '';
+                  
+                  const argsJson = fc.arguments ? JSON.stringify(fc.arguments, null, 2) : '—';
+                  const resultJson = fc.result ? JSON.stringify(fc.result, null, 2) : '—';
+                  const errorMsg = fc.error_message || '';
+                  
+                  return `
+                    <div class="message-function ${isError ? 'error' : ''}" onclick="toggleMessageFunction(this)">
+                      <div class="mfn-header">
+                        <span class="mfn-name">
+                          <i class="fas fa-code"></i>
+                          ${fc.function_name}
+                        </span>
+                        <span class="mfn-status">${statusIcon} ${execTime}</span>
+                      </div>
+                      <div class="mfn-details">
+                        <div class="mfn-section">
+                          <div class="mfn-section-title">Аргументы</div>
+                          <pre class="mfn-code">${escapeHtmlForModal(argsJson)}</pre>
+                        </div>
+                        <div class="mfn-section">
+                          <div class="mfn-section-title">Результат</div>
+                          <pre class="mfn-code ${isError ? 'error-text' : ''}">${escapeHtmlForModal(resultJson)}</pre>
+                        </div>
+                        ${errorMsg ? `
+                          <div class="mfn-section">
+                            <div class="mfn-section-title">Ошибка</div>
+                            <pre class="mfn-code error-text">${escapeHtmlForModal(errorMsg)}</pre>
+                          </div>
+                        ` : ''}
+                      </div>
+                    </div>
+                  `;
+                }).join('');
+                
+                functionCallsHtml = `
+                  <div class="message-functions">
+                    ${functionsItems}
+                  </div>
+                `;
+              }
+              
               messageDiv.innerHTML = `
                 <div class="message-avatar">${avatarIcon}</div>
                 <div>
                   <div class="message-bubble">
                     ${msg.text}
                   </div>
+                  ${functionCallsHtml}
                   <div class="message-time">${msg.timestamp ? formatTime(msg.timestamp) : ''}</div>
                 </div>
               `;
@@ -2599,18 +2824,23 @@
             `;
           }
           
+          // 🆕 v3.2: Упрощённый футер - только счётчик функций (детали под сообщениями)
           if (dialog.function_calls && dialog.function_calls.length > 0) {
+            const successCount = dialog.function_calls.filter(f => f.status === 'success').length;
+            const errorCount = dialog.function_calls.length - successCount;
+            
             footerHtml += `
               <div class="functions-section">
-                <div class="functions-title">Вызовы функций (${dialog.function_calls.length})</div>
-                ${dialog.function_calls.map(fc => `
-                  <div class="function-item">
-                    <strong>${fc.function_name}</strong>
-                    <span style="color: var(--text-light); font-size: 0.8rem; margin-left: 0.5rem;">
-                      ${fc.status || 'success'}
-                    </span>
-                  </div>
-                `).join('')}
+                <div class="functions-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span>Вызовы функций (${dialog.function_calls.length})</span>
+                  <span style="font-weight: normal; font-size: 0.7rem;">
+                    <span style="color: var(--success-green)">${successCount} ✓</span>
+                    ${errorCount > 0 ? `<span style="color: var(--error-red); margin-left: 0.25rem;">${errorCount} ✗</span>` : ''}
+                  </span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-gray);">
+                  Детали отображаются под сообщениями ассистента
+                </div>
               </div>
             `;
           }
