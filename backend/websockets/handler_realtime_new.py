@@ -1,7 +1,8 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 PRODUCTION VERSION 2.12 - OpenAI Realtime API Handler (Fix Duplicate Conversations)
+🚀 PRODUCTION VERSION 2.12.1 - OpenAI Realtime API Handler (Fix Duplicate Conversations + DB Session Fix)
 ✅ Fixed: Duplicate conversation records - now single source of truth
+✅ Fixed: DB session closed before async task - now creates new session inside task
 ✅ Removed: async_save_to_database in response.done (was creating duplicates)
 ✅ Kept: async_save_dialog_to_db as THE ONLY place for conversation creation
 ✅ All previous features maintained
@@ -117,28 +118,36 @@ async def async_save_to_google_sheets(sheet_id: str, user_message: str, assistan
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
 
 
-async def async_save_dialog_to_db(db_session, assistant_id: str, user_message: str, assistant_message: str, session_id: str):
+async def async_save_dialog_to_db(assistant_id: str, user_message: str, assistant_message: str, session_id: str):
     """
-    🚀 v2.12: THE ONLY place where conversation records are created!
+    🚀 v2.12.1: THE ONLY place where conversation records are created!
+    
+    ✅ FIX: Creates NEW db session inside task (original session may be closed)
     
     This is now the SINGLE SOURCE OF TRUTH for conversation records.
     No more duplicates from empty records + this function.
     
     Creates a new conversation record with actual dialog content.
     """
+    from backend.db.session import SessionLocal
+    
+    db = None
     try:
-        if not db_session or not user_message or not assistant_message:
-            log_to_render(f"⚠️ [v2.12] Skipping dialog save - missing data")
-            log_to_render(f"   db_session: {bool(db_session)}, user: {bool(user_message)}, assistant: {bool(assistant_message)}")
+        if not user_message or not assistant_message:
+            log_to_render(f"⚠️ [v2.12.1] Skipping dialog save - missing data")
+            log_to_render(f"   user: {bool(user_message)}, assistant: {bool(assistant_message)}")
             return
         
-        log_to_render(f"💾 [v2.12] Saving dialog as NEW DB record (single source of truth)")
+        # 🆕 v2.12.1 FIX: Create NEW session inside async task
+        db = SessionLocal()
+        
+        log_to_render(f"💾 [v2.12.1] Saving dialog as NEW DB record (single source of truth)")
         log_to_render(f"   Session ID: {session_id}")
         log_to_render(f"   User: {user_message[:50]}...")
         log_to_render(f"   Assistant: {assistant_message[:50]}...")
         
         result = await ConversationService.save_conversation(
-            db=db_session,
+            db=db,
             assistant_id=assistant_id,
             user_message=user_message,
             assistant_message=assistant_message,
@@ -148,13 +157,16 @@ async def async_save_dialog_to_db(db_session, assistant_id: str, user_message: s
         )
         
         if result:
-            log_to_render(f"✅ [v2.12] Dialog saved successfully: {result.id}")
+            log_to_render(f"✅ [v2.12.1] Dialog saved successfully: {result.id}")
         else:
-            log_to_render(f"⚠️ [v2.12] Dialog save returned None", "WARNING")
+            log_to_render(f"⚠️ [v2.12.1] Dialog save returned None", "WARNING")
         
     except Exception as e:
-        log_to_render(f"❌ [v2.12] Dialog save error: {e}", "ERROR")
+        log_to_render(f"❌ [v2.12.1] Dialog save error: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
+    finally:
+        if db:
+            db.close()
 
 
 async def async_save_function_log(
@@ -1373,18 +1385,17 @@ async def handle_openai_messages_new(
                     
                     # v2.12: ONLY async_save_dialog_to_db creates conversation records
                     if user_transcript and assistant_transcript:
-                        log_to_render(f"💾 [v2.12] Creating SINGLE conversation record via async_save_dialog_to_db")
+                        log_to_render(f"💾 [v2.12.1] Creating SINGLE conversation record via async_save_dialog_to_db")
                         
                         asyncio.create_task(
                             async_save_dialog_to_db(
-                                openai_client.db_session,
                                 str(openai_client.assistant_config.id),
                                 user_transcript,
                                 assistant_transcript,
                                 openai_client.session_id
                             )
                         )
-                        log_to_render(f"⚡ [v2.12] Dialog save task created (single source of truth)")
+                        log_to_render(f"⚡ [v2.12.1] Dialog save task created (single source of truth)")
                         
                         # Google Sheets logging (async, non-blocking)
                         if openai_client.assistant_config and openai_client.assistant_config.google_sheet_id:
