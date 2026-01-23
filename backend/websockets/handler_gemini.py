@@ -735,6 +735,7 @@ async def handle_gemini_messages(
                     
                     # ═══════════════════════════════════════════════════════════════
                     # 🆕 v1.6.0: ТРАНСКРИПЦИЯ ВХОДЯЩЕГО АУДИО (пользователя)
+                    # Поле finished указывает на конец реплики (из документации Google)
                     # ═══════════════════════════════════════════════════════════════
                     if "inputTranscription" in server_content:
                         input_trans = server_content["inputTranscription"]
@@ -761,19 +762,16 @@ async def handle_gemini_messages(
                                 "is_chunk": True
                             })
                         
-                        # 🎯 v1.6.0: Проверяем маркеры завершения реплики
+                        # 🎯 v1.6.0: Проверяем поле finished (из документации Google)
                         is_finished = input_trans.get("finished", False)
-                        is_final = input_trans.get("is_final", False)
-                        end_of_turn = input_trans.get("endOfTurn", False)
                         
-                        if is_finished or is_final or end_of_turn:
+                        if is_finished:
                             if current_user_utterance.strip():
                                 user_turn_count += 1
                                 completed_utterance = current_user_utterance.strip()
                                 user_turns.append(completed_utterance)
                                 
-                                log_to_render(f"✅ USER TURN #{user_turn_count} COMPLETED: '{completed_utterance}'")
-                                log_to_render(f"   Trigger: finished={is_finished}, is_final={is_final}, endOfTurn={end_of_turn}")
+                                log_to_render(f"✅ USER TURN #{user_turn_count} COMPLETED (finished=true): '{completed_utterance}'")
                                 
                                 # Отправляем клиенту завершённую реплику
                                 await websocket.send_json({
@@ -788,6 +786,7 @@ async def handle_gemini_messages(
                     
                     # ═══════════════════════════════════════════════════════════════
                     # 🆕 v1.6.0: ТРАНСКРИПЦИЯ ОТВЕТА МОДЕЛИ (ассистента)
+                    # Поле finished указывает на конец реплики (из документации Google)
                     # ═══════════════════════════════════════════════════════════════
                     if "outputTranscription" in server_content:
                         output_trans = server_content["outputTranscription"]
@@ -814,19 +813,16 @@ async def handle_gemini_messages(
                                 "is_chunk": True
                             })
                         
-                        # 🎯 v1.6.0: Проверяем маркеры завершения реплики
+                        # 🎯 v1.6.0: Проверяем поле finished (из документации Google)
                         is_finished = output_trans.get("finished", False)
-                        is_final = output_trans.get("is_final", False)
-                        end_of_turn = output_trans.get("endOfTurn", False)
                         
-                        if is_finished or is_final or end_of_turn:
+                        if is_finished:
                             if current_assistant_utterance.strip():
                                 assistant_turn_count += 1
                                 completed_utterance = current_assistant_utterance.strip()
                                 assistant_turns.append(completed_utterance)
                                 
-                                log_to_render(f"✅ ASSISTANT TURN #{assistant_turn_count} COMPLETED: '{completed_utterance[:100]}...'")
-                                log_to_render(f"   Trigger: finished={is_finished}, is_final={is_final}, endOfTurn={end_of_turn}")
+                                log_to_render(f"✅ ASSISTANT TURN #{assistant_turn_count} COMPLETED (finished=true): '{completed_utterance[:100]}...'")
                                 
                                 # Отправляем клиенту завершённую реплику
                                 await websocket.send_json({
@@ -1218,6 +1214,88 @@ async def handle_gemini_messages(
                             assistant_turns = []
                             user_turn_count = 0
                             assistant_turn_count = 0
+                
+                # ═══════════════════════════════════════════════════════════════
+                # 🆕 v1.6.0: TOP-LEVEL TRANSCRIPTION MESSAGES
+                # Согласно документации Google, транскрипции могут приходить
+                # как отдельные сообщения на верхнем уровне
+                # ═══════════════════════════════════════════════════════════════
+                
+                # Top-level inputTranscription
+                if "inputTranscription" in response_data:
+                    input_trans = response_data["inputTranscription"]
+                    
+                    if ENABLE_TRANSCRIPT_DEBUG:
+                        log_to_render(f"🔍 TOP-LEVEL INPUT_TRANS KEYS: {list(input_trans.keys())}")
+                        log_to_render(f"🔍 TOP-LEVEL INPUT_TRANS RAW: {json.dumps(input_trans, ensure_ascii=False)[:500]}")
+                    
+                    if "text" in input_trans:
+                        transcript_text = input_trans["text"]
+                        transcript_events_received += 1
+                        current_user_utterance += transcript_text
+                        
+                        log_to_render(f"👤 [TOP-LEVEL] USER TRANSCRIPT: '{transcript_text}'")
+                        
+                        await websocket.send_json({
+                            "type": "input.transcription",
+                            "text": transcript_text,
+                            "is_chunk": True
+                        })
+                    
+                    # Проверяем finished
+                    is_finished = input_trans.get("finished", False)
+                    if is_finished and current_user_utterance.strip():
+                        user_turn_count += 1
+                        completed_utterance = current_user_utterance.strip()
+                        user_turns.append(completed_utterance)
+                        
+                        log_to_render(f"✅ [TOP-LEVEL] USER TURN #{user_turn_count} COMPLETED: '{completed_utterance}'")
+                        
+                        await websocket.send_json({
+                            "type": "input.transcription.complete",
+                            "text": completed_utterance,
+                            "turn_number": user_turn_count,
+                            "is_final": True
+                        })
+                        current_user_utterance = ""
+                
+                # Top-level outputTranscription
+                if "outputTranscription" in response_data:
+                    output_trans = response_data["outputTranscription"]
+                    
+                    if ENABLE_TRANSCRIPT_DEBUG:
+                        log_to_render(f"🔍 TOP-LEVEL OUTPUT_TRANS KEYS: {list(output_trans.keys())}")
+                        log_to_render(f"🔍 TOP-LEVEL OUTPUT_TRANS RAW: {json.dumps(output_trans, ensure_ascii=False)[:500]}")
+                    
+                    if "text" in output_trans:
+                        transcript_text = output_trans["text"]
+                        transcript_events_received += 1
+                        current_assistant_utterance += transcript_text
+                        
+                        log_to_render(f"🤖 [TOP-LEVEL] ASSISTANT TRANSCRIPT: '{transcript_text}'")
+                        
+                        await websocket.send_json({
+                            "type": "output.transcription",
+                            "text": transcript_text,
+                            "is_chunk": True
+                        })
+                    
+                    # Проверяем finished
+                    is_finished = output_trans.get("finished", False)
+                    if is_finished and current_assistant_utterance.strip():
+                        assistant_turn_count += 1
+                        completed_utterance = current_assistant_utterance.strip()
+                        assistant_turns.append(completed_utterance)
+                        
+                        log_to_render(f"✅ [TOP-LEVEL] ASSISTANT TURN #{assistant_turn_count} COMPLETED: '{completed_utterance[:100]}...'")
+                        
+                        await websocket.send_json({
+                            "type": "output.transcription.complete",
+                            "text": completed_utterance,
+                            "turn_number": assistant_turn_count,
+                            "is_final": True
+                        })
+                        current_assistant_utterance = ""
                 
                 # User transcript from clientContent (если есть)
                 if "clientContent" in response_data:
