@@ -1,10 +1,12 @@
 /* ============================================================ */
 /* JARVIS AI - Main Application                                 */
 /* Voice LLM Interface - Voicyfy                                */
-/* Version: 4.3.1 - FIXED                                       */
+/* Version: 4.3.2 - IIFE wrapped                                */
 /* ============================================================ */
 
 'use strict';
+
+(function() {
 
 // ============================================================================
 // GET MODULES (use Config.xxx - no destructuring to avoid redeclaration)
@@ -1372,3 +1374,5 @@ window.testAgent = testAgent;
 window.copyHTMLCode = copyHTMLCode;
 window.copyLLMResponse = copyLLMResponse;
 window.clearChatHistory = clearChatHistory;
+
+})();
