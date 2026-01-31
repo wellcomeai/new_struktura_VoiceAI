@@ -7,25 +7,11 @@
 'use strict';
 
 // ============================================================================
-// GET MODULES
+// GET MODULES (use Config.xxx - no destructuring to avoid redeclaration)
 // ============================================================================
 
 const Config = window.JarvisConfig;
 const Audio = window.JarvisAudio;
-
-const {
-    DEBUG_MODE,
-    MAX_RECONNECT_ATTEMPTS,
-    MOBILE_MAX_RECONNECT_ATTEMPTS,
-    PING_INTERVAL,
-    MOBILE_PING_INTERVAL,
-    STORAGE_KEY_ASSISTANT,
-    HISTORY_STORAGE_KEY,
-    MAX_HISTORY_PAIRS,
-    SERVER_URL,
-    isMobile,
-    log
-} = Config;
 
 // ============================================================================
 // APPLICATION STATE
@@ -62,10 +48,10 @@ let threeInitialized = false;
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    log('🚀 JARVIS AI Interface v4.3.1 Starting...');
-    log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2)`);
-    log(`   Mute: Enabled`);
-    log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
+    Config.log('🚀 JARVIS AI Interface v4.3.1 Starting...');
+    Config.log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2)`);
+    Config.log(`   Mute: Enabled`);
+    Config.log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
 
     initializeApp();
 });
@@ -89,7 +75,7 @@ function initializeApp() {
     if (!isEmbedMode) {
         loadGeminiAssistantsList();
     } else {
-        log('📦 Running in EMBED mode');
+        Config.log('📦 Running in EMBED mode');
     }
     
     // Initialize chat history
@@ -213,12 +199,12 @@ function setupEventListeners() {
 // ============================================================================
 
 async function activateAudioAndStart() {
-    log('🎬 User activation triggered');
+    Config.log('🎬 User activation triggered');
     
     try {
         const audioSuccess = await Audio.initializeAudio();
         if (!audioSuccess) {
-            log('❌ Audio initialization failed', 'error');
+            Config.log('❌ Audio initialization failed', 'error');
         }
         
         Audio.initPlaybackAudioContext();
@@ -229,17 +215,17 @@ async function activateAudioAndStart() {
             startOverlay.classList.add('hidden');
         }
         
-        log('✅ Overlay hidden, audio activated');
+        Config.log('✅ Overlay hidden, audio activated');
         
         if (ASSISTANT_ID) {
-            log('🔌 Connecting WebSocket after user activation...');
+            Config.log('🔌 Connecting WebSocket after user activation...');
             connectWebSocket();
         } else {
             updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
         }
         
     } catch (error) {
-        log(`❌ Activation error: ${error}`, 'error');
+        Config.log(`❌ Activation error: ${error}`, 'error');
         const startOverlay = document.getElementById('startOverlay');
         if (startOverlay) {
             startOverlay.classList.add('hidden');
@@ -292,14 +278,14 @@ async function loadGeminiAssistantsList() {
     const copyBtn = document.getElementById('copyBtn');
     
     if (!assistantSelect) {
-        log('❌ assistantSelect element not found', 'error');
+        Config.log('❌ assistantSelect element not found', 'error');
         return;
     }
     
     try {
-        log('📋 Loading Gemini assistants...');
+        Config.log('📋 Loading Gemini assistants...');
         
-        const response = await fetch(`${SERVER_URL}/api/gemini-assistants`, {
+        const response = await fetch(`${Config.SERVER_URL}/api/gemini-assistants`, {
             headers: {
                 'Authorization': `Bearer ${getAuthToken()}`
             }
@@ -310,7 +296,7 @@ async function loadGeminiAssistantsList() {
         }
         
         const assistants = await response.json();
-        log(`   Loaded: ${assistants.length} assistants`);
+        Config.log(`   Loaded: ${assistants.length} assistants`);
         
         assistantSelect.innerHTML = '<option value="">-- Выберите Gemini ассистента --</option>';
         
@@ -326,20 +312,20 @@ async function loadGeminiAssistantsList() {
             assistantSelect.value = ASSISTANT_ID;
             if (testBtn) testBtn.disabled = false;
             if (copyBtn) copyBtn.disabled = false;
-            log(`   Using assistant from URL: ${ASSISTANT_ID}`);
+            Config.log(`   Using assistant from URL: ${ASSISTANT_ID}`);
         } else {
-            const savedAssistantId = localStorage.getItem(STORAGE_KEY_ASSISTANT);
+            const savedAssistantId = localStorage.getItem(Config.STORAGE_KEY_ASSISTANT);
             if (savedAssistantId && assistantSelect.querySelector(`option[value="${savedAssistantId}"]`)) {
                 assistantSelect.value = savedAssistantId;
                 ASSISTANT_ID = savedAssistantId;
                 if (testBtn) testBtn.disabled = false;
                 if (copyBtn) copyBtn.disabled = false;
-                log(`   Restored from localStorage: ${savedAssistantId}`);
+                Config.log(`   Restored from localStorage: ${savedAssistantId}`);
             }
         }
         
     } catch (error) {
-        log(`❌ Error loading assistants: ${error}`, 'error');
+        Config.log(`❌ Error loading assistants: ${error}`, 'error');
         assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
     }
 }
@@ -372,8 +358,8 @@ async function saveConfig() {
     try {
         setLoading(true);
         ASSISTANT_ID = selectedAssistantId;
-        localStorage.setItem(STORAGE_KEY_ASSISTANT, selectedAssistantId);
-        log(`💾 Assistant saved: ${selectedAssistantId}`);
+        localStorage.setItem(Config.STORAGE_KEY_ASSISTANT, selectedAssistantId);
+        Config.log(`💾 Assistant saved: ${selectedAssistantId}`);
 
         if (testBtn) testBtn.disabled = false;
         if (copyBtn) copyBtn.disabled = false;
@@ -390,7 +376,7 @@ async function saveConfig() {
         }
 
     } catch (error) {
-        log(`❌ Save error: ${error}`, 'error');
+        Config.log(`❌ Save error: ${error}`, 'error');
         alert('❌ Ошибка: ' + error.message);
     } finally {
         setLoading(false);
@@ -425,7 +411,7 @@ function copyHTMLCode() {
         return;
     }
 
-    const embedUrl = `${SERVER_URL}/static/voice_llm_interface/?assistant=${ASSISTANT_ID}`;
+    const embedUrl = `${Config.SERVER_URL}/static/voice_llm_interface/?assistant=${ASSISTANT_ID}`;
     const embedCode = `<!-- Voicyfy JARVIS AI (Gemini) Widget -->
 <iframe
     src="${embedUrl}"
@@ -511,19 +497,19 @@ window.updateStatus = function(status, text, className) {
 
 function loadChatHistory() {
     try {
-        const saved = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+        const saved = sessionStorage.getItem(Config.HISTORY_STORAGE_KEY);
         return saved ? JSON.parse(saved) : [];
     } catch (e) {
-        log(`Chat history load error: ${e}`, 'error');
+        Config.log(`Chat history load error: ${e}`, 'error');
         return [];
     }
 }
 
 function saveChatHistory(history) {
     try {
-        sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+        sessionStorage.setItem(Config.HISTORY_STORAGE_KEY, JSON.stringify(history));
     } catch (e) {
-        log(`Chat history save error: ${e}`, 'error');
+        Config.log(`Chat history save error: ${e}`, 'error');
     }
 }
 
@@ -532,7 +518,7 @@ function addToHistory(role, content) {
     history.push({ role, content, timestamp: Date.now() });
     
     // Keep only last N pairs
-    while (history.length > MAX_HISTORY_PAIRS * 2) {
+    while (history.length > Config.MAX_HISTORY_PAIRS * 2) {
         history.shift();
     }
     
@@ -542,7 +528,7 @@ function addToHistory(role, content) {
 }
 
 function clearChatHistory() {
-    sessionStorage.removeItem(HISTORY_STORAGE_KEY);
+    sessionStorage.removeItem(Config.HISTORY_STORAGE_KEY);
     updateContextInfo();
     renderChatHistory();
     showSuccess('🗑️ История очищена');
@@ -555,7 +541,7 @@ function updateContextInfo() {
     const clearBtn = document.getElementById('clearHistoryBtn');
     
     if (contextInfo) {
-        contextInfo.textContent = `Контекст: ${pairs}/${MAX_HISTORY_PAIRS} сообщений`;
+        contextInfo.textContent = `Контекст: ${pairs}/${Config.MAX_HISTORY_PAIRS} сообщений`;
     }
     if (clearBtn) {
         clearBtn.style.display = history.length > 0 ? 'block' : 'none';
@@ -639,7 +625,7 @@ function sendTextMessage() {
             request_id: `text_${Date.now()}`
         }));
         
-        log(`📝 Sent text message with ${contextHistory.length} history items`);
+        Config.log(`📝 Sent text message with ${contextHistory.length} history items`);
     }
 }
 
@@ -648,7 +634,7 @@ function sendTextMessage() {
 // ============================================================================
 
 function startStreamingUI(query) {
-    log(`📝 Starting LLM streaming for: ${query.substring(0, 50)}...`);
+    Config.log(`📝 Starting LLM streaming for: ${query.substring(0, 50)}...`);
     
     // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = true;
@@ -720,7 +706,7 @@ function appendStreamingText(content) {
 }
 
 function finishStreamingUI(data) {
-    log('✅ LLM streaming finished');
+    Config.log('✅ LLM streaming finished');
     
     // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = false;
@@ -776,7 +762,7 @@ function finishStreamingUI(data) {
 }
 
 function showStreamingError(message) {
-    log(`❌ LLM streaming error: ${message}`, 'error');
+    Config.log(`❌ LLM streaming error: ${message}`, 'error');
     
     // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = false;
@@ -899,21 +885,21 @@ function copyLLMResponse() {
 
 async function connectWebSocket() {
     if (!ASSISTANT_ID) {
-        log('⏳ Waiting for Gemini assistant configuration');
+        Config.log('⏳ Waiting for Gemini assistant configuration');
         updateStatus('connecting', 'Выберите Gemini ассистента', 'connecting');
         return;
     }
     
     if (!window.userActivated) {
-        log('⏳ Waiting for user activation');
+        Config.log('⏳ Waiting for user activation');
         return;
     }
 
     try {
-        const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/gemini-browser/' + ASSISTANT_ID;
+        const WS_URL = Config.SERVER_URL.replace(/^http/, 'ws') + '/ws/gemini-browser/' + ASSISTANT_ID;
         
-        log(`🔌 Connecting to Gemini WebSocket...`);
-        log(`   URL: ${WS_URL}`);
+        Config.log(`🔌 Connecting to Gemini WebSocket...`);
+        Config.log(`   URL: ${WS_URL}`);
         
         window.isReconnecting = true;
         
@@ -931,7 +917,7 @@ async function connectWebSocket() {
         window.websocket.binaryType = 'arraybuffer';
         
         window.websocket.onopen = function() {
-            log('✅ Gemini WebSocket connected');
+            Config.log('✅ Gemini WebSocket connected');
             window.isConnected = true;
             window.isReconnecting = false;
             reconnectAttempts = 0;
@@ -958,7 +944,7 @@ async function connectWebSocket() {
             }, 500);
             
             // Setup ping
-            const pingIntervalTime = isMobile ? MOBILE_PING_INTERVAL : PING_INTERVAL;
+            const pingIntervalTime = Config.isMobile ? _MOBILEConfig.PING_INTERVAL : Config.PING_INTERVAL;
             pingInterval = setInterval(() => {
                 if (window.websocket && window.websocket.readyState === WebSocket.OPEN) {
                     window.websocket.send(JSON.stringify({ type: "ping" }));
@@ -971,7 +957,7 @@ async function connectWebSocket() {
         };
         
         window.websocket.onclose = function(event) {
-            log(`🔌 WebSocket closed: ${event.code}`);
+            Config.log(`🔌 WebSocket closed: ${event.code}`);
             window.isConnected = false;
             Audio.stopListening();
             
@@ -983,11 +969,11 @@ async function connectWebSocket() {
             if (event.code === 1000 || event.code === 1001) return;
             
             // Reconnect logic
-            const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
+            const maxAttempts = Config.isMobile ? _MOBILEConfig.MAX_RECONNECT_ATTEMPTS : Config.MAX_RECONNECT_ATTEMPTS;
             if (reconnectAttempts < maxAttempts && window.userActivated) {
                 reconnectAttempts++;
                 const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
-                log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxAttempts})`);
+                Config.log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxAttempts})`);
                 updateStatus('connecting', 'Переподключение...', 'connecting');
                 setTimeout(() => connectWebSocket(), delay);
             } else {
@@ -997,13 +983,13 @@ async function connectWebSocket() {
         };
         
         window.websocket.onerror = function(error) {
-            log(`❌ WebSocket error: ${error}`, 'error');
+            Config.log(`❌ WebSocket error: ${error}`, 'error');
         };
         
         return true;
         
     } catch (error) {
-        log(`❌ Connection error: ${error}`, 'error');
+        Config.log(`❌ Connection error: ${error}`, 'error');
         window.isReconnecting = false;
         return false;
     }
@@ -1019,7 +1005,7 @@ function handleGeminiMessage(event) {
             
             // LLM request from voice
             if (data.type === 'llm.request') {
-                log(`📝 LLM request received: ${data.query}`);
+                Config.log(`📝 LLM request received: ${data.query}`);
                 startStreamingUI(data.query);
                 sendLLMQuery(data.query, data.request_id);
                 return;
@@ -1051,7 +1037,7 @@ function handleGeminiMessage(event) {
             
             // Connection status
             if (data.type === 'connection_status') {
-                log(`Gemini connection: ${data.status}`);
+                Config.log(`Gemini connection: ${data.status}`);
                 if (data.status === 'connected') {
                     const isMuted = Audio.getMuteState();
                     if (isMuted) {
@@ -1064,13 +1050,13 @@ function handleGeminiMessage(event) {
             }
             
             if (data.type === 'gemini.setup.complete') {
-                log('Gemini setup complete');
+                Config.log('Gemini setup complete');
                 return;
             }
             
             // Function calls
             if (data.type === 'function_call.executing') {
-                log(`🔧 Function executing: ${data.function}`);
+                Config.log(`🔧 Function executing: ${data.function}`);
                 if (data.function === 'query_llm') {
                     updateStatus('processing', 'Запрос к ИИ...', 'processing');
                     const jarvisSphere = document.getElementById('jarvisSphere');
@@ -1080,7 +1066,7 @@ function handleGeminiMessage(event) {
             }
             
             if (data.type === 'function_call.completed') {
-                log(`✅ Function completed: ${data.function}`);
+                Config.log(`✅ Function completed: ${data.function}`);
                 return;
             }
             
@@ -1091,12 +1077,12 @@ function handleGeminiMessage(event) {
             }
             
             if (data.type === 'assistant.speech.started') {
-                log('🔊 Assistant started speaking');
+                Config.log('🔊 Assistant started speaking');
                 return;
             }
             
             if (data.type === 'assistant.speech.ended') {
-                log('🔇 Assistant speech ended (server)');
+                Config.log('🔇 Assistant speech ended (server)');
                 return;
             }
             
@@ -1104,18 +1090,18 @@ function handleGeminiMessage(event) {
             
             // Transcriptions
             if (data.type === 'input.transcription') {
-                log(`👤 User: ${data.text}`);
+                Config.log(`👤 User: ${data.text}`);
                 return;
             }
             
             if (data.type === 'output.transcription') {
-                log(`🤖 Gemini: ${data.text}`);
+                Config.log(`🤖 Gemini: ${data.text}`);
                 return;
             }
             
             // Errors
             if (data.type === 'error') {
-                log(`Gemini API Error: ${JSON.stringify(data.error)}`, 'error');
+                Config.log(`Gemini API Error: ${JSON.stringify(data.error)}`, 'error');
                 
                 if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
                     const isPlayingAudio = Audio.getIsPlayingAudio();
@@ -1136,7 +1122,7 @@ function handleGeminiMessage(event) {
             }
         }
     } catch (generalError) {
-        log(`Message processing error: ${generalError.message}`, "error");
+        Config.log(`Message processing error: ${generalError.message}`, "error");
     }
 }
 
@@ -1146,22 +1132,22 @@ function handleGeminiMessage(event) {
 
 function connectLLMWebSocket() {
     if (llmWebSocket && llmWebSocket.readyState === WebSocket.OPEN) {
-        log('📝 LLM WebSocket already connected');
+        Config.log('📝 LLM WebSocket already connected');
         return;
     }
     
     try {
-        let LLM_WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
+        let LLM_WS_URL = Config.SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
         if (ASSISTANT_ID) {
             LLM_WS_URL += '?assistant_id=' + encodeURIComponent(ASSISTANT_ID);
         }
         
-        log(`📝 Connecting to LLM WebSocket: ${LLM_WS_URL}`);
+        Config.log(`📝 Connecting to LLM WebSocket: ${LLM_WS_URL}`);
         
         llmWebSocket = new WebSocket(LLM_WS_URL);
         
         llmWebSocket.onopen = function() {
-            log('📝 ✅ LLM WebSocket connected');
+            Config.log('📝 ✅ LLM WebSocket connected');
             isLLMConnected = true;
             
             // Unlock chat input
@@ -1209,17 +1195,17 @@ function connectLLMWebSocket() {
                 }
                 
                 if (data.type === 'connection_status') {
-                    log(`📝 LLM connection: ${data.status}`);
+                    Config.log(`📝 LLM connection: ${data.status}`);
                     return;
                 }
                 
             } catch (e) {
-                log(`📝 LLM WS parse error: ${e}`, 'error');
+                Config.log(`📝 LLM WS parse error: ${e}`, 'error');
             }
         };
         
         llmWebSocket.onclose = function() {
-            log('📝 LLM WebSocket disconnected');
+            Config.log('📝 LLM WebSocket disconnected');
             isLLMConnected = false;
             
             // Lock chat input
@@ -1241,23 +1227,23 @@ function connectLLMWebSocket() {
         };
         
         llmWebSocket.onerror = function(error) {
-            log(`📝 LLM WebSocket error: ${error}`, 'error');
+            Config.log(`📝 LLM WebSocket error: ${error}`, 'error');
         };
         
     } catch (error) {
-        log(`📝 LLM WebSocket connection error: ${error}`, 'error');
+        Config.log(`📝 LLM WebSocket connection error: ${error}`, 'error');
     }
 }
 
 function sendLLMQuery(query, requestId) {
     if (!llmWebSocket || llmWebSocket.readyState !== WebSocket.OPEN) {
-        log('📝 LLM WebSocket not connected, connecting...', 'warn');
+        Config.log('📝 LLM WebSocket not connected, connecting...', 'warn');
         connectLLMWebSocket();
         setTimeout(() => sendLLMQuery(query, requestId), 500);
         return;
     }
     
-    log(`📝 Sending query to LLM: ${query.substring(0, 50)}...`);
+    Config.log(`📝 Sending query to LLM: ${query.substring(0, 50)}...`);
     llmWebSocket.send(JSON.stringify({
         type: 'llm.query',
         query: query,
@@ -1297,11 +1283,11 @@ function initThreeJS() {
         threeCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         threeCamera.position.z = 500;
 
-        threeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !isMobile });
+        threeRenderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: !Config.isMobile });
         threeRenderer.setSize(window.innerWidth, window.innerHeight);
-        threeRenderer.setPixelRatio(isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
+        threeRenderer.setPixelRatio(Config.isMobile ? 1 : Math.min(window.devicePixelRatio, 2));
 
-        const particleCount = isMobile ? 800 : 1500;
+        const particleCount = Config.isMobile ? 800 : 1500;
         const positions = new Float32Array(particleCount * 3);
         const colors = new Float32Array(particleCount * 3);
 
@@ -1328,7 +1314,7 @@ function initThreeJS() {
         particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
         const particleMaterial = new THREE.PointsMaterial({
-            size: isMobile ? 2 : 3,
+            size: Config.isMobile ? 2 : 3,
             vertexColors: true,
             transparent: true,
             opacity: 0.6,
@@ -1343,10 +1329,10 @@ function initThreeJS() {
         threeInitialized = true;
         animateThreeJS();
         
-        log('🎨 Three.js initialized');
+        Config.log('🎨 Three.js initialized');
 
     } catch (error) {
-        log(`Three.js error: ${error.message}`, 'error');
+        Config.log(`Three.js error: ${error.message}`, 'error');
     }
 }
 
