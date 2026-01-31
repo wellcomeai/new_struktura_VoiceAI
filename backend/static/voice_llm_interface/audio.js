@@ -1,12 +1,14 @@
 /* ============================================================ */
 /* JARVIS AI - Audio System                                     */
 /* Voice LLM Interface - Voicyfy                                */
-/* Version: 4.3.1 - FIXED                                       */
+/* Version: 4.3.2 - IIFE wrapped                                */
 /* ============================================================ */
 
 'use strict';
 
-// Get config reference (don't redeclare, just create alias)
+(function() {
+
+// Get config reference
 const AudioConfig = window.JarvisConfig;
 
 // ============================================================================
@@ -763,3 +765,5 @@ window.JarvisAudio = {
 };
 
 AudioConfig.log('🎵 Audio module loaded');
+
+})();
