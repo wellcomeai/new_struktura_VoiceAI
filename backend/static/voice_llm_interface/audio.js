@@ -1,7 +1,7 @@
 /* ============================================================ */
 /* JARVIS AI - Audio System                                     */
 /* Voice LLM Interface - Voicyfy                                */
-/* Version: 4.3                                                 */
+/* Version: 4.3.1 - FIXED                                       */
 /* ============================================================ */
 
 'use strict';
@@ -81,6 +81,9 @@ function toggleMute() {
     updateMuteUI();
     
     if (isMuted) {
+        // Stop listening when muted
+        stopListening();
+        
         // Clear audio buffer when muting
         if (window.websocket && window.websocket.readyState === WebSocket.OPEN) {
             window.websocket.send(JSON.stringify({
@@ -92,6 +95,11 @@ function toggleMute() {
         // Reset audio data tracking
         hasAudioData = false;
         audioDataStartTime = 0;
+    } else {
+        // Resume listening when unmuted (if connected and not playing)
+        if (window.isConnected && !isPlayingAudio && !window.isStreamingLLM && !window.isReconnecting) {
+            startListening();
+        }
     }
     
     return isMuted;
@@ -393,6 +401,7 @@ function finishAudioPlayback() {
         }
     }
     
+    // FIX: Проверяем window.isStreamingLLM
     if (!window.isStreamingLLM) {
         if (typeof window.updateStatus === 'function') {
             if (isMuted) {
@@ -403,6 +412,7 @@ function finishAudioPlayback() {
         }
         
         setTimeout(() => {
+            // FIX: Проверяем все условия включая window.isStreamingLLM
             if (!isPlayingAudio && !window.isStreamingLLM && !window.isReconnecting && !isMuted) {
                 startListening();
             }
@@ -437,7 +447,7 @@ function stopAllAudioPlayback() {
 // ============================================================================
 
 async function startListening() {
-    // Check conditions
+    // Check conditions - FIX: используем window. для глобальных переменных
     if (!window.isConnected || isPlayingAudio || window.isReconnecting || isListening || window.isStreamingLLM) {
         return;
     }
@@ -445,6 +455,12 @@ async function startListening() {
     // Don't start listening if muted
     if (isMuted) {
         log('🎤 Listening blocked: microphone is muted');
+        return;
+    }
+    
+    // FIX: Проверяем userActivated
+    if (!window.userActivated) {
+        log('🎤 Listening blocked: user not activated');
         return;
     }
     
@@ -594,6 +610,7 @@ async function startListening() {
     
     // Update UI
     const jarvisSphere = document.getElementById('jarvisSphere');
+    // FIX: Проверяем window.isStreamingLLM
     if (jarvisSphere && !isPlayingAudio && !window.isStreamingLLM && !isMuted) {
         jarvisSphere.classList.add('listening');
         jarvisSphere.classList.remove('speaking', 'processing', 'streaming', 'muted');
