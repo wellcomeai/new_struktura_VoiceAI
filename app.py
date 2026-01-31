@@ -210,7 +210,7 @@ static_dir, js_dir = ensure_static_directories()
 
 # Монтируем статику
 try:
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.mount("/static", StaticFiles(directory=static_dir, html=True), name="static")
     app.mount("/js", StaticFiles(directory=js_dir), name="js")
 except Exception as e:
     logger.error(f"Error mounting static files: {e}")
