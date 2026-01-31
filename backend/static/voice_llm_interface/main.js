@@ -1,7 +1,7 @@
 /* ============================================================ */
 /* JARVIS AI - Main Application                                 */
 /* Voice LLM Interface - Voicyfy                                */
-/* Version: 4.3                                                 */
+/* Version: 4.3.1 - FIXED                                       */
 /* ============================================================ */
 
 'use strict';
@@ -33,20 +33,22 @@ const {
 
 const urlParams = new URLSearchParams(window.location.search);
 let ASSISTANT_ID = urlParams.get('assistant') || null;
-let userActivated = false;
 
-// Connection state
+// FIX: Все глобальные переменные с window. prefix для консистентности
+window.userActivated = false;
 window.websocket = null;
-let llmWebSocket = null;
 window.isConnected = false;
+window.isReconnecting = false;
+window.isStreamingLLM = false;
+
+// Локальные переменные (не нужны в других модулях)
+let llmWebSocket = null;
 let isLLMConnected = false;
 let reconnectAttempts = 0;
 let pingInterval = null;
 let lastPongTime = Date.now();
-window.isReconnecting = false;
 
 // LLM state
-window.isStreamingLLM = false;
 let streamingContent = "";
 let currentRequestId = null;
 let currentLLMContent = '';
@@ -60,7 +62,7 @@ let threeInitialized = false;
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    log('🚀 JARVIS AI Interface v4.3 Starting...');
+    log('🚀 JARVIS AI Interface v4.3.1 Starting...');
     log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2)`);
     log(`   Mute: Enabled`);
     log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
@@ -73,11 +75,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 
 function initializeApp() {
-    // Cache DOM elements
-    const elements = cacheElements();
-    
     // Setup event listeners
-    setupEventListeners(elements);
+    setupEventListeners();
     
     // Initialize visualizer
     Audio.createCircularVisualizer();
@@ -101,58 +100,31 @@ function initializeApp() {
     updateStatus('connecting', 'Нажмите чтобы начать', 'connecting');
 }
 
-function cacheElements() {
-    return {
-        startOverlay: document.getElementById('startOverlay'),
-        startButton: document.getElementById('startButton'),
-        assistantSelect: document.getElementById('assistantSelect'),
-        saveBtn: document.getElementById('saveBtn'),
-        testBtn: document.getElementById('testBtn'),
-        copyBtn: document.getElementById('copyBtn'),
-        successMessage: document.getElementById('successMessage'),
-        mobileMenuToggle: document.getElementById('mobile-menu-toggle'),
-        sidebar: document.getElementById('sidebar'),
-        sidebarOverlay: document.getElementById('sidebar-overlay'),
-        jarvisSphere: document.getElementById('jarvisSphere'),
-        muteButton: document.getElementById('muteButton'),
-        llmContent: document.getElementById('llmContent'),
-        llmMeta: document.getElementById('llmMeta'),
-        voiceStatus: document.getElementById('voiceStatus'),
-        statusText: document.getElementById('statusText'),
-        errorContainer: document.getElementById('errorContainer'),
-        chatInput: document.getElementById('chatInput'),
-        chatSendBtn: document.getElementById('chatSendBtn'),
-        clearHistoryBtn: document.getElementById('clearHistoryBtn'),
-        hudFrames: [
-            document.getElementById('hudTL'),
-            document.getElementById('hudTR'),
-            document.getElementById('hudBL'),
-            document.getElementById('hudBR')
-        ]
-    };
-}
-
-function setupEventListeners(el) {
+function setupEventListeners() {
     // Start overlay
-    if (el.startButton) {
-        el.startButton.addEventListener('click', function(e) {
+    const startButton = document.getElementById('startButton');
+    const startOverlay = document.getElementById('startOverlay');
+    
+    if (startButton) {
+        startButton.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
             activateAudioAndStart();
         });
     }
     
-    if (el.startOverlay) {
-        el.startOverlay.addEventListener('click', function(e) {
-            if (e.target === el.startOverlay) {
+    if (startOverlay) {
+        startOverlay.addEventListener('click', function(e) {
+            if (e.target === startOverlay) {
                 activateAudioAndStart();
             }
         });
     }
     
     // Mute button
-    if (el.muteButton) {
-        el.muteButton.addEventListener('click', function(e) {
+    const muteButton = document.getElementById('muteButton');
+    if (muteButton) {
+        muteButton.addEventListener('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
             Audio.toggleMute();
@@ -160,19 +132,24 @@ function setupEventListeners(el) {
     }
     
     // Sphere click
-    if (el.jarvisSphere) {
-        el.jarvisSphere.addEventListener('click', handleSphereClick);
+    const jarvisSphere = document.getElementById('jarvisSphere');
+    if (jarvisSphere) {
+        jarvisSphere.addEventListener('click', handleSphereClick);
     }
     
     // Config buttons
-    if (el.saveBtn) {
-        el.saveBtn.addEventListener('click', saveConfig);
+    const saveBtn = document.getElementById('saveBtn');
+    const testBtn = document.getElementById('testBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    
+    if (saveBtn) {
+        saveBtn.addEventListener('click', saveConfig);
     }
-    if (el.testBtn) {
-        el.testBtn.addEventListener('click', testAgent);
+    if (testBtn) {
+        testBtn.addEventListener('click', testAgent);
     }
-    if (el.copyBtn) {
-        el.copyBtn.addEventListener('click', copyHTMLCode);
+    if (copyBtn) {
+        copyBtn.addEventListener('click', copyHTMLCode);
     }
     
     // Copy LLM response
@@ -182,41 +159,49 @@ function setupEventListeners(el) {
     }
     
     // Mobile menu
-    if (el.mobileMenuToggle) {
-        el.mobileMenuToggle.addEventListener('click', function() {
-            el.sidebar.classList.toggle('mobile-open');
-            el.sidebarOverlay.classList.toggle('show');
+    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    
+    if (mobileMenuToggle && sidebar) {
+        mobileMenuToggle.addEventListener('click', function() {
+            sidebar.classList.toggle('mobile-open');
+            if (sidebarOverlay) sidebarOverlay.classList.toggle('show');
         });
     }
     
-    if (el.sidebarOverlay) {
-        el.sidebarOverlay.addEventListener('click', function() {
-            el.sidebar.classList.remove('mobile-open');
-            el.sidebarOverlay.classList.remove('show');
+    if (sidebarOverlay && sidebar) {
+        sidebarOverlay.addEventListener('click', function() {
+            sidebar.classList.remove('mobile-open');
+            sidebarOverlay.classList.remove('show');
         });
     }
     
     // Chat input
-    if (el.chatInput && el.chatSendBtn) {
-        el.chatInput.addEventListener('input', function() {
-            el.chatSendBtn.disabled = !this.value.trim() || !isLLMConnected || window.isStreamingLLM;
+    const chatInput = document.getElementById('chatInput');
+    const chatSendBtn = document.getElementById('chatSendBtn');
+    
+    if (chatInput && chatSendBtn) {
+        chatInput.addEventListener('input', function() {
+            chatSendBtn.disabled = !this.value.trim() || !isLLMConnected || window.isStreamingLLM;
         });
         
-        el.chatInput.addEventListener('keypress', function(e) {
+        chatInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (!el.chatSendBtn.disabled) {
+                if (!chatSendBtn.disabled) {
                     sendTextMessage();
                 }
             }
         });
         
-        el.chatSendBtn.addEventListener('click', sendTextMessage);
+        chatSendBtn.addEventListener('click', sendTextMessage);
     }
     
     // Clear history
-    if (el.clearHistoryBtn) {
-        el.clearHistoryBtn.addEventListener('click', clearChatHistory);
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    if (clearHistoryBtn) {
+        clearHistoryBtn.addEventListener('click', clearChatHistory);
     }
     
     // Window resize for Three.js
@@ -237,7 +222,7 @@ async function activateAudioAndStart() {
         }
         
         Audio.initPlaybackAudioContext();
-        userActivated = true;
+        window.userActivated = true;
         
         const startOverlay = document.getElementById('startOverlay');
         if (startOverlay) {
@@ -259,7 +244,7 @@ async function activateAudioAndStart() {
         if (startOverlay) {
             startOverlay.classList.add('hidden');
         }
-        userActivated = true;
+        window.userActivated = true;
     }
 }
 
@@ -268,7 +253,7 @@ async function activateAudioAndStart() {
 // ============================================================================
 
 async function handleSphereClick() {
-    if (!userActivated) {
+    if (!window.userActivated) {
         const startOverlay = document.getElementById('startOverlay');
         if (startOverlay) {
             startOverlay.classList.remove('hidden');
@@ -287,6 +272,7 @@ async function handleSphereClick() {
     const isPlayingAudio = Audio.getIsPlayingAudio();
     const isMuted = Audio.getMuteState();
     
+    // FIX: Используем window.isStreamingLLM и window.isReconnecting
     if (!isListening && !isPlayingAudio && !window.isReconnecting && !window.isStreamingLLM && !isMuted) {
         if (window.isConnected) {
             Audio.startListening();
@@ -305,6 +291,11 @@ async function loadGeminiAssistantsList() {
     const testBtn = document.getElementById('testBtn');
     const copyBtn = document.getElementById('copyBtn');
     
+    if (!assistantSelect) {
+        log('❌ assistantSelect element not found', 'error');
+        return;
+    }
+    
     try {
         log('📋 Loading Gemini assistants...');
         
@@ -315,7 +306,7 @@ async function loadGeminiAssistantsList() {
         });
         
         if (!response.ok) {
-            throw new Error('Failed to load Gemini assistants');
+            throw new Error(`Failed to load Gemini assistants: ${response.status}`);
         }
         
         const assistants = await response.json();
@@ -333,16 +324,16 @@ async function loadGeminiAssistantsList() {
         // Restore from URL or localStorage
         if (ASSISTANT_ID && assistantSelect.querySelector(`option[value="${ASSISTANT_ID}"]`)) {
             assistantSelect.value = ASSISTANT_ID;
-            testBtn.disabled = false;
-            copyBtn.disabled = false;
+            if (testBtn) testBtn.disabled = false;
+            if (copyBtn) copyBtn.disabled = false;
             log(`   Using assistant from URL: ${ASSISTANT_ID}`);
         } else {
             const savedAssistantId = localStorage.getItem(STORAGE_KEY_ASSISTANT);
             if (savedAssistantId && assistantSelect.querySelector(`option[value="${savedAssistantId}"]`)) {
                 assistantSelect.value = savedAssistantId;
                 ASSISTANT_ID = savedAssistantId;
-                testBtn.disabled = false;
-                copyBtn.disabled = false;
+                if (testBtn) testBtn.disabled = false;
+                if (copyBtn) copyBtn.disabled = false;
                 log(`   Restored from localStorage: ${savedAssistantId}`);
             }
         }
@@ -369,6 +360,8 @@ async function saveConfig() {
     const testBtn = document.getElementById('testBtn');
     const copyBtn = document.getElementById('copyBtn');
     
+    if (!assistantSelect) return;
+    
     const selectedAssistantId = assistantSelect.value;
 
     if (!selectedAssistantId) {
@@ -382,11 +375,11 @@ async function saveConfig() {
         localStorage.setItem(STORAGE_KEY_ASSISTANT, selectedAssistantId);
         log(`💾 Assistant saved: ${selectedAssistantId}`);
 
-        testBtn.disabled = false;
-        copyBtn.disabled = false;
+        if (testBtn) testBtn.disabled = false;
+        if (copyBtn) copyBtn.disabled = false;
         showSuccess('✅ Gemini ассистент сохранён!');
 
-        if (userActivated) {
+        if (window.userActivated) {
             if (window.websocket) window.websocket.close();
             if (llmWebSocket) {
                 llmWebSocket.close();
@@ -410,7 +403,7 @@ function testAgent() {
         return;
     }
 
-    if (!userActivated) {
+    if (!window.userActivated) {
         const startOverlay = document.getElementById('startOverlay');
         if (startOverlay) {
             startOverlay.classList.remove('hidden');
@@ -465,13 +458,17 @@ function setLoading(isLoading) {
     const copyBtn = document.getElementById('copyBtn');
     
     if (isLoading) {
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
-        testBtn.disabled = true;
-        copyBtn.disabled = true;
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Сохранение...';
+        }
+        if (testBtn) testBtn.disabled = true;
+        if (copyBtn) copyBtn.disabled = true;
     } else {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+        }
     }
 }
 
@@ -570,6 +567,8 @@ function renderChatHistory() {
     const llmContent = document.getElementById('llmContent');
     const placeholder = document.getElementById('llmPlaceholder');
     
+    if (!llmContent) return;
+    
     if (history.length === 0) {
         if (placeholder) {
             llmContent.innerHTML = '';
@@ -602,7 +601,7 @@ function renderChatHistory() {
 
 function sendTextMessage() {
     const input = document.getElementById('chatInput');
-    const message = input.value.trim();
+    const message = input ? input.value.trim() : '';
     
     if (!message) return;
     if (!isLLMConnected) {
@@ -620,7 +619,9 @@ function sendTextMessage() {
     // Clear input
     input.value = '';
     input.disabled = true;
-    document.getElementById('chatSendBtn').disabled = true;
+    
+    const sendBtn = document.getElementById('chatSendBtn');
+    if (sendBtn) sendBtn.disabled = true;
     
     // Start streaming UI
     startStreamingUI(message);
@@ -630,14 +631,16 @@ function sendTextMessage() {
     const contextHistory = history.slice(0, -1);
     
     // Send to WebSocket
-    llmWebSocket.send(JSON.stringify({
-        type: 'llm.query',
-        query: message,
-        history: contextHistory,
-        request_id: `text_${Date.now()}`
-    }));
-    
-    log(`📝 Sent text message with ${contextHistory.length} history items`);
+    if (llmWebSocket && llmWebSocket.readyState === WebSocket.OPEN) {
+        llmWebSocket.send(JSON.stringify({
+            type: 'llm.query',
+            query: message,
+            history: contextHistory,
+            request_id: `text_${Date.now()}`
+        }));
+        
+        log(`📝 Sent text message with ${contextHistory.length} history items`);
+    }
 }
 
 // ============================================================================
@@ -647,6 +650,7 @@ function sendTextMessage() {
 function startStreamingUI(query) {
     log(`📝 Starting LLM streaming for: ${query.substring(0, 50)}...`);
     
+    // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = true;
     streamingContent = "";
     
@@ -671,6 +675,8 @@ function startStreamingUI(query) {
 function appendStreamingMessage() {
     const llmContent = document.getElementById('llmContent');
     const placeholder = document.getElementById('llmPlaceholder');
+    
+    if (!llmContent) return;
     
     if (placeholder) placeholder.style.display = 'none';
     
@@ -716,6 +722,7 @@ function appendStreamingText(content) {
 function finishStreamingUI(data) {
     log('✅ LLM streaming finished');
     
+    // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = false;
     
     const jarvisSphere = document.getElementById('jarvisSphere');
@@ -771,6 +778,7 @@ function finishStreamingUI(data) {
 function showStreamingError(message) {
     log(`❌ LLM streaming error: ${message}`, 'error');
     
+    // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = false;
     streamingContent = "";
     
@@ -789,26 +797,29 @@ function showStreamingError(message) {
     const llmContent = document.getElementById('llmContent');
     const llmMeta = document.getElementById('llmMeta');
     
-    let html = '';
-    history.forEach(msg => {
-        const roleLabel = msg.role === 'user' ? 'Вы' : 'ИИ';
+    if (llmContent) {
+        let html = '';
+        history.forEach(msg => {
+            const roleLabel = msg.role === 'user' ? 'Вы' : 'ИИ';
+            html += `
+                <div class="chat-message ${msg.role}">
+                    <div class="chat-message-role">${roleLabel}</div>
+                    <div class="chat-message-content">${formatMarkdown(msg.content)}</div>
+                </div>
+            `;
+        });
+        
         html += `
-            <div class="chat-message ${msg.role}">
-                <div class="chat-message-role">${roleLabel}</div>
-                <div class="chat-message-content">${formatMarkdown(msg.content)}</div>
+            <div class="llm-error">
+                <div class="llm-error-icon">❌</div>
+                <div class="llm-error-title">Ошибка генерации</div>
+                <div class="llm-error-text">${message}</div>
             </div>
         `;
-    });
+        
+        llmContent.innerHTML = html;
+    }
     
-    html += `
-        <div class="llm-error">
-            <div class="llm-error-icon">❌</div>
-            <div class="llm-error-title">Ошибка генерации</div>
-            <div class="llm-error-text">${message}</div>
-        </div>
-    `;
-    
-    if (llmContent) llmContent.innerHTML = html;
     if (llmMeta) llmMeta.textContent = 'Ошибка';
     
     // Unlock input
@@ -893,7 +904,7 @@ async function connectWebSocket() {
         return;
     }
     
-    if (!userActivated) {
+    if (!window.userActivated) {
         log('⏳ Waiting for user activation');
         return;
     }
@@ -955,7 +966,9 @@ async function connectWebSocket() {
             }, pingIntervalTime);
         };
         
-        window.websocket.onmessage = handleGeminiMessage;
+        window.websocket.onmessage = function(event) {
+            handleGeminiMessage(event);
+        };
         
         window.websocket.onclose = function(event) {
             log(`🔌 WebSocket closed: ${event.code}`);
@@ -971,7 +984,7 @@ async function connectWebSocket() {
             
             // Reconnect logic
             const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
-            if (reconnectAttempts < maxAttempts && userActivated) {
+            if (reconnectAttempts < maxAttempts && window.userActivated) {
                 reconnectAttempts++;
                 const delay = Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
                 log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxAttempts})`);
@@ -1221,7 +1234,7 @@ function connectLLMWebSocket() {
             
             // Reconnect
             setTimeout(() => {
-                if (window.isConnected && ASSISTANT_ID && userActivated) {
+                if (window.isConnected && ASSISTANT_ID && window.userActivated) {
                     connectLLMWebSocket();
                 }
             }, 3000);
@@ -1372,3 +1385,4 @@ window.saveConfig = saveConfig;
 window.testAgent = testAgent;
 window.copyHTMLCode = copyHTMLCode;
 window.copyLLMResponse = copyLLMResponse;
+window.clearChatHistory = clearChatHistory;
