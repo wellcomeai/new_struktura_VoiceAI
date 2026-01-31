@@ -6,20 +6,8 @@
 
 'use strict';
 
-// Get config
-const {
-    AUDIO_CONFIG,
-    AUDIO_PLAYBACK_SAMPLE_RATE,
-    MIN_BUFFER_SAMPLES,
-    CHUNK_SIZE,
-    SCHEDULE_AHEAD_TIME,
-    SCHEDULER_INTERVAL_MS,
-    CROSSFADE_SAMPLES,
-    MINIMUM_AUDIO_LENGTH,
-    isMobile,
-    isIOS,
-    log
-} = window.JarvisConfig;
+// Get config reference (don't redeclare, just create alias)
+const AudioConfig = window.JarvisConfig;
 
 // ============================================================================
 // GLOBAL AUDIO STATE
@@ -76,7 +64,7 @@ const interruptionState = {
 
 function toggleMute() {
     isMuted = !isMuted;
-    log(`🎤 Mute toggled: ${isMuted ? 'ON (muted)' : 'OFF (active)'}`);
+    AudioConfig.log(`🎤 Mute toggled: ${isMuted ? 'ON (muted)' : 'OFF (active)'}`);
     
     updateMuteUI();
     
@@ -159,7 +147,7 @@ function getMuteState() {
 // ============================================================================
 
 async function initializeAudio() {
-    log('🎤 Initializing audio system...');
+    AudioConfig.log('🎤 Initializing audio system...');
     
     try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -173,13 +161,13 @@ async function initializeAudio() {
                 sampleRate: 24000,
                 latencyHint: 'interactive'
             });
-            log(`   AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
+            AudioConfig.log(`   AudioContext created: ${window.globalAudioContext.sampleRate} Hz`);
         }
 
         // Resume if suspended
         if (window.globalAudioContext.state === 'suspended') {
             await window.globalAudioContext.resume();
-            log('   AudioContext resumed');
+            AudioConfig.log('   AudioContext resumed');
         }
 
         // Get microphone stream
@@ -193,11 +181,11 @@ async function initializeAudio() {
                     channelCount: 1
                 }
             });
-            log('   Microphone stream acquired');
+            AudioConfig.log('   Microphone stream acquired');
         }
 
         // iOS silent buffer workaround
-        if (isIOS && !window.silentAudioBuffer) {
+        if (AudioConfig.isIOS && !window.silentAudioBuffer) {
             try {
                 window.silentAudioBuffer = window.globalAudioContext.createBuffer(
                     1, 1, window.globalAudioContext.sampleRate
@@ -206,18 +194,18 @@ async function initializeAudio() {
                 silentSource.buffer = window.silentAudioBuffer;
                 silentSource.connect(window.globalAudioContext.destination);
                 silentSource.start(0);
-                log('   iOS: Silent buffer played');
+                AudioConfig.log('   iOS: Silent buffer played');
             } catch (e) {
-                log('   iOS: Silent buffer failed (non-critical)', 'warn');
+                AudioConfig.log('   iOS: Silent buffer failed (non-critical)', 'warn');
             }
         }
 
         window.audioInitialized = true;
-        log('✅ Audio system initialized');
+        AudioConfig.log('✅ Audio system initialized');
         return true;
 
     } catch (error) {
-        log(`❌ Audio initialization failed: ${error.message}`, 'error');
+        AudioConfig.log(`❌ Audio initialization failed: ${error.message}`, 'error');
         return false;
     }
 }
@@ -230,15 +218,15 @@ function initPlaybackAudioContext() {
     if (!playbackAudioContext) {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         playbackAudioContext = new AudioContextClass({
-            sampleRate: AUDIO_PLAYBACK_SAMPLE_RATE,
+            sampleRate: AudioConfig.AUDIO_PLAYBACK_SAMPLE_RATE,
             latencyHint: 'playback'
         });
-        log('🔊 Playback AudioContext created');
+        AudioConfig.log('🔊 Playback AudioContext created');
     }
     
     if (playbackAudioContext.state === 'suspended') {
         playbackAudioContext.resume().then(() => {
-            log('🔊 Playback AudioContext resumed');
+            AudioConfig.log('🔊 Playback AudioContext resumed');
         });
     }
     
@@ -258,7 +246,7 @@ function base64ToInt16Array(base64) {
         }
         return new Int16Array(bytes.buffer);
     } catch (e) {
-        log(`Base64 decode error: ${e.message}`, 'error');
+        AudioConfig.log(`Base64 decode error: ${e.message}`, 'error');
         return new Int16Array(0);
     }
 }
@@ -286,7 +274,7 @@ function addAudioChunkToBuffer(base64Data) {
         audioBufferQueue.push(int16Samples[i]);
     }
     
-    if (!isSchedulingAudio && audioBufferQueue.length >= MIN_BUFFER_SAMPLES) {
+    if (!isSchedulingAudio && audioBufferQueue.length >= AudioConfig.MIN_BUFFER_SAMPLES) {
         startAudioScheduler();
     }
 }
@@ -314,7 +302,7 @@ function startAudioScheduler() {
     
     interruptionState.is_assistant_speaking = true;
     
-    schedulerInterval = setInterval(scheduleNextChunk, SCHEDULER_INTERVAL_MS);
+    schedulerInterval = setInterval(scheduleNextChunk, AudioConfig.SCHEDULER_INTERVAL_MS);
     scheduleNextChunk();
 }
 
@@ -334,22 +322,22 @@ function scheduleNextChunk() {
         nextPlayTime = ctx.currentTime + 0.05;
     }
     
-    while (audioBufferQueue.length >= CHUNK_SIZE && nextPlayTime < ctx.currentTime + SCHEDULE_AHEAD_TIME) {
-        const chunkSize = Math.min(CHUNK_SIZE, audioBufferQueue.length);
+    while (audioBufferQueue.length >= AudioConfig.CHUNK_SIZE && nextPlayTime < ctx.currentTime + AudioConfig.SCHEDULE_AHEAD_TIME) {
+        const chunkSize = Math.min(AudioConfig.CHUNK_SIZE, audioBufferQueue.length);
         const chunk = audioBufferQueue.splice(0, chunkSize);
         
-        const audioBuffer = ctx.createBuffer(1, chunk.length, AUDIO_PLAYBACK_SAMPLE_RATE);
+        const audioBuffer = ctx.createBuffer(1, chunk.length, AudioConfig.AUDIO_PLAYBACK_SAMPLE_RATE);
         const channelData = audioBuffer.getChannelData(0);
         
         for (let i = 0; i < chunk.length; i++) {
             let sample = chunk[i] / 32768.0;
             
             // Crossfade
-            if (i < CROSSFADE_SAMPLES) {
-                sample *= (i / CROSSFADE_SAMPLES);
-            } else if (i >= chunk.length - CROSSFADE_SAMPLES) {
+            if (i < AudioConfig.CROSSFADE_SAMPLES) {
+                sample *= (i / AudioConfig.CROSSFADE_SAMPLES);
+            } else if (i >= chunk.length - AudioConfig.CROSSFADE_SAMPLES) {
                 const fadePos = chunk.length - i;
-                sample *= (fadePos / CROSSFADE_SAMPLES);
+                sample *= (fadePos / AudioConfig.CROSSFADE_SAMPLES);
             }
             
             channelData[i] = sample;
@@ -367,9 +355,9 @@ function scheduleNextChunk() {
             const idx = scheduledSources.indexOf(source);
             if (idx > -1) scheduledSources.splice(idx, 1);
             
-            if (scheduledSources.length === 0 && audioBufferQueue.length < CHUNK_SIZE && isSchedulingAudio) {
+            if (scheduledSources.length === 0 && audioBufferQueue.length < AudioConfig.CHUNK_SIZE && isSchedulingAudio) {
                 setTimeout(() => {
-                    if (scheduledSources.length === 0 && audioBufferQueue.length < CHUNK_SIZE) {
+                    if (scheduledSources.length === 0 && audioBufferQueue.length < AudioConfig.CHUNK_SIZE) {
                         finishAudioPlayback();
                     }
                 }, 200);
@@ -379,7 +367,7 @@ function scheduleNextChunk() {
 }
 
 function finishAudioPlayback() {
-    log('🔇 Audio playback finished');
+    AudioConfig.log('🔇 Audio playback finished');
     
     if (schedulerInterval) {
         clearInterval(schedulerInterval);
@@ -454,13 +442,13 @@ async function startListening() {
     
     // Don't start listening if muted
     if (isMuted) {
-        log('🎤 Listening blocked: microphone is muted');
+        AudioConfig.log('🎤 Listening blocked: microphone is muted');
         return;
     }
     
     // FIX: Проверяем userActivated
     if (!window.userActivated) {
-        log('🎤 Listening blocked: user not activated');
+        AudioConfig.log('🎤 Listening blocked: user not activated');
         return;
     }
     
@@ -470,7 +458,7 @@ async function startListening() {
     }
     
     isListening = true;
-    log('🎤 Started listening');
+    AudioConfig.log('🎤 Started listening');
     
     // Clear buffer on server
     if (window.websocket && window.websocket.readyState === WebSocket.OPEN) {
@@ -518,10 +506,10 @@ async function startListening() {
                 }
                 
                 // Mobile amplification
-                if (isMobile && AUDIO_CONFIG.amplificationFactor > 1.0) {
+                if (AudioConfig.isMobile && AudioConfig.AUDIO_CONFIG.amplificationFactor > 1.0) {
                     const amplifiedData = new Float32Array(inputData.length);
                     for (let i = 0; i < inputData.length; i++) {
-                        amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * AUDIO_CONFIG.amplificationFactor));
+                        amplifiedData[i] = Math.max(-1.0, Math.min(1.0, inputData[i] * AudioConfig.AUDIO_CONFIG.amplificationFactor));
                     }
                     inputData = amplifiedData;
                     maxAmplitude = 0;
@@ -530,7 +518,7 @@ async function startListening() {
                     }
                 }
                 
-                const hasSound = maxAmplitude > AUDIO_CONFIG.soundDetectionThreshold;
+                const hasSound = maxAmplitude > AudioConfig.AUDIO_CONFIG.soundDetectionThreshold;
                 
                 // Update visualizer
                 updateCircularVisualization(inputData);
@@ -555,7 +543,7 @@ async function startListening() {
                         audioDataStartTime = Date.now();
                     }
                 } catch (error) {
-                    log(`Audio send error: ${error.message}`, "error");
+                    AudioConfig.log(`Audio send error: ${error.message}`, "error");
                 }
                 
                 const now = Date.now();
@@ -577,7 +565,7 @@ async function startListening() {
                 } else if (!isSilent) {
                     const silenceDuration = now - silenceStartTime;
                     
-                    if (silenceDuration > AUDIO_CONFIG.silenceDuration) {
+                    if (silenceDuration > AudioConfig.AUDIO_CONFIG.silenceDuration) {
                         isSilent = true;
                         
                         if (now - lastCommitTime > 1000 && hasSentAudioInCurrentSegment) {
@@ -616,7 +604,7 @@ async function startListening() {
         jarvisSphere.classList.remove('speaking', 'processing', 'streaming', 'muted');
     }
     
-    log("✅ Listening started");
+    AudioConfig.log("✅ Listening started");
 }
 
 function stopListening() {
@@ -627,7 +615,7 @@ function stopListening() {
         jarvisSphere.classList.remove('listening');
     }
     
-    log("⏹️ Listening stopped");
+    AudioConfig.log("⏹️ Listening stopped");
 }
 
 function commitAudioBuffer() {
@@ -645,12 +633,12 @@ function commitAudioBuffer() {
     }
     
     const audioLength = Date.now() - audioDataStartTime;
-    if (audioLength < MINIMUM_AUDIO_LENGTH) {
+    if (audioLength < AudioConfig.MINIMUM_AUDIO_LENGTH) {
         setTimeout(() => {
             if (isListening && hasAudioData && !window.isReconnecting && !isMuted) {
                 sendCommitBuffer();
             }
-        }, MINIMUM_AUDIO_LENGTH - audioLength + 50);
+        }, AudioConfig.MINIMUM_AUDIO_LENGTH - audioLength + 50);
         return;
     }
     
@@ -675,7 +663,7 @@ function sendCommitBuffer() {
         event_id: `commit_${Date.now()}`
     }));
     
-    log('📤 Audio buffer committed');
+    AudioConfig.log('📤 Audio buffer committed');
     
     hasAudioData = false;
     audioDataStartTime = 0;
@@ -689,7 +677,7 @@ function createCircularVisualizer() {
     const circularViz = document.getElementById('circularViz');
     if (!circularViz) return;
     
-    const barCount = isMobile ? 40 : 60;
+    const barCount = AudioConfig.isMobile ? 40 : 60;
     const angleStep = 360 / barCount;
     
     for (let i = 0; i < barCount; i++) {
@@ -700,7 +688,7 @@ function createCircularVisualizer() {
         circularViz.appendChild(bar);
     }
     
-    log(`🎨 Visualizer created: ${barCount} bars`);
+    AudioConfig.log(`🎨 Visualizer created: ${barCount} bars`);
 }
 
 function updateCircularVisualization(audioData) {
@@ -719,7 +707,7 @@ function updateCircularVisualization(audioData) {
             if (index < audioData.length) sum += Math.abs(audioData[index]);
         }
         const average = sum / step;
-        const multiplier = isMobile ? 300 : 200;
+        const multiplier = AudioConfig.isMobile ? 300 : 200;
         const height = 20 + Math.min(80, Math.floor(average * multiplier));
         bars[i].style.height = `${height}px`;
     }
@@ -774,4 +762,4 @@ window.JarvisAudio = {
     getInterruptionState
 };
 
-log('🎵 Audio module loaded');
+AudioConfig.log('🎵 Audio module loaded');
