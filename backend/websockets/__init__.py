@@ -7,6 +7,7 @@ Handles real-time communication with clients.
 🆕 Now includes Google Gemini Live API support (gemini-2.5-flash-native-audio)
 🆕 Now includes Browser Agent support (gemini-2.0-flash + DOM control)
 🆕 Now includes xAI Grok Voice Agent API support
+🆕 v3.3: Voximplant ↔ Gemini bridge (fallback for Vox Gemini module)
 🧪 Experimental: Streaming TTS with sentence detection + ElevenLabs
 """
 
@@ -37,6 +38,9 @@ from .voximplant_handler import (
     handle_voximplant_websocket_with_protocol,
     handle_voximplant_websocket_simple
 )
+
+# 🆕 v3.3: Voximplant ↔ Gemini bridge (fallback)
+from .handler_vox_gemini import handle_vox_gemini_websocket
 
 __all__ = [
     # OpenAI Beta API (старая версия)
@@ -72,5 +76,8 @@ __all__ = [
     "VoximplantProtocolHandler", 
     "SimpleVoximplantHandler",
     "handle_voximplant_websocket_with_protocol",
-    "handle_voximplant_websocket_simple"
+    "handle_voximplant_websocket_simple",
+    
+    # 🆕 v3.3: Voximplant ↔ Gemini bridge
+    "handle_vox_gemini_websocket",
 ]
