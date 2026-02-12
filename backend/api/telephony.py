@@ -232,6 +232,7 @@ class MyNumberInfo(BaseModel):
     is_active: bool
     phone_next_renewal: Optional[str] = None
     phone_price: Optional[float] = None
+    enable_background_noise: bool = False
 
 
 class BindAssistantRequest(BaseModel):
@@ -258,6 +259,7 @@ class ScenarioConfigResponse(BaseModel):
     model: Optional[str] = None
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
+    enable_background_noise: Optional[bool] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -297,6 +299,7 @@ class OutboundConfigResponse(BaseModel):
     model: Optional[str] = None
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
+    enable_background_noise: Optional[bool] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -1293,6 +1296,7 @@ async def get_my_numbers(
                 is_active=num.is_active,
                 phone_next_renewal=vox_info.get("phone_next_renewal"),
                 phone_price=vox_info.get("phone_price"),
+                enable_background_noise=num.enable_background_noise,
             ))
         
         return {"numbers": result, "total": len(result)}
@@ -2402,6 +2406,7 @@ async def public_outbound_call(
 async def get_outbound_config(
     assistant_id: str = Query(..., description="UUID ассистента"),
     assistant_type: str = Query(..., description="Тип ассистента: openai или gemini"),
+    caller_phone: Optional[str] = Query(None, description="Номер caller_id для определения enable_background_noise"),
     db: Session = Depends(get_db),
 ):
     """
@@ -2413,8 +2418,29 @@ async def get_outbound_config(
     GET /api/telephony/outbound-config?assistant_id=...&assistant_type=openai
     """
     try:
-        logger.info(f"[TELEPHONY-OUTBOUND] Config request: assistant_id={assistant_id}, type={assistant_type}")
-        
+        logger.info(f"[TELEPHONY-OUTBOUND] Config request: assistant_id={assistant_id}, type={assistant_type}, caller_phone={caller_phone}")
+
+        # =====================================================================
+        # 0. Определяем enable_background_noise по caller_phone
+        # =====================================================================
+        enable_background_noise = False
+        if caller_phone:
+            normalized_caller = normalize_phone_number(caller_phone)
+            caller_variants = [
+                normalized_caller,
+                f"+{normalized_caller}",
+                normalized_caller[1:] if normalized_caller.startswith('7') else None,
+                f"7{normalized_caller}" if len(normalized_caller) == 10 else None,
+            ]
+            caller_variants = [p for p in caller_variants if p]
+            for variant in caller_variants:
+                phone_rec = db.query(VoximplantPhoneNumber).filter(
+                    VoximplantPhoneNumber.phone_number.contains(variant[-10:])
+                ).first()
+                if phone_rec:
+                    enable_background_noise = phone_rec.enable_background_noise
+                    break
+
         # =====================================================================
         # 1. Получаем ассистента
         # =====================================================================
@@ -2523,11 +2549,61 @@ async def get_outbound_config(
             model="gpt-4o-realtime-preview" if assistant_type == "openai" else None,
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
+            enable_background_noise=enable_background_noise,
         )
         
     except Exception as e:
         logger.error(f"[TELEPHONY-OUTBOUND] Config error: {e}", exc_info=True)
         return OutboundConfigResponse(success=False)
+
+
+# =============================================================================
+# TOGGLE BACKGROUND NOISE
+# =============================================================================
+
+class ToggleBackgroundNoiseRequest(BaseModel):
+    phone_number_id: str
+    enabled: bool
+
+
+@router.post("/toggle-background-noise")
+async def toggle_background_noise(
+    request: ToggleBackgroundNoiseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Включить/выключить фоновый шум офиса для номера.
+    """
+    try:
+        phone_record = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.id == uuid.UUID(request.phone_number_id)
+        ).first()
+
+        if not phone_record:
+            raise HTTPException(status_code=404, detail="Номер не найден")
+
+        # Проверяем принадлежность номера текущему пользователю
+        child_account = phone_record.child_account
+        if not child_account or child_account.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Нет доступа к этому номеру")
+
+        phone_record.enable_background_noise = request.enabled
+        db.commit()
+
+        logger.info(f"[TELEPHONY] Background noise {'enabled' if request.enabled else 'disabled'} for phone {phone_record.phone_number}")
+
+        return {"success": True, "enable_background_noise": request.enabled}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY] Error toggling background noise: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
 
 
 # =============================================================================
@@ -3000,6 +3076,7 @@ async def get_scenario_config(
             model="gpt-4o-realtime-preview" if phone_record.assistant_type == "openai" else None,
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
+            enable_background_noise=phone_record.enable_background_noise,
         )
         
     except Exception as e:
