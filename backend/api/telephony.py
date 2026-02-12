@@ -10,6 +10,7 @@ API Endpoints для страницы "Телефония".
 - Конфигурация для сценариев Voximplant
 - Исходящие звонки (outbound calls)
 - Service Account для JWT авторизации (secure records)
+- Получение данных звонка по session ID
 
 Routes:
     POST   /api/telephony/setup              - Подключить телефонию
@@ -23,6 +24,7 @@ Routes:
     POST   /api/telephony/bind-assistant     - Привязать номер к ассистенту
     GET    /api/telephony/config             - Конфиг для сценария (публичный, inbound)
     GET    /api/telephony/outbound-config    - Конфиг для исходящего сценария (публичный)
+    GET    /api/telephony/call/{id}          - Получить данные звонка по Voximplant session ID
     POST   /api/telephony/start-outbound-call - Запустить исходящий звонок
     POST   /api/telephony/public/call        - Публичный эндпоинт для исходящих звонков
     POST   /api/telephony/register-webhook   - Зарегистрировать webhook
@@ -57,6 +59,7 @@ Routes:
          - Admin endpoint /admin/setup-service-accounts для миграции
          - Сохранение vox_service_account_id и vox_service_account_key
 ✅ v3.3: PUBLIC CALL SESSION IDS - возврат session_ids в ответе /public/call
+✅ v3.4: PUBLIC CALL LOOKUP - получение данных звонка по session_history_id
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -1732,6 +1735,188 @@ async def repair_phone_numbers(
     except Exception as e:
         logger.error(f"[TELEPHONY] Repair error: {e}", exc_info=True)
         db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+
+# =============================================================================
+# 🆕 v3.4: PUBLIC CALL LOOKUP - получение данных звонка по session_history_id
+# =============================================================================
+
+@router.get("/call/{session_history_id}")
+async def get_call_by_session_history_id(
+    session_history_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Получить данные звонка по Voximplant call_session_history_id.
+    
+    ⚠️ Это ПУБЛИЧНЫЙ endpoint - НЕ требует авторизации.
+    call_session_history_id — это ID сессии Voximplant, который генерируется
+    автоматически и служит неявным ключом доступа.
+    
+    GET /api/telephony/call/4382022730
+    """
+    try:
+        # =====================================================================
+        # 1. Валидация входного параметра
+        # =====================================================================
+        if not session_history_id or not session_history_id.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="session_history_id не может быть пустым"
+            )
+        
+        session_history_id = session_history_id.strip()
+        
+        logger.info(f"[TELEPHONY-CALL-LOOKUP] Looking up call session: {session_history_id}")
+        
+        # =====================================================================
+        # 2. Поиск записей в таблице conversations
+        # =====================================================================
+        from backend.models.conversation import Conversation
+        from sqlalchemy import text
+        
+        conversations = db.query(Conversation).filter(
+            Conversation.client_info['call_session_history_id'].astext == session_history_id
+        ).order_by(Conversation.created_at.asc()).all()
+        
+        if not conversations:
+            logger.warning(f"[TELEPHONY-CALL-LOOKUP] No conversations found for session: {session_history_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Звонок с session_history_id={session_history_id} не найден"
+            )
+        
+        logger.info(f"[TELEPHONY-CALL-LOOKUP] Found {len(conversations)} conversation records")
+        
+        # =====================================================================
+        # 3. Собираем structured dialog с дедупликацией
+        # =====================================================================
+        dialog = []
+        seen_keys = set()
+        
+        for conv in conversations:
+            client_info = conv.client_info or {}
+            conv_dialog = client_info.get("dialog")
+            
+            if conv_dialog and isinstance(conv_dialog, list):
+                # Используем structured dialog из client_info
+                for entry in conv_dialog:
+                    role = entry.get("role", "")
+                    text_val = entry.get("text", "")
+                    ts = entry.get("ts")
+                    
+                    # Дедупликация по ключу role:text:ts
+                    dedup_key = f"{role}:{text_val}:{ts}"
+                    if dedup_key not in seen_keys:
+                        seen_keys.add(dedup_key)
+                        dialog.append({
+                            "role": role,
+                            "text": text_val,
+                            "ts": ts
+                        })
+            else:
+                # Fallback на поля user_message / assistant_message
+                if conv.user_message:
+                    dedup_key = f"user:{conv.user_message}:None"
+                    if dedup_key not in seen_keys:
+                        seen_keys.add(dedup_key)
+                        dialog.append({
+                            "role": "user",
+                            "text": conv.user_message,
+                            "ts": None
+                        })
+                
+                if conv.assistant_message:
+                    dedup_key = f"assistant:{conv.assistant_message}:None"
+                    if dedup_key not in seen_keys:
+                        seen_keys.add(dedup_key)
+                        dialog.append({
+                            "role": "assistant",
+                            "text": conv.assistant_message,
+                            "ts": None
+                        })
+        
+        # =====================================================================
+        # 4. Получаем информацию об ассистенте
+        # =====================================================================
+        first_conv = conversations[0]
+        assistant_id = first_conv.assistant_id
+        assistant_name = None
+        assistant_type = None
+        
+        if assistant_id:
+            assistant, a_type, _ = find_assistant_by_id(db, assistant_id)
+            if assistant:
+                assistant_name = assistant.name
+                assistant_type = a_type
+        
+        # =====================================================================
+        # 5. Собираем метаданные (первое непустое значение из всех записей)
+        # =====================================================================
+        record_url = None
+        call_cost = None
+        call_duration = None
+        caller_number = None
+        call_direction = None
+        session_id = None
+        
+        invalid_phone_values = {"unknown", "null", "none", ""}
+        
+        for conv in conversations:
+            ci = conv.client_info or {}
+            
+            if not record_url and ci.get("record_url"):
+                record_url = ci["record_url"]
+            
+            if call_cost is None and ci.get("call_cost") is not None:
+                call_cost = ci["call_cost"]
+            
+            if call_duration is None and ci.get("call_duration") is not None:
+                call_duration = ci["call_duration"]
+            
+            if not caller_number and ci.get("caller_number"):
+                raw_caller = str(ci["caller_number"]).strip()
+                if raw_caller.lower() not in invalid_phone_values:
+                    caller_number = raw_caller
+            
+            if not call_direction and ci.get("call_direction"):
+                call_direction = ci["call_direction"]
+            
+            if not session_id and ci.get("session_id"):
+                session_id = ci["session_id"]
+        
+        # =====================================================================
+        # 6. Формируем ответ
+        # =====================================================================
+        result = {
+            "success": True,
+            "call_session_history_id": session_history_id,
+            "session_id": session_id,
+            "assistant_id": str(assistant_id) if assistant_id else None,
+            "assistant_name": assistant_name,
+            "assistant_type": assistant_type,
+            "caller_number": caller_number,
+            "call_direction": call_direction,
+            "call_cost": call_cost,
+            "call_duration": call_duration,
+            "record_url": record_url,
+            "created_at": first_conv.created_at.isoformat() if first_conv.created_at else None,
+            "dialog": dialog,
+            "messages_count": len(dialog)
+        }
+        
+        logger.info(f"[TELEPHONY-CALL-LOOKUP] ✅ Returned call data: {len(dialog)} messages, assistant={assistant_name}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-CALL-LOOKUP] Error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
