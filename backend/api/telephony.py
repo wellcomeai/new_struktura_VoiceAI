@@ -56,6 +56,7 @@ Routes:
          - Автоматическое создание Service Account при setup_telephony
          - Admin endpoint /admin/setup-service-accounts для миграции
          - Сохранение vox_service_account_id и vox_service_account_key
+✅ v3.3: PUBLIC CALL SESSION IDS - возврат session_ids в ответе /public/call
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -311,6 +312,7 @@ class PublicCallResponse(BaseModel):
     message: str
     started: int = 0
     failed: int = 0
+    session_ids: List[str] = []  # 🆕 v3.3: ID сессий запущенных звонков от Voximplant
 
 
 # =============================================================================
@@ -1969,6 +1971,8 @@ async def public_outbound_call(
     - Voximplant аккаунт
     - Номер для caller_id (если не указан - берёт первый доступный)
     
+    🆕 v3.3: Возвращает session_ids - список ID сессий запущенных звонков.
+    
     **Пример вызова:**
     ```
     curl -X POST "https://api.voicyfy.com/api/telephony/public/call" \\
@@ -1978,6 +1982,17 @@ async def public_outbound_call(
         "target_phones": ["+79161234567"],
         "task": "Напомнить о встрече в 15:00"
       }'
+    ```
+    
+    **Пример ответа:**
+    ```json
+    {
+      "success": true,
+      "message": "Запущено 1 звонков",
+      "started": 1,
+      "failed": 0,
+      "session_ids": ["12345678"]
+    }
     ```
     """
     try:
@@ -2113,6 +2128,7 @@ async def public_outbound_call(
         
         started_count = 0
         failed_count = 0
+        session_ids = []  # 🆕 v3.3: Собираем ID сессий
         
         for target_phone in request.target_phones:
             # Нормализуем номер
@@ -2141,7 +2157,11 @@ async def public_outbound_call(
                 
                 if call_result.get("success"):
                     started_count += 1
-                    logger.info(f"[TELEPHONY-PUBLIC] ✅ Started call to {target_phone}")
+                    # 🆕 v3.3: Сохраняем session_id
+                    session_id = call_result.get("call_session_history_id")
+                    if session_id:
+                        session_ids.append(str(session_id))
+                    logger.info(f"[TELEPHONY-PUBLIC] ✅ Started call to {target_phone} (session: {session_id})")
                 else:
                     failed_count += 1
                     logger.error(f"[TELEPHONY-PUBLIC] ❌ Failed call to {target_phone}: {call_result.get('error')}")
@@ -2155,13 +2175,15 @@ async def public_outbound_call(
         # =====================================================================
         total = len(request.target_phones)
         logger.info(f"[TELEPHONY-PUBLIC] ✅ Completed: {started_count}/{total} started, {failed_count} failed")
+        logger.info(f"[TELEPHONY-PUBLIC]    Session IDs: {session_ids}")
         
         if started_count == 0:
             return PublicCallResponse(
                 success=False,
                 message=f"Не удалось запустить звонки (0 из {total})",
                 started=0,
-                failed=failed_count
+                failed=failed_count,
+                session_ids=session_ids
             )
         
         if failed_count > 0:
@@ -2169,14 +2191,16 @@ async def public_outbound_call(
                 success=True,
                 message=f"Запущено {started_count} из {total} звонков",
                 started=started_count,
-                failed=failed_count
+                failed=failed_count,
+                session_ids=session_ids
             )
         
         return PublicCallResponse(
             success=True,
             message=f"Запущено {started_count} звонков",
             started=started_count,
-            failed=0
+            failed=0,
+            session_ids=session_ids
         )
         
     except HTTPException:
