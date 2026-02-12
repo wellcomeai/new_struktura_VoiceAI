@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- /static/api-docs.html -->
-<!-- ✅ ВЕРСИЯ 1.0: API Документация Voicyfy -->
+<!-- ✅ ВЕРСИЯ 1.1: API Документация Voicyfy — добавлен session_ids в ответе -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -852,7 +852,7 @@
       <div class="endpoint-header" id="public-call">
         <div class="endpoint-method-url">
           <span class="method-tag post">POST</span>
-          <code class="endpoint-url">/api/telephony/public/call</code>
+          <code class="endpoint-url">https://voicyfy.ru/api/telephony/public/call</code>
         </div>
         <h1 class="endpoint-title">Запуск исходящего звонка</h1>
         <p class="endpoint-description">
@@ -937,6 +937,63 @@
         </div>
       </div>
 
+      <!-- Параметры ответа -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-reply"></i> Параметры ответа
+          </h2>
+        </div>
+        <div class="section-body" style="padding: 0;">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th>Поле</th>
+                <th>Тип</th>
+                <th>Описание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-name">success</span></td>
+                <td><span class="param-type">boolean</span></td>
+                <td>
+                  <div class="param-description">Результат операции. <code>true</code> если хотя бы один звонок запущен.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">message</span></td>
+                <td><span class="param-type">string</span></td>
+                <td>
+                  <div class="param-description">Человекочитаемое сообщение о результате.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">started</span></td>
+                <td><span class="param-type">integer</span></td>
+                <td>
+                  <div class="param-description">Количество успешно запущенных звонков.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">failed</span></td>
+                <td><span class="param-type">integer</span></td>
+                <td>
+                  <div class="param-description">Количество неудавшихся звонков.</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">session_ids</span></td>
+                <td><span class="param-type">array</span></td>
+                <td>
+                  <div class="param-description">Список ID сессий запущенных звонков от Voximplant. Используйте для отслеживания статуса и получения записей.</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Пример запроса -->
       <div class="content-section">
         <div class="section-header">
@@ -998,7 +1055,8 @@
   <span class="code-key">"success"</span>: <span class="code-boolean">true</span>,
   <span class="code-key">"message"</span>: <span class="code-string">"Запущено 1 звонков"</span>,
   <span class="code-key">"started"</span>: <span class="code-number">1</span>,
-  <span class="code-key">"failed"</span>: <span class="code-number">0</span>
+  <span class="code-key">"failed"</span>: <span class="code-number">0</span>,
+  <span class="code-key">"session_ids"</span>: [<span class="code-string">"12345678"</span>]
 }</pre>
               </div>
             </div>
@@ -1251,7 +1309,7 @@
       const startTime = performance.now();
 
       try {
-        const response = await fetch('/api/telephony/public/call', {
+        const response = await fetch('https://voicyfy.ru/api/telephony/public/call', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
