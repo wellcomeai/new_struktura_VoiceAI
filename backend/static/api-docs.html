@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- /static/api-docs.html -->
-<!-- ✅ ВЕРСИЯ 1.1: API Документация Voicyfy — добавлен session_ids в ответе -->
+<!-- ✅ ВЕРСИЯ 1.2: API Документация Voicyfy — добавлен GET /call/{session_history_id} -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -283,6 +283,11 @@
       color: var(--white);
     }
 
+    .method-tag.get {
+      background-color: var(--primary-blue);
+      color: var(--white);
+    }
+
     .endpoint-url {
       font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
       font-size: 1rem;
@@ -340,6 +345,13 @@
 
     .section-body {
       padding: 1.5rem;
+    }
+
+    /* Разделитель между эндпоинтами */
+    .endpoint-divider {
+      border: none;
+      border-top: 2px solid var(--border-color);
+      margin: 3rem 0;
     }
 
     /* ========================================
@@ -485,6 +497,7 @@
     .code-number { color: #f9826c; }
     .code-boolean { color: #ff7b72; }
     .code-comment { color: #8b949e; }
+    .code-null { color: #ff7b72; }
 
     /* ========================================
        ПРИМЕРЫ ОТВЕТОВ
@@ -563,6 +576,29 @@
 
     .tester-warning-text strong {
       color: var(--orange-500);
+    }
+
+    .tester-info {
+      background-color: var(--bg-blue-light);
+      border: 1px solid var(--primary-blue-light);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .tester-info i {
+      color: var(--primary-blue);
+      font-size: 1.25rem;
+      flex-shrink: 0;
+      margin-top: 0.125rem;
+    }
+
+    .tester-info-text {
+      font-size: 0.875rem;
+      color: var(--text-dark);
     }
 
     .tester-form {
@@ -839,16 +875,22 @@
     <!-- Сайдбар -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-section">Звонки</div>
-      <a href="#public-call" class="sidebar-item active">
+      <a href="#public-call" class="sidebar-item active" data-endpoint="public-call">
         <i class="fas fa-phone-alt"></i> /public/call
         <span class="method-badge post">POST</span>
       </a>
-
+      <a href="#call-lookup" class="sidebar-item" data-endpoint="call-lookup">
+        <i class="fas fa-search"></i> /call/{id}
+        <span class="method-badge get">GET</span>
+      </a>
     </aside>
 
     <!-- Основной контент -->
     <main class="content">
-      <!-- Заголовок эндпоинта -->
+
+      <!-- ================================================================
+           ENDPOINT 1: POST /public/call
+           ================================================================ -->
       <div class="endpoint-header" id="public-call">
         <div class="endpoint-method-url">
           <span class="method-tag post">POST</span>
@@ -986,7 +1028,7 @@
                 <td><span class="param-name">session_ids</span></td>
                 <td><span class="param-type">array</span></td>
                 <td>
-                  <div class="param-description">Список ID сессий запущенных звонков от Voximplant. Используйте для отслеживания статуса и получения записей.</div>
+                  <div class="param-description">Список ID сессий запущенных звонков от Voximplant. Используйте для отслеживания статуса и получения записей через <code>GET /call/{id}</code>.</div>
                 </td>
               </tr>
             </tbody>
@@ -1031,13 +1073,13 @@
         </div>
         <div class="section-body">
           <div class="response-tabs">
-            <button class="response-tab success active" onclick="showResponse('success')">
+            <button class="response-tab success active" onclick="showResponse('success', this)">
               <i class="fas fa-check-circle"></i> Успех (200)
             </button>
-            <button class="response-tab error" onclick="showResponse('error-404')">
+            <button class="response-tab error" onclick="showResponse('error-404', this)">
               <i class="fas fa-times-circle"></i> Ошибка 404
             </button>
-            <button class="response-tab error" onclick="showResponse('error-400')">
+            <button class="response-tab error" onclick="showResponse('error-400', this)">
               <i class="fas fa-times-circle"></i> Ошибка 400
             </button>
           </div>
@@ -1096,7 +1138,7 @@
         </div>
       </div>
 
-      <!-- Интерактивный тестер -->
+      <!-- Интерактивный тестер POST /public/call -->
       <div class="content-section">
         <div class="section-header">
           <h2 class="section-title">
@@ -1112,7 +1154,7 @@
             </div>
           </div>
 
-          <form class="tester-form" id="tester-form">
+          <form class="tester-form" id="tester-form-call">
             <div class="form-group">
               <label class="form-label">
                 assistant_id <span class="required-mark">*</span>
@@ -1181,35 +1223,350 @@
             </div>
 
             <div class="tester-submit">
-              <button type="submit" class="btn btn-primary" id="test-submit-btn">
+              <button type="submit" class="btn btn-primary" id="test-submit-btn-call">
                 <i class="fas fa-paper-plane"></i> Отправить запрос
               </button>
-              <button type="button" class="btn btn-secondary" onclick="clearTesterForm()">
+              <button type="button" class="btn btn-secondary" onclick="clearForm('tester-form-call', 'tester-result-call')">
                 <i class="fas fa-eraser"></i> Очистить
               </button>
             </div>
           </form>
 
           <!-- Результат тестера -->
-          <div class="tester-result" id="tester-result">
+          <div class="tester-result" id="tester-result-call">
             <div class="result-header">
-              <span class="result-status" id="result-status">200 OK</span>
-              <span class="result-time" id="result-time">123 мс</span>
+              <span class="result-status" id="result-status-call">200 OK</span>
+              <span class="result-time" id="result-time-call">123 мс</span>
             </div>
             <div class="code-block">
               <div class="code-header">
                 <span class="code-lang">Response</span>
-                <button class="copy-btn" onclick="copyCode(this, 'result-json')">
+                <button class="copy-btn" onclick="copyCode(this, 'result-json-call')">
                   <i class="fas fa-copy"></i> Копировать
                 </button>
               </div>
               <div class="code-content">
-                <pre id="result-json"></pre>
+                <pre id="result-json-call"></pre>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- ================================================================
+           РАЗДЕЛИТЕЛЬ
+           ================================================================ -->
+      <hr class="endpoint-divider">
+
+      <!-- ================================================================
+           ENDPOINT 2: GET /call/{session_history_id}
+           ================================================================ -->
+      <div class="endpoint-header" id="call-lookup">
+        <div class="endpoint-method-url">
+          <span class="method-tag get">GET</span>
+          <code class="endpoint-url">https://voicyfy.ru/api/telephony/call/{session_history_id}</code>
+        </div>
+        <h1 class="endpoint-title">Получить данные звонка</h1>
+        <p class="endpoint-description">
+          Публичный эндпоинт для получения данных звонка по Voximplant <code>session_history_id</code>. 
+          Не требует авторизации — сам <code>session_history_id</code> служит неявным ключом доступа 
+          (генерируется автоматически и недоступен третьим лицам). 
+          Возвращает диалог, метаданные звонка, запись и информацию об ассистенте. 
+          Используйте <code>session_ids</code> из ответа <code>POST /public/call</code> для отслеживания результатов.
+        </p>
+      </div>
+
+      <!-- URL-параметр -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-list"></i> Параметры запроса
+          </h2>
+        </div>
+        <div class="section-body" style="padding: 0;">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th>Параметр</th>
+                <th>Тип</th>
+                <th>Обязательный</th>
+                <th>Описание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-name">session_history_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><span class="param-required required">Да</span></td>
+                <td>
+                  <div class="param-description">ID сессии звонка от Voximplant. Передаётся в URL-пути.</div>
+                  <div class="param-default">Пример: 4382022730</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Параметры ответа GET -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-reply"></i> Параметры ответа
+          </h2>
+        </div>
+        <div class="section-body" style="padding: 0;">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th>Поле</th>
+                <th>Тип</th>
+                <th>Описание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-name">success</span></td>
+                <td><span class="param-type">boolean</span></td>
+                <td><div class="param-description">Результат операции.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">call_session_history_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">ID сессии Voximplant.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">session_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Внутренний ID сессии.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">assistant_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">UUID ассистента, обработавшего звонок.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">assistant_name</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Имя ассистента.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">assistant_type</span></td>
+                <td><span class="param-type">string</span></td>
+                <td>
+                  <div class="param-description">Тип ассистента.</div>
+                  <div class="param-default">Значения: openai, gemini</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">caller_number</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td><div class="param-description">Номер звонившего (нормализованный).</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">call_direction</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td>
+                  <div class="param-description">Направление звонка.</div>
+                  <div class="param-default">Значения: INBOUND, OUTBOUND</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">call_cost</span></td>
+                <td><span class="param-type">number | null</span></td>
+                <td><div class="param-description">Стоимость звонка (в валюте аккаунта).</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">call_duration</span></td>
+                <td><span class="param-type">number | null</span></td>
+                <td><div class="param-description">Длительность звонка в секундах.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">record_url</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td><div class="param-description">URL аудиозаписи звонка.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">created_at</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Дата и время звонка (ISO 8601).</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">dialog</span></td>
+                <td><span class="param-type">array</span></td>
+                <td>
+                  <div class="param-description">Массив реплик диалога. Каждая реплика содержит <code>role</code> (user/assistant), <code>text</code> и <code>ts</code> (timestamp).</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">messages_count</span></td>
+                <td><span class="param-type">integer</span></td>
+                <td><div class="param-description">Общее количество реплик в диалоге.</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Пример запроса GET -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-code"></i> Пример запроса
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">curl</span>
+              <button class="copy-btn" onclick="copyCode(this, 'curl-example-get')">
+                <i class="fas fa-copy"></i> Копировать
+              </button>
+            </div>
+            <div class="code-content">
+              <pre id="curl-example-get">curl "https://voicyfy.ru/api/telephony/call/4382022730"</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Примеры ответов GET -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-reply"></i> Примеры ответов
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="response-tabs">
+            <button class="response-tab success active" onclick="showResponse('get-success', this)">
+              <i class="fas fa-check-circle"></i> Успех (200)
+            </button>
+            <button class="response-tab error" onclick="showResponse('get-error-404', this)">
+              <i class="fas fa-times-circle"></i> Ошибка 404
+            </button>
+          </div>
+
+          <div class="response-content active" id="response-get-success">
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">JSON</span>
+                <button class="copy-btn" onclick="copyCode(this, 'response-get-success-code')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="response-get-success-code">{
+  <span class="code-key">"success"</span>: <span class="code-boolean">true</span>,
+  <span class="code-key">"call_session_history_id"</span>: <span class="code-string">"4382022730"</span>,
+  <span class="code-key">"session_id"</span>: <span class="code-string">"abc123-def456"</span>,
+  <span class="code-key">"assistant_id"</span>: <span class="code-string">"550e8400-e29b-41d4-a716-446655440000"</span>,
+  <span class="code-key">"assistant_name"</span>: <span class="code-string">"Секретарь по звонкам"</span>,
+  <span class="code-key">"assistant_type"</span>: <span class="code-string">"gemini"</span>,
+  <span class="code-key">"caller_number"</span>: <span class="code-string">"79500968479"</span>,
+  <span class="code-key">"call_direction"</span>: <span class="code-string">"OUTBOUND"</span>,
+  <span class="code-key">"call_cost"</span>: <span class="code-number">2.0252</span>,
+  <span class="code-key">"call_duration"</span>: <span class="code-number">14.0</span>,
+  <span class="code-key">"record_url"</span>: <span class="code-string">"https://records.voximplant.com/..."</span>,
+  <span class="code-key">"created_at"</span>: <span class="code-string">"2026-02-12T09:16:46.413463+00:00"</span>,
+  <span class="code-key">"dialog"</span>: [
+    {
+      <span class="code-key">"role"</span>: <span class="code-string">"user"</span>,
+      <span class="code-key">"text"</span>: <span class="code-string">"Алло"</span>,
+      <span class="code-key">"ts"</span>: <span class="code-number">1770887803248</span>
+    },
+    {
+      <span class="code-key">"role"</span>: <span class="code-string">"assistant"</span>,
+      <span class="code-key">"text"</span>: <span class="code-string">"Привет Валерий, это ассистент компании..."</span>,
+      <span class="code-key">"ts"</span>: <span class="code-number">1770887804248</span>
+    }
+  ],
+  <span class="code-key">"messages_count"</span>: <span class="code-number">2</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="response-content" id="response-get-error-404">
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">JSON</span>
+                <button class="copy-btn" onclick="copyCode(this, 'response-get-404-code')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="response-get-404-code">{
+  <span class="code-key">"detail"</span>: <span class="code-string">"Звонок с session_history_id=9999999999 не найден"</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Тестер GET /call/{id} -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-flask"></i> Тестер API
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="tester-info">
+            <i class="fas fa-info-circle"></i>
+            <div class="tester-info-text">
+              Этот запрос только читает данные — он не инициирует звонков и не вносит изменений. 
+              Введите <code>session_history_id</code>, полученный из ответа <code>POST /public/call</code>.
+            </div>
+          </div>
+
+          <form class="tester-form" id="tester-form-lookup">
+            <div class="form-group">
+              <label class="form-label">
+                session_history_id <span class="required-mark">*</span>
+              </label>
+              <input 
+                type="text" 
+                class="form-input" 
+                id="test-session-history-id"
+                placeholder="4382022730"
+                required
+              >
+              <span class="form-hint">ID сессии звонка от Voximplant (из поля session_ids ответа POST /public/call)</span>
+            </div>
+
+            <div class="tester-submit">
+              <button type="submit" class="btn btn-primary" id="test-submit-btn-lookup">
+                <i class="fas fa-search"></i> Отправить запрос
+              </button>
+              <button type="button" class="btn btn-secondary" onclick="clearForm('tester-form-lookup', 'tester-result-lookup')">
+                <i class="fas fa-eraser"></i> Очистить
+              </button>
+            </div>
+          </form>
+
+          <!-- Результат тестера -->
+          <div class="tester-result" id="tester-result-lookup">
+            <div class="result-header">
+              <span class="result-status" id="result-status-lookup">200 OK</span>
+              <span class="result-time" id="result-time-lookup">123 мс</span>
+            </div>
+            <div class="code-block">
+              <div class="code-header">
+                <span class="code-lang">Response</span>
+                <button class="copy-btn" onclick="copyCode(this, 'result-json-lookup')">
+                  <i class="fas fa-copy"></i> Копировать
+                </button>
+              </div>
+              <div class="code-content">
+                <pre id="result-json-lookup"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -1232,6 +1589,39 @@
     });
 
     // ========================================
+    // НАВИГАЦИЯ ПО САЙДБАРУ
+    // ========================================
+    document.querySelectorAll('.sidebar-item[data-endpoint]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        // Убираем активный класс со всех
+        document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active'));
+        // Ставим активный на текущий
+        link.classList.add('active');
+        
+        // Закрываем мобильное меню
+        sidebar.classList.remove('open');
+        sidebarOverlay.classList.remove('show');
+      });
+    });
+
+    // Подсвечиваем sidebar при скролле
+    const observerOptions = { rootMargin: '-100px 0px -60% 0px' };
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.id;
+          document.querySelectorAll('.sidebar-item').forEach(item => item.classList.remove('active'));
+          const activeLink = document.querySelector(`.sidebar-item[href="#${id}"]`);
+          if (activeLink) activeLink.classList.add('active');
+        }
+      });
+    }, observerOptions);
+
+    document.querySelectorAll('.endpoint-header[id]').forEach(section => {
+      observer.observe(section);
+    });
+
+    // ========================================
     // КОПИРОВАНИЕ КОДА
     // ========================================
     function copyCode(button, codeId) {
@@ -1239,7 +1629,6 @@
       const text = codeElement.textContent;
       
       navigator.clipboard.writeText(text).then(() => {
-        const icon = button.querySelector('i');
         const originalHTML = button.innerHTML;
         
         button.innerHTML = '<i class="fas fa-check"></i> Скопировано';
@@ -1257,30 +1646,34 @@
     // ========================================
     // ПЕРЕКЛЮЧЕНИЕ ОТВЕТОВ
     // ========================================
-    function showResponse(type) {
-      // Убираем активный класс со всех табов и контента
-      document.querySelectorAll('.response-tab').forEach(tab => tab.classList.remove('active'));
-      document.querySelectorAll('.response-content').forEach(content => content.classList.remove('active'));
+    function showResponse(type, tabElement) {
+      // Находим родительский section-body
+      const sectionBody = tabElement.closest('.section-body');
       
-      // Активируем нужный таб и контент
-      event.target.closest('.response-tab').classList.add('active');
-      document.getElementById('response-' + type).classList.add('active');
+      // Убираем active со всех табов и контента в этой секции
+      sectionBody.querySelectorAll('.response-tab').forEach(tab => tab.classList.remove('active'));
+      sectionBody.querySelectorAll('.response-content').forEach(content => content.classList.remove('active'));
+      
+      // Активируем нужный
+      tabElement.classList.add('active');
+      const targetContent = document.getElementById('response-' + type);
+      if (targetContent) targetContent.classList.add('active');
     }
 
     // ========================================
-    // ТЕСТЕР API
+    // ОЧИСТКА ФОРМЫ
     // ========================================
-    const testerForm = document.getElementById('tester-form');
-    const testerResult = document.getElementById('tester-result');
-    const resultStatus = document.getElementById('result-status');
-    const resultTime = document.getElementById('result-time');
-    const resultJson = document.getElementById('result-json');
-    const submitBtn = document.getElementById('test-submit-btn');
+    function clearForm(formId, resultId) {
+      document.getElementById(formId).reset();
+      document.getElementById(resultId).classList.remove('show');
+    }
 
-    testerForm.addEventListener('submit', async (e) => {
+    // ========================================
+    // ТЕСТЕР: POST /public/call
+    // ========================================
+    document.getElementById('tester-form-call').addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      // Собираем данные формы
       const assistantId = document.getElementById('test-assistant-id').value.trim();
       const targetPhones = document.getElementById('test-target-phones').value.trim();
       const callerPhone = document.getElementById('test-caller-phone').value.trim();
@@ -1292,7 +1685,6 @@
         return;
       }
 
-      // Формируем тело запроса
       const requestBody = {
         assistant_id: assistantId,
         target_phones: [targetPhones]
@@ -1302,7 +1694,7 @@
       if (firstPhrase) requestBody.first_phrase = firstPhrase;
       if (task) requestBody.task = task;
 
-      // Блокируем кнопку
+      const submitBtn = document.getElementById('test-submit-btn-call');
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Отправка...';
 
@@ -1311,52 +1703,97 @@
       try {
         const response = await fetch('https://voicyfy.ru/api/telephony/public/call', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestBody)
         });
 
-        const endTime = performance.now();
-        const duration = Math.round(endTime - startTime);
-
+        const duration = Math.round(performance.now() - startTime);
         const data = await response.json();
 
-        // Показываем результат
-        testerResult.classList.add('show');
-        resultTime.textContent = duration + ' мс';
+        const resultDiv = document.getElementById('tester-result-call');
+        resultDiv.classList.add('show');
+        document.getElementById('result-time-call').textContent = duration + ' мс';
 
+        const statusEl = document.getElementById('result-status-call');
         if (response.ok) {
-          resultStatus.textContent = response.status + ' OK';
-          resultStatus.className = 'result-status success';
+          statusEl.textContent = response.status + ' OK';
+          statusEl.className = 'result-status success';
         } else {
-          resultStatus.textContent = response.status + ' Error';
-          resultStatus.className = 'result-status error';
+          statusEl.textContent = response.status + ' Error';
+          statusEl.className = 'result-status error';
         }
 
-        // Форматируем JSON с подсветкой
-        resultJson.innerHTML = formatJSON(data);
+        document.getElementById('result-json-call').innerHTML = formatJSON(data);
 
       } catch (error) {
-        const endTime = performance.now();
-        const duration = Math.round(endTime - startTime);
-
-        testerResult.classList.add('show');
-        resultTime.textContent = duration + ' мс';
-        resultStatus.textContent = 'Ошибка сети';
-        resultStatus.className = 'result-status error';
-        resultJson.innerHTML = formatJSON({ error: error.message });
+        const duration = Math.round(performance.now() - startTime);
+        const resultDiv = document.getElementById('tester-result-call');
+        resultDiv.classList.add('show');
+        document.getElementById('result-time-call').textContent = duration + ' мс';
+        const statusEl = document.getElementById('result-status-call');
+        statusEl.textContent = 'Ошибка сети';
+        statusEl.className = 'result-status error';
+        document.getElementById('result-json-call').innerHTML = formatJSON({ error: error.message });
       }
 
-      // Разблокируем кнопку
       submitBtn.disabled = false;
       submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Отправить запрос';
     });
 
-    function clearTesterForm() {
-      testerForm.reset();
-      testerResult.classList.remove('show');
-    }
+    // ========================================
+    // ТЕСТЕР: GET /call/{session_history_id}
+    // ========================================
+    document.getElementById('tester-form-lookup').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const sessionId = document.getElementById('test-session-history-id').value.trim();
+
+      if (!sessionId) {
+        alert('Введите session_history_id');
+        return;
+      }
+
+      const submitBtn = document.getElementById('test-submit-btn-lookup');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Загрузка...';
+
+      const startTime = performance.now();
+
+      try {
+        const response = await fetch(`https://voicyfy.ru/api/telephony/call/${encodeURIComponent(sessionId)}`);
+
+        const duration = Math.round(performance.now() - startTime);
+        const data = await response.json();
+
+        const resultDiv = document.getElementById('tester-result-lookup');
+        resultDiv.classList.add('show');
+        document.getElementById('result-time-lookup').textContent = duration + ' мс';
+
+        const statusEl = document.getElementById('result-status-lookup');
+        if (response.ok) {
+          statusEl.textContent = response.status + ' OK';
+          statusEl.className = 'result-status success';
+        } else {
+          statusEl.textContent = response.status + ' Error';
+          statusEl.className = 'result-status error';
+        }
+
+        document.getElementById('result-json-lookup').innerHTML = formatJSON(data);
+
+      } catch (error) {
+        const duration = Math.round(performance.now() - startTime);
+        const resultDiv = document.getElementById('tester-result-lookup');
+        resultDiv.classList.add('show');
+        document.getElementById('result-time-lookup').textContent = duration + ' мс';
+        const statusEl = document.getElementById('result-status-lookup');
+        statusEl.textContent = 'Ошибка сети';
+        statusEl.className = 'result-status error';
+        document.getElementById('result-json-lookup').innerHTML = formatJSON({ error: error.message });
+      }
+
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fas fa-search"></i> Отправить запрос';
+    });
 
     // ========================================
     // ФОРМАТИРОВАНИЕ JSON С ПОДСВЕТКОЙ
@@ -1366,31 +1803,11 @@
       
       return json
         .replace(/"([^"]+)":/g, '<span class="code-key">"$1"</span>:')
-        .replace(/: "([^"]+)"/g, ': <span class="code-string">"$1"</span>')
-        .replace(/: (\d+)/g, ': <span class="code-number">$1</span>')
+        .replace(/: "([^"]*?)"/g, ': <span class="code-string">"$1"</span>')
+        .replace(/: (\d+\.?\d*)/g, ': <span class="code-number">$1</span>')
         .replace(/: (true|false)/g, ': <span class="code-boolean">$1</span>')
-        .replace(/: (null)/g, ': <span class="code-boolean">$1</span>');
+        .replace(/: (null)/g, ': <span class="code-null">$1</span>');
     }
-
-    // ========================================
-    // ПЛАВНЫЙ СКРОЛЛ ДЛЯ ЯКОРЕЙ
-    // ========================================
-    document.querySelectorAll('.sidebar-item[href^="#"]').forEach(link => {
-      link.addEventListener('click', (e) => {
-        const href = link.getAttribute('href');
-        if (href && href !== '#') {
-          e.preventDefault();
-          const target = document.querySelector(href);
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
-        }
-        
-        // Закрываем мобильное меню
-        sidebar.classList.remove('open');
-        sidebarOverlay.classList.remove('show');
-      });
-    });
   </script>
 </body>
 </html>
