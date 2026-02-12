@@ -1780,8 +1780,8 @@ async def get_call_by_session_history_id(
         from sqlalchemy import text
         
         conversations = db.query(Conversation).filter(
-            Conversation.client_info['call_session_history_id'].astext == session_history_id
-        ).order_by(Conversation.created_at.asc()).all()
+            text("client_info->>'call_session_history_id' = :sid")
+        ).params(sid=session_history_id).order_by(Conversation.created_at.asc()).all()
         
         if not conversations:
             logger.warning(f"[TELEPHONY-CALL-LOOKUP] No conversations found for session: {session_history_id}")
