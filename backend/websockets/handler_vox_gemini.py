@@ -1,33 +1,40 @@
 # backend/websockets/handler_vox_gemini.py
 """
-🚀 PRODUCTION VERSION 1.0 — Voximplant ↔ Gemini Live API Bridge
+🚀 PRODUCTION VERSION 2.0 — Voximplant ↔ Gemini Live API Bridge
 
-Мост между телефонным звонком (Voximplant) и Google Gemini Live API.
-Используется как FALLBACK когда встроенный модуль Gemini в Voximplant
-не получает SetupComplete.
+🆕 v2.0: INSTANT GREETING (буферизация + сигнал ready)
+  - Подключение к Gemini идёт ПОКА звонящий слышит гудки
+  - Greeting генерируется и БУФЕРИЗУЕТСЯ до ответа на звонок
+  - Когда greeting готов → шлём customEvent "ready" в Voximplant
+  - Voximplant снимает трубку → забуферизованное аудио сразу летит
+  - Звонящий МГНОВЕННО слышит приветствие
 
-АРХИТЕКТУРА:
+АРХИТЕКТУРА v2.0:
 ┌──────────────┐   Vox WS Protocol   ┌──────────────┐   Native WS   ┌─────────┐
 │  Voximplant   │◄──────────────────►│  This Handler │◄────────────►│  Gemini  │
 │  (телефония)  │  start/media/stop   │  (мост)       │  PCM audio    │  Live API│
 └──────────────┘                     └──────────────┘               └─────────┘
 
-ПРОТОКОЛ VOXIMPLANT:
+TIMELINE v2.0:
+  Звонящий слышит гудки
+    ├── Bridge подключается к Gemini
+    ├── Gemini: SetupComplete
+    ├── Bridge: send_initial_greeting()
+    ├── Gemini генерирует аудио → БУФЕР
+    ├── Gemini: turnComplete → greeting готов
+    ├── Bridge → Voximplant: {"customEvent":"ready"}
+    └── Voximplant: call.answer()
+  Звонящий СРАЗУ слышит приветствие (из буфера)
+    └── Дальше — обычный диалог в реальном времени
+
+ПРОТОКОЛ:
   Входящие: {"event":"start"}, {"event":"media","media":{"payload":"base64"}}, {"event":"stop"}
-  Исходящие: тот же формат обратно + {"customEvent":"transcription",...} для текстовых данных
+  Исходящие: тот же формат + {"customEvent":"ready"} + {"customEvent":"transcription",...}
 
 АУДИО:
-  Voximplant → нас: PCM16 16kHz (настраивается в скрипте через encoding: PCM16)
+  Voximplant → нас: PCM16 16kHz
   Gemini → нас: PCM16 24kHz  
   Мы → Voximplant: PCM16 16kHz (даунсэмплим 24→16kHz)
-
-ФИЧИ:
-✅ Полный Function Calling (через GeminiLiveClient)
-✅ Транскрипция (input + output) → передаётся в Voximplant как customEvent
-✅ Сохранение диалога в БД + Google Sheets
-✅ Автоприветствие из конфига ассистента
-✅ Аудио ресэмплинг 24kHz → 16kHz
-✅ Поддержка customParameters из Voximplant start event
 """
 
 import struct
@@ -41,7 +48,7 @@ import sys
 
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from websockets.exceptions import ConnectionClosed
 
 from backend.core.logging import get_logger
@@ -75,7 +82,7 @@ def resample_24k_to_16k(pcm_data: bytes) -> bytes:
     result = []
 
     for i in range(new_count):
-        src = i * 3.0 / 2.0  # обратное соотношение
+        src = i * 3.0 / 2.0
         idx = int(src)
         frac = src - idx
 
@@ -94,7 +101,7 @@ def resample_24k_to_16k(pcm_data: bytes) -> bytes:
 def _log(msg: str, level: str = "INFO"):
     """Принудительный лог в stdout (для Render/Docker)."""
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{ts} - [VOX-GEMINI v1.0] {level} - {msg}", flush=True)
+    print(f"{ts} - [VOX-GEMINI v2.0] {level} - {msg}", flush=True)
     if level == "ERROR":
         logger.error(msg)
     else:
@@ -115,12 +122,9 @@ async def handle_vox_gemini_websocket(
     """
     Главный WebSocket handler: Voximplant ↔ Gemini мост.
 
-    Args:
-        websocket: WebSocket от Voximplant (createWebSocket)
-        assistant_id: UUID ассистента из URL
-        db: Сессия БД
-        caller_number: Номер звонящего (из query param)
-        call_id: ID звонка в Voximplant (из query param)
+    🆕 v2.0: Gemini инициализируется ПОКА звонящий слышит гудки.
+    Приветствие буферизуется. Когда готово — сигнал "ready" → Voximplant
+    снимает трубку → мгновенное приветствие.
     """
     client_id = f"vox_{uuid.uuid4().hex[:12]}"
     gemini_client: Optional[GeminiLiveClient] = None
@@ -128,7 +132,7 @@ async def handle_vox_gemini_websocket(
     connection_start = time.time()
 
     _log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    _log(f"🚀 VOX-GEMINI BRIDGE | Client: {client_id}")
+    _log(f"🚀 VOX-GEMINI BRIDGE v2.0 | Client: {client_id}")
     _log(f"   Assistant: {assistant_id}")
     _log(f"   Caller: {caller_number or 'unknown'}")
     _log(f"   Call ID: {call_id or 'unknown'}")
@@ -173,6 +177,10 @@ async def handle_vox_gemini_websocket(
         t0 = time.time()
 
         gemini_client = GeminiLiveClient(api_key, assistant, client_id, db)
+        
+        # ✅ v2.0: Блокируем auto-greeting внутри connect()
+        # Мы сами отправим его в bridge после SetupComplete
+        gemini_client.greeting_sent = True
 
         if not await gemini_client.connect():
             _log("❌ Gemini connection failed", "ERROR")
@@ -183,20 +191,29 @@ async def handle_vox_gemini_websocket(
 
         # ──────────────────────────────────────────
         # 4. Запуск моста Gemini → Voximplant
+        #    🆕 v2.0: bridge буферизует greeting
         # ──────────────────────────────────────────
         bridge_state = {
-            "vox_seq": 0,           # sequence counter для исходящих сообщений
-            "chunk_num": 0,         # chunk counter для media
+            "vox_seq": 0,
+            "chunk_num": 0,
             "user_transcript": "",
             "assistant_transcript": "",
             "turn_count": 0,
             "caller_number": caller_number,
             "greeting_triggered": False,
+            # 🆕 v2.0: Буферизация greeting
+            "greeting_ready": False,       # True когда greeting полностью сгенерирован
+            "greeting_buffer": [],          # Буфер аудио-чанков greeting
+            "call_answered": False,         # True когда Voximplant снял трубку
+            "audio_buffer": [],             # Буфер аудио пока call не answered
         }
 
         gemini_task = asyncio.create_task(
             _gemini_to_vox_bridge(gemini_client, websocket, client_id, bridge_state)
         )
+
+        # ✅ v2.0: Даём bridge начать слушать
+        await asyncio.sleep(0.05)
 
         # ──────────────────────────────────────────
         # 5. Основной цикл: Voximplant → Gemini
@@ -229,13 +246,10 @@ async def handle_vox_gemini_websocket(
                     _log(f"📡 Vox START | Format: {fmt}")
                     if custom:
                         _log(f"   Custom params: {custom}")
-                        # Обновляем caller/call_id из customParameters
                         if custom.get("caller"):
                             bridge_state["caller_number"] = custom["caller"]
-                        if custom.get("call_id"):
-                            pass  # можно сохранить
 
-                    # Отправляем наш START (объявляем формат исходящего аудио)
+                    # Отправляем наш START
                     await websocket.send_json({
                         "event": "start",
                         "sequenceNumber": bridge_state["vox_seq"],
@@ -248,12 +262,21 @@ async def handle_vox_gemini_websocket(
                         },
                     })
                     bridge_state["vox_seq"] += 1
-
-                    # Запускаем приветствие (один раз)
-                    if not bridge_state["greeting_triggered"]:
-                        bridge_state["greeting_triggered"] = True
-                        _log("👋 Triggering greeting...")
-                        asyncio.create_task(gemini_client.send_initial_greeting())
+                    
+                    # 🆕 v2.0: Voximplant снял трубку → сбрасываем буфер
+                    bridge_state["call_answered"] = True
+                    _log(f"📞 Call answered! Flushing {len(bridge_state['audio_buffer'])} buffered chunks...")
+                    
+                    # Отправляем все забуферизованные аудио-чанки
+                    for buffered_chunk in bridge_state["audio_buffer"]:
+                        try:
+                            await websocket.send_json(buffered_chunk)
+                        except Exception:
+                            break
+                    
+                    flushed = len(bridge_state["audio_buffer"])
+                    bridge_state["audio_buffer"] = []
+                    _log(f"✅ Flushed {flushed} audio chunks to Voximplant")
 
                 # ─── MEDIA: Аудио чанк от Voximplant ───
                 elif event == "media":
@@ -276,12 +299,11 @@ async def handle_vox_gemini_websocket(
                     ce = msg["customEvent"]
                     _log(f"📨 Custom event: {ce}")
 
-                    # Можно обрабатывать кастомные команды от скрипта
                     if ce == "hangup":
                         _log("📴 Hangup requested via custom event")
                         break
 
-            # --- Бинарные сообщения (на случай прямой передачи) ---
+            # --- Бинарные сообщения ---
             elif "bytes" in raw:
                 if gemini_client and gemini_client.is_connected:
                     await gemini_client.process_audio(raw["bytes"])
@@ -303,7 +325,6 @@ async def handle_vox_gemini_websocket(
     except Exception as e:
         _log(f"❌ CRITICAL: {e}\n{traceback.format_exc()}", "ERROR")
     finally:
-        # Останавливаем bridge task
         if gemini_task and not gemini_task.done():
             gemini_task.cancel()
             try:
@@ -311,7 +332,6 @@ async def handle_vox_gemini_websocket(
             except (asyncio.CancelledError, Exception):
                 pass
 
-        # Закрываем Gemini
         if gemini_client:
             await gemini_client.close()
 
@@ -319,7 +339,7 @@ async def handle_vox_gemini_websocket(
 
 
 # ====================================================================
-# BRIDGE: Gemini → Voximplant
+# BRIDGE: Gemini → Voximplant (v2.0 с буферизацией)
 # ====================================================================
 
 async def _gemini_to_vox_bridge(
@@ -329,10 +349,14 @@ async def _gemini_to_vox_bridge(
     state: Dict,
 ) -> None:
     """
-    Читает сообщения от Gemini и пересылает аудио в Voximplant.
-    Обрабатывает function calls, транскрипции, сохранение диалога.
+    🆕 v2.0: Читает от Gemini, буферизует greeting, шлёт "ready" сигнал.
+    
+    Фазы:
+      1. WAITING  — ждём SetupComplete
+      2. GREETING — greeting отправлен, буферизуем аудио
+      3. LIVE     — call answered, аудио идёт напрямую
     """
-    _log("🎭 Gemini→Vox bridge started")
+    _log("🎭 Gemini→Vox bridge v2.0 started")
 
     try:
         while gemini_client.is_connected and gemini_client.ws:
@@ -352,6 +376,14 @@ async def _gemini_to_vox_bridge(
             # ═══════════════════════════════════════════
             if "setupComplete" in data:
                 _log("✅ Gemini SetupComplete")
+                
+                # 🆕 v2.0: Сразу отправляем greeting
+                if not state["greeting_triggered"]:
+                    state["greeting_triggered"] = True
+                    _log("👋 SetupComplete → sending greeting NOW")
+                    gemini_client.greeting_sent = False  # Разрешаем отправку
+                    await gemini_client.send_initial_greeting()
+                
                 continue
 
             # ═══════════════════════════════════════════
@@ -383,7 +415,7 @@ async def _gemini_to_vox_bridge(
                         state["assistant_transcript"] += text
                         _log(f"🤖 ASST: '{text}'")
 
-                # --- Аудио от Gemini → отправляем в Voximplant ---
+                # --- Аудио от Gemini → отправляем/буферизуем ---
                 if "modelTurn" in sc:
                     for part in sc["modelTurn"].get("parts", []):
                         if "inlineData" not in part:
@@ -399,20 +431,28 @@ async def _gemini_to_vox_bridge(
                         pcm_24k = base64.b64decode(inline["data"])
                         pcm_16k = resample_24k_to_16k(pcm_24k)
 
-                        # Отправляем в формате Voximplant
-                        try:
-                            await websocket.send_json({
-                                "event": "media",
-                                "sequenceNumber": state["vox_seq"],
-                                "media": {
-                                    "payload": base64.b64encode(pcm_16k).decode("ascii"),
-                                    "chunk": state["chunk_num"],
-                                },
-                            })
-                            state["vox_seq"] += 1
-                            state["chunk_num"] += 1
-                        except Exception:
-                            break
+                        # Формируем чанк в формате Voximplant
+                        vox_chunk = {
+                            "event": "media",
+                            "sequenceNumber": state["vox_seq"],
+                            "media": {
+                                "payload": base64.b64encode(pcm_16k).decode("ascii"),
+                                "chunk": state["chunk_num"],
+                            },
+                        }
+                        state["vox_seq"] += 1
+                        state["chunk_num"] += 1
+
+                        # 🆕 v2.0: Буферизация или прямая отправка
+                        if state["call_answered"]:
+                            # Call уже answered → отправляем напрямую
+                            try:
+                                await websocket.send_json(vox_chunk)
+                            except Exception:
+                                break
+                        else:
+                            # Call ещё не answered → буферизуем
+                            state["audio_buffer"].append(vox_chunk)
 
                 # --- Прерывание ---
                 if sc.get("interrupted"):
@@ -421,10 +461,35 @@ async def _gemini_to_vox_bridge(
 
                 # --- Конец реплики ---
                 if sc.get("turnComplete"):
+                    _log(f"🏁 Turn complete | greeting_ready={state['greeting_ready']} | call_answered={state['call_answered']}")
+                    
+                    # 🆕 v2.0: Первый turnComplete после greeting = greeting готов
+                    if not state["greeting_ready"] and state["greeting_triggered"]:
+                        state["greeting_ready"] = True
+                        buffered = len(state["audio_buffer"])
+                        
+                        _log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        _log(f"🎉 GREETING READY! Buffered: {buffered} chunks")
+                        _log(f"   Sending 'ready' signal to Voximplant...")
+                        _log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                        
+                        # Сигнал Voximplant: "можно снимать трубку"
+                        try:
+                            await websocket.send_json({
+                                "customEvent": "ready",
+                                "payload": {
+                                    "buffered_chunks": buffered,
+                                    "greeting_text": state["assistant_transcript"],
+                                }
+                            })
+                            _log("✅ 'ready' signal sent to Voximplant")
+                        except Exception as e:
+                            _log(f"❌ Failed to send ready: {e}", "ERROR")
+                    
                     await _save_turn(gemini_client, state)
 
             # ═══════════════════════════════════════════
-            # TOP-LEVEL TRANSCRIPTIONS (вне serverContent)
+            # TOP-LEVEL TRANSCRIPTIONS
             # ═══════════════════════════════════════════
             if "inputTranscription" in data and "serverContent" not in data:
                 text = data["inputTranscription"].get("text", "")
@@ -441,10 +506,8 @@ async def _gemini_to_vox_bridge(
     except Exception as e:
         _log(f"❌ Bridge error: {e}\n{traceback.format_exc()}", "ERROR")
     finally:
-        # Сохраняем оставшееся
         await _save_turn(gemini_client, state, suffix=" [disconnected]", is_final=True)
 
-        # Отправляем STOP в Voximplant
         try:
             await websocket.send_json({
                 "event": "stop",
@@ -560,14 +623,12 @@ async def _handle_tool_calls(
             elapsed = time.time() - t0
             _log(f"✅ Function result in {elapsed:.2f}s")
 
-            # Отправляем результат в Gemini
             delivery = await gemini_client.send_function_result(fc_id, result)
             if delivery.get("success"):
                 _log(f"✅ Result delivered to Gemini")
             else:
                 _log(f"❌ Delivery failed: {delivery.get('error')}", "ERROR")
 
-            # Уведомляем Voximplant скрипт (опционально)
             try:
                 await websocket.send_json({
                     "customEvent": "function_result",
