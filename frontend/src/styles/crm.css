@@ -1,5 +1,5 @@
 /* ========================================
-   CRM Section (dark)
+   CRM Section v3 (Light Theme)
    ======================================== */
 .crm {
   padding: 120px 0;
@@ -29,7 +29,7 @@
   font-family: 'JetBrains Mono', monospace;
   font-size: var(--text-sm);
   font-weight: 700;
-  color: var(--blue-400);
+  color: var(--blue-500);
   flex-shrink: 0;
   line-height: 1.6;
 }
@@ -49,12 +49,11 @@
 
 /* CRM Mockup */
 .crm-mockup {
-  background: rgba(13, 21, 38, 0.7);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-dark);
+  background: #fff;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-card);
 }
 
 .crm-mockup-header {
@@ -62,7 +61,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border-dark);
+  border-bottom: 1px solid var(--border);
 }
 
 .crm-mockup-title {
@@ -73,7 +72,7 @@
 
 .crm-mockup-add {
   font-size: var(--text-sm);
-  color: var(--blue-400);
+  color: var(--blue-500);
   cursor: default;
 }
 
@@ -83,7 +82,7 @@
 
 .crm-contact {
   padding: 16px 0;
-  border-bottom: 1px solid var(--border-dark);
+  border-bottom: 1px solid var(--border);
 }
 
 .crm-contact:last-child {
@@ -101,11 +100,11 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(37, 99, 235, 0.15);
+  background: rgba(37, 99, 235, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--blue-400);
+  color: var(--blue-500);
   font-size: 14px;
 }
 
@@ -128,7 +127,7 @@
 }
 
 .crm-contact-detail--highlight {
-  color: var(--blue-400);
+  color: var(--blue-500);
 }
 
 .crm-contact-task {
@@ -136,8 +135,8 @@
   align-items: center;
   gap: 6px;
   font-size: var(--text-xs);
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.1);
+  color: #d97706;
+  background: rgba(251, 191, 36, 0.08);
   padding: 4px 10px;
   border-radius: 99px;
   margin-top: 4px;
@@ -154,11 +153,11 @@
 }
 
 .crm-contact-status--client {
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.08);
 }
 
 .crm-contact-status--new {
-  color: var(--blue-300);
-  background: rgba(37, 99, 235, 0.1);
+  color: var(--blue-600);
+  background: rgba(37, 99, 235, 0.08);
 }

@@ -1,10 +1,10 @@
 /* ========================================
-   Auth Modal v2.1
+   Auth Modal v3 (Light Theme)
    ======================================== */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 10, 24, 0.85);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 200;
@@ -18,14 +18,15 @@
 .modal-container {
   width: 100%;
   max-width: 480px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-blue);
+  background: #fff;
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   padding: 40px 32px;
   position: relative;
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   max-height: 90vh;
   overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
 }
 
 /* Close button */
@@ -48,7 +49,7 @@
 }
 
 .modal-close:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: #F3F4F6;
   color: var(--text-primary);
 }
 
@@ -106,7 +107,7 @@
 }
 
 .modal-tab.active {
-  color: var(--blue-400);
+  color: var(--blue-600);
   border-bottom-color: var(--blue-500);
 }
 

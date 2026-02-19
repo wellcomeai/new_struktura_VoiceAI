@@ -1,5 +1,5 @@
 /* ========================================
-   Providers Section v2.1
+   Providers Section v3 (Light Theme)
    ======================================== */
 .providers {
   padding: 120px 0;
@@ -17,19 +17,19 @@
 }
 
 .provider-card {
-  background: rgba(13, 21, 38, 0.7);
-  backdrop-filter: blur(20px);
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 40px;
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
 .provider-card:hover {
-  border-color: var(--blue-glow);
-  box-shadow: 0 0 40px rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.2);
+  box-shadow: var(--shadow-glow);
   transform: translateY(-4px);
 }
 
@@ -52,9 +52,9 @@
 }
 
 .provider-icon--openai {
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: #f3f4f6;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: #111827;
 }
 
 .provider-icon--gemini {
@@ -100,7 +100,7 @@
 }
 
 .provider-feature i {
-  color: var(--blue-400);
+  color: var(--blue-500);
   margin-top: 2px;
   flex-shrink: 0;
 }
@@ -116,9 +116,9 @@
   font-size: 11px;
   padding: 4px 12px;
   border-radius: 99px;
-  background: rgba(37, 99, 235, 0.1);
-  border: 1px solid rgba(37, 99, 235, 0.2);
-  color: var(--blue-300);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  color: var(--blue-600);
 }
 
 .provider-popular-badge {
@@ -127,9 +127,9 @@
   gap: 6px;
   padding: 4px 12px;
   border-radius: 99px;
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #4ade80;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  color: #16a34a;
   font-size: 11px;
   font-weight: 600;
   margin-bottom: 8px;

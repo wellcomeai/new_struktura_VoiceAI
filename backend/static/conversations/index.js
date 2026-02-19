@@ -32,7 +32,7 @@ function handleApiError(response) {
   if (response.status === 401 || response.status === 403) {
     console.log('Token expired, redirecting...');
     localStorage.removeItem('access_token');
-    window.location.href = '/static/index.html';
+    window.location.href = 'https://voicyfy.ru/';
     return true;
   }
   return false;
@@ -443,7 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function logout() {
   localStorage.removeItem('access_token');
-  window.location.href = '/static/index.html';
+  window.location.href = 'https://voicyfy.ru/';
 }
 
 window.logout = logout;

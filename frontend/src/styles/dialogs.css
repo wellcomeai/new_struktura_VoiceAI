@@ -1,5 +1,5 @@
 /* ========================================
-   Dialogs Section (dark theme) v2.1
+   Dialogs Section v3 (Light Theme)
    ======================================== */
 .dialogs {
   padding: 120px 0;
@@ -10,8 +10,7 @@
 .dialogs-mockup {
   max-width: 700px;
   margin: 0 auto 48px;
-  background: rgba(13, 21, 38, 0.7);
-  backdrop-filter: blur(20px);
+  background: #fff;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-card);
@@ -37,7 +36,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.05);
+  background: #F9FAFB;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
@@ -61,11 +60,11 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(37, 99, 235, 0.15);
+  background: rgba(37, 99, 235, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--blue-400);
+  color: var(--blue-500);
   font-size: 14px;
   flex-shrink: 0;
 }
@@ -93,19 +92,20 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
+  background: #F3F4F6;
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--blue-400);
+  color: var(--blue-500);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .dialogs-call-listen:hover {
-  background: rgba(37, 99, 235, 0.15);
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.2);
 }
 
 /* Audio player mockup */
@@ -133,7 +133,7 @@
 .dialogs-player-bar {
   flex: 1;
   height: 4px;
-  background: var(--border);
+  background: #E5E7EB;
   border-radius: 2px;
   position: relative;
   overflow: hidden;
@@ -193,7 +193,7 @@
 }
 
 .dialogs-message-icon--ai {
-  color: var(--blue-400);
+  color: var(--blue-500);
 }
 
 /* Features below mockup */

@@ -1,5 +1,5 @@
 /* ========================================
-   Pricing Section v2.1
+   Pricing Section v3 (Light Theme)
    ======================================== */
 .pricing {
   padding: 120px 0;
@@ -15,9 +15,7 @@
 }
 
 .pricing-card {
-  background: rgba(13, 21, 38, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 32px 24px;
@@ -25,25 +23,26 @@
   flex-direction: column;
   transition: all 0.3s ease;
   position: relative;
+  box-shadow: var(--shadow-card);
 }
 
 .pricing-card:hover {
   border-color: rgba(37, 99, 235, 0.2);
   transform: translateY(-4px);
-  box-shadow: 0 0 30px rgba(37, 99, 235, 0.08);
+  box-shadow: var(--shadow-glow);
 }
 
 /* Featured card */
 .pricing-card--featured {
   border-color: var(--blue-500);
   transform: scale(1.03);
-  box-shadow: 0 0 40px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 8px 40px rgba(37, 99, 235, 0.12);
   z-index: 1;
 }
 
 .pricing-card--featured:hover {
   transform: scale(1.03) translateY(-4px);
-  box-shadow: 0 0 60px rgba(37, 99, 235, 0.3);
+  box-shadow: 0 12px 48px rgba(37, 99, 235, 0.18);
 }
 
 /* Badge */
@@ -62,27 +61,27 @@
 }
 
 .pricing-badge--free {
-  background: rgba(34, 197, 94, 0.15);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #4ade80;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  color: #16a34a;
 }
 
 .pricing-badge--basic {
-  background: rgba(37, 99, 235, 0.15);
-  border: 1px solid rgba(37, 99, 235, 0.3);
-  color: var(--blue-300);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  color: var(--blue-600);
 }
 
 .pricing-badge--popular {
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  color: #d97706;
 }
 
 .pricing-badge--premium {
-  background: rgba(124, 58, 237, 0.15);
-  border: 1px solid rgba(124, 58, 237, 0.3);
-  color: #a78bfa;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  color: #7c3aed;
 }
 
 /* Card content */
@@ -152,7 +151,7 @@
 }
 
 .pricing-feature-item .fa-check {
-  color: var(--blue-400);
+  color: var(--blue-500);
 }
 
 .pricing-feature-item .fa-times {
@@ -191,7 +190,7 @@
 }
 
 .pricing-cta--primary:hover {
-  box-shadow: 0 0 30px rgba(37, 99, 235, 0.5);
+  box-shadow: 0 6px 24px rgba(37, 99, 235, 0.35);
   transform: translateY(-1px);
 }
 
@@ -203,5 +202,5 @@
 
 .pricing-cta--outline:hover {
   border-color: var(--blue-500);
-  background: rgba(37, 99, 235, 0.06);
+  background: rgba(37, 99, 235, 0.04);
 }

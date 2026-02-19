@@ -1,5 +1,5 @@
 /* ========================================
-   Telephony Section v2.1
+   Telephony Section v3 (Light Theme)
    ======================================== */
 .telephony {
   padding: 120px 0;
@@ -15,22 +15,21 @@
 
 /* Pricing column (main accent) */
 .telephony-pricing {
-  background: rgba(13, 21, 38, 0.7);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border-blue);
+  background: #fff;
+  border: 1px solid rgba(37, 99, 235, 0.15);
   border-radius: var(--radius-lg);
   padding: 40px;
   text-align: center;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 0 40px rgba(37, 99, 235, 0.1);
+  box-shadow: var(--shadow-glow);
 }
 
 .telephony-pricing::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--grad-glow);
+  background: radial-gradient(circle at 50% 50%, rgba(37, 99, 235, 0.04) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -76,16 +75,18 @@
 
 /* Feature columns */
 .telephony-feature-card {
-  background: rgba(13, 21, 38, 0.5);
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 32px;
   transition: all 0.3s ease;
+  box-shadow: var(--shadow-card);
 }
 
 .telephony-feature-card:hover {
-  border-color: var(--blue-glow);
+  border-color: rgba(37, 99, 235, 0.15);
   transform: translateY(-4px);
+  box-shadow: var(--shadow-glow);
 }
 
 .telephony-feature-icon {
@@ -116,7 +117,7 @@
 }
 
 .telephony-feature-item i {
-  color: var(--blue-400);
+  color: var(--blue-500);
   margin-top: 2px;
   flex-shrink: 0;
 }
