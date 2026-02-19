@@ -19,7 +19,7 @@ import gc
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -989,33 +989,12 @@ async def startup_event():
 # ============================================================================
 
 @app.get("/")
-async def root(request: Request):
+async def serve_landing():
     """
-    Root endpoint with UTM parameters preservation.
-    Redirects to main page while preserving all query parameters (especially UTM).
-    
-    Example:
-        https://voicyfy.ru/?utm_source=partner&utm_campaign=ABC123
-        → https://voicyfy.ru/static/index.html?utm_source=partner&utm_campaign=ABC123
+    Serve React landing page.
+    UTM parameters are handled client-side by the React app.
     """
-    try:
-        # Получаем query string из URL
-        query_string = request.url.query
-        
-        # Формируем redirect URL с сохранением параметров
-        if query_string:
-            redirect_url = f"/static/index.html?{query_string}"
-            logger.info(f"🔗 Redirecting / → {redirect_url}")
-        else:
-            redirect_url = "/static/index.html"
-            logger.debug(f"🔗 Redirecting / → {redirect_url} (no params)")
-        
-        return RedirectResponse(url=redirect_url, status_code=302)
-        
-    except Exception as e:
-        logger.error(f"❌ Error in root redirect: {e}", exc_info=True)
-        # Fallback - редирект без параметров
-        return RedirectResponse(url="/static/index.html", status_code=302)
+    return FileResponse("backend/static/landing/index.html")
 
 
 @app.get("/health")
