@@ -5,10 +5,10 @@ function IntegrationsSection() {
     <section className="integrations" id="integrations">
       <div className="section-container">
         <div className="section-header" data-animate="fade-up">
-          <h2 className="section-title section-title--light">
+          <h2 className="section-title section-title--dark">
             Интеграции за 2 минуты
           </h2>
-          <p className="section-subtitle section-subtitle--light">
+          <p className="section-subtitle section-subtitle--dark">
             Подключите Telegram для мгновенных уведомлений,
             или отправляйте данные в любую систему через webhook.
           </p>
@@ -61,7 +61,7 @@ function IntegrationsSection() {
               Отправляйте данные в любую систему: вашу CRM, n8n, Make.com, Zapier —
               или используйте встроенную CRM Voicyfy.
             </p>
-            <p className="integration-card-desc" style={{ fontWeight: 600, color: 'var(--text-dark)' }}>
+            <p className="integration-card-desc" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
               Данные каждого звонка:
             </p>
 
@@ -77,7 +77,7 @@ function IntegrationsSection() {
 
             {/* Tool logos */}
             <div className="integration-logos">
-              <span className="integration-logo-chip">Ваша CRM</span>
+              <span className="integration-logo-chip">Voicyfy CRM</span>
               <span className="integration-logo-chip">n8n</span>
               <span className="integration-logo-chip">Make</span>
               <span className="integration-logo-chip">Zapier</span>

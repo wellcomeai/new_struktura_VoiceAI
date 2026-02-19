@@ -1,19 +1,20 @@
 /* ========================================
-   Dialogs Section (light theme)
+   Dialogs Section (dark theme) v2.1
    ======================================== */
 .dialogs {
   padding: 120px 0;
-  background: var(--bg-light);
+  background: var(--bg-section-alt);
 }
 
 /* Dialog mockup */
 .dialogs-mockup {
   max-width: 700px;
   margin: 0 auto 48px;
-  background: #fff;
+  background: rgba(13, 21, 38, 0.7);
+  backdrop-filter: blur(20px);
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-light);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
@@ -22,13 +23,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border);
 }
 
 .dialogs-mockup-title {
   font-size: var(--text-lg);
   font-weight: 700;
-  color: var(--text-dark);
+  color: var(--text-primary);
 }
 
 .dialogs-mockup-search {
@@ -36,8 +37,8 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: var(--bg-light);
-  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   color: var(--text-muted);
@@ -53,18 +54,18 @@
   align-items: center;
   gap: 16px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border);
 }
 
 .dialogs-call-icon {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(37, 99, 235, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--blue-500);
+  color: var(--blue-400);
   font-size: 14px;
   flex-shrink: 0;
 }
@@ -74,10 +75,10 @@
 }
 
 .dialogs-call-phone {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-primary);
 }
 
 .dialogs-call-meta {
@@ -92,19 +93,19 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--bg-light);
-  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--blue-500);
+  color: var(--blue-400);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .dialogs-call-listen:hover {
-  background: rgba(37, 99, 235, 0.1);
+  background: rgba(37, 99, 235, 0.15);
 }
 
 /* Audio player mockup */
@@ -132,7 +133,7 @@
 .dialogs-player-bar {
   flex: 1;
   height: 4px;
-  background: var(--border-light);
+  background: var(--border);
   border-radius: 2px;
   position: relative;
   overflow: hidden;
@@ -149,7 +150,7 @@
 }
 
 .dialogs-player-time {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-muted);
   white-space: nowrap;
@@ -176,7 +177,7 @@
   align-items: flex-start;
   gap: 10px;
   font-size: var(--text-sm);
-  color: var(--text-dark);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -192,7 +193,7 @@
 }
 
 .dialogs-message-icon--ai {
-  color: var(--blue-500);
+  color: var(--blue-400);
 }
 
 /* Features below mockup */
@@ -216,7 +217,7 @@
 .dialogs-feature-title {
   font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 

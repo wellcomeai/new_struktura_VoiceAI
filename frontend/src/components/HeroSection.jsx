@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-function HeroSection({ onOpenRegister }) {
+function HeroSection({ onOpenRegister, onOpenLogin }) {
   const countersRef = useRef(null);
   const animatedRef = useRef(false);
 
@@ -54,12 +54,6 @@ function HeroSection({ onOpenRegister }) {
     });
   };
 
-  const handleDemoClick = (e) => {
-    e.preventDefault();
-    const el = document.getElementById('widget');
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
-  };
-
   // Generate particles
   const particles = Array.from({ length: 35 }, (_, i) => ({
     id: i,
@@ -70,6 +64,9 @@ function HeroSection({ onOpenRegister }) {
     tx: (Math.random() - 0.5) * 150,
     ty: (Math.random() - 0.5) * 150,
   }));
+
+  // 14 equalizer bars
+  const eqBars = Array.from({ length: 14 }, (_, i) => i);
 
   return (
     <section className="hero">
@@ -105,17 +102,17 @@ function HeroSection({ onOpenRegister }) {
         <div className="hero-text">
           <div className="hero-badge" data-animate="fade-up">
             <span className="hero-badge-dot">&#10022;</span>
-            OpenAI &middot; Gemini &middot; Voximplant
+            Голосовой ИИ нового поколения
           </div>
 
           <h1 className="hero-title" data-animate="fade-up" data-delay="100">
-            Голосовой ИИ<br />
-            <span>нового поколения</span>
+            Лучшие <span>решения</span><br />
+            на рынке
           </h1>
 
           <p className="hero-subtitle" data-animate="fade-up" data-delay="200">
-            Лучшие решения на рынке — OpenAI Realtime и&nbsp;Google Gemini.
-            Создайте ассистента за минуты, разверните на сайте или&nbsp;в&nbsp;телефонии.
+            OpenAI Realtime и&nbsp;Google Gemini внутри одной платформы.
+            Создайте голосового ассистента за минуты, разверните на сайте или&nbsp;в&nbsp;телефонии.
           </p>
 
           <div className="hero-counters" ref={countersRef} data-animate="fade-up" data-delay="300">
@@ -124,8 +121,8 @@ function HeroSection({ onOpenRegister }) {
               <span className="hero-counter-label">голосов</span>
             </div>
             <div className="hero-counter">
-              <span className="hero-counter-value" data-target="2.7" data-suffix="₽">0</span>
-              <span className="hero-counter-label">за минуту</span>
+              <span className="hero-counter-value" data-target="2" data-suffix="₽">0</span>
+              <span className="hero-counter-label">за минуту входящий звонок</span>
             </div>
             <div className="hero-counter">
               <span className="hero-counter-value" data-target="3" data-suffix=" мин">0</span>
@@ -134,11 +131,11 @@ function HeroSection({ onOpenRegister }) {
           </div>
 
           <div className="hero-buttons" data-animate="fade-up" data-delay="400">
-            <button className="btn-primary" onClick={onOpenRegister}>
+            <button className="btn-primary btn-lg" onClick={onOpenRegister}>
               Начать бесплатно <i className="fas fa-arrow-right" style={{ fontSize: 13 }}></i>
             </button>
-            <button className="btn-outline" onClick={handleDemoClick}>
-              <i className="fas fa-play" style={{ fontSize: 12 }}></i> Смотреть демо
+            <button className="btn-outline" onClick={onOpenLogin}>
+              Войти
             </button>
           </div>
         </div>
@@ -156,23 +153,20 @@ function HeroSection({ onOpenRegister }) {
               <div className="hero-wave" />
             </div>
 
-            {/* Orbit ring 1 */}
-            <div className="orbit-ring orbit-ring-1">
-              <div className="orbit-badge">OpenAI</div>
-            </div>
-
-            {/* Orbit ring 2 */}
-            <div className="orbit-ring orbit-ring-2">
-              <div className="orbit-badge orbit-badge-2">Gemini</div>
-            </div>
-
             {/* Sphere */}
             <div className="hero-sphere" />
 
             {/* Floating badge */}
             <div className="hero-floating-badge">
-              Говорит. Слушает. Понимает.
+              &#127908; Говорит. Слушает. Понимает.
             </div>
+          </div>
+
+          {/* Equalizer */}
+          <div className="equalizer">
+            {eqBars.map((i) => (
+              <div key={i} className="eq-bar" />
+            ))}
           </div>
         </div>
       </div>

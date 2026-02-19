@@ -1,12 +1,12 @@
 /* ========================================
-   Hero Section
+   Hero Section v2.1
    ======================================== */
 .hero {
   position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
-  background: var(--bg-dark);
+  background: var(--bg-base);
   overflow: hidden;
   padding: 120px 0 80px;
 }
@@ -118,8 +118,8 @@
   align-items: center;
   gap: 8px;
   background: rgba(37, 99, 235, 0.15);
-  border: 1px solid rgba(37, 99, 235, 0.4);
-  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid var(--border-blue);
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--blue-300);
   padding: 6px 16px;
@@ -166,7 +166,7 @@
 }
 
 .hero-counter-value {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-4xl);
   font-weight: 700;
   color: var(--text-primary);
@@ -188,6 +188,7 @@
 /* Right: sphere */
 .hero-sphere-wrapper {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   position: relative;
@@ -240,44 +241,6 @@
 .hero-wave:nth-child(5) { animation-delay: 2.4s; }
 .hero-wave:nth-child(6) { animation-delay: 3.0s; }
 
-/* Orbit rings */
-.orbit-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px dashed rgba(37, 99, 235, 0.15);
-}
-
-.orbit-ring-1 {
-  animation: orbit 20s linear infinite;
-}
-
-.orbit-ring-2 {
-  inset: -20px;
-  animation: orbit-reverse 30s linear infinite;
-}
-
-.orbit-badge {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: var(--bg-card);
-  border: 1px solid var(--border-dark);
-  border-radius: 20px;
-  padding: 5px 12px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.orbit-badge-2 {
-  top: auto;
-  bottom: 0;
-  transform: translate(-50%, 50%);
-}
-
 /* Floating badge */
 .hero-floating-badge {
   position: absolute;
@@ -286,7 +249,7 @@
   transform: translateX(-50%);
   background: rgba(13, 21, 38, 0.8);
   backdrop-filter: blur(10px);
-  border: 1px solid var(--border-dark);
+  border: 1px solid var(--border-blue);
   border-radius: 99px;
   padding: 8px 20px;
   font-size: var(--text-sm);
@@ -294,3 +257,37 @@
   white-space: nowrap;
   animation: float 3s ease-in-out infinite;
 }
+
+/* Equalizer */
+.equalizer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 4px;
+  height: 48px;
+  margin-top: 16px;
+}
+
+.eq-bar {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--blue-500);
+  animation: eq-pulse 1.2s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+/* 14 bars with bell-curve heights and staggered delays */
+.eq-bar:nth-child(1)  { height: 10px; animation-delay: 0.0s; }
+.eq-bar:nth-child(2)  { height: 16px; animation-delay: 0.1s; }
+.eq-bar:nth-child(3)  { height: 22px; animation-delay: 0.15s; }
+.eq-bar:nth-child(4)  { height: 30px; animation-delay: 0.2s; }
+.eq-bar:nth-child(5)  { height: 36px; animation-delay: 0.25s; }
+.eq-bar:nth-child(6)  { height: 42px; animation-delay: 0.3s; }
+.eq-bar:nth-child(7)  { height: 48px; animation-delay: 0.35s; }
+.eq-bar:nth-child(8)  { height: 48px; animation-delay: 0.4s; }
+.eq-bar:nth-child(9)  { height: 42px; animation-delay: 0.45s; }
+.eq-bar:nth-child(10) { height: 36px; animation-delay: 0.5s; }
+.eq-bar:nth-child(11) { height: 30px; animation-delay: 0.55s; }
+.eq-bar:nth-child(12) { height: 22px; animation-delay: 0.6s; }
+.eq-bar:nth-child(13) { height: 16px; animation-delay: 0.65s; }
+.eq-bar:nth-child(14) { height: 10px; animation-delay: 0.7s; }

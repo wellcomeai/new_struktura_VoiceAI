@@ -1,9 +1,9 @@
 /* ========================================
-   Providers Section
+   Providers Section v2.1
    ======================================== */
 .providers {
   padding: 120px 0;
-  background: var(--bg-dark-2);
+  background: var(--bg-section-alt);
   position: relative;
 }
 
@@ -19,7 +19,7 @@
 .provider-card {
   background: rgba(13, 21, 38, 0.7);
   backdrop-filter: blur(20px);
-  border: 1px solid var(--border-dark);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 40px;
   transition: all 0.3s ease;
@@ -70,7 +70,7 @@
 
 .provider-card-subtitle {
   font-size: var(--text-sm);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--text-muted);
 }
 
@@ -112,7 +112,7 @@
 }
 
 .provider-chip {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 4px 12px;
   border-radius: 99px;
@@ -133,33 +133,4 @@
   font-size: 11px;
   font-weight: 600;
   margin-bottom: 8px;
-}
-
-/* Bottom logos strip */
-.providers-logos {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 32px;
-  margin-top: 64px;
-  padding-top: 40px;
-  border-top: 1px solid var(--border-dark);
-}
-
-.providers-logos-label {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.providers-logo-item {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  opacity: 0.6;
-  transition: opacity 0.2s;
-}
-
-.providers-logo-item:hover {
-  opacity: 1;
 }

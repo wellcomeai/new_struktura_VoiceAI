@@ -80,10 +80,10 @@ function WidgetSection() {
     <section className="widget-section" id="widget">
       <div className="section-container">
         <div className="section-header" data-animate="fade-up">
-          <h2 className="section-title section-title--light">
+          <h2 className="section-title section-title--dark">
             Виджет на ваш сайт за 6 строк кода
           </h2>
-          <p className="section-subtitle section-subtitle--light">
+          <p className="section-subtitle section-subtitle--dark">
             Просто вставьте скрипт — голосовой ассистент появится на вашем сайте
             автоматически. Никаких бэкенд-интеграций.
           </p>

@@ -1,5 +1,5 @@
 /* ========================================
-   Global Base Styles
+   Global Base Styles v2.1
    ======================================== */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
@@ -14,13 +14,28 @@ html {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--bg-dark);
+  font-family: var(--font-main);
+  background-color: var(--bg-base);
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: relative;
+}
+
+/* Ambient glow effect */
+body::before {
+  content: '';
+  position: fixed;
+  top: -20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  height: 60%;
+  background: radial-gradient(ellipse, rgba(37, 99, 235, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 a {
@@ -39,7 +54,7 @@ img {
 
 /* Mono font utility */
 .mono {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 /* Section container */
@@ -61,14 +76,11 @@ img {
   line-height: 1.1;
   margin-bottom: 20px;
   letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .section-title--dark {
   color: var(--text-primary);
-}
-
-.section-title--light {
-  color: var(--text-dark);
 }
 
 .section-subtitle {
@@ -76,14 +88,11 @@ img {
   line-height: 1.6;
   max-width: 600px;
   margin: 0 auto;
+  color: var(--text-secondary);
 }
 
 .section-subtitle--dark {
   color: var(--text-secondary);
-}
-
-.section-subtitle--light {
-  color: var(--text-muted);
 }
 
 /* Glassmorphism card */
@@ -91,7 +100,7 @@ img {
   background: rgba(13, 21, 38, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-dark);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   transition: all 0.3s ease;
 }
@@ -109,17 +118,17 @@ img {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: var(--grad-blue);
+  background: var(--grad-button);
   color: #fff;
   padding: 14px 28px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 15px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-main);
   border: none;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 0 20px rgba(37, 99, 235, 0.3);
+  box-shadow: var(--shadow-btn);
   line-height: 1;
 }
 
@@ -134,6 +143,12 @@ img {
   transform: none;
 }
 
+.btn-lg {
+  padding: 16px 36px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
 .btn-outline {
   display: inline-flex;
   align-items: center;
@@ -146,7 +161,7 @@ img {
   border: 1px solid rgba(255, 255, 255, 0.2);
   font-weight: 600;
   font-size: 15px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-main);
   cursor: pointer;
   transition: all 0.2s;
   line-height: 1;
@@ -173,12 +188,12 @@ img {
 .form-control {
   width: 100%;
   padding: 12px 16px;
-  background: rgba(13, 21, 38, 0.8);
-  border: 1px solid var(--border-dark);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: var(--text-base);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-main);
   transition: border-color 0.2s, box-shadow 0.2s;
   outline: none;
 }
@@ -274,7 +289,7 @@ img {
 
 .verification-code-input {
   text-align: center;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-2xl) !important;
   letter-spacing: 0.3em;
   padding: 14px !important;
@@ -317,10 +332,10 @@ img {
   margin-top: 8px;
   background: transparent;
   color: var(--text-secondary);
-  border: 1px solid var(--border-dark);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-main);
   cursor: pointer;
   transition: all 0.2s;
 }

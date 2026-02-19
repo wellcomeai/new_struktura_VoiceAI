@@ -5,18 +5,23 @@ function Footer() {
     <footer className="footer">
       <div className="section-container">
         <div className="footer-top">
-          <div className="footer-logo">
-            <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" />
-            <span className="footer-logo-text">Voicyfy</span>
+          <div className="footer-brand">
+            <div className="footer-logo">
+              <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" />
+              <span className="footer-logo-text">Voicyfy</span>
+            </div>
+            <p className="footer-desc">
+              Платформа для создания голосовых ИИ-ассистентов
+              на базе OpenAI и Google Gemini.
+            </p>
           </div>
 
           <div className="footer-links-group">
             <div className="footer-links-col">
               <span className="footer-links-col-title">Продукт</span>
               <a href="#providers" className="footer-link">Возможности</a>
+              <a href="#telephony" className="footer-link">Телефония</a>
               <a href="#pricing" className="footer-link">Тарифы</a>
-              <a href="/static/api-docs.html" className="footer-link">API</a>
-              <a href="/static/api-docs.html" className="footer-link">Документация</a>
             </div>
             <div className="footer-links-col">
               <span className="footer-links-col-title">Поддержка</span>
@@ -25,8 +30,6 @@ function Footer() {
               <a href="mailto:well96well@gmail.com" className="footer-link">Email</a>
             </div>
           </div>
-
-          <div className="footer-sphere" />
         </div>
 
         <div className="footer-divider" />
@@ -34,10 +37,10 @@ function Footer() {
         <div className="footer-bottom">
           <span className="footer-copy">&copy; 2025-2026 Voicyfy</span>
           <div className="footer-legal">
-            <a href="/static/privacy-policy.html">Политика</a>
-            <a href="/static/public-offer.html">Оферта</a>
-            <a href="/static/terms-of-service.html">Условия</a>
-            <a href="/static/payment-terms.html">Оплата</a>
+            <a href="/static/privacy-policy.html">Политика конфиденциальности</a>
+            <a href="/static/public-offer.html">Публичная оферта</a>
+            <a href="/static/terms-of-service.html">Условия использования</a>
+            <a href="/static/payment-terms.html">Условия оплаты</a>
           </div>
           <div className="footer-company">
             ИП Шишкин Валерий Сергеевич &middot; ИНН: 385101159652 &middot; well96well@gmail.com

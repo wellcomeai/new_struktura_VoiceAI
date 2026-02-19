@@ -61,7 +61,7 @@ function AuthModal({ isOpen, activeTab, onTabChange, onClose }) {
         )}
 
         <div className="modal-footer-text">
-          Бесплатно 3 дня &middot; Без карты
+          &#10003; 3 дня бесплатно &middot; &#10003; Карта не нужна
         </div>
       </div>
     </div>

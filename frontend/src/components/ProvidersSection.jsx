@@ -6,11 +6,11 @@ function ProvidersSection() {
       <div className="section-container">
         <div className="section-header" data-animate="fade-up">
           <h2 className="section-title section-title--dark">
-            Два провайдера. Один стандарт качества.
+            Два провайдера. Один стандарт.
           </h2>
           <p className="section-subtitle section-subtitle--dark">
             Выбирайте между OpenAI Realtime API и Google Gemini Live —
-            оба работают внутри Voicyfy. Переключайтесь без потери настроек.
+            оба работают внутри Voicyfy. Переключайтесь в один клик.
           </p>
         </div>
 
@@ -117,15 +117,6 @@ function ProvidersSection() {
           </div>
         </div>
 
-        {/* Bottom logos */}
-        <div className="providers-logos" data-animate="fade-up" data-delay="300">
-          <span className="providers-logos-label">Работает с:</span>
-          <span className="providers-logo-item">OpenAI</span>
-          <span className="providers-logo-item">Google</span>
-          <span className="providers-logo-item">Voximplant</span>
-          <span className="providers-logo-item">Telegram</span>
-          <span className="providers-logo-item">SIP/VoIP</span>
-        </div>
       </div>
     </section>
   );

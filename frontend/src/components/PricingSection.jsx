@@ -90,7 +90,7 @@ function PricingSection({ onOpenRegister }) {
             Тарифы без скрытых условий
           </h2>
           <p className="section-subtitle section-subtitle--dark">
-            Выберите подходящий план для создания голосовых ИИ-ассистентов
+            Начните бесплатно на 3 дня. Карта не нужна.
           </p>
         </div>
 
@@ -132,7 +132,7 @@ function PricingSection({ onOpenRegister }) {
                 className={`pricing-cta ${plan.featured ? 'pricing-cta--primary' : 'pricing-cta--outline'}`}
                 onClick={onOpenRegister}
               >
-                Начать
+                Начать &rarr;
               </button>
             </div>
           ))}

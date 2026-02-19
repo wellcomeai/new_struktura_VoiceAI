@@ -1,10 +1,10 @@
 /* ========================================
-   Footer (dark)
+   Footer v2.1
    ======================================== */
 .footer {
   padding: 64px 0 32px;
-  background: var(--bg-dark);
-  border-top: 1px solid var(--border-dark);
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-blue);
 }
 
 .footer-top {
@@ -14,10 +14,15 @@
   margin-bottom: 40px;
 }
 
+.footer-brand {
+  max-width: 320px;
+}
+
 .footer-logo {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 12px;
 }
 
 .footer-logo img {
@@ -27,7 +32,7 @@
 }
 
 .footer-logo-text {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 1.1rem;
   font-weight: 700;
   background: var(--grad-text);
@@ -36,15 +41,10 @@
   background-clip: text;
 }
 
-/* Sphere decoration */
-.footer-sphere {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 50%, #2563EB 100%);
-  opacity: 0.15;
-  filter: blur(1px);
-  flex-shrink: 0;
+.footer-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 
 .footer-links-group {
@@ -78,7 +78,7 @@
 /* Divider */
 .footer-divider {
   height: 1px;
-  background: var(--border-dark);
+  background: var(--border);
   margin-bottom: 24px;
 }
 

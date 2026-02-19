@@ -36,9 +36,6 @@ function Navbar({ onOpenLogin, onOpenRegister }) {
           <span className="navbar-nav-link" onClick={() => scrollTo('pricing')}>
             Тарифы
           </span>
-          <span className="navbar-nav-link" onClick={() => scrollTo('integrations')}>
-            API
-          </span>
         </div>
 
         <div className="navbar-right">
@@ -87,9 +84,6 @@ function Navbar({ onOpenLogin, onOpenRegister }) {
         </span>
         <span className="navbar-drawer-link" onClick={() => scrollTo('pricing')}>
           Тарифы
-        </span>
-        <span className="navbar-drawer-link" onClick={() => scrollTo('integrations')}>
-          API
         </span>
         <div className="navbar-drawer-divider" />
         <a href="https://t.me/voicyfy" target="_blank" rel="noopener noreferrer" className="navbar-drawer-link">

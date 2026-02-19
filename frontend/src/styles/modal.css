@@ -1,5 +1,5 @@
 /* ========================================
-   Auth Modal
+   Auth Modal v2.1
    ======================================== */
 .modal-overlay {
   position: fixed;
@@ -18,8 +18,8 @@
 .modal-container {
   width: 100%;
   max-width: 480px;
-  background: var(--bg-dark-2);
-  border: 1px solid var(--border-dark);
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
   padding: 40px 32px;
   position: relative;
@@ -36,7 +36,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid var(--border-dark);
+  border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   font-size: 16px;
@@ -68,7 +68,7 @@
 }
 
 .modal-logo-text {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 1.2rem;
   font-weight: 700;
   background: var(--grad-text);
@@ -80,7 +80,7 @@
 /* Tabs */
 .modal-tabs {
   display: flex;
-  border-bottom: 1px solid var(--border-dark);
+  border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
 }
 
@@ -98,7 +98,7 @@
   border-top: none;
   border-left: none;
   border-right: none;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-main);
 }
 
 .modal-tab:hover {

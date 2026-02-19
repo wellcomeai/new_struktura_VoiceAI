@@ -85,6 +85,21 @@ function CrmSection() {
                 </div>
               </div>
             </div>
+              <div className="crm-contact">
+                <div className="crm-contact-header">
+                  <div className="crm-contact-avatar">
+                    <i className="fas fa-user"></i>
+                  </div>
+                  <span className="crm-contact-name">Сергей Козлов</span>
+                </div>
+                <div className="crm-contact-details">
+                  <span className="crm-contact-detail">+7 903 *** ****</span>
+                  <span className="crm-contact-detail">Входящий сегодня</span>
+                  <span className="crm-contact-status crm-contact-status--new">
+                    <i className="fas fa-circle" style={{ fontSize: 6 }}></i> Новый
+                  </span>
+                </div>
+              </div>
           </div>
         </div>
       </div>

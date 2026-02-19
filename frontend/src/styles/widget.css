@@ -1,9 +1,9 @@
 /* ========================================
-   Widget Section (light theme)
+   Widget Section (dark theme) v2.1
    ======================================== */
 .widget-section {
   padding: 120px 0;
-  background: var(--bg-light);
+  background: var(--bg-base);
   position: relative;
 }
 
@@ -27,7 +27,7 @@
 }
 
 .widget-step-number {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: 700;
   color: var(--blue-500);
@@ -38,7 +38,7 @@
 .widget-step-content h4 {
   font-size: var(--text-lg);
   font-weight: 700;
-  color: var(--text-dark);
+  color: var(--text-primary);
   margin-bottom: 6px;
 }
 
@@ -54,11 +54,11 @@
 }
 
 .widget-code-block {
-  background: #0D1117;
+  background: #020812;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
 }
 
 .widget-code-header {
@@ -82,7 +82,7 @@
 
 .widget-code-filename {
   margin-left: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -95,7 +95,7 @@
 
 .widget-code-body pre {
   margin: 0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.7;
   color: #E6EDF3;
@@ -135,7 +135,7 @@
   border: 1px solid rgba(37, 99, 235, 0.3);
   border-radius: var(--radius-sm);
   color: var(--blue-300);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;

@@ -5,10 +5,10 @@ function DialogsSection() {
     <section className="dialogs" id="dialogs">
       <div className="section-container">
         <div className="section-header" data-animate="fade-up">
-          <h2 className="section-title section-title--light">
+          <h2 className="section-title section-title--dark">
             Каждый разговор у вас под рукой
           </h2>
-          <p className="section-subtitle section-subtitle--light">
+          <p className="section-subtitle section-subtitle--dark">
             Встроенная система диалогов сохраняет каждую коммуникацию
             с вашим голосовым ИИ — слушайте, читайте, анализируйте.
           </p>
@@ -78,6 +78,18 @@ function DialogsSection() {
                   <i className="fas fa-robot"></i>
                 </span>
                 <span>Да, 3 дня бесплатно, все функции включены!</span>
+              </div>
+              <div className="dialogs-message">
+                <span className="dialogs-message-icon dialogs-message-icon--user">
+                  <i className="fas fa-user"></i>
+                </span>
+                <span>Отлично, тогда давайте попробуем!</span>
+              </div>
+              <div className="dialogs-message">
+                <span className="dialogs-message-icon dialogs-message-icon--ai">
+                  <i className="fas fa-robot"></i>
+                </span>
+                <span>Конечно! Сейчас помогу настроить. Как вас зовут?</span>
               </div>
             </div>
           </div>

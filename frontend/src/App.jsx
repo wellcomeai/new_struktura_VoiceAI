@@ -42,7 +42,7 @@ function App() {
       />
 
       <main>
-        <HeroSection onOpenRegister={() => openAuthModal('register')} />
+        <HeroSection onOpenRegister={() => openAuthModal('register')} onOpenLogin={() => openAuthModal('login')} />
         <ProvidersSection />
         <WidgetSection />
         <TelephonySection />

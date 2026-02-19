@@ -55,11 +55,11 @@ function TelephonySection() {
       <div className="section-container">
         <div className="section-header" data-animate="fade-up">
           <h2 className="section-title section-title--dark">
-            Телефония с самыми низкими тарифами в РФ
+            Самые низкие тарифы на связь
           </h2>
           <p className="section-subtitle section-subtitle--dark">
-            Входящие и исходящие звонки. Подключите номер и ваш ИИ
-            начнёт принимать звонки немедленно.
+            Входящие и исходящие звонки. Подключите номер —
+            ваш ИИ начнёт принимать звонки немедленно.
           </p>
         </div>
 
@@ -107,6 +107,10 @@ function TelephonySection() {
                 <i className="fas fa-check"></i>
                 <span>Каждый звонок → в CRM</span>
               </div>
+              <div className="telephony-feature-item">
+                <i className="fas fa-check"></i>
+                <span>Запись разговора</span>
+              </div>
             </div>
           </div>
 
@@ -151,7 +155,7 @@ function TelephonySection() {
             <div className="telephony-wave-bar" />
           </div>
           <span className="telephony-bottom-text">
-            Интеграция с Voximplant &middot; SIP/VoIP
+            Подключение за 5 минут
           </span>
           <div className="telephony-wave-decoration">
             <div className="telephony-wave-bar" />
