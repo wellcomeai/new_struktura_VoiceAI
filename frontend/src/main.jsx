@@ -4,17 +4,17 @@ import App from './App';
 
 import './styles/variables.css';
 import './styles/globals.css';
-import './styles/buttons.css';
-import './styles/forms.css';
-import './styles/notifications.css';
-import './styles/layout.css';
-import './styles/presentation.css';
-import './styles/auth.css';
-import './styles/verification.css';
+import './styles/animations.css';
 import './styles/navbar.css';
-import './styles/sphere.css';
-import './styles/use-cases.css';
+import './styles/hero.css';
+import './styles/providers.css';
+import './styles/widget.css';
+import './styles/telephony.css';
+import './styles/dialogs.css';
+import './styles/crm.css';
+import './styles/integrations.css';
 import './styles/pricing.css';
+import './styles/modal.css';
 import './styles/footer.css';
 import './styles/responsive.css';
 

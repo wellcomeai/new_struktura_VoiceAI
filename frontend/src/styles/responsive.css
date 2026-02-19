@@ -1,204 +1,367 @@
 /* ========================================
-   Responsive - Large Desktop
+   Responsive Breakpoints
    ======================================== */
-@media (max-width: 1200px) {
-  .pricing-plans {
+
+/* ---- Tablet: 768px - 1199px ---- */
+@media (max-width: 1199px) {
+  .section-title {
+    font-size: var(--text-4xl);
+  }
+
+  /* Hero */
+  .hero-content {
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+
+  .hero-title {
+    font-size: var(--text-5xl);
+  }
+
+  .hero-sphere-container {
+    width: 300px;
+    height: 300px;
+  }
+
+  /* Providers */
+  .providers-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Widget */
+  .widget-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+
+  /* Telephony */
+  .telephony-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .telephony-pricing {
+    grid-column: 1 / -1;
+  }
+
+  /* CRM */
+  .crm-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+
+  /* Integrations */
+  .integrations-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Pricing */
+  .pricing-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 2rem;
+    gap: 20px;
   }
 
-  .pricing-card.featured {
-    transform: none;
+  .pricing-card--featured {
+    transform: scale(1);
   }
 
-  .pricing-card.featured:hover {
-    transform: translateY(-8px);
-  }
-}
-
-/* ========================================
-   Responsive - Tablet
-   ======================================== */
-@media (max-width: 1024px) {
-  .main-container {
-    flex-direction: column;
+  .pricing-card--featured:hover {
+    transform: translateY(-4px);
   }
 
-  .auth-section {
-    width: 100%;
-    padding: 2rem;
-  }
-
-  .presentation-section {
-    padding: 4rem 2rem;
-  }
-
-  .sphere-container {
-    width: 250px;
-    height: 250px;
-  }
-
-  .main-title {
-    font-size: 2.5rem;
-  }
-
-  .subtitle {
-    font-size: 1.5rem;
-  }
-
-  .use-cases-grid {
-    grid-template-columns: 1fr;
+  /* Footer */
+  .footer-sphere {
+    display: none;
   }
 }
 
-/* ========================================
-   Responsive - Mobile
-   ======================================== */
-@media (max-width: 768px) {
-  .presentation-section {
-    padding: 3rem 1.5rem;
+/* ---- Mobile: < 768px ---- */
+@media (max-width: 767px) {
+  .section-container {
+    padding: 0 16px;
   }
 
-  .sphere-container {
-    width: 200px;
-    height: 200px;
-    margin-bottom: 2rem;
+  .section-title {
+    font-size: var(--text-3xl);
   }
 
-  .main-title {
-    font-size: 2rem;
+  .section-subtitle {
+    font-size: var(--text-base);
   }
 
-  .subtitle {
-    font-size: 1.25rem;
+  .section-header {
+    margin-bottom: 40px;
   }
 
-  .description {
-    font-size: 1rem;
+  /* Navbar */
+  .navbar {
+    padding: 12px 16px;
   }
 
-  .pricing-section {
-    padding: 3rem 0;
+  .navbar-nav {
+    display: none;
   }
 
-  .pricing-container {
-    padding: 0 1rem;
+  .navbar-right {
+    display: none;
   }
 
-  .pricing-title {
-    font-size: 2rem;
+  .navbar-hamburger {
+    display: flex;
   }
 
-  .pricing-plans {
+  .navbar-drawer {
+    display: flex;
+  }
+
+  /* Hero */
+  .hero {
+    padding: 100px 0 60px;
+    min-height: auto;
+  }
+
+  .hero-content {
     grid-template-columns: 1fr;
-    gap: 1.5rem;
+    gap: 40px;
+    text-align: center;
   }
 
-  .price-amount {
-    font-size: 2.25rem;
+  .hero-text {
+    align-items: center;
   }
 
-  .footer-main {
+  .hero-title {
+    font-size: var(--text-4xl);
+  }
+
+  .hero-subtitle {
+    max-width: 100%;
+  }
+
+  .hero-counters {
+    justify-content: center;
+    gap: 24px;
+  }
+
+  .hero-counter-value {
+    font-size: var(--text-3xl);
+  }
+
+  .hero-buttons {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .hero-sphere-wrapper {
+    order: -1;
+  }
+
+  .hero-sphere-container {
+    width: 220px;
+    height: 220px;
+  }
+
+  .hero-sphere {
+    inset: 40px;
+  }
+
+  .hero-wave {
+    width: 140px;
+    height: 140px;
+  }
+
+  .hero-floating-badge {
+    font-size: var(--text-xs);
+    padding: 6px 14px;
+  }
+
+  .orbit-ring-2 {
+    inset: -10px;
+  }
+
+  /* Providers */
+  .providers {
+    padding: 80px 0;
+  }
+
+  .providers-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-card {
+    padding: 28px;
+  }
+
+  .providers-logos {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  /* Widget */
+  .widget-section {
+    padding: 80px 0;
+  }
+
+  .widget-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .widget-code-body {
+    overflow-x: auto;
+  }
+
+  /* Telephony */
+  .telephony {
+    padding: 80px 0;
+  }
+
+  .telephony-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .telephony-pricing {
+    grid-column: auto;
+  }
+
+  .telephony-price {
+    font-size: var(--text-5xl);
+  }
+
+  /* Dialogs */
+  .dialogs {
+    padding: 80px 0;
+  }
+
+  .dialogs-features {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .dialogs-mockup-search {
+    display: none;
+  }
+
+  /* CRM */
+  .crm {
+    padding: 80px 0;
+  }
+
+  .crm-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  /* Integrations */
+  .integrations {
+    padding: 80px 0;
+  }
+
+  .integrations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-card {
+    padding: 28px;
+  }
+
+  /* Pricing */
+  .pricing {
+    padding: 80px 0;
+  }
+
+  .pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+
+  /* Footer */
+  .footer-top {
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 32px;
+  }
+
+  .footer-links-group {
+    gap: 32px;
   }
 
   .footer-bottom {
     flex-direction: column;
     text-align: center;
-    gap: 1rem;
   }
 
-  .footer-links {
+  .footer-legal {
     justify-content: center;
   }
 
-  .nav-icons {
-    gap: 0.5rem;
-  }
-
-  .nav-icon-link {
-    width: 36px;
-    height: 36px;
-  }
-
-  .nav-icon-link i {
-    font-size: 1rem;
+  /* Modal */
+  .modal-container {
+    padding: 32px 20px;
   }
 }
 
-/* ========================================
-   Responsive - Small Mobile
-   ======================================== */
-@media (max-width: 480px) {
-  .presentation-section {
-    padding: 2rem 1rem;
+/* ---- Small mobile: < 480px ---- */
+@media (max-width: 479px) {
+  .section-title {
+    font-size: var(--text-2xl);
   }
 
-  .sphere-container {
-    width: 160px;
-    height: 160px;
+  .hero-title {
+    font-size: var(--text-3xl);
   }
 
-  .main-title {
-    font-size: 1.75rem;
+  .hero-sphere-container {
+    width: 180px;
+    height: 180px;
   }
 
-  .auth-tab {
-    padding: 0.75rem 1rem;
+  .hero-sphere {
+    inset: 30px;
   }
 
-  .auth-section {
-    padding: 1.5rem;
+  .hero-wave {
+    width: 120px;
+    height: 120px;
   }
 
-  .footer-content {
-    padding: 0 1rem;
+  .hero-counter-value {
+    font-size: var(--text-2xl);
   }
 
-  .footer-links {
-    gap: 1rem;
+  .hero-counters {
+    gap: 16px;
   }
 
-  .logo img, .footer-logo img {
-    height: 28px;
+  .hero-buttons {
+    flex-direction: column;
+    width: 100%;
   }
 
-  .logo-text {
-    font-size: 1.5rem;
+  .hero-buttons .btn-primary,
+  .hero-buttons .btn-outline {
+    width: 100%;
+    justify-content: center;
   }
 
-  .footer-logo-text {
-    font-size: 1.1rem;
+  .telephony-price {
+    font-size: var(--text-4xl);
   }
 
-  .pricing-card {
-    padding: 1.5rem;
+  .pricing-amount {
+    font-size: var(--text-3xl);
   }
 
-  .price-amount {
-    font-size: 2rem;
-  }
-
-  .nav-icon-link::after {
-    font-size: 0.75rem;
-    padding: 0.375rem 0.75rem;
-  }
-
-  .navbar {
-    padding: 1rem;
-  }
-
-  .use-cases-grid {
-    gap: 1.5rem;
-  }
-
-  .use-case-card {
-    padding: 2rem;
+  .widget-code-body pre {
+    font-size: 11px;
   }
 
   .verification-code-input {
-    font-size: 1.5rem !important;
-    letter-spacing: 0.3rem;
+    font-size: var(--text-xl) !important;
+    letter-spacing: 0.2em;
+  }
+
+  .integration-logos {
+    flex-wrap: wrap;
   }
 }

@@ -1,0 +1,174 @@
+/* ========================================
+   Integrations Section (light theme)
+   ======================================== */
+.integrations {
+  padding: 120px 0;
+  background: var(--bg-light);
+}
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.integration-card {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.integration-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+}
+
+.integration-card-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin-bottom: 20px;
+}
+
+.integration-card-icon--telegram {
+  background: rgba(0, 136, 204, 0.1);
+  color: #0088CC;
+}
+
+.integration-card-icon--webhook {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--blue-500);
+}
+
+.integration-card-title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-dark);
+  margin-bottom: 12px;
+}
+
+.integration-card-desc {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.integration-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.integration-card-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-dark);
+  line-height: 1.4;
+}
+
+.integration-card-list-item::before {
+  content: '•';
+  color: var(--blue-500);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.integration-card-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+/* Telegram mockup */
+.integration-telegram-mockup {
+  background: var(--bg-light);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.integration-telegram-msg {
+  display: flex;
+  gap: 10px;
+}
+
+.integration-telegram-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue-500);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.integration-telegram-bubble {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: 0 12px 12px 12px;
+  padding: 12px 16px;
+  font-size: var(--text-sm);
+  color: var(--text-dark);
+  line-height: 1.5;
+  max-width: 300px;
+}
+
+.integration-telegram-bubble strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--blue-500);
+}
+
+/* Webhook JSON mockup */
+.integration-json {
+  background: #0D1117;
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.integration-json pre {
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #E6EDF3;
+  line-height: 1.6;
+}
+
+.integration-json .json-key { color: #79C0FF; }
+.integration-json .json-string { color: #A5D6FF; }
+.integration-json .json-number { color: #FFA657; }
+
+/* Tool logos */
+.integration-logos {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.integration-logo-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 6px 14px;
+  border-radius: 99px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
+}

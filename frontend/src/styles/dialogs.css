@@ -1,0 +1,226 @@
+/* ========================================
+   Dialogs Section (light theme)
+   ======================================== */
+.dialogs {
+  padding: 120px 0;
+  background: var(--bg-light);
+}
+
+/* Dialog mockup */
+.dialogs-mockup {
+  max-width: 700px;
+  margin: 0 auto 48px;
+  background: #fff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.dialogs-mockup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.dialogs-mockup-title {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.dialogs-mockup-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.dialogs-mockup-body {
+  padding: 24px;
+}
+
+/* Call row */
+.dialogs-call-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.dialogs-call-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue-500);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.dialogs-call-info {
+  flex: 1;
+}
+
+.dialogs-call-phone {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.dialogs-call-meta {
+  display: flex;
+  gap: 12px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.dialogs-call-listen {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-light);
+  border: 1px solid var(--border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--blue-500);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dialogs-call-listen:hover {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+/* Audio player mockup */
+.dialogs-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  margin-bottom: 16px;
+}
+
+.dialogs-player-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--blue-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.dialogs-player-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--border-light);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dialogs-player-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 55%;
+  background: var(--blue-500);
+  border-radius: 2px;
+}
+
+.dialogs-player-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Transcript */
+.dialogs-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialogs-transcript-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.dialogs-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--text-sm);
+  color: var(--text-dark);
+  line-height: 1.5;
+}
+
+.dialogs-message-icon {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.dialogs-message-icon--user {
+  color: var(--text-muted);
+}
+
+.dialogs-message-icon--ai {
+  color: var(--blue-500);
+}
+
+/* Features below mockup */
+.dialogs-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.dialogs-feature {
+  text-align: center;
+}
+
+.dialogs-feature-icon {
+  font-size: 24px;
+  margin-bottom: 12px;
+}
+
+.dialogs-feature-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dark);
+  margin-bottom: 4px;
+}
+
+.dialogs-feature-desc {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}

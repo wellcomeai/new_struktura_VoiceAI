@@ -1,118 +1,141 @@
 import React from 'react';
 
-function PricingSection() {
+const plans = [
+  {
+    name: 'Пробный',
+    desc: 'Попробуйте все функции',
+    price: '0 ₽',
+    period: '3 дня',
+    badge: 'Бесплатно',
+    badgeClass: 'free',
+    featured: false,
+    features: [
+      { text: '1 ассистент', highlight: true, enabled: true },
+      { text: 'Виджет на сайт', enabled: true },
+      { text: 'CRM-система', enabled: true },
+      { text: 'Телефония', enabled: true },
+      { text: 'База знаний', enabled: true },
+      { text: 'Диалоги', enabled: true },
+      { text: 'AI Jarvis', enabled: true },
+      { text: 'Реферальная программа', enabled: true },
+    ],
+  },
+  {
+    name: 'AI Voice',
+    desc: 'Голосовой бот для сайта',
+    price: '1 490 ₽',
+    period: '/мес',
+    badge: 'Базовый',
+    badgeClass: 'basic',
+    featured: false,
+    features: [
+      { text: 'до 3 ассистентов', highlight: true, enabled: true },
+      { text: 'Виджет на сайт', enabled: true },
+      { text: 'CRM-система', enabled: false },
+      { text: 'Телефония', enabled: false },
+      { text: 'База знаний', enabled: true },
+      { text: 'Диалоги', enabled: true },
+      { text: 'AI Jarvis', enabled: true },
+      { text: 'Реферальная программа', enabled: true },
+    ],
+  },
+  {
+    name: 'Старт',
+    desc: 'Полный функционал',
+    price: '2 990 ₽',
+    period: '/мес',
+    badge: 'Популярный',
+    badgeClass: 'popular',
+    featured: true,
+    features: [
+      { text: 'до 5 ассистентов', highlight: true, enabled: true },
+      { text: 'Виджет на сайт', enabled: true },
+      { text: 'CRM-система', enabled: true },
+      { text: 'Телефония', enabled: true },
+      { text: 'База знаний', enabled: true },
+      { text: 'Диалоги', enabled: true },
+      { text: 'AI Jarvis', enabled: true },
+      { text: 'Реферальная программа', enabled: true },
+      { text: 'Приоритетная поддержка', enabled: true },
+    ],
+  },
+  {
+    name: 'Profi',
+    desc: 'Для серьёзного бизнеса',
+    price: '5 990 ₽',
+    period: '/мес',
+    badge: 'Максимум',
+    badgeClass: 'premium',
+    featured: false,
+    features: [
+      { text: 'до 10 ассистентов', highlight: true, enabled: true },
+      { text: 'Виджет на сайт', enabled: true },
+      { text: 'CRM-система', enabled: true },
+      { text: 'Телефония', enabled: true },
+      { text: 'База знаний', enabled: true },
+      { text: 'Диалоги', enabled: true },
+      { text: 'AI Jarvis', enabled: true },
+      { text: 'Реферальная программа', enabled: true },
+      { text: 'VIP поддержка', enabled: true },
+    ],
+  },
+];
+
+function PricingSection({ onOpenRegister }) {
   return (
-    <section className="pricing-section">
-      <div className="pricing-container">
-        <div className="pricing-header">
-          <h2 className="pricing-title">Тарифы и стоимость</h2>
-          <p className="pricing-subtitle">
+    <section className="pricing" id="pricing">
+      <div className="section-container">
+        <div className="section-header" data-animate="fade-up">
+          <h2 className="section-title section-title--dark">
+            Тарифы без скрытых условий
+          </h2>
+          <p className="section-subtitle section-subtitle--dark">
             Выберите подходящий план для создания голосовых ИИ-ассистентов
           </p>
         </div>
 
-        <div className="pricing-plans">
-          {/* FREE */}
-          <div className="pricing-card">
-            <div className="pricing-badge free">Бесплатно</div>
-            <div className="pricing-card-header">
-              <h3>Пробный</h3>
-              <p className="pricing-card-description">Попробуйте все функции</p>
-            </div>
-            <div className="pricing-price">
-              <span className="price-amount">0 &#8381;</span>
-              <span className="price-period">3 дня</span>
-            </div>
-            <div className="pricing-features">
-              <ul>
-                <li><i className="fas fa-check"></i> <span className="highlight">1 ассистент</span></li>
-                <li><i className="fas fa-check"></i> Виджет на сайт</li>
-                <li><i className="fas fa-check"></i> CRM-система</li>
-                <li><i className="fas fa-check"></i> Телефония</li>
-                <li><i className="fas fa-check"></i> База знаний</li>
-                <li><i className="fas fa-check"></i> Диалоги</li>
-                <li><i className="fas fa-check"></i> AI Jarvis</li>
-                <li><i className="fas fa-check"></i> Реферальная программа</li>
-              </ul>
-            </div>
-          </div>
+        <div className="pricing-grid">
+          {plans.map((plan, index) => (
+            <div
+              key={plan.name}
+              className={`pricing-card${plan.featured ? ' pricing-card--featured' : ''}`}
+              data-animate="fade-up"
+              data-delay={String((index + 1) * 100)}
+            >
+              <div className={`pricing-badge pricing-badge--${plan.badgeClass}`}>
+                {plan.badge}
+              </div>
 
-          {/* AI VOICE */}
-          <div className="pricing-card">
-            <div className="pricing-badge basic">Базовый</div>
-            <div className="pricing-card-header">
-              <h3>AI Voice</h3>
-              <p className="pricing-card-description">Голосовой бот для сайта</p>
-            </div>
-            <div className="pricing-price">
-              <span className="price-amount">1 490 &#8381;</span>
-              <span className="price-period">/мес</span>
-            </div>
-            <div className="pricing-features">
-              <ul>
-                <li><i className="fas fa-check"></i> <span className="highlight">до 3 ассистентов</span></li>
-                <li><i className="fas fa-check"></i> Виджет на сайт</li>
-                <li className="feature-disabled"><i className="fas fa-times"></i> CRM-система</li>
-                <li className="feature-disabled"><i className="fas fa-times"></i> Телефония</li>
-                <li><i className="fas fa-check"></i> База знаний</li>
-                <li><i className="fas fa-check"></i> Диалоги</li>
-                <li><i className="fas fa-check"></i> AI Jarvis</li>
-                <li><i className="fas fa-check"></i> Реферальная программа</li>
-              </ul>
-            </div>
-          </div>
+              <div className="pricing-card-name">{plan.name}</div>
+              <div className="pricing-card-desc">{plan.desc}</div>
 
-          {/* START (POPULAR) */}
-          <div className="pricing-card featured">
-            <div className="pricing-badge popular">Популярный</div>
-            <div className="pricing-card-header">
-              <h3>Старт</h3>
-              <p className="pricing-card-description">Полный функционал</p>
-            </div>
-            <div className="pricing-price">
-              <span className="price-amount">2 990 &#8381;</span>
-              <span className="price-period">/мес</span>
-            </div>
-            <div className="pricing-features">
-              <ul>
-                <li><i className="fas fa-check"></i> <span className="highlight">до 5 ассистентов</span></li>
-                <li><i className="fas fa-check"></i> Виджет на сайт</li>
-                <li><i className="fas fa-check"></i> CRM-система</li>
-                <li><i className="fas fa-check"></i> Телефония</li>
-                <li><i className="fas fa-check"></i> База знаний</li>
-                <li><i className="fas fa-check"></i> Диалоги</li>
-                <li><i className="fas fa-check"></i> AI Jarvis</li>
-                <li><i className="fas fa-check"></i> Реферальная программа</li>
-                <li><i className="fas fa-check"></i> Приоритетная поддержка</li>
-              </ul>
-            </div>
-          </div>
+              <div className="pricing-price-row">
+                <span className={`pricing-amount${plan.featured ? ' pricing-amount--featured' : ''}`}>
+                  {plan.price}
+                </span>
+                <span className="pricing-period">{plan.period}</span>
+              </div>
 
-          {/* PROFI */}
-          <div className="pricing-card">
-            <div className="pricing-badge premium">Максимум</div>
-            <div className="pricing-card-header">
-              <h3>Profi</h3>
-              <p className="pricing-card-description">Для серьёзного бизнеса</p>
+              <div className="pricing-features-list">
+                {plan.features.map((f, fi) => (
+                  <div
+                    key={fi}
+                    className={`pricing-feature-item${!f.enabled ? ' pricing-feature-item--disabled' : ''}${f.highlight ? ' pricing-feature-item--highlight' : ''}`}
+                  >
+                    <i className={f.enabled ? 'fas fa-check' : 'fas fa-times'}></i>
+                    <span>{f.text}</span>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                className={`pricing-cta ${plan.featured ? 'pricing-cta--primary' : 'pricing-cta--outline'}`}
+                onClick={onOpenRegister}
+              >
+                Начать
+              </button>
             </div>
-            <div className="pricing-price">
-              <span className="price-amount">5 990 &#8381;</span>
-              <span className="price-period">/мес</span>
-            </div>
-            <div className="pricing-features">
-              <ul>
-                <li><i className="fas fa-check"></i> <span className="highlight">до 10 ассистентов</span></li>
-                <li><i className="fas fa-check"></i> Виджет на сайт</li>
-                <li><i className="fas fa-check"></i> CRM-система</li>
-                <li><i className="fas fa-check"></i> Телефония</li>
-                <li><i className="fas fa-check"></i> База знаний</li>
-                <li><i className="fas fa-check"></i> Диалоги</li>
-                <li><i className="fas fa-check"></i> AI Jarvis</li>
-                <li><i className="fas fa-check"></i> Реферальная программа</li>
-                <li><i className="fas fa-check"></i> VIP поддержка</li>
-              </ul>
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     </section>

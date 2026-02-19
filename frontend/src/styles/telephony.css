@@ -1,0 +1,164 @@
+/* ========================================
+   Telephony Section
+   ======================================== */
+.telephony {
+  padding: 120px 0;
+  background: var(--bg-dark);
+  position: relative;
+}
+
+.telephony-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+}
+
+/* Pricing column (main accent) */
+.telephony-pricing {
+  background: rgba(13, 21, 38, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-lg);
+  padding: 40px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 40px rgba(37, 99, 235, 0.1);
+}
+
+.telephony-pricing::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--grad-glow);
+  pointer-events: none;
+}
+
+.telephony-pricing-block {
+  margin-bottom: 32px;
+  position: relative;
+}
+
+.telephony-pricing-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.telephony-pricing-divider {
+  width: 60px;
+  height: 2px;
+  background: var(--blue-500);
+  margin: 8px auto 16px;
+}
+
+.telephony-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: var(--text-6xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.telephony-price-suffix {
+  font-size: var(--text-xl);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.telephony-price-note {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Feature columns */
+.telephony-feature-card {
+  background: rgba(13, 21, 38, 0.5);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  transition: all 0.3s ease;
+}
+
+.telephony-feature-card:hover {
+  border-color: var(--blue-glow);
+  transform: translateY(-4px);
+}
+
+.telephony-feature-icon {
+  font-size: 28px;
+  margin-bottom: 16px;
+}
+
+.telephony-feature-title {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 20px;
+}
+
+.telephony-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.telephony-feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.telephony-feature-item i {
+  color: var(--blue-400);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Bottom bar */
+.telephony-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-dark);
+}
+
+.telephony-bottom-text {
+  font-size: var(--text-sm);
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+}
+
+/* Wave decoration */
+.telephony-wave-decoration {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.telephony-wave-bar {
+  width: 3px;
+  background: var(--blue-500);
+  border-radius: 2px;
+  animation: waveBar 1.2s ease-in-out infinite;
+}
+
+.telephony-wave-bar:nth-child(1) { height: 12px; animation-delay: 0s; }
+.telephony-wave-bar:nth-child(2) { height: 20px; animation-delay: 0.1s; }
+.telephony-wave-bar:nth-child(3) { height: 28px; animation-delay: 0.2s; }
+.telephony-wave-bar:nth-child(4) { height: 20px; animation-delay: 0.3s; }
+.telephony-wave-bar:nth-child(5) { height: 12px; animation-delay: 0.4s; }
+
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.5); }
+}

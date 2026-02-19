@@ -1,58 +1,66 @@
 import React, { useState, useCallback } from 'react';
 import { useAuth } from './hooks/useAuth';
+import useScrollAnimation from './hooks/useScrollAnimation';
 import Navbar from './components/Navbar';
-import SphereAnimation from './components/SphereAnimation';
-import AuthSection from './components/AuthSection/AuthSection';
-import UseCasesSection from './components/UseCasesSection';
+import HeroSection from './components/HeroSection';
+import ProvidersSection from './components/ProvidersSection';
+import WidgetSection from './components/WidgetSection';
+import TelephonySection from './components/TelephonySection';
+import DialogsSection from './components/DialogsSection';
+import CrmSection from './components/CrmSection';
+import IntegrationsSection from './components/IntegrationsSection';
 import PricingSection from './components/PricingSection';
 import Footer from './components/Footer';
+import AuthModal from './components/AuthModal';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('register');
+  const [authModal, setAuthModal] = useState({
+    isOpen: false,
+    activeTab: 'register',
+  });
 
   useAuth();
+  useScrollAnimation();
 
-  const handleCtaClick = useCallback((e) => {
-    e.preventDefault();
-    setActiveTab('register');
-    const authSection = document.querySelector('.auth-section');
-    if (authSection) {
-      authSection.scrollIntoView({ behavior: 'smooth' });
-    }
+  const openAuthModal = useCallback((tab = 'register') => {
+    setAuthModal({ isOpen: true, activeTab: tab });
+  }, []);
+
+  const closeAuthModal = useCallback(() => {
+    setAuthModal({ isOpen: false, activeTab: 'register' });
+  }, []);
+
+  const setActiveTab = useCallback((tab) => {
+    setAuthModal((prev) => ({ ...prev, activeTab: tab }));
   }, []);
 
   return (
-    <div className="page-wrapper">
-      <div className="content-wrapper">
-        <div className="main-container">
-          <div className="presentation-section">
-            <Navbar />
-            <SphereAnimation />
-            <div className="presentation-content">
-              <h1 className="main-title">Ваш голосовой ИИ.</h1>
-              <h2 className="subtitle">Говорит. Слушает. Понимает.</h2>
-              <p className="description">
-                Создавайте голосовых ассистентов на основе OpenAI за минуты. Загружайте базы знаний, интегрируйте на сайт или в приложение одним кликом.
-              </p>
-              <a
-                href="#register"
-                className="btn btn-primary btn-large"
-                onClick={handleCtaClick}
-              >
-                Создать первого бота
-              </a>
-            </div>
-          </div>
+    <>
+      <Navbar
+        onOpenLogin={() => openAuthModal('login')}
+        onOpenRegister={() => openAuthModal('register')}
+      />
 
-          <AuthSection activeTab={activeTab} setActiveTab={setActiveTab} />
-        </div>
-
-        <UseCasesSection />
-        <PricingSection />
-      </div>
+      <main>
+        <HeroSection onOpenRegister={() => openAuthModal('register')} />
+        <ProvidersSection />
+        <WidgetSection />
+        <TelephonySection />
+        <DialogsSection />
+        <CrmSection />
+        <IntegrationsSection />
+        <PricingSection onOpenRegister={() => openAuthModal('register')} />
+      </main>
 
       <Footer />
-    </div>
+
+      <AuthModal
+        isOpen={authModal.isOpen}
+        activeTab={authModal.activeTab}
+        onTabChange={setActiveTab}
+        onClose={closeAuthModal}
+      />
+    </>
   );
 }
 

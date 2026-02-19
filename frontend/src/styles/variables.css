@@ -1,23 +1,62 @@
 /* ========================================
-   CSS Variables
+   Design System — Variables
    ======================================== */
 :root {
-  --primary-blue: #2563eb;
-  --primary-blue-light: #3b82f6;
-  --primary-blue-dark: #1d4ed8;
-  --accent-blue: #4a86e8;
-  --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
-  --text-dark: #0f172a;
-  --text-gray: #64748b;
-  --text-light: #94a3b8;
-  --bg-light: #f8fafc;
-  --bg-blue-light: #eff6ff;
-  --white: #ffffff;
-  --border-color: #e2e8f0;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --radius-md: 0.5rem;
-  --radius-lg: 1rem;
+  /* Backgrounds */
+  --bg-dark:        #050A18;
+  --bg-dark-2:      #080E1F;
+  --bg-card:        #0D1526;
+  --bg-card-hover:  #111C35;
+  --bg-light:       #F8FAFC;
+  --bg-white:       #FFFFFF;
+
+  /* Accents */
+  --blue-500:       #2563EB;
+  --blue-400:       #3B82F6;
+  --blue-300:       #60A5FA;
+  --blue-glow:      rgba(37, 99, 235, 0.4);
+  --cyan-400:       #22D3EE;
+  --violet-500:     #7C3AED;
+
+  /* Text */
+  --text-primary:   #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted:     #475569;
+  --text-dark:      #0F172A;
+
+  /* Borders */
+  --border-dark:    rgba(255, 255, 255, 0.08);
+  --border-blue:    rgba(37, 99, 235, 0.3);
+  --border-light:   #E2E8F0;
+
+  /* Gradients */
+  --grad-hero:      linear-gradient(135deg, #050A18 0%, #0D1F4A 100%);
+  --grad-blue:      linear-gradient(135deg, #2563EB, #1D4ED8);
+  --grad-text:      linear-gradient(90deg, #60A5FA, #2563EB, #7C3AED);
+  --grad-glow:      radial-gradient(circle at 50% 50%, rgba(37,99,235,0.15) 0%, transparent 70%);
+
+  /* Shadows */
+  --shadow-blue:    0 0 40px rgba(37, 99, 235, 0.3);
+  --shadow-card:    0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow:    0 0 60px rgba(37, 99, 235, 0.2);
+
+  /* Typography sizes */
+  --text-xs:    0.75rem;
+  --text-sm:    0.875rem;
+  --text-base:  1rem;
+  --text-lg:    1.125rem;
+  --text-xl:    1.25rem;
+  --text-2xl:   1.5rem;
+  --text-3xl:   2rem;
+  --text-4xl:   2.5rem;
+  --text-5xl:   3.5rem;
+  --text-6xl:   4.5rem;
+  --text-hero:  5.5rem;
+
+  /* Radii */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
   --radius-full: 9999px;
 }
