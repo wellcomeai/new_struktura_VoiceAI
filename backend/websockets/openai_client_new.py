@@ -194,7 +194,7 @@ class OpenAIRealtimeClientNew:
         self.is_connected = False
         
         # GA API URL with model parameter
-        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-mini"
+        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
         
         self.session_id = str(uuid.uuid4())
         # 🆕 v3.3: conversation_record_id создаётся в update_session() для привязки function_logs
