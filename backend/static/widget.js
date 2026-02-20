@@ -357,7 +357,7 @@
 
   // ============= END SCREEN CAPTURE FUNCTIONS =============
 
-  // Создаем стили для виджета - ОБНОВЛЕННЫЕ СТИЛИ С VOICYFY
+  // Создаем стили для виджета
   function createStyles() {
     const styleEl = document.createElement('style');
     styleEl.id = 'wellcomeai-widget-styles';
@@ -492,7 +492,7 @@
       }
       
       .wellcomeai-widget-container.active .wellcomeai-widget-expanded {
-        height: 460px; /* Увеличено для размещения Voicyfy */
+        height: 460px;
         opacity: 1;
         pointer-events: all;
       }
@@ -542,7 +542,7 @@
         background: #f9fafc;
         position: relative;
         padding: 20px;
-        padding-bottom: 10px; /* Уменьшено для размещения Voicyfy */
+        padding-bottom: 10px;
       }
       
       /* Улучшенный дизайн главного круга */
@@ -740,7 +740,7 @@
       .wellcomeai-message-display {
         position: absolute;
         width: 90%;
-        bottom: 70px; /* Поднято выше для размещения Voicyfy */
+        bottom: 70px;
         left: 50%;
         transform: translateX(-50%);
         background: white;
@@ -806,7 +806,7 @@
       
       .wellcomeai-status-indicator {
         position: absolute;
-        bottom: 50px; /* Поднято для размещения Voicyfy */
+        bottom: 50px;
         left: 50%;
         transform: translateX(-50%);
         font-size: 11px;
@@ -844,37 +844,6 @@
         background-color: #d97706;
       }
       
-      /* СТИЛИ ДЛЯ VOICYFY */
-      .wellcomeai-voicyfy-container {
-        position: absolute;
-        bottom: 10px;
-        left: 50%;
-        transform: translateX(-50%);
-        text-align: center;
-        padding: 8px;
-        opacity: 0.8;
-        transition: opacity 0.2s ease;
-      }
-      
-      .wellcomeai-voicyfy-container:hover {
-        opacity: 1;
-      }
-      
-      .wellcomeai-voicyfy-link {
-        display: inline-block;
-        text-decoration: none;
-        transition: transform 0.2s ease;
-      }
-      
-      .wellcomeai-voicyfy-link:hover {
-        transform: translateY(-2px);
-      }
-      
-      .wellcomeai-voicyfy-link img {
-        height: 25px;
-        width: auto;
-        display: block;
-      }
     `;
     document.head.appendChild(styleEl);
     widgetLog("[v3.2.1] Styles created and added to head");
@@ -892,7 +861,7 @@
     }
   }
 
-  // Создание HTML структуры виджета - ОБНОВЛЕННАЯ СТРУКТУРА С VOICYFY
+  // Создание HTML структуры виджета
   function createWidgetHTML() {
     const widgetContainer = document.createElement('div');
     widgetContainer.className = 'wellcomeai-widget-container';
@@ -951,12 +920,6 @@
             <span id="wellcomeai-status-text">Подключено</span>
           </div>
           
-          <!-- VOICYFY ИНТЕГРАЦИЯ -->
-          <div class="wellcomeai-voicyfy-container">
-            <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="wellcomeai-voicyfy-link">
-              <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Voicyfy - powered by AI">
-            </a>
-          </div>
         </div>
       </div>
       
@@ -1708,16 +1671,15 @@
         }
       }
       
-      if (connectionFailedPermanently) {
-        showConnectionError('Не удалось подключиться к серверу. Нажмите кнопку "Повторить подключение".');
-        return;
-      }
-      
-      // Запускаем прослушивание при открытии, если соединение активно
-      if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
+      // Всегда подключаемся при открытии виджета
+      if (!isConnected && !isReconnecting) {
+        connectionFailedPermanently = false;
+        reconnectAttempts = 0;
+        connectWebSocket();
+      } else if (isConnected && !isListening && !isPlayingAudio && !isReconnecting) {
         startListening();
         updateConnectionStatus('connected', 'Готов к разговору');
-        
+
         // Запускаем мониторинг экрана если доступен html2canvas и Vision AI включен
         if (window._visionEnabled && html2canvasLoaded && !isScreenMonitoringActive) {
           widgetLog('[v3.2.1 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
@@ -1727,14 +1689,8 @@
         } else if (!window._visionEnabled) {
           widgetLog('[v3.2.1 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
         }
-      } else if (!isConnected && !isReconnecting) {
-        connectWebSocket();
-      } else {
-        widgetLog(`[v3.2.1] Cannot start listening yet: isConnected=${isConnected}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
-        
-        if (isReconnecting) {
-          updateConnectionStatus('connecting', 'Переподключение...');
-        }
+      } else if (isReconnecting) {
+        updateConnectionStatus('connecting', 'Подключение...');
       }
       
       widgetButton.classList.remove('wellcomeai-pulse-animation');
@@ -1743,28 +1699,46 @@
     // Закрыть виджет
     function closeWidget() {
       widgetLog("[v3.2.1] Closing widget");
-      
+
       // Останавливаем мониторинг экрана
       stopScreenMonitoring();
-      
+
       stopAllAudioProcessing();
-      
+
       widgetContainer.classList.remove('active');
       isWidgetOpen = false;
-      
+
       hideMessage();
       hideConnectionError();
-      
+
       if (statusIndicator) {
         statusIndicator.classList.remove('show');
       }
-      
+
       const expandedWidget = document.getElementById('wellcomeai-widget-expanded');
       if (expandedWidget) {
         expandedWidget.style.opacity = "0";
         expandedWidget.style.height = "0";
         expandedWidget.style.pointerEvents = "none";
       }
+
+      // Закрываем WebSocket соединение при закрытии виджета
+      if (websocket) {
+        try {
+          websocket.close(1000, 'Widget closed');
+        } catch (e) {
+          widgetLog('[v3.2.1] Error closing websocket: ' + e.message, 'warn');
+        }
+        websocket = null;
+      }
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      isConnected = false;
+      isListening = false;
+      isReconnecting = false;
+      widgetLog("[v3.2.1] WebSocket disconnected on widget close");
     }
     
     // Начало записи голоса
@@ -2454,24 +2428,25 @@
           widgetLog(`[v3.2.1] WebSocket connection closed: ${event.code}, ${event.reason}`);
           isConnected = false;
           isListening = false;
-          
+
           // Останавливаем мониторинг экрана при разрыве соединения
           stopScreenMonitoring();
-          
+
           interruptionState.is_assistant_speaking = false;
           interruptionState.is_user_speaking = false;
-          
+
           if (pingInterval) {
             clearInterval(pingInterval);
             pingInterval = null;
           }
-          
-          if (event.code === 1000 || event.code === 1001) {
+
+          // Не переподключаемся если виджет закрыт или закрытие чистое
+          if (!isWidgetOpen || event.code === 1000 || event.code === 1001) {
             isReconnecting = false;
-            widgetLog('[v3.2.1] Clean WebSocket close, not reconnecting');
+            widgetLog('[v3.2.1] WebSocket closed (widget closed or clean close), not reconnecting');
             return;
           }
-          
+
           reconnectWithDelay();
         };
         
@@ -2546,9 +2521,8 @@
       });
     }
     
-    // Создаем WebSocket соединение
-    connectWebSocket();
-    
+    // WebSocket подключение произойдёт при открытии виджета
+
     // Проверка DOM и состояния после инициализации
     setTimeout(function() {
       widgetLog('[v3.2.1] DOM check after initialization');

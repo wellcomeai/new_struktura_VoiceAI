@@ -1533,38 +1533,6 @@
               </div>
             </div>
             
-            <!-- Новый блок для Google Sheet ID -->
-            <div class="form-section">
-              <div class="form-group">
-                <label for="google-sheet-id">ID Google таблицы для логирования</label>
-                <div class="sheet-container">
-                  <div class="sheet-input">
-                    <input type="text" id="google-sheet-id" class="form-control" placeholder="ID Google таблицы">
-                  </div>
-                  <button type="button" class="btn btn-outline" id="test-sheet-connection">
-                    <i class="fas fa-sync-alt"></i> Проверить подключение
-                  </button>
-                </div>
-                <p class="sheet-info">
-                  Укажите ID Google таблицы, в которую будут записываться все диалоги с ассистентом.
-                  Таблица должна быть доступна для редактирования по ссылке.
-                </p>
-                
-                <div id="sheet-connection-status" class="connection-status"></div>
-                
-                <div class="sheet-tips">
-                  <h4>Инструкция по настройке:</h4>
-                  <ul>
-                    <li>Создайте новую таблицу в Google Sheets</li>
-                    <li>Сделайте таблицу доступной для редактирования по ссылке (Настройки доступа → Изменить → Все, у кого есть ссылка)</li>
-                    <li>Скопируйте ID из URL таблицы (часть между /d/ и следующим символом /) и вставьте выше</li>
-                    <li>Система автоматически создаст необходимые заголовки в таблице</li>
-                    <li>В таблицу будут записываться: время, запросы пользователя, ответы ассистента и результаты выполнения функций</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-            
             <div class="form-section">
               <div class="form-group">
                 <label>Голос ассистента</label>
