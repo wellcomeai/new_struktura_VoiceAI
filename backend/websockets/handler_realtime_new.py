@@ -1,12 +1,14 @@
 # backend/websockets/handler_realtime_new.py
 """
-🚀 PRODUCTION VERSION 2.12.3 - OpenAI Realtime API Handler (Function Logs Fix)
+🚀 PRODUCTION VERSION 2.12.4 - OpenAI Realtime API Handler (Server VAD Only)
+✅ v2.12.4: Client commit ignored — server VAD is the only commit mechanism
 ✅ Fixed: Function logs now properly linked via conversation_id
 ✅ Fixed: Messages after function calls saved correctly
 ✅ Fixed: User transcript preserved across function call responses
 ✅ All previous features maintained
 
 Previous versions:
+✅ v2.12.3: Function logs linked via conversation_id
 ✅ v2.12.2: Function call transcript preservation
 ✅ v2.12.1: DB session fix for async tasks
 ✅ v2.12: No duplicate conversations - single source of truth
@@ -14,10 +16,6 @@ Previous versions:
 ✅ v2.10: Async function calls (non-blocking)
 ✅ v2.9: Async logging optimizations
 ✅ v2.8: Save each dialog as separate DB record
-
-✨✨✨ FIX in v2.12.3 - FUNCTION LOGS LINKED: ✨✨✨
-🔧 FIXED: conversation_id now passed from openai_client.conversation_record_id
-🔧 Result: Function logs properly linked to conversations in UI
 
 ✅ Ready for production deployment
 """
@@ -636,7 +634,6 @@ async def handle_websocket_connection_new(
 
         # Audio buffer
         audio_buffer = bytearray()
-        is_processing = False
         
         # Interruption state
         interruption_state = {
@@ -721,35 +718,14 @@ async def handle_websocket_connection_new(
                         })
                         continue
 
-                    if msg_type == "input_audio_buffer.commit" and not is_processing:
-                        is_processing = True
-                        log_to_render(f"📤 Committing audio buffer:")
-                        log_to_render(f"   Buffer size: {len(audio_buffer)} bytes")
-                        log_to_render(f"   Duration: ~{len(audio_buffer) / 32000:.2f}s")
-                        
-                        if openai_client.is_connected:
-                            await openai_client.commit_audio()
-                            await websocket.send_json({
-                                "type": "input_audio_buffer.commit.ack", 
-                                "event_id": data.get("event_id")
-                            })
-                        else:
-                            log_to_render(f"⚠️ OpenAI not connected, attempting reconnect...", "WARNING")
-                            if await openai_client.reconnect():
-                                await openai_client.commit_audio()
-                                await websocket.send_json({
-                                    "type": "input_audio_buffer.commit.ack", 
-                                    "event_id": data.get("event_id")
-                                })
-                            else:
-                                log_to_render(f"❌ Reconnection failed", "ERROR")
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "error": {"code": "openai_not_connected", "message": "Connection lost"}
-                                })
-
-                        audio_buffer.clear()
-                        is_processing = False
+                    if msg_type == "input_audio_buffer.commit":
+                        # v2.12.4: server VAD manages commits, client commit ignored
+                        log_to_render(f"⚠️ Client sent manual commit — ignored (server VAD active)")
+                        await websocket.send_json({
+                            "type": "input_audio_buffer.commit.ack",
+                            "event_id": data.get("event_id"),
+                            "note": "server_vad_active"
+                        })
                         continue
 
                     if msg_type == "input_audio_buffer.clear":
