@@ -597,7 +597,7 @@ async def handle_websocket_connection_new(
             "type": "connection_status", 
             "status": "connected", 
             "message": "Connected to Realtime API (v2.12.3 - Function Logs Fix)",
-            "model": "gpt-realtime",
+            "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
             "google_sheets": bool(getattr(assistant, 'google_sheet_id', None)),
             "client_id": client_id,
