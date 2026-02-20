@@ -594,8 +594,8 @@ async def handle_websocket_connection_new(
 
         # Send connection status
         await websocket.send_json({
-            "type": "connection_status", 
-            "status": "connected", 
+            "type": "connection_status",
+            "status": "connected",
             "message": "Connected to Realtime API (v2.12.3 - Function Logs Fix)",
             "model": "gpt-realtime-mini",
             "functions_enabled": len(enabled_functions),
@@ -604,8 +604,35 @@ async def handle_websocket_connection_new(
             "performance_mode": "optimized",
             "async_functions": True,
             "function_logging": True,
-            "function_logs_linked": True  # 🆕 v2.12.3
+            "function_logs_linked": True,  # 🆕 v2.12.3
+            "enable_vision": assistant.enable_vision if hasattr(assistant, 'enable_vision') and assistant.enable_vision else False,
+            "greeting_message": assistant.greeting_message or "Здравствуйте! Чем я могу вам помочь?"
         })
+
+        # ✅ Ассистент говорит первым после создания сессии
+        greeting = assistant.greeting_message or "Здравствуйте! Чем я могу вам помочь?"
+
+        initial_item = {
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": f"[SYSTEM INSTRUCTION: Start the conversation immediately by saying your greeting. Your greeting is: '{greeting}'. Say it now in a natural, friendly way.]"
+                    }
+                ]
+            }
+        }
+        await openai_client.ws.send(json.dumps(initial_item))
+
+        response_trigger = {
+            "type": "response.create"
+        }
+        await openai_client.ws.send(json.dumps(response_trigger))
+
+        log_to_render(f"[HANDLER] ✅ Initial greeting triggered: {greeting[:50]}...")
 
         # Audio buffer
         audio_buffer = bytearray()

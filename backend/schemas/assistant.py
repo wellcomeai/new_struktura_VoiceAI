@@ -33,6 +33,7 @@ class AssistantBase(BaseModel):
     language: str = Field("ru", description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
     greeting_message: Optional[str] = Field("Здравствуйте! Чем я могу вам помочь?", description="Приветственное сообщение ассистента")  # ✅ НОВОЕ ПОЛЕ
+    enable_vision: bool = Field(False, description="Enable Vision AI screen analysis")
     functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
     
     @validator('voice')
@@ -56,6 +57,7 @@ class AssistantUpdate(BaseModel):
     language: Optional[str] = Field(None, description="Language for the assistant")
     google_sheet_id: Optional[str] = Field(None, description="Google Sheet ID for data source")
     greeting_message: Optional[str] = Field(None, description="Приветственное сообщение ассистента")  # ✅ НОВОЕ ПОЛЕ
+    enable_vision: Optional[bool] = Field(None, description="Enable Vision AI screen analysis")
     functions: Optional[List[Dict[str, Any]]] = Field(None, description="Functions for the assistant")
     is_active: Optional[bool] = Field(None, description="Whether the assistant is active")
     is_public: Optional[bool] = Field(None, description="Whether the assistant is public")

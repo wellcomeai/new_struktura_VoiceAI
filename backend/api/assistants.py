@@ -128,6 +128,7 @@ async def get_assistant(
             language=assistant.language,
             google_sheet_id=assistant.google_sheet_id,
             greeting_message=assistant.greeting_message,  # ✅ ИСПРАВЛЕНО: Добавлено поле
+            enable_vision=assistant.enable_vision or False,
             functions=assistant.functions,
             is_active=assistant.is_active,
             is_public=assistant.is_public,

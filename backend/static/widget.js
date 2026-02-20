@@ -1233,21 +1233,30 @@
     // 🚀 v3.2.0 OPTIMIZED: Улучшенное воспроизведение с instant UI feedback
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
-        isPlayingAudio = false;
-        interruptionState.is_assistant_speaking = false;
-        mainCircle.classList.remove('speaking');
-        
-        if (!isWidgetOpen) {
-          widgetButton.classList.add('wellcomeai-pulse-animation');
+        // ✅ FIX: Проверяем буфер чанков перед остановкой
+        if (typeof audioChunksBuffer !== 'undefined' && audioChunksBuffer.length > 0) {
+          const bufferedAudio = audioChunksBuffer.join('');
+          audioChunksBuffer = [];
+          audioPlaybackQueue.push(bufferedAudio);
+          // Продолжаем выполнение — не возвращаемся
+        } else {
+          // Реально всё доиграло
+          isPlayingAudio = false;
+          interruptionState.is_assistant_speaking = false;
+          mainCircle.classList.remove('speaking');
+
+          if (!isWidgetOpen) {
+            widgetButton.classList.add('wellcomeai-pulse-animation');
+          }
+
+          // После воспроизведения автоматически возобновляем прослушивание
+          if (isWidgetOpen) {
+            setTimeout(() => {
+              startListening();
+            }, 400);
+          }
+          return;
         }
-        
-        // После воспроизведения автоматически возобновляем прослушивание
-        if (isWidgetOpen) {
-          setTimeout(() => {
-            startListening();
-          }, 400);
-        }
-        return;
       }
       
       isPlayingAudio = true;
@@ -1709,11 +1718,14 @@
         startListening();
         updateConnectionStatus('connected', 'Готов к разговору');
         
-        // Запускаем мониторинг экрана если доступен html2canvas
-        if (html2canvasLoaded && !isScreenMonitoringActive) {
+        // Запускаем мониторинг экрана если доступен html2canvas и Vision AI включен
+        if (window._visionEnabled && html2canvasLoaded && !isScreenMonitoringActive) {
+          widgetLog('[v3.2.1 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
           setTimeout(() => {
             startScreenMonitoring(websocket);
           }, 1000);
+        } else if (!window._visionEnabled) {
+          widgetLog('[v3.2.1 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
         }
       } else if (!isConnected && !isReconnecting) {
         connectWebSocket();
@@ -2199,11 +2211,14 @@
             updateConnectionStatus('connected', 'Готов к разговору');
             startListening();
             
-            // Запускаем мониторинг экрана если html2canvas загружен
-            if (html2canvasLoaded && !isScreenMonitoringActive) {
+            // Запускаем мониторинг экрана если html2canvas загружен и Vision AI включен
+            if (window._visionEnabled && html2canvasLoaded && !isScreenMonitoringActive) {
+              widgetLog('[v3.2.1 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
               setTimeout(() => {
                 startScreenMonitoring(websocket);
               }, 1000);
+            } else if (!window._visionEnabled) {
+              widgetLog('[v3.2.1 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
             }
           }
         };
@@ -2284,9 +2299,12 @@
                   isConnected = true;
                   reconnectAttempts = 0;
                   connectionFailedPermanently = false;
-                  
+                  // ✅ Читаем флаги от сервера
+                  window._visionEnabled = data.enable_vision === true;
+                  widgetLog(`[v3.2.1] Vision AI: ${window._visionEnabled ? 'включен' : 'выключен'}`);
+
                   hideConnectionError();
-                  
+
                   if (isWidgetOpen) {
                     startListening();
                   }

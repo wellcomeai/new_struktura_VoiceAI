@@ -24,6 +24,7 @@ class AssistantConfig(Base):
     language = Column(String, default="ru", nullable=False)
     google_sheet_id = Column(String, nullable=True)
     greeting_message = Column(String, nullable=True, default="Здравствуйте! Чем я могу вам помочь?")  # ✅ НОВОЕ ПОЛЕ
+    enable_vision = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_public = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)

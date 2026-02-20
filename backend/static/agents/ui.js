@@ -140,7 +140,13 @@ const ui = {
     if (greetingMessageInput) {
       greetingMessageInput.value = agent.greeting_message ?? 'Здравствуйте! Чем я могу вам помочь?';
     }
-    
+
+    // Vision AI чекбокс
+    const enableVisionInput = document.getElementById('enable-vision');
+    if (enableVisionInput) {
+      enableVisionInput.checked = agent.enable_vision ?? false;
+    }
+
     // Выбор голоса
     this.selectVoice(agent.voice || 'alloy');
     
@@ -228,7 +234,8 @@ const ui = {
       system_prompt: systemPromptInput ? systemPromptInput.value : '',
       voice: voiceInput ? voiceInput.value : 'alloy',
       google_sheet_id: googleSheetIdInput && googleSheetIdInput.value ? googleSheetIdInput.value : null,
-      greeting_message: greetingMessageInput ? greetingMessageInput.value : 'Здравствуйте! Чем я могу вам помочь?'
+      greeting_message: greetingMessageInput ? greetingMessageInput.value : 'Здравствуйте! Чем я могу вам помочь?',
+      enable_vision: document.getElementById('enable-vision')?.checked ?? false
     };
     
     // ОБНОВЛЕНО: Динамический сбор включенных функций

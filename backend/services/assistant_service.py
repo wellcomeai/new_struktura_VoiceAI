@@ -53,6 +53,8 @@ class AssistantService:
                 voice=assistant.voice,
                 language=assistant.language,
                 google_sheet_id=assistant.google_sheet_id,
+                greeting_message=assistant.greeting_message,
+                enable_vision=assistant.enable_vision or False,
                 functions=functions,
                 is_active=assistant.is_active,
                 is_public=assistant.is_public,
@@ -126,6 +128,8 @@ class AssistantService:
                 voice=assistant_data.voice,
                 language=assistant_data.language,
                 google_sheet_id=assistant_data.google_sheet_id,
+                greeting_message=assistant_data.greeting_message,
+                enable_vision=assistant_data.enable_vision,
                 functions=assistant_data.functions,
                 is_active=True,
                 is_public=False
@@ -157,6 +161,8 @@ class AssistantService:
                 voice=assistant.voice,
                 language=assistant.language,
                 google_sheet_id=assistant.google_sheet_id,
+                greeting_message=assistant.greeting_message,
+                enable_vision=assistant.enable_vision or False,
                 functions=functions,
                 is_active=assistant.is_active,
                 is_public=assistant.is_public,
@@ -166,7 +172,7 @@ class AssistantService:
                 temperature=assistant.temperature,
                 max_tokens=assistant.max_tokens
             )
-            
+
         except IntegrityError as e:
             db.rollback()
             logger.error(f"Database integrity error during assistant creation: {str(e)}")
@@ -238,6 +244,8 @@ class AssistantService:
                 voice=assistant.voice,
                 language=assistant.language,
                 google_sheet_id=assistant.google_sheet_id,
+                greeting_message=assistant.greeting_message,
+                enable_vision=assistant.enable_vision or False,
                 functions=functions,
                 is_active=assistant.is_active,
                 is_public=assistant.is_public,
@@ -247,7 +255,7 @@ class AssistantService:
                 temperature=assistant.temperature,
                 max_tokens=assistant.max_tokens
             )
-            
+
         except IntegrityError as e:
             db.rollback()
             logger.error(f"Database integrity error during assistant update: {str(e)}")
