@@ -68,7 +68,7 @@ class VoximplantPartnerService:
     WEBHOOK_URL = "https://voicyfy.ru/api/telephony/webhook/verification-status"
     
     # ✅ v3.0: Типы сценариев для outbound
-    OUTBOUND_SCENARIO_TYPES = ["outbound_openai", "outbound_gemini"]
+    OUTBOUND_SCENARIO_TYPES = ["outbound_openai", "outbound_gemini", "outbound_cartesia"]
     
     def __init__(
         self,

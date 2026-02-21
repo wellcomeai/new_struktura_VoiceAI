@@ -34,6 +34,7 @@ Routes:
     POST   /api/telephony/admin/update-all-scenarios - 🔐 Обновить сценарии у всех аккаунтов
     POST   /api/telephony/admin/setup-outbound-rules - 🔐 Создать outbound rules для всех аккаунтов
     POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
+    POST   /api/telephony/admin/setup-cartesia-scenarios - 🔐 Скопировать Cartesia сценарии на все аккаунты
 
 ✅ v1.0: Базовый функционал партнёрской интеграции
 ✅ v1.1: Исправлен регистр enum (lowercase)
@@ -2907,6 +2908,202 @@ async def admin_setup_service_accounts(
             "results": results
         }
         
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Error: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# 🆕 ADMIN ENDPOINT ДЛЯ МИГРАЦИИ CARTESIA СЦЕНАРИЕВ
+# =============================================================================
+
+@router.post("/admin/setup-cartesia-scenarios")
+async def admin_setup_cartesia_scenarios(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN ONLY: Скопировать cartesia_inbound и cartesia_outbound
+    на ВСЕ дочерние аккаунты + создать outbound_cartesia rule.
+
+    Логика для каждого дочернего аккаунта:
+    - Если сценарий уже есть (есть в vox_scenario_ids) → обновить код (SetScenarioInfo)
+    - Если сценария нет → скопировать (AddScenario) и сохранить ID в vox_scenario_ids
+    - Если outbound_cartesia rule отсутствует → создать (AddRule) и сохранить в vox_rule_ids
+    - Аккаунты без vox_application_id → пропустить
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        service = get_voximplant_partner_service()
+
+        # ── 1. Загружаем cartesia_inbound и cartesia_outbound с родителя ──────
+        # Сначала получаем список сценариев без кода (быстро),
+        # затем для каждого cartesia-сценария делаем отдельный запрос с кодом
+        # (Voximplant quirk: with_script=true не возвращает код при массовом запросе)
+
+        logger.info("[TELEPHONY-ADMIN] Fetching cartesia scenarios from parent...")
+
+        cartesia_scripts = {}
+        cartesia_scenario_names = ["cartesia_inbound", "cartesia_outbound"]
+
+        parent_list = await service.get_parent_scenarios(with_script=False)
+        if not parent_list.get("success"):
+            raise HTTPException(status_code=500, detail="Failed to get parent scenarios")
+
+        for scenario in parent_list.get("scenarios", []):
+            scenario_name = scenario.get("scenario_name")
+            scenario_id = scenario.get("scenario_id")
+
+            if scenario_name not in cartesia_scenario_names:
+                continue
+
+            script_result = await service.get_scenarios(
+                account_id=service.parent_account_id,
+                api_key=service.parent_api_key,
+                with_script=True,
+                scenario_id=scenario_id
+            )
+
+            if script_result.get("success") and script_result.get("scenarios"):
+                script = script_result["scenarios"][0].get("scenario_script")
+                if script:
+                    cartesia_scripts[scenario_name] = script
+                    logger.info(f"[TELEPHONY-ADMIN] Loaded: {scenario_name} ({len(script)} chars)")
+
+        if not cartesia_scripts:
+            raise HTTPException(
+                status_code=404,
+                detail="cartesia_inbound / cartesia_outbound не найдены на родительском аккаунте. "
+                       "Убедись что скрипты созданы на родительском аккаунте Voximplant."
+            )
+
+        logger.info(f"[TELEPHONY-ADMIN] Loaded scripts: {list(cartesia_scripts.keys())}")
+
+        # ── 2. Обрабатываем все дочерние аккаунты ────────────────────────────
+        child_accounts = db.query(VoximplantChildAccount).all()
+        logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
+
+        results = {
+            "total_accounts":   len(child_accounts),
+            "scripts_added":    0,
+            "scripts_updated":  0,
+            "rules_created":    0,
+            "skipped":          0,
+            "failed":           0,
+            "details":          []
+        }
+
+        for child in child_accounts:
+            account_result = {
+                "account_id":      child.vox_account_id,
+                "user_id":         str(child.user_id),
+                "scripts_added":   [],
+                "scripts_updated": [],
+                "rules_created":   [],
+                "errors":          []
+            }
+
+            # Аккаунты без application_id пропускаем — там нет приложения Voximplant
+            if not child.vox_application_id:
+                results["skipped"] += 1
+                account_result["status"] = "skipped_no_app"
+                results["details"].append(account_result)
+                continue
+
+            scenario_ids = child.vox_scenario_ids or {}
+            rule_ids     = child.vox_rule_ids     or {}
+            changed      = False
+
+            for scenario_name, script in cartesia_scripts.items():
+
+                if scenario_name in scenario_ids:
+                    # Сценарий уже есть → обновляем код
+                    update_result = await service.update_scenario(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        scenario_id=int(scenario_ids[scenario_name]),
+                        scenario_script=script
+                    )
+                    if update_result.get("success"):
+                        account_result["scripts_updated"].append(scenario_name)
+                    else:
+                        account_result["errors"].append(
+                            f"update {scenario_name}: {update_result.get('error')}"
+                        )
+                else:
+                    # Сценария нет → копируем
+                    add_result = await service.add_scenario(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        scenario_name=scenario_name,
+                        scenario_script=script
+                    )
+                    if add_result.get("success"):
+                        scenario_ids[scenario_name] = str(add_result.get("scenario_id"))
+                        changed = True
+                        account_result["scripts_added"].append(scenario_name)
+                    else:
+                        account_result["errors"].append(
+                            f"add {scenario_name}: {add_result.get('error')}"
+                        )
+
+            # Создаём outbound_cartesia rule если его нет
+            # (нужен для запуска исходящих звонков через Cartesia)
+            if "outbound_cartesia" not in rule_ids and "cartesia_outbound" in scenario_ids:
+                rule_result = await service.add_rule(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    application_id=child.vox_application_id,
+                    rule_name="outbound_cartesia",
+                    rule_pattern="outbound_cartesia_.*",
+                    scenario_id=int(scenario_ids["cartesia_outbound"])
+                )
+                if rule_result.get("success"):
+                    rule_ids["outbound_cartesia"] = str(rule_result.get("rule_id"))
+                    changed = True
+                    account_result["rules_created"].append("outbound_cartesia")
+                else:
+                    account_result["errors"].append(
+                        f"rule outbound_cartesia: {rule_result.get('error')}"
+                    )
+
+            # Сохраняем изменения в БД только если что-то добавилось
+            if changed:
+                child.vox_scenario_ids = scenario_ids
+                child.vox_rule_ids     = rule_ids
+                db.commit()
+
+            account_result["status"] = "partial" if account_result["errors"] else "ok"
+
+            results["scripts_added"]   += len(account_result["scripts_added"])
+            results["scripts_updated"] += len(account_result["scripts_updated"])
+            results["rules_created"]   += len(account_result["rules_created"])
+            if account_result["errors"]:
+                results["failed"] += 1
+
+            results["details"].append(account_result)
+
+        logger.info(
+            f"[TELEPHONY-ADMIN] Cartesia setup complete: "
+            f"added={results['scripts_added']} updated={results['scripts_updated']} "
+            f"rules={results['rules_created']} failed={results['failed']}"
+        )
+
+        return {
+            "success": True,
+            "message": (
+                f"Scripts added: {results['scripts_added']}, "
+                f"updated: {results['scripts_updated']}, "
+                f"rules created: {results['rules_created']}"
+            ),
+            "results": results
+        }
+
     except HTTPException:
         raise
     except Exception as e:
