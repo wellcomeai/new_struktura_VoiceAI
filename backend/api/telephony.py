@@ -3036,7 +3036,7 @@ async def admin_setup_cartesia_scenarios(
                             f"update {scenario_name}: {update_result.get('error')}"
                         )
                 else:
-                    # Сценария нет → копируем
+                    # Пробуем добавить
                     add_result = await service.add_scenario(
                         child_account_id=child.vox_account_id,
                         child_api_key=child.vox_api_key,
@@ -3047,6 +3047,43 @@ async def admin_setup_cartesia_scenarios(
                         scenario_ids[scenario_name] = str(add_result.get("scenario_id"))
                         changed = True
                         account_result["scripts_added"].append(scenario_name)
+                    elif "not unique" in (add_result.get("error") or "").lower():
+                        # Сценарий уже существует на аккаунте но не в нашей БД
+                        # Находим его ID через API и обновляем код
+                        existing = await service.get_scenarios(
+                            account_id=child.vox_account_id,
+                            api_key=child.vox_api_key,
+                            with_script=False
+                        )
+                        found_id = None
+                        if existing.get("success"):
+                            for s in existing.get("scenarios", []):
+                                if s.get("scenario_name") == scenario_name:
+                                    found_id = s.get("scenario_id")
+                                    break
+
+                        if found_id:
+                            # Сохраняем ID в БД
+                            scenario_ids[scenario_name] = str(found_id)
+                            changed = True
+                            # Обновляем код
+                            update_result = await service.update_scenario(
+                                child_account_id=child.vox_account_id,
+                                child_api_key=child.vox_api_key,
+                                scenario_id=int(found_id),
+                                scenario_script=script
+                            )
+                            if update_result.get("success"):
+                                account_result["scripts_updated"].append(scenario_name)
+                                logger.info(f"[TELEPHONY-ADMIN] Recovered existing scenario {scenario_name} (id={found_id}) for {child.vox_account_id}")
+                            else:
+                                account_result["errors"].append(
+                                    f"update_recovered {scenario_name}: {update_result.get('error')}"
+                                )
+                        else:
+                            account_result["errors"].append(
+                                f"add {scenario_name}: not unique, but could not find existing scenario"
+                            )
                     else:
                         account_result["errors"].append(
                             f"add {scenario_name}: {add_result.get('error')}"
