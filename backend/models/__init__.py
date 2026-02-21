@@ -37,6 +37,9 @@ from .gemini_assistant import GeminiAssistantConfig, GeminiConversation
 # ✅ НОВОЕ v3.1: Импортируем Grok модели для xAI Voice API
 from .grok_assistant import GrokAssistantConfig, GrokConversation, GrokVoice
 
+# ✅ НОВОЕ v4.0: Импортируем Cartesia модель для Cartesia TTS
+from .cartesia_assistant import CartesiaAssistantConfig
+
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
 
@@ -81,6 +84,8 @@ __all__ = [
     "GrokAssistantConfig",
     "GrokConversation",
     "GrokVoice",
+    # ✅ НОВОЕ v4.0: Cartesia модель
+    "CartesiaAssistantConfig",
     # ✅ НОВОЕ: CRM модели
     "Contact",
     "ContactNote",

@@ -450,9 +450,71 @@ def create_grok_tables():
                 logger.info(f"✅ Table {table_name} already exists")
         
         logger.info("✅ Grok tables and columns setup completed")
-        
+
     except Exception as e:
         logger.error(f"❌ Error creating Grok tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
+
+def create_cartesia_tables():
+    """
+    Create Cartesia assistant tables and check missing columns
+    """
+    try:
+        from backend.models.cartesia_assistant import CartesiaAssistantConfig
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+
+        logger.info("🎵 Creating Cartesia tables and checking missing columns...")
+
+        # Создаем таблицы Cartesia
+        Base.metadata.create_all(engine)
+
+        inspector = inspect(engine)
+
+        # Проверяем таблицу users для cartesia_api_key
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+
+                if 'cartesia_api_key' not in existing_columns:
+                    logger.info("➕ Adding cartesia_api_key column to users table...")
+
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                conn.execute(text("ALTER TABLE users ADD COLUMN cartesia_api_key VARCHAR NULL"))
+                                trans.commit()
+                                logger.info("✅ Successfully added cartesia_api_key column")
+                            except Exception as e:
+                                trans.rollback()
+                                if "already exists" not in str(e).lower():
+                                    logger.error(f"❌ Failed to add cartesia_api_key: {str(e)}")
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error: {str(conn_error)}")
+                else:
+                    logger.info("✅ Column cartesia_api_key already exists")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+
+        # Проверяем таблицу cartesia_assistant_configs
+        if not inspector.has_table('cartesia_assistant_configs'):
+            logger.info("➕ Creating missing table: cartesia_assistant_configs")
+            try:
+                CartesiaAssistantConfig.__table__.create(engine)
+                logger.info("✅ Successfully created table: cartesia_assistant_configs")
+            except Exception as e:
+                logger.error(f"❌ Failed to create table cartesia_assistant_configs: {str(e)}")
+        else:
+            logger.info("✅ Table cartesia_assistant_configs already exists")
+
+        logger.info("✅ Cartesia tables and columns setup completed")
+
+    except Exception as e:
+        logger.error(f"❌ Error creating Cartesia tables: {str(e)}")
         if not settings.PRODUCTION:
             raise
 
@@ -555,6 +617,7 @@ def check_and_fix_all_missing_columns():
                 'elevenlabs_api_key': 'VARCHAR NULL',
                 'gemini_api_key': 'VARCHAR NULL',
                 'grok_api_key': 'VARCHAR NULL',  # 🆕 v3.0
+                'cartesia_api_key': 'VARCHAR NULL',  # 🆕 v4.0
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
@@ -771,7 +834,10 @@ async def startup_event():
                 
                 # 🆕 Шаг 9: Создаем таблицы Grok
                 create_grok_tables()
-                
+
+                # 🆕 Шаг 10: Создаем таблицы Cartesia
+                create_cartesia_tables()
+
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
                 

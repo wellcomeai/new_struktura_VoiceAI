@@ -1339,6 +1339,12 @@
       <a href="/static/gemini-agents.html" class="sidebar-nav-item">
         <i class="fas fa-gem"></i> Gemini агенты
       </a>
+      <a href="/static/grok-agents.html" class="sidebar-nav-item">
+        <i class="fas fa-bolt"></i> Grok агенты
+      </a>
+      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
+        <i class="fas fa-wave-square"></i> Cartesia агенты
+      </a>
       <a href="/static/knowledge-base.html" class="sidebar-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
@@ -1590,6 +1596,7 @@
           <select id="bind-assistant-type" class="form-control">
             <option value="openai">OpenAI</option>
             <option value="gemini">Gemini</option>
+            <option value="cartesia">Cartesia</option>
           </select>
         </div>
         
@@ -2356,12 +2363,20 @@
         
         try {
           const type = typeSelect.value;
-          const endpoint = type === 'openai' ? '/assistants' : '/gemini-assistants';
-          
-          const assistants = await api.get(endpoint);
-          
+          const endpoints = {
+            openai: '/assistants',
+            gemini: '/gemini-assistants',
+            cartesia: '/cartesia-assistants'
+          };
+          const endpoint = endpoints[type] || '/assistants';
+
+          const data = await api.get(endpoint);
+
+          // Cartesia returns {assistants: [...], ...}, others return array directly
+          const assistants = Array.isArray(data) ? data : (data.assistants || []);
+
           assistantSelect.innerHTML = '<option value="">Выберите ассистента</option>';
-          
+
           assistants.forEach(a => {
             const option = document.createElement('option');
             option.value = a.id;

@@ -148,10 +148,19 @@ def find_assistant_by_id(db: Session, assistant_id: uuid.UUID) -> tuple[Any, str
     assistant = db.query(GeminiAssistantConfig).filter(
         GeminiAssistantConfig.id == assistant_id
     ).first()
-    
+
     if assistant:
         return assistant, "gemini", assistant.user_id
-    
+
+    # Если не нашли - ищем в Cartesia
+    from backend.models.cartesia_assistant import CartesiaAssistantConfig
+    assistant = db.query(CartesiaAssistantConfig).filter(
+        CartesiaAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, "cartesia", assistant.user_id
+
     return None, None, None
 
 
@@ -258,6 +267,10 @@ class ScenarioConfigResponse(BaseModel):
     model: Optional[str] = None
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
+    # Cartesia-specific
+    cartesia_voice_id: Optional[str] = None
+    voice_speed: Optional[float] = None
+    cartesia_api_key: Optional[str] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -297,6 +310,10 @@ class OutboundConfigResponse(BaseModel):
     model: Optional[str] = None
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = None
+    # Cartesia-specific
+    cartesia_voice_id: Optional[str] = None
+    voice_speed: Optional[float] = None
+    cartesia_api_key: Optional[str] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -1354,18 +1371,24 @@ async def bind_assistant_to_number(
                 GeminiAssistantConfig.id == assistant_uuid,
                 GeminiAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "cartesia":
+            from backend.models.cartesia_assistant import CartesiaAssistantConfig
+            assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == assistant_uuid,
+                CartesiaAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Неверный тип ассистента. Используйте 'openai' или 'gemini'"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini' или 'cartesia'"
             )
-        
+
         if not assistant:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Ассистент не найден"
             )
-        
+
         # =====================================================================
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
@@ -2028,18 +2051,24 @@ async def start_outbound_call(
                 GeminiAssistantConfig.id == assistant_uuid,
                 GeminiAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "cartesia":
+            from backend.models.cartesia_assistant import CartesiaAssistantConfig
+            assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == assistant_uuid,
+                CartesiaAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai' или 'gemini'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini' или 'cartesia'"
             )
-        
+
         if not assistant:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Ассистент не найден"
             )
-        
+
         logger.info(f"[TELEPHONY-OUTBOUND] Using assistant: {assistant.name}")
         
         # =====================================================================
@@ -2455,7 +2484,7 @@ async def get_outbound_config(
             assistant = db.query(GeminiAssistantConfig).filter(
                 GeminiAssistantConfig.id == assistant_uuid
             ).first()
-            
+
             if assistant:
                 assistant_name = assistant.name
                 system_prompt = assistant.system_prompt
@@ -2466,28 +2495,48 @@ async def get_outbound_config(
                 enable_thinking = assistant.enable_thinking or False
                 thinking_budget = assistant.thinking_budget or 0
                 user_id = assistant.user_id
+
+        elif assistant_type == "cartesia":
+            from backend.models.cartesia_assistant import CartesiaAssistantConfig
+            assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == assistant_uuid
+            ).first()
+
+            if assistant:
+                assistant_name = assistant.name
+                system_prompt = assistant.system_prompt
+                functions_config = assistant.functions
+                user_id = assistant.user_id
         else:
             logger.warning(f"[TELEPHONY-OUTBOUND] Unknown assistant_type: {assistant_type}")
             return OutboundConfigResponse(success=False)
-        
+
         if not assistant:
             logger.warning(f"[TELEPHONY-OUTBOUND] Assistant not found: {assistant_id}")
             return OutboundConfigResponse(success=False)
-        
+
         # =====================================================================
         # 2. Получаем пользователя и API ключ
         # =====================================================================
         user = db.query(User).filter(User.id == user_id).first()
-        
+
         if not user:
             logger.warning(f"[TELEPHONY-OUTBOUND] User not found for assistant: {assistant_id}")
             return OutboundConfigResponse(success=False)
-        
+
         api_key = None
+        cartesia_api_key = None
+        cartesia_voice_id = None
+        voice_speed = None
         if assistant_type == "openai":
             api_key = user.openai_api_key
         elif assistant_type == "gemini":
             api_key = user.gemini_api_key
+        elif assistant_type == "cartesia":
+            api_key = user.openai_api_key
+            cartesia_api_key = user.cartesia_api_key
+            cartesia_voice_id = assistant.cartesia_voice_id
+            voice_speed = assistant.voice_speed
         
         # =====================================================================
         # 3. Формируем функции
@@ -2523,6 +2572,9 @@ async def get_outbound_config(
             model="gpt-4o-realtime-preview" if assistant_type == "openai" else None,
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
+            cartesia_voice_id=cartesia_voice_id,
+            voice_speed=voice_speed,
+            cartesia_api_key=cartesia_api_key,
         )
         
     except Exception as e:
@@ -2948,7 +3000,7 @@ async def get_scenario_config(
             assistant = db.query(GeminiAssistantConfig).filter(
                 GeminiAssistantConfig.id == phone_record.assistant_id
             ).first()
-            
+
             if assistant:
                 assistant_name = assistant.name
                 system_prompt = assistant.system_prompt
@@ -2958,7 +3010,18 @@ async def get_scenario_config(
                 google_sheet_id = assistant.google_sheet_id
                 enable_thinking = assistant.enable_thinking or False
                 thinking_budget = assistant.thinking_budget or 0
-        
+
+        elif phone_record.assistant_type == "cartesia":
+            from backend.models.cartesia_assistant import CartesiaAssistantConfig
+            assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == phone_record.assistant_id
+            ).first()
+
+            if assistant:
+                assistant_name = assistant.name
+                system_prompt = assistant.system_prompt
+                functions_config = assistant.functions
+
         if not assistant:
             logger.warning(f"[TELEPHONY] Assistant not found: {phone_record.assistant_id}")
             return ScenarioConfigResponse(success=False)
@@ -2970,21 +3033,29 @@ async def get_scenario_config(
         
         # API ключ
         api_key = None
+        cartesia_api_key = None
+        cartesia_voice_id = None
+        voice_speed = None
         if phone_record.assistant_type == "openai":
             api_key = user.openai_api_key
         elif phone_record.assistant_type == "gemini":
             api_key = user.gemini_api_key
-        
+        elif phone_record.assistant_type == "cartesia":
+            api_key = user.openai_api_key
+            cartesia_api_key = user.cartesia_api_key
+            cartesia_voice_id = assistant.cartesia_voice_id
+            voice_speed = assistant.voice_speed
+
         # First phrase
         first_phrase = phone_record.first_phrase
         if not first_phrase and hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
-        
-        logger.info(f"[TELEPHONY] ✅ Config returned for {phone}")
+
+        logger.info(f"[TELEPHONY] Config returned for {phone}")
         logger.info(f"[TELEPHONY]   Assistant: {assistant_name} ({phone_record.assistant_type})")
         logger.info(f"[TELEPHONY]   Voice: {voice}")
         logger.info(f"[TELEPHONY]   Functions: {len(functions)}")
-        
+
         return ScenarioConfigResponse(
             success=True,
             assistant_type=phone_record.assistant_type,
@@ -3000,6 +3071,9 @@ async def get_scenario_config(
             model="gpt-4o-realtime-preview" if phone_record.assistant_type == "openai" else None,
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
+            cartesia_voice_id=cartesia_voice_id,
+            voice_speed=voice_speed,
+            cartesia_api_key=cartesia_api_key,
         )
         
     except Exception as e:

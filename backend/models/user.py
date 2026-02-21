@@ -34,6 +34,7 @@ class User(Base, BaseModel):
     elevenlabs_api_key = Column(String, nullable=True)
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
     grok_api_key = Column(String, nullable=True)    # ✅ v2.9: xAI Grok API key
+    cartesia_api_key = Column(String, nullable=True)  # ✅ v4.0: Cartesia TTS API key
     
     # ✅ v2.8: Voximplant настройки для автоматических звонков
     voximplant_account_id = Column(String(100), nullable=True)
@@ -67,6 +68,7 @@ class User(Base, BaseModel):
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
     grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v2.9
+    cartesia_assistants = relationship("CartesiaAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v4.0
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
     elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")
@@ -94,6 +96,7 @@ class User(Base, BaseModel):
         data.pop("elevenlabs_api_key", None)
         data.pop("gemini_api_key", None)
         data.pop("grok_api_key", None)           # ✅ v2.9: Скрываем Grok API key
+        data.pop("cartesia_api_key", None)       # ✅ v4.0: Скрываем Cartesia API key
         data.pop("voximplant_api_key", None)
         data.pop("telegram_bot_token", None)     # ✅ v3.9: Скрываем Telegram токен
         data.pop("google_sheets_token", None)
@@ -121,6 +124,10 @@ class User(Base, BaseModel):
     def has_grok_api_key(self):
         """✅ v2.9: Проверить, настроен ли ключ xAI Grok API у пользователя"""
         return bool(self.grok_api_key)
+
+    def has_cartesia_api_key(self):
+        """✅ v4.0: Проверить, настроен ли ключ Cartesia API у пользователя"""
+        return bool(self.cartesia_api_key)
     
     def has_voximplant_config(self):
         """✅ v2.8: Проверить, настроены ли данные Voximplant"""
@@ -188,5 +195,7 @@ class User(Base, BaseModel):
             providers.append("grok")
         if self.elevenlabs_api_key:
             providers.append("elevenlabs")
-            
+        if self.cartesia_api_key:
+            providers.append("cartesia")
+
         return providers

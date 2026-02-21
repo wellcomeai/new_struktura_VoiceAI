@@ -36,7 +36,8 @@ class UserUpdate(BaseModel):
     elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")
     gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")
     grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
-    
+    cartesia_api_key: Optional[str] = Field(None, description="Cartesia TTS API key")  # 🆕 v4.0
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -46,7 +47,8 @@ class UserUpdate(BaseModel):
                 "openai_api_key": "sk-...",
                 "elevenlabs_api_key": "el-...",
                 "gemini_api_key": "AIza...",
-                "grok_api_key": "xai-..."
+                "grok_api_key": "xai-...",
+                "cartesia_api_key": "sk_car_..."
             }
         }
 
@@ -75,12 +77,14 @@ class UserResponse(UserBase):
     elevenlabs_api_key: Optional[str] = Field(None, description="ElevenLabs API key")
     gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key")
     grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
-    
+    cartesia_api_key: Optional[str] = Field(None, description="Cartesia TTS API key")  # 🆕 v4.0
+
     # ✅ Статусы наличия API ключей
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
     has_elevenlabs_api_key: bool = Field(False, description="Whether user has ElevenLabs API key set")
     has_gemini_api_key: bool = Field(False, description="Whether user has Gemini API key set")
     has_grok_api_key: bool = Field(False, description="Whether user has Grok API key set")  # 🆕 v3.0
+    has_cartesia_api_key: bool = Field(False, description="Whether user has Cartesia API key set")  # 🆕 v4.0
     
     # ✅ Поля тарификации
     is_trial: bool = Field(False, description="Whether user is in trial period")
