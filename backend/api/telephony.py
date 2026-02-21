@@ -1295,7 +1295,13 @@ async def get_my_numbers(
                         GeminiAssistantConfig.id == num.assistant_id
                     ).first()
                     assistant_name = assistant.name if assistant else None
-            
+                elif num.assistant_type == "cartesia":
+                    from backend.models.cartesia_assistant import CartesiaAssistantConfig
+                    assistant = db.query(CartesiaAssistantConfig).filter(
+                        CartesiaAssistantConfig.id == num.assistant_id
+                    ).first()
+                    assistant_name = assistant.name if assistant else None
+
             # Получаем данные из Voximplant по нормализованному номеру
             normalized = normalize_phone_number(num.phone_number)
             vox_info = vox_map.get(normalized) or vox_map.get(normalized[-10:] if len(normalized) > 10 else normalized, {})
