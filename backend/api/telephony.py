@@ -96,13 +96,23 @@ router = APIRouter()
 # HELPER FUNCTIONS
 # =============================================================================
 
+def get_scenario_key(assistant_type: str, direction: str) -> str:
+    """
+    Возвращает ключ сценария в vox_scenario_ids.
+    direction: 'inbound' или 'outbound'
+    """
+    if assistant_type == "cartesia":
+        return f"cartesia_{direction}"  # cartesia_inbound / cartesia_outbound
+    return f"{direction}_{assistant_type}"  # inbound_openai / outbound_gemini
+
+
 def validate_phone_id(phone_id: any) -> Optional[str]:
     """
     Валидация phone_id - защита от записи "None" в БД.
-    
+
     Args:
         phone_id: Значение phone_id из API
-        
+
     Returns:
         Валидный phone_id как строка или None
     """
@@ -1400,7 +1410,7 @@ async def bind_assistant_to_number(
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
         if phone_record.vox_rule_id and child_account.vox_scenario_ids:
-            scenario_name = f"inbound_{request.assistant_type}"
+            scenario_name = get_scenario_key(request.assistant_type, "inbound")
             scenario_id = child_account.get_scenario_id(scenario_name)
             
             if scenario_id:
@@ -2010,7 +2020,7 @@ async def start_outbound_call(
         
         rule_name = f"outbound_{request.assistant_type}"
         rule_id = child_account.vox_rule_ids.get(rule_name)
-        
+
         if not rule_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
