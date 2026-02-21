@@ -3122,6 +3122,25 @@ async def admin_setup_cartesia_scenarios(
                     rule_ids["outbound_cartesia"] = str(rule_result.get("rule_id"))
                     changed = True
                     account_result["rules_created"].append("outbound_cartesia")
+                elif "not unique" in (rule_result.get("error") or "").lower():
+                    # Правило уже есть в Voximplant — получаем его ID
+                    existing_rules = await service.get_rules(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        application_id=child.vox_application_id
+                    )
+                    found_rule = False
+                    for r in (existing_rules.get("rules") or []):
+                        if r.get("rule_name") == "outbound_cartesia":
+                            rule_ids["outbound_cartesia"] = str(r.get("rule_id"))
+                            changed = True
+                            found_rule = True
+                            logger.info(f"[TELEPHONY-ADMIN] Recovered existing rule outbound_cartesia (id={r.get('rule_id')}) for {child.vox_account_id}")
+                            break
+                    if not found_rule:
+                        account_result["errors"].append(
+                            "rule outbound_cartesia: not unique, but could not find existing rule"
+                        )
                 else:
                     account_result["errors"].append(
                         f"rule outbound_cartesia: {rule_result.get('error')}"
