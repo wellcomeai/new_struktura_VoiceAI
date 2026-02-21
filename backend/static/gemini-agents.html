@@ -1246,57 +1246,6 @@
       color: var(--text-dark);
     }
     
-    /* Стили для блока Google Sheets */
-    .connection-status {
-      margin-top: 1rem;
-      padding: 0.75rem;
-      border-radius: var(--radius-md);
-      font-size: 0.875rem;
-      display: none;
-    }
-    
-    .sheet-container {
-      display: flex;
-      gap: 1rem;
-      align-items: center;
-    }
-    
-    .sheet-input {
-      flex: 1;
-    }
-    
-    .sheet-info {
-      margin-top: 0.75rem;
-      font-size: 0.875rem;
-      color: var(--text-gray);
-      line-height: 1.5;
-    }
-    
-    .sheet-tips {
-      margin-top: 1rem;
-      padding: 1rem;
-      background-color: var(--bg-light);
-      border-radius: var(--radius-md);
-      border: 1px dashed var(--border-color);
-    }
-    
-    .sheet-tips h4 {
-      font-size: 0.875rem;
-      margin-bottom: 0.5rem;
-      color: var(--text-dark);
-    }
-    
-    .sheet-tips ul {
-      padding-left: 1.5rem;
-      font-size: 0.875rem;
-      color: var(--text-gray);
-      line-height: 1.5;
-    }
-    
-    .sheet-tips li {
-      margin-bottom: 0.5rem;
-    }
-
     /* Стили для загрузки функций */
     .functions-loading {
       text-align: center;
@@ -1491,9 +1440,6 @@
       <a href="/static/knowledge-base.html" class="sidebar-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
-      <a href="/static/outbound-calls.html" class="sidebar-nav-item" data-feature="outbound_calls">
-        <i class="fas fa-phone-alt"></i> Исходящие звонки
-      </a>
       <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony">
         <i class="fas fa-phone"></i> Телефония
       </a>
@@ -1680,38 +1626,6 @@
                 <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
                   Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.
                 </p>
-              </div>
-            </div>
-            
-            <!-- Новый блок для Google Sheet ID -->
-            <div class="form-section">
-              <div class="form-group">
-                <label for="google-sheet-id">ID Google таблицы для логирования</label>
-                <div class="sheet-container">
-                  <div class="sheet-input">
-                    <input type="text" id="google-sheet-id" class="form-control" placeholder="ID Google таблицы">
-                  </div>
-                  <button type="button" class="btn btn-outline" id="test-sheet-connection">
-                    <i class="fas fa-sync-alt"></i> Проверить подключение
-                  </button>
-                </div>
-                <p class="sheet-info">
-                  Укажите ID Google таблицы, в которую будут записываться все диалоги с ассистентом.
-                  Таблица должна быть доступна для редактирования по ссылке.
-                </p>
-                
-                <div id="sheet-connection-status" class="connection-status"></div>
-                
-                <div class="sheet-tips">
-                  <h4>Инструкция по настройке:</h4>
-                  <ul>
-                    <li>Создайте новую таблицу в Google Sheets</li>
-                    <li>Сделайте таблицу доступной для редактирования по ссылке (Настройки доступа → Изменить → Все, у кого есть ссылка)</li>
-                    <li>Скопируйте ID из URL таблицы (часть между /d/ и следующим символом /) и вставьте выше</li>
-                    <li>Система автоматически создаст необходимые заголовки в таблице</li>
-                    <li>В таблицу будут записываться: время, запросы пользователя, ответы ассистента и результаты выполнения функций</li>
-                  </ul>
-                </div>
               </div>
             </div>
             
@@ -2834,7 +2748,6 @@
       document.getElementById('agent-name').value = agent.name || '';
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('system-prompt').value = agent.system_prompt || '';
-      document.getElementById('google-sheet-id').value = agent.google_sheet_id || '';
       document.getElementById('greeting-message').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       
       const voiceInput = document.querySelector(`input[name="voice"][value="${agent.voice || 'Puck'}"]`);
@@ -2884,14 +2797,11 @@
         }
       });
       
-      const googleSheetId = document.getElementById('google-sheet-id').value;
-      
       return {
         name: document.getElementById('agent-name').value,
         description: document.getElementById('agent-description').value,
         system_prompt: document.getElementById('system-prompt').value,
         voice: document.querySelector('input[name="voice"]:checked').value,
-        google_sheet_id: googleSheetId || null,
         greeting_message: document.getElementById('greeting-message').value || 'Здравствуйте! Чем я могу вам помочь?',
         functions: enabledFunctions
       };
@@ -3025,7 +2935,6 @@
       document.getElementById('agent-name').value = '';
       document.getElementById('agent-description').value = '';
       document.getElementById('system-prompt').value = 'Ты умный голосовой помощник на базе Google Gemini. Отвечай на вопросы пользователя коротко, информативно и с небольшой ноткой юмора, когда это уместно. Стремись быть полезным и предоставлять точную информацию.';
-      document.getElementById('google-sheet-id').value = '';
       document.getElementById('greeting-message').value = 'Здравствуйте! Чем я могу вам помочь?';
       
       const firstVoice = document.querySelector('input[name="voice"]');
@@ -3201,36 +3110,6 @@
           navigator.clipboard.writeText(agentId).then(() => {
             showNotification('ID агента скопирован!', 'success');
           });
-        }
-      });
-      
-      document.getElementById('test-sheet-connection').addEventListener('click', async function() {
-        const sheetId = document.getElementById('google-sheet-id').value;
-        const statusDiv = document.getElementById('sheet-connection-status');
-        
-        if (!sheetId) {
-          statusDiv.innerHTML = '<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Пожалуйста, укажите ID Google таблицы</div>';
-          statusDiv.style.display = 'block';
-          return;
-        }
-        
-        statusDiv.innerHTML = '<div style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i> Проверка подключения...</div>';
-        statusDiv.style.display = 'block';
-        
-        try {
-          const assistantId = currentAgentId || 'new';
-          const response = await apiRequest(`/gemini-assistants/${assistantId}/verify-sheet`, {
-            method: 'POST',
-            body: { sheet_id: sheetId }
-          });
-          
-          if (response.success) {
-            statusDiv.innerHTML = `<div style="color: #10b981;"><i class="fas fa-check-circle"></i> ${response.message}</div>`;
-          } else {
-            statusDiv.innerHTML = `<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> ${response.message}</div>`;
-          }
-        } catch (error) {
-          statusDiv.innerHTML = `<div style="color: #ef4444;"><i class="fas fa-exclamation-circle"></i> Ошибка при проверке таблицы: ${error.message}</div>`;
         }
       });
       
