@@ -65,6 +65,7 @@ Routes:
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
@@ -2797,6 +2798,7 @@ async def admin_setup_outbound_rules(
             
             if outbound_result.get("success") and outbound_result.get("rule_ids"):
                 child.vox_rule_ids = outbound_result.get("rule_ids")
+                flag_modified(child, "vox_rule_ids")
                 db.commit()
                 
                 results["updated"] += 1
@@ -3129,6 +3131,8 @@ async def admin_setup_cartesia_scenarios(
             if changed:
                 child.vox_scenario_ids = scenario_ids
                 child.vox_rule_ids     = rule_ids
+                flag_modified(child, "vox_scenario_ids")
+                flag_modified(child, "vox_rule_ids")
                 db.commit()
 
             account_result["status"] = "partial" if account_result["errors"] else "ok"
