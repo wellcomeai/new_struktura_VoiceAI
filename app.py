@@ -35,6 +35,7 @@ from backend.api import (
     gemini_assistants,  # ✅ Gemini Assistants CRUD API
     grok_ws,  # 🆕 v3.0: Grok WebSocket API
     grok_assistants,  # 🆕 v3.0: Grok Assistants CRUD API
+    cartesia_assistants,  # 🆕 v4.0: Cartesia Assistants CRUD API
     contacts,  # ✅ CRM API
     functions,
     voximplant_settings,
@@ -162,6 +163,7 @@ app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistants"])
 app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])
 app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
+app.include_router(cartesia_assistants.router, prefix="/api/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])
