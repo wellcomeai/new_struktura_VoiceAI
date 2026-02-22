@@ -2644,7 +2644,9 @@
 
           try {
             const cartesiaData = await api.get('/cartesia-assistants');
-            const cartesiaList = Array.isArray(cartesiaData) ? cartesiaData : [];
+            const cartesiaList = Array.isArray(cartesiaData)
+              ? cartesiaData
+              : (cartesiaData.assistants || []);
             cartesiaList.forEach(a => {
               assistants.push({ id: a.id, name: a.name, type: 'cartesia' });
             });
