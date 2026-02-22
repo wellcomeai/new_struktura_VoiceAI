@@ -26,6 +26,7 @@ from backend.models.contact import Contact
 from backend.models.user import User
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.services.voximplant_partner import get_voximplant_partner_service
 
@@ -143,7 +144,17 @@ class TaskScheduler:
                 assistant_name = gemini_assistant.name
                 assistant_type = "gemini"
                 logger.info(f"   Assistant: {gemini_assistant.name} (Gemini)")
-        
+        elif task.cartesia_assistant_id:
+            # Cartesia Assistant
+            cartesia_assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == task.cartesia_assistant_id
+            ).first()
+            if cartesia_assistant:
+                assistant_id = str(task.cartesia_assistant_id)
+                assistant_name = cartesia_assistant.name
+                assistant_type = "cartesia"
+                logger.info(f"   Assistant: {cartesia_assistant.name} (Cartesia)")
+
         return assistant_id, assistant_name, assistant_type
     
     async def execute_task(self, task: Task, db: Session):
@@ -337,7 +348,8 @@ class TaskScheduler:
                 task_title=task.title or "",
                 task_description=task.description or "",
                 custom_greeting=task.custom_greeting or "",
-                timezone=DEFAULT_TIMEZONE
+                timezone=DEFAULT_TIMEZONE,
+                assistant_type=assistant_type
             )
             
             if result.get("success"):

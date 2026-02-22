@@ -1239,12 +1239,14 @@ class VoximplantPartnerService:
         task_description: Optional[str] = None,
         custom_greeting: Optional[str] = None,
         timezone: str = "Europe/Moscow",
-        task: Optional[str] = None
+        task: Optional[str] = None,
+        assistant_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """Запустить исходящий звонок с полным контекстом CRM."""
         custom_data = {
             "phone_number": phone_number,
             "assistant_id": assistant_id,
+            "assistant_type": assistant_type or "gemini",
             "caller_id": caller_id,
             "mute_duration_ms": mute_duration_ms,
             "contact_name": contact_name or "",
