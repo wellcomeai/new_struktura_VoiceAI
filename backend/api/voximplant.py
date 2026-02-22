@@ -30,6 +30,7 @@ from backend.core.config import settings
 from backend.db.session import get_db, SessionLocal
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.voximplant_child import VoximplantChildAccount
@@ -51,17 +52,17 @@ router = APIRouter()
 
 def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
     """
-    Ищет ассистента по ID в обеих таблицах (OpenAI и Gemini).
-    
+    Ищет ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+
     Returns:
-        tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | None
+        tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | None
     """
     assistant = None
     assistant_type = None
-    
+
     try:
         assistant_uuid = uuid.UUID(assistant_id)
-        
+
         # Сначала проверяем OpenAI
         assistant = db.query(AssistantConfig).get(assistant_uuid)
         if assistant:
@@ -71,7 +72,12 @@ def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
             assistant = db.query(GeminiAssistantConfig).get(assistant_uuid)
             if assistant:
                 assistant_type = "gemini"
-                
+            else:
+                # Если не найден - проверяем Cartesia
+                assistant = db.query(CartesiaAssistantConfig).get(assistant_uuid)
+                if assistant:
+                    assistant_type = "cartesia"
+
     except ValueError:
         # Пробуем как строку
         assistant = db.query(AssistantConfig).filter(
@@ -85,7 +91,13 @@ def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
             ).first()
             if assistant:
                 assistant_type = "gemini"
-    
+            else:
+                assistant = db.query(CartesiaAssistantConfig).filter(
+                    CartesiaAssistantConfig.id.cast(str) == assistant_id
+                ).first()
+                if assistant:
+                    assistant_type = "cartesia"
+
     return assistant, assistant_type
 
 
@@ -1765,8 +1777,13 @@ async def get_user_call_costs(
         gemini_assistants = db.query(GeminiAssistantConfig.id).filter(
             GeminiAssistantConfig.user_id == user_uuid
         ).all()
-        
-        all_assistant_ids = [a.id for a in openai_assistants] + [a.id for a in gemini_assistants]
+
+        # Получаем все ассистенты пользователя (Cartesia)
+        cartesia_assistants = db.query(CartesiaAssistantConfig.id).filter(
+            CartesiaAssistantConfig.user_id == user_uuid
+        ).all()
+
+        all_assistant_ids = [a.id for a in openai_assistants] + [a.id for a in gemini_assistants] + [a.id for a in cartesia_assistants]
         
         if not all_assistant_ids:
             return {
@@ -1813,7 +1830,9 @@ async def get_user_call_costs(
             assistant_names[str(a.id)] = {"name": a.name, "type": "openai"}
         for a in db.query(GeminiAssistantConfig).filter(GeminiAssistantConfig.id.in_(all_assistant_ids)).all():
             assistant_names[str(a.id)] = {"name": a.name, "type": "gemini"}
-        
+        for a in db.query(CartesiaAssistantConfig).filter(CartesiaAssistantConfig.id.in_(all_assistant_ids)).all():
+            assistant_names[str(a.id)] = {"name": a.name, "type": "cartesia"}
+
         return {
             "user_id": user_id,
             "user_email": user.email,

@@ -32,6 +32,7 @@ from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
@@ -59,8 +60,8 @@ SYSTEM_MESSAGE_PATTERNS = [
 
 def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
     """
-    Получить все ID ассистентов пользователя (OpenAI + Gemini).
-    
+    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia).
+
     Returns:
         List[UUID]: Список всех assistant_id
     """
@@ -68,40 +69,53 @@ def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
     openai_ids = db.query(AssistantConfig.id).filter(
         AssistantConfig.user_id == user_id
     ).all()
-    
+
     # Gemini assistants
     gemini_ids = db.query(GeminiAssistantConfig.id).filter(
         GeminiAssistantConfig.user_id == user_id
     ).all()
-    
-    all_ids = [a.id for a in openai_ids] + [a.id for a in gemini_ids]
-    
+
+    # Cartesia assistants
+    cartesia_ids = db.query(CartesiaAssistantConfig.id).filter(
+        CartesiaAssistantConfig.user_id == user_id
+    ).all()
+
+    all_ids = [a.id for a in openai_ids] + [a.id for a in gemini_ids] + [a.id for a in cartesia_ids]
+
     return all_ids
 
 
 def find_assistant_by_id(db: Session, assistant_id: UUID):
     """
-    🆕 v2.0: Найти ассистента по ID в обеих таблицах.
-    
+    Найти ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+
     Returns:
-        tuple: (assistant, assistant_type) где type = 'openai' | 'gemini' | None
+        tuple: (assistant, assistant_type) где type = 'openai' | 'gemini' | 'cartesia' | None
     """
     # Try OpenAI first
     assistant = db.query(AssistantConfig).filter(
         AssistantConfig.id == assistant_id
     ).first()
-    
+
     if assistant:
         return assistant, 'openai'
-    
+
     # Try Gemini
     assistant = db.query(GeminiAssistantConfig).filter(
         GeminiAssistantConfig.id == assistant_id
     ).first()
-    
+
     if assistant:
         return assistant, 'gemini'
-    
+
+    # Try Cartesia
+    assistant = db.query(CartesiaAssistantConfig).filter(
+        CartesiaAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, 'cartesia'
+
     return None, None
 
 
@@ -304,13 +318,18 @@ async def get_conversation_sessions(
                 "page_size": limit
             }
         
-        logger.info(f"   User has {len(user_assistant_ids)} assistants (OpenAI + Gemini)")
-        
-        # 🆕 v2.0: Создаём set Gemini ID для быстрого определения типа
+        logger.info(f"   User has {len(user_assistant_ids)} assistants (OpenAI + Gemini + Cartesia)")
+
+        # Создаём sets ID для быстрого определения типа
         gemini_ids = db.query(GeminiAssistantConfig.id).filter(
             GeminiAssistantConfig.user_id == current_user.id
         ).all()
         gemini_id_set = {str(g.id) for g in gemini_ids}
+
+        cartesia_ids = db.query(CartesiaAssistantConfig.id).filter(
+            CartesiaAssistantConfig.user_id == current_user.id
+        ).all()
+        cartesia_id_set = {str(c.id) for c in cartesia_ids}
         
         # =============================================================================
         # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
@@ -475,8 +494,13 @@ async def get_conversation_sessions(
         # =============================================================================
         conversations = []
         for s in sessions:
-            # 🆕 v2.0: Определяем тип по ID ассистента
-            assistant_type = 'gemini' if str(s.assistant_id) in gemini_id_set else 'openai'
+            # Определяем тип по ID ассистента
+            if str(s.assistant_id) in gemini_id_set:
+                assistant_type = 'gemini'
+            elif str(s.assistant_id) in cartesia_id_set:
+                assistant_type = 'cartesia'
+            else:
+                assistant_type = 'openai'
             
             # 🆕 v3.0: Форматируем стоимость
             call_cost = None
