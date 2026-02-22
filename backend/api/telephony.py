@@ -3188,6 +3188,145 @@ async def admin_setup_cartesia_scenarios(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/setup-crm-rules")
+async def admin_setup_crm_rules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    ADMIN ONLY: Create outbound_crm rule for ALL child accounts.
+
+    Migration: creates Rule for outbound_crm scenario,
+    used by task_scheduler for CRM calls.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        service = get_voximplant_partner_service()
+
+        child_accounts = db.query(VoximplantChildAccount).all()
+        logger.info(f"[TELEPHONY-ADMIN] Setting up outbound_crm rules for {len(child_accounts)} accounts")
+
+        results = {
+            "total_accounts": len(child_accounts),
+            "created": 0,
+            "skipped": 0,
+            "failed": 0,
+            "details": []
+        }
+
+        for child in child_accounts:
+            account_result = {
+                "account_id": child.vox_account_id,
+                "user_id": str(child.user_id),
+                "status": "skipped",
+                "rule_id": None,
+                "error": None
+            }
+
+            # Skip if no application_id
+            if not child.vox_application_id:
+                results["skipped"] += 1
+                account_result["status"] = "skipped_no_app"
+                results["details"].append(account_result)
+                continue
+
+            # Skip if no outbound_crm scenario
+            scenario_ids = child.vox_scenario_ids or {}
+            if "outbound_crm" not in scenario_ids:
+                results["skipped"] += 1
+                account_result["status"] = "skipped_no_scenario"
+                results["details"].append(account_result)
+                continue
+
+            # Skip if rule already exists
+            rule_ids = child.vox_rule_ids or {}
+            if "outbound_crm" in rule_ids:
+                results["skipped"] += 1
+                account_result["status"] = "skipped_has_rule"
+                account_result["rule_id"] = rule_ids["outbound_crm"]
+                results["details"].append(account_result)
+                continue
+
+            # Create rule
+            try:
+                rule_result = await service.add_rule(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    application_id=child.vox_application_id,
+                    rule_name="outbound_crm",
+                    rule_pattern="outbound_crm_.*",
+                    scenario_id=int(scenario_ids["outbound_crm"])
+                )
+
+                if rule_result.get("success"):
+                    rule_ids["outbound_crm"] = str(rule_result.get("rule_id"))
+                    child.vox_rule_ids = rule_ids
+                    flag_modified(child, "vox_rule_ids")
+                    db.commit()
+
+                    results["created"] += 1
+                    account_result["status"] = "created"
+                    account_result["rule_id"] = rule_ids["outbound_crm"]
+                    logger.info(f"[TELEPHONY-ADMIN] Created outbound_crm rule for {child.vox_account_id}: {rule_ids['outbound_crm']}")
+
+                elif "not unique" in (rule_result.get("error") or "").lower():
+                    # Rule already exists in Voximplant - find its ID
+                    existing_rules = await service.get_rules(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        application_id=child.vox_application_id
+                    )
+                    found = False
+                    for r in (existing_rules.get("rules") or []):
+                        if r.get("rule_name") == "outbound_crm":
+                            rule_ids["outbound_crm"] = str(r.get("rule_id"))
+                            child.vox_rule_ids = rule_ids
+                            flag_modified(child, "vox_rule_ids")
+                            db.commit()
+
+                            results["created"] += 1
+                            account_result["status"] = "recovered"
+                            account_result["rule_id"] = rule_ids["outbound_crm"]
+                            found = True
+                            logger.info(f"[TELEPHONY-ADMIN] Recovered existing outbound_crm rule for {child.vox_account_id}")
+                            break
+
+                    if not found:
+                        results["failed"] += 1
+                        account_result["status"] = "failed"
+                        account_result["error"] = "not unique but could not find existing rule"
+                else:
+                    results["failed"] += 1
+                    account_result["status"] = "failed"
+                    account_result["error"] = rule_result.get("error")
+                    logger.error(f"[TELEPHONY-ADMIN] Failed for {child.vox_account_id}: {rule_result.get('error')}")
+
+            except Exception as e:
+                results["failed"] += 1
+                account_result["status"] = "error"
+                account_result["error"] = str(e)
+                logger.error(f"[TELEPHONY-ADMIN] Exception for {child.vox_account_id}: {e}")
+
+            results["details"].append(account_result)
+
+        logger.info(f"[TELEPHONY-ADMIN] CRM rules setup: created={results['created']} skipped={results['skipped']} failed={results['failed']}")
+
+        return {
+            "success": True,
+            "message": f"Created outbound_crm rules for {results['created']} accounts",
+            "results": results
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Error: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # ПУБЛИЧНЫЙ ENDPOINT ДЛЯ СЦЕНАРИЯ VOXIMPLANT (INBOUND)
 # =============================================================================

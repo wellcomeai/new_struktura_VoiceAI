@@ -271,15 +271,15 @@ class TaskScheduler:
             if task.custom_greeting:
                 logger.info(f"   💬 Custom Greeting: {task.custom_greeting[:80]}...")
             
-            # Получаем rule_id для типа ассистента
-            rule_name = f"outbound_{assistant_type}"
+            # Получаем rule_id для CRM сценария (единый для всех типов ассистентов)
+            rule_name = "outbound_crm"
             rule_id = child_account.get_rule_id(rule_name)
             
             if not rule_id:
                 logger.error(f"[TASK-SCHEDULER] ❌ Rule '{rule_name}' not found in child account")
                 logger.error(f"   Available rules: {list(child_account.vox_rule_ids.keys()) if child_account.vox_rule_ids else 'None'}")
                 task.status = TaskStatus.FAILED
-                task.call_result = f"Outbound rule '{rule_name}' not configured. Please run /setup-scenarios."
+                task.call_result = f"Outbound rule 'outbound_crm' not configured. Run admin endpoint /api/telephony/admin/setup-crm-rules to create it."
                 db.commit()
                 return
             
