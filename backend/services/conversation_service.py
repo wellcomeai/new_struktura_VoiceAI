@@ -21,6 +21,7 @@ from backend.core.logging import get_logger
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.function_log import FunctionLog
 from backend.schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
 
@@ -37,21 +38,21 @@ class ConversationService:
     @staticmethod
     def _find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
         """
-        🆕 v3.2: Ищет ассистента по ID в обеих таблицах (OpenAI и Gemini).
-        
+        Ищет ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+
         Args:
             db: Database session
             assistant_id: UUID ассистента как строка
-            
+
         Returns:
-            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | None
+            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | None
         """
         assistant = None
         assistant_type = None
-        
+
         try:
             assistant_uuid = uuid.UUID(assistant_id)
-            
+
             # Сначала проверяем OpenAI
             assistant = db.query(AssistantConfig).get(assistant_uuid)
             if assistant:
@@ -61,7 +62,12 @@ class ConversationService:
                 assistant = db.query(GeminiAssistantConfig).get(assistant_uuid)
                 if assistant:
                     assistant_type = "gemini"
-                    
+                else:
+                    # Если не найден - проверяем Cartesia
+                    assistant = db.query(CartesiaAssistantConfig).get(assistant_uuid)
+                    if assistant:
+                        assistant_type = "cartesia"
+
         except ValueError:
             # Пробуем как строку
             assistant = db.query(AssistantConfig).filter(
@@ -75,7 +81,13 @@ class ConversationService:
                 ).first()
                 if assistant:
                     assistant_type = "gemini"
-        
+                else:
+                    assistant = db.query(CartesiaAssistantConfig).filter(
+                        CartesiaAssistantConfig.id.cast(str) == assistant_id
+                    ).first()
+                    if assistant:
+                        assistant_type = "cartesia"
+
         return assistant, assistant_type
     
     # ==================================================================================
@@ -627,15 +639,18 @@ class ConversationService:
             if user_id:
                 try:
                     user_uuid = uuid.UUID(user_id)
-                    # 🆕 v3.2: Получаем ID всех ассистентов пользователя (OpenAI + Gemini)
+                    # Получаем ID всех ассистентов пользователя (OpenAI + Gemini + Cartesia)
                     openai_ids = db.query(AssistantConfig.id).filter(
                         AssistantConfig.user_id == user_uuid
                     ).all()
                     gemini_ids = db.query(GeminiAssistantConfig.id).filter(
                         GeminiAssistantConfig.user_id == user_uuid
                     ).all()
-                    
-                    all_assistant_ids = [a.id for a in openai_ids] + [a.id for a in gemini_ids]
+                    cartesia_ids = db.query(CartesiaAssistantConfig.id).filter(
+                        CartesiaAssistantConfig.user_id == user_uuid
+                    ).all()
+
+                    all_assistant_ids = [a.id for a in openai_ids] + [a.id for a in gemini_ids] + [a.id for a in cartesia_ids]
                     
                     if all_assistant_ids:
                         query = query.filter(Conversation.assistant_id.in_(all_assistant_ids))
