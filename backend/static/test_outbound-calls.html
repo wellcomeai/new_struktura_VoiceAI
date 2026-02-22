@@ -326,6 +326,7 @@
         
         .assistant-type-tab.active.openai i { color: var(--success-green); }
         .assistant-type-tab.active.gemini i { color: var(--primary-blue); }
+        .assistant-type-tab.active.cartesia i { color: #8b5cf6; }
         
         /* Phones Counter */
         .phones-counter {
@@ -641,6 +642,10 @@
                             <i class="fas fa-gem"></i>
                             Gemini
                         </div>
+                        <div class="assistant-type-tab cartesia" data-type="cartesia">
+                            <i class="fas fa-headset"></i>
+                            Cartesia
+                        </div>
                     </div>
                     
                     <div id="assistantLoading" class="loading-state">
@@ -767,7 +772,8 @@
             assistantId: null,
             assistants: {
                 openai: [],
-                gemini: []
+                gemini: [],
+                cartesia: []
             },
             numbers: [],
             isLoading: false,
@@ -878,9 +884,14 @@
                 elements.assistantContent.classList.add('d-none');
                 elements.noAssistants.classList.add('d-none');
                 
-                const endpoint = type === 'openai' 
-                    ? '/api/assistants/' 
-                    : '/api/gemini-assistants/';
+                let endpoint;
+                if (type === 'openai') {
+                    endpoint = '/api/assistants/';
+                } else if (type === 'gemini') {
+                    endpoint = '/api/gemini-assistants/';
+                } else if (type === 'cartesia') {
+                    endpoint = '/api/cartesia-assistants/';
+                }
                 
                 const response = await fetchWithAuth(endpoint);
                 const data = await response.json();
