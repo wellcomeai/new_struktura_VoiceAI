@@ -32,6 +32,7 @@
       --success-green: #10b981;
       --error-red: #ef4444;
       --gemini-purple: #8b5cf6;
+      --cartesia-teal: #06b6d4;
       --cost-orange: #f59e0b;
       --telegram-blue: #0088cc;
     }
@@ -430,7 +431,11 @@
     .assistant-avatar.gemini {
       background: linear-gradient(135deg, var(--gemini-purple), #7c3aed);
     }
-    
+
+    .assistant-avatar.cartesia {
+      background: linear-gradient(135deg, #06b6d4, #0891b2);
+    }
+
     .card-info {
       flex: 1;
       min-width: 0;
@@ -465,7 +470,12 @@
       background-color: rgba(139, 92, 246, 0.1);
       color: var(--gemini-purple);
     }
-    
+
+    .assistant-type-badge.cartesia {
+      background-color: rgba(6, 182, 212, 0.1);
+      color: var(--cartesia-teal);
+    }
+
     .conversation-date {
       font-size: 0.8rem;
       color: var(--text-light);
@@ -793,7 +803,11 @@
     .message.assistant.gemini .message-avatar {
       background: linear-gradient(135deg, var(--gemini-purple), #7c3aed);
     }
-    
+
+    .message.assistant.cartesia .message-avatar {
+      background: linear-gradient(135deg, #06b6d4, #0891b2);
+    }
+
     .message-bubble {
       padding: 0.75rem 1rem;
       border-radius: 1rem;
@@ -2521,9 +2535,12 @@
         const previewText = getCleanPreviewText(conversation);
         const preview = previewText.length > 100 ? previewText.substring(0, 100) + '...' : previewText;
         
-        const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini' : 'assistant-avatar';
-        const typeBadge = assistantType === 'gemini' 
+        const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini'
+          : assistantType === 'cartesia' ? 'assistant-avatar cartesia' : 'assistant-avatar';
+        const typeBadge = assistantType === 'gemini'
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
+          : assistantType === 'cartesia'
+          ? '<span class="assistant-type-badge cartesia">Cartesia</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
         
         let metaItems = '';
@@ -2624,7 +2641,18 @@
           } catch (e) {
             console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
           }
-          
+
+          try {
+            const cartesiaData = await api.get('/cartesia-assistants');
+            const cartesiaList = Array.isArray(cartesiaData) ? cartesiaData : [];
+            cartesiaList.forEach(a => {
+              assistants.push({ id: a.id, name: a.name, type: 'cartesia' });
+            });
+            console.log(`[ASSISTANTS] ✅ Loaded ${cartesiaList.length} Cartesia assistants`);
+          } catch (e) {
+            console.warn('[ASSISTANTS] ⚠️ Error loading Cartesia assistants:', e.message);
+          }
+
           console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
           renderAssistantFilter();
           
@@ -2645,7 +2673,8 @@
         
         const openaiAssistants = assistants.filter(a => a.type === 'openai');
         const geminiAssistants = assistants.filter(a => a.type === 'gemini');
-        
+        const cartesiaAssistants = assistants.filter(a => a.type === 'cartesia');
+
         if (openaiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
           optgroup.label = '🤖 OpenAI';
@@ -2657,7 +2686,7 @@
           });
           assistantFilter.appendChild(optgroup);
         }
-        
+
         if (geminiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
           optgroup.label = '✨ Gemini';
@@ -2669,8 +2698,20 @@
           });
           assistantFilter.appendChild(optgroup);
         }
-        
-        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI and', geminiAssistants.length, 'Gemini');
+
+        if (cartesiaAssistants.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = '🎙️ Cartesia';
+          cartesiaAssistants.forEach(assistant => {
+            const option = document.createElement('option');
+            option.value = assistant.id;
+            option.textContent = assistant.name;
+            optgroup.appendChild(option);
+          });
+          assistantFilter.appendChild(optgroup);
+        }
+
+        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini, and', cartesiaAssistants.length, 'Cartesia');
       }
       
       // ============================================================================
@@ -2747,8 +2788,10 @@
           const dialog = await api.get(`/conversations/${conversationId}?include_functions=true`);
           
           const type = dialog.client_info?.assistant_type || assistantType || 'openai';
-          const typeBadge = type === 'gemini' 
+          const typeBadge = type === 'gemini'
             ? '<span class="assistant-type-badge gemini" style="margin-left: 0.5rem;">Gemini</span>'
+            : type === 'cartesia'
+            ? '<span class="assistant-type-badge cartesia" style="margin-left: 0.5rem;">Cartesia</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
@@ -2790,7 +2833,8 @@
             
             filteredMessages.forEach(msg => {
               const messageDiv = document.createElement('div');
-              const assistantClass = type === 'gemini' ? 'message assistant gemini' : 'message assistant';
+              const assistantClass = type === 'gemini' ? 'message assistant gemini'
+                : type === 'cartesia' ? 'message assistant cartesia' : 'message assistant';
               messageDiv.className = msg.type === 'user' ? 'message user' : assistantClass;
               
               const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : '🤖');
@@ -2876,8 +2920,8 @@
                 <span>${dialog.total_tokens || 0} токенов использовано</span>
               </div>
               <div class="footer-item">
-                <i class="${type === 'gemini' ? 'fas fa-gem' : 'fas fa-robot'}"></i>
-                <span>${type === 'gemini' ? 'Gemini AI' : 'OpenAI'}</span>
+                <i class="${type === 'gemini' ? 'fas fa-gem' : type === 'cartesia' ? 'fas fa-microphone-alt' : 'fas fa-robot'}"></i>
+                <span>${type === 'gemini' ? 'Gemini AI' : type === 'cartesia' ? 'Cartesia' : 'OpenAI'}</span>
               </div>
               ${costFormatted ? `
                 <div class="footer-item cost">
