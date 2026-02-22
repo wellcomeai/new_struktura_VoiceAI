@@ -28,6 +28,7 @@ from backend.models.contact import Contact, ContactNote
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.task import Task, TaskStatus
 
 logger = get_logger(__name__)
@@ -1025,25 +1026,29 @@ async def get_contact_tasks(
             
             # Определяем тип и получаем имя ассистента
             if task.assistant_id:
-                # OpenAI ассистент
                 assistant = db.query(AssistantConfig).filter(
                     AssistantConfig.id == task.assistant_id
                 ).first()
                 task_dict['assistant_name'] = assistant.name if assistant else "Unknown OpenAI"
                 task_dict['assistant_type'] = 'openai'
             elif task.gemini_assistant_id:
-                # Gemini ассистент
                 gemini_assistant = db.query(GeminiAssistantConfig).filter(
                     GeminiAssistantConfig.id == task.gemini_assistant_id
                 ).first()
                 task_dict['assistant_name'] = gemini_assistant.name if gemini_assistant else "Unknown Gemini"
                 task_dict['assistant_type'] = 'gemini'
+            elif task.cartesia_assistant_id:
+                cartesia_assistant = db.query(CartesiaAssistantConfig).filter(
+                    CartesiaAssistantConfig.id == task.cartesia_assistant_id
+                ).first()
+                task_dict['assistant_name'] = cartesia_assistant.name if cartesia_assistant else "Unknown Cartesia"
+                task_dict['assistant_type'] = 'cartesia'
             else:
                 task_dict['assistant_name'] = "Unknown"
                 task_dict['assistant_type'] = 'unknown'
-            
+
             result.append(task_dict)
-        
+
         logger.info(f"✅ Returned {len(result)} tasks (pending: {pending_count}, completed: {completed_count})")
         
         return {
@@ -1128,10 +1133,16 @@ async def get_task_detail(
             ).first()
             result['assistant_name'] = gemini_assistant.name if gemini_assistant else "Unknown Gemini"
             result['assistant_type'] = 'gemini'
+        elif task.cartesia_assistant_id:
+            cartesia_assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == task.cartesia_assistant_id
+            ).first()
+            result['assistant_name'] = cartesia_assistant.name if cartesia_assistant else "Unknown Cartesia"
+            result['assistant_type'] = 'cartesia'
         else:
             result['assistant_name'] = "Unknown"
             result['assistant_type'] = 'unknown'
-        
+
         # Добавляем информацию о контакте
         result['contact'] = {
             'id': str(contact.id),
@@ -1215,27 +1226,39 @@ async def create_contact_task(
                 detail="Invalid assistant ID format"
             )
         
-        # Проверяем в обеих таблицах
+        # Проверяем во всех таблицах
         openai_assistant = db.query(AssistantConfig).filter(
             AssistantConfig.id == assistant_uuid,
             AssistantConfig.user_id == current_user.id
         ).first()
-        
+
         gemini_assistant = db.query(GeminiAssistantConfig).filter(
             GeminiAssistantConfig.id == assistant_uuid,
             GeminiAssistantConfig.user_id == current_user.id
         ).first()
-        
-        if not openai_assistant and not gemini_assistant:
+
+        cartesia_assistant = db.query(CartesiaAssistantConfig).filter(
+            CartesiaAssistantConfig.id == assistant_uuid,
+            CartesiaAssistantConfig.user_id == current_user.id
+        ).first()
+
+        if not openai_assistant and not gemini_assistant and not cartesia_assistant:
             logger.warning(f"[TASKS-API] Assistant {assistant_uuid} not found for user {current_user.id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Assistant not found"
             )
-        
+
         # Определяем тип ассистента
-        assistant_type = "openai" if openai_assistant else "gemini"
-        assistant_name = openai_assistant.name if openai_assistant else gemini_assistant.name
+        if openai_assistant:
+            assistant_type = "openai"
+            assistant_name = openai_assistant.name
+        elif gemini_assistant:
+            assistant_type = "gemini"
+            assistant_name = gemini_assistant.name
+        else:
+            assistant_type = "cartesia"
+            assistant_name = cartesia_assistant.name
         
         logger.info(f"   Assistant type: {assistant_type}, name: {assistant_name}")
         
@@ -1262,6 +1285,7 @@ async def create_contact_task(
             contact_id=contact_uuid,
             assistant_id=assistant_uuid if openai_assistant else None,
             gemini_assistant_id=assistant_uuid if gemini_assistant else None,
+            cartesia_assistant_id=assistant_uuid if cartesia_assistant else None,
             user_id=current_user.id,
             scheduled_time=scheduled_time,
             title=task_data.title.strip(),
@@ -1378,34 +1402,47 @@ async def update_task(
                     detail="Invalid assistant ID format"
                 )
             
-            # Проверяем новый ассистент в обеих таблицах
+            # Проверяем новый ассистент во всех таблицах
             openai_assistant = db.query(AssistantConfig).filter(
                 AssistantConfig.id == new_assistant_uuid,
                 AssistantConfig.user_id == current_user.id
             ).first()
-            
+
             gemini_assistant = db.query(GeminiAssistantConfig).filter(
                 GeminiAssistantConfig.id == new_assistant_uuid,
                 GeminiAssistantConfig.user_id == current_user.id
             ).first()
-            
-            if not openai_assistant and not gemini_assistant:
+
+            cartesia_assistant = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == new_assistant_uuid,
+                CartesiaAssistantConfig.user_id == current_user.id
+            ).first()
+
+            if not openai_assistant and not gemini_assistant and not cartesia_assistant:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="New assistant not found"
                 )
-            
+
             # Обновляем правильное поле в зависимости от типа
             if openai_assistant:
                 task.assistant_id = new_assistant_uuid
                 task.gemini_assistant_id = None
+                task.cartesia_assistant_id = None
                 assistant_name = openai_assistant.name
                 logger.info(f"   Updated assistant to OpenAI: {assistant_name}")
-            else:
+            elif gemini_assistant:
                 task.assistant_id = None
                 task.gemini_assistant_id = new_assistant_uuid
+                task.cartesia_assistant_id = None
                 assistant_name = gemini_assistant.name
                 logger.info(f"   Updated assistant to Gemini: {assistant_name}")
+            else:
+                task.assistant_id = None
+                task.gemini_assistant_id = None
+                task.cartesia_assistant_id = new_assistant_uuid
+                assistant_name = cartesia_assistant.name
+                logger.info(f"   Updated assistant to Cartesia: {assistant_name}")
             
             updated_fields.append("assistant_id")
         
@@ -1472,10 +1509,16 @@ async def update_task(
             ).first()
             result['assistant_name'] = gemini_assistant.name if gemini_assistant else "Unknown Gemini"
             result['assistant_type'] = 'gemini'
+        elif task.cartesia_assistant_id:
+            cartesia_asst = db.query(CartesiaAssistantConfig).filter(
+                CartesiaAssistantConfig.id == task.cartesia_assistant_id
+            ).first()
+            result['assistant_name'] = cartesia_asst.name if cartesia_asst else "Unknown Cartesia"
+            result['assistant_type'] = 'cartesia'
         else:
             result['assistant_name'] = "Unknown"
             result['assistant_type'] = 'unknown'
-        
+
         logger.info(f"✅ Task updated: {task.id}")
         logger.info(f"   Updated fields: {', '.join(updated_fields)}")
         

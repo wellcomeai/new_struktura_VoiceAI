@@ -63,9 +63,17 @@ class Task(Base):
     
     # Gemini ассистент - КТО будет звонить (nullable)
     gemini_assistant_id = Column(
-        UUID(as_uuid=True), 
-        ForeignKey("gemini_assistant_configs.id"), 
+        UUID(as_uuid=True),
+        ForeignKey("gemini_assistant_configs.id"),
         nullable=True,  # ✅ Новое поле
+        index=True
+    )
+
+    # Cartesia ассистент - КТО будет звонить (nullable)
+    cartesia_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("cartesia_assistant_configs.id"),
+        nullable=True,
         index=True
     )
     
@@ -123,16 +131,18 @@ class Task(Base):
     
     # ==================== Relationships ====================
     contact = relationship("Contact", back_populates="tasks")
-    assistant = relationship("AssistantConfig", foreign_keys=[assistant_id])  # ✅ Explicit FK
-    gemini_assistant = relationship("GeminiAssistantConfig", foreign_keys=[gemini_assistant_id])  # ✅ Новое
+    assistant = relationship("AssistantConfig", foreign_keys=[assistant_id])
+    gemini_assistant = relationship("GeminiAssistantConfig", foreign_keys=[gemini_assistant_id])
+    cartesia_assistant = relationship("CartesiaAssistantConfig", foreign_keys=[cartesia_assistant_id])
     user = relationship("User")
     
     # ==================== Constraints & Indexes ====================
     __table_args__ = (
         # ✅ CHECK: хотя бы один ассистент должен быть указан
         CheckConstraint(
-            '(assistant_id IS NOT NULL AND gemini_assistant_id IS NULL) OR '
-            '(assistant_id IS NULL AND gemini_assistant_id IS NOT NULL)',
+            '((assistant_id IS NOT NULL)::int + '
+            '(gemini_assistant_id IS NOT NULL)::int + '
+            '(cartesia_assistant_id IS NOT NULL)::int) = 1',
             name='check_assistant_type'
         ),
         # Составной индекс для поиска задач к выполнению
@@ -144,17 +154,27 @@ class Task(Base):
     )
     
     def __repr__(self):
-        assistant_type = "OpenAI" if self.assistant_id else "Gemini"
+        assistant_type = "OpenAI" if self.assistant_id else ("Gemini" if self.gemini_assistant_id else "Cartesia")
         greeting_info = " (custom greeting)" if self.custom_greeting else ""
         return f"<Task {self.title} at {self.scheduled_time} ({assistant_type}, status={self.status.value}){greeting_info}>"
     
     def get_assistant_type(self) -> str:
         """Определить тип ассистента"""
-        return "openai" if self.assistant_id else "gemini"
-    
+        if self.assistant_id:
+            return "openai"
+        elif self.gemini_assistant_id:
+            return "gemini"
+        else:
+            return "cartesia"
+
     def get_assistant_id(self) -> str:
         """Получить ID ассистента (универсально)"""
-        return str(self.assistant_id) if self.assistant_id else str(self.gemini_assistant_id)
+        if self.assistant_id:
+            return str(self.assistant_id)
+        elif self.gemini_assistant_id:
+            return str(self.gemini_assistant_id)
+        else:
+            return str(self.cartesia_assistant_id)
     
     def to_dict(self):
         """Сериализация для API"""
@@ -163,6 +183,7 @@ class Task(Base):
             "contact_id": str(self.contact_id),
             "assistant_id": str(self.assistant_id) if self.assistant_id else None,
             "gemini_assistant_id": str(self.gemini_assistant_id) if self.gemini_assistant_id else None,
+            "cartesia_assistant_id": str(self.cartesia_assistant_id) if self.cartesia_assistant_id else None,
             "assistant_type": self.get_assistant_type(),  # ✅ Новое поле
             "user_id": str(self.user_id),
             "status": self.status.value,

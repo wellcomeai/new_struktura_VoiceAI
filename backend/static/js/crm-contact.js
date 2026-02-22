@@ -560,8 +560,27 @@ document.addEventListener('DOMContentLoaded', function() {
         console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
       }
       
+      // 3. Загружаем Cartesia ассистентов
+      try {
+        const cartesiaData = await api.get('/cartesia-assistants');
+        const cartesiaList = Array.isArray(cartesiaData) ? cartesiaData : (cartesiaData.assistants || []);
+
+        cartesiaList.forEach(a => {
+          assistants.push({
+            id: a.id,
+            name: a.name,
+            type: 'cartesia',
+            displayName: a.name
+          });
+        });
+
+        console.log(`[ASSISTANTS] ✅ Loaded ${cartesiaList.length} Cartesia assistants`);
+      } catch (e) {
+        console.warn('[ASSISTANTS] ⚠️ Error loading Cartesia assistants:', e.message);
+      }
+
       console.log(`[ASSISTANTS] 🎯 Total assistants: ${assistants.length}`);
-      
+
       renderAssistantSelects();
       
     } catch (error) {
@@ -590,34 +609,50 @@ document.addEventListener('DOMContentLoaded', function() {
       
       const openaiAssistants = assistants.filter(a => a.type === 'openai');
       const geminiAssistants = assistants.filter(a => a.type === 'gemini');
-      
+      const cartesiaAssistants = assistants.filter(a => a.type === 'cartesia');
+
       // OpenAI group
       if (openaiAssistants.length > 0) {
         const optgroup = document.createElement('optgroup');
         optgroup.label = '🤖 OpenAI Assistants';
-        
+
         openaiAssistants.forEach(assistant => {
           const option = document.createElement('option');
           option.value = `${assistant.id}|openai`;
           option.textContent = assistant.name;
           optgroup.appendChild(option);
         });
-        
+
         selectElement.appendChild(optgroup);
       }
-      
+
       // Gemini group
       if (geminiAssistants.length > 0) {
         const optgroup = document.createElement('optgroup');
         optgroup.label = '✨ Gemini Assistants';
-        
+
         geminiAssistants.forEach(assistant => {
           const option = document.createElement('option');
           option.value = `${assistant.id}|gemini`;
           option.textContent = assistant.name;
           optgroup.appendChild(option);
         });
-        
+
+        selectElement.appendChild(optgroup);
+      }
+
+      // Cartesia group
+      if (cartesiaAssistants.length > 0) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = '🎧 Cartesia Assistants';
+
+        cartesiaAssistants.forEach(assistant => {
+          const option = document.createElement('option');
+          option.value = `${assistant.id}|cartesia`;
+          option.textContent = assistant.name;
+          optgroup.appendChild(option);
+        });
+
         selectElement.appendChild(optgroup);
       }
     });
@@ -1047,7 +1082,7 @@ document.addEventListener('DOMContentLoaded', function() {
       (isOverdue ? ' <span style="color: var(--error-red); font-weight: 600;">⚠️ Просрочено</span>' : '');
     
     // Assistant
-    const assistantIcon = task.assistant_type === 'openai' ? '🤖' : '✨';
+    const assistantIcon = task.assistant_type === 'openai' ? '🤖' : task.assistant_type === 'gemini' ? '✨' : '🎧';
     taskViewAssistant.textContent = `${assistantIcon} ${task.assistant_name}`;
     
     // Description
@@ -1083,9 +1118,14 @@ document.addEventListener('DOMContentLoaded', function() {
   function switchToEditMode() {
     const task = currentTaskData;
     
-    const assistantValue = task.assistant_type === 'openai' 
-      ? `${task.assistant_id}|openai` 
-      : `${task.gemini_assistant_id}|gemini`;
+    let assistantValue;
+    if (task.assistant_type === 'openai') {
+      assistantValue = `${task.assistant_id}|openai`;
+    } else if (task.assistant_type === 'gemini') {
+      assistantValue = `${task.gemini_assistant_id}|gemini`;
+    } else if (task.assistant_type === 'cartesia') {
+      assistantValue = `${task.cartesia_assistant_id}|cartesia`;
+    }
     
     taskEditAssistant.value = assistantValue;
     taskEditDatetime.value = formatDatetimeLocalMsk(task.scheduled_time);
