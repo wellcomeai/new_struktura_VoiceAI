@@ -283,18 +283,39 @@ class TaskScheduler:
                 db.commit()
                 return
             
-            # Получаем caller_id из первого доступного номера
+            # ✅ v4.1: Выбор caller_id — из задачи или автоматически
             caller_id = None
-            if child_account.phone_numbers:
-                for phone in child_account.phone_numbers:
-                    if phone.is_active:
-                        caller_id = phone.phone_number
-                        break
-            
+
+            # 1. Если в задаче указан конкретный caller_id — используем его
+            if task.caller_id:
+                # Проверяем что этот номер существует и активен
+                caller_id_valid = False
+                if child_account.phone_numbers:
+                    for phone in child_account.phone_numbers:
+                        if phone.phone_number == task.caller_id and phone.is_active:
+                            caller_id = task.caller_id
+                            caller_id_valid = True
+                            logger.info(f"   ✅ Using task-specified caller_id: {caller_id}")
+                            break
+
+                if not caller_id_valid:
+                    logger.warning(f"[TASK-SCHEDULER] ⚠️ Task caller_id '{task.caller_id}' is not active or not found")
+                    logger.warning(f"   Falling back to first active number...")
+
+            # 2. Если caller_id не указан или не валиден — берём первый активный
+            if not caller_id:
+                if child_account.phone_numbers:
+                    for phone in child_account.phone_numbers:
+                        if phone.is_active:
+                            caller_id = phone.phone_number
+                            logger.info(f"   📞 Auto-selected caller_id: {caller_id}")
+                            break
+
+            # 3. Если вообще нет активных номеров — ошибка
             if not caller_id:
                 logger.error(f"[TASK-SCHEDULER] ❌ No active phone numbers for caller_id")
                 task.status = TaskStatus.FAILED
-                task.call_result = "No active phone numbers available for caller ID"
+                task.call_result = "No active phone numbers available for caller ID. Check that your phone numbers are not expired."
                 db.commit()
                 return
             

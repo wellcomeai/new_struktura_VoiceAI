@@ -126,7 +126,11 @@ document.addEventListener('DOMContentLoaded', function() {
   const taskEditTitle = document.getElementById('task-edit-title');
   const taskEditDescription = document.getElementById('task-edit-description');
   const taskEditGreeting = document.getElementById('task-edit-greeting');
-  
+
+  // Caller ID selects
+  const taskCreateCallerId = document.getElementById('task-create-caller-id');
+  const taskEditCallerId = document.getElementById('task-edit-caller-id');
+
   // Delete Task Modal
   const deleteTaskModal = document.getElementById('delete-task-modal');
   const deleteTaskText = document.getElementById('delete-task-text');
@@ -152,6 +156,7 @@ document.addEventListener('DOMContentLoaded', function() {
   let notes = [];
   let timelineItems = []; // Unified: tasks + conversations
   let assistants = [];
+  let phoneNumbers = []; // Доступные номера для caller_id
   let currentTaskId = null;
   let currentTaskData = null;
   let taskToDeleteId = null;
@@ -401,7 +406,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Load assistants (for task creation)
       await loadAssistants();
-      
+
+      // Load phone numbers (for caller_id selection)
+      await loadPhoneNumbers();
+
       // Load unified timeline
       await loadTimeline();
       
@@ -659,7 +667,55 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('[ASSISTANTS] ✅ Assistant selects rendered');
   }
-  
+
+  // ==================== Load Phone Numbers ====================
+  async function loadPhoneNumbers() {
+    try {
+      const data = await api.get('/telephony/my-phone-numbers');
+      phoneNumbers = data.phone_numbers || [];
+      console.log(`[PHONE-NUMBERS] ✅ Loaded ${phoneNumbers.length} numbers`);
+      renderPhoneNumberSelects();
+    } catch (error) {
+      console.warn('[PHONE-NUMBERS] ⚠️ Could not load phone numbers:', error.message);
+      phoneNumbers = [];
+      renderPhoneNumberSelects();
+    }
+  }
+
+  function renderPhoneNumberSelects() {
+    const selects = [taskCreateCallerId, taskEditCallerId].filter(Boolean);
+
+    selects.forEach(select => {
+      select.innerHTML = '';
+
+      // Опция "Автоматически"
+      const autoOption = document.createElement('option');
+      autoOption.value = '';
+      autoOption.textContent = '📞 Автоматически (первый активный)';
+      select.appendChild(autoOption);
+
+      if (phoneNumbers.length === 0) {
+        return;
+      }
+
+      phoneNumbers.forEach(pn => {
+        const option = document.createElement('option');
+        option.value = pn.phone_number;
+
+        const activeLabel = pn.is_active ? '' : ' ⚠️ Неактивен';
+        const regionLabel = pn.phone_region ? ` (${pn.phone_region})` : '';
+        option.textContent = `${formatPhoneNumber(pn.phone_number)}${regionLabel}${activeLabel}`;
+
+        if (!pn.is_active) {
+          option.disabled = true;
+          option.style.color = '#999';
+        }
+
+        select.appendChild(option);
+      });
+    });
+  }
+
   // ==================== Load Unified Timeline ====================
   async function loadTimeline() {
     try {
@@ -1007,9 +1063,10 @@ document.addEventListener('DOMContentLoaded', function() {
         title: title,
         description: description || null,
         custom_greeting: customGreeting || null,
+        caller_id: taskCreateCallerId.value || null,
         assistant_id: assistantId
       };
-      
+
       console.log('[TASK-CREATE] Sending:', body);
       
       await api.post(`/contacts/${contactId}/tasks`, body);
@@ -1100,7 +1157,19 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       taskViewGreetingSection.style.display = 'none';
     }
-    
+
+    // Caller ID
+    const taskViewCallerIdSection = document.getElementById('task-view-caller-id-section');
+    const taskViewCallerIdValue = document.getElementById('task-view-caller-id');
+    if (taskViewCallerIdSection && taskViewCallerIdValue) {
+      if (task.caller_id) {
+        taskViewCallerIdSection.style.display = 'block';
+        taskViewCallerIdValue.textContent = formatPhoneNumber(task.caller_id);
+      } else {
+        taskViewCallerIdSection.style.display = 'none';
+      }
+    }
+
     // ✅ v4.0: Показываем кнопку редактирования только для scheduled/pending
     if (task.status === 'scheduled' || task.status === 'pending') {
       taskViewEditBtn.style.display = 'inline-flex';
@@ -1132,7 +1201,12 @@ document.addEventListener('DOMContentLoaded', function() {
     taskEditTitle.value = task.title;
     taskEditDescription.value = task.description || '';
     taskEditGreeting.value = task.custom_greeting || '';
-    
+
+    // Caller ID
+    if (taskEditCallerId) {
+      taskEditCallerId.value = task.caller_id || '';
+    }
+
     taskViewMode.style.display = 'none';
     taskEditForm.style.display = 'block';
     taskModalTitle.innerHTML = '<i class="fas fa-edit"></i> Редактирование задачи';
@@ -1180,9 +1254,10 @@ document.addEventListener('DOMContentLoaded', function() {
         title: title,
         description: description || null,
         custom_greeting: customGreeting || null,
+        caller_id: taskEditCallerId.value || null,
         assistant_id: assistantId
       };
-      
+
       console.log('[TASK-UPDATE] Sending:', body);
       
       const response = await api.put(`/contacts/tasks/${currentTaskId}`, body);

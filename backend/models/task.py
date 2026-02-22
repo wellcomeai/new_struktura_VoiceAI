@@ -106,6 +106,11 @@ class Task(Base):
     # ✅ НОВОЕ v2.1: Персонализированное приветствие для задачи
     # Если указано - используется вместо config.hello из настроек ассистента
     custom_greeting = Column(Text, nullable=True)
+
+    # ✅ НОВОЕ v2.2: Номер телефона для исходящего звонка (Caller ID)
+    # Если указан — звонок идёт с этого номера
+    # Если NULL — автоматически выбирается первый активный номер пользователя
+    caller_id = Column(String(20), nullable=True)
     
     # ==================== Результат выполнения ====================
     # ID звонка в Voximplant (заполняется после звонка)
@@ -191,6 +196,7 @@ class Task(Base):
             "title": self.title,
             "description": self.description,
             "custom_greeting": self.custom_greeting,  # ✅ НОВОЕ v2.1
+            "caller_id": self.caller_id,  # ✅ НОВОЕ v2.2
             "call_session_id": self.call_session_id,
             "call_started_at": self.call_started_at.isoformat() if self.call_started_at else None,
             "call_completed_at": self.call_completed_at.isoformat() if self.call_completed_at else None,

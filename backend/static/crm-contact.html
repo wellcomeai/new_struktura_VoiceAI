@@ -1135,9 +1135,9 @@
         
         <div class="form-group">
           <label class="form-label">💬 Персонализированное приветствие (опционально)</label>
-          <textarea 
-            class="form-textarea" 
-            id="task-create-greeting" 
+          <textarea
+            class="form-textarea"
+            id="task-create-greeting"
             placeholder="Например: Добрый день! Звоню по поводу нашей встречи 26 ноября. Удобно сейчас говорить?"
             rows="3"
           ></textarea>
@@ -1145,7 +1145,16 @@
             Если указано - будет использовано вместо стандартного приветствия ассистента
           </p>
         </div>
-        
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-phone-alt"></i> Звонить с номера
+          </label>
+          <select class="form-select" id="task-create-caller-id">
+            <option value="">📞 Автоматически (первый активный)</option>
+          </select>
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="task-create-cancel-btn">Отмена</button>
           <button type="submit" class="btn btn-primary">
@@ -1194,7 +1203,12 @@
           <div class="task-detail-label">💬 Персонализированное приветствие</div>
           <div class="task-detail-value" id="task-view-greeting"></div>
         </div>
-        
+
+        <div class="task-detail-section" id="task-view-caller-id-section" style="display: none;">
+          <div class="task-detail-label">📞 Звонить с номера</div>
+          <div class="task-detail-value" id="task-view-caller-id"></div>
+        </div>
+
         <!-- ✅ v4.0: Updated footer with delete button -->
         <div class="modal-footer">
           <div class="modal-footer-left">
@@ -1256,16 +1270,25 @@
         
         <div class="form-group">
           <label class="form-label">💬 Персонализированное приветствие (опционально)</label>
-          <textarea 
-            class="form-textarea" 
-            id="task-edit-greeting" 
+          <textarea
+            class="form-textarea"
+            id="task-edit-greeting"
             rows="3"
           ></textarea>
           <p class="form-helper">
             Если указано - будет использовано вместо стандартного приветствия ассистента
           </p>
         </div>
-        
+
+        <div class="form-group">
+          <label class="form-label">
+            <i class="fas fa-phone-alt"></i> Звонить с номера
+          </label>
+          <select class="form-select" id="task-edit-caller-id">
+            <option value="">📞 Автоматически (первый активный)</option>
+          </select>
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="task-edit-cancel-btn">Отмена</button>
           <button type="submit" class="btn btn-primary">

@@ -629,6 +629,9 @@ def check_and_fix_all_missing_columns():
             'assistant_configs': {
                 # Добавьте если нужно
             },
+            'tasks': {
+                'caller_id': 'VARCHAR(20) NULL',
+            },
             'subscription_plans': {
                 # Добавьте если нужно
             }

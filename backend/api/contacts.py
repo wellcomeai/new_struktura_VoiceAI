@@ -68,24 +68,28 @@ class TaskCreate(BaseModel):
     """
     Схема для создания задачи
     ✅ v3.2: Добавлено поле custom_greeting
+    ✅ v3.3: Добавлено поле caller_id
     """
     assistant_id: str = Field(..., description="UUID ассистента для звонка (OpenAI или Gemini)")
     scheduled_time: str = Field(..., description="Время звонка в ISO формате или текстом")
     title: str = Field(..., description="Название задачи", min_length=1, max_length=255)
     description: Optional[str] = Field(None, description="Описание задачи")
     custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")
+    caller_id: Optional[str] = Field(None, description="Номер телефона для исходящего звонка. Если не указан — первый активный номер")
 
 
 class TaskUpdate(BaseModel):
     """
     Схема для обновления задачи
     ✅ v3.4: Новая схема для редактирования задач
+    ✅ v3.5: Добавлено поле caller_id
     """
     assistant_id: Optional[str] = Field(None, description="UUID ассистента для звонка (OpenAI или Gemini)")
     scheduled_time: Optional[str] = Field(None, description="Время звонка в ISO формате или текстом")
     title: Optional[str] = Field(None, description="Название задачи", min_length=1, max_length=255)
     description: Optional[str] = Field(None, description="Описание задачи")
     custom_greeting: Optional[str] = Field(None, description="Персонализированное приветствие для звонка")
+    caller_id: Optional[str] = Field(None, description="Номер телефона для исходящего звонка")
 
 
 # ==================== Вспомогательные функции ====================
@@ -1280,7 +1284,7 @@ async def create_contact_task(
                 detail="Scheduled time must be in the future"
             )
         
-        # Создаем задачу с custom_greeting
+        # Создаем задачу с custom_greeting и caller_id
         new_task = Task(
             contact_id=contact_uuid,
             assistant_id=assistant_uuid if openai_assistant else None,
@@ -1291,6 +1295,7 @@ async def create_contact_task(
             title=task_data.title.strip(),
             description=task_data.description.strip() if task_data.description else None,
             custom_greeting=task_data.custom_greeting.strip() if task_data.custom_greeting else None,
+            caller_id=task_data.caller_id.strip() if task_data.caller_id else None,
             status=TaskStatus.SCHEDULED
         )
         
@@ -1486,7 +1491,13 @@ async def update_task(
             task.custom_greeting = task_data.custom_greeting.strip() if task_data.custom_greeting else None
             updated_fields.append("custom_greeting")
             logger.info(f"   Updated custom_greeting")
-        
+
+        # 6. Обновление caller_id
+        if task_data.caller_id is not None:
+            task.caller_id = task_data.caller_id.strip() if task_data.caller_id else None
+            updated_fields.append("caller_id")
+            logger.info(f"   Updated caller_id to: {task.caller_id}")
+
         # Обновляем дату изменения
         task.updated_at = datetime.utcnow()
         

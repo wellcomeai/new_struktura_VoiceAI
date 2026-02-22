@@ -348,6 +348,59 @@ class PublicCallResponse(BaseModel):
 
 
 # =============================================================================
+# ENDPOINTS: ДОСТУПНЫЕ НОМЕРА ДЛЯ CALLER ID
+# =============================================================================
+
+@router.get("/my-phone-numbers")
+async def get_available_phone_numbers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получить список доступных номеров телефона для исходящих звонков.
+    Используется для выбора caller_id при создании задачи.
+
+    Возвращает:
+    - phone_numbers: Список номеров с информацией об активности
+    """
+    try:
+        # Находим дочерний аккаунт пользователя
+        child_account = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == current_user.id
+        ).first()
+
+        if not child_account:
+            return {"phone_numbers": [], "total": 0}
+
+        # Получаем все номера
+        phone_numbers = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.child_account_id == child_account.id
+        ).order_by(VoximplantPhoneNumber.purchased_at).all()
+
+        result = []
+        for pn in phone_numbers:
+            result.append({
+                "phone_number": pn.phone_number,
+                "is_active": pn.is_active,
+                "phone_region": pn.phone_region,
+                "assistant_type": pn.assistant_type,
+                "expires_at": pn.expires_at.isoformat() if pn.expires_at else None
+            })
+
+        return {
+            "phone_numbers": result,
+            "total": len(result)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting phone numbers: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get phone numbers: {str(e)}"
+        )
+
+
+# =============================================================================
 # ENDPOINTS: ПОДКЛЮЧЕНИЕ И СТАТУС
 # =============================================================================
 
