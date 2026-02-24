@@ -12,6 +12,9 @@
   <meta name="theme-color" content="#7c3aed">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    /* ============================================================================
+       CSS VARIABLES
+       ============================================================================ */
     :root {
       --primary-blue: #2563eb;
       --primary-blue-light: #3b82f6;
@@ -36,179 +39,865 @@
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     body { background-color: var(--bg-light); color: var(--text-dark); min-height: 100vh; display: flex; }
 
-    /* Sidebar */
-    .sidebar { width: 260px; background-color: var(--white); border-right: 1px solid var(--border-color); height: 100vh; position: fixed; left: 0; top: 0; overflow-y: auto; display: flex; flex-direction: column; z-index: 50; }
-    .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-color); }
-    .sidebar-logo { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 700; color: var(--text-dark); text-decoration: none; }
-    .logo-icon { width: 30px; height: 30px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; }
-    .logo-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: var(--radius-md); }
+    /* ============================================================================
+       SIDEBAR
+       ============================================================================ */
+    .sidebar {
+      width: 260px;
+      background-color: var(--white);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 50;
+    }
+
+    .sidebar-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-dark);
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: var(--radius-md);
+    }
+
     .sidebar-nav { padding: 1.5rem 0; flex-grow: 1; }
-    .sidebar-section { padding: 0.5rem 1.5rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-light); letter-spacing: 0.05em; margin-top: 0.5rem; }
-    .sidebar-nav-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 1.5rem; color: var(--text-gray); text-decoration: none; font-size: 0.875rem; transition: all 0.2s; border-left: 3px solid transparent; }
-    .sidebar-nav-item:hover { background-color: var(--bg-light); color: var(--text-dark); }
-    .sidebar-nav-item.active { color: var(--cartesia-accent); background-color: var(--cartesia-light); border-left-color: var(--cartesia-accent); font-weight: 600; }
-    .sidebar-nav-item i { width: 20px; text-align: center; font-size: 1rem; }
-    .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); }
 
-    /* Main Content */
-    .main-content { margin-left: 260px; flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+    .sidebar-section {
+      padding: 0 1.5rem;
+      margin-bottom: 0.75rem;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
 
-    /* Top Navigation */
-    .top-nav { background-color: var(--white); border-bottom: 1px solid var(--border-color); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 40; }
+    .sidebar-nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      transition: background-color 0.2s, color 0.2s;
+      border-left: 3px solid transparent;
+    }
+
+    .sidebar-nav-item:hover {
+      background-color: var(--cartesia-light);
+      color: var(--cartesia-accent);
+    }
+
+    .sidebar-nav-item.active {
+      background-color: var(--cartesia-light);
+      color: var(--cartesia-accent);
+      border-left-color: var(--cartesia-accent);
+      font-weight: 600;
+    }
+
+    .sidebar-nav-item i { margin-right: 0.75rem; width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+
+    /* Plan-locked features */
+    .plan-locked-feature {
+      opacity: 0.6;
+      cursor: pointer !important;
+      position: relative;
+    }
+
+    .plan-locked-feature::after {
+      content: "🔒";
+      font-size: 0.875rem;
+      position: absolute;
+      right: 1.5rem;
+    }
+
+    .plan-locked-feature:hover {
+      opacity: 0.8;
+      background-color: var(--cartesia-light);
+    }
+
+    /* ============================================================================
+       MAIN CONTENT
+       ============================================================================ */
+    .main-content {
+      flex: 1;
+      margin-left: 260px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ============================================================================
+       TOP NAV
+       ============================================================================ */
+    .top-nav {
+      background-color: var(--white);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+
     .top-nav-left { display: flex; align-items: center; gap: 1rem; }
-    .top-nav-title { font-size: 1.25rem; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 0.5rem; }
-    .top-nav-right { display: flex; align-items: center; gap: 1rem; }
-    .mobile-menu-btn { display: none; background: none; border: none; font-size: 1.25rem; color: var(--text-gray); cursor: pointer; padding: 0.5rem; }
 
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.2s; border: none; }
+    .page-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .top-nav-right { display: flex; align-items: center; gap: 1rem; }
+
+    .mobile-menu-toggle {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    /* ============================================================================
+       BUTTONS
+       ============================================================================ */
+    .btn {
+      padding: 0.6rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      border: none;
+    }
+
     .btn-primary { background: var(--cartesia-gradient); color: white; }
     .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-    .btn-secondary { background-color: var(--bg-light); color: var(--text-gray); border: 1px solid var(--border-color); }
+
+    .btn-outline {
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+    }
+    .btn-outline:hover { background-color: var(--bg-light); }
+
+    .btn-secondary {
+      background-color: var(--bg-light);
+      color: var(--text-gray);
+      border: 1px solid var(--border-color);
+    }
     .btn-secondary:hover { background-color: var(--border-color); }
+
     .btn-danger { background-color: #ef4444; color: white; }
     .btn-danger:hover { background-color: #dc2626; }
+
     .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
 
-    /* User Dropdown */
-    .user-dropdown { position: relative; }
-    .user-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--cartesia-gradient); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.875rem; font-weight: 600; cursor: pointer; }
-    .dropdown-menu { position: absolute; right: 0; top: 100%; margin-top: 0.5rem; background: var(--white); border: 1px solid var(--border-color); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); min-width: 200px; display: none; z-index: 100; }
-    .dropdown-menu.show { display: block; }
-    .dropdown-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; color: var(--text-gray); text-decoration: none; font-size: 0.875rem; transition: all 0.2s; }
-    .dropdown-item:hover { background-color: var(--bg-light); color: var(--text-dark); }
+    .btn-icon {
+      background: none;
+      border: none;
+      color: var(--text-gray);
+      cursor: pointer;
+      padding: 0.5rem;
+      border-radius: var(--radius-md);
+      transition: all 0.2s;
+    }
+    .btn-icon:hover { background-color: var(--bg-light); color: var(--cartesia-accent); }
+
+    /* ============================================================================
+       USER DROPDOWN
+       ============================================================================ */
+    .user-menu { display: flex; align-items: center; gap: 1rem; position: relative; }
+
+    .user-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-dark);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      transition: background-color 0.2s;
+    }
+    .user-button:hover { background-color: var(--bg-light); }
+
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--cartesia-gradient);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      min-width: 200px;
+      z-index: 100;
+      overflow: hidden;
+      display: none;
+    }
+
+    .user-dropdown.show {
+      display: block;
+      animation: dropdown-fade 0.2s ease-in-out forwards;
+    }
+
+    @keyframes dropdown-fade {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      color: var(--text-gray);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: background-color 0.2s;
+    }
+    .dropdown-item:hover { background-color: var(--bg-light); color: var(--cartesia-accent); }
+
     .dropdown-divider { height: 1px; background-color: var(--border-color); margin: 0.25rem 0; }
 
-    /* Content Area */
-    .content-area { padding: 2rem; flex: 1; }
+    /* ============================================================================
+       CONTENT AREA
+       ============================================================================ */
+    .content-container { padding: 2rem; flex-grow: 1; }
 
-    /* API Keys Card */
-    .api-keys-card { background: var(--white); border-radius: var(--radius-lg); border: 1px solid var(--border-color); padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: var(--shadow-sm); }
-    .api-keys-card h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-    .api-key-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    /* ============================================================================
+       API KEYS CARD
+       ============================================================================ */
+    .api-keys-card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .api-keys-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .api-key-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
     .api-key-row label { min-width: 180px; font-size: 0.875rem; color: var(--text-gray); font-weight: 500; }
-    .api-key-row input { flex: 1; padding: 0.5rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 0.875rem; font-family: monospace; }
-    .api-key-row input:focus { outline: none; border-color: var(--cartesia-accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1); }
+    .api-key-row input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      font-family: monospace;
+    }
+    .api-key-row input:focus {
+      outline: none;
+      border-color: var(--cartesia-accent);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+
     .api-key-actions { display: flex; gap: 0.5rem; }
-    .api-key-warning { background: #fef3c7; border: 1px solid #fbbf24; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-top: 1rem; font-size: 0.875rem; color: #92400e; display: flex; align-items: center; gap: 0.5rem; }
 
-    /* Setup Screen */
-    .setup-screen { display: none; text-align: center; padding: 3rem; background: var(--white); border-radius: var(--radius-lg); border: 1px solid var(--border-color); }
-    .setup-screen.show { display: block; }
-    .setup-icon { font-size: 3rem; color: var(--cartesia-accent); margin-bottom: 1rem; }
-    .setup-screen h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    .setup-screen p { color: var(--text-gray); margin-bottom: 1.5rem; }
+    .api-key-warning {
+      background: #fef3c7;
+      border: 1px solid #fbbf24;
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+      font-size: 0.875rem;
+      color: #92400e;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
 
-    /* Agents Grid */
-    .agents-container { display: none; }
-    .agents-container.show { display: block; }
-    .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    /* ============================================================================
+       API KEY SETUP SCREEN
+       ============================================================================ */
+    .api-key-setup {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 50vh;
+      padding: 2rem;
+    }
+    .api-key-setup.show { display: flex; }
 
-    /* Agent Card */
-    .agent-card { background: var(--white); border-radius: var(--radius-lg); border: 1px solid var(--border-color); overflow: hidden; transition: all 0.2s; box-shadow: var(--shadow-sm); }
-    .agent-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
-    .agent-card-header { padding: 1.25rem 1.25rem 0; display: flex; align-items: flex-start; gap: 1rem; }
-    .agent-icon { width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--cartesia-gradient); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; flex-shrink: 0; }
+    .api-key-setup-icon {
+      font-size: 4rem;
+      background: var(--cartesia-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 1.5rem;
+    }
+
+    .api-key-setup-title { font-size: 2rem; font-weight: 600; margin-bottom: 1rem; text-align: center; }
+
+    .api-key-setup-description {
+      color: var(--text-gray);
+      max-width: 600px;
+      text-align: center;
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+
+    .api-key-setup-steps {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      max-width: 600px;
+      width: 100%;
+      box-shadow: var(--shadow-md);
+      margin-bottom: 2rem;
+    }
+    .api-key-setup-steps h3 { margin-bottom: 1rem; }
+    .api-key-setup-steps ol { padding-left: 1.5rem; line-height: 1.8; }
+    .api-key-setup-steps li { margin-bottom: 0.5rem; }
+    .api-key-setup-steps a { color: var(--cartesia-accent); text-decoration: none; }
+    .api-key-setup-steps a:hover { text-decoration: underline; }
+
+    /* ============================================================================
+       CARD & AGENTS LIST
+       ============================================================================ */
+    .card {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-title { font-size: 1.125rem; font-weight: 600; }
+
+    .agents-list-container { display: none; margin-top: 0; }
+    .agents-list-container.show { display: block; }
+
+    .agent-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .agents-count { color: var(--text-gray); font-weight: 500; margin: 0; }
+
+    .agent-items {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .agent-item {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      padding: 1.5rem;
+      display: flex;
+      gap: 1.25rem;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .agent-item:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+
+    .cartesia-badge {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      background: var(--cartesia-gradient);
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+    }
+
+    .agent-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: var(--cartesia-gradient);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+
     .agent-info { flex: 1; min-width: 0; }
-    .agent-badge { display: inline-block; font-size: 0.6875rem; font-weight: 600; padding: 0.125rem 0.5rem; border-radius: 9999px; background: var(--cartesia-light); color: var(--cartesia-accent); margin-bottom: 0.25rem; }
-    .agent-name { font-size: 1rem; font-weight: 600; color: var(--text-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .agent-description { font-size: 0.8125rem; color: var(--text-gray); margin-top: 0.25rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .agent-card-body { padding: 1rem 1.25rem; }
-    .agent-meta { display: flex; gap: 1rem; flex-wrap: wrap; }
-    .agent-meta-item { font-size: 0.75rem; color: var(--text-light); display: flex; align-items: center; gap: 0.25rem; }
-    .agent-card-footer { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 0.5rem; }
 
-    /* Edit Container */
-    .edit-container { display: none; background: var(--white); border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); }
+    .agent-name {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-description {
+      color: var(--text-gray);
+      margin-bottom: 0.75rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 0.95rem;
+    }
+
+    .agent-meta {
+      display: flex;
+      gap: 1rem;
+      color: var(--text-light);
+      font-size: 0.875rem;
+    }
+
+    .agent-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+
+    /* ============================================================================
+       EMPTY STATE
+       ============================================================================ */
+    .empty-state { text-align: center; padding: 3rem 1rem; }
+    .empty-icon { font-size: 3rem; color: var(--text-light); margin-bottom: 1rem; }
+    .empty-title { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.75rem; }
+    .empty-description { color: var(--text-gray); max-width: 500px; margin: 0 auto 2rem; }
+
+    /* ============================================================================
+       EDIT CONTAINER
+       ============================================================================ */
+    .edit-container { display: none; }
     .edit-container.show { display: block; }
-    .edit-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; }
-    .edit-header h2 { font-size: 1.125rem; font-weight: 600; }
 
     /* Tabs */
-    .tabs { display: flex; border-bottom: 1px solid var(--border-color); padding: 0 1.5rem; }
-    .tab { padding: 0.75rem 1rem; font-size: 0.875rem; color: var(--text-gray); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 0;
+    }
+
+    .tab {
+      padding: 0.75rem 1.5rem;
+      color: var(--text-gray);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      font-weight: 500;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      font-size: 0.875rem;
+    }
     .tab:hover { color: var(--text-dark); }
     .tab.active { color: var(--cartesia-accent); border-bottom-color: var(--cartesia-accent); font-weight: 600; }
+
     .tab-content { display: none; padding: 1.5rem; }
     .tab-content.active { display: block; }
 
-    /* Form */
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-dark); margin-bottom: 0.375rem; }
+    /* ============================================================================
+       FORM
+       ============================================================================ */
+    .form-section {
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-color);
+      margin-bottom: 2rem;
+      padding: 1.5rem;
+    }
+
+    .form-group { margin-bottom: 1.5rem; }
+    .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.875rem; color: var(--text-dark); }
     .form-group .hint { font-size: 0.75rem; color: var(--text-light); margin-top: 0.25rem; }
-    .form-control { width: 100%; padding: 0.625rem 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 0.875rem; color: var(--text-dark); transition: all 0.2s; }
-    .form-control:focus { outline: none; border-color: var(--cartesia-accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1); }
-    textarea.form-control { min-height: 120px; resize: vertical; font-family: inherit; }
+
+    .form-control {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.875rem;
+      color: var(--text-dark);
+      transition: all 0.2s;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: var(--cartesia-accent);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+    textarea.form-control { min-height: 150px; resize: vertical; font-family: inherit; }
+
+    .form-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
 
     /* Slider */
     .slider-container { display: flex; align-items: center; gap: 1rem; }
-    .slider-container input[type="range"] { flex: 1; -webkit-appearance: none; height: 6px; border-radius: 3px; background: var(--border-color); outline: none; }
-    .slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--cartesia-accent); cursor: pointer; }
+    .slider-container input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border-color);
+      outline: none;
+    }
+    .slider-container input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--cartesia-accent);
+      cursor: pointer;
+    }
     .slider-value { min-width: 40px; text-align: center; font-weight: 600; color: var(--cartesia-accent); }
 
-    /* Functions */
-    .functions-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .function-item { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
-    .function-item label { font-size: 0.875rem; font-weight: 500; cursor: pointer; }
-    .function-item .function-desc { font-size: 0.75rem; color: var(--text-gray); margin-top: 0.25rem; }
-    .function-info { display: none; margin-top: 0.5rem; padding: 0.5rem; background: var(--bg-light); border-radius: var(--radius-md); font-size: 0.75rem; }
-
-    /* Agent ID */
-    .agent-id-info { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; background-color: var(--cartesia-light); border-radius: var(--radius-md); border: 1px solid var(--cartesia-accent); margin-bottom: 1.25rem; }
+    /* Agent ID info */
+    .agent-id-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      background-color: var(--cartesia-light);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--cartesia-accent);
+      margin-bottom: 1.5rem;
+    }
     .agent-id-label { font-weight: 600; color: var(--text-dark); font-size: 0.875rem; }
-    .agent-id-value { font-family: monospace; font-size: 0.85rem; color: var(--cartesia-accent); background-color: var(--white); padding: 0.375rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); user-select: all; }
+    .agent-id-value {
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: var(--cartesia-accent);
+      background-color: var(--white);
+      padding: 0.375rem 0.75rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      user-select: all;
+    }
+    .copy-id-btn { margin-left: auto; }
 
-    /* Form Actions */
-    .form-actions { display: flex; justify-content: flex-end; gap: 0.75rem; padding-top: 1rem; border-top: 1px solid var(--border-color); margin-top: 1.5rem; }
+    /* ============================================================================
+       FUNCTIONS
+       ============================================================================ */
+    .function-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .function-option:hover { background-color: var(--cartesia-light); }
+    .function-option input { margin: 0; }
 
-    /* Empty State */
-    .empty-state { text-align: center; padding: 3rem; color: var(--text-gray); }
-    .empty-state i { font-size: 3rem; margin-bottom: 1rem; color: var(--text-light); }
-    .empty-state h3 { font-size: 1.125rem; margin-bottom: 0.5rem; color: var(--text-dark); }
+    .function-info {
+      border: 1px solid var(--border-color);
+      margin-top: 1rem;
+      padding: 1rem;
+      background-color: var(--bg-light);
+      border-radius: var(--radius-md);
+    }
 
-    /* Notifications */
-    .notification { position: fixed; top: 1rem; right: 1rem; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); font-size: 0.875rem; color: white; z-index: 1000; opacity: 0; transform: translateY(-10px); transition: all 0.3s; max-width: 400px; }
-    .notification.show { opacity: 1; transform: translateY(0); }
-    .notification.success { background-color: #10b981; }
-    .notification.error { background-color: #ef4444; }
-    .notification.info { background-color: var(--cartesia-accent); }
+    .function-schema {
+      background-color: var(--white);
+      padding: 1rem;
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: var(--text-dark);
+      white-space: pre-wrap;
+    }
 
-    /* Loading */
-    .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 500; justify-content: center; align-items: center; }
+    .functions-loading {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-gray);
+    }
+    .functions-loading i { font-size: 2rem; margin-bottom: 1rem; animation: spin 1s linear infinite; }
+
+    /* ============================================================================
+       NOTIFICATIONS
+       ============================================================================ */
+    .notification {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      background-color: var(--white);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      box-shadow: var(--shadow-md);
+      max-width: 400px;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      transition: transform 0.3s, opacity 0.3s;
+      transform: translateY(-20px);
+      opacity: 0;
+    }
+    .notification.show { transform: translateY(0); opacity: 1; }
+    .notification-success { border-left: 4px solid #10b981; }
+    .notification-error { border-left: 4px solid #ef4444; }
+    .notification-info { border-left: 4px solid var(--cartesia-accent); }
+    .notification-icon { font-size: 1.25rem; }
+    .notification-success .notification-icon { color: #10b981; }
+    .notification-error .notification-icon { color: #ef4444; }
+    .notification-info .notification-icon { color: var(--cartesia-accent); }
+    .notification-content { flex: 1; }
+    .notification-close { background: none; border: none; color: var(--text-gray); cursor: pointer; font-size: 1.125rem; }
+
+    /* ============================================================================
+       LOADING
+       ============================================================================ */
+    .loading-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.8);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 500;
+    }
     .loading-overlay.show { display: flex; }
-    .spinner { width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--cartesia-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid var(--cartesia-light);
+      border-radius: 50%;
+      border-top-color: var(--cartesia-accent);
+      animation: spin 1s linear infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* Limits info */
-    .limits-info { font-size: 0.8125rem; color: var(--text-gray); margin-top: 0.5rem; }
-
-    /* Confirm Modal */
-    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 600; justify-content: center; align-items: center; }
+    /* ============================================================================
+       CONFIRM MODAL
+       ============================================================================ */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 600;
+      justify-content: center;
+      align-items: center;
+    }
     .modal-overlay.show { display: flex; }
-    .modal-box { background: var(--white); border-radius: var(--radius-lg); padding: 2rem; max-width: 400px; width: 90%; box-shadow: var(--shadow-lg); }
+
+    .modal-box {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: var(--shadow-lg);
+      animation: modal-slide-up 0.3s ease-out;
+    }
     .modal-box h3 { margin-bottom: 0.75rem; }
     .modal-box p { color: var(--text-gray); margin-bottom: 1.5rem; font-size: 0.875rem; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; }
 
-    /* Feature Lock */
-    .feature-lock { opacity: 0.5; position: relative; }
-    .feature-lock::after { content: ' \uD83D\uDD12'; }
+    @keyframes modal-slide-up {
+      from { opacity: 0; transform: translateY(30px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
 
-    /* Responsive */
+    /* ============================================================================
+       FEATURE BLOCKED MODAL
+       ============================================================================ */
+    .feature-blocked-modal {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .feature-blocked-modal.show {
+      display: flex;
+      animation: modal-fade-in 0.3s ease-in-out;
+    }
+    .feature-blocked-modal .fb-overlay {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+    }
+    .feature-blocked-modal .fb-content {
+      position: relative;
+      background-color: var(--white);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      max-width: 450px;
+      width: 100%;
+      animation: modal-slide-up 0.3s ease-out;
+      overflow: hidden;
+    }
+    .feature-blocked-modal .fb-header {
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .feature-blocked-modal .fb-header i { font-size: 2.5rem; margin-bottom: 0.5rem; display: block; }
+    .feature-blocked-modal .fb-header h3 { font-size: 1.25rem; font-weight: 600; }
+    .feature-blocked-modal .fb-body { padding: 1.5rem; text-align: center; }
+    .feature-blocked-modal .fb-body p { color: var(--text-gray); margin-bottom: 1rem; line-height: 1.6; }
+    .feature-blocked-modal .current-plan-info {
+      background-color: var(--bg-light);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+    }
+    .feature-blocked-modal .current-plan-info span { font-weight: 600; color: var(--text-dark); }
+    .feature-blocked-modal .required-plans { font-size: 0.875rem; color: var(--text-gray); }
+    .feature-blocked-modal .required-plans strong { color: var(--cartesia-accent); }
+    .feature-blocked-modal .fb-footer { padding: 1rem 1.5rem 1.5rem; display: flex; gap: 1rem; }
+    .feature-blocked-modal .fb-footer .btn { flex: 1; justify-content: center; }
+
+    @keyframes modal-fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* ============================================================================
+       SIDEBAR OVERLAY (MOBILE)
+       ============================================================================ */
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 49;
+    }
+
+    /* ============================================================================
+       RESPONSIVE
+       ============================================================================ */
     @media (max-width: 768px) {
-      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
-      .sidebar.open { transform: translateX(0); }
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; }
+      .sidebar.mobile-open { transform: translateX(0); }
+      .sidebar-overlay.show { display: block; }
       .main-content { margin-left: 0; }
-      .mobile-menu-btn { display: block; }
+      .mobile-menu-toggle { display: block; }
       .top-nav { padding: 0.75rem 1rem; }
-      .content-area { padding: 1rem; }
-      .agents-grid { grid-template-columns: 1fr; }
+      .content-container { padding: 1rem; }
+      .agent-items { grid-template-columns: 1fr; }
+      .agent-item { flex-direction: column; text-align: center; }
+      .agent-actions { flex-direction: row; justify-content: center; }
       .api-key-row { flex-direction: column; align-items: flex-start; }
       .api-key-row label { min-width: auto; }
+      .tabs { overflow-x: auto; flex-wrap: nowrap; }
+      .tab { white-space: nowrap; flex-shrink: 0; }
+      .agent-id-info { flex-direction: column; align-items: flex-start; }
+      .copy-id-btn { margin-left: 0; width: 100%; }
+      .form-footer { flex-direction: column; }
+      .user-dropdown { right: auto; left: 0; }
+    }
+
+    @media (max-width: 480px) {
+      .content-container { padding: 0.5rem; }
+      .form-section { padding: 1rem; }
+      .agent-item { padding: 1rem; }
+      .notification { right: 0.5rem; left: 0.5rem; max-width: none; }
     }
   </style>
 </head>
 <body>
+
+  <!-- Sidebar Overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
   <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
@@ -234,6 +923,7 @@
       <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony"><i class="fas fa-phone"></i> Телефония</a>
       <a href="/static/conversations.html" class="sidebar-nav-item"><i class="fas fa-comments"></i> Диалоги</a>
       <a href="/static/crm.html" class="sidebar-nav-item" data-feature="crm"><i class="fas fa-address-book"></i> CRM</a>
+
       <div class="sidebar-section">ИИ Интерфейс</div>
       <a href="/static/voice_llm_interface.html" class="sidebar-nav-item"><i class="fas fa-microphone"></i> JARVIS AI</a>
       <div class="sidebar-section">Аккаунт</div>
@@ -252,28 +942,32 @@
     <!-- Top Nav -->
     <div class="top-nav">
       <div class="top-nav-left">
-        <button class="mobile-menu-btn" id="mobile-menu-btn"><i class="fas fa-bars"></i></button>
-        <div class="top-nav-title">
+        <button class="mobile-menu-toggle" id="mobile-menu-toggle"><i class="fas fa-bars"></i></button>
+        <h1 class="page-title">
           <i class="fas fa-wave-square" style="color: var(--cartesia-accent);"></i>
           Cartesia агенты
-        </div>
+        </h1>
       </div>
       <div class="top-nav-right">
         <button class="btn btn-primary" id="create-agent-btn"><i class="fas fa-plus"></i> Создать агента</button>
-        <div class="user-dropdown">
-          <div class="user-avatar" id="user-avatar">?</div>
-          <div class="dropdown-menu" id="user-dropdown-menu">
+        <div class="user-menu">
+          <button class="user-button" id="user-menu-button">
+            <div class="user-avatar" id="user-avatar">?</div>
+            <span id="user-name">Пользователь</span>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          <div class="user-dropdown" id="user-dropdown">
             <div style="padding: 0.75rem 1rem; font-size: 0.8125rem; color: var(--text-light);" id="user-email">-</div>
             <div class="dropdown-divider"></div>
             <a href="/static/settings.html" class="dropdown-item"><i class="fas fa-gear"></i> Настройки</a>
-            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="logout-dropdown"><i class="fas fa-sign-out-alt"></i> Выйти</a>
+            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout"><i class="fas fa-sign-out-alt"></i> Выйти</a>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Content Area -->
-    <div class="content-area">
+    <div class="content-container">
 
       <!-- API Keys Card -->
       <div class="api-keys-card" id="api-keys-card">
@@ -283,7 +977,7 @@
           <label>OpenAI API Key (LLM)</label>
           <input type="password" id="openai-key-input" placeholder="sk-..." autocomplete="off">
           <div class="api-key-actions">
-            <button class="btn btn-sm btn-secondary" id="toggle-openai-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+            <button class="btn-icon" id="toggle-openai-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
           </div>
         </div>
 
@@ -291,7 +985,7 @@
           <label>Cartesia API Key (TTS)</label>
           <input type="password" id="cartesia-key-input" placeholder="sk_car_..." autocomplete="off">
           <div class="api-key-actions">
-            <button class="btn btn-sm btn-secondary" id="toggle-cartesia-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+            <button class="btn-icon" id="toggle-cartesia-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
           </div>
         </div>
 
@@ -307,39 +1001,42 @@
       </div>
 
       <!-- Setup Screen (no keys) -->
-      <div class="setup-screen" id="setup-screen">
-        <div class="setup-icon"><i class="fas fa-wave-square"></i></div>
-        <h2>Настройте API ключи</h2>
-        <p>Для работы Cartesia агентов необходимо добавить OpenAI API Key (для LLM обработки) и Cartesia API Key (для синтеза речи).</p>
-        <div style="text-align: left; max-width: 500px; margin: 0 auto;">
-          <p style="margin-bottom: 0.5rem;"><strong>Шаг 1:</strong> Получите OpenAI API Key на <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></p>
-          <p style="margin-bottom: 0.5rem;"><strong>Шаг 2:</strong> Получите Cartesia API Key на <a href="https://play.cartesia.ai/" target="_blank">play.cartesia.ai</a></p>
-          <p><strong>Шаг 3:</strong> Вставьте ключи в поля выше и нажмите "Сохранить ключи"</p>
+      <div class="api-key-setup" id="setup-screen">
+        <div class="api-key-setup-icon"><i class="fas fa-wave-square"></i></div>
+        <h2 class="api-key-setup-title">Настройте API ключи</h2>
+        <p class="api-key-setup-description">
+          Для работы Cartesia агентов необходимо добавить OpenAI API Key (для LLM обработки) и Cartesia API Key (для синтеза речи).
+        </p>
+        <div class="api-key-setup-steps">
+          <h3>Как начать:</h3>
+          <ol>
+            <li>Получите OpenAI API Key на <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></li>
+            <li>Получите Cartesia API Key на <a href="https://play.cartesia.ai/" target="_blank">play.cartesia.ai</a></li>
+            <li>Вставьте ключи в поля выше и нажмите "Сохранить ключи"</li>
+          </ol>
         </div>
+        <p style="color: var(--text-light); font-size: 0.875rem; text-align: center;">
+          После добавления ключей вы сможете создавать и управлять Cartesia агентами
+        </p>
       </div>
 
-      <!-- Agents Container -->
-      <div class="agents-container" id="agents-container">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h2 style="font-size: 1.125rem; font-weight: 600;">Мои агенты</h2>
-            <div class="limits-info" id="limits-info"></div>
+      <!-- Agents List Container -->
+      <div class="agents-list-container" id="agents-list-container">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Ваши голосовые ассистенты на Cartesia</h2>
           </div>
-        </div>
-        <div class="agents-grid" id="agents-grid"></div>
-        <div class="empty-state" id="empty-state" style="display: none;">
-          <i class="fas fa-wave-square"></i>
-          <h3>Нет агентов</h3>
-          <p>Создайте первого Cartesia агента</p>
-          <button class="btn btn-primary" onclick="navigateToCreateAgent()" style="margin-top: 1rem;"><i class="fas fa-plus"></i> Создать агента</button>
+          <div id="agents-list"></div>
         </div>
       </div>
 
       <!-- Edit Container -->
       <div class="edit-container" id="edit-container">
-        <div class="edit-header">
-          <h2 id="edit-title">Новый агент</h2>
-          <button class="btn btn-secondary btn-sm" onclick="switchToListMode()"><i class="fas fa-arrow-left"></i> Назад</button>
+        <div class="form-section" style="margin-bottom: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h2 id="edit-title" style="font-size: 1.125rem; font-weight: 600;">Новый агент</h2>
+            <button class="btn btn-secondary btn-sm" onclick="switchToListMode()"><i class="fas fa-arrow-left"></i> Назад</button>
+          </div>
         </div>
 
         <div class="tabs">
@@ -349,58 +1046,71 @@
 
         <!-- Settings Tab -->
         <div class="tab-content active" id="tab-settings">
-          <div class="agent-id-info" id="agent-id-info" style="display: none;">
-            <span class="agent-id-label">ID агента:</span>
-            <span class="agent-id-value" id="agent-id-display">-</span>
-            <button class="btn btn-secondary btn-sm" id="copy-agent-id"><i class="fas fa-copy"></i> Копировать</button>
-          </div>
-          <div class="form-group">
-            <label>Название агента *</label>
-            <input type="text" class="form-control" id="agent-name" placeholder="Мой Cartesia агент" required>
-          </div>
-
-          <div class="form-group">
-            <label>Описание</label>
-            <input type="text" class="form-control" id="agent-description" placeholder="Краткое описание агента">
-          </div>
-
-          <div class="form-group">
-            <label>Системный промпт</label>
-            <textarea class="form-control" id="agent-system-prompt" placeholder="Вы — голосовой ассистент. Отвечайте кратко и по существу." rows="5"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label>Cartesia Voice ID</label>
-            <input type="text" class="form-control" id="agent-voice-id" placeholder="a0e99841-438c-4a64-b679-ae501e7d6091">
-            <div class="hint">ID голоса из личного кабинета <a href="https://play.cartesia.ai/" target="_blank">play.cartesia.ai</a></div>
-          </div>
-
-          <div class="form-group">
-            <label>Скорость голоса</label>
-            <div class="slider-container">
-              <span style="font-size: 0.75rem; color: var(--text-light);">0.5x</span>
-              <input type="range" id="agent-voice-speed" min="0.5" max="1.5" step="0.1" value="1.0">
-              <span style="font-size: 0.75rem; color: var(--text-light);">1.5x</span>
-              <span class="slider-value" id="voice-speed-value">1.0</span>
+          <div class="form-section">
+            <!-- Agent ID (только при редактировании) -->
+            <div class="agent-id-info" id="agent-id-info" style="display: none;">
+              <span class="agent-id-label">ID агента:</span>
+              <span class="agent-id-value" id="agent-id-display">-</span>
+              <button class="btn btn-outline btn-sm copy-id-btn" id="copy-agent-id"><i class="fas fa-copy"></i> Копировать ID</button>
             </div>
-          </div>
 
-          <div class="form-group">
-            <label>Первая фраза (приветствие)</label>
-            <input type="text" class="form-control" id="agent-greeting" placeholder="Здравствуйте! Чем я могу вам помочь?" value="Здравствуйте! Чем я могу вам помочь?">
-          </div>
+            <div class="form-group">
+              <label for="agent-name">Название агента *</label>
+              <input type="text" class="form-control" id="agent-name" placeholder="Мой Cartesia агент" required>
+            </div>
 
-          <div class="form-actions">
-            <button class="btn btn-secondary" onclick="switchToListMode()">Отмена</button>
-            <button class="btn btn-danger" id="delete-agent-btn" style="display: none;" onclick="deleteAgent()"><i class="fas fa-trash"></i> Удалить</button>
-            <button class="btn btn-primary" id="save-agent-btn" onclick="saveAgent()"><i class="fas fa-save"></i> Сохранить</button>
+            <div class="form-group">
+              <label for="agent-greeting">Первая фраза (приветствие)</label>
+              <input type="text" class="form-control" id="agent-greeting" placeholder="Здравствуйте! Чем я могу вам помочь?" value="Здравствуйте! Чем я могу вам помочь?" maxlength="200">
+              <p class="hint">Эта фраза будет первым, что скажет ассистент при звонке. Максимум 200 символов.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="agent-description">Описание (опционально)</label>
+              <input type="text" class="form-control" id="agent-description" placeholder="Краткое описание агента">
+            </div>
+
+            <div class="form-group">
+              <label for="agent-system-prompt">Системный промпт</label>
+              <textarea class="form-control" id="agent-system-prompt" placeholder="Вы — голосовой ассистент. Отвечайте кратко и по существу." rows="6"></textarea>
+              <p class="hint">Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="agent-voice-id">Cartesia Voice ID</label>
+              <input type="text" class="form-control" id="agent-voice-id" placeholder="a0e99841-438c-4a64-b679-ae501e7d6091">
+              <p class="hint">ID голоса из личного кабинета <a href="https://play.cartesia.ai/" target="_blank" style="color: var(--cartesia-accent);">play.cartesia.ai</a></p>
+            </div>
+
+            <div class="form-group">
+              <label>Скорость голоса</label>
+              <div class="slider-container">
+                <span style="font-size: 0.75rem; color: var(--text-light);">0.5x</span>
+                <input type="range" id="agent-voice-speed" min="0.5" max="1.5" step="0.1" value="1.0">
+                <span style="font-size: 0.75rem; color: var(--text-light);">1.5x</span>
+                <span class="slider-value" id="voice-speed-value">1.0</span>
+              </div>
+            </div>
+
+            <div class="form-footer">
+              <button class="btn btn-secondary" onclick="switchToListMode()">Отмена</button>
+              <button class="btn btn-danger" id="delete-agent-btn" style="display: none;" onclick="confirmDeleteAgent()"><i class="fas fa-trash"></i> Удалить</button>
+              <button class="btn btn-primary" id="save-agent-btn" onclick="saveAgent()"><i class="fas fa-save"></i> Сохранить</button>
+            </div>
           </div>
         </div>
 
         <!-- Functions Tab -->
         <div class="tab-content" id="tab-functions">
-          <div class="functions-list" id="functions-list">
-            <p style="color: var(--text-gray); font-size: 0.875rem;">Загрузка функций...</p>
+          <div class="form-section">
+            <h3 style="margin-bottom: 1rem;">Функции ассистента</h3>
+            <p style="color: var(--text-gray); font-size: 0.875rem; margin-bottom: 1rem;">Включите необходимые функции для вашего ассистента:</p>
+            <div id="functions-container">
+              <div class="functions-loading">
+                <i class="fas fa-spinner"></i>
+                <p>Загрузка доступных функций...</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -409,10 +1119,14 @@
   </main>
 
   <!-- Notification -->
-  <div class="notification" id="notification"></div>
+  <div class="notification notification-success" id="notification" style="display: none;">
+    <div class="notification-icon"><i class="fas fa-check-circle"></i></div>
+    <div class="notification-content"><div id="notification-message">Операция выполнена!</div></div>
+    <button class="notification-close" id="notification-close">&times;</button>
+  </div>
 
   <!-- Loading Overlay -->
-  <div class="loading-overlay" id="loading-overlay"><div class="spinner"></div></div>
+  <div class="loading-overlay" id="loading-overlay"><div class="loading-spinner"></div></div>
 
   <!-- Confirm Modal -->
   <div class="modal-overlay" id="confirm-modal">
@@ -426,17 +1140,52 @@
     </div>
   </div>
 
+  <!-- Feature Blocked Modal -->
+  <div class="feature-blocked-modal" id="feature-blocked-modal">
+    <div class="fb-overlay" id="feature-modal-overlay"></div>
+    <div class="fb-content">
+      <div class="fb-header">
+        <i class="fas fa-lock"></i>
+        <h3>Функция недоступна</h3>
+      </div>
+      <div class="fb-body">
+        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт или Profi.</p>
+        <div class="current-plan-info">
+          Ваш текущий тариф: <span id="current-plan-name-display">-</span>
+        </div>
+        <p class="required-plans">
+          Необходим тариф: <strong id="required-plans-text">Старт или Profi</strong>
+        </p>
+      </div>
+      <div class="fb-footer">
+        <button class="btn btn-secondary" id="feature-modal-close">Закрыть</button>
+        <button class="btn btn-primary" id="feature-modal-upgrade"><i class="fas fa-arrow-up"></i> Выбрать тариф</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================================
+       JAVASCRIPT
+       ============================================================================ -->
   <script>
     // ============================================================================
     // CONSTANTS
     // ============================================================================
     const PRIVILEGED_USERS = ['well96well@gmail.com', 'stas@gmail.com'];
     const SPECIAL_ASSISTANT_LIMITS = { 'v83839370@gmail.com': 25 };
+
     const FEATURE_ACCESS = {
       crm: ['free', 'referral_trial', 'start', 'profi'],
       telephony: ['free', 'referral_trial', 'start', 'profi'],
       outbound_calls: ['free', 'referral_trial', 'start', 'profi']
     };
+
+    const FEATURE_NAMES = {
+      crm: 'CRM',
+      telephony: 'Телефония',
+      outbound_calls: 'Исходящие звонки'
+    };
+
     const PLAN_NAMES = {
       'free': 'Пробный период',
       'referral_trial': 'Реферальный триал',
@@ -445,6 +1194,8 @@
       'profi': 'Profi'
     };
 
+    const API_BASE_URL = '/api';
+
     // ============================================================================
     // STATE
     // ============================================================================
@@ -452,11 +1203,21 @@
     let currentAgentId = null;
     let agents = [];
     let availableFunctions = [];
-    let totalAssistantsCount = 0;
-    let maxAssistants = 3;
+    let isLoading = false;
+    let currentUserPlanCode = 'free';
+
+    let assistantsLimitInfo = {
+      openaiCount: 0,
+      geminiCount: 0,
+      grokCount: 0,
+      cartesiaCount: 0,
+      totalCount: 0,
+      maxAllowed: 3,
+      canCreate: true
+    };
 
     // ============================================================================
-    // AUTH
+    // AUTH & API
     // ============================================================================
     function getToken() {
       return localStorage.getItem('auth_token');
@@ -465,143 +1226,39 @@
     function checkAuth() {
       if (!getToken()) {
         window.location.href = '/static/index.html';
+        return false;
       }
+      return true;
     }
 
     async function apiRequest(endpoint, options = {}) {
       const token = getToken();
-      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (!options.headers) options.headers = {};
+      options.headers['Authorization'] = `Bearer ${token}`;
 
-      const response = await fetch(`/api${endpoint}`, { ...options, headers });
-
-      if (response.status === 401) {
-        localStorage.removeItem('auth_token');
-        window.location.href = '/static/index.html';
-        return;
+      if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(options.body);
       }
 
-      if (response.status === 204) return null;
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Request failed');
-      return data;
-    }
-
-    // ============================================================================
-    // ASSISTANT LIMITS
-    // ============================================================================
-    function isPrivilegedUser() {
-      if (!currentUser) return false;
-      if (currentUser.is_admin) return true;
-      return PRIVILEGED_USERS.includes(currentUser.email);
-    }
-
-    function getSpecialLimit() {
-      if (!currentUser) return null;
-      return SPECIAL_ASSISTANT_LIMITS[currentUser.email] || null;
-    }
-
-    async function loadAssistantsLimitInfo() {
       try {
-        const [openai, gemini, grok, cartesia] = await Promise.all([
-          apiRequest('/assistants').catch(() => []),
-          apiRequest('/gemini-assistants').catch(() => []),
-          apiRequest('/grok-assistants').catch(() => []),
-          apiRequest('/cartesia-assistants').catch(() => ({ assistants: [] })),
-        ]);
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options });
 
-        const openaiCount = Array.isArray(openai) ? openai.length : 0;
-        const geminiCount = Array.isArray(gemini) ? gemini.length : 0;
-        const grokCount = Array.isArray(grok) ? grok.length : 0;
-        const cartesiaCount = Array.isArray(cartesia) ? cartesia.length : (cartesia.assistants || []).length;
-
-        totalAssistantsCount = openaiCount + geminiCount + grokCount + cartesiaCount;
-
-        if (isPrivilegedUser()) {
-          maxAssistants = 999;
-        } else {
-          const specialLimit = getSpecialLimit();
-          if (specialLimit) {
-            maxAssistants = specialLimit;
-          } else {
-            maxAssistants = 3;
-          }
+        if (response.status === 401) {
+          localStorage.removeItem('auth_token');
+          window.location.href = '/static/index.html';
+          throw new Error('Требуется авторизация');
         }
 
-        const limitsEl = document.getElementById('limits-info');
-        if (limitsEl) {
-          if (isPrivilegedUser()) {
-            limitsEl.textContent = `Всего агентов: ${totalAssistantsCount} (без ограничений)`;
-          } else {
-            limitsEl.textContent = `Агентов: ${totalAssistantsCount} из ${maxAssistants}`;
-          }
-        }
+        if (response.status === 204) return null;
 
-        updateCreateButtonState();
-      } catch (e) {
-        console.error('Error loading limits:', e);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || 'Ошибка запроса');
+        return data;
+      } catch (error) {
+        console.error('API Error:', error);
+        throw error;
       }
-    }
-
-    function canCreateAssistant() {
-      if (isPrivilegedUser()) return true;
-      return totalAssistantsCount < maxAssistants;
-    }
-
-    function updateCreateButtonState() {
-      const btn = document.getElementById('create-agent-btn');
-      if (!btn) return;
-      if (!canCreateAssistant()) {
-        btn.disabled = true;
-        btn.title = `Достигнут лимит (${maxAssistants}) агентов`;
-        btn.style.opacity = '0.5';
-      } else {
-        btn.disabled = false;
-        btn.title = '';
-        btn.style.opacity = '1';
-      }
-    }
-
-    // ============================================================================
-    // FEATURE ACCESS
-    // ============================================================================
-    function canAccessFeature(feature) {
-      if (!currentUser) return false;
-      if (isPrivilegedUser()) return true;
-      const plan = currentUser.subscription_plan || 'free';
-      const allowedPlans = FEATURE_ACCESS[feature];
-      if (!allowedPlans) return true;
-      return allowedPlans.includes(plan);
-    }
-
-    function applyFeatureAccessToSidebar() {
-      document.querySelectorAll('[data-feature]').forEach(item => {
-        const feature = item.getAttribute('data-feature');
-        if (!canAccessFeature(feature)) {
-          item.classList.add('feature-lock');
-          item.addEventListener('click', (e) => {
-            e.preventDefault();
-            showNotification('Эта функция доступна на платных тарифах', 'info');
-          });
-        }
-      });
-    }
-
-    // ============================================================================
-    // NOTIFICATIONS
-    // ============================================================================
-    function showNotification(message, type = 'info') {
-      const el = document.getElementById('notification');
-      el.textContent = message;
-      el.className = `notification ${type} show`;
-      setTimeout(() => el.classList.remove('show'), 3000);
-    }
-
-    function setLoading(loading) {
-      const overlay = document.getElementById('loading-overlay');
-      if (loading) overlay.classList.add('show');
-      else overlay.classList.remove('show');
     }
 
     // ============================================================================
@@ -614,20 +1271,206 @@
         return currentUser;
       } catch (e) {
         console.error('Error loading user:', e);
+        return null;
       }
     }
 
     function updateUserUI() {
       if (!currentUser) return;
-      const avatar = document.getElementById('user-avatar');
-      const emailEl = document.getElementById('user-email');
 
-      if (avatar && currentUser.email) {
-        avatar.textContent = currentUser.email.charAt(0).toUpperCase();
+      const firstName = currentUser.first_name || '';
+      const lastName = currentUser.last_name || '';
+
+      if (firstName || lastName) {
+        document.getElementById('user-name').textContent = firstName + (lastName ? ` ${lastName}` : '');
+        let initials = '';
+        if (firstName) initials += firstName[0];
+        if (lastName) initials += lastName[0];
+        document.getElementById('user-avatar').textContent = initials.toUpperCase();
+      } else if (currentUser.company_name) {
+        document.getElementById('user-name').textContent = currentUser.company_name;
+        document.getElementById('user-avatar').textContent = currentUser.company_name.substring(0, 2).toUpperCase();
+      } else {
+        document.getElementById('user-name').textContent = currentUser.email;
+        document.getElementById('user-avatar').textContent = currentUser.email.substring(0, 2).toUpperCase();
       }
-      if (emailEl) {
-        emailEl.textContent = currentUser.email;
+
+      document.getElementById('user-email').textContent = currentUser.email;
+    }
+
+    // ============================================================================
+    // PRIVILEGES & LIMITS (как в Gemini)
+    // ============================================================================
+    function isPrivilegedUser() {
+      if (!currentUser) return false;
+      return currentUser.is_admin || PRIVILEGED_USERS.includes(currentUser.email);
+    }
+
+    function getSpecialLimit() {
+      if (currentUser && currentUser.email && SPECIAL_ASSISTANT_LIMITS[currentUser.email]) {
+        return SPECIAL_ASSISTANT_LIMITS[currentUser.email];
       }
+      return null;
+    }
+
+    async function loadAssistantsLimitInfo() {
+      try {
+        console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
+
+        if (isPrivilegedUser()) {
+          console.log('[LIMITS] Привилегированный пользователь — неограниченный доступ');
+          assistantsLimitInfo = {
+            openaiCount: 0, geminiCount: 0, grokCount: 0, cartesiaCount: 0,
+            totalCount: 0, maxAllowed: 999999, canCreate: true
+          };
+          return assistantsLimitInfo;
+        }
+
+        const [openaiAssistants, geminiAssistants, grokAssistants, cartesiaData, subscription] = await Promise.all([
+          apiRequest('/assistants').catch(() => []),
+          apiRequest('/gemini-assistants').catch(() => []),
+          apiRequest('/grok-assistants').catch(() => []),
+          apiRequest('/cartesia-assistants').catch(() => ({ assistants: [] })),
+          apiRequest('/subscriptions/my-subscription').catch(() => null)
+        ]);
+
+        const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
+        const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
+        const grokCount = Array.isArray(grokAssistants) ? grokAssistants.length : 0;
+        const cartesiaCount = Array.isArray(cartesiaData) ? cartesiaData.length : (cartesiaData.assistants || []).length;
+        const totalCount = openaiCount + geminiCount + grokCount + cartesiaCount;
+
+        // Сохраняем код текущего плана
+        if (subscription && subscription.subscription_plan && subscription.subscription_plan.code) {
+          currentUserPlanCode = subscription.subscription_plan.code;
+          console.log('[LIMITS] Код тарифа пользователя:', currentUserPlanCode);
+        }
+
+        // Определяем лимит
+        let maxAllowed = 3;
+        const specialLimit = getSpecialLimit();
+        if (specialLimit !== null) {
+          maxAllowed = specialLimit;
+          console.log(`[LIMITS] Специальный лимит для ${currentUser.email}: ${maxAllowed}`);
+        } else if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
+          maxAllowed = subscription.subscription_plan.max_assistants;
+        }
+
+        assistantsLimitInfo = {
+          openaiCount, geminiCount, grokCount, cartesiaCount,
+          totalCount, maxAllowed,
+          canCreate: totalCount < maxAllowed
+        };
+
+        console.log('[LIMITS] Информация о лимитах:', assistantsLimitInfo);
+        return assistantsLimitInfo;
+
+      } catch (error) {
+        console.error('[LIMITS] Ошибка загрузки информации о лимитах:', error);
+        assistantsLimitInfo = {
+          openaiCount: 0, geminiCount: 0, grokCount: 0, cartesiaCount: 0,
+          totalCount: 0, maxAllowed: 3, canCreate: true
+        };
+        return assistantsLimitInfo;
+      }
+    }
+
+    function canCreateAssistant() {
+      if (isPrivilegedUser()) return true;
+      return assistantsLimitInfo.canCreate;
+    }
+
+    function showLimitReachedNotification() {
+      const { totalCount, maxAllowed } = assistantsLimitInfo;
+      showNotification(`Достигнут лимит ассистентов (${totalCount}/${maxAllowed}). Улучшите тариф для создания новых.`, 'error');
+    }
+
+    function updateCreateButtonState() {
+      const btn = document.getElementById('create-agent-btn');
+      if (!btn) return;
+      if (!canCreateAssistant()) {
+        btn.disabled = true;
+        btn.title = `Достигнут лимит ассистентов (${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})`;
+        btn.style.opacity = '0.6';
+        btn.style.cursor = 'not-allowed';
+      } else {
+        btn.disabled = false;
+        btn.title = 'Создать нового агента';
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      }
+    }
+
+    // ============================================================================
+    // FEATURE ACCESS (тарифы)
+    // ============================================================================
+    function canAccessFeature(feature) {
+      if (!currentUser) return true;
+      if (isPrivilegedUser()) return true;
+      const allowedPlans = FEATURE_ACCESS[feature];
+      if (!allowedPlans) return true;
+      return allowedPlans.includes(currentUserPlanCode);
+    }
+
+    function getPlanDisplayName(planCode) {
+      return PLAN_NAMES[planCode] || planCode;
+    }
+
+    function applyFeatureAccessToSidebar() {
+      console.log('[ACCESS] Применяем матрицу доступа для плана:', currentUserPlanCode);
+      document.querySelectorAll('.plan-locked-feature').forEach(el => el.classList.remove('plan-locked-feature'));
+
+      document.querySelectorAll('[data-feature]').forEach(element => {
+        const feature = element.getAttribute('data-feature');
+        if (!canAccessFeature(feature)) {
+          element.classList.add('plan-locked-feature');
+          console.log(`[ACCESS] Заблокирована функция: ${feature}`);
+        }
+      });
+    }
+
+    function showFeatureBlockedModal(feature) {
+      const featureName = FEATURE_NAMES[feature] || feature;
+      const planName = getPlanDisplayName(currentUserPlanCode);
+      document.getElementById('feature-blocked-message').textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+      document.getElementById('current-plan-name-display').textContent = planName;
+      document.getElementById('required-plans-text').textContent = 'Старт или Profi';
+      document.getElementById('feature-blocked-modal').classList.add('show');
+    }
+
+    function hideFeatureBlockedModal() {
+      document.getElementById('feature-blocked-modal').classList.remove('show');
+    }
+
+    // ============================================================================
+    // NOTIFICATIONS
+    // ============================================================================
+    function showNotification(message, type = 'success') {
+      const notification = document.getElementById('notification');
+      const notificationMessage = document.getElementById('notification-message');
+      const icon = notification.querySelector('.notification-icon i');
+
+      notification.className = `notification notification-${type}`;
+      notificationMessage.textContent = message;
+
+      if (type === 'success') icon.className = 'fas fa-check-circle';
+      else if (type === 'error') icon.className = 'fas fa-exclamation-circle';
+      else icon.className = 'fas fa-info-circle';
+
+      notification.style.display = 'flex';
+      setTimeout(() => notification.classList.add('show'), 10);
+
+      setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.style.display = 'none', 300);
+      }, 5000);
+    }
+
+    function setLoading(loading) {
+      isLoading = loading;
+      const overlay = document.getElementById('loading-overlay');
+      if (loading) overlay.classList.add('show');
+      else overlay.classList.remove('show');
     }
 
     // ============================================================================
@@ -640,16 +1483,11 @@
         const cartesiaInput = document.getElementById('cartesia-key-input');
         const warning = document.getElementById('keys-warning');
 
-        if (status.openai_key_preview) {
-          openaiInput.placeholder = status.openai_key_preview;
-        }
-        if (status.cartesia_key_preview) {
-          cartesiaInput.placeholder = status.cartesia_key_preview;
-        }
+        if (status.openai_key_preview) openaiInput.placeholder = status.openai_key_preview;
+        if (status.cartesia_key_preview) cartesiaInput.placeholder = status.cartesia_key_preview;
 
         const hasKeys = status.has_openai_key && status.has_cartesia_key;
         warning.style.display = hasKeys ? 'none' : 'flex';
-
         return hasKeys;
       } catch (e) {
         console.error('Error loading API keys status:', e);
@@ -672,10 +1510,7 @@
         if (openaiKey) body.openai_api_key = openaiKey;
         if (cartesiaKey) body.cartesia_api_key = cartesiaKey;
 
-        await apiRequest('/cartesia-assistants/api-keys', {
-          method: 'PUT',
-          body: JSON.stringify(body),
-        });
+        await apiRequest('/cartesia-assistants/api-keys', { method: 'PUT', body });
 
         document.getElementById('openai-key-input').value = '';
         document.getElementById('cartesia-key-input').value = '';
@@ -683,6 +1518,13 @@
         showNotification('API ключи сохранены', 'success');
         const hasKeys = await loadApiKeysStatus();
         checkApiKeyAndShowContent(hasKeys);
+
+        if (hasKeys) {
+          await loadAgentsList();
+          await loadAssistantsLimitInfo();
+          applyFeatureAccessToSidebar();
+          updateCreateButtonState();
+        }
       } catch (e) {
         showNotification('Ошибка сохранения: ' + e.message, 'error');
       } finally {
@@ -691,11 +1533,13 @@
     }
 
     async function clearApiKeys() {
+      if (!confirm('Вы уверены, что хотите удалить API ключи?')) return;
+
       setLoading(true);
       try {
         await apiRequest('/cartesia-assistants/api-keys', {
           method: 'PUT',
-          body: JSON.stringify({ openai_api_key: '', cartesia_api_key: '' }),
+          body: { openai_api_key: '', cartesia_api_key: '' }
         });
 
         document.getElementById('openai-key-input').value = '';
@@ -713,15 +1557,18 @@
 
     function checkApiKeyAndShowContent(hasKeys) {
       const setupScreen = document.getElementById('setup-screen');
-      const agentsContainer = document.getElementById('agents-container');
+      const agentsContainer = document.getElementById('agents-list-container');
+      const createBtn = document.getElementById('create-agent-btn');
 
       if (hasKeys) {
         setupScreen.classList.remove('show');
         agentsContainer.classList.add('show');
-        loadAgentsList();
+        createBtn.style.display = 'inline-flex';
+        updateCreateButtonState();
       } else {
         setupScreen.classList.add('show');
         agentsContainer.classList.remove('show');
+        createBtn.style.display = 'none';
       }
     }
 
@@ -740,38 +1587,75 @@
     }
 
     function renderAgentsList() {
-      const grid = document.getElementById('agents-grid');
-      const emptyState = document.getElementById('empty-state');
+      const container = document.getElementById('agents-list');
+      container.innerHTML = '';
 
       if (agents.length === 0) {
-        grid.innerHTML = '';
-        emptyState.style.display = 'block';
+        const limitText = isPrivilegedUser()
+          ? ''
+          : `<br><small style="color: var(--text-light);">(${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed} использовано)</small>`;
+        const isDisabled = !canCreateAssistant();
+
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon"><i class="fas fa-wave-square"></i></div>
+            <h3 class="empty-title">У вас ещё нет Cartesia агентов</h3>
+            <p class="empty-description">
+              Создайте первого голосового ассистента на базе Cartesia TTS
+              ${limitText}
+            </p>
+            <button class="btn btn-primary" id="empty-create-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
+              <i class="fas fa-plus"></i> Создать агента
+            </button>
+          </div>
+        `;
+
+        const emptyBtn = document.getElementById('empty-create-btn');
+        if (emptyBtn) {
+          emptyBtn.addEventListener('click', () => {
+            if (canCreateAssistant()) navigateToCreateAgent();
+            else showLimitReachedNotification();
+          });
+        }
         return;
       }
 
-      emptyState.style.display = 'none';
-      grid.innerHTML = agents.map(agent => `
-        <div class="agent-card">
-          <div class="agent-card-header">
-            <div class="agent-icon"><i class="fas fa-wave-square"></i></div>
-            <div class="agent-info">
-              <div class="agent-badge">Cartesia</div>
-              <div class="agent-name">${escapeHtml(agent.name)}</div>
-              ${agent.description ? `<div class="agent-description">${escapeHtml(agent.description)}</div>` : ''}
-            </div>
-          </div>
-          <div class="agent-card-body">
+      // Показываем лимиты
+      const limitInfo = isPrivilegedUser()
+        ? ''
+        : `<small style="color: var(--text-light); font-weight: normal;">(всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})</small>`;
+
+      const headerEl = document.createElement('div');
+      headerEl.className = 'agent-list-header';
+      headerEl.innerHTML = `<h4 class="agents-count">Cartesia агентов: ${agents.length} ${limitInfo}</h4>`;
+      container.appendChild(headerEl);
+
+      const listEl = document.createElement('div');
+      listEl.className = 'agent-items';
+
+      agents.forEach(agent => {
+        const agentEl = document.createElement('div');
+        agentEl.className = 'agent-item';
+        agentEl.innerHTML = `
+          <div class="cartesia-badge">Cartesia</div>
+          <div class="agent-icon"><i class="fas fa-wave-square"></i></div>
+          <div class="agent-info">
+            <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
+            <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
-              ${agent.cartesia_voice_id ? `<div class="agent-meta-item"><i class="fas fa-microphone"></i> Voice: ${escapeHtml(agent.cartesia_voice_id.substring(0, 12))}...</div>` : ''}
-              <div class="agent-meta-item"><i class="fas fa-tachometer-alt"></i> Скорость: ${agent.voice_speed || 1.0}x</div>
-              <div class="agent-meta-item"><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</div>
+              ${agent.cartesia_voice_id ? `<span><i class="fas fa-microphone"></i> Voice: ${escapeHtml(agent.cartesia_voice_id.substring(0, 12))}...</span>` : ''}
+              <span><i class="fas fa-tachometer-alt"></i> Скорость: ${agent.voice_speed || 1.0}x</span>
+              <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
           </div>
-          <div class="agent-card-footer">
-            <button class="btn btn-primary btn-sm" onclick="editAgent('${agent.id}')"><i class="fas fa-pen"></i> Редактировать</button>
+          <div class="agent-actions">
+            <button class="btn btn-primary btn-sm" onclick="editAgent('${agent.id}')"><i class="fas fa-edit"></i> Редактировать</button>
           </div>
-        </div>
-      `).join('');
+        `;
+        listEl.appendChild(agentEl);
+      });
+
+      container.appendChild(listEl);
     }
 
     function escapeHtml(text) {
@@ -800,10 +1684,10 @@
 
     function fillAgentForm(agent) {
       document.getElementById('agent-name').value = agent.name || '';
+      document.getElementById('agent-greeting').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
       document.getElementById('agent-voice-id').value = agent.cartesia_voice_id || '';
-      document.getElementById('agent-greeting').value = agent.greeting_message || '';
 
       const speedSlider = document.getElementById('agent-voice-speed');
       speedSlider.value = agent.voice_speed || 1.0;
@@ -815,16 +1699,19 @@
     function getFormData() {
       const enabledFunctions = [];
       document.querySelectorAll('input[type="checkbox"][data-function-name]:checked').forEach(cb => {
-        enabledFunctions.push({ name: cb.dataset.functionName });
+        const funcData = availableFunctions.find(f => f.name === cb.dataset.functionName);
+        if (funcData) {
+          enabledFunctions.push({ name: funcData.name, description: funcData.description });
+        }
       });
 
       return {
         name: document.getElementById('agent-name').value.trim(),
+        greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         description: document.getElementById('agent-description').value.trim() || null,
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
         cartesia_voice_id: document.getElementById('agent-voice-id').value.trim() || null,
         voice_speed: parseFloat(document.getElementById('agent-voice-speed').value),
-        greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         functions: enabledFunctions.length > 0 ? enabledFunctions : null,
       };
     }
@@ -839,25 +1726,22 @@
       setLoading(true);
       try {
         if (currentAgentId) {
-          await apiRequest(`/cartesia-assistants/${currentAgentId}`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-          });
+          await apiRequest(`/cartesia-assistants/${currentAgentId}`, { method: 'PUT', body: data });
           showNotification('Агент обновлён', 'success');
+          await loadAgentData(currentAgentId);
         } else {
           if (!canCreateAssistant()) {
-            showNotification(`Достигнут лимит (${maxAssistants}) агентов`, 'error');
+            showLimitReachedNotification();
+            setLoading(false);
             return;
           }
-          const created = await apiRequest('/cartesia-assistants', {
-            method: 'POST',
-            body: JSON.stringify(data),
-          });
+          const created = await apiRequest('/cartesia-assistants', { method: 'POST', body: data });
           currentAgentId = created.id;
           showNotification('Агент создан', 'success');
+          await loadAssistantsLimitInfo();
+          updateCreateButtonState();
         }
         await loadAgentsList();
-        await loadAssistantsLimitInfo();
         switchToListMode();
       } catch (e) {
         showNotification('Ошибка: ' + e.message, 'error');
@@ -866,16 +1750,14 @@
       }
     }
 
-    async function deleteAgent() {
+    function confirmDeleteAgent() {
       if (!currentAgentId) return;
-
-      const modal = document.getElementById('confirm-modal');
       document.getElementById('confirm-title').textContent = 'Удалить агента?';
       document.getElementById('confirm-message').textContent = 'Это действие нельзя отменить. Агент будет удалён навсегда.';
-      modal.classList.add('show');
+      document.getElementById('confirm-modal').classList.add('show');
 
       document.getElementById('confirm-ok').onclick = async () => {
-        modal.classList.remove('show');
+        document.getElementById('confirm-modal').classList.remove('show');
         setLoading(true);
         try {
           await apiRequest(`/cartesia-assistants/${currentAgentId}`, { method: 'DELETE' });
@@ -883,6 +1765,7 @@
           currentAgentId = null;
           await loadAgentsList();
           await loadAssistantsLimitInfo();
+          updateCreateButtonState();
           switchToListMode();
         } catch (e) {
           showNotification('Ошибка удаления: ' + e.message, 'error');
@@ -897,38 +1780,74 @@
     // ============================================================================
     async function loadAvailableFunctions() {
       try {
-        availableFunctions = await apiRequest('/functions/');
-        renderFunctionsList();
-      } catch (e) {
-        console.error('Error loading functions:', e);
+        console.log('[FUNCTIONS] Загружаем список доступных функций...');
+        const functions = await apiRequest('/functions/');
+        availableFunctions = functions;
+        console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
+        renderFunctions(functions);
+      } catch (error) {
+        console.error('[FUNCTIONS] Ошибка загрузки функций:', error);
+        const container = document.getElementById('functions-container');
+        container.innerHTML = `
+          <div style="text-align: center; padding: 2rem; color: #ef4444;">
+            <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
+            <p>Ошибка загрузки функций: ${error.message}</p>
+            <button class="btn btn-outline" onclick="loadAvailableFunctions()" style="margin-top: 1rem;">
+              <i class="fas fa-sync-alt"></i> Попробовать снова
+            </button>
+          </div>
+        `;
       }
     }
 
-    function renderFunctionsList() {
-      const container = document.getElementById('functions-list');
-      if (!availableFunctions || availableFunctions.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-gray); font-size: 0.875rem;">Нет доступных функций</p>';
+    function renderFunctions(functions) {
+      const container = document.getElementById('functions-container');
+
+      if (!functions || functions.length === 0) {
+        container.innerHTML = `
+          <div style="text-align: center; padding: 2rem; color: var(--text-gray);">
+            <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 1rem;"></i>
+            <p>Нет доступных функций</p>
+          </div>
+        `;
         return;
       }
 
-      container.innerHTML = availableFunctions.map(fn => `
-        <div class="function-item">
-          <input type="checkbox" id="fn-${fn.name}" data-function-name="${fn.name}">
-          <div>
-            <label for="fn-${fn.name}">${fn.display_name || fn.name}</label>
-            <div class="function-desc">${fn.description || ''}</div>
-            <div class="function-info" id="${fn.name}-info">
-              ${fn.schema ? `<pre style="white-space: pre-wrap; word-break: break-all;">${JSON.stringify(fn.schema, null, 2)}</pre>` : ''}
-            </div>
-          </div>
-        </div>
-      `).join('');
+      container.innerHTML = '';
 
-      // Toggle function info on checkbox
-      container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          const info = document.getElementById(`${cb.dataset.functionName}-info`);
-          if (info) info.style.display = cb.checked ? 'block' : 'none';
+      functions.forEach(func => {
+        const functionId = `function-${func.name}`;
+        const infoId = `${func.name}-info`;
+
+        const funcGroup = document.createElement('div');
+        funcGroup.className = 'form-group';
+
+        const label = document.createElement('label');
+        label.className = 'function-option';
+        label.innerHTML = `
+          <input type="checkbox" id="${functionId}" name="${functionId}" data-function-name="${func.name}">
+          <span>${func.display_name || func.name}</span>
+        `;
+        funcGroup.appendChild(label);
+
+        const infoDiv = document.createElement('div');
+        infoDiv.id = infoId;
+        infoDiv.className = 'function-info';
+        infoDiv.style.display = 'none';
+        infoDiv.innerHTML = `
+          <h4>Информация о функции:</h4>
+          <pre class="function-schema">${JSON.stringify({
+            name: func.name,
+            description: func.description,
+            parameters: func.parameters
+          }, null, 2)}</pre>
+        `;
+        funcGroup.appendChild(infoDiv);
+        container.appendChild(funcGroup);
+
+        const checkbox = document.getElementById(functionId);
+        checkbox.addEventListener('change', function() {
+          infoDiv.style.display = this.checked ? 'block' : 'none';
         });
       });
     }
@@ -957,7 +1876,7 @@
     // ============================================================================
     function navigateToCreateAgent() {
       if (!canCreateAssistant()) {
-        showNotification(`Достигнут лимит (${maxAssistants}) агентов`, 'error');
+        showLimitReachedNotification();
         return;
       }
       currentAgentId = null;
@@ -972,19 +1891,26 @@
     }
 
     function switchToEditMode() {
-      document.getElementById('agents-container').classList.remove('show');
+      document.getElementById('agents-list-container').classList.remove('show');
       document.getElementById('setup-screen').classList.remove('show');
       document.getElementById('edit-container').classList.add('show');
+      document.getElementById('create-agent-btn').style.display = 'none';
+
       // Reset to first tab
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
       document.querySelector('.tab[data-tab="settings"]').classList.add('active');
       document.getElementById('tab-settings').classList.add('active');
+
+      // Загружаем функции если ещё не загружены
+      if (availableFunctions.length === 0) loadAvailableFunctions();
     }
 
     function switchToListMode() {
       document.getElementById('edit-container').classList.remove('show');
-      document.getElementById('agents-container').classList.add('show');
+      document.getElementById('agents-list-container').classList.add('show');
+      document.getElementById('create-agent-btn').style.display = 'inline-flex';
+      updateCreateButtonState();
       currentAgentId = null;
     }
 
@@ -993,38 +1919,61 @@
       document.getElementById('delete-agent-btn').style.display = 'none';
       document.getElementById('agent-id-info').style.display = 'none';
       document.getElementById('agent-id-display').textContent = '-';
+
       document.getElementById('agent-name').value = '';
+      document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
       document.getElementById('agent-voice-id').value = '';
-      document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-voice-speed').value = '1.0';
       document.getElementById('voice-speed-value').textContent = '1.0';
-      loadFunctions([]);
+
+      // Сбрасываем функции
+      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
+        cb.checked = false;
+        const info = document.getElementById(`${cb.dataset.functionName}-info`);
+        if (info) info.style.display = 'none';
+      });
     }
 
     // ============================================================================
     // INIT
     // ============================================================================
     async function initPage() {
-      checkAuth();
+      if (!checkAuth()) return;
+
       await loadUserData();
-      applyFeatureAccessToSidebar();
-      await loadAvailableFunctions();
 
       const hasKeys = await loadApiKeysStatus();
-      checkApiKeyAndShowContent(hasKeys);
-      await loadAssistantsLimitInfo();
 
-      // Handle URL params
-      const params = new URLSearchParams(window.location.search);
-      const agentId = params.get('id');
-      const mode = params.get('mode');
+      if (!hasKeys) {
+        checkApiKeyAndShowContent(false);
+      } else {
+        await loadAssistantsLimitInfo();
+        applyFeatureAccessToSidebar();
 
-      if (mode === 'create') {
-        navigateToCreateAgent();
-      } else if (agentId) {
-        editAgent(agentId);
+        // Handle URL params
+        const params = new URLSearchParams(window.location.search);
+        const agentId = params.get('id');
+        const mode = params.get('mode');
+
+        if (agentId) {
+          checkApiKeyAndShowContent(true);
+          await loadAvailableFunctions();
+          editAgent(agentId);
+        } else if (mode === 'create') {
+          if (!canCreateAssistant()) {
+            showLimitReachedNotification();
+            window.location.href = '/static/cartesia-agents.html';
+            return;
+          }
+          checkApiKeyAndShowContent(true);
+          await loadAvailableFunctions();
+          navigateToCreateAgent();
+        } else {
+          checkApiKeyAndShowContent(true);
+          await loadAgentsList();
+        }
       }
     }
 
@@ -1034,41 +1983,43 @@
     document.addEventListener('DOMContentLoaded', initPage);
 
     // Mobile menu
-    document.getElementById('mobile-menu-btn').addEventListener('click', () => {
-      document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('mobile-menu-toggle').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.toggle('mobile-open');
+      document.getElementById('sidebar-overlay').classList.toggle('show');
+    });
+    document.getElementById('sidebar-overlay').addEventListener('click', () => {
+      document.getElementById('sidebar').classList.remove('mobile-open');
+      document.getElementById('sidebar-overlay').classList.remove('show');
     });
 
     // User dropdown
-    document.getElementById('user-avatar').addEventListener('click', () => {
-      document.getElementById('user-dropdown-menu').classList.toggle('show');
+    document.getElementById('user-menu-button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('user-dropdown').classList.toggle('show');
     });
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.user-dropdown')) {
-        document.getElementById('user-dropdown-menu').classList.remove('show');
+      const dropdown = document.getElementById('user-dropdown');
+      const button = document.getElementById('user-menu-button');
+      if (dropdown.classList.contains('show') && !dropdown.contains(e.target) && !button.contains(e.target)) {
+        dropdown.classList.remove('show');
       }
     });
 
     // Logout
-    document.getElementById('logout-button').addEventListener('click', () => {
-      localStorage.removeItem('auth_token');
-    });
-    const logoutDropdown = document.getElementById('logout-dropdown');
-    if (logoutDropdown) {
-      logoutDropdown.addEventListener('click', () => {
-        localStorage.removeItem('auth_token');
-      });
-    }
+    document.getElementById('logout-button').addEventListener('click', () => localStorage.removeItem('auth_token'));
+    document.getElementById('dropdown-logout').addEventListener('click', () => localStorage.removeItem('auth_token'));
 
     // Create agent button
-    document.getElementById('create-agent-btn').addEventListener('click', navigateToCreateAgent);
+    document.getElementById('create-agent-btn').addEventListener('click', () => {
+      if (canCreateAssistant()) navigateToCreateAgent();
+      else showLimitReachedNotification();
+    });
 
     // Copy agent ID
     document.getElementById('copy-agent-id').addEventListener('click', () => {
       const agentId = document.getElementById('agent-id-display').textContent;
       if (agentId && agentId !== '-') {
-        navigator.clipboard.writeText(agentId).then(() => {
-          showNotification('ID агента скопирован!', 'success');
-        });
+        navigator.clipboard.writeText(agentId).then(() => showNotification('ID агента скопирован!', 'success'));
       }
     });
 
@@ -1094,6 +2045,9 @@
         document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
+
+        // Загружаем функции при переходе на таб
+        if (tabId === 'functions' && availableFunctions.length === 0) loadAvailableFunctions();
       });
     });
 
@@ -1105,6 +2059,31 @@
     // Confirm modal cancel
     document.getElementById('confirm-cancel').addEventListener('click', () => {
       document.getElementById('confirm-modal').classList.remove('show');
+    });
+
+    // Notification close
+    document.getElementById('notification-close').addEventListener('click', () => {
+      const notification = document.getElementById('notification');
+      notification.classList.remove('show');
+      setTimeout(() => notification.style.display = 'none', 300);
+    });
+
+    // Feature blocked modal
+    document.getElementById('feature-modal-overlay').addEventListener('click', hideFeatureBlockedModal);
+    document.getElementById('feature-modal-close').addEventListener('click', hideFeatureBlockedModal);
+    document.getElementById('feature-modal-upgrade').addEventListener('click', () => {
+      hideFeatureBlockedModal();
+      window.location.href = '/static/dashboard.html';
+    });
+
+    // Блокировка переходов на заблокированные страницы
+    document.querySelectorAll('[data-feature]').forEach(link => {
+      link.addEventListener('click', function(e) {
+        if (this.classList.contains('plan-locked-feature')) {
+          e.preventDefault();
+          showFeatureBlockedModal(this.getAttribute('data-feature'));
+        }
+      });
     });
   </script>
 </body>
