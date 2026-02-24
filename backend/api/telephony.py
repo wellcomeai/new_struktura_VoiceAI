@@ -365,6 +365,7 @@ class CallHistoryItem(BaseModel):
     log_url: Optional[str] = None
     assistant_type: Optional[str] = None
     custom_greeting: Optional[str] = None
+    is_incoming: Optional[bool] = None
 
 
 class CallHistoryResponse(BaseModel):
@@ -1048,6 +1049,7 @@ async def get_call_history(
                 log_url=session.get("log_file_url"),
                 assistant_type=custom_data.get("assistant_type"),
                 custom_greeting=custom_data.get("custom_greeting"),
+                is_incoming=call_leg.get("incoming"),
             ))
 
         logger.info(f"[TELEPHONY] Call history returned {len(calls)} calls for user {current_user.id}")

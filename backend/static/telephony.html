@@ -1308,30 +1308,15 @@
       }
     }
     
-    /* Бейджи типа звонка */
-    .badge-gemini {
-      background-color: #f3e8ff;
-      color: #7c3aed;
-    }
-
-    .badge-openai {
-      background-color: #eff6ff;
-      color: #2563eb;
-    }
-
-    .badge-cartesia {
-      background-color: #ecfdf5;
-      color: #059669;
-    }
-
-    .badge-crm {
-      background-color: #fef3c7;
-      color: #d97706;
-    }
-
+    /* Бейджи направления звонка */
     .badge-inbound {
       background-color: #f1f5f9;
       color: #64748b;
+    }
+
+    .badge-outbound {
+      background-color: #eff6ff;
+      color: #2563eb;
     }
 
     .call-links {
@@ -2096,43 +2081,15 @@
               }
             }
 
-            // Определяем направление и тип ассистента
-            const ruleName = (call.rule_name || '').toLowerCase();
-            const assistantType = (call.assistant_type || '').toLowerCase();
-
-            let direction = '';
-            let directionArrow = '';
-            let aiType = '';
-            let badgeClass = 'badge-inbound';
-
-            // Направление
-            if (ruleName.includes('outbound')) {
-              direction = 'Исх';
-              directionArrow = '↗';
+            // Определяем направление по is_incoming
+            let badgeClass, badgeText;
+            if (call.is_incoming === true) {
+              badgeClass = 'badge-inbound';
+              badgeText = '↙ Входящий';
             } else {
-              direction = 'Вх';
-              directionArrow = '↙';
+              badgeClass = 'badge-outbound';
+              badgeText = '↗ Исходящий';
             }
-
-            // Тип ассистента — из rule_name (исходящие) или assistant_type (входящие)
-            if (ruleName.includes('gemini') || assistantType.includes('gemini')) {
-              aiType = 'Gemini';
-              badgeClass = 'badge-gemini';
-            } else if (ruleName.includes('openai') || assistantType.includes('openai')) {
-              aiType = 'OpenAI';
-              badgeClass = 'badge-openai';
-            } else if (ruleName.includes('cartesia') || assistantType.includes('cartesia')) {
-              aiType = 'Cartesia';
-              badgeClass = 'badge-cartesia';
-            } else if (ruleName.includes('crm')) {
-              aiType = 'CRM';
-              badgeClass = 'badge-crm';
-            }
-
-            // Формируем текст бейджа
-            const badgeText = aiType
-              ? `${directionArrow} ${direction} / ${aiType}`
-              : `${directionArrow} ${direction}`;
 
             // Длительность: M:SS
             const durSec = call.call_duration || 0;
@@ -2143,9 +2100,9 @@
             // Стоимость
             const costFormatted = (call.total_cost || 0).toFixed(2) + ' ₽';
 
-            // Номер — переиспользуем существующую функцию formatPhoneNumber()
-            const phoneNumber = call.target_number
-              ? formatPhoneNumber(call.target_number)
+            // Номер — наш номер Voximplant (local_number)
+            const phoneNumber = call.caller_number
+              ? formatPhoneNumber(call.caller_number)
               : '—';
 
             // Ссылки — иконки-кнопки
