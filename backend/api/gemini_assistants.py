@@ -3,12 +3,13 @@
 REST API endpoints for Google Gemini assistants management.
 Handles CRUD operations for Gemini Live API voice assistants.
 
-🚀 PRODUCTION VERSION 1.1
+🚀 PRODUCTION VERSION 1.2
 ✅ Complete CRUD operations
 ✅ Authorization validation
 ✅ Subscription validation
 ✅ Error handling
 ✅ Fixed routing (removed duplicate prefix)
+✅ FIX: Explicit delete of related records before assistant deletion
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,7 +22,7 @@ from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
-from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.core.dependencies import get_current_user
 
 logger = get_logger(__name__)
@@ -165,6 +166,32 @@ async def verify_assistant_access(
     return assistant
 
 
+def build_assistant_response(assistant: GeminiAssistantConfig) -> GeminiAssistantResponse:
+    """Build response object from assistant model."""
+    return GeminiAssistantResponse(
+        id=str(assistant.id),
+        user_id=str(assistant.user_id),
+        name=assistant.name,
+        description=assistant.description,
+        system_prompt=assistant.system_prompt,
+        voice=assistant.voice,
+        language=assistant.language,
+        greeting_message=assistant.greeting_message,
+        google_sheet_id=assistant.google_sheet_id,
+        functions=assistant.functions,
+        is_active=assistant.is_active,
+        is_public=assistant.is_public,
+        created_at=assistant.created_at,
+        updated_at=assistant.updated_at,
+        total_conversations=assistant.total_conversations,
+        temperature=assistant.temperature,
+        max_tokens=assistant.max_tokens,
+        enable_thinking=assistant.enable_thinking,
+        thinking_budget=assistant.thinking_budget,
+        enable_screen_context=assistant.enable_screen_context
+    )
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -189,35 +216,10 @@ async def get_gemini_assistants(
         
         logger.info(f"[GEMINI-API] Found {len(assistants)} Gemini assistants")
         
-        result = []
-        for assistant in assistants:
-            result.append(GeminiAssistantResponse(
-                id=str(assistant.id),
-                user_id=str(assistant.user_id),
-                name=assistant.name,
-                description=assistant.description,
-                system_prompt=assistant.system_prompt,
-                voice=assistant.voice,
-                language=assistant.language,
-                greeting_message=assistant.greeting_message,
-                google_sheet_id=assistant.google_sheet_id,
-                functions=assistant.functions,
-                is_active=assistant.is_active,
-                is_public=assistant.is_public,
-                created_at=assistant.created_at,
-                updated_at=assistant.updated_at,
-                total_conversations=assistant.total_conversations,
-                temperature=assistant.temperature,
-                max_tokens=assistant.max_tokens,
-                enable_thinking=assistant.enable_thinking,
-                thinking_budget=assistant.thinking_budget,
-                enable_screen_context=assistant.enable_screen_context
-            ))
-        
-        return result
+        return [build_assistant_response(a) for a in assistants]
         
     except Exception as e:
-        logger.error(f"[GEMINI-API] Error fetching assistants: {e}")
+        logger.error(f"[GEMINI-API] Error fetching assistants: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch Gemini assistants"
@@ -249,33 +251,12 @@ async def get_gemini_assistant(
             require_ownership=True
         )
         
-        return GeminiAssistantResponse(
-            id=str(assistant.id),
-            user_id=str(assistant.user_id),
-            name=assistant.name,
-            description=assistant.description,
-            system_prompt=assistant.system_prompt,
-            voice=assistant.voice,
-            language=assistant.language,
-            greeting_message=assistant.greeting_message,
-            google_sheet_id=assistant.google_sheet_id,
-            functions=assistant.functions,
-            is_active=assistant.is_active,
-            is_public=assistant.is_public,
-            created_at=assistant.created_at,
-            updated_at=assistant.updated_at,
-            total_conversations=assistant.total_conversations,
-            temperature=assistant.temperature,
-            max_tokens=assistant.max_tokens,
-            enable_thinking=assistant.enable_thinking,
-            thinking_budget=assistant.thinking_budget,
-            enable_screen_context=assistant.enable_screen_context
-        )
+        return build_assistant_response(assistant)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[GEMINI-API] Error fetching assistant {assistant_id}: {e}")
+        logger.error(f"[GEMINI-API] Error fetching assistant {assistant_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch Gemini assistant"
@@ -329,39 +310,18 @@ async def create_gemini_assistant(
         
         logger.info(f"[GEMINI-API] ✅ Gemini assistant created: {assistant.id}")
         
-        return GeminiAssistantResponse(
-            id=str(assistant.id),
-            user_id=str(assistant.user_id),
-            name=assistant.name,
-            description=assistant.description,
-            system_prompt=assistant.system_prompt,
-            voice=assistant.voice,
-            language=assistant.language,
-            greeting_message=assistant.greeting_message,
-            google_sheet_id=assistant.google_sheet_id,
-            functions=assistant.functions,
-            is_active=assistant.is_active,
-            is_public=assistant.is_public,
-            created_at=assistant.created_at,
-            updated_at=assistant.updated_at,
-            total_conversations=assistant.total_conversations,
-            temperature=assistant.temperature,
-            max_tokens=assistant.max_tokens,
-            enable_thinking=assistant.enable_thinking,
-            thinking_budget=assistant.thinking_budget,
-            enable_screen_context=assistant.enable_screen_context
-        )
+        return build_assistant_response(assistant)
         
     except IntegrityError as e:
         db.rollback()
-        logger.error(f"[GEMINI-API] Database integrity error: {e}")
+        logger.error(f"[GEMINI-API] Database integrity error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to create assistant due to database constraint"
         )
     except Exception as e:
         db.rollback()
-        logger.error(f"[GEMINI-API] Error creating assistant: {e}")
+        logger.error(f"[GEMINI-API] Error creating assistant: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create Gemini assistant"
@@ -405,41 +365,20 @@ async def update_gemini_assistant(
         
         logger.info(f"[GEMINI-API] ✅ Gemini assistant updated: {assistant_id}")
         
-        return GeminiAssistantResponse(
-            id=str(assistant.id),
-            user_id=str(assistant.user_id),
-            name=assistant.name,
-            description=assistant.description,
-            system_prompt=assistant.system_prompt,
-            voice=assistant.voice,
-            language=assistant.language,
-            greeting_message=assistant.greeting_message,
-            google_sheet_id=assistant.google_sheet_id,
-            functions=assistant.functions,
-            is_active=assistant.is_active,
-            is_public=assistant.is_public,
-            created_at=assistant.created_at,
-            updated_at=assistant.updated_at,
-            total_conversations=assistant.total_conversations,
-            temperature=assistant.temperature,
-            max_tokens=assistant.max_tokens,
-            enable_thinking=assistant.enable_thinking,
-            thinking_budget=assistant.thinking_budget,
-            enable_screen_context=assistant.enable_screen_context
-        )
+        return build_assistant_response(assistant)
         
     except HTTPException:
         raise
     except IntegrityError as e:
         db.rollback()
-        logger.error(f"[GEMINI-API] Database integrity error: {e}")
+        logger.error(f"[GEMINI-API] Database integrity error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to update assistant due to database constraint"
         )
     except Exception as e:
         db.rollback()
-        logger.error(f"[GEMINI-API] Error updating assistant {assistant_id}: {e}")
+        logger.error(f"[GEMINI-API] Error updating assistant {assistant_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update Gemini assistant"
@@ -453,7 +392,7 @@ async def delete_gemini_assistant(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Delete a Gemini assistant.
+    Delete a Gemini assistant and all related records.
     
     Args:
         assistant_id: Assistant UUID
@@ -471,6 +410,56 @@ async def delete_gemini_assistant(
             require_ownership=True
         )
         
+        # ✅ FIX v1.2: Явно удаляем связанные conversations перед удалением ассистента
+        deleted_convs = db.query(GeminiConversation).filter(
+            GeminiConversation.assistant_id == assistant.id
+        ).delete(synchronize_session=False)
+        logger.info(f"[GEMINI-API] Deleted {deleted_convs} related conversations")
+        
+        # ✅ FIX v1.2: Обнуляем ссылки в tasks
+        try:
+            from backend.models.task import Task
+            updated_tasks = db.query(Task).filter(
+                Task.gemini_assistant_id == assistant.id
+            ).update(
+                {Task.gemini_assistant_id: None}, 
+                synchronize_session=False
+            )
+            if updated_tasks:
+                logger.info(f"[GEMINI-API] Cleared {updated_tasks} task references")
+        except Exception as task_err:
+            logger.warning(f"[GEMINI-API] Could not clear task references: {task_err}")
+        
+        # ✅ FIX v1.2: Обнуляем ссылки в embed_configs (если есть)
+        try:
+            from backend.models.embed_config import EmbedConfig
+            updated_embeds = db.query(EmbedConfig).filter(
+                EmbedConfig.gemini_assistant_id == assistant.id
+            ).update(
+                {EmbedConfig.gemini_assistant_id: None},
+                synchronize_session=False
+            )
+            if updated_embeds:
+                logger.info(f"[GEMINI-API] Cleared {updated_embeds} embed config references")
+        except Exception as embed_err:
+            logger.warning(f"[GEMINI-API] Could not clear embed config references (may not exist): {embed_err}")
+        
+        # ✅ FIX v1.2: Обнуляем ссылки в function_logs (если есть)
+        try:
+            from backend.models.function_log import FunctionLog
+            if hasattr(FunctionLog, 'gemini_assistant_id'):
+                updated_logs = db.query(FunctionLog).filter(
+                    FunctionLog.gemini_assistant_id == assistant.id
+                ).update(
+                    {FunctionLog.gemini_assistant_id: None},
+                    synchronize_session=False
+                )
+                if updated_logs:
+                    logger.info(f"[GEMINI-API] Cleared {updated_logs} function log references")
+        except Exception as log_err:
+            logger.warning(f"[GEMINI-API] Could not clear function log references: {log_err}")
+        
+        # Теперь удаляем сам ассистент
         db.delete(assistant)
         db.commit()
         
@@ -480,10 +469,10 @@ async def delete_gemini_assistant(
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"[GEMINI-API] Error deleting assistant {assistant_id}: {e}")
+        logger.error(f"[GEMINI-API] Error deleting assistant {assistant_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete Gemini assistant"
+            detail=f"Failed to delete Gemini assistant: {str(e)}"
         )
 
 
@@ -519,7 +508,7 @@ async def get_gemini_embed_code(
                 detail="Assistant must be active to generate embed code"
             )
         
-        # Generate embed code (placeholder for future widget)
+        # Generate embed code
         host_url = settings.HOST_URL
         embed_code = f"""<!-- WellcomeAI Gemini Voice Assistant -->
 <script>
@@ -545,7 +534,7 @@ async def get_gemini_embed_code(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[GEMINI-API] Error generating embed code: {e}")
+        logger.error(f"[GEMINI-API] Error generating embed code: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate embed code"
@@ -609,7 +598,7 @@ async def verify_gemini_google_sheet(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[GEMINI-API] Error verifying Google Sheet: {e}")
+        logger.error(f"[GEMINI-API] Error verifying Google Sheet: {e}", exc_info=True)
         return {
             "success": False,
             "message": f"Ошибка проверки: {str(e)}"
