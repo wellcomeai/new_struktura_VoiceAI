@@ -851,7 +851,11 @@
     .modal.modal-wide {
       max-width: 700px;
     }
-    
+
+    .modal.modal-extra-wide {
+      max-width: 900px;
+    }
+
     .modal-header {
       padding: 1.5rem;
       border-bottom: 1px solid var(--border-color);
@@ -1542,19 +1546,16 @@
           </div>
         </div>
 
-        <!-- Последние звонки -->
+        <!-- Последние звонки — кнопка открытия модалки -->
         <div class="card">
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <h2 class="card-title">Последние звонки</h2>
-              <p class="card-description">История вызовов за последнюю неделю</p>
+              <h2 class="card-title">📞 История звонков</h2>
+              <p class="card-description">Просмотр вызовов за последнюю неделю</p>
             </div>
-            <button class="btn btn-secondary btn-sm" id="refresh-calls-btn">
-              <i class="fas fa-sync-alt"></i> Обновить
+            <button class="btn btn-primary" id="open-call-history-btn">
+              <i class="fas fa-history"></i> Логи звонков
             </button>
-          </div>
-          <div id="call-history-container">
-            <!-- Рендерится из JS -->
           </div>
         </div>
 
@@ -1729,7 +1730,27 @@
       </div>
     </div>
   </div>
-  
+
+  <!-- Модальное окно: История звонков -->
+  <div class="modal-overlay" id="call-history-modal">
+    <div class="modal modal-extra-wide">
+      <div class="modal-header">
+        <h3 class="modal-title">История звонков</h3>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <button class="btn btn-secondary btn-sm" id="refresh-calls-btn">
+            <i class="fas fa-sync-alt"></i> Обновить
+          </button>
+          <button class="modal-close" id="close-call-history-modal">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body compact">
+        <div id="call-history-container">
+          <!-- Рендерится из JS при открытии -->
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       // Элементы
@@ -1765,6 +1786,7 @@
       const buyNumberModal = document.getElementById('buy-number-modal');
       const bindAssistantModal = document.getElementById('bind-assistant-modal');
       const verificationTypeModal = document.getElementById('verification-type-modal');
+      const callHistoryModal = document.getElementById('call-history-modal');
       
       let selectedNumberToBuy = null;
       let selectedNumberPrice = null;
@@ -1886,7 +1908,6 @@
             accountIdValue.textContent = status.account_id || '—';
             
             await loadMyNumbers();
-            await loadCallHistory();
           } else {
             notConnectedSection.classList.remove('hidden');
             connectedSection.classList.add('hidden');
@@ -2075,27 +2096,43 @@
               }
             }
 
-            // Тип звонка — определяем бейдж по rule_name
-            const ruleName = call.rule_name || '';
-            let badgeClass = 'badge-inbound';
-            let badgeText = ruleName || 'Звонок';
+            // Определяем направление и тип ассистента
+            const ruleName = (call.rule_name || '').toLowerCase();
+            const assistantType = (call.assistant_type || '').toLowerCase();
 
-            if (ruleName.includes('gemini')) {
-              badgeClass = 'badge-gemini';
-              badgeText = ruleName.includes('outbound') ? '↗ Gemini' : '↙ Gemini';
-            } else if (ruleName.includes('openai')) {
-              badgeClass = 'badge-openai';
-              badgeText = ruleName.includes('outbound') ? '↗ OpenAI' : '↙ OpenAI';
-            } else if (ruleName.includes('cartesia')) {
-              badgeClass = 'badge-cartesia';
-              badgeText = ruleName.includes('outbound') ? '↗ Cartesia' : '↙ Cartesia';
-            } else if (ruleName.includes('crm')) {
-              badgeClass = 'badge-crm';
-              badgeText = '↗ CRM';
-            } else if (ruleName.includes('inbound')) {
-              badgeClass = 'badge-inbound';
-              badgeText = '↙ Входящий';
+            let direction = '';
+            let directionArrow = '';
+            let aiType = '';
+            let badgeClass = 'badge-inbound';
+
+            // Направление
+            if (ruleName.includes('outbound')) {
+              direction = 'Исх';
+              directionArrow = '↗';
+            } else {
+              direction = 'Вх';
+              directionArrow = '↙';
             }
+
+            // Тип ассистента — из rule_name (исходящие) или assistant_type (входящие)
+            if (ruleName.includes('gemini') || assistantType.includes('gemini')) {
+              aiType = 'Gemini';
+              badgeClass = 'badge-gemini';
+            } else if (ruleName.includes('openai') || assistantType.includes('openai')) {
+              aiType = 'OpenAI';
+              badgeClass = 'badge-openai';
+            } else if (ruleName.includes('cartesia') || assistantType.includes('cartesia')) {
+              aiType = 'Cartesia';
+              badgeClass = 'badge-cartesia';
+            } else if (ruleName.includes('crm')) {
+              aiType = 'CRM';
+              badgeClass = 'badge-crm';
+            }
+
+            // Формируем текст бейджа
+            const badgeText = aiType
+              ? `${directionArrow} ${direction} / ${aiType}`
+              : `${directionArrow} ${direction}`;
 
             // Длительность: M:SS
             const durSec = call.call_duration || 0;
@@ -2420,10 +2457,21 @@
         showNotification('Статус обновлен', 'info');
       });
 
+      // Открытие модалки истории звонков
+      document.getElementById('open-call-history-btn').addEventListener('click', async () => {
+        callHistoryModal.classList.add('show');
+        await loadCallHistory();
+      });
+
       // Обновление истории звонков
       document.getElementById('refresh-calls-btn').addEventListener('click', async () => {
         await loadCallHistory();
         showNotification('История звонков обновлена', 'info');
+      });
+
+      // Закрытие модалки истории звонков
+      document.getElementById('close-call-history-modal').addEventListener('click', () => {
+        callHistoryModal.classList.remove('show');
       });
 
       // Кнопка покупки номера
@@ -2684,6 +2732,12 @@
       bindAssistantModal.addEventListener('click', function(e) {
         if (e.target === bindAssistantModal) {
           bindAssistantModal.classList.remove('show');
+        }
+      });
+
+      callHistoryModal.addEventListener('click', function(e) {
+        if (e.target === callHistoryModal) {
+          callHistoryModal.classList.remove('show');
         }
       });
       
