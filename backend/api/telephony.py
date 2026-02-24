@@ -93,6 +93,11 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+# ChatForYou Bot для анализа логов
+CHATFORYOU_BOT_ID = "57344"
+CHATFORYOU_BOT_TOKEN = "mpdLoMqXNo9dPVdDYxDxZj1HX605dsda"
+CHATFORYOU_API_URL = f"https://api.chatforyou.ru/api/v1.0/ask/{CHATFORYOU_BOT_TOKEN}"
+
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -373,6 +378,21 @@ class CallHistoryResponse(BaseModel):
     success: bool
     calls: List[CallHistoryItem]
     total: int
+
+
+class AnalyzeLogRequest(BaseModel):
+    """Запрос на анализ лога через ИИ"""
+    log_url: Optional[str] = Field(None, description="URL лога звонка (только для первого запроса)")
+    chat_id: str = Field(..., description="Уникальный ID чата для сессии")
+    message: Optional[str] = Field(None, description="Сообщение пользователя (для продолжения диалога)")
+
+
+class AnalyzeLogResponse(BaseModel):
+    """Ответ от ИИ-бота"""
+    success: bool
+    response: Optional[str] = None
+    error: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
 
 
 # =============================================================================
@@ -1059,6 +1079,104 @@ async def get_call_history(
         logger.warning(f"[TELEPHONY] Error getting call history: {e}")
         # НЕ бросаем 500 — возвращаем пустой список, чтобы страница не ломалась
         return CallHistoryResponse(success=True, calls=[], total=0)
+
+
+# =============================================================================
+# АНАЛИЗ ЛОГА ЗВОНКА ЧЕРЕЗ ИИ
+# =============================================================================
+
+@router.post("/analyze-log", response_model=AnalyzeLogResponse)
+async def analyze_call_log(
+    request: AnalyzeLogRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Анализ лога звонка через ИИ-бота chatforyou.ru.
+
+    Первый запрос: передать log_url — бэкенд скачает лог и отправит боту.
+    Последующие запросы: передать message — продолжение диалога в рамках сессии.
+    """
+    import httpx
+
+    try:
+        # Определяем текст сообщения для бота
+        if request.log_url:
+            # Первый запрос — скачиваем лог
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    log_response = await client.get(request.log_url)
+                    log_response.raise_for_status()
+                    log_text = log_response.text
+            except httpx.TimeoutException:
+                return AnalyzeLogResponse(
+                    success=False,
+                    error="Таймаут при скачивании лога звонка"
+                )
+            except Exception as e:
+                logger.warning(f"[TELEPHONY] Failed to download log: {e}")
+                return AnalyzeLogResponse(
+                    success=False,
+                    error=f"Не удалось скачать лог звонка: {str(e)}"
+                )
+
+            bot_message = f"Проанализируй лог звонка:\n\n{log_text}"
+
+        elif request.message:
+            # Продолжение диалога
+            bot_message = request.message
+
+        else:
+            return AnalyzeLogResponse(
+                success=False,
+                error="Необходимо передать log_url или message"
+            )
+
+        # Отправляем запрос к chatforyou.ru
+        payload = {
+            "bot_id": CHATFORYOU_BOT_ID,
+            "chat_id": request.chat_id,
+            "message": bot_message,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                bot_response = await client.post(
+                    CHATFORYOU_API_URL,
+                    json=payload,
+                )
+                bot_response.raise_for_status()
+                bot_data = bot_response.json()
+        except httpx.TimeoutException:
+            return AnalyzeLogResponse(
+                success=False,
+                error="Таймаут ожидания ответа от ИИ-бота"
+            )
+        except Exception as e:
+            logger.error(f"[TELEPHONY] ChatForYou API error: {e}", exc_info=True)
+            return AnalyzeLogResponse(
+                success=False,
+                error=f"Ошибка при запросе к ИИ-боту: {str(e)}"
+            )
+
+        # Обработка ответа
+        if "error" in bot_data:
+            return AnalyzeLogResponse(
+                success=False,
+                error=bot_data["error"]
+            )
+
+        return AnalyzeLogResponse(
+            success=True,
+            response=bot_data.get("done"),
+            usage=bot_data.get("usage"),
+        )
+
+    except Exception as e:
+        logger.error(f"[TELEPHONY] Analyze log error: {e}", exc_info=True)
+        return AnalyzeLogResponse(
+            success=False,
+            error=f"Внутренняя ошибка: {str(e)}"
+        )
 
 
 # =============================================================================
