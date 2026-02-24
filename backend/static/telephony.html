@@ -1304,6 +1304,42 @@
       }
     }
     
+    /* Бейджи типа звонка */
+    .badge-gemini {
+      background-color: #f3e8ff;
+      color: #7c3aed;
+    }
+
+    .badge-openai {
+      background-color: #eff6ff;
+      color: #2563eb;
+    }
+
+    .badge-cartesia {
+      background-color: #ecfdf5;
+      color: #059669;
+    }
+
+    .badge-crm {
+      background-color: #fef3c7;
+      color: #d97706;
+    }
+
+    .badge-inbound {
+      background-color: #f1f5f9;
+      color: #64748b;
+    }
+
+    .call-links {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .call-links .btn {
+      padding: 0.3rem 0.5rem;
+      font-size: 0.75rem;
+    }
+
     /* Скрытые секции */
     .hidden {
       display: none !important;
@@ -1505,7 +1541,23 @@
             <!-- Таблица или пустое состояние -->
           </div>
         </div>
-        
+
+        <!-- Последние звонки -->
+        <div class="card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h2 class="card-title">Последние звонки</h2>
+              <p class="card-description">История вызовов за последнюю неделю</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="refresh-calls-btn">
+              <i class="fas fa-sync-alt"></i> Обновить
+            </button>
+          </div>
+          <div id="call-history-container">
+            <!-- Рендерится из JS -->
+          </div>
+        </div>
+
       </div>
       
     </div>
@@ -1834,6 +1886,7 @@
             accountIdValue.textContent = status.account_id || '—';
             
             await loadMyNumbers();
+            await loadCallHistory();
           } else {
             notConnectedSection.classList.remove('hidden');
             connectedSection.classList.add('hidden');
@@ -1967,6 +2020,134 @@
         return html;
       }
       
+      // =============================================
+      // Загрузка истории звонков
+      // =============================================
+      async function loadCallHistory() {
+        const container = document.getElementById('call-history-container');
+        if (!container) return;
+
+        container.innerHTML = `
+          <div class="empty-state" style="padding: 1.5rem;">
+            <div style="width:30px;height:30px;margin:0 auto 0.5rem;border:3px solid var(--bg-blue-light);border-radius:50%;border-top-color:var(--primary-blue);animation:spin 1s linear infinite;"></div>
+            <p style="color:var(--text-gray);font-size:0.875rem;">Загрузка истории...</p>
+          </div>
+        `;
+
+        try {
+          const result = await api.get('/telephony/call-history?count=5');
+
+          if (!result.calls || result.calls.length === 0) {
+            container.innerHTML = `
+              <div class="empty-state" style="padding: 2rem;">
+                <i class="fas fa-history" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.3;"></i>
+                <p>Нет звонков за последнюю неделю</p>
+              </div>
+            `;
+            return;
+          }
+
+          let html = `
+            <table class="numbers-table">
+              <thead>
+                <tr>
+                  <th>Время</th>
+                  <th>Тип</th>
+                  <th>Номер</th>
+                  <th>Длительность</th>
+                  <th>Стоимость</th>
+                  <th>Ссылки</th>
+                </tr>
+              </thead>
+              <tbody>
+          `;
+
+          result.calls.forEach(call => {
+            // Форматирование времени: "23.02 12:48"
+            let timeFormatted = '—';
+            if (call.start_date) {
+              const parts = call.start_date.split(' ');
+              if (parts.length === 2) {
+                const dateParts = parts[0].split('-');
+                if (dateParts.length === 3) {
+                  timeFormatted = dateParts[2] + '.' + dateParts[1] + ' ' + parts[1].substring(0, 5);
+                }
+              }
+            }
+
+            // Тип звонка — определяем бейдж по rule_name
+            const ruleName = call.rule_name || '';
+            let badgeClass = 'badge-inbound';
+            let badgeText = ruleName || 'Звонок';
+
+            if (ruleName.includes('gemini')) {
+              badgeClass = 'badge-gemini';
+              badgeText = ruleName.includes('outbound') ? '↗ Gemini' : '↙ Gemini';
+            } else if (ruleName.includes('openai')) {
+              badgeClass = 'badge-openai';
+              badgeText = ruleName.includes('outbound') ? '↗ OpenAI' : '↙ OpenAI';
+            } else if (ruleName.includes('cartesia')) {
+              badgeClass = 'badge-cartesia';
+              badgeText = ruleName.includes('outbound') ? '↗ Cartesia' : '↙ Cartesia';
+            } else if (ruleName.includes('crm')) {
+              badgeClass = 'badge-crm';
+              badgeText = '↗ CRM';
+            } else if (ruleName.includes('inbound')) {
+              badgeClass = 'badge-inbound';
+              badgeText = '↙ Входящий';
+            }
+
+            // Длительность: M:SS
+            const durSec = call.call_duration || 0;
+            const durMin = Math.floor(durSec / 60);
+            const durSecRem = durSec % 60;
+            const durationFormatted = durMin + ':' + String(durSecRem).padStart(2, '0');
+
+            // Стоимость
+            const costFormatted = (call.total_cost || 0).toFixed(2) + ' ₽';
+
+            // Номер — переиспользуем существующую функцию formatPhoneNumber()
+            const phoneNumber = call.target_number
+              ? formatPhoneNumber(call.target_number)
+              : '—';
+
+            // Ссылки — иконки-кнопки
+            let linksHtml = '<div class="call-links">';
+            if (call.record_url) {
+              linksHtml += '<a href="' + call.record_url + '" target="_blank" class="btn btn-sm btn-secondary" title="Запись"><i class="fas fa-headphones"></i></a>';
+            }
+            if (call.log_url) {
+              linksHtml += '<a href="' + call.log_url + '" target="_blank" class="btn btn-sm btn-secondary" title="Лог"><i class="fas fa-file-alt"></i></a>';
+            }
+            if (!call.record_url && !call.log_url) {
+              linksHtml += '<span style="color:var(--text-light);font-size:0.8rem;">—</span>';
+            }
+            linksHtml += '</div>';
+
+            html += '<tr>';
+            html += '<td style="white-space:nowrap;font-size:0.875rem;">' + timeFormatted + '</td>';
+            html += '<td><span class="assistant-badge ' + badgeClass + '">' + badgeText + '</span></td>';
+            html += '<td><span class="phone-number">' + phoneNumber + '</span></td>';
+            html += '<td style="font-family:monospace;">' + durationFormatted + '</td>';
+            html += '<td style="font-family:monospace;">' + costFormatted + '</td>';
+            html += '<td>' + linksHtml + '</td>';
+            html += '</tr>';
+          });
+
+          html += '</tbody></table>';
+          container.innerHTML = html;
+
+        } catch (error) {
+          console.error('Ошибка загрузки истории звонков:', error);
+          container.innerHTML = `
+            <div class="empty-state" style="padding: 2rem;">
+              <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--error-red);"></i>
+              <p>Ошибка загрузки истории</p>
+            </div>
+          `;
+        }
+      }
+
       // Загрузка регионов для категории
       async function loadRegions(category) {
         const regionSelect = document.getElementById('region-filter');
@@ -2238,7 +2419,13 @@
         await loadTelephonyStatus();
         showNotification('Статус обновлен', 'info');
       });
-      
+
+      // Обновление истории звонков
+      document.getElementById('refresh-calls-btn').addEventListener('click', async () => {
+        await loadCallHistory();
+        showNotification('История звонков обновлена', 'info');
+      });
+
       // Кнопка покупки номера
       buyNumberBtn.addEventListener('click', async () => {
         selectedNumberToBuy = null;

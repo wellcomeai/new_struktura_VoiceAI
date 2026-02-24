@@ -27,6 +27,7 @@ Routes:
     GET    /api/telephony/call/{id}          - Получить данные звонка по Voximplant session ID
     POST   /api/telephony/start-outbound-call - Запустить исходящий звонок
     POST   /api/telephony/public/call        - Публичный эндпоинт для исходящих звонков
+    GET    /api/telephony/call-history       - История звонков (последние N)
     POST   /api/telephony/register-webhook   - Зарегистрировать webhook
     GET    /api/telephony/scenarios          - Список сценариев аккаунта
     POST   /api/telephony/setup-scenarios    - Настроить сценарии
@@ -68,7 +69,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 import json
 
@@ -345,6 +346,32 @@ class PublicCallResponse(BaseModel):
     started: int = 0
     failed: int = 0
     session_ids: List[str] = []  # 🆕 v3.3: ID сессий запущенных звонков от Voximplant
+
+
+class CallHistoryItem(BaseModel):
+    """Один звонок из истории"""
+    session_id: str
+    start_date: str
+    rule_name: Optional[str] = None
+    duration: int = 0
+    finish_reason: Optional[str] = None
+    caller_number: Optional[str] = None
+    target_number: Optional[str] = None
+    call_duration: int = 0
+    call_cost: float = 0
+    websocket_cost: float = 0
+    total_cost: float = 0
+    record_url: Optional[str] = None
+    log_url: Optional[str] = None
+    assistant_type: Optional[str] = None
+    custom_greeting: Optional[str] = None
+
+
+class CallHistoryResponse(BaseModel):
+    """Ответ с историей звонков"""
+    success: bool
+    calls: List[CallHistoryItem]
+    total: int
 
 
 # =============================================================================
@@ -927,6 +954,109 @@ async def get_balance(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=str(e)
         )
+
+
+# =============================================================================
+# ИСТОРИЯ ЗВОНКОВ
+# =============================================================================
+
+@router.get("/call-history", response_model=CallHistoryResponse)
+async def get_call_history(
+    count: int = Query(default=5, ge=1, le=20, description="Количество записей"),
+    from_date: Optional[str] = Query(default=None, description="Дата начала YYYY-MM-DD"),
+    to_date: Optional[str] = Query(default=None, description="Дата конца YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Получить историю звонков из Voximplant GetCallHistory API.
+
+    Возвращает последние N звонков с информацией о стоимости,
+    длительности, ссылками на записи и логи.
+    """
+    try:
+        # 1. Получить VoximplantChildAccount текущего пользователя
+        child_account = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == current_user.id
+        ).first()
+
+        if not child_account:
+            return CallHistoryResponse(success=True, calls=[], total=0)
+
+        # 2. Определить даты (по умолчанию: последние 7 дней)
+        if not from_date:
+            from_date_dt = datetime.now(timezone.utc) - timedelta(days=7)
+            from_date = from_date_dt.strftime("%Y-%m-%d")
+        if not to_date:
+            to_date_dt = datetime.now(timezone.utc) + timedelta(days=1)
+            to_date = to_date_dt.strftime("%Y-%m-%d")
+
+        # 3. HTTP запрос к Voximplant API
+        import httpx
+
+        vox_url = "https://api.voximplant.com/platform_api/GetCallHistory"
+        params = {
+            "account_id": child_account.vox_account_id,
+            "api_key": child_account.vox_api_key,
+            "from_date": f"{from_date} 00:00:00",
+            "to_date": f"{to_date} 23:59:59",
+            "count": count,
+            "with_calls": "true",
+            "desc_order": "true",
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(vox_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+        # 4. Парсинг результатов
+        calls = []
+        for session in data.get("result", []):
+            # Парсим custom_data (JSON строка)
+            custom_data = {}
+            try:
+                custom_data = json.loads(session.get("custom_data", "{}") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            # Данные первого call-leg
+            call_leg = session.get("calls", [{}])[0] if session.get("calls") else {}
+
+            # Суммируем websocket cost из other_resource_usage
+            ws_cost = sum(
+                r.get("cost", 0)
+                for r in session.get("other_resource_usage", [])
+                if r.get("resource_type") == "WEBSOCKET_AUDIO"
+            )
+
+            call_cost = call_leg.get("cost", 0) or 0
+
+            calls.append(CallHistoryItem(
+                session_id=str(session.get("call_session_history_id", "")),
+                start_date=session.get("start_date", ""),
+                rule_name=session.get("rule_name"),
+                duration=session.get("duration", 0),
+                finish_reason=session.get("finish_reason"),
+                caller_number=call_leg.get("local_number"),
+                target_number=call_leg.get("remote_number"),
+                call_duration=call_leg.get("duration", 0),
+                call_cost=round(call_cost, 2),
+                websocket_cost=round(ws_cost, 2),
+                total_cost=round(call_cost + ws_cost, 2),
+                record_url=call_leg.get("record_url"),
+                log_url=session.get("log_file_url"),
+                assistant_type=custom_data.get("assistant_type"),
+                custom_greeting=custom_data.get("custom_greeting"),
+            ))
+
+        logger.info(f"[TELEPHONY] Call history returned {len(calls)} calls for user {current_user.id}")
+        return CallHistoryResponse(success=True, calls=calls, total=len(calls))
+
+    except Exception as e:
+        logger.warning(f"[TELEPHONY] Error getting call history: {e}")
+        # НЕ бросаем 500 — возвращаем пустой список, чтобы страница не ломалась
+        return CallHistoryResponse(success=True, calls=[], total=0)
 
 
 # =============================================================================
