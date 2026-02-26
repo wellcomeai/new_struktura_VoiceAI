@@ -2598,7 +2598,7 @@ async def public_outbound_call(
                 detail="Правила для исходящих звонков не настроены"
             )
         
-        rule_name = f"outbound_{assistant_type}"
+        rule_name = "outbound_crm"
         rule_id = child_account.vox_rule_ids.get(rule_name)
         
         if not rule_id:
