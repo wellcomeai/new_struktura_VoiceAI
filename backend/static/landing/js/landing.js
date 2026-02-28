@@ -432,14 +432,14 @@
   /* ======================================================================
      FAQ ACCORDION
      ====================================================================== */
-  document.querySelectorAll('.faq-item__question').forEach(function (btn) {
+  document.querySelectorAll('.faq-item__q').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const item = this.closest('.faq-item');
       const isOpen = item.classList.contains('active');
       // Close all
       document.querySelectorAll('.faq-item.active').forEach(function (i) {
         i.classList.remove('active');
-        i.querySelector('.faq-item__question').setAttribute('aria-expanded', 'false');
+        i.querySelector('.faq-item__q').setAttribute('aria-expanded', 'false');
       });
       if (!isOpen) {
         item.classList.add('active');
