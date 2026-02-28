@@ -1,20 +1,633 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voicyfy - Говорит. Слушает. Понимает.</title>
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-  <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#2563eb">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <script type="module" crossorigin src="/static/landing/assets/index-Cj33JihW.js"></script>
-  <link rel="stylesheet" crossorigin href="/static/landing/assets/index-F5CFlNFa.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voicyfy — Голосовой ИИ-ассистент для бизнеса</title>
+    <meta name="description" content="Подключите голосового ИИ-ассистента за 5 минут. Виджет для сайта, телефония от 1.7₽/мин, CRM, 340+ голосов. OpenAI, Gemini, Cartesia.">
+    <meta name="keywords" content="голосовой ассистент, ИИ для бизнеса, телефония, чат-бот, OpenAI, Gemini, Voicyfy">
+    <meta property="og:title" content="Voicyfy — Голосовой ИИ для бизнеса">
+    <meta property="og:description" content="Подключите ИИ-ассистента за 5 минут без программиста">
+    <meta property="og:image" content="https://voicyfy.ru/static/og-image.jpg">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://voicyfy.ru">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="theme-color" content="#2563eb">
+
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+    <link rel="manifest" href="/static/manifest.json">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/landing/css/landing.css">
 </head>
 <body>
-  <div id="root"></div>
+    <!-- ===== HEADER (SECTION 0) ===== -->
+    <header class="header" id="header">
+        <div class="header__container">
+            <a href="/" class="header__logo">Voicyfy</a>
+            <nav class="header__nav" id="headerNav">
+                <a href="#features" class="header__link">Возможности</a>
+                <a href="#telephony" class="header__link">Телефония</a>
+                <a href="#voices" class="header__link">Голоса</a>
+                <a href="#pricing" class="header__link">Тарифы</a>
+                <a href="#faq" class="header__link">FAQ</a>
+            </nav>
+            <div class="header__actions">
+                <button class="btn btn--ghost" id="btnLogin">Войти</button>
+                <button class="btn btn--primary btn--sm" id="btnRegister">Регистрация</button>
+            </div>
+            <button class="header__burger" id="burgerBtn" aria-label="Меню">
+                <span></span><span></span><span></span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Menu -->
+    <div class="mobile-menu" id="mobileMenu">
+        <div class="mobile-menu__panel">
+            <div class="mobile-menu__header">
+                <a href="/" class="header__logo">Voicyfy</a>
+                <button class="mobile-menu__close" id="mobileMenuClose" aria-label="Закрыть">&times;</button>
+            </div>
+            <nav class="mobile-menu__nav">
+                <a href="#features" class="mobile-menu__link">Возможности</a>
+                <a href="#telephony" class="mobile-menu__link">Телефония</a>
+                <a href="#voices" class="mobile-menu__link">Голоса</a>
+                <a href="#pricing" class="mobile-menu__link">Тарифы</a>
+                <a href="#faq" class="mobile-menu__link">FAQ</a>
+            </nav>
+            <div class="mobile-menu__actions">
+                <button class="btn btn--ghost btn--full" id="btnLoginMobile">Войти</button>
+                <button class="btn btn--primary btn--full" id="btnRegisterMobile">Регистрация</button>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <!-- ===== HERO (SECTION 1) ===== -->
+        <section class="hero" id="hero">
+            <div class="hero__orb hero__orb--1"></div>
+            <div class="hero__orb hero__orb--2"></div>
+            <div class="container hero__content section-animate">
+                <div class="hero__badge">Голосовой ИИ нового поколения</div>
+                <h1 class="hero__title">Голосовой <span class="gradient-text">ИИ-ассистент</span> для&nbsp;вашего бизнеса</h1>
+                <p class="hero__subtitle">Подключите за 5 минут без программиста. Виджет на сайт, телефония, CRM — всё в одной платформе</p>
+                <div class="hero__cta">
+                    <button class="btn btn--primary btn--large" data-action="register">Попробовать бесплатно</button>
+                    <a href="tel:+79014170600" class="btn btn--outline btn--large">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        Позвонить ИИ
+                    </a>
+                </div>
+                <div class="hero__providers">
+                    <span class="hero__providers-label">Работает на</span>
+                    <div class="hero__providers-logos">
+                        <div class="provider-logo" title="OpenAI">
+                            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073zM13.26 22.43a4.476 4.476 0 0 1-2.876-1.04l.141-.081 4.779-2.758a.795.795 0 0 0 .392-.681v-6.737l2.02 1.168a.071.071 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494zM3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085 4.783 2.759a.771.771 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646zM2.34 7.896a4.485 4.485 0 0 1 2.366-1.973V11.6a.766.766 0 0 0 .388.676l5.815 3.355-2.02 1.168a.076.076 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.076.076 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667zm2.01-3.023l-.141-.085-4.774-2.782a.776.776 0 0 0-.785 0L9.409 9.23V6.897a.066.066 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.795.795 0 0 0-.393.681zm1.097-2.365l2.602-1.5 2.607 1.5v2.999l-2.597 1.5-2.607-1.5z"/></svg>
+                        </div>
+                        <div class="provider-logo" title="Google Gemini">
+                            <svg viewBox="0 0 24 24" width="28" height="28"><defs><linearGradient id="gemGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4285f4"/><stop offset="25%" stop-color="#9b72cb"/><stop offset="50%" stop-color="#d96570"/><stop offset="100%" stop-color="#d96570"/></linearGradient></defs><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12c3.2 0 6.1-1.3 8.2-3.3L16 16.5c-1.1 1-2.5 1.5-4 1.5-3.3 0-6-2.7-6-6s2.7-6 6-6c1.7 0 3.1.6 4.2 1.7L18.7 5C16.8 3.2 14.5 2.1 12 2.1" fill="currentColor" opacity="0.8"/></svg>
+                        </div>
+                        <div class="provider-logo" title="Cartesia">
+                            <span class="provider-logo__text">Cartesia</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Demo Call Block -->
+                <div class="demo-call">
+                    <div class="demo-call__icon">
+                        <div class="phone-pulse"></div>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </div>
+                    <div class="demo-call__text">
+                        <p class="demo-call__label">Попробуйте прямо сейчас</p>
+                        <a href="tel:+79014170600" class="demo-call__number">+7 901 417-06-00</a>
+                        <p class="demo-call__desc">Gemini-ассистент &laquo;Клиника&raquo; ответит вам</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== HOW IT WORKS (SECTION 2) ===== -->
+        <section class="steps" id="features">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Подключение за 5 минут</h2>
+                    <p class="section-subtitle">Три простых шага — и ваш ИИ-ассистент готов к работе</p>
+                </div>
+                <div class="steps__grid section-animate">
+                    <div class="step-card">
+                        <div class="step-card__number">01</div>
+                        <div class="step-card__icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/><circle cx="12" cy="15" r="2"/></svg>
+                        </div>
+                        <h3 class="step-card__title">Создайте ассистента</h3>
+                        <p class="step-card__desc">Выберите провайдера ИИ, задайте имя и настройки</p>
+                    </div>
+                    <div class="steps__connector">
+                        <svg width="60" height="2"><line x1="0" y1="1" x2="60" y2="1" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="6 4"/></svg>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-card__number">02</div>
+                        <div class="step-card__icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        </div>
+                        <h3 class="step-card__title">Настройте промпт</h3>
+                        <p class="step-card__desc">Опишите поведение ассистента, загрузите базу знаний</p>
+                    </div>
+                    <div class="steps__connector">
+                        <svg width="60" height="2"><line x1="0" y1="1" x2="60" y2="1" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="6 4"/></svg>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-card__number">03</div>
+                        <div class="step-card__icon">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                        </div>
+                        <h3 class="step-card__title">Подключите к каналам</h3>
+                        <p class="step-card__desc">Встройте виджет на сайт одной строкой кода или подключите телефонный номер</p>
+                    </div>
+                </div>
+                <p class="steps__note section-animate">Без программиста &bull; Без кода &bull; Пробный период 3 дня бесплатно</p>
+            </div>
+        </section>
+
+        <!-- ===== TWO PRODUCTS (SECTION 3) ===== -->
+        <section class="products">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Два способа подключить ИИ</h2>
+                    <p class="section-subtitle">Встройте на сайт или подключите полноценный голосовой интерфейс</p>
+                </div>
+                <div class="products__grid section-animate">
+                    <div class="product-card">
+                        <div class="product-card__badge">Одна строка кода</div>
+                        <h3 class="product-card__title">Виджет для сайта</h3>
+                        <p class="product-card__desc">Встраиваемый голосовой виджет через <code>&lt;script&gt;</code>. Работает с OpenAI и Gemini ассистентами. Server VAD, screen capture для контекста страницы.</p>
+                        <div class="product-card__code">
+                            <div class="product-card__code-header">
+                                <span class="dot dot--red"></span>
+                                <span class="dot dot--yellow"></span>
+                                <span class="dot dot--green"></span>
+                                <span class="product-card__code-lang">HTML</span>
+                            </div>
+<pre><code>&lt;script src="voicyfy.ru/static/widget.js"
+  data-assistant-id="ваш-id"&gt;
+&lt;/script&gt;</code></pre>
+                        </div>
+                        <button class="btn btn--primary btn--full product-card__cta" data-action="register">Попробовать виджет</button>
+                    </div>
+                    <div class="product-card product-card--dark">
+                        <div class="product-card__badge product-card__badge--accent">Полноценный интерфейс</div>
+                        <h3 class="product-card__title">JARVIS AI</h3>
+                        <p class="product-card__desc">Голосовой интерфейс с Gemini + LLM стриминг. Визуализация сферы, текстовый чат, iframe-встраивание. Двойной WebSocket для голоса и текста.</p>
+                        <div class="product-card__visual">
+                            <div class="jarvis-mockup">
+                                <div class="jarvis-mockup__sphere"></div>
+                                <div class="jarvis-mockup__bars">
+                                    <span></span><span></span><span></span><span></span><span></span>
+                                </div>
+                                <div class="jarvis-mockup__text">AI Assistant Online</div>
+                            </div>
+                        </div>
+                        <button class="btn btn--white btn--full product-card__cta" data-action="register">Подключить JARVIS</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== TELEPHONY (SECTION 4) ===== -->
+        <section class="telephony" id="telephony">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Телефония от 1.7&#8381;/мин</h2>
+                    <p class="section-subtitle">Входящие и исходящие вызовы с ИИ по самым низким ценам на рынке</p>
+                </div>
+                <div class="telephony__grid section-animate">
+                    <div class="telephony__features">
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                            </div>
+                            <div><strong>Входящие вызовы</strong> — от 1.7&#8381;/мин</div>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                            </div>
+                            <div><strong>Исходящие вызовы</strong> — от 2.7&#8381;/мин</div>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                            </div>
+                            <div><strong>Автоперезвон из CRM</strong> — создайте задачу, ИИ сам перезвонит</div>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+                            </div>
+                            <div><strong>Запись всех разговоров</strong> — аудио + текстовая расшифровка</div>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                            </div>
+                            <div><strong>Telegram-уведомления</strong> — номер, длительность, стоимость, диалог, аудиозапись</div>
+                        </div>
+                        <div class="feature-item">
+                            <div class="feature-item__icon">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            </div>
+                            <div><strong>Настройка Telegram за 2 минуты</strong> через BotFather</div>
+                        </div>
+                    </div>
+                    <div class="telephony__visual">
+                        <div class="browser-frame">
+                            <div class="browser-frame__header">
+                                <span class="dot dot--red"></span>
+                                <span class="dot dot--yellow"></span>
+                                <span class="dot dot--green"></span>
+                                <span class="browser-frame__url">voicyfy.ru/telephony</span>
+                            </div>
+                            <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/telephony_screenshot.webp" alt="Панель телефонии Voicyfy" class="telephony__img" loading="lazy" width="1521" height="828">
+                        </div>
+                    </div>
+                </div>
+                <div class="demo-call demo-call--compact section-animate">
+                    <div class="demo-call__icon demo-call__icon--sm">
+                        <div class="phone-pulse"></div>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </div>
+                    <span>Убедитесь сами — позвоните: <a href="tel:+79014170600" class="demo-call__number">+7 901 417-06-00</a></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== VOICES (SECTION 5) ===== -->
+        <section class="voices" id="voices">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title"><span class="counter" data-target="340">0</span>+ голосов + клонируйте свой</h2>
+                    <p class="section-subtitle">Выберите идеальный голос или создайте уникальный — ИИ будет разговаривать вашим голосом</p>
+                </div>
+                <div class="voices__grid section-animate">
+                    <div class="voice-card">
+                        <div class="voice-card__icon">
+                            <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor" opacity="0.8"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12c3.2 0 6.1-1.3 8.2-3.3L16 16.5c-1.1 1-2.5 1.5-4 1.5-3.3 0-6-2.7-6-6s2.7-6 6-6c1.7 0 3.1.6 4.2 1.7L18.7 5C16.8 3.2 14.5 2.1 12 2.1"/></svg>
+                        </div>
+                        <h3 class="voice-card__title">Google</h3>
+                        <div class="voice-card__count"><span class="counter" data-target="30">0</span> HD голосов</div>
+                        <span class="voice-card__badge">HD качество</span>
+                    </div>
+                    <div class="voice-card">
+                        <div class="voice-card__icon">
+                            <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor" opacity="0.8"><path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.051 6.051 0 0 0 6.515 2.9A5.985 5.985 0 0 0 13.26 24a6.056 6.056 0 0 0 5.772-4.206 5.99 5.99 0 0 0 3.997-2.9 6.056 6.056 0 0 0-.747-7.073z"/></svg>
+                        </div>
+                        <h3 class="voice-card__title">OpenAI</h3>
+                        <div class="voice-card__count"><span class="counter" data-target="10">0</span> голосов</div>
+                        <span class="voice-card__badge">Realtime API</span>
+                    </div>
+                    <div class="voice-card">
+                        <div class="voice-card__icon">
+                            <span class="voice-card__icon-text">C</span>
+                        </div>
+                        <h3 class="voice-card__title">Cartesia</h3>
+                        <div class="voice-card__count"><span class="counter" data-target="300">0</span>+ голосов</div>
+                        <span class="voice-card__badge voice-card__badge--accent">+ Клонирование</span>
+                    </div>
+                </div>
+                <div class="clone-banner section-animate">
+                    <div class="clone-banner__content">
+                        <div class="clone-banner__waveform">
+                            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                        <h3 class="clone-banner__title">Клонирование голоса</h3>
+                        <p class="clone-banner__desc">ИИ-ассистент разговаривает <strong>ВАШИМ</strong> голосом. Загрузите образец — и через минуту получите цифровую копию. Технология Cartesia Voice Cloning.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== PLATFORM FEATURES (SECTION 6) ===== -->
+        <section class="platform">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Всё для управления ИИ-ассистентами</h2>
+                    <p class="section-subtitle">Полная платформа — от создания до аналитики</p>
+                </div>
+                <div class="platform__grid section-animate">
+                    <div class="platform-card">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">CRM-система</h3>
+                        <p class="platform-card__desc">Контакты, задачи, история звонков. Автоматическое создание задач на перезвон</p>
+                    </div>
+                    <div class="platform-card">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">База знаний</h3>
+                        <p class="platform-card__desc">Загрузите документы — ИИ будет отвечать на основе ваших данных. Pinecone vector search</p>
+                    </div>
+                    <div class="platform-card platform-card--has-img">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">Диалоги и аналитика</h3>
+                        <p class="platform-card__desc">Все разговоры в одном месте: фильтрация, стоимость, длительность, токены</p>
+                        <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/conversations_screenshot.webp" alt="Аналитика диалогов" class="platform-card__img" loading="lazy" width="1603" height="932">
+                    </div>
+                    <div class="platform-card">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">Telegram-уведомления</h3>
+                        <p class="platform-card__desc">Мгновенная реакция на каждый звонок. Номер, диалог, аудио — всё в Telegram за 2 минуты настройки</p>
+                    </div>
+                    <div class="platform-card">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">Множественные AI-провайдеры</h3>
+                        <p class="platform-card__desc">OpenAI Realtime, Google Gemini Live, Cartesia LLM+TTS. Переключайтесь между провайдерами в один клик</p>
+                    </div>
+                    <div class="platform-card">
+                        <div class="platform-card__icon">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15.05 5A5 5 0 0 1 19 8.95M15.05 1A9 9 0 0 1 23 8.94m-1 7.98v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        </div>
+                        <h3 class="platform-card__title">Автозвонки из CRM</h3>
+                        <p class="platform-card__desc">Создайте задачу — ИИ автоматически перезвонит клиенту. Идеально для follow-up и напоминаний</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== PRICING (SECTION 7) ===== -->
+        <section class="pricing" id="pricing">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Тарифные планы</h2>
+                    <p class="section-subtitle">Начните бесплатно — масштабируйтесь по мере роста</p>
+                </div>
+                <div class="pricing__grid section-animate">
+                    <div class="pricing-card">
+                        <div class="pricing-card__badge pricing-card__badge--green">БЕСПЛАТНО</div>
+                        <h3 class="pricing-card__name">Пробный</h3>
+                        <div class="pricing-card__price">0&#8381; <span>/ 3 дня</span></div>
+                        <ul class="pricing-card__features">
+                            <li class="pricing-card__feature pricing-card__feature--yes">1 ассистент</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Виджет на сайт</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">CRM-система</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Телефония</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">База знаний</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Диалоги</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">AI Jarvis</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Реферальная программа</li>
+                        </ul>
+                        <button class="btn btn--outline btn--full" data-action="register">Попробовать</button>
+                    </div>
+                    <div class="pricing-card">
+                        <div class="pricing-card__badge pricing-card__badge--blue">БАЗОВЫЙ</div>
+                        <h3 class="pricing-card__name">AI Voice</h3>
+                        <div class="pricing-card__price">1 490&#8381; <span>/мес</span></div>
+                        <p class="pricing-card__subtitle">Голосовой бот для сайта</p>
+                        <ul class="pricing-card__features">
+                            <li class="pricing-card__feature pricing-card__feature--yes">до 3 ассистентов</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Виджет на сайт</li>
+                            <li class="pricing-card__feature pricing-card__feature--no">CRM-система</li>
+                            <li class="pricing-card__feature pricing-card__feature--no">Телефония</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">База знаний</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Диалоги</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">AI Jarvis</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Реферальная программа</li>
+                        </ul>
+                        <button class="btn btn--outline btn--full" data-action="register">Выбрать тариф</button>
+                    </div>
+                    <div class="pricing-card pricing-card--featured">
+                        <div class="pricing-card__badge pricing-card__badge--orange">ПОПУЛЯРНЫЙ</div>
+                        <h3 class="pricing-card__name">Старт</h3>
+                        <div class="pricing-card__price">2 990&#8381; <span>/мес</span></div>
+                        <p class="pricing-card__subtitle">Полный функционал</p>
+                        <ul class="pricing-card__features">
+                            <li class="pricing-card__feature pricing-card__feature--yes">до 5 ассистентов</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Виджет на сайт</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">CRM-система</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Телефония</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">База знаний</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Диалоги</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">AI Jarvis</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Реферальная программа</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Приоритетная поддержка</li>
+                        </ul>
+                        <button class="btn btn--primary btn--full" data-action="register">Выбрать тариф</button>
+                    </div>
+                    <div class="pricing-card">
+                        <div class="pricing-card__badge pricing-card__badge--red">МАКСИМУМ</div>
+                        <h3 class="pricing-card__name">Profi</h3>
+                        <div class="pricing-card__price">5 990&#8381; <span>/мес</span></div>
+                        <p class="pricing-card__subtitle">Для серьёзного бизнеса</p>
+                        <ul class="pricing-card__features">
+                            <li class="pricing-card__feature pricing-card__feature--yes">до 10 ассистентов</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Виджет на сайт</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">CRM-система</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Телефония</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">База знаний</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Диалоги</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">AI Jarvis</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">Реферальная программа</li>
+                            <li class="pricing-card__feature pricing-card__feature--yes">VIP поддержка</li>
+                        </ul>
+                        <button class="btn btn--outline btn--full" data-action="register">Выбрать тариф</button>
+                    </div>
+                </div>
+                <p class="pricing__note section-animate">Партнёрская программа — 30% с каждого платежа привлечённого клиента</p>
+            </div>
+        </section>
+
+        <!-- ===== FAQ (SECTION 8) ===== -->
+        <section class="faq" id="faq">
+            <div class="container">
+                <div class="section-header section-animate">
+                    <h2 class="section-title">Частые вопросы</h2>
+                </div>
+                <div class="faq__list section-animate">
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Нужен ли программист для подключения?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>Нет. Для виджета достаточно скопировать одну строку кода. Телефония подключается через панель управления. Настройка займёт 5 минут.</p></div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Как быстро можно подключить ассистента?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>За 5 минут: создаёте ассистента, пишете промпт, копируете код на сайт или подключаете номер. Всё через веб-интерфейс.</p></div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Какие AI-провайдеры поддерживаются?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>OpenAI Realtime API, Google Gemini Live API и Cartesia (LLM+TTS). Вы можете переключаться между провайдерами для каждого ассистента.</p></div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Как работает клонирование голоса?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>Загрузите аудиообразец вашего голоса через панель Cartesia. Через минуту вы получите цифровую копию, и ИИ будет разговаривать вашим голосом.</p></div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Есть ли запись звонков?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>Да, все звонки записываются. Аудио и текстовая расшифровка доступны в разделе &laquo;Диалоги&raquo;. Также можно настроить уведомления в Telegram — после каждого звонка вам придёт полный отчёт.</p></div>
+                    </div>
+                    <div class="faq-item">
+                        <button class="faq-item__question" aria-expanded="false">
+                            <span>Можно ли интегрировать с моей CRM?</span>
+                            <svg class="faq-item__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <div class="faq-item__answer"><p>Voicyfy имеет встроенную CRM с контактами, задачами и историей звонков. Ассистент автоматически создаёт задачи на перезвон. API для внешних интеграций также доступен.</p></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===== FINAL CTA (SECTION 9) ===== -->
+        <section class="final-cta">
+            <div class="container final-cta__content section-animate">
+                <h2 class="final-cta__title">Начните бесплатно за 5 минут</h2>
+                <p class="final-cta__subtitle">Создайте своего ИИ-ассистента прямо сейчас</p>
+                <div class="final-cta__actions">
+                    <button class="btn btn--white btn--large" data-action="register">Попробовать бесплатно</button>
+                    <a href="tel:+79014170600" class="btn btn--outline-white btn--large">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        +7 901 417-06-00
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <div class="container footer__content">
+            <div class="footer__top">
+                <a href="/" class="footer__logo">Voicyfy</a>
+                <nav class="footer__nav">
+                    <a href="#features">Возможности</a>
+                    <a href="#pricing">Тарифы</a>
+                    <a href="#faq">FAQ</a>
+                    <a href="#" id="footerLogin">Войти</a>
+                    <a href="#" id="footerRegister">Регистрация</a>
+                </nav>
+            </div>
+            <div class="footer__bottom">
+                <p>&copy; 2025 Voicyfy. Все права защищены.</p>
+                <div class="footer__links">
+                    <span class="footer__partner">Партнёрская программа — зарабатывайте 30%</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Back to Top -->
+    <button class="back-to-top" id="backToTop" aria-label="Наверх">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+    </button>
+
+    <!-- ===== AUTH MODALS ===== -->
+    <div class="modal" id="loginModal">
+        <div class="modal__backdrop"></div>
+        <div class="modal__content">
+            <button class="modal__close" aria-label="Закрыть">&times;</button>
+            <h2 class="modal__title">Вход в аккаунт</h2>
+            <form id="loginForm" class="auth-form" novalidate>
+                <div class="auth-form__notification" id="loginNotification"></div>
+                <div class="form-group">
+                    <label for="loginEmail">Email</label>
+                    <input type="email" id="loginEmail" class="form-control" placeholder="your@email.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Пароль</label>
+                    <input type="password" id="loginPassword" class="form-control" placeholder="Минимум 8 символов" required minlength="8" autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn--primary btn--full btn--large" id="loginSubmit">Войти</button>
+            </form>
+            <p class="modal__switch">Нет аккаунта? <a href="#" id="switchToRegister">Зарегистрироваться</a></p>
+        </div>
+    </div>
+
+    <div class="modal" id="registerModal">
+        <div class="modal__backdrop"></div>
+        <div class="modal__content">
+            <button class="modal__close" aria-label="Закрыть">&times;</button>
+            <h2 class="modal__title">Регистрация</h2>
+            <form id="registerForm" class="auth-form" novalidate>
+                <div class="auth-form__notification" id="registerNotification"></div>
+                <div class="form-group">
+                    <label for="regEmail">Email</label>
+                    <input type="email" id="regEmail" class="form-control" placeholder="your@email.com" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="regPassword">Пароль</label>
+                    <input type="password" id="regPassword" class="form-control" placeholder="Минимум 8 символов" required minlength="8" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="regReferral">Реферальный код <span class="form-group__optional">(необязательно)</span></label>
+                    <input type="text" id="regReferral" class="form-control" placeholder="Код партнёра" autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn--primary btn--full btn--large" id="registerSubmit">Создать аккаунт</button>
+            </form>
+            <p class="modal__switch">Уже есть аккаунт? <a href="#" id="switchToLogin">Войти</a></p>
+        </div>
+    </div>
+
+    <div class="modal" id="verificationModal">
+        <div class="modal__backdrop"></div>
+        <div class="modal__content">
+            <button class="modal__close" aria-label="Закрыть">&times;</button>
+            <h2 class="modal__title">Подтвердите email</h2>
+            <p class="modal__desc">Мы отправили 6-значный код на <strong id="verificationEmail"></strong></p>
+            <form id="verificationForm" class="auth-form" novalidate>
+                <div class="auth-form__notification" id="verificationNotification"></div>
+                <div class="form-group">
+                    <label for="verCode">Код подтверждения</label>
+                    <input type="text" id="verCode" class="form-control form-control--code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" autocomplete="one-time-code" required>
+                </div>
+                <div class="verification-info">
+                    <span id="verAttempts">Осталось попыток: 3</span>
+                    <button type="button" class="btn btn--text" id="resendCode" disabled>Отправить повторно <span id="resendTimer"></span></button>
+                </div>
+                <button type="submit" class="btn btn--primary btn--full btn--large" id="verifySubmit">Подтвердить</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/landing/js/landing.js"></script>
+
+    <!-- WellcomeAI Gemini Voice Assistant -->
+    <script>
+        (function() {
+            var script = document.createElement('script');
+            script.src = 'https://voicyfy.ru/static/gemini-widget.js';
+            script.dataset.assistantId = '991b2b45-b52b-43be-9e59-81eaf7ea980a';
+            script.dataset.server = 'https://voicyfy.ru';
+            script.dataset.position = 'bottom-right';
+            script.async = true;
+            document.head.appendChild(script);
+        })();
+    </script>
 </body>
 </html>
