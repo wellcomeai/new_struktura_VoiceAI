@@ -115,13 +115,10 @@ body::before {
 .nav-logo {
   display: flex; align-items: center; gap: 10px; text-decoration: none;
 }
-.nav-logo-icon {
+.nav-logo-img {
   width: 36px; height: 36px; border-radius: 10px;
-  background: var(--grad);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 10px var(--glow);
+  object-fit: contain;
 }
-.nav-logo-icon svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; }
 .nav-logo-text {
   font-size: 1.4rem; font-weight: 800; letter-spacing: -.04em;
   background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;

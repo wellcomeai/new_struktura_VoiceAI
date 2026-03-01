@@ -17,12 +17,7 @@ function Navbar() {
       style={{ boxShadow: scrolled ? '0 2px 20px rgba(0,0,0,.07)' : 'none' }}
     >
       <a href="#" className="nav-logo">
-        <div className="nav-logo-icon">
-          <svg viewBox="0 0 24 24">
-            <path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z" />
-            <path d="M19 10v1a7 7 0 01-14 0v-1M12 18v4M8 22h8" />
-          </svg>
-        </div>
+        <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" className="nav-logo-img" />
         <span className="nav-logo-text">Voicyfy</span>
       </a>
 
