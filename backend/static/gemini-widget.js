@@ -718,33 +718,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             .wellcomeai-status-dot.connecting { background-color: #f59e0b; }
             .wellcomeai-status-dot.interrupted { background-color: #d97706; }
             
-            .wellcomeai-voicyfy-container {
-                position: absolute;
-                bottom: 10px;
-                left: 50%;
-                transform: translateX(-50%);
-                text-align: center;
-                padding: 8px;
-                opacity: 0.8;
-                transition: opacity 0.2s ease;
-            }
-            
-            .wellcomeai-voicyfy-container:hover { opacity: 1; }
-            
-            .wellcomeai-voicyfy-link {
-                display: inline-block;
-                text-decoration: none;
-                transition: transform 0.2s ease;
-            }
-            
-            .wellcomeai-voicyfy-link:hover { transform: translateY(-2px); }
-            
-            .wellcomeai-voicyfy-link img {
-                height: 25px;
-                width: auto;
-                display: block;
-            }
-            
             @keyframes wellcomeai-button-pulse {
                 0% { box-shadow: 0 0 0 0 rgba(74, 134, 232, 0.7); }
                 70% { box-shadow: 0 0 0 10px rgba(74, 134, 232, 0); }
@@ -812,13 +785,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                     <div class="wellcomeai-status-indicator" id="wellcomeai-status-indicator">
                         <div class="wellcomeai-status-dot" id="wellcomeai-status-dot"></div>
                         <span id="wellcomeai-status-text">Подключение...</span>
-                    </div>
-                    
-                    <!-- Voicyfy Branding -->
-                    <div class="wellcomeai-voicyfy-container">
-                        <a href="https://voicyfy.ru/" target="_blank" rel="noopener noreferrer" class="wellcomeai-voicyfy-link">
-                            <img src="https://i.ibb.co/ccw6sjdk/photo-2025-06-03-05-04-02.jpg" alt="Voicyfy - powered by AI">
-                        </a>
                     </div>
                 </div>
             </div>
