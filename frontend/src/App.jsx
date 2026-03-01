@@ -1,10 +1,14 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
+import MeshBackground from './components/MeshBackground';
 import Navbar from './components/Navbar';
-import SphereAnimation from './components/SphereAnimation';
-import AuthSection from './components/AuthSection/AuthSection';
-import UseCasesSection from './components/UseCasesSection';
+import HeroSection from './components/HeroSection';
+import CodeSection from './components/CodeSection';
+import ShowcaseSection from './components/ShowcaseSection';
+import PhoneCTASection from './components/PhoneCTASection';
+import ProvidersSection from './components/ProvidersSection';
 import PricingSection from './components/PricingSection';
+import AuthSection from './components/AuthSection/AuthSection';
 import Footer from './components/Footer';
 
 function App() {
@@ -12,47 +16,58 @@ function App() {
 
   useAuth();
 
-  const handleCtaClick = useCallback((e) => {
-    e.preventDefault();
-    setActiveTab('register');
-    const authSection = document.querySelector('.auth-section');
-    if (authSection) {
-      authSection.scrollIntoView({ behavior: 'smooth' });
-    }
+  // IntersectionObserver for .rev elements
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('on');
+          }
+        });
+      },
+      { threshold: 0.08 }
+    );
+
+    document.querySelectorAll('.rev').forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Smooth scroll for anchor links
+  useEffect(() => {
+    const handleClick = (e) => {
+      const href = e.currentTarget.getAttribute('href');
+      if (href && href.startsWith('#')) {
+        const target = document.querySelector(href);
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    };
+
+    const links = document.querySelectorAll('a[href^="#"]');
+    links.forEach((link) => link.addEventListener('click', handleClick));
+
+    return () => {
+      links.forEach((link) => link.removeEventListener('click', handleClick));
+    };
   }, []);
 
   return (
-    <div className="page-wrapper">
-      <div className="content-wrapper">
-        <div className="main-container">
-          <div className="presentation-section">
-            <Navbar />
-            <SphereAnimation />
-            <div className="presentation-content">
-              <h1 className="main-title">Ваш голосовой ИИ.</h1>
-              <h2 className="subtitle">Говорит. Слушает. Понимает.</h2>
-              <p className="description">
-                Создавайте голосовых ассистентов на основе OpenAI за минуты. Загружайте базы знаний, интегрируйте на сайт или в приложение одним кликом.
-              </p>
-              <a
-                href="#register"
-                className="btn btn-primary btn-large"
-                onClick={handleCtaClick}
-              >
-                Создать первого бота
-              </a>
-            </div>
-          </div>
-
-          <AuthSection activeTab={activeTab} setActiveTab={setActiveTab} />
-        </div>
-
-        <UseCasesSection />
-        <PricingSection />
-      </div>
-
+    <>
+      <MeshBackground />
+      <Navbar />
+      <HeroSection />
+      <CodeSection />
+      <ShowcaseSection />
+      <PhoneCTASection />
+      <ProvidersSection />
+      <PricingSection />
+      <AuthSection activeTab={activeTab} setActiveTab={setActiveTab} />
       <Footer />
-    </div>
+    </>
   );
 }
 

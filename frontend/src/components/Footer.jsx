@@ -3,28 +3,34 @@ import React from 'react';
 function Footer() {
   return (
     <footer className="footer">
-      <div className="footer-content">
-        <div className="footer-main">
-          <div className="footer-logo">
-            <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" />
-            <span className="footer-logo-text">Voicyfy</span>
+      <div className="footer-inner">
+        <div className="foot-top">
+          <div className="foot-brand">
+            <span className="foot-logo">Voicyfy</span>
+            <p>Платформа голосовых ИИ-ассистентов для бизнеса. OpenAI, Google Gemini, Cartesia.</p>
           </div>
-          <div className="footer-links">
-            <a href="/static/privacy-policy.html" className="footer-link">Политика конфиденциальности</a>
-            <a href="/static/terms-of-service.html" className="footer-link">Пользовательское соглашение</a>
-            <a href="/static/public-offer.html" className="footer-link">Публичная оферта</a>
-            <a href="/static/payment-terms.html" className="footer-link">Условия оплаты и использования</a>
-            <a href="/static/api-docs.html" className="footer-link">API документация</a>
+          <div className="foot-col">
+            <h5>Продукт</h5>
+            <a href="#features">Возможности</a>
+            <a href="#pricing">Тарифы</a>
+            <a href="/static/api-docs.html">API</a>
+          </div>
+          <div className="foot-col">
+            <h5>Документы</h5>
+            <a href="/static/privacy-policy.html">Конфиденциальность</a>
+            <a href="/static/terms-of-service.html">Соглашение</a>
+            <a href="/static/public-offer.html">Оферта</a>
+          </div>
+          <div className="foot-col">
+            <h5>Контакты</h5>
+            <a href="https://t.me/voicyfy" target="_blank" rel="noopener noreferrer">Telegram</a>
+            <a href="https://t.me/voicyfy_support">Поддержка</a>
+            <a href="mailto:info@voicyfy.ru">Email</a>
           </div>
         </div>
-
-        <div className="footer-divider"></div>
-
-        <div className="footer-bottom">
-          <div className="footer-copy">&copy; 2025-2026 Voicyfy. Все права защищены.</div>
-          <div className="footer-contact">
-            ИП Шишкин Валерий Сергеевич | ИНН: 385101159652 | well96well@gmail.com
-          </div>
+        <div className="foot-bottom">
+          <span>&copy; 2025–2026 Voicyfy. Все права защищены.</span>
+          <span>ИП Шишкин Валерий Сергеевич · ИНН: 385101159652</span>
         </div>
       </div>
     </footer>

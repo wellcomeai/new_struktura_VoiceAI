@@ -65,18 +65,40 @@ function RegisterForm({ onSwitchToLogin }) {
     }
   };
 
-  return (
-    <form className="auth-form active" onSubmit={handleSubmit}>
-      <h2 className="auth-title">Создайте аккаунт</h2>
+  if (showVerification) {
+    return (
+      <EmailVerificationSection
+        email={email}
+        message={verificationMessage}
+        onVerified={() => {
+          window.location.href = '/static/dashboard.html';
+        }}
+      />
+    );
+  }
 
+  return (
+    <form onSubmit={handleSubmit}>
       <InlineNotification notification={notification} />
 
-      <div className="form-group">
+      <div className="fg">
+        <label htmlFor="register-name">Имя</label>
+        <input
+          type="text"
+          id="register-name"
+          className="fi"
+          placeholder="Введите ваше имя"
+          value={firstName}
+          onChange={(e) => setFirstName(e.target.value)}
+        />
+      </div>
+
+      <div className="fg">
         <label htmlFor="register-email">Email</label>
         <input
           type="email"
           id="register-email"
-          className="form-control"
+          className="fi"
           placeholder="your@email.com"
           required
           value={email}
@@ -84,12 +106,12 @@ function RegisterForm({ onSwitchToLogin }) {
         />
       </div>
 
-      <div className="form-group">
+      <div className="fg">
         <label htmlFor="register-password">Пароль</label>
         <input
           type="password"
           id="register-password"
-          className="form-control"
+          className="fi"
           placeholder="Минимум 8 символов"
           required
           minLength="8"
@@ -98,69 +120,37 @@ function RegisterForm({ onSwitchToLogin }) {
         />
       </div>
 
-      <div className="form-group">
-        <label htmlFor="register-name">Имя</label>
-        <input
-          type="text"
-          id="register-name"
-          className="form-control"
-          placeholder="Введите ваше имя"
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="register-company">Компания (опционально)</label>
+      <div className="fg">
+        <label htmlFor="register-company">Компания <span>(опционально)</span></label>
         <input
           type="text"
           id="register-company"
-          className="form-control"
-          placeholder="Название вашей компании"
+          className="fi"
+          placeholder="Название компании"
           value={companyName}
           onChange={(e) => setCompanyName(e.target.value)}
         />
       </div>
 
-      {showVerification && (
-        <EmailVerificationSection
-          email={email}
-          message={verificationMessage}
-          onVerified={() => {
-            window.location.href = '/static/dashboard.html';
+      <button
+        type="submit"
+        className="btn-submit"
+        disabled={isLoading}
+      >
+        {isLoading ? 'Регистрируем...' : 'Зарегистрироваться'}
+      </button>
+
+      <p className="auth-hint">
+        Уже есть аккаунт?{' '}
+        <a
+          onClick={(e) => {
+            e.preventDefault();
+            onSwitchToLogin();
           }}
-        />
-      )}
-
-      {!showVerification && (
-        <button
-          type="submit"
-          className="btn btn-primary"
-          style={{ width: '100%' }}
-          disabled={isLoading}
         >
-          {isLoading ? (
-            <><div className="spinner"></div> Отправка...</>
-          ) : (
-            'Зарегистрироваться'
-          )}
-        </button>
-      )}
-
-      <div className="auth-footer">
-        <p>Уже есть аккаунт?{' '}
-          <a
-            href="#login"
-            className="switch-auth"
-            onClick={(e) => {
-              e.preventDefault();
-              onSwitchToLogin();
-            }}
-          >
-            Войти
-          </a>
-        </p>
-      </div>
+          Войти
+        </a>
+      </p>
     </form>
   );
 }

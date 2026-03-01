@@ -39,17 +39,15 @@ function LoginForm({ onSwitchToRegister }) {
   };
 
   return (
-    <form className="auth-form active" onSubmit={handleSubmit}>
-      <h2 className="auth-title">Вход в аккаунт</h2>
-
+    <form onSubmit={handleSubmit}>
       <InlineNotification notification={notification} />
 
-      <div className="form-group">
+      <div className="fg">
         <label htmlFor="login-email">Email</label>
         <input
           type="email"
           id="login-email"
-          className="form-control"
+          className="fi"
           placeholder="your@email.com"
           required
           value={email}
@@ -57,12 +55,12 @@ function LoginForm({ onSwitchToRegister }) {
         />
       </div>
 
-      <div className="form-group">
+      <div className="fg">
         <label htmlFor="login-password">Пароль</label>
         <input
           type="password"
           id="login-password"
-          className="form-control"
+          className="fi"
           placeholder="••••••••"
           required
           value={password}
@@ -72,31 +70,23 @@ function LoginForm({ onSwitchToRegister }) {
 
       <button
         type="submit"
-        className="btn btn-primary"
-        style={{ width: '100%' }}
+        className="btn-submit"
         disabled={isLoading}
       >
-        {isLoading ? (
-          <><div className="spinner"></div> Вход...</>
-        ) : (
-          'Войти'
-        )}
+        {isLoading ? 'Входим...' : 'Войти'}
       </button>
 
-      <div className="auth-footer">
-        <p>Еще нет аккаунта?{' '}
-          <a
-            href="#register"
-            className="switch-auth"
-            onClick={(e) => {
-              e.preventDefault();
-              onSwitchToRegister();
-            }}
-          >
-            Зарегистрироваться
-          </a>
-        </p>
-      </div>
+      <p className="auth-hint">
+        Нет аккаунта?{' '}
+        <a
+          onClick={(e) => {
+            e.preventDefault();
+            onSwitchToRegister();
+          }}
+        >
+          Зарегистрироваться
+        </a>
+      </p>
     </form>
   );
 }

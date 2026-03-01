@@ -61,7 +61,7 @@ function EmailVerificationSection({ email, message, onVerified }) {
           type="text"
           id="verification-code"
           ref={codeInputRef}
-          className="form-control verification-code-input"
+          className="fi verification-code-input"
           placeholder="000000"
           maxLength="6"
           pattern="[0-9]{6}"
@@ -87,23 +87,17 @@ function EmailVerificationSection({ email, message, onVerified }) {
 
       <button
         type="button"
-        className="btn btn-primary"
-        style={{ width: '100%' }}
+        className="btn-submit"
         onClick={handleVerify}
         disabled={isVerifying || codeDisabled}
       >
-        {isVerifying ? (
-          <><div className="spinner"></div> Проверяем...</>
-        ) : (
-          'Подтвердить email'
-        )}
+        {isVerifying ? 'Проверяем...' : 'Подтвердить email'}
       </button>
 
       {!isTimerActive && (
         <button
           type="button"
-          className="btn btn-resend"
-          style={{ width: '100%' }}
+          className="btn-resend"
           onClick={handleResend}
           disabled={isResending}
         >
