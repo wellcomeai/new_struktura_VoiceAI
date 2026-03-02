@@ -75,7 +75,7 @@ function ShowcaseSection() {
                   <div className="url"><span>voicyfy.ru/dashboard/telephony</span></div>
                 </div>
                 <div className="mock-img-wrap">
-                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/telephony_screenshot.webp" alt="Телефония Voicyfy" loading="lazy" />
+                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/image_2026-03-02_07-35-43.png" alt="Телефония Voicyfy" loading="lazy" />
                 </div>
               </div>
             </div>
@@ -106,7 +106,7 @@ function ShowcaseSection() {
                   <div className="url"><span>voicyfy.ru/dashboard/dialogs</span></div>
                 </div>
                 <div className="mock-img-wrap">
-                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/conversations_screenshot.webp" alt="Диалоги Voicyfy" loading="lazy" />
+                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/image_2026-03-02_07-36-33.png" alt="Диалоги Voicyfy" loading="lazy" />
                 </div>
               </div>
             </div>
@@ -139,7 +139,7 @@ function ShowcaseSection() {
                   <div className="url"><span>voicyfy.ru/dashboard/crm</span></div>
                 </div>
                 <div className="mock-img-wrap">
-                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/crm_screenshot.webp" alt="CRM Voicyfy" loading="lazy" />
+                  <img src="https://pub-b1e3de631e544c69b0ad6587f740e140.r2.dev/image_2026-03-02_07-37-12.png" alt="CRM Voicyfy" loading="lazy" />
                 </div>
               </div>
             </div>
