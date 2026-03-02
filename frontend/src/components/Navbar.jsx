@@ -27,6 +27,8 @@ function Navbar({ onOpenModal }) {
         <a href="#showcase" className="nav-link">Платформа</a>
         <a href="#providers" className="nav-link">Технологии</a>
         <a href="#pricing" className="nav-link">Тарифы</a>
+        <a href="https://t.me/voicyfy_support" className="nav-link" target="_blank" rel="noopener noreferrer">Поддержка</a>
+        <a href="/static/api-docs.html" className="nav-link">API</a>
       </div>
 
       <div className="nav-right">
