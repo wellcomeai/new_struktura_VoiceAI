@@ -30,12 +30,11 @@ function SphereAnimation() {
         98% точность речи
       </div>
 
-      <div
-        className="s-chip c3"
-        style={{ background: 'linear-gradient(135deg,#2563eb,#3b82f6)', color: '#fff', border: 'none' }}
-      >
-        <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z" />
+      <div className="s-chip c3">
+        <svg width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="#ffffff" strokeWidth="2.5"
+          strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </svg>
         Активен 24/7
       </div>

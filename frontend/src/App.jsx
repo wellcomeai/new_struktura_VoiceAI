@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './hooks/useAuth';
 import MeshBackground from './components/MeshBackground';
 import Navbar from './components/Navbar';
@@ -8,13 +8,24 @@ import ShowcaseSection from './components/ShowcaseSection';
 import PhoneCTASection from './components/PhoneCTASection';
 import ProvidersSection from './components/ProvidersSection';
 import PricingSection from './components/PricingSection';
-import AuthSection from './components/AuthSection/AuthSection';
+import AuthModal from './components/AuthModal';
+import ScrollProgress from './components/ScrollProgress';
 import Footer from './components/Footer';
 
 function App() {
   const [activeTab, setActiveTab] = useState('register');
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useAuth();
+
+  const openModal = useCallback((tab) => {
+    setActiveTab(tab);
+    setIsModalOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setIsModalOpen(false);
+  }, []);
 
   // IntersectionObserver for .rev elements
   useEffect(() => {
@@ -57,15 +68,21 @@ function App() {
 
   return (
     <>
+      <ScrollProgress />
       <MeshBackground />
-      <Navbar />
-      <HeroSection />
+      <Navbar onOpenModal={openModal} />
+      <HeroSection onOpenModal={openModal} />
       <CodeSection />
       <ShowcaseSection />
       <PhoneCTASection />
       <ProvidersSection />
-      <PricingSection />
-      <AuthSection activeTab={activeTab} setActiveTab={setActiveTab} />
+      <PricingSection onOpenModal={openModal} />
+      <AuthModal
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
       <Footer />
     </>
   );

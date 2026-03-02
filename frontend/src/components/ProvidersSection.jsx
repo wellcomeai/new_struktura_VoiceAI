@@ -1,5 +1,14 @@
 import React from 'react';
 
+const CheckIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="8" fill="#eff6ff"/>
+    <path d="M5 8l2 2 4-4"
+      stroke="#2563eb" strokeWidth="1.6"
+      strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 function ProvidersSection() {
   return (
     <section className="section providers-section" id="providers">
@@ -16,11 +25,11 @@ function ProvidersSection() {
             <h4>Google Gemini Live</h4>
             <p>Нативная обработка голоса — без промежуточного STT/TTS. Мультимодальный: аудио, видео, текст одновременно.</p>
             <ul className="prov-feats">
-              <li><i className="fas fa-circle"></i> Бидирекционный стриминг</li>
-              <li><i className="fas fa-circle"></i> Нативный аудио без пайплайна</li>
-              <li><i className="fas fa-circle"></i> Поддержка прерываний</li>
-              <li><i className="fas fa-circle"></i> Function calling</li>
-              <li><i className="fas fa-circle"></i> Мультимодальность</li>
+              <li><CheckIcon /> Бидирекционный стриминг</li>
+              <li><CheckIcon /> Нативный аудио без пайплайна</li>
+              <li><CheckIcon /> Поддержка прерываний</li>
+              <li><CheckIcon /> Function calling</li>
+              <li><CheckIcon /> Мультимодальность</li>
             </ul>
           </div>
 
@@ -29,11 +38,11 @@ function ProvidersSection() {
             <h4>OpenAI Realtime</h4>
             <p>Голосовой ИИ на базе OpenAI с нативной речью, ультранизкой задержкой и вызовом функций в реальном времени.</p>
             <ul className="prov-feats">
-              <li><i className="fas fa-circle"></i> Нативный голос</li>
-              <li><i className="fas fa-circle"></i> WebSocket стриминг</li>
-              <li><i className="fas fa-circle"></i> Function calling</li>
-              <li><i className="fas fa-circle"></i> VAD (определение речи)</li>
-              <li><i className="fas fa-circle"></i> Сверхнизкая латенция</li>
+              <li><CheckIcon /> Нативный голос</li>
+              <li><CheckIcon /> WebSocket стриминг</li>
+              <li><CheckIcon /> Function calling</li>
+              <li><CheckIcon /> VAD (определение речи)</li>
+              <li><CheckIcon /> Сверхнизкая латенция</li>
             </ul>
           </div>
 
@@ -42,11 +51,11 @@ function ProvidersSection() {
             <h4>ChatGPT + Cartesia TTS</h4>
             <p>Интеллект ChatGPT + самый выразительный голосовой движок Cartesia Sonic с эмоциями и интонациями.</p>
             <ul className="prov-feats">
-              <li><i className="fas fa-circle"></i> Выразительная речь с эмоциями</li>
-              <li><i className="fas fa-circle"></i> Смех, паузы, интонации</li>
-              <li><i className="fas fa-circle"></i> Стриминг в реальном времени</li>
-              <li><i className="fas fa-circle"></i> ChatGPT для интеллекта</li>
-              <li><i className="fas fa-circle"></i> Идеально для обслуживания</li>
+              <li><CheckIcon /> Выразительная речь с эмоциями</li>
+              <li><CheckIcon /> Смех, паузы, интонации</li>
+              <li><CheckIcon /> Стриминг в реальном времени</li>
+              <li><CheckIcon /> ChatGPT для интеллекта</li>
+              <li><CheckIcon /> Идеально для обслуживания</li>
             </ul>
           </div>
         </div>

@@ -1,5 +1,14 @@
 import React from 'react';
 
+const CheckIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="8" fill="#eff6ff"/>
+    <path d="M5 8l2 2 4-4"
+      stroke="#2563eb" strokeWidth="1.6"
+      strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 function ShowcaseSection() {
   return (
     <section className="section showcase-section" id="showcase">
@@ -21,13 +30,42 @@ function ShowcaseSection() {
               </div>
               <h3>Телефония</h3>
               <p>Подключите голосового ассистента к реальному телефонному номеру — он будет принимать и совершать звонки 24/7 без участия человека.</p>
+
+              <div className="telephony-prices">
+                <div className="tp-header">
+                  <svg width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="#1d4ed8" strokeWidth="2.5"
+                    strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                  Самые низкие цены на телефонию в РФ
+                </div>
+                <div className="tp-rates">
+                  <div className="tp-rate">
+                    <span className="tp-arrow tp-in">↓</span>
+                    <div>
+                      <div className="tp-dir">Входящий звонок</div>
+                      <div className="tp-price">1.7 <span>₽/мин</span></div>
+                    </div>
+                  </div>
+                  <div className="tp-divider"/>
+                  <div className="tp-rate">
+                    <span className="tp-arrow tp-out">↑</span>
+                    <div>
+                      <div className="tp-dir">Исходящий звонок</div>
+                      <div className="tp-price">2.7 <span>₽/мин</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <ul className="show-feats">
-                <li><i className="fas fa-check-circle"></i> <span><strong>Купите номер</strong> прямо в личном кабинете</span></li>
-                <li><i className="fas fa-check-circle"></i> <span><strong>Выберите ассистента</strong> и напишите промт</span></li>
-                <li><i className="fas fa-check-circle"></i> <span><strong>Готово</strong> — ИИ принимает звонки</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Запись и аналитика всех разговоров</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Автоматические исходящие звонки</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Интеграция с CRM — задачи из звонков</span></li>
+                <li><CheckIcon /> <span><strong>Купите номер</strong> прямо в личном кабинете</span></li>
+                <li><CheckIcon /> <span><strong>Выберите ассистента</strong> и напишите промт</span></li>
+                <li><CheckIcon /> <span><strong>Готово</strong> — ИИ принимает звонки</span></li>
+                <li><CheckIcon /> <span>Запись и аналитика всех разговоров</span></li>
+                <li><CheckIcon /> <span>Автоматические исходящие звонки</span></li>
+                <li><CheckIcon /> <span>Интеграция с CRM — задачи из звонков</span></li>
               </ul>
             </div>
             <div className="mockup-wrap rev">
@@ -54,11 +92,11 @@ function ShowcaseSection() {
               <h3>Диалоги</h3>
               <p>Все разговоры с ассистентом автоматически сохраняются — анализируйте, слушайте записи и улучшайте качество на основе данных.</p>
               <ul className="show-feats">
-                <li><i className="fas fa-check-circle"></i> <span>Аналитика: длительность, темы, настроения</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Прослушивание записей разговоров</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Полная текстовая расшифровка</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Фильтрация по дате, источнику, статусу</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Экспорт для отчётов</span></li>
+                <li><CheckIcon /> <span>Аналитика: длительность, темы, настроения</span></li>
+                <li><CheckIcon /> <span>Прослушивание записей разговоров</span></li>
+                <li><CheckIcon /> <span>Полная текстовая расшифровка</span></li>
+                <li><CheckIcon /> <span>Фильтрация по дате, источнику, статусу</span></li>
+                <li><CheckIcon /> <span>Экспорт для отчётов</span></li>
               </ul>
             </div>
             <div className="mockup-wrap">
@@ -87,11 +125,11 @@ function ShowcaseSection() {
               <h3>CRM-система</h3>
               <p>Карточки клиентов создаются автоматически — с полной историей общения, задачами и контактными данными из разговоров.</p>
               <ul className="show-feats">
-                <li><i className="fas fa-check-circle"></i> <span>Карточки клиентов с историей обращений</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Автосоздание задач из разговоров</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Контактные данные и заметки</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Статусы и этапы воронки продаж</span></li>
-                <li><i className="fas fa-check-circle"></i> <span>Привязка диалогов к карточке клиента</span></li>
+                <li><CheckIcon /> <span>Карточки клиентов с историей обращений</span></li>
+                <li><CheckIcon /> <span>Автосоздание задач из разговоров</span></li>
+                <li><CheckIcon /> <span>Контактные данные и заметки</span></li>
+                <li><CheckIcon /> <span>Статусы и этапы воронки продаж</span></li>
+                <li><CheckIcon /> <span>Привязка диалогов к карточке клиента</span></li>
               </ul>
             </div>
             <div className="mockup-wrap rev">

@@ -1,6 +1,6 @@
 import React from 'react';
 
-function PricingSection() {
+function PricingSection({ onOpenModal }) {
   return (
     <section className="section pricing-section" id="pricing">
       <div className="section-inner">
@@ -25,7 +25,7 @@ function PricingSection() {
               <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
               <li className="pf-item"><i className="fas fa-check"></i> AI Jarvis</li>
             </ul>
-            <a href="#auth" className="price-btn pb-ghost">Начать бесплатно</a>
+            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Начать бесплатно</button>
           </div>
 
           {/* AI VOICE */}
@@ -42,7 +42,7 @@ function PricingSection() {
               <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
               <li className="pf-item"><i className="fas fa-check"></i> AI Jarvis</li>
             </ul>
-            <a href="#auth" className="price-btn pb-ghost">Выбрать</a>
+            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
           </div>
 
           {/* START (POPULAR) */}
@@ -59,7 +59,7 @@ function PricingSection() {
               <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
               <li className="pf-item"><i className="fas fa-check"></i> Приоритетная поддержка</li>
             </ul>
-            <a href="#auth" className="price-btn pb-solid">Начать</a>
+            <button className="price-btn pb-solid" onClick={() => onOpenModal('register')}>Начать</button>
           </div>
 
           {/* PROFI */}
@@ -76,7 +76,7 @@ function PricingSection() {
               <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
               <li className="pf-item"><i className="fas fa-check"></i> VIP поддержка</li>
             </ul>
-            <a href="#auth" className="price-btn pb-ghost">Выбрать</a>
+            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
           </div>
         </div>
       </div>

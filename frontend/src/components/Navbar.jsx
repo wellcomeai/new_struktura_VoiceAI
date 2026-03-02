@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-function Navbar() {
+function Navbar({ onOpenModal }) {
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -30,8 +30,8 @@ function Navbar() {
       </div>
 
       <div className="nav-right">
-        <a href="#auth" className="nav-login">Войти</a>
-        <a href="#auth" className="nav-cta">Начать бесплатно</a>
+        <button className="nav-login" onClick={() => onOpenModal('login')}>Войти</button>
+        <button className="nav-cta" onClick={() => onOpenModal('register')}>Начать бесплатно</button>
       </div>
     </nav>
   );
