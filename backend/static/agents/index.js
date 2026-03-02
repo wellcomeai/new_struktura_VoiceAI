@@ -560,41 +560,37 @@ async function loadOpenAiApiKeySection() {
 }
 
 /**
- * Отрисовать секцию в зависимости от состояния ключа
+ * Переключить режимы в top-nav в зависимости от состояния ключа
  */
 function renderOpenAiApiKeySection() {
   const viewMode = document.getElementById('openai-key-view-mode');
   const editMode = document.getElementById('openai-key-edit-mode');
-  const maskedDisplay = document.getElementById('openai-key-masked-display');
   const cancelBtn = document.getElementById('openai-cancel-key-btn');
+  const maskedDisplay = document.getElementById('openai-key-masked-display');
 
   if (!viewMode || !editMode) return;
 
   if (openaiIsApiKeySet && openaiActualApiKey) {
-    // Показываем режим просмотра с замаскированным ключом
-    viewMode.style.display = 'block';
+    // Режим просмотра
+    viewMode.style.display = 'flex';
     editMode.style.display = 'none';
-    cancelBtn.style.display = 'none';
 
     const masked = openaiActualApiKey.substring(0, 7) + '...' + openaiActualApiKey.slice(-4);
     maskedDisplay.textContent = masked;
     maskedDisplay.dataset.fullKey = openaiActualApiKey;
     maskedDisplay.dataset.masked = 'true';
 
-    // Сбрасываем иконку глаза
     const toggleBtn = document.getElementById('openai-toggle-key-visibility');
     if (toggleBtn) toggleBtn.querySelector('i').className = 'fas fa-eye';
   } else {
-    // Показываем форму ввода
+    // Режим ввода
     viewMode.style.display = 'none';
-    editMode.style.display = 'block';
+    editMode.style.display = 'flex';
     cancelBtn.style.display = 'none';
 
     const input = document.getElementById('openai-api-key-input');
-    if (input) {
-      input.value = '';
-      input.type = 'password';
-    }
+    if (input) { input.value = ''; input.type = 'password'; }
+
     const toggleInputBtn = document.getElementById('openai-toggle-input-visibility');
     if (toggleInputBtn) toggleInputBtn.querySelector('i').className = 'fas fa-eye';
   }
@@ -608,26 +604,52 @@ async function saveOpenAiApiKey() {
   const newKey = input ? input.value.trim() : '';
 
   if (!newKey) {
-    ui.showNotification('Введите API ключ OpenAI', 'error');
+    ui.showNotification('Введите API ключ', 'error');
     return;
   }
 
   try {
     setLoading(true);
     await api.put('/users/me', { openai_api_key: newKey });
+
     openaiActualApiKey = newKey;
     openaiIsApiKeySet = true;
-    renderOpenAiApiKeySection();
-    updateCreateButtonByApiKey();
-    ui.showNotification('API ключ успешно сохранён!', 'success');
 
-    // Перезагружаем список агентов (теперь он доступен)
+    // Переключаем top-nav в режим просмотра
+    renderOpenAiApiKeySection();
+
+    // Открываем список агентов
+    checkApiKeyAndShowContent(true);
+
+    await loadAssistantsLimitInfo();
+    applyFeatureAccessToSidebar();
     await loadAgentsList();
+
+    ui.showNotification('API ключ успешно сохранён!', 'success');
   } catch (error) {
     console.error('[OPENAI KEY] Ошибка сохранения:', error);
     ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
   } finally {
     setLoading(false);
+  }
+}
+
+/**
+ * Показать/скрыть контент в зависимости от наличия ключа.
+ */
+function checkApiKeyAndShowContent(hasApiKey) {
+  const setupScreen = document.getElementById('api-key-setup-screen');
+  const agentsListContainer = document.getElementById('agents-list-container');
+
+  if (hasApiKey) {
+    setupScreen.style.display = 'none';
+    agentsListContainer.style.display = 'block';
+    if (createNewAgentBtn) createNewAgentBtn.style.display = 'inline-flex';
+    updateCreateButtonState();
+  } else {
+    setupScreen.style.display = 'block';
+    agentsListContainer.style.display = 'none';
+    if (createNewAgentBtn) createNewAgentBtn.style.display = 'none';
   }
 }
 
@@ -1514,42 +1536,50 @@ async function initPage() {
   // Сначала загружаем информацию о пользователе (нужна для проверки привилегий)
   await loadUserInfo();
 
-  // Загружаем и отображаем секцию API-ключа
+  // Загружаем API-ключ и отображаем правильный режим в top-nav
   await loadOpenAiApiKeySection();
 
-  // Затем загружаем информацию о лимитах
-  await loadAssistantsLimitInfo();
-  
-  // ✅ НОВОЕ: Применяем матрицу доступа к сайдбару
-  applyFeatureAccessToSidebar();
-  
-  const params = checkUrlParams();
-  
-  if (params.mode === 'edit') {
-    currentAgentId = params.id;
-    debugLog(`Инициализация страницы с ID агента: ${currentAgentId}`);
-    
-    switchToEditMode();
-    await loadAvailableFunctions();
-    await loadAgentData();
-  } else if (params.mode === 'create') {
-    // Проверяем лимит при попытке создания через URL
-    if (!canCreateAssistant()) {
-      showLimitReachedNotification();
-      window.location.href = '/static/agents.html';
-      return;
+  // Показываем правильный режим в top-nav
+  renderOpenAiApiKeySection();
+
+  // Показываем или скрываем контент страницы
+  checkApiKeyAndShowContent(openaiIsApiKeySet);
+
+  if (openaiIsApiKeySet) {
+    // Затем загружаем информацию о лимитах
+    await loadAssistantsLimitInfo();
+
+    // Применяем матрицу доступа к сайдбару
+    applyFeatureAccessToSidebar();
+
+    const params = checkUrlParams();
+
+    if (params.mode === 'edit') {
+      currentAgentId = params.id;
+      debugLog(`Инициализация страницы с ID агента: ${currentAgentId}`);
+
+      switchToEditMode();
+      await loadAvailableFunctions();
+      await loadAgentData();
+    } else if (params.mode === 'create') {
+      // Проверяем лимит при попытке создания через URL
+      if (!canCreateAssistant()) {
+        showLimitReachedNotification();
+        window.location.href = '/static/agents.html';
+        return;
+      }
+
+      debugLog('Инициализация страницы в режиме создания');
+
+      switchToEditMode();
+      await loadAvailableFunctions();
+      initCreateMode();
+    } else {
+      debugLog('Инициализация страницы в режиме списка агентов');
+
+      switchToListMode();
+      loadAgentsList();
     }
-    
-    debugLog('Инициализация страницы в режиме создания');
-    
-    switchToEditMode();
-    await loadAvailableFunctions();
-    initCreateMode();
-  } else {
-    debugLog('Инициализация страницы в режиме списка агентов');
-    
-    switchToListMode();
-    loadAgentsList();
   }
 }
 
