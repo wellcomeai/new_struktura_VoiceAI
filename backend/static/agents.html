@@ -1458,21 +1458,21 @@
     <!-- Контейнер для содержимого -->
     <div class="content-container">
       <!-- СЕКЦИЯ API-КЛЮЧА OPENAI -->
-      <div class="api-key-section card" id="api-key-section">
+      <div class="api-key-section card" id="openai-api-key-section">
         <div class="card-header">
           <h2 class="card-title"><i class="fas fa-key"></i> API ключ OpenAI</h2>
         </div>
 
         <!-- Режим просмотра (ключ установлен) -->
-        <div id="api-key-view-mode" style="display: none;">
+        <div id="openai-key-view-mode" style="display: none;">
           <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-            <div style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-light); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: monospace; font-size: 0.875rem;" id="api-key-masked">
+            <div style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-light); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: monospace; font-size: 0.875rem;" id="openai-key-masked-display">
               sk-...****
             </div>
-            <button class="btn btn-outline" id="toggle-key-visibility" title="Показать/скрыть ключ">
+            <button class="btn btn-outline" id="openai-toggle-key-visibility" title="Показать/скрыть ключ">
               <i class="fas fa-eye"></i>
             </button>
-            <button class="btn btn-secondary" id="edit-api-key-btn">
+            <button class="btn btn-secondary" id="openai-edit-key-btn">
               <i class="fas fa-edit"></i> Изменить
             </button>
           </div>
@@ -1482,27 +1482,27 @@
         </div>
 
         <!-- Режим редактирования / ввода (ключа нет или редактирование) -->
-        <div id="api-key-edit-mode">
+        <div id="openai-key-edit-mode">
           <p style="margin-bottom: 1rem; color: var(--text-gray); font-size: 0.875rem;">
-            Для работы OpenAI ассистентов необходим ключ OpenAI API.
+            Для создания и работы OpenAI ассистентов необходим ключ OpenAI API.
           </p>
           <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
             <div style="flex: 1; position: relative; min-width: 200px;">
               <input
                 type="password"
-                id="api-key-input"
+                id="openai-api-key-input"
                 class="form-control"
                 placeholder="sk-..."
                 style="padding-right: 2.5rem;"
               >
-              <button type="button" id="toggle-api-key-input" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-gray); cursor: pointer;">
+              <button type="button" id="openai-toggle-input-visibility" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-gray); cursor: pointer;">
                 <i class="fas fa-eye"></i>
               </button>
             </div>
-            <button class="btn btn-primary" id="save-api-key-btn">
+            <button class="btn btn-primary" id="openai-save-key-btn">
               <i class="fas fa-save"></i> Сохранить
             </button>
-            <button class="btn btn-outline" id="cancel-api-key-btn" style="display: none;">
+            <button class="btn btn-outline" id="openai-cancel-key-btn" style="display: none;">
               Отмена
             </button>
           </div>

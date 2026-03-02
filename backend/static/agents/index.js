@@ -48,8 +48,8 @@ const PLAN_NAMES = {
 
 let currentAgentId = null;
 let isLoading = false;
-let actualApiKey = null;
-let isApiKeySet = false;
+let openaiActualApiKey = null;
+let openaiIsApiKeySet = false;
 let testWidgetScript = null;
 let isTestWidgetInitialized = false;
 let isMicPermissionGranted = false;
@@ -242,7 +242,17 @@ function showLimitReachedNotification() {
  */
 function updateCreateButtonState() {
   if (!createNewAgentBtn) return;
-  
+
+  // Если ключа нет — блокируем независимо от лимитов
+  if (!openaiIsApiKeySet) {
+    createNewAgentBtn.disabled = true;
+    createNewAgentBtn.title = 'Сначала укажите API ключ OpenAI';
+    createNewAgentBtn.style.opacity = '0.6';
+    createNewAgentBtn.style.cursor = 'not-allowed';
+    return;
+  }
+
+  // Оригинальная логика проверки лимитов
   if (!canCreateAssistant()) {
     createNewAgentBtn.disabled = true;
     createNewAgentBtn.title = `Достигнут лимит ассистентов (${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})`;
@@ -531,70 +541,110 @@ async function loadUserInfo() {
 }
 
 // ============================================================================
-// API-КЛЮЧ OPENAI
+// СЕКЦИЯ API-КЛЮЧА OPENAI
 // ============================================================================
 
 /**
- * Загрузить API-ключ из профиля и отобразить секцию
+ * Загрузить API-ключ OpenAI из профиля и отрисовать секцию
  */
-async function loadApiKeySection() {
+async function loadOpenAiApiKeySection() {
   try {
     const userInfo = await api.get('/users/me');
-    actualApiKey = userInfo.openai_api_key || null;
-    isApiKeySet = !!actualApiKey;
-    renderApiKeySection();
+    openaiActualApiKey = userInfo.openai_api_key || null;
+    openaiIsApiKeySet = !!openaiActualApiKey;
+    renderOpenAiApiKeySection();
+    updateCreateButtonByApiKey();
   } catch (error) {
-    console.error('[API KEY] Ошибка загрузки ключа:', error);
+    console.error('[OPENAI KEY] Ошибка загрузки ключа:', error);
   }
 }
 
 /**
- * Отрисовать секцию API-ключа в зависимости от состояния
+ * Отрисовать секцию в зависимости от состояния ключа
  */
-function renderApiKeySection() {
-  const viewMode = document.getElementById('api-key-view-mode');
-  const editMode = document.getElementById('api-key-edit-mode');
-  const maskedEl = document.getElementById('api-key-masked');
-  const cancelBtn = document.getElementById('cancel-api-key-btn');
+function renderOpenAiApiKeySection() {
+  const viewMode = document.getElementById('openai-key-view-mode');
+  const editMode = document.getElementById('openai-key-edit-mode');
+  const maskedDisplay = document.getElementById('openai-key-masked-display');
+  const cancelBtn = document.getElementById('openai-cancel-key-btn');
 
   if (!viewMode || !editMode) return;
 
-  if (isApiKeySet && actualApiKey) {
-    // Показываем режим просмотра
+  if (openaiIsApiKeySet && openaiActualApiKey) {
+    // Показываем режим просмотра с замаскированным ключом
     viewMode.style.display = 'block';
     editMode.style.display = 'none';
-
-    // Показываем маскированный ключ
-    const masked = actualApiKey.substring(0, 7) + '...' + actualApiKey.slice(-4);
-    maskedEl.textContent = masked;
-    maskedEl.dataset.fullKey = actualApiKey;
-    maskedEl.dataset.masked = 'true';
-
     cancelBtn.style.display = 'none';
+
+    const masked = openaiActualApiKey.substring(0, 7) + '...' + openaiActualApiKey.slice(-4);
+    maskedDisplay.textContent = masked;
+    maskedDisplay.dataset.fullKey = openaiActualApiKey;
+    maskedDisplay.dataset.masked = 'true';
+
+    // Сбрасываем иконку глаза
+    const toggleBtn = document.getElementById('openai-toggle-key-visibility');
+    if (toggleBtn) toggleBtn.querySelector('i').className = 'fas fa-eye';
   } else {
     // Показываем форму ввода
     viewMode.style.display = 'none';
     editMode.style.display = 'block';
     cancelBtn.style.display = 'none';
+
+    const input = document.getElementById('openai-api-key-input');
+    if (input) {
+      input.value = '';
+      input.type = 'password';
+    }
+    const toggleInputBtn = document.getElementById('openai-toggle-input-visibility');
+    if (toggleInputBtn) toggleInputBtn.querySelector('i').className = 'fas fa-eye';
   }
 }
 
 /**
- * Сохранить API-ключ через API
+ * Сохранить API-ключ через PUT /users/me
  */
-async function saveApiKey(newKey) {
+async function saveOpenAiApiKey() {
+  const input = document.getElementById('openai-api-key-input');
+  const newKey = input ? input.value.trim() : '';
+
+  if (!newKey) {
+    ui.showNotification('Введите API ключ OpenAI', 'error');
+    return;
+  }
+
   try {
     setLoading(true);
     await api.put('/users/me', { openai_api_key: newKey });
-    actualApiKey = newKey;
-    isApiKeySet = !!newKey;
-    renderApiKeySection();
+    openaiActualApiKey = newKey;
+    openaiIsApiKeySet = true;
+    renderOpenAiApiKeySection();
+    updateCreateButtonByApiKey();
     ui.showNotification('API ключ успешно сохранён!', 'success');
+
+    // Перезагружаем список агентов (теперь он доступен)
+    await loadAgentsList();
   } catch (error) {
-    console.error('[API KEY] Ошибка сохранения:', error);
+    console.error('[OPENAI KEY] Ошибка сохранения:', error);
     ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
   } finally {
     setLoading(false);
+  }
+}
+
+/**
+ * Заблокировать / разблокировать кнопку "Создать агента" в зависимости от наличия ключа.
+ */
+function updateCreateButtonByApiKey() {
+  if (!createNewAgentBtn) return;
+
+  if (!openaiIsApiKeySet) {
+    createNewAgentBtn.disabled = true;
+    createNewAgentBtn.title = 'Сначала укажите API ключ OpenAI';
+    createNewAgentBtn.style.opacity = '0.6';
+    createNewAgentBtn.style.cursor = 'not-allowed';
+  } else {
+    // Разблокируем (далее updateCreateButtonState проверит лимиты)
+    updateCreateButtonState();
   }
 }
 
@@ -1328,64 +1378,67 @@ function setupEventHandlers() {
   });
 
   // ============================================================================
-  // ОБРАБОТЧИКИ API-КЛЮЧА
+  // ОБРАБОТЧИКИ СЕКЦИИ API-КЛЮЧА OPENAI
   // ============================================================================
 
-  // Кнопка "Изменить ключ" — переключиться в режим редактирования
-  const editApiKeyBtn = document.getElementById('edit-api-key-btn');
-  if (editApiKeyBtn) {
-    editApiKeyBtn.addEventListener('click', () => {
-      const viewMode = document.getElementById('api-key-view-mode');
-      const editMode = document.getElementById('api-key-edit-mode');
-      const cancelBtn = document.getElementById('cancel-api-key-btn');
-      const input = document.getElementById('api-key-input');
+  // Кнопка "Изменить ключ"
+  const openaiEditKeyBtn = document.getElementById('openai-edit-key-btn');
+  if (openaiEditKeyBtn) {
+    openaiEditKeyBtn.addEventListener('click', () => {
+      const viewMode = document.getElementById('openai-key-view-mode');
+      const editMode = document.getElementById('openai-key-edit-mode');
+      const cancelBtn = document.getElementById('openai-cancel-key-btn');
+      const input = document.getElementById('openai-api-key-input');
 
       viewMode.style.display = 'none';
       editMode.style.display = 'block';
       cancelBtn.style.display = 'inline-flex';
 
-      if (actualApiKey) {
-        input.value = actualApiKey;
+      // Подставляем текущий ключ в поле редактирования
+      if (openaiActualApiKey && input) {
+        input.value = openaiActualApiKey;
         input.type = 'text';
+        const toggleBtn = document.getElementById('openai-toggle-input-visibility');
+        if (toggleBtn) toggleBtn.querySelector('i').className = 'fas fa-eye-slash';
       }
     });
   }
 
   // Кнопка "Отмена" в режиме редактирования
-  const cancelApiKeyBtn = document.getElementById('cancel-api-key-btn');
-  if (cancelApiKeyBtn) {
-    cancelApiKeyBtn.addEventListener('click', () => {
-      renderApiKeySection();
+  const openaiCancelKeyBtn = document.getElementById('openai-cancel-key-btn');
+  if (openaiCancelKeyBtn) {
+    openaiCancelKeyBtn.addEventListener('click', () => {
+      renderOpenAiApiKeySection();
     });
   }
 
-  // Кнопка показать/скрыть ключ в режиме просмотра
-  const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
-  if (toggleKeyVisibility) {
-    toggleKeyVisibility.addEventListener('click', () => {
-      const maskedEl = document.getElementById('api-key-masked');
-      const icon = toggleKeyVisibility.querySelector('i');
-      const isMasked = maskedEl.dataset.masked === 'true';
+  // Показать / скрыть ключ в режиме просмотра
+  const openaiToggleKeyVisibility = document.getElementById('openai-toggle-key-visibility');
+  if (openaiToggleKeyVisibility) {
+    openaiToggleKeyVisibility.addEventListener('click', () => {
+      const maskedDisplay = document.getElementById('openai-key-masked-display');
+      const icon = openaiToggleKeyVisibility.querySelector('i');
+      const isMasked = maskedDisplay.dataset.masked === 'true';
 
       if (isMasked) {
-        maskedEl.textContent = maskedEl.dataset.fullKey;
-        maskedEl.dataset.masked = 'false';
+        maskedDisplay.textContent = maskedDisplay.dataset.fullKey;
+        maskedDisplay.dataset.masked = 'false';
         icon.className = 'fas fa-eye-slash';
       } else {
-        const key = maskedEl.dataset.fullKey;
-        maskedEl.textContent = key.substring(0, 7) + '...' + key.slice(-4);
-        maskedEl.dataset.masked = 'true';
+        const key = maskedDisplay.dataset.fullKey;
+        maskedDisplay.textContent = key.substring(0, 7) + '...' + key.slice(-4);
+        maskedDisplay.dataset.masked = 'true';
         icon.className = 'fas fa-eye';
       }
     });
   }
 
-  // Кнопка показать/скрыть в поле ввода
-  const toggleApiKeyInput = document.getElementById('toggle-api-key-input');
-  if (toggleApiKeyInput) {
-    toggleApiKeyInput.addEventListener('click', () => {
-      const input = document.getElementById('api-key-input');
-      const icon = toggleApiKeyInput.querySelector('i');
+  // Показать / скрыть ключ в поле ввода
+  const openaiToggleInputVisibility = document.getElementById('openai-toggle-input-visibility');
+  if (openaiToggleInputVisibility) {
+    openaiToggleInputVisibility.addEventListener('click', () => {
+      const input = document.getElementById('openai-api-key-input');
+      const icon = openaiToggleInputVisibility.querySelector('i');
       if (input.type === 'password') {
         input.type = 'text';
         icon.className = 'fas fa-eye-slash';
@@ -1396,19 +1449,20 @@ function setupEventHandlers() {
     });
   }
 
-  // Кнопка "Сохранить" API-ключ
-  const saveApiKeyBtn = document.getElementById('save-api-key-btn');
-  if (saveApiKeyBtn) {
-    saveApiKeyBtn.addEventListener('click', async () => {
-      const input = document.getElementById('api-key-input');
-      const newKey = input ? input.value.trim() : '';
+  // Кнопка "Сохранить" ключ
+  const openaiSaveKeyBtn = document.getElementById('openai-save-key-btn');
+  if (openaiSaveKeyBtn) {
+    openaiSaveKeyBtn.addEventListener('click', saveOpenAiApiKey);
+  }
 
-      if (!newKey) {
-        ui.showNotification('Введите API ключ OpenAI', 'error');
-        return;
+  // Сохранение по Enter в поле ввода ключа
+  const openaiKeyInput = document.getElementById('openai-api-key-input');
+  if (openaiKeyInput) {
+    openaiKeyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveOpenAiApiKey();
       }
-
-      await saveApiKey(newKey);
     });
   }
 }
@@ -1460,8 +1514,8 @@ async function initPage() {
   // Сначала загружаем информацию о пользователе (нужна для проверки привилегий)
   await loadUserInfo();
 
-  // Загружаем секцию API-ключа
-  await loadApiKeySection();
+  // Загружаем и отображаем секцию API-ключа
+  await loadOpenAiApiKeySection();
 
   // Затем загружаем информацию о лимитах
   await loadAssistantsLimitInfo();
