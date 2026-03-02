@@ -64,15 +64,15 @@ function CodeSection() {
             <ul className="steps-list">
               <li>
                 <span className="sn">1</span>
-                <span>Создайте ассистента в <strong>личном кабинете</strong></span>
+                <span>Создайте ассистента в личном кабинете</span>
               </li>
               <li>
                 <span className="sn">2</span>
-                <span>Напишите промт и загрузите <strong>базу знаний</strong></span>
+                <span>Напишите промт и загрузите базу знаний</span>
               </li>
               <li>
                 <span className="sn">3</span>
-                <span>Скопируйте <strong>код виджета</strong> на ваш сайт</span>
+                <span>Скопируйте код виджета на ваш сайт</span>
               </li>
             </ul>
           </div>
