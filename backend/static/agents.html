@@ -1404,7 +1404,7 @@
     
     <!-- Кнопка выхода внизу -->
     <div class="sidebar-footer">
-      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
+      <a href="https://voicyfy.ru" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
         <i class="fas fa-sign-out-alt"></i> Выйти
       </a>
     </div>
@@ -1447,7 +1447,7 @@
               <i class="fas fa-user"></i> Профиль
             </a>
             <div class="dropdown-divider"></div>
-            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+            <a href="https://voicyfy.ru" class="dropdown-item" id="dropdown-logout">
               <i class="fas fa-sign-out-alt"></i> Выйти
             </a>
           </div>
@@ -1457,6 +1457,58 @@
     
     <!-- Контейнер для содержимого -->
     <div class="content-container">
+      <!-- СЕКЦИЯ API-КЛЮЧА OPENAI -->
+      <div class="api-key-section card" id="api-key-section">
+        <div class="card-header">
+          <h2 class="card-title"><i class="fas fa-key"></i> API ключ OpenAI</h2>
+        </div>
+
+        <!-- Режим просмотра (ключ установлен) -->
+        <div id="api-key-view-mode" style="display: none;">
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="flex: 1; padding: 0.75rem 1rem; background: var(--bg-light); border: 1px solid var(--border-color); border-radius: var(--radius-md); font-family: monospace; font-size: 0.875rem;" id="api-key-masked">
+              sk-...****
+            </div>
+            <button class="btn btn-outline" id="toggle-key-visibility" title="Показать/скрыть ключ">
+              <i class="fas fa-eye"></i>
+            </button>
+            <button class="btn btn-secondary" id="edit-api-key-btn">
+              <i class="fas fa-edit"></i> Изменить
+            </button>
+          </div>
+          <p style="margin-top: 0.5rem; color: var(--text-gray); font-size: 0.875rem;">
+            <i class="fas fa-check-circle" style="color: #10b981;"></i> API ключ активен
+          </p>
+        </div>
+
+        <!-- Режим редактирования / ввода (ключа нет или редактирование) -->
+        <div id="api-key-edit-mode">
+          <p style="margin-bottom: 1rem; color: var(--text-gray); font-size: 0.875rem;">
+            Для работы OpenAI ассистентов необходим ключ OpenAI API.
+          </p>
+          <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; position: relative; min-width: 200px;">
+              <input
+                type="password"
+                id="api-key-input"
+                class="form-control"
+                placeholder="sk-..."
+                style="padding-right: 2.5rem;"
+              >
+              <button type="button" id="toggle-api-key-input" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-gray); cursor: pointer;">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+            <button class="btn btn-primary" id="save-api-key-btn">
+              <i class="fas fa-save"></i> Сохранить
+            </button>
+            <button class="btn btn-outline" id="cancel-api-key-btn" style="display: none;">
+              Отмена
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Контейнер для списка агентов (показывается в режиме списка) -->
       <div id="agents-list-container" class="agents-list-container">
         <div class="card">

@@ -186,21 +186,7 @@
       border-top: 1px solid var(--border-color);
     }
     
-    /* Заблокированные фичи по API ключу */
-    .locked-feature {
-      opacity: 0.6;
-      cursor: not-allowed;
-      position: relative;
-    }
-    
-    .locked-feature::after {
-      content: "🔒";
-      font-size: 0.875rem;
-      position: absolute;
-      right: 1.5rem;
-    }
-
-    /* ✅ НОВОЕ: Заблокированные фичи по тарифу */
+    /* Заблокированные фичи по тарифу */
     .plan-locked-feature {
       opacity: 0.6;
       cursor: pointer !important;
@@ -406,115 +392,6 @@
       margin-top: 0.5rem;
       font-size: 0.75rem;
       color: var(--text-light);
-    }
-    
-    /* ========================================
-       API КЛЮЧ СЕКЦИЯ
-       ======================================== */
-    .api-key-section {
-      background-color: var(--white);
-      border-radius: var(--radius-lg);
-      padding: 1.5rem;
-      margin-bottom: 2.5rem;
-      box-shadow: var(--shadow-sm);
-      border: 1px solid var(--border-color);
-    }
-    
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.5rem;
-    }
-    
-    .section-title {
-      font-size: 1.125rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    
-    .api-key-info {
-      color: var(--text-gray);
-      margin-bottom: 1.25rem;
-      font-size: 0.95rem;
-    }
-    
-    .api-key-form {
-      display: flex;
-      gap: 1rem;
-    }
-    
-    .api-key-input-wrapper {
-      flex: 1;
-      position: relative;
-    }
-    
-    .api-key-form input {
-      width: 100%;
-      padding: 0.75rem 1rem;
-      padding-right: 2.5rem;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      font-size: 0.875rem;
-      transition: var(--transition-sm);
-    }
-    
-    .api-key-form input:focus {
-      outline: none;
-      border-color: var(--primary-blue-light);
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
-    }
-    
-    .toggle-password {
-      position: absolute;
-      right: 0.75rem;
-      top: 50%;
-      transform: translateY(-50%);
-      background: none;
-      border: none;
-      color: var(--text-gray);
-      cursor: pointer;
-      font-size: 1rem;
-      padding: 0.25rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: color 0.2s;
-    }
-    
-    .toggle-password:hover {
-      color: var(--primary-blue);
-    }
-    
-    .api-key-actions {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 1rem;
-    }
-    
-    .api-key-status {
-      color: var(--text-gray);
-      font-size: 0.875rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .status-indicator {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-    
-    .status-active {
-      background-color: #10b981;
-    }
-    
-    .status-inactive {
-      background-color: #ef4444;
     }
     
     /* ========================================
@@ -1815,22 +1692,22 @@
       <a href="/static/dashboard.html" class="sidebar-nav-item active">
         <i class="fas fa-home"></i> Дашборд
       </a>
-      <a href="/static/agents.html" class="sidebar-nav-item locked-feature" id="agents-nav-item">
+      <a href="/static/agents.html" class="sidebar-nav-item" id="agents-nav-item">
         <i class="fas fa-robot"></i> OpenAI агенты
       </a>
-      <a href="/static/gemini-agents.html" class="sidebar-nav-item locked-feature" id="gemini-agents-nav-item">
+      <a href="/static/gemini-agents.html" class="sidebar-nav-item" id="gemini-agents-nav-item">
         <i class="fas fa-gem"></i> Gemini агенты
        </a>
       <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
         <i class="fas fa-wave-square"></i> Cartesia агенты
       </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item locked-feature" id="knowledge-nav-item">
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item" id="knowledge-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
       <a href="/static/telephony.html" class="sidebar-nav-item" id="telephony-nav-item" data-feature="telephony">
         <i class="fas fa-phone"></i> Телефония
       </a>
-      <a href="/static/conversations.html" class="sidebar-nav-item locked-feature" id="conversations-nav-item">
+      <a href="/static/conversations.html" class="sidebar-nav-item" id="conversations-nav-item">
         <i class="fas fa-comments"></i> Диалоги
       </a>
       <a href="/static/crm.html" class="sidebar-nav-item" id="crm-nav-item" data-feature="crm">
@@ -1849,7 +1726,7 @@
     </nav>
     
     <div class="sidebar-footer">
-      <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
+      <a href="https://voicyfy.ru" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
         <i class="fas fa-sign-out-alt"></i> Выйти
       </a>
     </div>
@@ -1877,7 +1754,7 @@
             <i class="fas fa-user"></i> Профиль
           </a>
           <div class="dropdown-divider"></div>
-          <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+          <a href="https://voicyfy.ru" class="dropdown-item" id="dropdown-logout">
             <i class="fas fa-sign-out-alt"></i> Выйти
           </a>
         </div>
@@ -1928,64 +1805,6 @@
         </div>
       </div>
       
-      <!-- API ключ секция -->
-      <div class="api-key-section" id="api-key-section">
-        <div class="section-header">
-          <h2 class="section-title">
-            <i class="fas fa-key"></i> API ключ OpenAI
-          </h2>
-        </div>
-        
-        <p class="api-key-info">
-          Для работы голосовых ассистентов необходим ключ OpenAI API. Добавьте свой ключ OpenAI чтобы создавать ботов и использовать все функции платформы.
-        </p>
-        
-        <form class="api-key-form" id="api-key-form">
-          <div class="api-key-input-wrapper">
-            <input type="password" id="api-key-input" placeholder="Введите API ключ OpenAI">
-            <button type="button" class="toggle-password" id="toggle-password" title="Показать/скрыть ключ">
-              <i class="fas fa-eye"></i>
-            </button>
-          </div>
-          <button type="submit" class="btn btn-primary" id="save-api-key-btn">Сохранить</button>
-        </form>
-        
-        <!-- Статус API ключа -->
-        <div class="api-key-actions" id="api-key-status" style="display: none;">
-          <div class="api-key-status">
-            <div class="status-indicator status-active"></div>
-            <span>API ключ активен</span>
-          </div>
-          <button class="btn btn-secondary" id="edit-api-key-btn">
-            <i class="fas fa-edit"></i> Изменить ключ
-          </button>
-        </div>
-      </div>
-      
-      <!-- Уведомление для пользователей без API ключа -->
-      <div class="info-notice" id="no-key-notice">
-        <div class="notice-icon info">
-          <i class="fas fa-key"></i>
-        </div>
-        <h3 class="notice-title">Активируйте возможности платформы</h3>
-        <p class="notice-description">
-          Чтобы создавать голосовых ассистентов и использовать все функции платформы, вам необходимо добавить ключ OpenAI API в настройках выше. После добавления ключа вы сможете создавать ботов, настраивать их и встраивать на свой сайт.
-        </p>
-      </div>
-      
-      <!-- Уведомление для пользователей с API ключом -->
-      <div class="info-notice" id="has-key-notice" style="display: none;">
-        <div class="notice-icon success">
-          <i class="fas fa-check-circle"></i>
-        </div>
-        <h3 class="notice-title">Вы готовы к созданию ассистентов!</h3>
-        <p class="notice-description">
-          Вы успешно добавили API ключ OpenAI. Теперь вы можете создавать голосовых ассистентов в разделе "Мои агенты", настраивать их и встраивать на свой сайт или приложение.
-        </p>
-        <a href="/static/agents.html" class="btn btn-primary">
-          <i class="fas fa-robot"></i> Перейти к созданию ассистентов
-        </a>
-      </div>
     </div>
   </main>
   
@@ -2343,12 +2162,6 @@
       const userDropdown = document.getElementById('user-dropdown');
       const logoutButton = document.getElementById('logout-button');
       const dropdownLogout = document.getElementById('dropdown-logout');
-      const apiKeyForm = document.getElementById('api-key-form');
-      const apiKeyInput = document.getElementById('api-key-input');
-      const saveApiKeyBtn = document.getElementById('save-api-key-btn');
-      const togglePasswordButton = document.getElementById('toggle-password');
-      const editApiKeyBtn = document.getElementById('edit-api-key-btn');
-      const apiKeyStatus = document.getElementById('api-key-status');
       const notification = document.getElementById('notification');
       const notificationMessage = document.getElementById('notification-message');
       const notificationClose = document.getElementById('notification-close');
@@ -2357,13 +2170,6 @@
       const userAvatar = document.getElementById('user-avatar');
       const botsCount = document.getElementById('bots-count');
       const botsBreakdown = document.getElementById('bots-breakdown');
-      const noKeyNotice = document.getElementById('no-key-notice');
-      const hasKeyNotice = document.getElementById('has-key-notice');
-      const geminiAgentsNavItem = document.getElementById('gemini-agents-nav-item');
-      const agentsNavItem = document.getElementById('agents-nav-item');
-      const knowledgeNavItem = document.getElementById('knowledge-nav-item');
-      const outboundNavItem = document.getElementById('outbound-nav-item');
-      const conversationsNavItem = document.getElementById('conversations-nav-item');
       const telephonyNavItem = document.getElementById('telephony-nav-item');
       const crmNavItem = document.getElementById('crm-nav-item');
       const upgradeSubscriptionBtn = document.getElementById('upgrade-subscription-btn');
@@ -2397,9 +2203,6 @@
       const expiredPeriodTabs = document.getElementById('expired-period-tabs');
       
       // Состояние приложения
-      let hasApiKey = false;
-      let actualApiKey = null;
-      let isEditingKey = false;
       let currentUser = null;
       let subscriptionStatus = null;
       let currentUserPlanCode = 'free';
@@ -2752,64 +2555,6 @@
         hideNotification() {
           notification.classList.remove('show');
         },
-        
-        unlockFeatures() {
-          hasApiKey = true;
-          
-          noKeyNotice.style.display = 'none';
-          hasKeyNotice.style.display = 'flex';
-          
-          apiKeyStatus.style.display = 'flex';
-          apiKeyForm.style.display = 'none';
-          
-          const lockedFeatures = [agentsNavItem, geminiAgentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
-          lockedFeatures.forEach(element => {
-            if (element) element.classList.remove('locked-feature');
-          });
-        },
-        
-        lockFeatures() {
-          hasApiKey = false;
-          
-          noKeyNotice.style.display = 'flex';
-          hasKeyNotice.style.display = 'none';
-          
-          apiKeyStatus.style.display = 'none';
-          apiKeyForm.style.display = 'flex';
-          
-          const lockedFeatures = [agentsNavItem, knowledgeNavItem, outboundNavItem, conversationsNavItem];
-          lockedFeatures.forEach(element => {
-            if (element) element.classList.add('locked-feature');
-          });
-        },
-        
-        viewKeyMode() {
-          isEditingKey = false;
-          
-          if (!actualApiKey) {
-            apiKeyForm.style.display = 'flex';
-            apiKeyStatus.style.display = 'none';
-            return;
-          }
-          
-          apiKeyForm.style.display = 'none';
-          apiKeyStatus.style.display = 'flex';
-        },
-        
-        editKeyMode() {
-          isEditingKey = true;
-          apiKeyStatus.style.display = 'none';
-          apiKeyForm.style.display = 'flex';
-          
-          if (actualApiKey) {
-            apiKeyInput.value = actualApiKey;
-            apiKeyInput.type = 'text';
-            togglePasswordButton.querySelector('i').className = 'fas fa-eye-slash';
-          } else {
-            apiKeyInput.value = '';
-            apiKeyInput.placeholder = 'Введите API ключ OpenAI';
-          }
-        },
 
         showSubscriptionExpiredModal(isTrialExpired = true) {
           console.log('Показываем модальное окно истекшей подписки:', isTrialExpired);
@@ -2853,31 +2598,39 @@
       // Функция проверки статуса подписки
       function checkSubscriptionStatus(userData, subscriptionData) {
         console.log('Проверяем статус подписки:', { userData, subscriptionData });
-        
+
         if (isAdmin(userData.email)) {
           console.log('Пользователь является админом, пропускаем проверку подписки');
           return { isValid: true, reason: 'admin' };
         }
 
         if (subscriptionData && subscriptionData.subscription_plan) {
+          const planCode = subscriptionData.subscription_plan.code;
           const daysLeft = subscriptionData.days_left || 0;
-          
+
+          // Тариф free — бессрочный, модалка никогда не показывается
+          if (planCode === 'free') {
+            return { isValid: true, reason: 'free_plan' };
+          }
+
+          // Для всех платных тарифов (ai_voice, start, profi, referral_trial):
+          // если days_left <= 0 — показываем модалку "Подписка истекла"
           if (daysLeft <= 0) {
-            console.log('Подписка истекла, дней осталось:', daysLeft);
-            return { isValid: false, reason: 'subscription_expired', data: subscriptionData };
+            const isTrialPlan = subscriptionData.is_trial === true;
+            return {
+              isValid: false,
+              reason: isTrialPlan ? 'trial_expired' : 'subscription_expired',
+              data: subscriptionData
+            };
           }
-          
-          if (subscriptionData.is_trial && daysLeft <= 0) {
-            console.log('Тестовый период истек');
-            return { isValid: false, reason: 'trial_expired', data: subscriptionData };
-          }
-          
+
           console.log('Подписка активна, дней осталось:', daysLeft);
           return { isValid: true, reason: 'active_subscription', data: subscriptionData };
         }
 
-        console.log('Подписка не найдена, считаем что тестовый период истек');
-        return { isValid: false, reason: 'trial_expired', data: null };
+        // Нет подписки вообще — не блокируем, трактуем как free
+        console.log('Подписка не найдена, трактуем как free');
+        return { isValid: true, reason: 'no_subscription' };
       }
 
       // Проверка результата оплаты
@@ -2950,15 +2703,8 @@
             userAvatar.textContent = userData.email.substring(0, 2).toUpperCase();
           }
           
-          if (userData.openai_api_key) {
-            actualApiKey = userData.openai_api_key;
-            ui.viewKeyMode();
-            ui.unlockFeatures();
-            loadStats();
-          } else {
-            ui.lockFeatures();
-          }
-          
+          loadStats();
+
           // Добавляем админ панель для админа
           if (userData.email === "well96well@gmail.com") {
             const adminSections = Array.from(document.querySelectorAll('.sidebar-section')).filter(
@@ -2997,7 +2743,6 @@
       
       // ✅ ИСПРАВЛЕНО: Загрузка статистики (OpenAI + Gemini ассистенты)
       async function loadStats() {
-        if (!hasApiKey) return;
         
         try {
           // Загружаем оба типа ассистентов параллельно
@@ -3191,81 +2936,22 @@
         }
       });
       
-      // API ключ обработчики
-      togglePasswordButton.addEventListener('click', function() {
-        const icon = this.querySelector('i');
-        
-        if (apiKeyInput.type === 'password') {
-          apiKeyInput.type = 'text';
-          icon.className = 'fas fa-eye-slash';
-          this.title = 'Скрыть ключ';
-        } else {
-          apiKeyInput.type = 'password';
-          icon.className = 'fas fa-eye';
-          this.title = 'Показать ключ';
-        }
-      });
-      
-      editApiKeyBtn.addEventListener('click', function() {
-        ui.editKeyMode();
-      });
-      
       // Выход из системы
       logoutButton.addEventListener('click', function(e) {
         e.preventDefault();
         localStorage.removeItem('auth_token');
-        window.location.href = 'https://voicyfy.ru/static/index.html';
+        window.location.href = 'https://voicyfy.ru';
       });
-      
+
       dropdownLogout.addEventListener('click', function(e) {
         e.preventDefault();
         localStorage.removeItem('auth_token');
-        window.location.href = 'https://voicyfy.ru/static/index.html';
-      });
-      
-      // Сохранение API ключа
-      apiKeyForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const apiKey = apiKeyInput.value.trim();
-        
-        if (isEditingKey && apiKey === actualApiKey) {
-          ui.viewKeyMode();
-          return;
-        }
-        
-        try {
-          await api.saveApiKey(apiKey);
-          
-          actualApiKey = apiKey;
-          ui.viewKeyMode();
-          
-          if (apiKey) {
-            ui.showNotification('API ключ успешно сохранен');
-            ui.unlockFeatures();
-            loadStats();
-          } else {
-            ui.showNotification('API ключ успешно удален');
-            ui.lockFeatures();
-          }
-        } catch (error) {
-          ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
-        }
-      });
-      
-      notificationClose.addEventListener('click', ui.hideNotification);
-      
-      // Блокировка переходов на заблокированные по API страницы
-      document.querySelectorAll('.locked-feature').forEach(link => {
-        link.addEventListener('click', function(e) {
-          if (this.classList.contains('locked-feature')) {
-            e.preventDefault();
-            ui.showNotification('Добавьте API ключ OpenAI для разблокировки этой функции', 'info');
-          }
-        });
+        window.location.href = 'https://voicyfy.ru';
       });
 
-      // ✅ Блокировка переходов на заблокированные по тарифу страницы
+      notificationClose.addEventListener('click', ui.hideNotification);
+
+      // Блокировка переходов на заблокированные по тарифу страницы
       document.querySelectorAll('[data-feature]').forEach(link => {
         link.addEventListener('click', function(e) {
           if (this.classList.contains('plan-locked-feature')) {
@@ -3398,7 +3084,7 @@
       // Кнопка выхода в модалке истекшей подписки
       expiredLogoutBtn.addEventListener('click', function() {
         localStorage.removeItem('auth_token');
-        window.location.href = 'https://voicyfy.ru/static/index.html';
+        window.location.href = 'https://voicyfy.ru';
       });
       
       // Закрытие по клавише Escape

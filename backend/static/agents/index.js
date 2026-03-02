@@ -48,6 +48,8 @@ const PLAN_NAMES = {
 
 let currentAgentId = null;
 let isLoading = false;
+let actualApiKey = null;
+let isApiKeySet = false;
 let testWidgetScript = null;
 let isTestWidgetInitialized = false;
 let isMicPermissionGranted = false;
@@ -525,6 +527,74 @@ async function loadUserInfo() {
   } catch (error) {
     debugLog(`Ошибка загрузки информации о пользователе: ${error.message}`);
     userEmailDisplay.textContent = 'Неизвестный пользователь';
+  }
+}
+
+// ============================================================================
+// API-КЛЮЧ OPENAI
+// ============================================================================
+
+/**
+ * Загрузить API-ключ из профиля и отобразить секцию
+ */
+async function loadApiKeySection() {
+  try {
+    const userInfo = await api.get('/users/me');
+    actualApiKey = userInfo.openai_api_key || null;
+    isApiKeySet = !!actualApiKey;
+    renderApiKeySection();
+  } catch (error) {
+    console.error('[API KEY] Ошибка загрузки ключа:', error);
+  }
+}
+
+/**
+ * Отрисовать секцию API-ключа в зависимости от состояния
+ */
+function renderApiKeySection() {
+  const viewMode = document.getElementById('api-key-view-mode');
+  const editMode = document.getElementById('api-key-edit-mode');
+  const maskedEl = document.getElementById('api-key-masked');
+  const cancelBtn = document.getElementById('cancel-api-key-btn');
+
+  if (!viewMode || !editMode) return;
+
+  if (isApiKeySet && actualApiKey) {
+    // Показываем режим просмотра
+    viewMode.style.display = 'block';
+    editMode.style.display = 'none';
+
+    // Показываем маскированный ключ
+    const masked = actualApiKey.substring(0, 7) + '...' + actualApiKey.slice(-4);
+    maskedEl.textContent = masked;
+    maskedEl.dataset.fullKey = actualApiKey;
+    maskedEl.dataset.masked = 'true';
+
+    cancelBtn.style.display = 'none';
+  } else {
+    // Показываем форму ввода
+    viewMode.style.display = 'none';
+    editMode.style.display = 'block';
+    cancelBtn.style.display = 'none';
+  }
+}
+
+/**
+ * Сохранить API-ключ через API
+ */
+async function saveApiKey(newKey) {
+  try {
+    setLoading(true);
+    await api.put('/users/me', { openai_api_key: newKey });
+    actualApiKey = newKey;
+    isApiKeySet = !!newKey;
+    renderApiKeySection();
+    ui.showNotification('API ключ успешно сохранён!', 'success');
+  } catch (error) {
+    console.error('[API KEY] Ошибка сохранения:', error);
+    ui.showNotification(error.message || 'Ошибка при сохранении ключа', 'error');
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -1152,7 +1222,7 @@ function setupEventHandlers() {
     dropdownLogout.addEventListener('click', function(e) {
       e.preventDefault();
       localStorage.removeItem('auth_token');
-      window.location.href = 'https://voicyfy.ru/static/index.html';
+      window.location.href = 'https://voicyfy.ru';
     });
   }
   
@@ -1256,6 +1326,91 @@ function setupEventHandlers() {
       }
     });
   });
+
+  // ============================================================================
+  // ОБРАБОТЧИКИ API-КЛЮЧА
+  // ============================================================================
+
+  // Кнопка "Изменить ключ" — переключиться в режим редактирования
+  const editApiKeyBtn = document.getElementById('edit-api-key-btn');
+  if (editApiKeyBtn) {
+    editApiKeyBtn.addEventListener('click', () => {
+      const viewMode = document.getElementById('api-key-view-mode');
+      const editMode = document.getElementById('api-key-edit-mode');
+      const cancelBtn = document.getElementById('cancel-api-key-btn');
+      const input = document.getElementById('api-key-input');
+
+      viewMode.style.display = 'none';
+      editMode.style.display = 'block';
+      cancelBtn.style.display = 'inline-flex';
+
+      if (actualApiKey) {
+        input.value = actualApiKey;
+        input.type = 'text';
+      }
+    });
+  }
+
+  // Кнопка "Отмена" в режиме редактирования
+  const cancelApiKeyBtn = document.getElementById('cancel-api-key-btn');
+  if (cancelApiKeyBtn) {
+    cancelApiKeyBtn.addEventListener('click', () => {
+      renderApiKeySection();
+    });
+  }
+
+  // Кнопка показать/скрыть ключ в режиме просмотра
+  const toggleKeyVisibility = document.getElementById('toggle-key-visibility');
+  if (toggleKeyVisibility) {
+    toggleKeyVisibility.addEventListener('click', () => {
+      const maskedEl = document.getElementById('api-key-masked');
+      const icon = toggleKeyVisibility.querySelector('i');
+      const isMasked = maskedEl.dataset.masked === 'true';
+
+      if (isMasked) {
+        maskedEl.textContent = maskedEl.dataset.fullKey;
+        maskedEl.dataset.masked = 'false';
+        icon.className = 'fas fa-eye-slash';
+      } else {
+        const key = maskedEl.dataset.fullKey;
+        maskedEl.textContent = key.substring(0, 7) + '...' + key.slice(-4);
+        maskedEl.dataset.masked = 'true';
+        icon.className = 'fas fa-eye';
+      }
+    });
+  }
+
+  // Кнопка показать/скрыть в поле ввода
+  const toggleApiKeyInput = document.getElementById('toggle-api-key-input');
+  if (toggleApiKeyInput) {
+    toggleApiKeyInput.addEventListener('click', () => {
+      const input = document.getElementById('api-key-input');
+      const icon = toggleApiKeyInput.querySelector('i');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+      } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+      }
+    });
+  }
+
+  // Кнопка "Сохранить" API-ключ
+  const saveApiKeyBtn = document.getElementById('save-api-key-btn');
+  if (saveApiKeyBtn) {
+    saveApiKeyBtn.addEventListener('click', async () => {
+      const input = document.getElementById('api-key-input');
+      const newKey = input ? input.value.trim() : '';
+
+      if (!newKey) {
+        ui.showNotification('Введите API ключ OpenAI', 'error');
+        return;
+      }
+
+      await saveApiKey(newKey);
+    });
+  }
 }
 
 // ============================================================================
@@ -1301,10 +1456,13 @@ function initDOMElements() {
 
 async function initPage() {
   if (!api.checkAuth()) return;
-  
+
   // Сначала загружаем информацию о пользователе (нужна для проверки привилегий)
   await loadUserInfo();
-  
+
+  // Загружаем секцию API-ключа
+  await loadApiKeySection();
+
   // Затем загружаем информацию о лимитах
   await loadAssistantsLimitInfo();
   
