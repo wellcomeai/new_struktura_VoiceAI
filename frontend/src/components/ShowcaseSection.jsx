@@ -60,9 +60,9 @@ function ShowcaseSection() {
               </div>
 
               <ul className="show-feats">
-                <li><CheckIcon /> <span><strong>Купите номер</strong> прямо в личном кабинете</span></li>
-                <li><CheckIcon /> <span><strong>Выберите ассистента</strong> и напишите промт</span></li>
-                <li><CheckIcon /> <span><strong>Готово</strong> — ИИ принимает звонки</span></li>
+                <li><CheckIcon /> <span>Купите номер прямо в личном кабинете</span></li>
+                <li><CheckIcon /> <span>Выберите ассистента и напишите промт</span></li>
+                <li><CheckIcon /> <span>Готово — ИИ принимает звонки</span></li>
                 <li><CheckIcon /> <span>Запись и аналитика всех разговоров</span></li>
                 <li><CheckIcon /> <span>Автоматические исходящие звонки</span></li>
                 <li><CheckIcon /> <span>Интеграция с CRM — задачи из звонков</span></li>

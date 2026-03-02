@@ -632,8 +632,8 @@ body::before {
   border-bottom: 1px solid rgba(226,232,240,.5);
 }
 .pamt {
-  font-family: 'Syne', sans-serif;
-  font-size: 1.95rem; font-weight: 800; letter-spacing: -.045em;
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.95rem; font-weight: 800; letter-spacing: -.03em;
   background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .price-amount small { color: var(--s400); font-size: .8rem; font-weight: 400; }
