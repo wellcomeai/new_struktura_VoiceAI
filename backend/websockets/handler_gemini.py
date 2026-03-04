@@ -74,9 +74,9 @@ logging.basicConfig(
 active_gemini_connections: Dict[str, List[WebSocket]] = {}
 
 # Debug mode
-ENABLE_DETAILED_LOGGING = True
+ENABLE_DETAILED_LOGGING = False
 # 🆕 v1.6.1: Включить подробное логирование структуры транскриптов
-ENABLE_TRANSCRIPT_DEBUG = True
+ENABLE_TRANSCRIPT_DEBUG = False
 
 
 def log_to_render(message: str, level: str = "INFO"):

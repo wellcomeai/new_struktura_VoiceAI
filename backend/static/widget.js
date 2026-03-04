@@ -2149,22 +2149,10 @@
               // Start playback on FIRST audio delta instead of waiting for done!
               if (data.type === 'response.audio.delta') {
                 if (data.delta) {
-                  // ⚡ v3.2.0: Check if this is the first chunk
-                  if (!firstAudioChunkReceived && audioChunksBuffer.length === 0 && !isPlayingAudio) {
-                    widgetLog('[v3.2.1 STREAMING] ⚡ First audio chunk received - starting playback immediately!');
-                    firstAudioChunkReceived = true;
-                    
-                    // Start playback with first chunk IMMEDIATELY
-                    addAudioToPlaybackQueue(data.delta);
-                    
-                    // ⚡ Instant UI feedback (but no message in v3.2.1 Clean UI)
-                    if (!interruptionState.is_assistant_speaking) {
-                      mainCircle.classList.add('speaking');
-                      mainCircle.classList.remove('listening');
-                    }
-                  } else {
-                    // Subsequent chunks go to buffer
-                    audioChunksBuffer.push(data.delta);
+                  addAudioToPlaybackQueue(data.delta);
+                  if (!interruptionState.is_assistant_speaking) {
+                    mainCircle.classList.add('speaking');
+                    mainCircle.classList.remove('listening');
                   }
                 }
                 return;
@@ -2176,17 +2164,8 @@
               
               if (data.type === 'response.audio.done') {
                 widgetLog('[v3.2.1 STREAMING] Audio done received');
-                
-                // Add any remaining buffered chunks to playback
-                if (audioChunksBuffer.length > 0) {
-                  const fullAudio = audioChunksBuffer.join('');
-                  addAudioToPlaybackQueue(fullAudio);
-                  audioChunksBuffer = [];
-                }
-                
-                // Reset streaming flag
                 firstAudioChunkReceived = false;
-                
+                audioChunksBuffer = [];
                 return;
               }
               
