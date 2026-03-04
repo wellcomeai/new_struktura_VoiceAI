@@ -59,7 +59,7 @@ logging.basicConfig(
 active_connections_new: Dict[str, List[WebSocket]] = {}
 
 # 🔍 DEBUG MODE - Set to False in production after debugging
-ENABLE_DETAILED_LOGGING = True
+ENABLE_DETAILED_LOGGING = False
 
 
 def log_to_render(message: str, level: str = "INFO"):
@@ -632,9 +632,6 @@ async def handle_websocket_connection_new(
 
         log_to_render(f"[HANDLER] ✅ Initial greeting triggered: {greeting[:50]}...")
 
-        # Audio buffer
-        audio_buffer = bytearray()
-        
         # Interruption state
         interruption_state = {
             "is_user_speaking": False,
@@ -707,8 +704,7 @@ async def handle_websocket_connection_new(
                     # Audio processing
                     if msg_type == "input_audio_buffer.append":
                         audio_chunk = base64_to_audio_buffer(data["audio"])
-                        audio_buffer.extend(audio_chunk)
-                        
+
                         if openai_client.is_connected:
                             await openai_client.process_audio(audio_chunk)
                         
@@ -729,12 +725,11 @@ async def handle_websocket_connection_new(
                         continue
 
                     if msg_type == "input_audio_buffer.clear":
-                        log_to_render(f"🗑️ Clearing audio buffer ({len(audio_buffer)} bytes)")
-                        audio_buffer.clear()
+                        log_to_render(f"🗑️ Clearing audio buffer")
                         if openai_client.is_connected:
                             await openai_client.clear_audio_buffer()
                         await websocket.send_json({
-                            "type": "input_audio_buffer.clear.ack", 
+                            "type": "input_audio_buffer.clear.ack",
                             "event_id": data.get("event_id")
                         })
                         continue
@@ -787,7 +782,6 @@ async def handle_websocket_connection_new(
                         continue
 
                 elif "bytes" in message:
-                    audio_buffer.extend(message["bytes"])
                     await websocket.send_json({"type": "binary.ack"})
 
             except (WebSocketDisconnect, ConnectionClosed):
