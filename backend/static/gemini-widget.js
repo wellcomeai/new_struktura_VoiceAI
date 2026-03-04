@@ -1,5 +1,5 @@
 /**
- * 🚀 Gemini Voice Widget v2.8.1 - PRODUCTION (GEMINI VAD + VOICYFY UI)
+ * 🚀 Gemini Voice Widget v2.8.2 - PRODUCTION (GEMINI VAD + VOICYFY UI)
  * Google Gemini Live API Integration with Voicyfy Branding
  * 
  * ✅ UI: 100% Match with OpenAI Widget (Blue/Clean/Voicyfy)
@@ -7,7 +7,12 @@
  * ✅ Continuous audio streaming via AudioWorklet
  * ✅ Instant interruptions & Zero-latency playback
  * 
- * @version 2.8.1
+ * 🔧 FIX v2.8.2 (latency fix):
+ *   - RecorderWorkletProcessor bufferSize: 4096 → 512 (~170ms → ~32ms per chunk)
+ *   - Added 24kHz → 16kHz downsampling IN THE WORKLET
+ *     (AudioContext runs at 24kHz but Gemini expects 16kHz — was sending wrong data)
+ * 
+ * @version 2.8.2
  * @author WellcomeAI Team
  * @license MIT
  */
@@ -89,23 +94,58 @@
     // AUDIOWORKLET PROCESSOR CODE
     // ============================================================================
 
+    // 🔧 FIX v2.8.2:
+    // БЫЛО: bufferSize = 4096, нет даунсэмплинга
+    //   → AudioContext работает на 24kHz
+    //   → 4096 samples @ 24kHz = ~170ms задержки на буфер
+    //   → аудио отправляется как 24kHz, но Gemini ждёт 16kHz
+    //   → VAD получает "ускоренную" речь, долго ждёт конца
+    //
+    // СТАЛО: bufferSize = 512, даунсэмплинг 24kHz→16kHz внутри воркплета
+    //   → 512 samples @ 16kHz = ~32ms на буфер
+    //   → Gemini получает правильные 16kHz → VAD работает корректно
     const RECORDER_WORKLET_CODE = `
 class RecorderWorkletProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.bufferSize = 4096;
+        // FIX 1: 4096 → 512 для минимальной задержки
+        this.bufferSize = 512;
         this.buffer = new Float32Array(this.bufferSize);
         this.bufferIndex = 0;
+
+        // FIX 2: Даунсэмплинг AudioContext rate → 16000 Hz
+        // sampleRate — глобальная переменная AudioWorklet = реальная частота AudioContext
+        this.inputRate = sampleRate;   // обычно 24000
+        this.targetRate = 16000;
+        this.resampleRatio = this.inputRate / this.targetRate; // 1.5 при 24kHz→16kHz
+    }
+
+    // Линейная интерполяция для даунсэмплинга
+    downsample(inputData) {
+        if (this.resampleRatio === 1) return inputData;
+        
+        const outputLength = Math.floor(inputData.length / this.resampleRatio);
+        const output = new Float32Array(outputLength);
+        
+        for (let i = 0; i < outputLength; i++) {
+            const srcIndex = i * this.resampleRatio;
+            const srcFloor = Math.floor(srcIndex);
+            const srcCeil = Math.min(srcFloor + 1, inputData.length - 1);
+            const t = srcIndex - srcFloor;
+            output[i] = inputData[srcFloor] * (1 - t) + inputData[srcCeil] * t;
+        }
+        return output;
     }
 
     process(inputs, outputs, parameters) {
         const input = inputs[0];
         if (!input || !input[0]) return true;
 
-        const inputData = input[0];
+        // Сначала даунсэмплируем до 16kHz
+        const downsampled = this.downsample(input[0]);
 
-        for (let i = 0; i < inputData.length; i++) {
-            this.buffer[this.bufferIndex++] = inputData[i];
+        for (let i = 0; i < downsampled.length; i++) {
+            this.buffer[this.bufferIndex++] = downsampled[i];
 
             if (this.bufferIndex >= this.bufferSize) {
                 this.port.postMessage({
@@ -192,7 +232,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.8.1 (Voicyfy UI)...');
+        console.log('[GEMINI-WIDGET] 🚀 Initializing v2.8.2 (latency fix)...');
         
         // Helper to find script tag
         const getScriptTag = () => {
@@ -261,6 +301,9 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         
         const actualRate = STATE.audioContext.sampleRate;
         CONFIG.audio.actualSampleRate = actualRate;
+        
+        // 🔧 FIX v2.8.2: логируем реальную частоту, чтобы убедиться в даунсэмплинге
+        console.log(`[GEMINI-WIDGET] AudioContext rate: ${actualRate}Hz (input will be downsampled to 16kHz in worklet)`);
         
         if (actualRate !== CONFIG.audio.outputSampleRate) {
             CONFIG.audio.needsResampling = true;
@@ -1126,7 +1169,8 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         try {
             STATE.mediaStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
-                    sampleRate: CONFIG.audio.inputSampleRate,
+                    // 🔧 FIX v2.8.2: убираем sampleRate constraint — браузер игнорирует его
+                    // и использует частоту AudioContext (24kHz). Даунсэмплинг делает воркплет.
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true
@@ -1153,7 +1197,6 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
                 
                 if (db > CONFIG.vad.speechThreshold) {
                     if (!STATE.isSpeaking) {
-                        // Just set UI state, don't send events if Gemini handles VAD
                         STATE.ui.mainCircle.classList.add('listening'); 
                     }
                 }
