@@ -1169,7 +1169,8 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
             };
             
             source.connect(workletNode);
-            workletNode.connect(STATE.audioContext.destination); // Needed for worklet to run
+            // NOTE: worklet does NOT need connection to destination to run.
+            // Connecting to destination would cause microphone echo in speakers.
             
             STATE.audioWorkletNode = { source, workletNode };
             STATE.isRecording = true;

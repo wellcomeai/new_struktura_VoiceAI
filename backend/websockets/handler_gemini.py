@@ -589,6 +589,13 @@ async def handle_gemini_messages(
                         "transcription_enabled": True,
                         "turn_based_dialog": True
                     })
+
+                    # ✅ Отправляем greeting ПОСЛЕ setupComplete (не по таймауту!)
+                    greeting_message = getattr(gemini_client.assistant_config, "greeting_message", None)
+                    if greeting_message and not gemini_client.greeting_sent:
+                        log_to_render(f"👋 Sending greeting after setupComplete...")
+                        await gemini_client.send_initial_greeting()
+
                     continue
                 
                 # ✅ Tool Call event (top-level, outside serverContent)
@@ -726,7 +733,22 @@ async def handle_gemini_messages(
                             })
                     
                     continue
-                
+
+                # ✅ Tool Call Cancellation event
+                if "toolCallCancellation" in response_data:
+                    cancellation = response_data["toolCallCancellation"]
+                    cancelled_ids = cancellation.get("ids", [])
+
+                    log_to_render(f"⚠️ TOOL CALL CANCELLATION received")
+                    log_to_render(f"   Cancelled IDs: {cancelled_ids}")
+
+                    await websocket.send_json({
+                        "type": "function_call.cancelled",
+                        "cancelled_ids": cancelled_ids,
+                        "timestamp": time.time()
+                    })
+                    continue
+
                 # Server content (main response container)
                 if "serverContent" in response_data:
                     server_content = response_data["serverContent"]

@@ -1,7 +1,7 @@
 # backend/websockets/gemini_client.py
 """
 🚀 PRODUCTION VERSION 1.6 - Google Gemini Live API Client
-Model: gemini-2.5-flash-native-audio-preview-09-2025
+Model: gemini-2.5-flash-native-audio-preview-12-2025
 
 CRITICAL FIX in v1.6:
 ✅ Added auto-greeting on connect using greeting_message from config
@@ -123,8 +123,8 @@ class GeminiLiveClient:
         self.is_connected = False
         
         # ✅ FIXED: Correct WebSocket endpoint for Gemini Live API
-        self.model = "gemini-2.5-flash-native-audio-preview-09-2025"
-        self.base_url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+        self.model = "gemini-2.5-flash-native-audio-preview-12-2025"
+        self.base_url = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
         self.gemini_url = f"{self.base_url}?key={self.api_key}"
         
         self.session_id = str(uuid.uuid4())
@@ -233,17 +233,7 @@ class GeminiLiveClient:
                 return False
 
             logger.info(f"[GEMINI-CLIENT] ✅ Session initialized successfully")
-            
-            # ✅ NEW: Send initial greeting if configured
-            greeting_message = getattr(self.assistant_config, "greeting_message", None)
-            if greeting_message and not self.greeting_sent:
-                logger.info(f"[GEMINI-CLIENT] 👋 Auto-greeting enabled, sending...")
-                # Small delay to ensure setup is complete
-                await asyncio.sleep(0.3)
-                await self.send_initial_greeting()
-            else:
-                logger.info(f"[GEMINI-CLIENT] ℹ️ No greeting_message configured, skipping auto-greet")
-            
+
             return True
             
         except asyncio.TimeoutError:
@@ -349,17 +339,17 @@ class GeminiLiveClient:
         
         # Speech config
         speech_config = {
-            "voice_config": {
-                "prebuilt_voice_config": {
-                    "voice_name": voice
+            "voiceConfig": {
+                "prebuiltVoiceConfig": {
+                    "voiceName": voice
                 }
             }
         }
         
         # ✅ Generation config - ТОЛЬКО модальности и голос (БЕЗ транскрипции)
         generation_config = {
-            "response_modalities": ["AUDIO"],
-            "speech_config": speech_config
+            "responseModalities": ["AUDIO"],
+            "speechConfig": speech_config
         }
         
         # System instruction
@@ -374,8 +364,8 @@ class GeminiLiveClient:
         if getattr(self.assistant_config, "enable_thinking", False):
             thinking_budget = getattr(self.assistant_config, "thinking_budget", 1024)
             thinking_config = {
-                "thinking_budget": thinking_budget,
-                "include_thoughts": False
+                "thinkingBudget": thinking_budget,
+                "includeThoughts": False
             }
             logger.info(f"[GEMINI-CLIENT] Thinking mode enabled (budget: {thinking_budget})")
         
@@ -384,10 +374,10 @@ class GeminiLiveClient:
         setup_payload = {
             "setup": {
                 "model": f"models/{self.model}",
-                "generation_config": generation_config,
-                "system_instruction": system_instruction,
-                "output_audio_transcription": {},  # ✅ На верхнем уровне setup
-                "input_audio_transcription": {}     # ✅ На верхнем уровне setup
+                "generationConfig": generation_config,
+                "systemInstruction": system_instruction,
+                "outputAudioTranscription": {},  # ✅ На верхнем уровне setup
+                "inputAudioTranscription": {}     # ✅ На верхнем уровне setup
             }
         }
         
@@ -397,7 +387,7 @@ class GeminiLiveClient:
         
         # Add thinking config if enabled
         if thinking_config:
-            setup_payload["setup"]["thinking_config"] = thinking_config
+            setup_payload["setup"]["thinkingConfig"] = thinking_config
         
         try:
             logger.info(f"[GEMINI-CLIENT] Sending setup message...")
@@ -469,14 +459,14 @@ class GeminiLiveClient:
             # Send as user message to trigger response
             # We instruct Gemini to say the greeting
             payload = {
-                "client_content": {
+                "clientContent": {
                     "turns": [{
                         "role": "user",
                         "parts": [{
                             "text": f"Поприветствуй пользователя голосом. Скажи именно это: \"{greeting_message}\""
                         }]
                     }],
-                    "turn_complete": True
+                    "turnComplete": True
                 }
             }
             
@@ -511,12 +501,12 @@ class GeminiLiveClient:
             logger.info(f"[GEMINI-CLIENT] 💬 Sending text message: {text[:100]}...")
             
             payload = {
-                "client_content": {
+                "clientContent": {
                     "turns": [{
                         "role": "user",
                         "parts": [{"text": text}]
                     }],
-                    "turn_complete": True
+                    "turnComplete": True
                 }
             }
             
@@ -606,7 +596,6 @@ class GeminiLiveClient:
                 "toolResponse": {  # NOT client_content!
                     "functionResponses": [{  # Plural!
                         "id": function_call_id,  # CRITICAL: ID from toolCall event
-                        "name": self.last_function_name,
                         "response": result  # Your result as-is
                     }]
                 }
@@ -657,11 +646,11 @@ class GeminiLiveClient:
             
             # Send as realtime_input with inline_data
             payload = {
-                "realtime_input": {
-                    "media_chunks": [{
-                        "mime_type": "image/jpeg",
+                "realtimeInput": {
+                    "video": {
+                        "mimeType": "image/jpeg",
                         "data": image_base64
-                    }]
+                    }
                 }
             }
             
@@ -695,11 +684,11 @@ class GeminiLiveClient:
             data_b64 = base64.b64encode(audio_buffer).decode("utf-8")
             
             payload = {
-                "realtime_input": {
-                    "media_chunks": [{
-                        "mime_type": "audio/pcm;rate=16000",
+                "realtimeInput": {
+                    "audio": {
+                        "mimeType": "audio/pcm;rate=16000",
                         "data": data_b64
-                    }]
+                    }
                 }
             }
             
