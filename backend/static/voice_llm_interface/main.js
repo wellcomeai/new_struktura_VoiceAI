@@ -1228,10 +1228,10 @@ function connectLLMWebSocket() {
                 }
                 
                 if (data.type === 'error') {
-                    Config.log(`📝 LLM error: ${data.error || 'unknown'}`, 'error');
-                    // Don't reconnect if API key is missing
+                    const errText = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                    Config.log(`📝 LLM error: ${errText || 'unknown'}`, 'error');
                     if (data.error_code === 'no_api_key') {
-                        llmReconnectAttempts = 999; // prevent reconnection
+                        llmReconnectAttempts = 999;
                     }
                     return;
                 }
@@ -1271,8 +1271,8 @@ function connectLLMWebSocket() {
             }
         };
         
-        llmWebSocket.onerror = function(error) {
-            Config.log(`📝 LLM WebSocket error: ${error}`, 'error');
+        llmWebSocket.onerror = function() {
+            Config.log('📝 LLM WebSocket error', 'error');
         };
         
     } catch (error) {

@@ -39,7 +39,8 @@ from backend.api import (
     contacts,  # ✅ CRM API
     functions,
     voximplant_settings,
-    telephony
+    telephony,
+    llm_streaming,  # ✅ LLM Streaming + Agent Config API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -184,6 +185,7 @@ app.include_router(embeds.router, tags=["Embeds"])
 app.include_router(functions.router, prefix="/api/functions", tags=["Functions"])
 app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voximplant Settings"])
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
+app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
 
 # ============================================================================
 # STATIC FILES
