@@ -623,7 +623,73 @@ async def handle_gemini_messages(
                 pass
         
         return True
-    
+
+    # =========================================================================
+    # 🆕 HELPER: Handle query_orchestrator - Agent Mode
+    # =========================================================================
+    async def handle_query_orchestrator(
+        function_id: str,
+        arguments: Dict
+    ) -> bool:
+        """
+        Handle query_orchestrator function.
+        Immediately responds to Gemini and notifies frontend to start agent flow.
+        """
+        task = arguments.get("task") or arguments.get("query") or ""
+
+        if not task:
+            gemini_client.last_function_name = "query_orchestrator"
+            await gemini_client.send_function_result(function_id, {
+                "success": False,
+                "error": "Не указана задача (task)"
+            })
+            return True
+
+        log_to_render(f"🤖 AGENT MODE: query_orchestrator called")
+        log_to_render(f"   Task: {task[:100]}")
+
+        try:
+            # Step 1: Immediately respond to Gemini
+            gemini_client.last_function_name = "query_orchestrator"
+            await gemini_client.send_function_result(function_id, {
+                "success": True,
+                "message": "Запускаю агента для выполнения задачи. Следи за экраном."
+            })
+
+            # Step 2: Notify frontend to start agent flow via /llm-stream WS
+            request_id = f"agent_{int(time.time() * 1000)}"
+            await websocket.send_json({
+                "type": "agent.request",
+                "request_id": request_id,
+                "task": task
+            })
+
+            log_to_render(f"📤 Sent agent.request to frontend (request_id: {request_id})")
+
+            await websocket.send_json({
+                "type": "function_call.completed",
+                "function": "query_orchestrator",
+                "function_call_id": function_id,
+                "result": {
+                    "success": True,
+                    "agent_mode": True,
+                    "request_id": request_id
+                }
+            })
+
+        except Exception as e:
+            log_to_render(f"❌ Agent error: {e}", "ERROR")
+            try:
+                gemini_client.last_function_name = "query_orchestrator"
+                await gemini_client.send_function_result(function_id, {
+                    "success": False,
+                    "error": f"Ошибка: {str(e)[:100]}"
+                })
+            except:
+                pass
+
+        return True
+
     # =========================================================================
     # MAIN MESSAGE LOOP
     # =========================================================================
@@ -708,6 +774,11 @@ async def handle_gemini_messages(
                             log_to_render(f"📝 INTERCEPTING query_llm for LLM Streaming")
                             handled = await handle_query_llm_streaming(function_id, arguments, normalized_name)
                             log_to_render(f"📝 Streaming handled: {handled}")
+                            continue
+                        elif normalized_name == "query_orchestrator":
+                            log_to_render(f"🤖 INTERCEPTING query_orchestrator for Agent Mode")
+                            handled = await handle_query_orchestrator(function_id, arguments)
+                            log_to_render(f"🤖 Agent handled: {handled}")
                             continue
                         else:
                             log_to_render(f"⚠️ NOT intercepting - going to standard execution")
@@ -908,6 +979,11 @@ async def handle_gemini_messages(
                                     log_to_render(f"📝 INTERCEPTING query_llm (from modelTurn)")
                                     handled = await handle_query_llm_streaming(function_call_id, arguments, normalized_name)
                                     log_to_render(f"📝 Streaming handled (modelTurn): {handled}")
+                                    continue
+                                elif normalized_name == "query_orchestrator":
+                                    log_to_render(f"🤖 INTERCEPTING query_orchestrator (from modelTurn)")
+                                    handled = await handle_query_orchestrator(function_call_id, arguments)
+                                    log_to_render(f"🤖 Agent handled (modelTurn): {handled}")
                                     continue
                                 else:
                                     log_to_render(f"⚠️ NOT intercepting (modelTurn) - going to standard execution")

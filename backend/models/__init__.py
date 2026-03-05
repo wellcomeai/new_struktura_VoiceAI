@@ -48,6 +48,9 @@ from .partner import Partner, ReferralRelationship, PartnerCommission
 from .task import Task, TaskStatus
 from .browser_task import BrowserTask, BrowserTaskStatus
 
+# ✅ НОВОЕ: Agent Mode модель
+from .agent_config import AgentConfig
+
 # ✅ НОВОЕ v3.0: Импортируем Voximplant Partner модели
 from .voximplant_child import (
     VoximplantChildAccount,
@@ -97,6 +100,8 @@ __all__ = [
     "TaskStatus",
     "BrowserTask",
     "BrowserTaskStatus",
+    # ✅ НОВОЕ: Agent Mode
+    "AgentConfig",
     # ✅ НОВОЕ v3.0: Voximplant Partner модели
     "VoximplantChildAccount",
     "VoximplantPhoneNumber",

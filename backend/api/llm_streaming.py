@@ -4,15 +4,21 @@ Provides real-time streaming responses from ChatGPT.
 Client manages conversation history via localStorage.
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
+from sqlalchemy.orm import Session
 import openai
 import asyncio
+import uuid
 
 from backend.core.config import settings
 from backend.core.logging import get_logger
+from backend.core.dependencies import get_current_user
+from backend.db.session import get_db
+from backend.models.user import User
+from backend.models.agent_config import AgentConfig
 from backend.services.llm_streaming.streaming_client import ChatGPTStreamingClient
 
 logger = get_logger(__name__)
@@ -197,3 +203,184 @@ async def get_streaming_status():
             "buffering": "disabled"
         }
     }
+
+
+# ============================================================================
+# AGENT CONFIG - PYDANTIC MODELS
+# ============================================================================
+
+class AgentConfigCreate(BaseModel):
+    name: str = "Мой агент"
+    assistant_id: Optional[str] = None
+    orchestrator_model: str = "gpt-4o"
+    orchestrator_prompt: Optional[str] = None
+    agent_model: str = "gpt-4o-mini"
+    agent_functions: List[str] = []
+    max_steps: int = Field(10, ge=1, le=20)
+    step_timeout_sec: int = Field(60, ge=10, le=300)
+    is_active: bool = False
+
+
+class AgentConfigUpdate(AgentConfigCreate):
+    pass
+
+
+class AgentConfigResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    assistant_id: Optional[str] = None
+    orchestrator_model: str
+    orchestrator_prompt: Optional[str] = None
+    agent_model: str
+    agent_functions: List[str] = []
+    max_steps: int
+    step_timeout_sec: int
+    is_active: bool
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+def _agent_config_to_response(cfg: AgentConfig) -> dict:
+    """Convert AgentConfig ORM object to response dict."""
+    return {
+        "id": str(cfg.id),
+        "user_id": str(cfg.user_id),
+        "name": cfg.name,
+        "assistant_id": str(cfg.assistant_id) if cfg.assistant_id else None,
+        "orchestrator_model": cfg.orchestrator_model,
+        "orchestrator_prompt": cfg.orchestrator_prompt,
+        "agent_model": cfg.agent_model,
+        "agent_functions": cfg.agent_functions or [],
+        "max_steps": cfg.max_steps,
+        "step_timeout_sec": cfg.step_timeout_sec,
+        "is_active": cfg.is_active,
+        "created_at": cfg.created_at.isoformat() if cfg.created_at else "",
+        "updated_at": cfg.updated_at.isoformat() if cfg.updated_at else "",
+    }
+
+
+# ============================================================================
+# AGENT CONFIG - CRUD ENDPOINTS
+# ============================================================================
+
+@router.post("/api/llm/agent-config", status_code=201)
+async def create_agent_config(
+    payload: AgentConfigCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new AgentConfig for the current user."""
+    cfg = AgentConfig(
+        user_id=current_user.id,
+        name=payload.name,
+        assistant_id=uuid.UUID(payload.assistant_id) if payload.assistant_id else None,
+        orchestrator_model=payload.orchestrator_model,
+        orchestrator_prompt=payload.orchestrator_prompt,
+        agent_model=payload.agent_model,
+        agent_functions=payload.agent_functions,
+        max_steps=payload.max_steps,
+        step_timeout_sec=payload.step_timeout_sec,
+        is_active=payload.is_active,
+    )
+    db.add(cfg)
+    db.commit()
+    db.refresh(cfg)
+    return _agent_config_to_response(cfg)
+
+
+@router.get("/api/llm/agent-config")
+async def list_agent_configs(
+    assistant_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List AgentConfigs for the current user, optionally filtered by assistant_id."""
+    query = db.query(AgentConfig).filter(AgentConfig.user_id == current_user.id)
+    if assistant_id:
+        try:
+            aid = uuid.UUID(assistant_id)
+            query = query.filter(AgentConfig.assistant_id == aid)
+        except ValueError:
+            pass
+    configs = query.order_by(AgentConfig.created_at.desc()).all()
+    return [_agent_config_to_response(c) for c in configs]
+
+
+@router.get("/api/llm/agent-config/{config_id}")
+async def get_agent_config(
+    config_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a single AgentConfig by ID."""
+    try:
+        cid = uuid.UUID(config_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+
+    cfg = db.query(AgentConfig).filter(AgentConfig.id == cid).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+    if cfg.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return _agent_config_to_response(cfg)
+
+
+@router.put("/api/llm/agent-config/{config_id}")
+async def update_agent_config(
+    config_id: str,
+    payload: AgentConfigUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update an AgentConfig."""
+    try:
+        cid = uuid.UUID(config_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+
+    cfg = db.query(AgentConfig).filter(AgentConfig.id == cid).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+    if cfg.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cfg.name = payload.name
+    cfg.assistant_id = uuid.UUID(payload.assistant_id) if payload.assistant_id else None
+    cfg.orchestrator_model = payload.orchestrator_model
+    cfg.orchestrator_prompt = payload.orchestrator_prompt
+    cfg.agent_model = payload.agent_model
+    cfg.agent_functions = payload.agent_functions
+    cfg.max_steps = payload.max_steps
+    cfg.step_timeout_sec = payload.step_timeout_sec
+    cfg.is_active = payload.is_active
+    db.commit()
+    db.refresh(cfg)
+    return _agent_config_to_response(cfg)
+
+
+@router.delete("/api/llm/agent-config/{config_id}")
+async def delete_agent_config(
+    config_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete an AgentConfig."""
+    try:
+        cid = uuid.UUID(config_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+
+    cfg = db.query(AgentConfig).filter(AgentConfig.id == cid).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Agent config not found")
+    if cfg.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    db.delete(cfg)
+    db.commit()
+    return {"success": True, "message": "Agent config deleted"}

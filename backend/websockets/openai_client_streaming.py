@@ -50,8 +50,396 @@ from typing import Optional, Dict, Any, List
 from backend.core.logging import get_logger
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.user import User
+from backend.models.agent_config import AgentConfig
+from backend.functions.registry import execute_function
 
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# AGENT ORCHESTRATOR - DEFAULT PROMPTS
+# ============================================================================
+
+DEFAULT_ORCHESTRATOR_PROMPT = """Ты — интеллектуальный планировщик задач. Получив задачу, создай пошаговый план.
+Доступные инструменты: {available_functions}
+Верни ТОЛЬКО JSON без markdown:
+{{
+  "steps": [
+    {{"step": 1, "title": "Краткое название", "description": "Что делаем", "tool": null}},
+    {{"step": 2, "title": "Поиск", "description": "Ищем данные", "tool": "search"}}
+  ]
+}}
+Максимум {max_steps} шагов. tool=null = LLM-рассуждение, tool="имя" = функция."""
+
+
+# ============================================================================
+# AGENT ORCHESTRATOR - OPENAI HELPER FUNCTIONS
+# ============================================================================
+
+async def call_openai_for_plan(
+    task: str,
+    orchestrator_prompt: str,
+    model: str,
+    available_functions: list,
+    max_steps: int,
+    api_key: str
+) -> dict:
+    """Phase 1: Build execution plan via orchestrator model."""
+    prompt = (orchestrator_prompt or DEFAULT_ORCHESTRATOR_PROMPT).format(
+        available_functions=", ".join(available_functions) if available_functions else "нет",
+        max_steps=max_steps
+    )
+
+    messages = [
+        {"role": "system", "content": prompt},
+        {"role": "user", "content": f"Задача: {task}"}
+    ]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 2048,
+        "temperature": 0.2,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers, json=payload
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"[AGENT] Plan API error: {response.status} - {error_text[:200]}")
+                    return {"steps": [{"step": 1, "title": "Выполнение", "description": task, "tool": None}]}
+
+                data = await response.json()
+                content = data["choices"][0]["message"]["content"].strip()
+
+                # Parse JSON from response
+                import re as _re
+                # Remove markdown code fences if present
+                content = _re.sub(r'^```(?:json)?\s*', '', content)
+                content = _re.sub(r'\s*```$', '', content)
+
+                plan = json.loads(content)
+                if "steps" not in plan or not plan["steps"]:
+                    return {"steps": [{"step": 1, "title": "Выполнение", "description": task, "tool": None}]}
+                return plan
+
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.error(f"[AGENT] Plan parse error: {e}")
+        return {"steps": [{"step": 1, "title": "Выполнение", "description": task, "tool": None}]}
+    except Exception as e:
+        logger.error(f"[AGENT] Plan error: {e}")
+        return {"steps": [{"step": 1, "title": "Выполнение", "description": task, "tool": None}]}
+
+
+async def call_openai_for_step(
+    task: str,
+    step: dict,
+    previous_results: list,
+    model: str,
+    api_key: str
+) -> str:
+    """Phase 2: Execute a reasoning step (no tool) via agent model."""
+    context_parts = []
+    for pr in previous_results:
+        context_parts.append(f"Шаг {pr['step']}: {str(pr['result'])[:300]}")
+    context = "\n".join(context_parts) if context_parts else "Нет предыдущих результатов."
+
+    messages = [
+        {"role": "system", "content": "Ты — исполнитель задач. Выполни указанный шаг, используя контекст предыдущих шагов."},
+        {"role": "user", "content": f"Задача: {task}\n\nТекущий шаг: {step['title']} — {step['description']}\n\nКонтекст:\n{context}"}
+    ]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 1024,
+        "temperature": 0.3,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers, json=payload
+            ) as response:
+                if response.status != 200:
+                    return f"Ошибка API: {response.status}"
+                data = await response.json()
+                return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"[AGENT] Step error: {e}")
+        return f"Ошибка: {e}"
+
+
+async def call_openai_for_args(
+    task: str,
+    step: dict,
+    previous_results: list,
+    model: str,
+    api_key: str
+) -> dict:
+    """Determine function arguments via agent model."""
+    context_parts = []
+    for pr in previous_results:
+        context_parts.append(f"Шаг {pr['step']}: {str(pr['result'])[:200]}")
+    context = "\n".join(context_parts) if context_parts else "Нет контекста."
+
+    messages = [
+        {"role": "system", "content": "Ты определяешь аргументы для вызова функции. Верни ТОЛЬКО JSON-объект с аргументами, без markdown."},
+        {"role": "user", "content": f"Задача: {task}\nШаг: {step['title']} — {step['description']}\nФункция: {step['tool']}\nКонтекст:\n{context}"}
+    ]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 512,
+        "temperature": 0.1,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=20.0, connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers, json=payload
+            ) as response:
+                if response.status != 200:
+                    return {}
+                data = await response.json()
+                content = data["choices"][0]["message"]["content"].strip()
+                import re as _re
+                content = _re.sub(r'^```(?:json)?\s*', '', content)
+                content = _re.sub(r'\s*```$', '', content)
+                return json.loads(content)
+    except (json.JSONDecodeError, KeyError, IndexError):
+        return {}
+    except Exception as e:
+        logger.error(f"[AGENT] Args error: {e}")
+        return {}
+
+
+async def call_openai_for_final(
+    task: str,
+    steps: list,
+    results: list,
+    model: str,
+    api_key: str
+) -> str:
+    """Phase 3: Synthesize final answer from all steps and results."""
+    steps_summary = []
+    for s in steps:
+        result_entry = next((r for r in results if r["step"] == s["step"]), None)
+        result_text = str(result_entry["result"])[:300] if result_entry else "Нет результата"
+        steps_summary.append(f"Шаг {s['step']}: {s['title']} → {result_text}")
+
+    messages = [
+        {"role": "system", "content": "Ты — финальный синтезатор. На основе результатов всех шагов дай чистый, понятный ответ на русском языке. Без технических деталей выполнения — только суть для пользователя."},
+        {"role": "user", "content": f"Задача: {task}\n\nРезультаты:\n" + "\n".join(steps_summary)}
+    ]
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": 2048,
+        "temperature": 0.3,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers, json=payload
+            ) as response:
+                if response.status != 200:
+                    return "Не удалось синтезировать финальный ответ."
+                data = await response.json()
+                return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"[AGENT] Final synthesis error: {e}")
+        return f"Ошибка синтеза: {e}"
+
+
+# ============================================================================
+# AGENT QUERY HANDLER
+# ============================================================================
+
+async def handle_agent_query(
+    websocket,
+    task: str,
+    request_id: str,
+    agent_config_id: str,
+    db: Session
+) -> None:
+    """
+    Handle agent.query message: plan → execute steps → synthesize final answer.
+    Sends agent.* events to the WebSocket client in real-time.
+    """
+    import os as _os
+
+    # Load AgentConfig from DB
+    try:
+        config_uuid = uuid.UUID(agent_config_id) if agent_config_id else None
+    except ValueError:
+        await websocket.send_json({"type": "agent.error", "request_id": request_id, "error": "Invalid config ID"})
+        return
+
+    agent_cfg = db.query(AgentConfig).filter(AgentConfig.id == config_uuid).first() if config_uuid else None
+    if not agent_cfg:
+        await websocket.send_json({"type": "agent.error", "request_id": request_id, "error": "Agent config not found"})
+        return
+
+    # Get OpenAI API key
+    user = db.query(User).filter(User.id == agent_cfg.user_id).first()
+    api_key = (user.openai_api_key if user else None) or _os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        await websocket.send_json({"type": "agent.error", "request_id": request_id, "error": "No OpenAI API key"})
+        return
+
+    logger.info(f"[AGENT] ━━━ Agent query start ━━━")
+    logger.info(f"[AGENT]   Task: {task[:100]}")
+    logger.info(f"[AGENT]   Config: {agent_cfg.name} (model: {agent_cfg.orchestrator_model})")
+
+    # ── Phase 1: Planning ──
+    await websocket.send_json({
+        "type": "agent.plan.start",
+        "request_id": request_id,
+        "task": task
+    })
+
+    plan = await call_openai_for_plan(
+        task=task,
+        orchestrator_prompt=agent_cfg.orchestrator_prompt,
+        model=agent_cfg.orchestrator_model,
+        available_functions=agent_cfg.agent_functions or [],
+        max_steps=agent_cfg.max_steps,
+        api_key=api_key
+    )
+
+    await websocket.send_json({
+        "type": "agent.plan.ready",
+        "request_id": request_id,
+        "steps": plan["steps"]
+    })
+
+    logger.info(f"[AGENT]   Plan: {len(plan['steps'])} steps")
+
+    # ── Phase 2: Execute steps ──
+    step_results = []
+
+    for step in plan["steps"]:
+        step_num = step["step"]
+
+        await websocket.send_json({
+            "type": "agent.step.start",
+            "request_id": request_id,
+            "step": step_num,
+            "title": step["title"],
+            "description": step.get("description", ""),
+            "tool": step.get("tool")
+        })
+
+        try:
+            if step.get("tool"):
+                # Notify about function call
+                await websocket.send_json({
+                    "type": "agent.function.call",
+                    "request_id": request_id,
+                    "step": step_num,
+                    "fn": step["tool"]
+                })
+                # Determine arguments
+                args = await call_openai_for_args(
+                    task, step, step_results,
+                    agent_cfg.agent_model, api_key
+                )
+                # Execute function from registry
+                fn_result = await asyncio.wait_for(
+                    execute_function(step["tool"], args, {}),
+                    timeout=agent_cfg.step_timeout_sec
+                )
+                await websocket.send_json({
+                    "type": "agent.function.result",
+                    "request_id": request_id,
+                    "step": step_num,
+                    "fn": step["tool"],
+                    "result": str(fn_result)[:500]
+                })
+                step_result = fn_result
+            else:
+                step_result = await asyncio.wait_for(
+                    call_openai_for_step(
+                        task, step, step_results,
+                        agent_cfg.agent_model, api_key
+                    ),
+                    timeout=agent_cfg.step_timeout_sec
+                )
+
+            step_results.append({"step": step_num, "result": step_result})
+            await websocket.send_json({
+                "type": "agent.step.done",
+                "request_id": request_id,
+                "step": step_num,
+                "summary": str(step_result)[:300]
+            })
+
+        except asyncio.TimeoutError:
+            await websocket.send_json({
+                "type": "agent.step.error",
+                "request_id": request_id,
+                "step": step_num,
+                "error": f"Таймаут {agent_cfg.step_timeout_sec}с"
+            })
+            step_results.append({"step": step_num, "result": "timeout"})
+
+        except Exception as e:
+            logger.error(f"[AGENT] Step {step_num} error: {e}")
+            await websocket.send_json({
+                "type": "agent.step.error",
+                "request_id": request_id,
+                "step": step_num,
+                "error": str(e)[:200]
+            })
+            step_results.append({"step": step_num, "result": f"error: {e}"})
+
+    # ── Phase 3: Final synthesis ──
+    final_answer = await call_openai_for_final(
+        task=task,
+        steps=plan["steps"],
+        results=step_results,
+        model=agent_cfg.agent_model,
+        api_key=api_key
+    )
+
+    await websocket.send_json({
+        "type": "agent.plan.done",
+        "request_id": request_id,
+        "final_answer": final_answer
+    })
+
+    logger.info(f"[AGENT] ━━━ Agent query complete ━━━")
 
 
 # ============================================================================
@@ -276,11 +664,11 @@ async def handle_openai_streaming_websocket(
                 if msg_type == "llm.query":
                     query = data.get("query", "")
                     request_id = data.get("request_id", f"req_{uuid.uuid4().hex[:8]}")
-                    
+
                     # 🆕 v3.0: Получаем историю
                     raw_history = data.get("history", [])
                     history = process_chat_history(raw_history)
-                    
+
                     if query:
                         await stream_llm_response(
                             websocket=websocket,
@@ -289,7 +677,17 @@ async def handle_openai_streaming_websocket(
                             api_key=api_key,
                             history=history  # 🆕 Передаём историю
                         )
-                
+
+                elif msg_type == "agent.query":
+                    # 🆕 Agent Mode: handle orchestrated multi-step queries
+                    await handle_agent_query(
+                        websocket=websocket,
+                        task=data.get("task", ""),
+                        request_id=data.get("request_id", f"agent_{uuid.uuid4().hex[:8]}"),
+                        agent_config_id=data.get("agent_config_id"),
+                        db=db
+                    )
+
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
                     

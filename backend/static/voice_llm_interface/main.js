@@ -41,6 +41,13 @@ let streamingContent = "";
 let currentRequestId = null;
 let currentLLMContent = '';
 
+// Agent Mode state
+let agentConfig = null;
+let isAgentMode = false;
+let currentAgentRequestId = null;
+let currentPlan = [];
+let agentConfigId = null;
+
 // Three.js state
 let threeScene, threeCamera, threeRenderer, threeParticles;
 let threeInitialized = false;
@@ -50,12 +57,14 @@ let threeInitialized = false;
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    Config.log('🚀 JARVIS AI Interface v4.3.1 Starting...');
-    Config.log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2)`);
+    Config.log('🚀 JARVIS AI Interface v4.3.2 Starting...');
+    Config.log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2) + Agent Mode`);
     Config.log(`   Mute: Enabled`);
     Config.log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
 
     initializeApp();
+    initAgentMode();
+    initAgentUI();
 });
 
 // ============================================================================
@@ -1005,6 +1014,24 @@ function handleGeminiMessage(event) {
             const data = JSON.parse(event.data);
             lastPongTime = Date.now();
             
+            // Agent request from voice (query_orchestrator)
+            if (data.type === 'agent.request') {
+                Config.log(`🤖 Agent request received: ${data.task}`);
+                if (isAgentMode && agentConfigId && llmWebSocket && llmWebSocket.readyState === WebSocket.OPEN) {
+                    llmWebSocket.send(JSON.stringify({
+                        type: 'agent.query',
+                        task: data.task,
+                        request_id: data.request_id,
+                        agent_config_id: agentConfigId
+                    }));
+                } else {
+                    // Fallback to regular LLM query
+                    startStreamingUI(data.task);
+                    sendLLMQuery(data.task, data.request_id);
+                }
+                return;
+            }
+
             // LLM request from voice
             if (data.type === 'llm.request') {
                 Config.log(`📝 LLM request received: ${data.query}`);
@@ -1167,7 +1194,13 @@ function connectLLMWebSocket() {
         llmWebSocket.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
-                
+
+                // Agent mode events
+                if (data.type && data.type.startsWith('agent.')) {
+                    handleAgentMessage(data);
+                    return;
+                }
+
                 if (data.type === 'llm.stream.start') {
                     currentRequestId = data.request_id;
                     startStreamingUI(data.query);
@@ -1366,6 +1399,326 @@ function handleWindowResize() {
 }
 
 // ============================================================================
+// AGENT MODE
+// ============================================================================
+
+function initAgentUI() {
+    // Checkbox toggle
+    const checkbox = document.getElementById('agentModeCheckbox');
+    if (checkbox) {
+        checkbox.addEventListener('change', function() {
+            toggleAgentMode(this.checked);
+        });
+    }
+
+    // Settings button
+    const settingsBtn = document.getElementById('agentSettingsBtn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', openAgentSettingsModal);
+    }
+
+    // Modal buttons
+    const modalClose = document.getElementById('agentModalClose');
+    const modalCancel = document.getElementById('agentModalCancel');
+    const modalSave = document.getElementById('agentModalSave');
+    if (modalClose) modalClose.addEventListener('click', closeAgentSettingsModal);
+    if (modalCancel) modalCancel.addEventListener('click', closeAgentSettingsModal);
+    if (modalSave) modalSave.addEventListener('click', saveAgentSettingsFromModal);
+
+    // Collapse toggle
+    const collapseHeader = document.getElementById('agentStepsHeader');
+    if (collapseHeader) {
+        collapseHeader.addEventListener('click', toggleAgentStepsCollapse);
+    }
+}
+
+async function initAgentMode() {
+    if (!ASSISTANT_ID) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const res = await fetch(`/api/llm/agent-config?assistant_id=${ASSISTANT_ID}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) return;
+        const configs = await res.json();
+
+        if (!configs || configs.length === 0) {
+            agentConfig = null;
+            return;
+        }
+
+        agentConfig = configs.find(c => c.is_active) || configs[0];
+        agentConfigId = agentConfig.id;
+        Config.log(`🤖 Agent config loaded: ${agentConfig.name}`);
+    } catch (e) {
+        Config.log(`🤖 Agent config load error: ${e}`, 'warn');
+    }
+}
+
+function toggleAgentMode(enabled) {
+    isAgentMode = enabled;
+    const settingsBtn = document.getElementById('agentSettingsBtn');
+    if (settingsBtn) settingsBtn.style.display = enabled ? 'flex' : 'none';
+
+    if (enabled) {
+        if (!agentConfig) {
+            openAgentSettingsModal();
+            const checkbox = document.getElementById('agentModeCheckbox');
+            if (checkbox) checkbox.checked = false;
+            isAgentMode = false;
+            return;
+        }
+        Config.log('🤖 Agent mode enabled');
+    } else {
+        hideAgentPanel();
+        Config.log('🤖 Agent mode disabled');
+    }
+}
+
+function handleAgentMessage(data) {
+    switch (data.type) {
+        case 'agent.plan.start':
+            showAgentPanel();
+            updateAgentMeta('Построение плана...');
+            break;
+
+        case 'agent.plan.ready':
+            currentPlan = data.steps.map(s => ({...s, status: 'pending'}));
+            renderPlan(currentPlan);
+            updateAgentMeta(`${data.steps.length} шагов`);
+            break;
+
+        case 'agent.step.start':
+            updateStepStatus(data.step, 'running');
+            break;
+
+        case 'agent.function.call':
+            appendStepDetail(data.step, `\u2192 Вызов функции: ${data.fn}`);
+            break;
+
+        case 'agent.function.result':
+            appendStepDetail(data.step, `\u2190 ${(data.result || '').substring(0, 100)}`);
+            break;
+
+        case 'agent.step.done':
+            updateStepStatus(data.step, 'done');
+            if (data.summary) appendStepDetail(data.step, data.summary);
+            break;
+
+        case 'agent.step.error':
+            updateStepStatus(data.step, 'error');
+            appendStepDetail(data.step, `Error: ${data.error}`);
+            break;
+
+        case 'agent.plan.done':
+            finishAgentPlan(data.final_answer);
+            break;
+
+        case 'agent.error':
+            Config.log(`🤖 Agent error: ${data.error}`, 'error');
+            updateAgentMeta('Ошибка');
+            break;
+    }
+}
+
+function showAgentPanel() {
+    const container = document.getElementById('agentStepsContainer');
+    if (container) container.style.display = 'block';
+    const panel = document.getElementById('agentStepsPanel');
+    if (panel) panel.innerHTML = '';
+}
+
+function hideAgentPanel() {
+    const container = document.getElementById('agentStepsContainer');
+    if (container) container.style.display = 'none';
+}
+
+function updateAgentMeta(text) {
+    const meta = document.getElementById('agentStepsMeta');
+    if (meta) meta.textContent = text;
+}
+
+function renderPlan(steps) {
+    const panel = document.getElementById('agentStepsPanel');
+    if (!panel) return;
+    panel.innerHTML = steps.map(s => `
+        <div class="agent-step" id="agent-step-${s.step}" data-status="pending">
+            <div class="agent-step-header">
+                <span class="agent-step-icon" id="agent-icon-${s.step}">\u23F3</span>
+                <span class="agent-step-title">${s.title || 'Шаг ' + s.step}</span>
+            </div>
+            <div class="agent-step-details" id="agent-step-details-${s.step}"></div>
+        </div>
+    `).join('');
+}
+
+function updateStepStatus(stepNum, status) {
+    const el = document.getElementById(`agent-step-${stepNum}`);
+    const icon = document.getElementById(`agent-icon-${stepNum}`);
+    if (!el) return;
+    el.dataset.status = status;
+    const icons = { pending: '\u23F3', running: '\uD83D\uDD04', done: '\u2705', error: '\u274C' };
+    if (icon) {
+        icon.textContent = icons[status] || '\u2022';
+        if (status === 'running') icon.classList.add('spinning');
+        else icon.classList.remove('spinning');
+    }
+}
+
+function appendStepDetail(stepNum, text) {
+    const el = document.getElementById(`agent-step-details-${stepNum}`);
+    if (!el) return;
+    const line = document.createElement('div');
+    line.className = 'agent-step-detail-line';
+    line.textContent = text;
+    el.appendChild(line);
+}
+
+function finishAgentPlan(finalAnswer) {
+    currentPlan.forEach((_, i) => updateStepStatus(i + 1, 'done'));
+    updateAgentMeta('Готово');
+
+    // Show final answer in llm-content
+    const content = document.getElementById('llmContent');
+    if (content) {
+        const placeholder = document.getElementById('llmPlaceholder');
+        if (placeholder) placeholder.style.display = 'none';
+        content.innerHTML = (typeof formatMarkdown === 'function' ? formatMarkdown(finalAnswer) : finalAnswer);
+    }
+
+    // Show copy button
+    const copyBtn = document.getElementById('copyLlmButton');
+    if (copyBtn) copyBtn.style.display = 'flex';
+}
+
+function toggleAgentStepsCollapse() {
+    const body = document.getElementById('agentStepsPanel');
+    const btn = document.getElementById('agentStepsCollapse');
+    if (!body) return;
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    if (btn) btn.classList.toggle('collapsed');
+}
+
+// ── Agent Settings Modal ──
+
+function openAgentSettingsModal() {
+    if (agentConfig) {
+        const nameEl = document.getElementById('agentConfigName');
+        const orchModel = document.getElementById('agentOrchestratorModel');
+        const agentModel = document.getElementById('agentAgentModel');
+        const orchPrompt = document.getElementById('agentOrchestratorPrompt');
+        const maxSteps = document.getElementById('agentMaxSteps');
+        const stepTimeout = document.getElementById('agentStepTimeout');
+
+        if (nameEl) nameEl.value = agentConfig.name || '';
+        if (orchModel) orchModel.value = agentConfig.orchestrator_model || 'gpt-4o';
+        if (agentModel) agentModel.value = agentConfig.agent_model || 'gpt-4o-mini';
+        if (orchPrompt) orchPrompt.value = agentConfig.orchestrator_prompt || '';
+        if (maxSteps) maxSteps.value = agentConfig.max_steps || 10;
+        if (stepTimeout) stepTimeout.value = agentConfig.step_timeout_sec || 60;
+    }
+
+    loadFunctionsForModal();
+    const modal = document.getElementById('agentSettingsModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAgentSettingsModal() {
+    const modal = document.getElementById('agentSettingsModal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function loadFunctionsForModal() {
+    try {
+        const res = await fetch('/api/functions/public/catalog');
+        if (!res.ok) return;
+        const fns = await res.json();
+        const container = document.getElementById('agentFunctionsList');
+        if (!container) return;
+        const selected = agentConfig?.agent_functions || [];
+        container.innerHTML = fns.map(fn => `
+            <div class="agent-function-chip ${selected.includes(fn.name) ? 'selected' : ''}"
+                 data-fn="${fn.name}">
+                ${fn.display_name || fn.name}
+            </div>
+        `).join('');
+
+        // Add click handlers
+        container.querySelectorAll('.agent-function-chip').forEach(chip => {
+            chip.addEventListener('click', function() {
+                this.classList.toggle('selected');
+            });
+        });
+    } catch (e) {
+        Config.log(`🤖 Functions load error: ${e}`, 'warn');
+    }
+}
+
+async function saveAgentSettingsFromModal() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const selectedFns = [...document.querySelectorAll('.agent-function-chip.selected')]
+        .map(el => el.dataset.fn);
+
+    const payload = {
+        name: document.getElementById('agentConfigName')?.value || 'Мой агент',
+        assistant_id: ASSISTANT_ID || null,
+        orchestrator_model: document.getElementById('agentOrchestratorModel')?.value || 'gpt-4o',
+        orchestrator_prompt: document.getElementById('agentOrchestratorPrompt')?.value || '',
+        agent_model: document.getElementById('agentAgentModel')?.value || 'gpt-4o-mini',
+        agent_functions: selectedFns,
+        max_steps: parseInt(document.getElementById('agentMaxSteps')?.value) || 10,
+        step_timeout_sec: parseInt(document.getElementById('agentStepTimeout')?.value) || 60,
+        is_active: true
+    };
+
+    try {
+        let res;
+        const headers = {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        };
+
+        if (agentConfig?.id) {
+            res = await fetch(`/api/llm/agent-config/${agentConfig.id}`, {
+                method: 'PUT',
+                headers: headers,
+                body: JSON.stringify(payload)
+            });
+        } else {
+            res = await fetch('/api/llm/agent-config', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify(payload)
+            });
+        }
+
+        if (res.ok) {
+            agentConfig = await res.json();
+            agentConfigId = agentConfig.id;
+            closeAgentSettingsModal();
+            Config.log('🤖 Agent config saved');
+
+            // Enable agent mode after saving
+            isAgentMode = true;
+            const checkbox = document.getElementById('agentModeCheckbox');
+            if (checkbox) checkbox.checked = true;
+            const settingsBtn = document.getElementById('agentSettingsBtn');
+            if (settingsBtn) settingsBtn.style.display = 'flex';
+        } else {
+            Config.log('🤖 Agent config save error', 'error');
+        }
+    } catch (e) {
+        Config.log(`🤖 Agent config save error: ${e}`, 'error');
+    }
+}
+
+// ============================================================================
 // EXPOSE GLOBAL FUNCTIONS (for compatibility)
 // ============================================================================
 
@@ -1374,5 +1727,10 @@ window.testAgent = testAgent;
 window.copyHTMLCode = copyHTMLCode;
 window.copyLLMResponse = copyLLMResponse;
 window.clearChatHistory = clearChatHistory;
+window.toggleAgentMode = toggleAgentMode;
+window.openAgentSettingsModal = openAgentSettingsModal;
+window.closeAgentSettingsModal = closeAgentSettingsModal;
+window.saveAgentSettingsFromModal = saveAgentSettingsFromModal;
+window.toggleAgentStepsCollapse = toggleAgentStepsCollapse;
 
 })();
