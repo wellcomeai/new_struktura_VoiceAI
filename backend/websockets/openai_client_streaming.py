@@ -610,60 +610,59 @@ async def handle_openai_streaming_websocket(
 ) -> None:
     """
     WebSocket handler для LLM текстового стриминга.
-    
-    🔧 v2.0: OpenAI API key берётся из модели User через assistant_id.
-    🔧 v3.0: Поддержка истории чата (до 5 пар сообщений).
-    
-    Args:
-        websocket: WebSocket connection
-        assistant_id: UUID of Gemini assistant for API key lookup
-        db: Database session
+
+    API key lookup is deferred until the first actual query arrives,
+    so the WS connection always succeeds immediately.
     """
     client_id = str(uuid.uuid4())[:8]
-    
-    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    logger.info(f"[LLM-WS] 🔌 NEW CONNECTION (v3.0)")
+
+    logger.info(f"[LLM-WS] 🔌 NEW CONNECTION")
     logger.info(f"[LLM-WS]    Client ID: {client_id}")
     logger.info(f"[LLM-WS]    Assistant ID: {assistant_id}")
-    logger.info(f"[LLM-WS]    API Key Source: User model")
-    logger.info(f"[LLM-WS]    History Support: ✅ (max {LLMStreamConfig.MAX_HISTORY_MESSAGES} msgs)")
-    logger.info(f"[LLM-WS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    
-    # Получаем API ключ из User модели
-    api_key = get_openai_api_key_from_assistant(db, assistant_id)
-    
+
+    # API key resolved lazily on first query
+    api_key = None
+    api_key_resolved = False
+
+    def resolve_api_key():
+        nonlocal api_key, api_key_resolved
+        if not api_key_resolved:
+            api_key_resolved = True
+            api_key = get_openai_api_key_from_assistant(db, assistant_id)
+        return api_key
+
     try:
         await websocket.accept()
         logger.info(f"[LLM-WS] ✅ Connected: {client_id}")
-        
-        if not api_key:
-            logger.error(f"[LLM-WS] ❌ No OpenAI API key available")
-            await websocket.send_json({
-                "type": "error",
-                "error": "OpenAI API key not configured. Please add your OpenAI API key in Settings.",
-                "error_code": "no_api_key"
-            })
-            await websocket.close(code=1008, reason="No API key")
-            return
-        
+
         await websocket.send_json({
             "type": "connection_status",
             "status": "connected",
             "client_id": client_id,
-            "api_key_source": "user_model" if assistant_id else "environment",
             "history_support": True,
             "max_history": LLMStreamConfig.MAX_HISTORY_MESSAGES
         })
-        
+
         # Main loop
         while True:
             try:
                 data = await websocket.receive_json()
                 msg_type = data.get("type")
-                
+
                 if msg_type == "llm.query":
                     query = data.get("query", "")
                     request_id = data.get("request_id", f"req_{uuid.uuid4().hex[:8]}")
+
+                    # Resolve API key on first query
+                    key = resolve_api_key()
+                    if not key:
+                        await websocket.send_json({
+                            "type": "llm.stream.error",
+                            "request_id": request_id,
+                            "error": "OpenAI API key not configured. Add your key in Settings.",
+                            "error_code": "no_api_key"
+                        })
+                        continue
 
                     # 🆕 v3.0: Получаем историю
                     raw_history = data.get("history", [])
@@ -674,8 +673,8 @@ async def handle_openai_streaming_websocket(
                             websocket=websocket,
                             query=query,
                             request_id=request_id,
-                            api_key=api_key,
-                            history=history  # 🆕 Передаём историю
+                            api_key=key,
+                            history=history
                         )
 
                 elif msg_type == "agent.query":
