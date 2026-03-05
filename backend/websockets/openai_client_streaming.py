@@ -121,11 +121,17 @@ async def call_openai_for_plan(
                 data = await response.json()
                 content = data["choices"][0]["message"]["content"].strip()
 
-                # Parse JSON from response
+                # Parse JSON from response — aggressive markdown cleanup
                 import re as _re
-                # Remove markdown code fences if present
-                content = _re.sub(r'^```(?:json)?\s*', '', content)
-                content = _re.sub(r'\s*```$', '', content)
+                content = content.strip()
+                content = _re.sub(r'```(?:json)?\s*', '', content).strip()
+
+                # Fallback — extract JSON object even if surrounded by text
+                match = _re.search(r'\{.*\}', content, _re.DOTALL)
+                if match:
+                    content = match.group(0)
+
+                logger.info(f"[AGENT] Plan content after cleanup: {content[:200]}")
 
                 plan = json.loads(content)
                 if "steps" not in plan or not plan["steps"]:
