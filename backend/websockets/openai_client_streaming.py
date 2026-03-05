@@ -654,6 +654,7 @@ async def handle_openai_streaming_websocket(
             try:
                 data = await websocket.receive_json()
                 msg_type = data.get("type")
+                logger.info(f"[LLM-WS] Message received: type={msg_type}, keys={list(data.keys())}")
 
                 if msg_type == "llm.query":
                     query = data.get("query", "")
@@ -685,6 +686,7 @@ async def handle_openai_streaming_websocket(
 
                 elif msg_type == "agent.query":
                     # 🆕 Agent Mode: handle orchestrated multi-step queries
+                    logger.info(f"[LLM-WS] 🤖 Agent query received, task: {str(data.get('task', ''))[:50]}, config_id: {data.get('agent_config_id')}")
                     await handle_agent_query(
                         websocket=websocket,
                         task=data.get("task", ""),
