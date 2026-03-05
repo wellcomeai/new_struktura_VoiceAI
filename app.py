@@ -166,8 +166,8 @@ app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", ta
 app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 app.include_router(cartesia_assistants.router, prefix="/api/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
+app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # BEFORE websocket.router — /ws/llm-stream must match before /ws/{assistant_id}
 app.include_router(websocket.router, tags=["WebSocket"])
-app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])
 app.include_router(grok_ws.router, tags=["Grok WebSocket"])  # 🆕 v3.0
 app.include_router(healthcheck.router, tags=["Health"])
 app.include_router(subscriptions.router, prefix="/api/subscriptions", tags=["Subscriptions"])
