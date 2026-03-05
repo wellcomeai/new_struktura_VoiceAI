@@ -33,6 +33,7 @@ window.isStreamingLLM = false;
 let llmWebSocket = null;
 let isLLMConnected = false;
 let reconnectAttempts = 0;
+let llmReconnectAttempts = 0;
 let pingInterval = null;
 let lastPongTime = Date.now();
 
@@ -1166,7 +1167,7 @@ function connectLLMWebSocket() {
     }
     
     try {
-        let LLM_WS_URL = Config.SERVER_URL.replace(/^http/, 'ws') + '/llm-stream';
+        let LLM_WS_URL = Config.SERVER_URL.replace(/^http/, 'ws') + '/ws/llm-stream';
         if (ASSISTANT_ID) {
             LLM_WS_URL += '?assistant_id=' + encodeURIComponent(ASSISTANT_ID);
         }
@@ -1178,6 +1179,7 @@ function connectLLMWebSocket() {
         llmWebSocket.onopen = function() {
             Config.log('📝 ✅ LLM WebSocket connected');
             isLLMConnected = true;
+            llmReconnectAttempts = 0;
             
             // Unlock chat input
             const chatInput = document.getElementById('chatInput');
@@ -1253,12 +1255,15 @@ function connectLLMWebSocket() {
                 chatSendBtn.disabled = true;
             }
             
-            // Reconnect
-            setTimeout(() => {
-                if (window.isConnected && ASSISTANT_ID && window.userActivated) {
+            // Reconnect with backoff (max 5 attempts)
+            if (llmReconnectAttempts < 5 && window.isConnected && ASSISTANT_ID && window.userActivated) {
+                llmReconnectAttempts++;
+                const delay = Math.min(30000, Math.pow(2, llmReconnectAttempts) * 1000);
+                Config.log(`📝 LLM WS reconnect in ${delay}ms (attempt ${llmReconnectAttempts}/5)`);
+                setTimeout(() => {
                     connectLLMWebSocket();
-                }
-            }, 3000);
+                }, delay);
+            }
         };
         
         llmWebSocket.onerror = function(error) {

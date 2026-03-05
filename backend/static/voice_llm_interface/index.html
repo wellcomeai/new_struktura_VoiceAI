@@ -141,6 +141,16 @@
                     <button class="btn btn-success" id="copyBtn" disabled>
                         <i class="fas fa-code"></i> Копировать код
                     </button>
+                    <div class="agent-mode-toggle" id="agentModeToggle">
+                        <label class="agent-toggle-label">
+                            <input type="checkbox" id="agentModeCheckbox">
+                            <span class="agent-toggle-text">Агент</span>
+                        </label>
+                        <button class="agent-settings-btn" id="agentSettingsBtn"
+                                title="Настройки агента" style="display:none;">
+                            <i class="fas fa-sliders-h"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -241,16 +251,6 @@
                     <div class="voice-status connecting" id="voiceStatus">
                         <span class="status-dot"></span>
                         <span id="statusText">Ожидание...</span>
-                    </div>
-                    <div class="agent-mode-toggle" id="agentModeToggle">
-                        <label class="agent-toggle-label">
-                            <input type="checkbox" id="agentModeCheckbox">
-                            <span class="agent-toggle-text">Агент</span>
-                        </label>
-                        <button class="agent-settings-btn" id="agentSettingsBtn"
-                                title="Настройки агента" style="display:none;">
-                            <i class="fas fa-sliders-h"></i>
-                        </button>
                     </div>
                 </div>
                 <div class="voice-content">

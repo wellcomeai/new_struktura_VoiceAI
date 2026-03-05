@@ -137,7 +137,7 @@ async def gemini_browser_websocket_endpoint(
     
     🆕 LLM Integration (v3.2):
     - query_llm function triggers llm.request event
-    - Client connects to /llm-stream?assistant_id=xxx for text
+    - Client connects to /ws/llm-stream?assistant_id=xxx for text
     - OpenAI API key fetched from User model via assistant chain
     - Voice and text channels are isolated
     
@@ -249,7 +249,7 @@ async def vox_gemini_websocket_endpoint(
 # 🔧 v3.2: OpenAI API key from User model via assistant_id parameter
 # =============================================================================
 
-@router.websocket("/llm-stream")
+@router.websocket("/ws/llm-stream")
 async def llm_stream_websocket_endpoint(
     websocket: WebSocket,
     assistant_id: Optional[str] = Query(None, description="Gemini Assistant ID to get OpenAI key from user"),
@@ -285,7 +285,7 @@ async def llm_stream_websocket_endpoint(
         {"type": "llm.stream.error", "request_id": "req_123", "error": "..."}
     
     Example connection:
-        wss://api.yourserver.com/llm-stream?assistant_id=550e8400-e29b-41d4-a716-446655440000
+        wss://api.yourserver.com/ws/llm-stream?assistant_id=550e8400-e29b-41d4-a716-446655440000
     
     Example flow:
         1. User asks Gemini: "Спроси у ИИ что такое интернет"
@@ -419,7 +419,7 @@ async def gemini_info():
         "endpoints": {
             "websocket_voice": "/ws/gemini/{assistant_id}",
             "websocket_browser": "/ws/gemini-browser/{assistant_id}",
-            "websocket_llm": "/llm-stream?assistant_id={assistant_id}",
+            "websocket_llm": "/ws/llm-stream?assistant_id={assistant_id}",
             "websocket_vox_bridge": "/ws/vox-gemini/{assistant_id}?caller=...&call_id=...",
             "health": "/gemini/health",
             "info": "/gemini/info"

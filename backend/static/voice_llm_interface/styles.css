@@ -446,6 +446,8 @@ body.embed-mode .sidebar {
 .config-actions {
     display: flex;
     gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
 }
 
 /* ============================================================ */
