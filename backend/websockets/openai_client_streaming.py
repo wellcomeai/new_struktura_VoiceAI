@@ -121,7 +121,7 @@ async def call_openai_for_plan(
 
                 data = await response.json()
                 content = data["choices"][0]["message"]["content"].strip()
-                logger.info(f"[AGENT] RAW from OpenAI: {repr(content)}")
+                logger.error(f"[AGENT DEBUG] RAW={repr(content[:300])}")
 
                 # Parse JSON from response — aggressive markdown cleanup
                 import re as _re
@@ -133,7 +133,7 @@ async def call_openai_for_plan(
                 if match:
                     content = match.group(0)
 
-                logger.info(f"[AGENT] Plan content after cleanup: {repr(content[:300])}")
+                logger.error(f"[AGENT DEBUG] CLEANED={repr(content[:300])}")
 
                 plan = json.loads(content)
                 if "steps" not in plan or not plan["steps"]:
@@ -326,9 +326,8 @@ async def handle_agent_query(
         await websocket.send_json({"type": "agent.error", "request_id": request_id, "error": "No OpenAI API key"})
         return
 
-    logger.info(f"[AGENT] ━━━ Agent query start ━━━")
-    logger.info(f"[AGENT]   Task: {task[:100]}")
-    logger.info(f"[AGENT]   Config: {agent_cfg.name} (model: {agent_cfg.orchestrator_model})")
+    logger.error(f"[AGENT DEBUG] ━━━ START task={task[:50]}")
+    logger.error(f"[AGENT DEBUG] Config: {agent_cfg.name}, model={agent_cfg.orchestrator_model}, functions={agent_cfg.agent_functions}")
 
     # ── Phase 1: Planning ──
     await websocket.send_json({
