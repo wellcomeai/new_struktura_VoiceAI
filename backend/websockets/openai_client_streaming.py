@@ -104,6 +104,7 @@ async def call_openai_for_plan(
         "messages": messages,
         "max_tokens": 2048,
         "temperature": 0.2,
+        "response_format": {"type": "json_object"},
     }
 
     try:
