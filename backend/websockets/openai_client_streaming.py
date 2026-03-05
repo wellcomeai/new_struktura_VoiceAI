@@ -107,6 +107,7 @@ async def call_openai_for_plan(
         "response_format": {"type": "json_object"},
     }
 
+    content = ""
     try:
         timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -687,14 +688,21 @@ async def handle_openai_streaming_websocket(
 
                 elif msg_type == "agent.query":
                     # 🆕 Agent Mode: handle orchestrated multi-step queries
-                    logger.info(f"[LLM-WS] 🤖 Agent query received, task: {str(data.get('task', ''))[:50]}, config_id: {data.get('agent_config_id')}")
-                    await handle_agent_query(
-                        websocket=websocket,
-                        task=data.get("task", ""),
-                        request_id=data.get("request_id", f"agent_{uuid.uuid4().hex[:8]}"),
-                        agent_config_id=data.get("agent_config_id"),
-                        db=db
-                    )
+                    logger.error(f"[LLM-WS] 🤖 Agent query received, task: {str(data.get('task', ''))[:50]}, config_id: {data.get('agent_config_id')}")
+                    try:
+                        await handle_agent_query(
+                            websocket=websocket,
+                            task=data.get("task", ""),
+                            request_id=data.get("request_id", f"agent_{uuid.uuid4().hex[:8]}"),
+                            agent_config_id=data.get("agent_config_id"),
+                            db=db
+                        )
+                    except Exception as agent_err:
+                        logger.error(f"[LLM-WS] Agent query error: {agent_err}")
+                        try:
+                            await websocket.send_json({"type": "agent.error", "error": str(agent_err)[:200]})
+                        except:
+                            pass
 
                 elif msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
