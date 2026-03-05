@@ -210,6 +210,16 @@ def ensure_static_directories():
 
 static_dir, js_dir = ensure_static_directories()
 
+# Redirect old voice_llm_interface.html to new directory-based interface
+@app.get("/static/voice_llm_interface.html")
+async def voice_interface_redirect(request: Request):
+    """Redirect old single-file URL to new directory-based interface."""
+    query_string = str(request.query_params)
+    url = "/static/voice_llm_interface/index.html"
+    if query_string:
+        url += "?" + query_string
+    return RedirectResponse(url=url)
+
 # Монтируем статику
 try:
     app.mount("/static", StaticFiles(directory=static_dir, html=True), name="static")

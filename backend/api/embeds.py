@@ -188,19 +188,31 @@ async def serve_embed_page(
     assistant_id = str(config.assistant_id)
     
     # ✅ ЧИТАЕМ HTML из файла и подставляем assistant_id
-    import os
     from pathlib import Path
-    
-    # Путь к шаблону
-    template_path = Path(__file__).parent.parent / "static" / "voice_llm_interface.html"
-    
+
+    # Путь к новому шаблону (папка voice_llm_interface/)
+    template_path = Path(__file__).parent.parent / "static" / "voice_llm_interface" / "index.html"
+
+    # Fallback на старый файл если новый не найден
+    if not template_path.exists():
+        template_path = Path(__file__).parent.parent / "static" / "voice_llm_interface_old.html"
+
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
-    
-    # 🔥 ПОДСТАНОВКА assistant_id
-    html_content = html_content.replace(
-        'const ASSISTANT_ID = "17c631ce-0db1-4171-a81d-22d91d4cccd7";',
-        f'const ASSISTANT_ID = "{assistant_id}";'
-    )
-    
+
+    # 🔥 ПОДСТАНОВКА assistant_id через URL параметр
+    # Новый интерфейс читает ASSISTANT_ID из URL params (?assistant=...)
+    # Добавляем скрипт инъекции в начало <body>
+    inject_script = f"""<script>
+    // Embed: inject assistant_id
+    (function() {{
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has('assistant')) {{
+            url.searchParams.set('assistant', '{assistant_id}');
+            window.history.replaceState(null, '', url.toString());
+        }}
+    }})();
+    </script>"""
+    html_content = html_content.replace("<body>", f"<body>\n{inject_script}")
+
     return HTMLResponse(content=html_content)
