@@ -198,7 +198,8 @@ async def call_openai_for_args(
     step: dict,
     previous_results: list,
     model: str,
-    api_key: str
+    api_key: str,
+    context_prompt: str = None
 ) -> dict:
     """Determine function arguments via OpenAI Function Calling."""
     from backend.functions.registry import registry
@@ -223,8 +224,12 @@ async def call_openai_for_args(
         context_parts.append(f"Шаг {pr['step']}: {str(pr['result'])[:200]}")
     context = "\n".join(context_parts) if context_parts else "Нет контекста."
 
+    system = "Ты определяешь аргументы для вызова функции. Используй предоставленную функцию."
+    if context_prompt:
+        system += f"\n\nКонтекст агента (содержит важные параметры — URL, токены, ID):\n{context_prompt}"
+
     messages = [
-        {"role": "system", "content": "Ты определяешь аргументы для вызова функции. Используй предоставленную функцию."},
+        {"role": "system", "content": system},
         {"role": "user", "content": f"Задача: {task}\nШаг: {step['title']} — {step['description']}\nКонтекст:\n{context}"}
     ]
 
@@ -399,7 +404,8 @@ async def handle_agent_query(
                 # Determine arguments
                 args = await call_openai_for_args(
                     task, step, step_results,
-                    agent_cfg.agent_model, api_key
+                    agent_cfg.agent_model, api_key,
+                    context_prompt=agent_cfg.orchestrator_prompt
                 )
                 # Execute function from registry
                 fn_result = await asyncio.wait_for(
