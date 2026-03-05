@@ -120,6 +120,7 @@ async def call_openai_for_plan(
 
                 data = await response.json()
                 content = data["choices"][0]["message"]["content"].strip()
+                logger.info(f"[AGENT] RAW from OpenAI: {repr(content)}")
 
                 # Parse JSON from response — aggressive markdown cleanup
                 import re as _re
@@ -131,7 +132,7 @@ async def call_openai_for_plan(
                 if match:
                     content = match.group(0)
 
-                logger.info(f"[AGENT] Plan content after cleanup: {content[:200]}")
+                logger.info(f"[AGENT] Plan content after cleanup: {repr(content[:300])}")
 
                 plan = json.loads(content)
                 if "steps" not in plan or not plan["steps"]:
@@ -139,7 +140,7 @@ async def call_openai_for_plan(
                 return plan
 
     except (json.JSONDecodeError, KeyError, IndexError) as e:
-        logger.error(f"[AGENT] Plan parse error: {e}")
+        logger.error(f"[AGENT] JSON parse failed. Error: {e}. Content after cleanup: {repr(content[:300])}")
         return {"steps": [{"step": 1, "title": "Выполнение", "description": task, "tool": None}]}
     except Exception as e:
         logger.error(f"[AGENT] Plan error: {e}")
