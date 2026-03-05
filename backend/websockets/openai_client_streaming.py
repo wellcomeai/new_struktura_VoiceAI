@@ -200,15 +200,32 @@ async def call_openai_for_args(
     model: str,
     api_key: str
 ) -> dict:
-    """Determine function arguments via agent model."""
+    """Determine function arguments via OpenAI Function Calling."""
+    from backend.functions.registry import registry
+
+    tool_name = step.get("tool", "")
+
+    # Get function schema from registry
+    func_class = registry.get_function(tool_name)
+    if not func_class:
+        logger.error(f"[AGENT] Function '{tool_name}' not found in registry")
+        return {}
+
+    func_def = func_class.get_definition()
+    openai_function = {
+        "name": func_def["name"],
+        "description": func_def["description"],
+        "parameters": func_def["parameters"],
+    }
+
     context_parts = []
     for pr in previous_results:
         context_parts.append(f"Шаг {pr['step']}: {str(pr['result'])[:200]}")
     context = "\n".join(context_parts) if context_parts else "Нет контекста."
 
     messages = [
-        {"role": "system", "content": "Ты определяешь аргументы для вызова функции. Верни ТОЛЬКО JSON-объект с аргументами, без markdown."},
-        {"role": "user", "content": f"Задача: {task}\nШаг: {step['title']} — {step['description']}\nФункция: {step['tool']}\nКонтекст:\n{context}"}
+        {"role": "system", "content": "Ты определяешь аргументы для вызова функции. Используй предоставленную функцию."},
+        {"role": "user", "content": f"Задача: {task}\nШаг: {step['title']} — {step['description']}\nКонтекст:\n{context}"}
     ]
 
     headers = {
@@ -218,6 +235,8 @@ async def call_openai_for_args(
     payload = {
         "model": model,
         "messages": messages,
+        "tools": [{"type": "function", "function": openai_function}],
+        "tool_choice": {"type": "function", "function": {"name": func_def["name"]}},
         "max_tokens": 512,
         "temperature": 0.1,
     }
@@ -230,14 +249,14 @@ async def call_openai_for_args(
                 headers=headers, json=payload
             ) as response:
                 if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"[AGENT] Args API error: {response.status} - {error_text[:200]}")
                     return {}
                 data = await response.json()
-                content = data["choices"][0]["message"]["content"].strip()
-                import re as _re
-                content = _re.sub(r'^```(?:json)?\s*', '', content)
-                content = _re.sub(r'\s*```$', '', content)
-                return json.loads(content)
-    except (json.JSONDecodeError, KeyError, IndexError):
+                tool_call = data["choices"][0]["message"]["tool_calls"][0]
+                return json.loads(tool_call["function"]["arguments"])
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.error(f"[AGENT] Args parse error: {e}")
         return {}
     except Exception as e:
         logger.error(f"[AGENT] Args error: {e}")
