@@ -297,9 +297,10 @@ async def llm_stream_websocket_endpoint(
         7. Voice (WS1) and text (WS2) work in parallel without interference
     """
     try:
+        logger.info(f"[LLM-STREAM-WS] ★★★ ENDPOINT HIT (v2 deploy check) ★★★")
         logger.info(f"[LLM-STREAM-WS] New connection (isolated text channel)")
         logger.info(f"[LLM-STREAM-WS] Assistant ID: {assistant_id}")
-        
+
         await handle_openai_streaming_websocket(
             websocket=websocket,
             assistant_id=assistant_id,

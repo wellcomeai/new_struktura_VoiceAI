@@ -62,6 +62,8 @@ async def websocket_endpoint(
     """
     client_id = id(websocket)
     logger.info(f"[GA-API] New WebSocket connection from client {client_id} for assistant {assistant_id}")
+    if assistant_id == "llm-stream":
+        logger.error(f"[GA-API] ⚠️ ROUTE COLLISION: /ws/llm-stream caught by /ws/{{assistant_id}} handler! Router order fix not deployed?")
     logger.info(f"[GA-API] Using Realtime GA API (model: gpt-realtime-mini)")
     
     try:

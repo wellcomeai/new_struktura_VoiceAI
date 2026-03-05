@@ -1027,14 +1027,20 @@ function handleGeminiMessage(event) {
             
             // Agent request from voice (query_orchestrator)
             if (data.type === 'agent.request') {
+                console.log('[AGENT DEBUG] Received agent.request:', data);
+                console.log('[AGENT DEBUG] isAgentMode:', isAgentMode);
+                console.log('[AGENT DEBUG] agentConfigId:', agentConfigId);
+                console.log('[AGENT DEBUG] llmWebSocket state:', llmWebSocket?.readyState);
                 Config.log(`🤖 Agent request received: ${data.task}`);
                 if (isAgentMode && agentConfigId && llmWebSocket && llmWebSocket.readyState === WebSocket.OPEN) {
-                    llmWebSocket.send(JSON.stringify({
+                    const payload = {
                         type: 'agent.query',
                         task: data.task,
                         request_id: data.request_id,
                         agent_config_id: agentConfigId
-                    }));
+                    };
+                    console.log('[AGENT DEBUG] Sending to LLM WS:', payload);
+                    llmWebSocket.send(JSON.stringify(payload));
                 } else {
                     // Fallback to regular LLM query
                     startStreamingUI(data.task);
@@ -1206,6 +1212,7 @@ function connectLLMWebSocket() {
         llmWebSocket.onmessage = function(event) {
             try {
                 const data = JSON.parse(event.data);
+                console.log('[LLM-WS DEBUG] Received:', data.type, data);
 
                 // Agent mode events
                 if (data.type && data.type.startsWith('agent.')) {
