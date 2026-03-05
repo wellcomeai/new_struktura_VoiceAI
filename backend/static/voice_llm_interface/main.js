@@ -1222,12 +1222,17 @@ function connectLLMWebSocket() {
                 }
                 
                 if (data.type === 'llm.stream.error') {
-                    showStreamingError(data.message || data.error);
+                    const errMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                    showStreamingError(data.message || errMsg || 'Unknown error');
                     return;
                 }
                 
                 if (data.type === 'error') {
-                    showStreamingError(data.error);
+                    Config.log(`📝 LLM error: ${data.error || 'unknown'}`, 'error');
+                    // Don't reconnect if API key is missing
+                    if (data.error_code === 'no_api_key') {
+                        llmReconnectAttempts = 999; // prevent reconnection
+                    }
                     return;
                 }
                 
@@ -1441,8 +1446,11 @@ async function initAgentMode() {
     if (!ASSISTANT_ID) return;
 
     try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        const token = getAuthToken();
+        if (!token) {
+            Config.log('🤖 No auth token, skipping agent config load');
+            return;
+        }
 
         const res = await fetch(`/api/llm/agent-config?assistant_id=${ASSISTANT_ID}`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -1664,8 +1672,11 @@ async function loadFunctionsForModal() {
 }
 
 async function saveAgentSettingsFromModal() {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const token = getAuthToken();
+    if (!token) {
+        Config.log('🤖 No auth token — cannot save agent config', 'error');
+        return;
+    }
 
     const selectedFns = [...document.querySelectorAll('.agent-function-chip.selected')]
         .map(el => el.dataset.fn);
