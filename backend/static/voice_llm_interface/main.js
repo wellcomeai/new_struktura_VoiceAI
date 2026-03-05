@@ -64,7 +64,11 @@ document.addEventListener('DOMContentLoaded', function() {
     Config.log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
 
     initializeApp();
-    initAgentMode();
+    // initAgentMode() is called inside loadGeminiAssistantsList() after ASSISTANT_ID is resolved,
+    // or here for embed mode where ASSISTANT_ID is already set from URL params
+    if (urlParams.has('assistant')) {
+        initAgentMode();
+    }
     initAgentUI();
 });
 
@@ -336,6 +340,9 @@ async function loadGeminiAssistantsList() {
             }
         }
         
+        // Load agent config for the resolved assistant
+        await initAgentMode();
+
     } catch (error) {
         Config.log(`❌ Error loading assistants: ${error}`, 'error');
         assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
@@ -376,6 +383,9 @@ async function saveConfig() {
         if (testBtn) testBtn.disabled = false;
         if (copyBtn) copyBtn.disabled = false;
         showSuccess('✅ Gemini ассистент сохранён!');
+
+        // Re-init agent mode for the new assistant
+        await initAgentMode();
 
         if (window.userActivated) {
             if (window.websocket) window.websocket.close();
@@ -1445,6 +1455,10 @@ function initAgentUI() {
 async function initAgentMode() {
     if (!ASSISTANT_ID) return;
 
+    // Reset state
+    agentConfig = null;
+    agentConfigId = null;
+
     try {
         const token = getAuthToken();
         if (!token) {
@@ -1456,24 +1470,41 @@ async function initAgentMode() {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
-        if (!res.ok) return;
-        const configs = await res.json();
-
-        if (!configs || configs.length === 0) {
-            agentConfig = null;
-            return;
+        if (res.ok) {
+            const configs = await res.json();
+            if (configs && configs.length > 0) {
+                agentConfig = configs.find(c => c.is_active) || configs[0];
+                agentConfigId = agentConfig.id;
+                Config.log(`🤖 Agent config loaded: ${agentConfig.name}`);
+            }
         }
-
-        agentConfig = configs.find(c => c.is_active) || configs[0];
-        agentConfigId = agentConfig.id;
-        Config.log(`🤖 Agent config loaded: ${agentConfig.name}`);
     } catch (e) {
         Config.log(`🤖 Agent config load error: ${e}`, 'warn');
+    }
+
+    // Restore checkbox state from localStorage
+    const savedState = localStorage.getItem('agent_mode_enabled') === 'true';
+    const checkbox = document.getElementById('agentModeCheckbox');
+    if (checkbox) {
+        // Only restore "on" if we have a config, otherwise force off
+        if (savedState && agentConfig) {
+            checkbox.checked = true;
+            isAgentMode = true;
+            const settingsBtn = document.getElementById('agentSettingsBtn');
+            if (settingsBtn) settingsBtn.style.display = 'flex';
+            Config.log('🤖 Agent mode restored from localStorage');
+        } else {
+            checkbox.checked = false;
+            isAgentMode = false;
+            const settingsBtn = document.getElementById('agentSettingsBtn');
+            if (settingsBtn) settingsBtn.style.display = 'none';
+        }
     }
 }
 
 function toggleAgentMode(enabled) {
     isAgentMode = enabled;
+    localStorage.setItem('agent_mode_enabled', enabled);
     const settingsBtn = document.getElementById('agentSettingsBtn');
     if (settingsBtn) settingsBtn.style.display = enabled ? 'flex' : 'none';
 
@@ -1483,6 +1514,7 @@ function toggleAgentMode(enabled) {
             const checkbox = document.getElementById('agentModeCheckbox');
             if (checkbox) checkbox.checked = false;
             isAgentMode = false;
+            localStorage.setItem('agent_mode_enabled', false);
             return;
         }
         Config.log('🤖 Agent mode enabled');
