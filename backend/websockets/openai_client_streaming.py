@@ -85,10 +85,9 @@ async def call_openai_for_plan(
     api_key: str
 ) -> dict:
     """Phase 1: Build execution plan via orchestrator model."""
-    prompt = (orchestrator_prompt or DEFAULT_ORCHESTRATOR_PROMPT).format(
-        available_functions=", ".join(available_functions) if available_functions else "нет",
-        max_steps=max_steps
-    )
+    prompt = orchestrator_prompt or DEFAULT_ORCHESTRATOR_PROMPT
+    prompt = prompt.replace("{available_functions}", ", ".join(available_functions) if available_functions else "нет")
+    prompt = prompt.replace("{max_steps}", str(max_steps))
 
     messages = [
         {"role": "system", "content": prompt},
