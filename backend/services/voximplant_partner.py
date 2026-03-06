@@ -1605,7 +1605,7 @@ class VoximplantPartnerService:
         Returns:
             {"success": True, "sip_registration_id": "123"} или ошибка
         """
-        url = f"{self.API_BASE_URL}/AddSipRegistration"
+        url = f"{self.API_BASE_URL}/CreateSipRegistration"
 
         params = {
             "account_id": child_account_id,
@@ -1613,7 +1613,7 @@ class VoximplantPartnerService:
             "sip_proxy": sip_proxy,
             "sip_login": sip_login,
             "sip_password": sip_password,
-            "is_persistent": True,
+            "is_persistent": true,
             "application_id": application_id,
             "rule_id": rule_id,
         }
