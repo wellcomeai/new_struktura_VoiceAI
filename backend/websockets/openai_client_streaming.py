@@ -57,6 +57,60 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# GPT-5 REASONING MODEL SUPPORT
+# ============================================================================
+
+# Модели GPT-5 семейства являются reasoning и не принимают temperature
+REASONING_MODELS = ["gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.4"]
+
+def is_reasoning_model(model: str) -> bool:
+    """Проверяет является ли модель reasoning (без temperature)."""
+    return any(model.startswith(m) for m in REASONING_MODELS)
+
+def build_chat_payload(
+    model: str,
+    messages: list,
+    max_tokens: int,
+    temperature: float = 0.3,
+    stream: bool = False,
+    json_mode: bool = False
+) -> dict:
+    """
+    Собирает корректный payload для OpenAI Chat Completions API.
+
+    Reasoning модели (gpt-5, gpt-5-mini, gpt-5.2, gpt-5.4):
+    - НЕ принимают temperature
+    - НЕ принимают response_format: json_object
+    - Используют reasoning_effort вместо temperature
+    - Используют max_completion_tokens вместо max_tokens
+
+    Non-reasoning модели (gpt-5.3-chat-latest, gpt-4.1, gpt-4.1-mini):
+    - Принимают temperature
+    - Принимают response_format: json_object
+    - Используют max_completion_tokens (max_tokens deprecated)
+    """
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_completion_tokens": max_tokens,
+        "stream": stream,
+    }
+
+    if is_reasoning_model(model):
+        payload["reasoning_effort"] = "medium"
+        # temperature и response_format НЕ добавляем
+    else:
+        payload["temperature"] = temperature
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+    if stream:
+        payload["stream_options"] = {"include_usage": True}
+
+    return payload
+
+
+# ============================================================================
 # AGENT ORCHESTRATOR - DEFAULT PROMPTS
 # ============================================================================
 
@@ -108,13 +162,14 @@ async def call_openai_for_plan(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": 2048,
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"},
-    }
+    payload = build_chat_payload(
+        model=model,
+        messages=messages,
+        max_tokens=2048,
+        temperature=0.2,
+        stream=False,
+        json_mode=True
+    )
 
     content = ""
     try:
@@ -180,12 +235,12 @@ async def call_openai_for_step(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": 1024,
-        "temperature": 0.3,
-    }
+    payload = build_chat_payload(
+        model=model,
+        messages=messages,
+        max_tokens=1024,
+        temperature=0.3
+    )
 
     try:
         timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
@@ -247,14 +302,14 @@ async def call_openai_for_args(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "tools": [{"type": "function", "function": openai_function}],
-        "tool_choice": {"type": "function", "function": {"name": func_def["name"]}},
-        "max_tokens": 512,
-        "temperature": 0.1,
-    }
+    payload = build_chat_payload(
+        model=model,
+        messages=messages,
+        max_tokens=512,
+        temperature=0.1
+    )
+    payload["tools"] = [{"type": "function", "function": openai_function}]
+    payload["tool_choice"] = {"type": "function", "function": {"name": func_def["name"]}}
 
     try:
         timeout = aiohttp.ClientTimeout(total=20.0, connect=10.0)
@@ -301,12 +356,12 @@ async def call_openai_for_final(
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": 2048,
-        "temperature": 0.3,
-    }
+    payload = build_chat_payload(
+        model=model,
+        messages=messages,
+        max_tokens=2048,
+        temperature=0.3
+    )
 
     try:
         timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
@@ -838,14 +893,13 @@ async def stream_llm_response(
             "Authorization": f"Bearer {api_key}"
         }
         
-        payload = {
-            "model": LLMStreamConfig.MODEL,
-            "messages": messages,  # 🆕 Теперь с историей
-            "max_tokens": LLMStreamConfig.MAX_TOKENS,
-            "temperature": LLMStreamConfig.TEMPERATURE,
-            "stream": True,
-            "stream_options": {"include_usage": True}
-        }
+        payload = build_chat_payload(
+            model=LLMStreamConfig.MODEL,
+            messages=messages,
+            max_tokens=LLMStreamConfig.MAX_TOKENS,
+            temperature=LLMStreamConfig.TEMPERATURE,
+            stream=True
+        )
         
         timeout = aiohttp.ClientTimeout(
             total=LLMStreamConfig.REQUEST_TIMEOUT,
