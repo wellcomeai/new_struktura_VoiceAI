@@ -3891,12 +3891,27 @@ async def connect_sip_trunk(
     )
 
     if not rule_result.get("success"):
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка создания правила маршрутизации: {rule_result.get('error', 'Unknown')}"
-        )
-
-    rule_id = rule_result["rule_id"]
+        if "not unique" in (rule_result.get("error") or "").lower():
+            # Правило уже есть — найти существующее
+            existing_rules = await service.get_rules(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                application_id=application_id
+            )
+            rule_id = None
+            for r in (existing_rules.get("rules") or []):
+                if r.get("rule_name") == rule_name:
+                    rule_id = r.get("rule_id")
+                    break
+            if not rule_id:
+                raise HTTPException(status_code=500, detail="Не удалось найти существующее правило маршрутизации.")
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Ошибка создания правила маршрутизации: {rule_result.get('error', 'Unknown')}"
+            )
+    else:
+        rule_id = rule_result["rule_id"]
 
     # 6. Создать SIP регистрацию
     result = await service.add_sip_registration(
