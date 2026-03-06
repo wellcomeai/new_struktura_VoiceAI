@@ -1610,8 +1610,8 @@ class VoximplantPartnerService:
         params = {
             "account_id": child_account_id,
             "api_key": child_api_key,
-            "sip_proxy": sip_proxy,
-            "sip_login": sip_login,
+            "proxy": sip_proxy,
+            "sip_username": sip_login,
             "sip_password": sip_password,
             "is_persistent": true,
             "application_id": application_id,
