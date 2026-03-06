@@ -10,6 +10,7 @@
 ✅ v1.2: Добавлена поддержка сценариев (vox_scenario_ids) и правил (vox_rule_id)
 ✅ v1.3: Добавлено поле vox_rule_ids для исходящих звонков (outbound)
 ✅ v1.4: Добавлено поле enable_background_noise для фоновых шумов офиса
+✅ v1.5: Добавлена поддержка SIP транков (vox_sip_registrations, phone_source, sip_provider, sip_registration_id)
 """
 
 import uuid
@@ -98,9 +99,25 @@ class VoximplantChildAccount(Base, BaseModel):
     # Для входящих звонков rule_id хранится в VoximplantPhoneNumber.vox_rule_id
     vox_rule_ids = Column(JSON, nullable=True, default=dict)
     
-    # Устаревшее поле - правила теперь на уровне номеров (для inbound) 
+    # Устаревшее поле - правила теперь на уровне номеров (для inbound)
     # и в vox_rule_ids (для outbound)
     vox_rule_id = Column(String(50), nullable=True)
+
+    # =========================================================================
+    # 🆕 v1.5: SIP ТРАНКИ (ВХОДЯЩИЕ ЗВОНКИ)
+    # =========================================================================
+
+    # Маппинг SIP регистраций: {
+    #   "novofon": {
+    #     "sip_id": "12345",
+    #     "proxy": "sip.novofon.ru",
+    #     "login": "user123",
+    #     "phone_number": "74951234567",
+    #     "status": "active",
+    #     "termination_address": "voicyfy.vf123456.voximplant.com"
+    #   }
+    # }
+    vox_sip_registrations = Column(JSON, nullable=True, default=dict)
     
     # =========================================================================
     # СТАТУСЫ
@@ -295,6 +312,17 @@ class VoximplantPhoneNumber(Base, BaseModel):
     phone_number = Column(String(20), nullable=False, unique=True, index=True)  # E.164 формат
     phone_number_id = Column(String(50), nullable=False)  # ID в Voximplant
     phone_region = Column(String(100), nullable=True)  # Регион номера
+
+    # =========================================================================
+    # 🆕 v1.5: ИСТОЧНИК НОМЕРА (SIP ТРАНК)
+    # =========================================================================
+
+    # "voximplant" — купленный через Voximplant, "sip" — подключённый через SIP транк
+    phone_source = Column(String(20), default="voximplant", nullable=False)
+    # Провайдер SIP: "novofon", "mango", "sipuni", "other"
+    sip_provider = Column(String(50), nullable=True)
+    # ID SIP регистрации в Voximplant — нужен для удаления
+    sip_registration_id = Column(String(50), nullable=True)
     
     # =========================================================================
     # ПРИВЯЗКА К АССИСТЕНТУ

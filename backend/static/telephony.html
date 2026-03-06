@@ -1703,6 +1703,22 @@
           </div>
         </div>
 
+        <!-- SIP транки -->
+        <div class="card" id="sip-trunks-card">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h2 class="card-title">SIP транки</h2>
+              <p class="card-description">Подключите свой номер от Новофон, Манго, Sipuni и др.</p>
+            </div>
+            <button class="btn btn-primary" id="connect-sip-btn">
+              <i class="fas fa-plug"></i> Подключить SIP
+            </button>
+          </div>
+          <div id="sip-trunks-container">
+            <!-- заполняется JS -->
+          </div>
+        </div>
+
         <!-- Последние звонки — кнопка открытия модалки -->
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -2084,6 +2100,7 @@
             accountIdValue.textContent = status.account_id || '—';
             
             await loadMyNumbers();
+            await loadSipTrunks();
           } else {
             notConnectedSection.classList.remove('hidden');
             connectedSection.classList.add('hidden');
@@ -3045,10 +3062,346 @@
         return;
       }
       
+      // =====================================================
+      // SIP ТРАНКИ
+      // =====================================================
+
+      async function loadSipTrunks() {
+        const container = document.getElementById('sip-trunks-container');
+        try {
+          const result = await api.get('/telephony/sip/list');
+
+          if (!result.sip_connections || result.sip_connections.length === 0) {
+            container.innerHTML = `
+              <div class="empty-state" style="padding:2rem;">
+                <i class="fas fa-plug" style="font-size:2rem; opacity:0.3; margin-bottom:0.5rem;"></i>
+                <p>Нет подключённых SIP транков</p>
+                <p style="font-size:0.8rem; color:var(--text-light);">Подключите свой номер от внешнего провайдера</p>
+              </div>
+            `;
+            return;
+          }
+
+          const providerNames = {
+            novofon: 'Новофон',
+            mango: 'Манго Офис',
+            sipuni: 'Sipuni',
+            other: 'Другой'
+          };
+
+          let html = `<table class="numbers-table">
+            <thead><tr>
+              <th>Провайдер</th>
+              <th>Номер</th>
+              <th>Адрес терминации</th>
+              <th>Ассистент</th>
+              <th>Статус</th>
+              <th>Действия</th>
+            </tr></thead><tbody>`;
+
+          result.sip_connections.forEach(sip => {
+            const statusBadge = sip.status === 'active'
+              ? '<span class="assistant-badge" style="background:#d1fae5;color:#065f46;"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Активен</span>'
+              : '<span class="assistant-badge" style="background:#fee2e2;color:#991b1b;"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Ошибка</span>';
+
+            html += `<tr>
+              <td><strong>${providerNames[sip.provider] || sip.provider}</strong></td>
+              <td><span class="phone-number">${formatPhoneNumber(sip.phone_number)}</span></td>
+              <td>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                  <code style="font-size:0.8rem; background:#f8fafc; padding:0.2rem 0.4rem; border-radius:0.25rem; border:1px solid var(--border-color);">${sip.termination_address}</code>
+                  <button class="btn btn-sm btn-secondary copy-sip-addr-btn" data-addr="${sip.termination_address}" title="Копировать">
+                    <i class="fas fa-copy"></i>
+                  </button>
+                </div>
+              </td>
+              <td>${sip.assistant_name
+                ? `<span class="assistant-badge"><i class="fas fa-robot"></i> ${sip.assistant_name}</span>`
+                : `<span class="assistant-badge" style="opacity:0.5;">Не привязан</span>`}</td>
+              <td>${statusBadge}</td>
+              <td>
+                <button class="btn btn-danger btn-sm disconnect-sip-btn" data-provider="${sip.provider}">
+                  <i class="fas fa-unlink"></i> Отключить
+                </button>
+              </td>
+            </tr>`;
+          });
+
+          html += `</tbody></table>`;
+          container.innerHTML = html;
+
+          // Копирование адреса терминации
+          container.querySelectorAll('.copy-sip-addr-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              navigator.clipboard.writeText(btn.dataset.addr).then(() => {
+                showNotification('Адрес скопирован', 'success');
+              });
+            });
+          });
+
+          // Отключение транка
+          container.querySelectorAll('.disconnect-sip-btn').forEach(btn => {
+            btn.addEventListener('click', () => disconnectSip(btn.dataset.provider));
+          });
+
+        } catch (error) {
+          container.innerHTML = `<div class="empty-state" style="padding:2rem;"><p>Ошибка загрузки</p></div>`;
+        }
+      }
+
+      // Открытие модалки подключения SIP
+      document.getElementById('connect-sip-btn').addEventListener('click', () => {
+        document.getElementById('sip-provider-select').value = 'novofon';
+        document.getElementById('sip-custom-proxy-group').classList.add('hidden');
+        document.getElementById('sip-login').value = '';
+        document.getElementById('sip-password').value = '';
+        document.getElementById('sip-phone-number').value = '';
+        document.getElementById('sip-first-phrase').value = '';
+        document.getElementById('sip-connect-modal').classList.add('show');
+        loadAssistantsForSip('gemini');
+      });
+
+      // Показ/скрытие поля своего прокси
+      document.getElementById('sip-provider-select').addEventListener('change', function() {
+        const isOther = this.value === 'other';
+        document.getElementById('sip-custom-proxy-group').classList.toggle('hidden', !isOther);
+      });
+
+      // При смене типа ассистента — перезагрузить список
+      document.getElementById('sip-assistant-type').addEventListener('change', function() {
+        loadAssistantsForSip(this.value);
+      });
+
+      async function loadAssistantsForSip(type) {
+        const select = document.getElementById('sip-assistant-select');
+        select.innerHTML = '<option value="">Загрузка...</option>';
+        const endpoints = { openai: '/assistants', gemini: '/gemini-assistants', cartesia: '/cartesia-assistants' };
+        try {
+          const data = await api.get(endpoints[type] || '/assistants');
+          const assistants = Array.isArray(data) ? data : (data.assistants || []);
+          select.innerHTML = '<option value="">Выберите ассистента</option>';
+          assistants.forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.id;
+            opt.textContent = a.name;
+            select.appendChild(opt);
+          });
+        } catch (e) {
+          select.innerHTML = '<option value="">Ошибка загрузки</option>';
+        }
+      }
+
+      // Подтверждение подключения SIP
+      document.getElementById('confirm-sip-btn').addEventListener('click', async () => {
+        const provider = document.getElementById('sip-provider-select').value;
+        const login    = document.getElementById('sip-login').value.trim();
+        const password = document.getElementById('sip-password').value.trim();
+        const phone    = document.getElementById('sip-phone-number').value.trim();
+        const aType    = document.getElementById('sip-assistant-type').value;
+        const aId      = document.getElementById('sip-assistant-select').value;
+
+        if (!login || !password || !phone || !aId) {
+          showNotification('Заполните все обязательные поля', 'warning');
+          return;
+        }
+
+        const proxies = { novofon: 'sip.novofon.ru', mango: 'sip.mango-office.ru', sipuni: 'sip.sipuni.ru' };
+        const sip_proxy = provider === 'other'
+          ? document.getElementById('sip-custom-proxy').value.trim()
+          : proxies[provider];
+
+        if (!sip_proxy) {
+          showNotification('Укажите SIP сервер провайдера', 'warning');
+          return;
+        }
+
+        try {
+          setLoading(true);
+          const result = await api.post('/telephony/sip/connect', {
+            provider, sip_proxy, sip_login: login, sip_password: password,
+            phone_number: phone, assistant_id: aId, assistant_type: aType,
+            first_phrase: document.getElementById('sip-first-phrase').value.trim() || null
+          });
+
+          document.getElementById('sip-connect-modal').classList.remove('show');
+
+          // Показать окно успеха с адресом терминации
+          document.getElementById('sip-termination-address').value = result.termination_address;
+          document.getElementById('sip-provider-instruction').innerHTML =
+            `<h4 style="margin-bottom:0.5rem;">Что сделать дальше:</h4><p style="font-size:0.875rem; color:var(--text-light);">${result.provider_instruction}</p>`;
+          document.getElementById('sip-success-modal').classList.add('show');
+
+          await loadSipTrunks();
+
+        } catch (error) {
+          showNotification(error.message || 'Ошибка подключения SIP', 'error');
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      // Отключение SIP транка
+      async function disconnectSip(provider) {
+        const names = { novofon: 'Новофон', mango: 'Манго Офис', sipuni: 'Sipuni', other: 'провайдер' };
+        if (!confirm(`Отключить SIP транк ${names[provider] || provider}? Входящие звонки перестанут работать.`)) return;
+        try {
+          setLoading(true);
+          await api.fetch(`/telephony/sip/${provider}`, { method: 'DELETE' });
+          showNotification('SIP транк отключён', 'success');
+          await loadSipTrunks();
+        } catch (error) {
+          showNotification(error.message || 'Ошибка отключения', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      // Кнопки в модалке успеха
+      document.getElementById('copy-termination-btn').addEventListener('click', () => {
+        const addr = document.getElementById('sip-termination-address').value;
+        navigator.clipboard.writeText(addr).then(() => showNotification('Адрес скопирован', 'success'));
+      });
+
+      document.getElementById('close-sip-success-modal').addEventListener('click', () => {
+        document.getElementById('sip-success-modal').classList.remove('show');
+      });
+      document.getElementById('close-sip-success-ok').addEventListener('click', () => {
+        document.getElementById('sip-success-modal').classList.remove('show');
+      });
+
+      // Закрытие модалки подключения SIP
+      document.getElementById('close-sip-modal').addEventListener('click', () => {
+        document.getElementById('sip-connect-modal').classList.remove('show');
+      });
+      document.getElementById('cancel-sip-btn').addEventListener('click', () => {
+        document.getElementById('sip-connect-modal').classList.remove('show');
+      });
+
       // Инициализация
       loadUserInfo();
       loadTelephonyStatus();
     });
   </script>
+
+  <!-- Модальное окно: Подключение SIP -->
+  <div class="modal-overlay" id="sip-connect-modal">
+    <div class="modal" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Подключить SIP транк</h3>
+        <button class="modal-close" id="close-sip-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Предупреждение о стоимости -->
+        <div style="background:#fef3c7; border:1px solid #f59e0b; border-radius:0.5rem; padding:0.875rem 1rem; margin-bottom:1.5rem; font-size:0.875rem; color:#92400e;">
+          <i class="fas fa-info-circle"></i>
+          <strong> Внимание:</strong> Подключение SIP стоит <strong>949,17 руб/мес</strong> и сразу спишется с вашего баланса Voximplant.
+        </div>
+
+        <!-- Шаг 1: Провайдер -->
+        <div class="form-group">
+          <label>Провайдер</label>
+          <select id="sip-provider-select" class="form-control">
+            <option value="novofon">Новофон (Ростелеком)</option>
+            <option value="mango">Манго Офис</option>
+            <option value="sipuni">Sipuni</option>
+            <option value="other">Другой провайдер</option>
+          </select>
+        </div>
+
+        <!-- Поле прокси (только для "other") -->
+        <div class="form-group hidden" id="sip-custom-proxy-group">
+          <label>SIP сервер провайдера</label>
+          <input type="text" id="sip-custom-proxy" class="form-control" placeholder="sip.myprovider.ru">
+        </div>
+
+        <!-- Логин и пароль -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+          <div class="form-group">
+            <label>Логин</label>
+            <input type="text" id="sip-login" class="form-control" placeholder="ваш логин у провайдера">
+          </div>
+          <div class="form-group">
+            <label>Пароль</label>
+            <input type="password" id="sip-password" class="form-control" placeholder="пароль">
+          </div>
+        </div>
+
+        <!-- Номер телефона -->
+        <div class="form-group">
+          <label>Ваш номер у провайдера</label>
+          <input type="text" id="sip-phone-number" class="form-control" placeholder="74951234567">
+          <div class="form-helper" style="font-size:0.8rem; color:var(--text-light); margin-top:0.25rem;">Номер в формате без + (например 74951234567)</div>
+        </div>
+
+        <!-- Разделитель -->
+        <hr style="border:none; border-top:1px solid var(--border-color); margin:1rem 0;">
+
+        <!-- Привязка ассистента -->
+        <div class="form-group">
+          <label>Тип ассистента</label>
+          <select id="sip-assistant-type" class="form-control">
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="cartesia">Cartesia</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Ассистент на входящие звонки</label>
+          <select id="sip-assistant-select" class="form-control">
+            <option value="">Загрузка...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Приветственная фраза <span style="color:var(--text-light)">(необязательно)</span></label>
+          <input type="text" id="sip-first-phrase" class="form-control" placeholder="Здравствуйте! Чем могу помочь?">
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancel-sip-btn">Отмена</button>
+        <button class="btn btn-primary" id="confirm-sip-btn">
+          <i class="fas fa-plug"></i> Подключить
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно: Успешное подключение SIP -->
+  <div class="modal-overlay" id="sip-success-modal">
+    <div class="modal" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 class="modal-title">SIP транк подключён</h3>
+        <button class="modal-close" id="close-sip-success-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+
+        <div style="background:#d1fae5; border:1px solid #10b981; border-radius:0.5rem; padding:1rem; margin-bottom:1.25rem; font-size:0.875rem; color:#065f46;">
+          <i class="fas fa-check-circle"></i> SIP регистрация создана успешно. Осталось настроить переадресацию у провайдера.
+        </div>
+
+        <div class="form-group">
+          <label>Адрес терминации (скопируйте в кабинет провайдера)</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="sip-termination-address" class="form-control" readonly style="font-family:monospace; font-size:0.875rem; background:#f8fafc;">
+            <button class="btn btn-secondary" id="copy-termination-btn" style="white-space:nowrap;">
+              <i class="fas fa-copy"></i> Копировать
+            </button>
+          </div>
+        </div>
+
+        <div id="sip-provider-instruction" style="margin-bottom:0;">
+          <!-- текст инструкции подставляется из JS -->
+        </div>
+
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;">
+        <button class="btn btn-primary" id="close-sip-success-ok">Понятно</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

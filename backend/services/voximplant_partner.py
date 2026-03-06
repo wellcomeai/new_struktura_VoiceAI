@@ -49,6 +49,23 @@ from backend.core.config import settings
 
 logger = get_logger(__name__)
 
+# =============================================================================
+# SIP PROVIDER CONSTANTS
+# =============================================================================
+
+SIP_PROVIDER_IPS = {
+    "novofon": ["185.189.255.0/24", "5.101.153.0/24"],
+    "mango":   ["89.188.22.0/24",  "217.182.61.0/24"],
+    "sipuni":  ["62.109.0.0/24"],
+    "other":   []
+}
+
+SIP_PROVIDER_PROXIES = {
+    "novofon": "sip.novofon.ru",
+    "mango":   "sip.mango-office.ru",
+    "sipuni":  "sip.sipuni.ru",
+}
+
 
 class VoximplantPartnerService:
     """
@@ -1555,6 +1572,150 @@ class VoximplantPartnerService:
             "outbound_rules_created": len(rule_ids),
             "errors": all_errors if all_errors else None,
         }
+
+
+    # =========================================================================
+    # SIP ТРАНКИ (ВХОДЯЩИЕ ЗВОНКИ)
+    # =========================================================================
+
+    async def add_sip_registration(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        sip_proxy: str,
+        sip_login: str,
+        sip_password: str,
+        application_id: str,
+        rule_id: str
+    ) -> Dict[str, Any]:
+        """
+        Создать SIP регистрацию на дочернем аккаунте.
+
+        Регистрирует SIP транк для приёма входящих звонков от внешнего провайдера.
+
+        Args:
+            child_account_id: ID дочернего аккаунта
+            child_api_key: API ключ дочернего аккаунта
+            sip_proxy: Адрес SIP сервера провайдера (напр. sip.novofon.ru)
+            sip_login: Логин SIP учётной записи у провайдера
+            sip_password: Пароль SIP учётной записи
+            application_id: ID приложения Voximplant
+            rule_id: ID правила маршрутизации (для привязки к входящему сценарию)
+
+        Returns:
+            {"success": True, "sip_registration_id": "123"} или ошибка
+        """
+        url = f"{self.API_BASE_URL}/AddSipRegistration"
+
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "sip_proxy": sip_proxy,
+            "sip_login": sip_login,
+            "sip_password": sip_password,
+            "is_persistent": True,
+            "application_id": application_id,
+            "rule_id": rule_id,
+        }
+
+        logger.info(f"[VOXIMPLANT] Adding SIP registration: proxy={sip_proxy}, login={sip_login}")
+
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+
+        if "error" in result:
+            error_msg = result.get("error", {}).get("msg", "Unknown error")
+            logger.error(f"[VOXIMPLANT] Failed to add SIP registration: {result}")
+            return {"success": False, "error": error_msg}
+
+        sip_registration_id = result.get("sip_registration_id")
+        logger.info(f"[VOXIMPLANT] ✅ SIP registration created: ID={sip_registration_id}")
+
+        return {"success": True, "sip_registration_id": str(sip_registration_id)}
+
+    async def delete_sip_registration(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        sip_registration_id: str
+    ) -> Dict[str, Any]:
+        """
+        Удалить SIP регистрацию.
+
+        Args:
+            child_account_id: ID дочернего аккаунта
+            child_api_key: API ключ дочернего аккаунта
+            sip_registration_id: ID SIP регистрации для удаления
+
+        Returns:
+            {"success": True} или ошибка
+        """
+        url = f"{self.API_BASE_URL}/DeleteSipRegistration"
+
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "sip_registration_id": sip_registration_id,
+        }
+
+        logger.info(f"[VOXIMPLANT] Deleting SIP registration: ID={sip_registration_id}")
+
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+
+        if "error" in result:
+            error_msg = result.get("error", {}).get("msg", "Unknown error")
+            logger.error(f"[VOXIMPLANT] Failed to delete SIP registration: {result}")
+            return {"success": False, "error": error_msg}
+
+        logger.info(f"[VOXIMPLANT] ✅ SIP registration deleted: ID={sip_registration_id}")
+        return {"success": True}
+
+    async def add_authorized_ip(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        ip: str,
+        allowed: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Добавить авторизованный IP адрес на дочернем аккаунте.
+
+        Используется для whitelist IP адресов SIP провайдеров.
+
+        Args:
+            child_account_id: ID дочернего аккаунта
+            child_api_key: API ключ дочернего аккаунта
+            ip: IP адрес или подсеть (напр. 185.189.255.0/24)
+            allowed: Разрешить или заблокировать
+
+        Returns:
+            {"success": True} или ошибка
+        """
+        url = f"{self.API_BASE_URL}/AddAuthorizedAccountIP"
+
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "authorized_ip": ip,
+            "allowed": allowed,
+        }
+
+        logger.info(f"[VOXIMPLANT] Adding authorized IP: {ip} (allowed={allowed})")
+
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+
+        if "error" in result:
+            error_msg = result.get("error", {}).get("msg", "Unknown error")
+            logger.error(f"[VOXIMPLANT] Failed to add authorized IP: {result}")
+            return {"success": False, "error": error_msg}
+
+        logger.info(f"[VOXIMPLANT] ✅ Authorized IP added: {ip}")
+        return {"success": True}
 
 
 # =============================================================================

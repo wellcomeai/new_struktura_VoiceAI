@@ -85,7 +85,9 @@ from backend.models.voximplant_child import (
 )
 from backend.services.voximplant_partner import (
     VoximplantPartnerService,
-    get_voximplant_partner_service
+    get_voximplant_partner_service,
+    SIP_PROVIDER_IPS,
+    SIP_PROVIDER_PROXIES,
 )
 from backend.api.voximplant import build_functions_for_openai
 
@@ -267,6 +269,28 @@ class BindAssistantRequest(BaseModel):
     assistant_type: str
     assistant_id: str
     first_phrase: Optional[str] = None
+
+
+class SipConnectRequest(BaseModel):
+    """Запрос на подключение SIP транка"""
+    provider: str           # "novofon" | "mango" | "sipuni" | "other"
+    sip_proxy: str          # автозаполняется для известных, вводится вручную для "other"
+    sip_login: str
+    sip_password: str
+    phone_number: str       # номер клиента у SIP провайдера (для входящих)
+    assistant_id: str
+    assistant_type: str     # "gemini" | "openai" | "cartesia"
+    first_phrase: Optional[str] = None
+    custom_proxy: Optional[str] = None  # только для provider="other"
+
+
+# Словарь инструкций для провайдеров
+SIP_PROVIDER_INSTRUCTIONS = {
+    "novofon": "В кабинете Новофон перейдите в SIP URI / SIP Trunk и добавьте адрес терминации, указанный выше.",
+    "mango":   "В Манго Офис перейдите в Настройки → Безопасность, добавьте IP Voximplant в whitelist. Затем в разделе 'Обработка звонков' настройте переадресацию на указанный адрес.",
+    "sipuni":  "В кабинете Sipuni укажите адрес терминации в настройках SIP транка.",
+    "other":   "Укажите адрес терминации как SIP URI для входящих звонков в кабинете вашего провайдера.",
+}
 
 
 class ScenarioConfigResponse(BaseModel):
@@ -3794,6 +3818,296 @@ async def get_scenario_config(
     except Exception as e:
         logger.error(f"[TELEPHONY] Config error: {e}", exc_info=True)
         return ScenarioConfigResponse(success=False)
+
+
+# =============================================================================
+# SIP ТРАНКИ (ВХОДЯЩИЕ ЗВОНКИ)
+# =============================================================================
+
+@router.post("/sip/connect")
+async def connect_sip_trunk(
+    request: SipConnectRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Подключить SIP транк для приёма входящих звонков от внешнего провайдера.
+
+    Создаёт SIP регистрацию на дочернем аккаунте Voximplant,
+    добавляет авторизованные IP адреса провайдера и создаёт номер в БД.
+    """
+    # 1. Найти дочерний аккаунт
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+
+    if not child_account:
+        raise HTTPException(status_code=404, detail="Телефония не подключена. Сначала подключите телефонию.")
+
+    # 2. Проверить верификацию
+    if not child_account.is_verified:
+        raise HTTPException(status_code=400, detail="Аккаунт не верифицирован. Пройдите верификацию перед подключением SIP.")
+
+    # 3. Проверить, что провайдер ещё не подключён
+    sip_regs = child_account.vox_sip_registrations or {}
+    if request.provider in sip_regs:
+        raise HTTPException(status_code=400, detail=f"Провайдер '{request.provider}' уже подключён.")
+
+    # 4. Определить proxy
+    if request.provider == "other":
+        sip_proxy = request.custom_proxy
+        if not sip_proxy:
+            raise HTTPException(status_code=400, detail="Для провайдера 'other' укажите custom_proxy.")
+    else:
+        sip_proxy = SIP_PROVIDER_PROXIES.get(request.provider)
+        if not sip_proxy:
+            raise HTTPException(status_code=400, detail=f"Неизвестный провайдер: {request.provider}")
+
+    # 5. Найти application_id и rule_id
+    application_id = child_account.vox_application_id
+    if not application_id:
+        raise HTTPException(status_code=400, detail="Приложение Voximplant не настроено. Выполните настройку сценариев.")
+
+    # Определяем ключ сценария для inbound
+    scenario_key = get_scenario_key(request.assistant_type, "inbound")
+    scenario_id = child_account.get_scenario_id(scenario_key)
+
+    if not scenario_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Входящий сценарий для типа '{request.assistant_type}' не найден. Настройте сценарии."
+        )
+
+    # Создаём правило для SIP входящих
+    service = get_voximplant_partner_service()
+    rule_name = f"sip_inbound_{request.provider}"
+    rule_result = await service.add_rule(
+        child_account_id=child_account.vox_account_id,
+        child_api_key=child_account.vox_api_key,
+        application_id=application_id,
+        rule_name=rule_name,
+        rule_pattern=".*",
+        scenario_id=scenario_id
+    )
+
+    if not rule_result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка создания правила маршрутизации: {rule_result.get('error', 'Unknown')}"
+        )
+
+    rule_id = rule_result["rule_id"]
+
+    # 6. Создать SIP регистрацию
+    result = await service.add_sip_registration(
+        child_account_id=child_account.vox_account_id,
+        child_api_key=child_account.vox_api_key,
+        sip_proxy=sip_proxy,
+        sip_login=request.sip_login,
+        sip_password=request.sip_password,
+        application_id=application_id,
+        rule_id=str(rule_id)
+    )
+
+    if not result.get("success"):
+        # Откатываем правило
+        await service.delete_rule(
+            child_account_id=child_account.vox_account_id,
+            child_api_key=child_account.vox_api_key,
+            rule_id=str(rule_id)
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка создания SIP регистрации: {result.get('error', 'Unknown')}"
+        )
+
+    sip_registration_id = result["sip_registration_id"]
+
+    # 7. Добавить авторизованные IP для известных провайдеров
+    if request.provider != "other":
+        provider_ips = SIP_PROVIDER_IPS.get(request.provider, [])
+        for ip in provider_ips:
+            try:
+                await service.add_authorized_ip(
+                    child_account_id=child_account.vox_account_id,
+                    child_api_key=child_account.vox_api_key,
+                    ip=ip
+                )
+            except Exception as e:
+                logger.warning(f"[TELEPHONY] Failed to add authorized IP {ip}: {e}")
+
+    # 8. Сформировать адрес терминации
+    termination_address = f"voicyfy.{child_account.vox_account_name}.voximplant.com"
+
+    # 9. Создать запись номера в БД
+    phone_record = VoximplantPhoneNumber(
+        child_account_id=child_account.id,
+        phone_number=request.phone_number,
+        phone_number_id=f"sip_{sip_registration_id}",
+        phone_source="sip",
+        sip_provider=request.provider,
+        sip_registration_id=sip_registration_id,
+        assistant_id=uuid.UUID(request.assistant_id),
+        assistant_type=request.assistant_type,
+        first_phrase=request.first_phrase,
+        vox_rule_id=str(rule_id),
+        is_active=True,
+    )
+    db.add(phone_record)
+
+    # 10. Обновить vox_sip_registrations
+    if child_account.vox_sip_registrations is None:
+        child_account.vox_sip_registrations = {}
+
+    child_account.vox_sip_registrations[request.provider] = {
+        "sip_id": sip_registration_id,
+        "proxy": sip_proxy,
+        "login": request.sip_login,
+        "phone_number": request.phone_number,
+        "status": "active",
+        "termination_address": termination_address,
+    }
+
+    # 11. flag_modified — обязательно для JSON полей
+    flag_modified(child_account, "vox_sip_registrations")
+
+    # 12. Сохранить
+    db.commit()
+
+    logger.info(f"[TELEPHONY] ✅ SIP trunk connected: provider={request.provider}, "
+                f"sip_id={sip_registration_id}, user={current_user.id}")
+
+    # 13. Вернуть результат
+    return {
+        "success": True,
+        "sip_registration_id": sip_registration_id,
+        "termination_address": termination_address,
+        "provider_instruction": SIP_PROVIDER_INSTRUCTIONS.get(request.provider, SIP_PROVIDER_INSTRUCTIONS["other"]),
+    }
+
+
+@router.delete("/sip/{provider}")
+async def disconnect_sip_trunk(
+    provider: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Отключить SIP транк (удалить SIP регистрацию и номер).
+    """
+    # 1. Найти дочерний аккаунт
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+
+    if not child_account:
+        raise HTTPException(status_code=404, detail="Телефония не подключена.")
+
+    # 2. Проверить наличие провайдера
+    sip_regs = child_account.vox_sip_registrations or {}
+    if provider not in sip_regs:
+        raise HTTPException(status_code=404, detail=f"SIP провайдер '{provider}' не подключён.")
+
+    # 3. Получить sip_id
+    sip_id = sip_regs[provider].get("sip_id")
+
+    # 4. Удалить SIP регистрацию в Voximplant
+    if sip_id:
+        service = get_voximplant_partner_service()
+        try:
+            await service.delete_sip_registration(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                sip_registration_id=sip_id
+            )
+        except Exception as e:
+            logger.error(f"[TELEPHONY] Error deleting SIP registration {sip_id}: {e}")
+
+    # 5. Найти и удалить номер из БД
+    phone_record = db.query(VoximplantPhoneNumber).filter(
+        VoximplantPhoneNumber.child_account_id == child_account.id,
+        VoximplantPhoneNumber.sip_provider == provider,
+        VoximplantPhoneNumber.phone_source == "sip",
+    ).first()
+
+    if phone_record:
+        # Удалить правило маршрутизации если есть
+        if phone_record.vox_rule_id:
+            try:
+                service = get_voximplant_partner_service()
+                await service.delete_rule(
+                    child_account_id=child_account.vox_account_id,
+                    child_api_key=child_account.vox_api_key,
+                    rule_id=phone_record.vox_rule_id
+                )
+            except Exception as e:
+                logger.warning(f"[TELEPHONY] Error deleting SIP rule: {e}")
+
+        db.delete(phone_record)
+
+    # 6. Убрать из vox_sip_registrations
+    del child_account.vox_sip_registrations[provider]
+    flag_modified(child_account, "vox_sip_registrations")
+
+    # 7. Сохранить
+    db.commit()
+
+    logger.info(f"[TELEPHONY] ✅ SIP trunk disconnected: provider={provider}, user={current_user.id}")
+
+    return {"success": True}
+
+
+@router.get("/sip/list")
+async def list_sip_trunks(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Получить список подключённых SIP транков с информацией об ассистентах.
+    """
+    # 1. Найти дочерний аккаунт
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+
+    if not child_account:
+        return {"sip_connections": []}
+
+    sip_regs = child_account.vox_sip_registrations or {}
+
+    if not sip_regs:
+        return {"sip_connections": []}
+
+    connections = []
+
+    for provider, data in sip_regs.items():
+        # Найти связанный номер и имя ассистента
+        phone_record = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.child_account_id == child_account.id,
+            VoximplantPhoneNumber.sip_provider == provider,
+            VoximplantPhoneNumber.phone_source == "sip",
+        ).first()
+
+        assistant_name = None
+        assistant_type = None
+
+        if phone_record and phone_record.assistant_id:
+            assistant, a_type, _ = find_assistant_by_id(db, phone_record.assistant_id)
+            if assistant:
+                assistant_name = getattr(assistant, "name", None)
+                assistant_type = a_type
+
+        connections.append({
+            "provider": provider,
+            "proxy": data.get("proxy", ""),
+            "phone_number": data.get("phone_number", ""),
+            "status": data.get("status", "unknown"),
+            "termination_address": data.get("termination_address", ""),
+            "assistant_name": assistant_name,
+            "assistant_type": assistant_type or (phone_record.assistant_type if phone_record else None),
+        })
+
+    return {"sip_connections": connections}
 
 
 # =============================================================================
