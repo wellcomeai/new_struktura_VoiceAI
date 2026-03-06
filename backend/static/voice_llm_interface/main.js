@@ -1037,7 +1037,8 @@ function handleGeminiMessage(event) {
                         type: 'agent.query',
                         task: data.task,
                         request_id: data.request_id,
-                        agent_config_id: agentConfigId
+                        agent_config_id: agentConfigId,
+                        history: loadChatHistory()
                     };
                     console.log('[AGENT DEBUG] Sending to LLM WS:', payload);
                     llmWebSocket.send(JSON.stringify(payload));
@@ -1667,8 +1668,8 @@ function openAgentSettingsModal() {
         const stepTimeout = document.getElementById('agentStepTimeout');
 
         if (nameEl) nameEl.value = agentConfig.name || '';
-        if (orchModel) orchModel.value = agentConfig.orchestrator_model || 'gpt-4o';
-        if (agentModel) agentModel.value = agentConfig.agent_model || 'gpt-4o-mini';
+        if (orchModel) orchModel.value = agentConfig.orchestrator_model || 'gpt-5-mini';
+        if (agentModel) agentModel.value = agentConfig.agent_model || 'gpt-5-mini';
         if (orchPrompt) orchPrompt.value = agentConfig.orchestrator_prompt || '';
         if (maxSteps) maxSteps.value = agentConfig.max_steps || 10;
         if (stepTimeout) stepTimeout.value = agentConfig.step_timeout_sec || 60;
@@ -1723,9 +1724,9 @@ async function saveAgentSettingsFromModal() {
     const payload = {
         name: document.getElementById('agentConfigName')?.value || 'Мой агент',
         assistant_id: ASSISTANT_ID || null,
-        orchestrator_model: document.getElementById('agentOrchestratorModel')?.value || 'gpt-4o',
+        orchestrator_model: document.getElementById('agentOrchestratorModel')?.value || 'gpt-5-mini',
         orchestrator_prompt: document.getElementById('agentOrchestratorPrompt')?.value || '',
-        agent_model: document.getElementById('agentAgentModel')?.value || 'gpt-4o-mini',
+        agent_model: document.getElementById('agentAgentModel')?.value || 'gpt-5-mini',
         agent_functions: selectedFns,
         max_steps: parseInt(document.getElementById('agentMaxSteps')?.value) || 10,
         step_timeout_sec: parseInt(document.getElementById('agentStepTimeout')?.value) || 60,

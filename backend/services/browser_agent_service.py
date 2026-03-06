@@ -57,7 +57,7 @@ class LLMConfig:
     """Конфигурация LLM Streaming Service"""
     
     # Модель OpenAI для стриминга
-    MODEL = "gpt-4o-mini"
+    MODEL = "gpt-5-mini"
     
     # Максимальное количество токенов в ответе
     MAX_TOKENS = 4096
@@ -74,7 +74,7 @@ class LLMConfig:
     
     # 🆕 v2.1: Buffering settings
     # Минимальный размер буфера перед отправкой (символы)
-    BUFFER_MIN_CHARS = 50
+    BUFFER_MIN_CHARS = 150
     # Максимальное время ожидания буфера (секунды)
     BUFFER_MAX_WAIT = 0.3
     # Принудительная отправка после точки/абзаца

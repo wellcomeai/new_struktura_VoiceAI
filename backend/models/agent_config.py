@@ -20,11 +20,11 @@ class AgentConfig(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # Оркестратор (планировщик)
-    orchestrator_model = Column(String(100), default="gpt-4o", nullable=False)
+    orchestrator_model = Column(String(100), default="gpt-5-mini", nullable=False)
     orchestrator_prompt = Column(Text, nullable=True)
 
     # Агенты (выполнение шагов)
-    agent_model = Column(String(100), default="gpt-4o-mini", nullable=False)
+    agent_model = Column(String(100), default="gpt-5-mini", nullable=False)
     agent_functions = Column(JSON, default=list, nullable=False)
 
     # Лимиты

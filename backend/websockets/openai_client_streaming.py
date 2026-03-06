@@ -82,12 +82,22 @@ async def call_openai_for_plan(
     model: str,
     available_functions: list,
     max_steps: int,
-    api_key: str
+    api_key: str,
+    history: list = None
 ) -> dict:
     """Phase 1: Build execution plan via orchestrator model."""
     prompt = orchestrator_prompt or DEFAULT_ORCHESTRATOR_PROMPT
     prompt = prompt.replace("{available_functions}", ", ".join(available_functions) if available_functions else "нет")
     prompt = prompt.replace("{max_steps}", str(max_steps))
+
+    # Inject session context from recent chat history
+    if history:
+        last_msgs = history[-6:]  # последние 6 (3 пары user/assistant)
+        history_text = "\n".join([
+            f"{'Пользователь' if m['role'] == 'user' else 'Ассистент'}: {m['content'][:200]}"
+            for m in last_msgs
+        ])
+        prompt += f"\n\nКонтекст текущей сессии (последние сообщения):\n{history_text}"
 
     messages = [
         {"role": "system", "content": prompt},
@@ -323,7 +333,8 @@ async def handle_agent_query(
     task: str,
     request_id: str,
     agent_config_id: str,
-    db: Session
+    db: Session,
+    history: list = None
 ) -> None:
     """
     Handle agent.query message: plan → execute steps → synthesize final answer.
@@ -366,7 +377,8 @@ async def handle_agent_query(
         model=agent_cfg.orchestrator_model,
         available_functions=agent_cfg.agent_functions or [],
         max_steps=agent_cfg.max_steps,
-        api_key=api_key
+        api_key=api_key,
+        history=history
     )
 
     await websocket.send_json({
@@ -480,15 +492,15 @@ async def handle_agent_query(
 
 class LLMStreamConfig:
     """Конфигурация LLM Stream Handler"""
-    MODEL = "gpt-4o-mini"
+    MODEL = "gpt-5-mini"
     MAX_TOKENS = 4096
     TEMPERATURE = 0.1
     REQUEST_TIMEOUT = 60.0
     CONNECT_TIMEOUT = 10.0
     OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-    
+
     # Буферизация для плавного вывода
-    BUFFER_MIN_CHARS = 30
+    BUFFER_MIN_CHARS = 150
     BUFFER_MAX_WAIT = 0.2
     
     # 🆕 v3.0: Ограничение истории
@@ -714,12 +726,15 @@ async def handle_openai_streaming_websocket(
                     # 🆕 Agent Mode: handle orchestrated multi-step queries
                     logger.error(f"[LLM-WS] 🤖 Agent query received, task: {str(data.get('task', ''))[:50]}, config_id: {data.get('agent_config_id')}")
                     try:
+                        raw_history = data.get("history", [])
+                        agent_history = process_chat_history(raw_history)
                         await handle_agent_query(
                             websocket=websocket,
                             task=data.get("task", ""),
                             request_id=data.get("request_id", f"agent_{uuid.uuid4().hex[:8]}"),
                             agent_config_id=data.get("agent_config_id"),
-                            db=db
+                            db=db,
+                            history=agent_history
                         )
                     except Exception as agent_err:
                         logger.error(f"[LLM-WS] Agent query error: {agent_err}")
