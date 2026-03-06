@@ -93,18 +93,18 @@ def build_chat_payload(
         "model": model,
         "messages": messages,
         "max_completion_tokens": max_tokens,
-        "stream": stream,
     }
 
     if is_reasoning_model(model):
         payload["reasoning_effort"] = "medium"
-        # temperature и response_format НЕ добавляем
+        # temperature и response_format НЕ добавляем — reasoning модели их отвергают
     else:
         payload["temperature"] = temperature
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
     if stream:
+        payload["stream"] = True
         payload["stream_options"] = {"include_usage": True}
 
     return payload
@@ -218,7 +218,8 @@ async def call_openai_for_step(
     step: dict,
     previous_results: list,
     model: str,
-    api_key: str
+    api_key: str,
+    available_functions: list = None
 ) -> str:
     """Phase 2: Execute a reasoning step (no tool) via agent model."""
     context_parts = []
@@ -226,8 +227,12 @@ async def call_openai_for_step(
         context_parts.append(f"Шаг {pr['step']}: {str(pr['result'])[:300]}")
     context = "\n".join(context_parts) if context_parts else "Нет предыдущих результатов."
 
+    system_prompt = "Ты — исполнитель задач. Выполни указанный шаг, используя контекст предыдущих шагов."
+    if available_functions:
+        system_prompt += f"\n\nДоступные инструменты агента: {', '.join(available_functions)}"
+
     messages = [
-        {"role": "system", "content": "Ты — исполнитель задач. Выполни указанный шаг, используя контекст предыдущих шагов."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Задача: {task}\n\nТекущий шаг: {step['title']} — {step['description']}\n\nКонтекст:\n{context}"}
     ]
 
@@ -309,7 +314,12 @@ async def call_openai_for_args(
         temperature=0.1
     )
     payload["tools"] = [{"type": "function", "function": openai_function}]
-    payload["tool_choice"] = {"type": "function", "function": {"name": func_def["name"]}}
+    # Reasoning модели НЕ поддерживают принудительный tool_choice с конкретной функцией
+    # Для них используем "required" — модель обязана вызвать одну из tools
+    if is_reasoning_model(model):
+        payload["tool_choice"] = "required"
+    else:
+        payload["tool_choice"] = {"type": "function", "function": {"name": func_def["name"]}}
 
     try:
         timeout = aiohttp.ClientTimeout(total=20.0, connect=10.0)
@@ -371,11 +381,19 @@ async def call_openai_for_final(
                 headers=headers, json=payload
             ) as response:
                 if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"[AGENT] Final synthesis API error: {response.status} - {error_text[:300]}")
                     return "Не удалось синтезировать финальный ответ."
                 data = await response.json()
-                return data["choices"][0]["message"]["content"].strip()
+                content = data["choices"][0]["message"].get("content")
+                if not content:
+                    # Reasoning модели могут вернуть content=null если есть refusal
+                    refusal = data["choices"][0]["message"].get("refusal", "")
+                    logger.error(f"[AGENT] Final synthesis: empty content, refusal={refusal}")
+                    return refusal or "Модель не смогла сформировать ответ."
+                return content.strip()
     except Exception as e:
-        logger.error(f"[AGENT] Final synthesis error: {e}")
+        logger.error(f"[AGENT] Final synthesis error: {e}", exc_info=True)
         return f"Ошибка синтеза: {e}"
 
 
@@ -491,7 +509,8 @@ async def handle_agent_query(
                 step_result = await asyncio.wait_for(
                     call_openai_for_step(
                         task, step, step_results,
-                        agent_cfg.agent_model, api_key
+                        agent_cfg.agent_model, api_key,
+                        available_functions=agent_cfg.agent_functions or []
                     ),
                     timeout=agent_cfg.step_timeout_sec
                 )
