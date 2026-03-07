@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>J.A.R.V.I.S</title>
+<title>Voicyfy</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after {
@@ -110,7 +110,7 @@ body {
   color: #0066cc;
 }
 
-.message-line .label.jar {
+.message-line .label.ai {
   color: #0044aa;
 }
 
@@ -316,7 +316,7 @@ body {
 <body>
 
 <div class="header">
-  <h1>J.A.R.V.I.S</h1>
+  <h1>V.O.I.C.Y.F.Y</h1>
 </div>
 
 <div class="main-area">
@@ -458,7 +458,7 @@ async function sendMessage() {
   const response = demoResponses[responseIndex % demoResponses.length];
   responseIndex++;
 
-  const { line: botLine, textSpan: botText } = createMessageLine(ts, 'JAR', 'jar');
+  const { line: botLine, textSpan: botText } = createMessageLine(ts, 'AI', 'ai');
   outputBox.appendChild(botLine);
   scrollToBottom();
 
