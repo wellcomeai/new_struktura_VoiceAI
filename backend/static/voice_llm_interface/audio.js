@@ -1,5 +1,5 @@
 /* ============================================================ */
-/* JARVIS AI - Audio System                                     */
+/* Voicyfy AI - Audio System                                    */
 /* Voice LLM Interface - Voicyfy                                */
 /* Version: 4.3.2 - IIFE wrapped                                */
 /* ============================================================ */
@@ -9,7 +9,7 @@
 (function() {
 
 // Get config reference
-const AudioConfig = window.JarvisConfig;
+const AudioConfig = window.VoicyfyConfig;
 
 // ============================================================================
 // GLOBAL AUDIO STATE
@@ -99,7 +99,7 @@ function updateMuteUI() {
     const muteButton = document.getElementById('muteButton');
     const muteIcon = document.getElementById('muteIcon');
     const muteStatus = document.getElementById('muteStatus');
-    const jarvisSphere = document.getElementById('jarvisSphere');
+    const voicyfySphere = document.getElementById('voicyfySphere');
     const voiceStatus = document.getElementById('voiceStatus');
     const statusText = document.getElementById('statusText');
     
@@ -116,15 +116,15 @@ function updateMuteUI() {
         muteStatus.classList.toggle('visible', isMuted);
     }
     
-    if (jarvisSphere) {
+    if (voicyfySphere) {
         if (isMuted) {
-            jarvisSphere.classList.remove('listening');
-            jarvisSphere.classList.add('muted');
+            voicyfySphere.classList.remove('listening');
+            voicyfySphere.classList.add('muted');
         } else {
-            jarvisSphere.classList.remove('muted');
+            voicyfySphere.classList.remove('muted');
             // Restore listening state if connected
             if (window.isConnected && !isPlayingAudio && !window.isStreamingLLM) {
-                jarvisSphere.classList.add('listening');
+                voicyfySphere.classList.add('listening');
             }
         }
     }
@@ -292,10 +292,10 @@ function startAudioScheduler() {
     
     nextPlayTime = ctx.currentTime + 0.15;
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.add('speaking');
-        jarvisSphere.classList.remove('listening', 'processing', 'streaming', 'muted');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.add('speaking');
+        voicyfySphere.classList.remove('listening', 'processing', 'streaming', 'muted');
     }
     
     if (typeof window.updateStatus === 'function') {
@@ -381,13 +381,13 @@ function finishAudioPlayback() {
     interruptionState.is_assistant_speaking = false;
     audioBufferQueue = [];
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('speaking');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('speaking');
         
         // Restore muted state if muted
         if (isMuted) {
-            jarvisSphere.classList.add('muted');
+            voicyfySphere.classList.add('muted');
         }
     }
     
@@ -426,9 +426,9 @@ function stopAllAudioPlayback() {
     scheduledSources = [];
     audioBufferQueue = [];
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('speaking');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('speaking');
     }
 }
 
@@ -489,10 +489,10 @@ async function startListening() {
             // Skip if muted
             if (isMuted) {
                 // Update visualizer to show muted state
-                const jarvisSphere = document.getElementById('jarvisSphere');
-                if (jarvisSphere && !jarvisSphere.classList.contains('muted')) {
-                    jarvisSphere.classList.add('muted');
-                    jarvisSphere.classList.remove('listening');
+                const voicyfySphere = document.getElementById('voicyfySphere');
+                if (voicyfySphere && !voicyfySphere.classList.contains('muted')) {
+                    voicyfySphere.classList.add('muted');
+                    voicyfySphere.classList.remove('listening');
                 }
                 return;
             }
@@ -555,14 +555,14 @@ async function startListening() {
                     isSilent = false;
                     silenceStartTime = now;
                     
-                    const jarvisSphere = document.getElementById('jarvisSphere');
-                    if (jarvisSphere && 
-                        !jarvisSphere.classList.contains('listening') && 
-                        !jarvisSphere.classList.contains('speaking') &&
-                        !jarvisSphere.classList.contains('processing') &&
-                        !jarvisSphere.classList.contains('streaming') &&
-                        !jarvisSphere.classList.contains('muted')) {
-                        jarvisSphere.classList.add('listening');
+                    const voicyfySphere = document.getElementById('voicyfySphere');
+                    if (voicyfySphere && 
+                        !voicyfySphere.classList.contains('listening') && 
+                        !voicyfySphere.classList.contains('speaking') &&
+                        !voicyfySphere.classList.contains('processing') &&
+                        !voicyfySphere.classList.contains('streaming') &&
+                        !voicyfySphere.classList.contains('muted')) {
+                        voicyfySphere.classList.add('listening');
                     }
                 } else if (!isSilent) {
                     const silenceDuration = now - silenceStartTime;
@@ -599,11 +599,11 @@ async function startListening() {
     audioDataStartTime = 0;
     
     // Update UI
-    const jarvisSphere = document.getElementById('jarvisSphere');
+    const voicyfySphere = document.getElementById('voicyfySphere');
     // FIX: Проверяем window.isStreamingLLM
-    if (jarvisSphere && !isPlayingAudio && !window.isStreamingLLM && !isMuted) {
-        jarvisSphere.classList.add('listening');
-        jarvisSphere.classList.remove('speaking', 'processing', 'streaming', 'muted');
+    if (voicyfySphere && !isPlayingAudio && !window.isStreamingLLM && !isMuted) {
+        voicyfySphere.classList.add('listening');
+        voicyfySphere.classList.remove('speaking', 'processing', 'streaming', 'muted');
     }
     
     AudioConfig.log("✅ Listening started");
@@ -612,9 +612,9 @@ async function startListening() {
 function stopListening() {
     isListening = false;
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('listening');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('listening');
     }
     
     AudioConfig.log("⏹️ Listening stopped");
@@ -655,9 +655,9 @@ function sendCommitBuffer() {
         return;
     }
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('listening');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('listening');
     }
     
     window.websocket.send(JSON.stringify({
@@ -735,7 +735,7 @@ function getInterruptionState() {
 // EXPORT TO GLOBAL SCOPE
 // ============================================================================
 
-window.JarvisAudio = {
+window.VoicyfyAudio = {
     // Initialization
     initializeAudio,
     initPlaybackAudioContext,

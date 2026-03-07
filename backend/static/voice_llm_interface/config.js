@@ -1,12 +1,12 @@
 /* ============================================================ */
-/* JARVIS AI - Configuration                                    */
+/* Voicyfy AI - Configuration                                   */
 /* Voice LLM Interface - Voicyfy                                */
 /* Version: 4.3.2 - IIFE wrapped                                */
 /* ============================================================ */
 
 'use strict';
 
-// IIFE - все переменные остаются внутри, наружу только window.JarvisConfig
+// IIFE - все переменные остаются внутри, наружу только window.VoicyfyConfig
 (function() {
     
     // ============================================================================
@@ -29,7 +29,7 @@
     // ============================================================================
     
     const STORAGE_KEY_ASSISTANT = 'lastGeminiAssistantId';
-    const HISTORY_STORAGE_KEY = 'jarvis_chat_history';
+    const HISTORY_STORAGE_KEY = 'voicyfy_chat_history';
     const MAX_HISTORY_PAIRS = 5;
     
     // ============================================================================
@@ -76,7 +76,7 @@
     
     function log(message, type = 'info') {
         if (DEBUG_MODE || type === 'error') {
-            const prefix = '[JARVIS]';
+            const prefix = '[Voicyfy]';
             const timestamp = new Date().toLocaleTimeString();
             
             if (type === 'error') {
@@ -93,7 +93,7 @@
     // EXPORT TO GLOBAL SCOPE (только один объект!)
     // ============================================================================
     
-    window.JarvisConfig = {
+    window.VoicyfyConfig = {
         DEBUG_MODE,
         MAX_RECONNECT_ATTEMPTS,
         MOBILE_MAX_RECONNECT_ATTEMPTS,

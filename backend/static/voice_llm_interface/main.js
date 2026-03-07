@@ -1,5 +1,5 @@
 /* ============================================================ */
-/* JARVIS AI - Main Application                                 */
+/* Voicyfy AI - Main Application                                */
 /* Voice LLM Interface - Voicyfy                                */
 /* Version: 4.3.2 - IIFE wrapped                                */
 /* ============================================================ */
@@ -12,8 +12,8 @@
 // GET MODULES (use Config.xxx - no destructuring to avoid redeclaration)
 // ============================================================================
 
-const Config = window.JarvisConfig;
-const Audio = window.JarvisAudio;
+const Config = window.VoicyfyConfig;
+const Audio = window.VoicyfyAudio;
 
 // ============================================================================
 // APPLICATION STATE
@@ -58,7 +58,7 @@ let threeInitialized = false;
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', function() {
-    Config.log('🚀 JARVIS AI Interface v4.3.2 Starting...');
+    Config.log('🚀 Voicyfy AI Interface v4.3.2 Starting...');
     Config.log(`   Mode: Gemini Voice (WS1) + LLM Text (WS2) + Agent Mode`);
     Config.log(`   Mute: Enabled`);
     Config.log(`   Assistant ID: ${ASSISTANT_ID || 'Not configured'}`);
@@ -134,9 +134,9 @@ function setupEventListeners() {
     }
     
     // Sphere click
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.addEventListener('click', handleSphereClick);
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.addEventListener('click', handleSphereClick);
     }
     
     // Config buttons
@@ -434,7 +434,7 @@ function copyHTMLCode() {
     }
 
     const embedUrl = `${Config.SERVER_URL}/static/voice_llm_interface/?assistant=${ASSISTANT_ID}`;
-    const embedCode = `<!-- Voicyfy JARVIS AI (Gemini) Widget -->
+    const embedCode = `<!-- Voicyfy AI (Gemini) Widget -->
 <iframe
     src="${embedUrl}"
     width="100%"
@@ -662,10 +662,10 @@ function startStreamingUI(query) {
     window.isStreamingLLM = true;
     streamingContent = "";
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('listening', 'speaking', 'processing', 'muted');
-        jarvisSphere.classList.add('streaming');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('listening', 'speaking', 'processing', 'muted');
+        voicyfySphere.classList.add('streaming');
     }
     
     updateStatus('streaming', 'Генерация ответа...', 'streaming');
@@ -733,11 +733,11 @@ function finishStreamingUI(data) {
     // FIX: Используем window.isStreamingLLM
     window.isStreamingLLM = false;
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('streaming');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('streaming');
         if (Audio.getMuteState()) {
-            jarvisSphere.classList.add('muted');
+            voicyfySphere.classList.add('muted');
         }
     }
     
@@ -790,11 +790,11 @@ function showStreamingError(message) {
     window.isStreamingLLM = false;
     streamingContent = "";
     
-    const jarvisSphere = document.getElementById('jarvisSphere');
-    if (jarvisSphere) {
-        jarvisSphere.classList.remove('streaming');
+    const voicyfySphere = document.getElementById('voicyfySphere');
+    if (voicyfySphere) {
+        voicyfySphere.classList.remove('streaming');
         if (Audio.getMuteState()) {
-            jarvisSphere.classList.add('muted');
+            voicyfySphere.classList.add('muted');
         }
     }
     
@@ -1105,8 +1105,8 @@ function handleGeminiMessage(event) {
                 Config.log(`🔧 Function executing: ${data.function}`);
                 if (data.function === 'query_llm') {
                     updateStatus('processing', 'Запрос к ИИ...', 'processing');
-                    const jarvisSphere = document.getElementById('jarvisSphere');
-                    if (jarvisSphere) jarvisSphere.classList.add('processing');
+                    const voicyfySphere = document.getElementById('voicyfySphere');
+                    if (voicyfySphere) voicyfySphere.classList.add('processing');
                 }
                 return;
             }
@@ -1338,7 +1338,7 @@ function createCircleTexture() {
 
 function initThreeJS() {
     try {
-        const canvas = document.getElementById('jarvis-three-canvas');
+        const canvas = document.getElementById('voicyfy-three-canvas');
         if (!canvas) return;
 
         threeScene = new THREE.Scene();

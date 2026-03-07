@@ -1,5 +1,5 @@
 /* ============================================================ */
-/* JARVIS AI Styles v4.3                                        */
+/* Voicyfy AI Styles v4.3                                       */
 /* Voice LLM Interface - Voicyfy                                */
 /* ============================================================ */
 
@@ -580,7 +580,7 @@ body.embed-mode .sidebar {
     z-index: 1;
 }
 
-#jarvis-three-canvas {
+#voicyfy-three-canvas {
     position: fixed;
     top: 0;
     left: 0;
@@ -1050,10 +1050,10 @@ body.embed-mode .sidebar {
 }
 
 /* ============================================================ */
-/* JARVIS SPHERE                                                */
+/* VOICYFY SPHERE                                               */
 /* ============================================================ */
 
-.jarvis-container {
+.voicyfy-container {
     position: relative;
     width: 320px;
     height: 320px;
@@ -1062,7 +1062,7 @@ body.embed-mode .sidebar {
     justify-content: center;
 }
 
-.jarvis-sphere {
+.voicyfy-sphere {
     width: 280px;
     height: 280px;
     border-radius: 50%;
@@ -1082,7 +1082,7 @@ body.embed-mode .sidebar {
     cursor: pointer;
 }
 
-.jarvis-sphere.listening {
+.voicyfy-sphere.listening {
     background: radial-gradient(circle at 30% 30%, rgba(139, 92, 246, 0.25), transparent 70%);
     border-color: rgba(139, 92, 246, 0.6);
     box-shadow: 
@@ -1091,7 +1091,7 @@ body.embed-mode .sidebar {
     animation: pulse-sphere 2s ease-in-out infinite;
 }
 
-.jarvis-sphere.speaking {
+.voicyfy-sphere.speaking {
     background: radial-gradient(circle at 30% 30%, rgba(34, 197, 94, 0.25), transparent 70%);
     border-color: rgba(34, 197, 94, 0.6);
     box-shadow: 
@@ -1100,7 +1100,7 @@ body.embed-mode .sidebar {
     animation: pulse-sphere-fast 1s ease-in-out infinite;
 }
 
-.jarvis-sphere.processing {
+.voicyfy-sphere.processing {
     background: radial-gradient(circle at 30% 30%, rgba(139, 92, 246, 0.25), transparent 70%);
     border-color: rgba(139, 92, 246, 0.6);
     box-shadow: 
@@ -1109,7 +1109,7 @@ body.embed-mode .sidebar {
     animation: pulse-sphere-slow 1.5s ease-in-out infinite;
 }
 
-.jarvis-sphere.streaming {
+.voicyfy-sphere.streaming {
     background: radial-gradient(circle at 30% 30%, rgba(139, 92, 246, 0.3), transparent 70%);
     border-color: rgba(139, 92, 246, 0.8);
     box-shadow: 
@@ -1118,7 +1118,7 @@ body.embed-mode .sidebar {
     animation: pulse-streaming 1s ease-in-out infinite;
 }
 
-.jarvis-sphere.interrupted {
+.voicyfy-sphere.interrupted {
     background: radial-gradient(circle at 30% 30%, rgba(249, 115, 22, 0.25), transparent 70%);
     border-color: rgba(249, 115, 22, 0.6);
     box-shadow: 
@@ -1128,7 +1128,7 @@ body.embed-mode .sidebar {
 }
 
 /* Muted state for sphere */
-.jarvis-sphere.muted {
+.voicyfy-sphere.muted {
     background: radial-gradient(circle at 30% 30%, rgba(239, 68, 68, 0.15), transparent 70%);
     border-color: rgba(239, 68, 68, 0.4);
     box-shadow: 
@@ -1139,7 +1139,7 @@ body.embed-mode .sidebar {
     animation: none;
 }
 
-.jarvis-sphere.muted .jarvis-icon {
+.voicyfy-sphere.muted .voicyfy-icon {
     color: var(--mute-active-color);
     opacity: 0.6;
 }
@@ -1193,7 +1193,7 @@ body.embed-mode .sidebar {
     }
 }
 
-.jarvis-icon {
+.voicyfy-icon {
     font-size: 64px;
     color: var(--gemini-color);
     filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.6));
@@ -1201,21 +1201,21 @@ body.embed-mode .sidebar {
     z-index: 10;
 }
 
-.jarvis-sphere.listening .jarvis-icon {
+.voicyfy-sphere.listening .voicyfy-icon {
     animation: icon-pulse 2s ease-in-out infinite;
 }
 
-.jarvis-sphere.speaking .jarvis-icon {
+.voicyfy-sphere.speaking .voicyfy-icon {
     color: #22c55e;
 }
 
-.jarvis-sphere.processing .jarvis-icon,
-.jarvis-sphere.streaming .jarvis-icon {
+.voicyfy-sphere.processing .voicyfy-icon,
+.voicyfy-sphere.streaming .voicyfy-icon {
     color: #8b5cf6;
     animation: icon-rotate 2s linear infinite;
 }
 
-.jarvis-sphere.interrupted .jarvis-icon {
+.voicyfy-sphere.interrupted .voicyfy-icon {
     color: #f97316;
 }
 
@@ -1338,18 +1338,18 @@ body.embed-mode .sidebar {
     box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
 }
 
-.jarvis-sphere.speaking .viz-bar {
+.voicyfy-sphere.speaking .viz-bar {
     background: linear-gradient(to top, transparent, #22c55e, transparent);
     box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
 }
 
-.jarvis-sphere.processing .viz-bar,
-.jarvis-sphere.streaming .viz-bar {
+.voicyfy-sphere.processing .viz-bar,
+.voicyfy-sphere.streaming .viz-bar {
     background: linear-gradient(to top, transparent, #8b5cf6, transparent);
     box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
 }
 
-.jarvis-sphere.muted .viz-bar {
+.voicyfy-sphere.muted .viz-bar {
     background: linear-gradient(to top, transparent, rgba(239, 68, 68, 0.3), transparent);
     box-shadow: 0 0 8px rgba(239, 68, 68, 0.2);
     height: 20px !important;
@@ -1700,17 +1700,17 @@ body.embed-mode .sidebar {
         font-size: 18px;
     }
     
-    .jarvis-container {
+    .voicyfy-container {
         width: 280px;
         height: 280px;
     }
     
-    .jarvis-sphere {
+    .voicyfy-sphere {
         width: 240px;
         height: 240px;
     }
     
-    .jarvis-icon {
+    .voicyfy-icon {
         font-size: 48px;
     }
 }
