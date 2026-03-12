@@ -1,13 +1,13 @@
 """
-Voicyfy Agent API — CRUD, chat, stats for autonomous calling agent.
+Voicyfy Agent API v2.0 — CRUD, chat (with tools), contacts, calls, stats.
 """
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -17,8 +17,10 @@ from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
-from backend.models.task import Task
+from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
+from backend.models.agent_contact import AgentContact
+from backend.models.agent_call import AgentCall
 from backend.core.dependencies import get_current_user
 
 logger = get_logger(__name__)
@@ -55,6 +57,14 @@ class AgentUpdateRequest(BaseModel):
 
 class AgentChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
+
+
+class AgentContactCreateRequest(BaseModel):
+    name: Optional[str] = None
+    phone: str = Field(..., min_length=1, max_length=50)
+    company: Optional[str] = None
+    position: Optional[str] = None
+    notes: Optional[str] = None
 
 
 # ============================================================================
@@ -151,7 +161,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
 
 
 # ============================================================================
-# ENDPOINTS
+# ENDPOINTS — AGENT CRUD
 # ============================================================================
 
 
@@ -178,22 +188,18 @@ async def create_agent(
     db: Session = Depends(get_db)
 ):
     """Create a new Voicyfy Agent (one per user)."""
-    # Check openai key
     if not current_user.openai_api_key:
         raise HTTPException(status_code=400, detail="openai_key_required")
 
-    # Check gemini key
     if not current_user.gemini_api_key:
         raise HTTPException(status_code=400, detail="gemini_key_required")
 
-    # Check uniqueness
     existing = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="already_exists")
 
-    # Generate orchestrator prompt
     try:
         orchestrator_prompt = await _generate_orchestrator_prompt(
             doc_who_am_i=body.doc_who_am_i,
@@ -207,10 +213,8 @@ async def create_agent(
         logger.error(f"[AGENT] Failed to generate orchestrator prompt: {e}")
         raise HTTPException(status_code=500, detail=f"prompt_generation_failed: {str(e)}")
 
-    # Extract company name from doc_who_am_i (first line or first 50 chars)
     company_name = body.doc_who_am_i.split('\n')[0][:50] if body.doc_who_am_i else body.name
 
-    # Create GeminiAssistantConfig for voice
     gemini_assistant = GeminiAssistantConfig(
         id=uuid.uuid4(),
         user_id=current_user.id,
@@ -227,7 +231,6 @@ async def create_agent(
     db.add(gemini_assistant)
     db.flush()
 
-    # Create AgentConfig
     agent = AgentConfig(
         id=uuid.uuid4(),
         user_id=current_user.id,
@@ -269,7 +272,6 @@ async def update_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    # Track if docs changed for prompt regeneration
     docs_changed = False
     doc_fields = ['doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk',
                   'doc_what_we_offer', 'doc_rules_and_goals']
@@ -281,12 +283,10 @@ async def update_agent(
             setattr(agent, field, update_data[field])
             docs_changed = True
 
-    # Update non-doc fields
     for field in ['name', 'working_hours_start', 'working_hours_end', 'is_active']:
         if field in update_data and update_data[field] is not None:
             setattr(agent, field, update_data[field])
 
-    # Regenerate orchestrator prompt if docs changed
     if docs_changed:
         try:
             agent.orchestrator_prompt = await _generate_orchestrator_prompt(
@@ -320,7 +320,6 @@ async def delete_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    # Delete associated Gemini assistant
     if agent.assistant_id:
         gemini = db.query(GeminiAssistantConfig).filter(
             GeminiAssistantConfig.id == agent.assistant_id
@@ -335,13 +334,18 @@ async def delete_agent(
     return {"detail": "deleted"}
 
 
+# ============================================================================
+# ENDPOINTS — CHAT (ChatOrchestrator with tools)
+# ============================================================================
+
+
 @router.post("/chat")
 async def agent_chat(
     body: AgentChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Text chat with the agent using gpt-4o-mini."""
+    """Text chat with the agent using GPT-5 + AGENT_CHAT_TOOLS."""
     if not current_user.openai_api_key:
         raise HTTPException(status_code=400, detail="openai_key_required")
 
@@ -351,45 +355,26 @@ async def agent_chat(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=current_user.openai_api_key)
-
-    # Build messages from chat history
-    chat_system = (agent.orchestrator_prompt or "") + """
-
-Ты общаешься с пользователем через текстовый чат.
-Отвечай кратко и по делу. Помогай с вопросами о звонках, контактах и стратегии.
-Если спрашивают о статистике — отвечай что данные доступны на дашборде."""
-
-    messages = [{"role": "system", "content": chat_system}]
-
-    # Add last 20 messages from history
-    history = agent.chat_history or []
-    for msg in history[-20:]:
-        messages.append({"role": msg["role"], "content": msg["content"]})
-
-    messages.append({"role": "user", "content": body.message})
+    from backend.services.agent_orchestrator import ChatOrchestrator
 
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=1000
+        orchestrator = ChatOrchestrator()
+        reply = await orchestrator.run(
+            message=body.message,
+            agent_config=agent,
+            user=current_user,
+            db=db,
         )
-        reply = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"[AGENT] Chat error: {e}")
+        logger.error(f"[AGENT] Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"chat_error: {str(e)}")
 
-    # Update chat history (max 20 messages)
-    new_history = list(history)
-    new_history.append({"role": "user", "content": body.message, "ts": datetime.utcnow().isoformat()})
-    new_history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
-    agent.chat_history = new_history[-20:]
-    db.commit()
-
     return {"reply": reply, "timestamp": datetime.utcnow().isoformat()}
+
+
+# ============================================================================
+# ENDPOINTS — STATS
+# ============================================================================
 
 
 @router.get("/stats")
@@ -397,48 +382,205 @@ async def get_agent_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get agent calling statistics."""
+    """Get agent statistics from AgentContact + AgentCall."""
     agent = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    # Tasks that went through the agent (have pre_call_response_id)
-    agent_tasks = db.query(Task).filter(
-        Task.user_id == current_user.id,
-        Task.pre_call_response_id.isnot(None)
-    )
-
-    total_calls = agent_tasks.count()
-
-    success_calls = agent_tasks.filter(
-        Task.post_call_decision == "SUCCESS"
-    ).count()
-
-    followup_calls = agent_tasks.filter(
-        Task.post_call_decision == "FOLLOWUP"
-    ).count()
-
-    no_answer_calls = agent_tasks.filter(
-        Task.post_call_decision.in_(["NO_ANSWER", "ESCALATE", "REJECTED"])
-    ).count()
-
-    unique_contacts = db.query(func.count(func.distinct(Task.contact_id))).filter(
-        Task.user_id == current_user.id,
-        Task.pre_call_response_id.isnot(None)
+    total_contacts = db.query(func.count(AgentContact.id)).filter(
+        AgentContact.user_id == current_user.id
     ).scalar() or 0
 
-    contacts_with_memory = db.query(func.count(Contact.id)).filter(
-        Contact.user_id == current_user.id,
-        Contact.agent_memory != {}
+    active_contacts = db.query(func.count(AgentContact.id)).filter(
+        AgentContact.user_id == current_user.id,
+        AgentContact.status.notin_(["rejected", "do_not_call"]),
+    ).scalar() or 0
+
+    total_calls = db.query(func.count(AgentCall.id)).filter(
+        AgentCall.user_id == current_user.id
+    ).scalar() or 0
+
+    success_calls = db.query(func.count(AgentCall.id)).filter(
+        AgentCall.user_id == current_user.id,
+        AgentCall.post_call_decision == "SUCCESS",
+    ).scalar() or 0
+
+    followup_calls = db.query(func.count(AgentCall.id)).filter(
+        AgentCall.user_id == current_user.id,
+        AgentCall.post_call_decision == "FOLLOWUP",
+    ).scalar() or 0
+
+    no_answer_calls = db.query(func.count(AgentCall.id)).filter(
+        AgentCall.user_id == current_user.id,
+        AgentCall.post_call_decision.in_(["NO_ANSWER", "REJECTED"]),
+    ).scalar() or 0
+
+    scheduled_tasks = db.query(func.count(Task.id)).filter(
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+        Task.status == TaskStatus.SCHEDULED,
     ).scalar() or 0
 
     return {
+        "total_contacts": total_contacts,
+        "active_contacts": active_contacts,
         "total_calls": total_calls,
         "success_calls": success_calls,
         "followup_calls": followup_calls,
         "no_answer_calls": no_answer_calls,
-        "unique_contacts": unique_contacts,
-        "contacts_with_memory": contacts_with_memory,
+        "scheduled_tasks": scheduled_tasks,
     }
+
+
+# ============================================================================
+# ENDPOINTS — CONTACTS
+# ============================================================================
+
+
+@router.get("/contacts")
+async def list_agent_contacts(
+    status: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List agent contacts with optional status filter."""
+    q = db.query(AgentContact).filter(AgentContact.user_id == current_user.id)
+    if status:
+        q = q.filter(AgentContact.status == status)
+
+    total = q.count()
+    contacts = q.order_by(AgentContact.created_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "total": total,
+        "contacts": [c.to_dict() for c in contacts],
+    }
+
+
+@router.post("/contacts")
+async def create_agent_contact(
+    body: AgentContactCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Manually add a contact and auto-schedule a first call in 1 hour."""
+    agent = db.query(AgentConfig).filter(
+        AgentConfig.user_id == current_user.id
+    ).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    contact = AgentContact(
+        agent_config_id=agent.id,
+        user_id=current_user.id,
+        name=body.name,
+        phone=body.phone,
+        company=body.company,
+        position=body.position,
+        notes=body.notes,
+        status="new",
+        memory={},
+    )
+    db.add(contact)
+    db.flush()
+
+    # Auto-create first task in 1 hour
+    task = Task(
+        is_agent_task=True,
+        agent_contact_id=contact.id,
+        gemini_assistant_id=agent.assistant_id,
+        user_id=current_user.id,
+        contact_id=None,
+        status=TaskStatus.SCHEDULED,
+        scheduled_time=datetime.utcnow() + timedelta(hours=1),
+        title=f"Первый звонок: {body.name or body.phone}",
+        description=body.notes or "",
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(contact)
+
+    logger.info(f"[AGENT] Created contact {contact.id} with auto-task for user {current_user.id}")
+    return contact.to_dict()
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_agent_contact(
+    contact_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete an agent contact (cascade deletes AgentCalls)."""
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    db.delete(contact)
+    db.commit()
+
+    logger.info(f"[AGENT] Deleted contact {contact_id}")
+    return {"detail": "deleted"}
+
+
+# ============================================================================
+# ENDPOINTS — CALLS
+# ============================================================================
+
+
+@router.get("/calls")
+async def list_agent_calls(
+    agent_contact_id: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List agent calls with optional contact filter."""
+    q = db.query(AgentCall).filter(AgentCall.user_id == current_user.id)
+    if agent_contact_id:
+        q = q.filter(AgentCall.agent_contact_id == agent_contact_id)
+
+    total = q.count()
+    calls = q.order_by(AgentCall.created_at.desc()).offset(offset).limit(limit).all()
+
+    result = []
+    for c in calls:
+        d = c.to_dict()
+        # Add contact info
+        if c.contact:
+            d["contact_name"] = c.contact.name
+            d["contact_phone"] = c.contact.phone
+        result.append(d)
+
+    return {
+        "total": total,
+        "calls": result,
+    }
+
+
+@router.get("/calls/{call_id}")
+async def get_agent_call(
+    call_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a single agent call with full transcript."""
+    call = db.query(AgentCall).filter(
+        AgentCall.id == call_id,
+        AgentCall.user_id == current_user.id,
+    ).first()
+    if not call:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    d = call.to_dict()
+    if call.contact:
+        d["contact_name"] = call.contact.name
+        d["contact_phone"] = call.contact.phone
+    return d

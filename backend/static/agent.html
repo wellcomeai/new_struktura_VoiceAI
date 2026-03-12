@@ -125,6 +125,45 @@
     .status-dot.active { background:var(--green-500); box-shadow:0 0 8px rgba(16,185,129,0.4); }
     .status-dot.inactive { background:var(--text-light); }
 
+    /* TABS */
+    .tabs { display:flex; gap:0; margin-bottom:2rem; border-bottom:2px solid var(--border-color); }
+    .tab-btn { padding:0.75rem 1.5rem; cursor:pointer; font-weight:500; font-size:0.9rem; color:var(--text-gray); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; transition:var(--transition-sm); }
+    .tab-btn.active { color:var(--primary-blue); border-bottom-color:var(--primary-blue); }
+    .tab-btn:hover { color:var(--primary-blue); }
+    .tab-content { display:none; }
+    .tab-content.active { display:block; }
+
+    /* TABLE */
+    .data-table { width:100%; border-collapse:collapse; background:var(--white); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
+    .data-table th { padding:0.75rem 1rem; text-align:left; font-size:0.8rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:0.03em; background:var(--bg-light); border-bottom:1px solid var(--border-color); }
+    .data-table td { padding:0.75rem 1rem; font-size:0.875rem; border-bottom:1px solid var(--border-color); }
+    .data-table tr:last-child td { border-bottom:none; }
+    .data-table tr:hover td { background:var(--bg-blue-light); }
+
+    .status-badge { display:inline-flex; align-items:center; gap:0.25rem; padding:0.25rem 0.75rem; border-radius:var(--radius-full); font-size:0.75rem; font-weight:500; }
+    .status-new { background:#f1f5f9; color:#64748b; }
+    .status-calling { background:#dbeafe; color:#2563eb; animation:pulse 1.5s infinite; }
+    .status-active { background:var(--green-100); color:var(--green-500); }
+    .status-success { background:#065f46; color:#fff; }
+    .status-rejected { background:var(--red-100); color:var(--red-500); }
+    .status-do_not_call { background:#7f1d1d; color:#fff; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
+
+    .decision-badge { font-size:0.8rem; }
+    .transcript-row { display:none; }
+    .transcript-row.visible { display:table-row; }
+    .transcript-row td { padding:1rem; background:var(--bg-light); white-space:pre-wrap; font-size:0.8rem; color:var(--text-gray); }
+
+    .pagination { display:flex; justify-content:center; gap:0.5rem; margin-top:1rem; }
+    .pagination button { padding:0.5rem 1rem; border:1px solid var(--border-color); background:var(--white); border-radius:var(--radius-md); cursor:pointer; font-size:0.85rem; }
+    .pagination button.active { background:var(--primary-blue); color:var(--white); border-color:var(--primary-blue); }
+    .pagination button:disabled { opacity:0.4; cursor:not-allowed; }
+
+    /* MODAL */
+    .modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:100; }
+    .modal-card { background:var(--white); border-radius:var(--radius-lg); padding:2rem; width:90%; max-width:480px; box-shadow:var(--shadow-lg); }
+    .modal-card h3 { margin-bottom:1rem; }
+
     .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:2rem; }
     .stat-card { background:var(--white); border-radius:var(--radius-lg); padding:1.5rem; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
     .stat-card .stat-value { font-size:2rem; font-weight:700; color:var(--text-dark); }
@@ -274,15 +313,77 @@
           <div class="stat-card"><div class="stat-value" id="stat-success">0</div><div class="stat-label">Успешных</div></div>
           <div class="stat-card"><div class="stat-value" id="stat-followup">0</div><div class="stat-label">Перезвон</div></div>
           <div class="stat-card"><div class="stat-value" id="stat-noanswer">0</div><div class="stat-label">Недозвон</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-contacts">0</div><div class="stat-label">Контактов</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-scheduled">0</div><div class="stat-label">В очереди</div></div>
         </div>
 
-        <div class="chat-container">
-          <div class="chat-header"><i class="fas fa-comment-dots"></i> Чат с агентом</div>
-          <div class="chat-messages" id="chat-messages"></div>
-          <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Напишите сообщение..." autocomplete="off">
-            <button id="chat-send"><i class="fas fa-paper-plane"></i></button>
+        <!-- TABS -->
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="tab-chat">Чат с агентом</button>
+          <button class="tab-btn" data-tab="tab-contacts">Контакты</button>
+          <button class="tab-btn" data-tab="tab-calls">История звонков</button>
+        </div>
+
+        <!-- TAB: Chat -->
+        <div class="tab-content active" id="tab-chat">
+          <div class="chat-container">
+            <div class="chat-header"><i class="fas fa-comment-dots"></i> Чат с агентом</div>
+            <div class="chat-messages" id="chat-messages"></div>
+            <div class="chat-input-area">
+              <input type="text" id="chat-input" placeholder="Напишите сообщение..." autocomplete="off">
+              <button id="chat-send"><i class="fas fa-paper-plane"></i></button>
+            </div>
           </div>
+        </div>
+
+        <!-- TAB: Contacts -->
+        <div class="tab-content" id="tab-contacts">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <select id="contacts-status-filter" style="padding:0.5rem; border:1px solid var(--border-color); border-radius:var(--radius-md); font-size:0.85rem;">
+                <option value="">Все статусы</option>
+                <option value="new">new</option>
+                <option value="calling">calling</option>
+                <option value="active">active</option>
+                <option value="success">success</option>
+                <option value="rejected">rejected</option>
+                <option value="do_not_call">do_not_call</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="btn-add-contact"><i class="fas fa-plus"></i> Добавить контакт</button>
+          </div>
+          <table class="data-table" id="contacts-table">
+            <thead>
+              <tr>
+                <th>Имя</th>
+                <th>Телефон</th>
+                <th>Компания</th>
+                <th>Статус</th>
+                <th>Попыток</th>
+                <th>Последний звонок</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="contacts-tbody"></tbody>
+          </table>
+          <div class="pagination" id="contacts-pagination"></div>
+        </div>
+
+        <!-- TAB: Calls -->
+        <div class="tab-content" id="tab-calls">
+          <table class="data-table" id="calls-table">
+            <thead>
+              <tr>
+                <th>Контакт</th>
+                <th>Дата</th>
+                <th>Длит.</th>
+                <th>Статус</th>
+                <th>Решение</th>
+              </tr>
+            </thead>
+            <tbody id="calls-tbody"></tbody>
+          </table>
+          <div class="pagination" id="calls-pagination"></div>
         </div>
 
         <!-- Settings panel (hidden by default) -->
@@ -341,6 +442,9 @@ let currentStep = 0;
 let formData = {};
 let agentData = null;
 const TOTAL_STEPS = 7; // 0=keys, 1-5=docs, 6=creation
+let contactsPage = 0;
+let callsPage = 0;
+const PAGE_SIZE = 20;
 
 function getToken() {
   return localStorage.getItem('auth_token');
@@ -707,6 +811,26 @@ function showDashboard() {
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChatMessage();
   });
+
+  // Tabs
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      const target = document.getElementById(btn.dataset.tab);
+      if (target) target.classList.add('active');
+      // Load data when tab is opened
+      if (btn.dataset.tab === 'tab-contacts') { contactsPage = 0; loadContacts(); }
+      if (btn.dataset.tab === 'tab-calls') { callsPage = 0; loadCalls(); }
+    });
+  });
+
+  // Add contact button
+  document.getElementById('btn-add-contact').addEventListener('click', showAddContactModal);
+
+  // Contacts status filter
+  document.getElementById('contacts-status-filter').addEventListener('change', () => { contactsPage = 0; loadContacts(); });
 }
 
 async function loadStats() {
@@ -714,12 +838,188 @@ async function loadStats() {
     const resp = await apiFetch(API_BASE + '/stats');
     if (resp.status === 200) {
       const stats = await resp.json();
-      document.getElementById('stat-total').textContent = stats.total_calls;
-      document.getElementById('stat-success').textContent = stats.success_calls;
-      document.getElementById('stat-followup').textContent = stats.followup_calls;
-      document.getElementById('stat-noanswer').textContent = stats.no_answer_calls;
+      document.getElementById('stat-total').textContent = stats.total_calls || 0;
+      document.getElementById('stat-success').textContent = stats.success_calls || 0;
+      document.getElementById('stat-followup').textContent = stats.followup_calls || 0;
+      document.getElementById('stat-noanswer').textContent = stats.no_answer_calls || 0;
+      document.getElementById('stat-contacts').textContent = stats.total_contacts || 0;
+      document.getElementById('stat-scheduled').textContent = stats.scheduled_tasks || 0;
     }
   } catch(e) { console.error('Stats error:', e); }
+}
+
+// ============================================================================
+// CONTACTS
+// ============================================================================
+async function loadContacts() {
+  const statusFilter = document.getElementById('contacts-status-filter').value;
+  let url = API_BASE + '/contacts?limit=' + PAGE_SIZE + '&offset=' + (contactsPage * PAGE_SIZE);
+  if (statusFilter) url += '&status=' + statusFilter;
+
+  try {
+    const resp = await apiFetch(url);
+    if (resp.status !== 200) return;
+    const data = await resp.json();
+    renderContacts(data.contacts, data.total);
+  } catch(e) { console.error('Contacts error:', e); }
+}
+
+function renderContacts(contacts, total) {
+  const tbody = document.getElementById('contacts-tbody');
+  if (!contacts.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-gray);padding:2rem;">Нет контактов</td></tr>';
+    document.getElementById('contacts-pagination').innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = contacts.map(c => {
+    const statusCls = 'status-' + (c.status || 'new');
+    const statusIcon = c.status === 'do_not_call' ? ' &#128683;' : '';
+    const lastCall = c.last_called_at ? new Date(c.last_called_at).toLocaleString('ru') : '—';
+    return `<tr>
+      <td>${escapeHtml(c.name || '—')}</td>
+      <td>${escapeHtml(c.phone)}</td>
+      <td>${escapeHtml(c.company || '—')}</td>
+      <td><span class="status-badge ${statusCls}">${c.status}${statusIcon}</span></td>
+      <td>${c.attempts_count || 0}</td>
+      <td>${lastCall}</td>
+      <td><button class="btn btn-danger" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="deleteContact('${c.id}')"><i class="fas fa-trash"></i></button></td>
+    </tr>`;
+  }).join('');
+
+  renderPagination('contacts-pagination', total, contactsPage, (p) => { contactsPage = p; loadContacts(); });
+}
+
+function showAddContactModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'add-contact-modal';
+  overlay.innerHTML = `<div class="modal-card">
+    <h3>Добавить контакт</h3>
+    <div class="field-group"><label>Имя</label><input type="text" id="mc-name" placeholder="Иван Петров"></div>
+    <div class="field-group"><label>Телефон *</label><input type="text" id="mc-phone" placeholder="+79001234567"></div>
+    <div class="field-group"><label>Компания</label><input type="text" id="mc-company" placeholder="ООО Рога и Копыта"></div>
+    <div class="field-group"><label>Должность</label><input type="text" id="mc-position" placeholder="Директор"></div>
+    <div class="field-group"><label>Заметки</label><textarea id="mc-notes" rows="2" style="width:100%;border:1px solid var(--border-color);border-radius:var(--radius-md);padding:0.5rem;font-family:inherit;"></textarea></div>
+    <div style="display:flex;gap:0.5rem;margin-top:1rem;">
+      <button class="btn btn-primary" onclick="submitAddContact()"><i class="fas fa-plus"></i> Создать</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('add-contact-modal').remove()">Отмена</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function submitAddContact() {
+  const phone = document.getElementById('mc-phone').value.trim();
+  if (!phone) { alert('Укажите телефон'); return; }
+
+  const body = {
+    name: document.getElementById('mc-name').value.trim() || null,
+    phone: phone,
+    company: document.getElementById('mc-company').value.trim() || null,
+    position: document.getElementById('mc-position').value.trim() || null,
+    notes: document.getElementById('mc-notes').value.trim() || null,
+  };
+
+  try {
+    const resp = await apiFetch(API_BASE + '/contacts', { method: 'POST', body: JSON.stringify(body) });
+    if (resp.status === 200 || resp.status === 201) {
+      document.getElementById('add-contact-modal')?.remove();
+      loadContacts();
+      loadStats();
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
+    }
+  } catch(e) { alert('Ошибка сети'); }
+}
+
+async function deleteContact(contactId) {
+  if (!confirm('Удалить контакт? Все связанные звонки будут удалены.')) return;
+  try {
+    const resp = await apiFetch(API_BASE + '/contacts/' + contactId, { method: 'DELETE' });
+    if (resp.status === 200) { loadContacts(); loadStats(); }
+    else alert('Ошибка удаления');
+  } catch(e) { alert('Ошибка сети'); }
+}
+
+// ============================================================================
+// CALLS
+// ============================================================================
+async function loadCalls() {
+  let url = API_BASE + '/calls?limit=' + PAGE_SIZE + '&offset=' + (callsPage * PAGE_SIZE);
+
+  try {
+    const resp = await apiFetch(url);
+    if (resp.status !== 200) return;
+    const data = await resp.json();
+    renderCalls(data.calls, data.total);
+  } catch(e) { console.error('Calls error:', e); }
+}
+
+function renderCalls(calls, total) {
+  const tbody = document.getElementById('calls-tbody');
+  if (!calls.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-gray);padding:2rem;">Нет звонков</td></tr>';
+    document.getElementById('calls-pagination').innerHTML = '';
+    return;
+  }
+
+  const decisionIcons = { SUCCESS: '&#9989;', FOLLOWUP: '&#128260;', NO_ANSWER: '&#128245;', REJECTED: '&#10060;', DO_NOT_CALL: '&#128683;' };
+
+  let html = '';
+  calls.forEach((c, i) => {
+    const contactLabel = (c.contact_name || '') + ' ' + (c.contact_phone || '');
+    const date = c.started_at ? new Date(c.started_at).toLocaleString('ru') : (c.created_at ? new Date(c.created_at).toLocaleString('ru') : '—');
+    const dur = c.duration_seconds ? c.duration_seconds + 's' : '—';
+    const icon = decisionIcons[c.post_call_decision] || '';
+    const hasTranscript = c.transcript && c.transcript.length > 0;
+
+    html += `<tr style="cursor:${hasTranscript ? 'pointer' : 'default'};" onclick="toggleTranscript('tr-${i}')">
+      <td>${escapeHtml(contactLabel.trim() || '—')}</td>
+      <td>${date}</td>
+      <td>${dur}</td>
+      <td><span class="status-badge status-${c.status || 'scheduled'}">${c.status || '—'}</span></td>
+      <td><span class="decision-badge">${icon} ${c.post_call_decision || '—'}</span></td>
+    </tr>`;
+
+    if (hasTranscript) {
+      html += `<tr class="transcript-row" id="tr-${i}"><td colspan="5">${escapeHtml(c.transcript)}</td></tr>`;
+    }
+  });
+  tbody.innerHTML = html;
+
+  renderPagination('calls-pagination', total, callsPage, (p) => { callsPage = p; loadCalls(); });
+}
+
+function toggleTranscript(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('visible');
+}
+
+// ============================================================================
+// PAGINATION
+// ============================================================================
+function renderPagination(containerId, total, currentPage, onPageChange) {
+  const container = document.getElementById(containerId);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+  let html = '';
+  html += `<button ${currentPage === 0 ? 'disabled' : ''} onclick="void(0)"><i class="fas fa-chevron-left"></i></button>`;
+  for (let i = 0; i < totalPages && i < 10; i++) {
+    html += `<button class="${i === currentPage ? 'active' : ''}" data-page="${i}">${i + 1}</button>`;
+  }
+  html += `<button ${currentPage >= totalPages - 1 ? 'disabled' : ''} onclick="void(0)"><i class="fas fa-chevron-right"></i></button>`;
+  container.innerHTML = html;
+
+  container.querySelectorAll('button[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => onPageChange(parseInt(btn.dataset.page)));
+  });
+  const btns = container.querySelectorAll('button');
+  btns[0].addEventListener('click', () => { if (currentPage > 0) onPageChange(currentPage - 1); });
+  btns[btns.length - 1].addEventListener('click', () => { if (currentPage < totalPages - 1) onPageChange(currentPage + 1); });
 }
 
 async function saveSettings() {

@@ -6,7 +6,7 @@ Task model для системы задач и автоматических зв
 ✅ ВЕРСИЯ 2.0: Поддержка OpenAI + Gemini ассистентов
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Enum, Index, CheckConstraint
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -44,11 +44,11 @@ class Task(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     
     # ==================== Связи (Foreign Keys) ====================
-    # Контакт - КОМУ звонить (обязательно, с каскадным удалением)
+    # Контакт - КОМУ звонить (для обычных задач; nullable для agent tasks)
     contact_id = Column(
-        UUID(as_uuid=True), 
-        ForeignKey("contacts.id", ondelete="CASCADE"), 
-        nullable=False, 
+        UUID(as_uuid=True),
+        ForeignKey("contacts.id", ondelete="CASCADE"),
+        nullable=True,
         index=True
     )
     
@@ -112,6 +112,20 @@ class Task(Base):
     # Если NULL — автоматически выбирается первый активный номер пользователя
     caller_id = Column(String(20), nullable=True)
 
+    # Agent contact/call links (for agent tasks)
+    agent_contact_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_contacts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    agent_call_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_calls.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    is_agent_task = Column(Boolean, default=False, nullable=False)
+
     # Agent orchestrator fields
     pre_call_response_id = Column(String(255), nullable=True)
     post_call_decision = Column(String(50), nullable=True)
@@ -148,19 +162,15 @@ class Task(Base):
     
     # ==================== Constraints & Indexes ====================
     __table_args__ = (
-        # ✅ CHECK: хотя бы один ассистент должен быть указан
-        CheckConstraint(
-            '((assistant_id IS NOT NULL)::int + '
-            '(gemini_assistant_id IS NOT NULL)::int + '
-            '(cartesia_assistant_id IS NOT NULL)::int) = 1',
-            name='check_assistant_type'
-        ),
         # Составной индекс для поиска задач к выполнению
         Index('ix_tasks_scheduled_status', 'scheduled_time', 'status'),
         # Индекс для быстрого поиска по контакту
         Index('ix_tasks_contact_scheduled', 'contact_id', 'scheduled_time'),
         # Индекс для поиска по пользователю
         Index('ix_tasks_user_scheduled', 'user_id', 'scheduled_time'),
+        # Индекс для agent tasks
+        Index('idx_tasks_agent_contact', 'agent_contact_id'),
+        Index('idx_tasks_is_agent', 'is_agent_task'),
     )
     
     def __repr__(self):
@@ -202,6 +212,9 @@ class Task(Base):
             "description": self.description,
             "custom_greeting": self.custom_greeting,  # ✅ НОВОЕ v2.1
             "caller_id": self.caller_id,  # ✅ НОВОЕ v2.2
+            "agent_contact_id": str(self.agent_contact_id) if self.agent_contact_id else None,
+            "agent_call_id": str(self.agent_call_id) if self.agent_call_id else None,
+            "is_agent_task": self.is_agent_task or False,
             "call_session_id": self.call_session_id,
             "call_started_at": self.call_started_at.isoformat() if self.call_started_at else None,
             "call_completed_at": self.call_completed_at.isoformat() if self.call_completed_at else None,

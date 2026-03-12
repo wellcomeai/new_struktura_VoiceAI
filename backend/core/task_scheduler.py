@@ -29,6 +29,8 @@ from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.agent_config import AgentConfig
+from backend.models.agent_contact import AgentContact
+from backend.models.agent_call import AgentCall
 from backend.services.voximplant_partner import get_voximplant_partner_service
 from backend.services.agent_orchestrator import PreCallOrchestrator, PostCallOrchestrator
 
@@ -89,27 +91,39 @@ class TaskScheduler:
         logger.info("[TASK-SCHEDULER] Stopped")
     
     async def check_and_execute_tasks(self):
-        """Проверка и выполнение задач"""
+        """Проверка и выполнение задач (agent + regular)"""
         db = SessionLocal()
-        
+
         try:
             now = datetime.utcnow()
-            
-            # Находим задачи которые нужно выполнить
-            pending_tasks = db.query(Task).filter(
+
+            # 1. AGENT TASKS (is_agent_task=True)
+            agent_tasks = db.query(Task).filter(
                 Task.status == TaskStatus.SCHEDULED,
-                Task.scheduled_time <= now
+                Task.scheduled_time <= now,
+                Task.is_agent_task == True
             ).all()
-            
-            if not pending_tasks:
+
+            # 2. REGULAR TASKS (is_agent_task=False or NULL)
+            regular_tasks = db.query(Task).filter(
+                Task.status == TaskStatus.SCHEDULED,
+                Task.scheduled_time <= now,
+                Task.is_agent_task != True
+            ).all()
+
+            total = len(agent_tasks) + len(regular_tasks)
+            if not total:
                 logger.debug(f"[TASK-SCHEDULER] No pending tasks at {now}")
                 return
-            
-            logger.info(f"[TASK-SCHEDULER] Found {len(pending_tasks)} tasks to execute")
-            
-            for task in pending_tasks:
+
+            logger.info(f"[TASK-SCHEDULER] Found {total} tasks ({len(agent_tasks)} agent, {len(regular_tasks)} regular)")
+
+            for task in agent_tasks:
+                await self.execute_agent_task(task, db)
+
+            for task in regular_tasks:
                 await self.execute_task(task, db)
-            
+
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Error checking tasks: {e}", exc_info=True)
         finally:
@@ -159,10 +173,253 @@ class TaskScheduler:
 
         return assistant_id, assistant_name, assistant_type
     
+    async def execute_agent_task(self, task: Task, db: Session):
+        """
+        Execute an agent task: create AgentCall, run PreCall with AgentContact,
+        then initiate the call and launch PostCall.
+        """
+        try:
+            logger.info(f"[TASK-SCHEDULER] 🤖 Executing AGENT task {task.id}: {task.title}")
+
+            # Lock task immediately
+            task.status = TaskStatus.PENDING
+            task.call_started_at = datetime.utcnow()
+            db.commit()
+
+            # Get AgentContact
+            agent_contact = None
+            if task.agent_contact_id:
+                agent_contact = db.query(AgentContact).filter(
+                    AgentContact.id == task.agent_contact_id
+                ).first()
+
+            if not agent_contact:
+                logger.error(f"[TASK-SCHEDULER] AgentContact not found for agent task {task.id}")
+                task.status = TaskStatus.FAILED
+                task.call_result = "AgentContact not found"
+                db.commit()
+                return
+
+            # Get user
+            user = db.query(User).filter(User.id == task.user_id).first()
+            if not user:
+                logger.error(f"[TASK-SCHEDULER] User not found for agent task {task.id}")
+                task.status = TaskStatus.FAILED
+                task.call_result = "User not found"
+                db.commit()
+                return
+
+            # Get assistant info
+            assistant_id, assistant_name, assistant_type = self._get_assistant_info(task, db)
+            if not assistant_id or not assistant_type:
+                logger.error(f"[TASK-SCHEDULER] No valid assistant for agent task {task.id}")
+                task.status = TaskStatus.FAILED
+                task.call_result = "Assistant not found"
+                db.commit()
+                return
+
+            # Get agent config
+            agent_config = db.query(AgentConfig).filter(
+                AgentConfig.user_id == user.id,
+                AgentConfig.is_active == True
+            ).first()
+
+            # Create AgentCall record
+            agent_call = AgentCall(
+                agent_contact_id=agent_contact.id,
+                agent_config_id=agent_config.id if agent_config else None,
+                user_id=user.id,
+                source_task_id=task.id,
+                status="calling",
+                scheduled_at=task.scheduled_time,
+                started_at=datetime.utcnow(),
+            )
+            db.add(agent_call)
+            db.flush()
+
+            # Link task to agent_call
+            task.agent_call_id = agent_call.id
+
+            # Update contact status
+            agent_contact.status = "calling"
+            db.commit()
+
+            # PreCall with AgentContact
+            if agent_config and user.openai_api_key:
+                try:
+                    pre_call = PreCallOrchestrator()
+                    pre_result = await pre_call.run(task, agent_contact, agent_call, agent_config, user, db)
+                    logger.info(f"[TASK-SCHEDULER] ✅ Agent PreCall completed: {pre_result.get('call_strategy', '')[:80]}")
+                except Exception as e:
+                    logger.error(f"[TASK-SCHEDULER] ⚠️ Agent PreCall failed (continuing): {e}")
+
+            # Determine which integration to use for the call
+            # Use agent_contact.phone as the number to call
+            phone_number = agent_contact.phone
+            contact_name = agent_contact.name or ""
+
+            child_account: Optional[VoximplantChildAccount] = None
+            if hasattr(user, 'voximplant_child_account') and user.voximplant_child_account:
+                child_account = user.voximplant_child_account
+
+            call_session_id = None
+            call_success = False
+
+            if child_account and child_account.can_make_outbound_calls:
+                call_session_id, call_success = await self._agent_call_via_partner(
+                    task, agent_contact, child_account, assistant_id, assistant_name, assistant_type, db
+                )
+            elif user.has_voximplant_config():
+                call_session_id, call_success = await self._agent_call_via_legacy(
+                    task, agent_contact, user, assistant_id, assistant_name, assistant_type, db
+                )
+            else:
+                logger.error(f"[TASK-SCHEDULER] ❌ No Voximplant config for agent task {task.id}")
+                task.status = TaskStatus.FAILED
+                task.call_result = "No Voximplant configuration found."
+                agent_call.status = "failed"
+                agent_contact.status = "active"
+                db.commit()
+                return
+
+            if call_success and call_session_id:
+                agent_call.call_session_id = str(call_session_id)
+                task.call_session_id = str(call_session_id)
+                task.status = TaskStatus.COMPLETED
+                task.call_completed_at = datetime.utcnow()
+                task.call_result = f"Agent call initiated. Session: {call_session_id}"
+                db.commit()
+
+                # Launch PostCall with agent_call_id
+                if agent_config and user.openai_api_key:
+                    asyncio.create_task(
+                        PostCallOrchestrator.poll_and_run(
+                            agent_call_id=str(agent_call.id),
+                            agent_config_id=str(agent_config.id),
+                            user_openai_key=user.openai_api_key,
+                        )
+                    )
+                    logger.info(f"[TASK-SCHEDULER] 🤖 Agent PostCall started for call {agent_call.id}")
+            else:
+                task.status = TaskStatus.FAILED
+                task.call_result = task.call_result or "Call failed"
+                agent_call.status = "failed"
+                agent_contact.status = "active"
+                db.commit()
+
+        except Exception as e:
+            logger.error(f"[TASK-SCHEDULER] Error in agent task {task.id}: {e}", exc_info=True)
+            try:
+                task.status = TaskStatus.FAILED
+                task.call_result = f"Internal error: {str(e)}"
+                db.commit()
+            except Exception:
+                pass
+
+    async def _agent_call_via_partner(
+        self, task, agent_contact, child_account, assistant_id, assistant_name, assistant_type, db
+    ) -> Tuple[Optional[str], bool]:
+        """Initiate agent call via partner API. Returns (session_id, success)."""
+        try:
+            rule_id = child_account.get_rule_id("outbound_crm")
+            if not rule_id:
+                task.call_result = "Outbound rule not configured"
+                return None, False
+
+            caller_id = None
+            if task.caller_id:
+                if child_account.phone_numbers:
+                    for phone in child_account.phone_numbers:
+                        if phone.phone_number == task.caller_id and phone.is_active:
+                            caller_id = task.caller_id
+                            break
+            if not caller_id and child_account.phone_numbers:
+                for phone in child_account.phone_numbers:
+                    if phone.is_active:
+                        caller_id = phone.phone_number
+                        break
+            if not caller_id:
+                task.call_result = "No active phone numbers"
+                return None, False
+
+            service = get_voximplant_partner_service()
+            result = await service.start_outbound_call(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                rule_id=int(rule_id),
+                phone_number=agent_contact.phone,
+                assistant_id=assistant_id,
+                caller_id=caller_id,
+                contact_name=agent_contact.name or "",
+                task_title=task.title or "",
+                task_description=task.description or "",
+                custom_greeting=task.custom_greeting or "",
+                timezone=DEFAULT_TIMEZONE,
+                assistant_type=assistant_type,
+            )
+
+            if result.get("success"):
+                return result.get("call_session_history_id"), True
+            else:
+                task.call_result = f"Partner API error: {result.get('error', 'Unknown')}"
+                return None, False
+        except Exception as e:
+            task.call_result = f"Partner API exception: {str(e)}"
+            return None, False
+
+    async def _agent_call_via_legacy(
+        self, task, agent_contact, user, assistant_id, assistant_name, assistant_type, db
+    ) -> Tuple[Optional[str], bool]:
+        """Initiate agent call via legacy API. Returns (session_id, success)."""
+        try:
+            voximplant_config = user.get_voximplant_config()
+            if not voximplant_config:
+                task.call_result = "No Voximplant settings"
+                return None, False
+
+            final_assistant_id = assistant_id
+            if assistant_type == "gemini":
+                final_assistant_id = f"gemini_{assistant_id}"
+
+            script_custom_data = json.dumps({
+                "phone_number": agent_contact.phone,
+                "assistant_id": final_assistant_id,
+                "caller_id": voximplant_config["caller_id"],
+                "task_title": task.title or "",
+                "task_description": task.description or "",
+                "contact_name": agent_contact.name or "",
+                "custom_greeting": task.custom_greeting or "",
+                "timezone": DEFAULT_TIMEZONE,
+            }, ensure_ascii=False)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    VOXIMPLANT_API_URL,
+                    data={
+                        "account_id": voximplant_config["account_id"],
+                        "api_key": voximplant_config["api_key"],
+                        "rule_id": voximplant_config["rule_id"],
+                        "script_custom_data": script_custom_data,
+                    }
+                )
+                response_data = response.json()
+
+                if response.status_code == 200 and response_data.get("result") == 1:
+                    raw = response_data.get("call_session_history_id")
+                    session_id = raw[0] if isinstance(raw, list) and raw else raw
+                    return session_id, True
+                else:
+                    error_msg = response_data.get("error", {}).get("msg", "Unknown error")
+                    task.call_result = f"Voximplant error: {error_msg}"
+                    return None, False
+        except Exception as e:
+            task.call_result = f"Legacy API exception: {str(e)}"
+            return None, False
+
     async def execute_task(self, task: Task, db: Session):
         """
         Выполнение конкретной задачи (инициация звонка).
-        
+
         ✅ v4.0: Выбор интеграции:
             1. Проверяем VoximplantChildAccount (НОВАЯ партнёрская интеграция)
             2. Fallback на user.get_voximplant_config() (СТАРАЯ интеграция)
