@@ -316,6 +316,7 @@
             <div>
               <h2 id="agent-name">Мой агент</h2>
               <p style="color:var(--text-gray); font-size:0.875rem;" id="agent-gemini-name"></p>
+              <p style="color:var(--text-gray); font-size:0.75rem; display:none;" id="agent-caller-id-info"><i class="fas fa-phone" style="margin-right:4px;"></i> <span id="agent-caller-id-text"></span></p>
             </div>
           </div>
           <div style="display:flex; gap:0.5rem;">
@@ -448,6 +449,13 @@
               <label>Рабочие часы до</label>
               <input type="number" id="edit-hours-end" min="0" max="23">
             </div>
+          </div>
+          <div class="field-group">
+            <label>Номер для исходящих звонков (Caller ID)</label>
+            <select id="edit-caller-id" style="width:100%; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.75rem 1rem; font-size:0.9rem; font-family:inherit; background:var(--white);">
+              <option value="">Автоматически</option>
+            </select>
+            <p style="color:var(--text-gray); font-size:0.75rem; margin-top:0.25rem;">Номер, который увидит абонент при звонке</p>
           </div>
           <div style="display:flex; gap:0.5rem; margin-top:1rem;">
             <button class="btn btn-primary" id="btn-save-settings"><i class="fas fa-save"></i> Сохранить</button>
@@ -805,6 +813,12 @@ function showDashboard() {
   document.getElementById('agent-name').textContent = agentData.name || 'Мой агент';
   document.getElementById('agent-gemini-name').textContent = agentData.gemini_assistant_name ? 'Голос: ' + agentData.gemini_assistant_name : '';
 
+  // Show caller_id in header
+  if (agentData.default_caller_id) {
+    document.getElementById('agent-caller-id-info').style.display = 'block';
+    document.getElementById('agent-caller-id-text').textContent = agentData.default_caller_id;
+  }
+
   const dot = document.getElementById('agent-status-dot');
   dot.classList.toggle('active', agentData.is_active);
   dot.classList.toggle('inactive', !agentData.is_active);
@@ -821,6 +835,9 @@ function showDashboard() {
   document.getElementById('edit-doc5').value = agentData.doc_rules_and_goals || '';
   document.getElementById('edit-hours-start').value = agentData.working_hours_start ?? 9;
   document.getElementById('edit-hours-end').value = agentData.working_hours_end ?? 21;
+
+  // Load phone numbers for caller_id selector
+  loadPhoneNumbers();
 
   // Events
   document.getElementById('btn-settings').addEventListener('click', () => {
@@ -1057,10 +1074,35 @@ function renderPagination(containerId, total, currentPage, onPageChange) {
   btns[btns.length - 1].addEventListener('click', () => { if (currentPage < totalPages - 1) onPageChange(currentPage + 1); });
 }
 
+async function loadPhoneNumbers() {
+  const select = document.getElementById('edit-caller-id');
+  try {
+    const resp = await apiFetch(API_BASE + '/phone-numbers');
+    if (resp.status === 200) {
+      const data = await resp.json();
+      select.innerHTML = '<option value="">Автоматически</option>';
+      (data.phone_numbers || []).forEach(p => {
+        const label = p.region ? `${p.phone_number} (${p.region})` : p.phone_number;
+        const opt = document.createElement('option');
+        opt.value = p.phone_number;
+        opt.textContent = label;
+        select.appendChild(opt);
+      });
+      // Set current value
+      if (agentData && agentData.default_caller_id) {
+        select.value = agentData.default_caller_id;
+      }
+    }
+  } catch(e) {
+    console.error('Failed to load phone numbers:', e);
+  }
+}
+
 async function saveSettings() {
   const btn = document.getElementById('btn-save-settings');
   btn.disabled = true;
 
+  const callerIdVal = document.getElementById('edit-caller-id').value;
   const body = {
     name: document.getElementById('edit-name').value,
     doc_who_am_i: document.getElementById('edit-doc1').value,
@@ -1070,6 +1112,7 @@ async function saveSettings() {
     doc_rules_and_goals: document.getElementById('edit-doc5').value,
     working_hours_start: parseInt(document.getElementById('edit-hours-start').value) || 9,
     working_hours_end: parseInt(document.getElementById('edit-hours-end').value) || 21,
+    default_caller_id: callerIdVal || null,
   };
 
   try {
@@ -1077,6 +1120,12 @@ async function saveSettings() {
     if (resp.status === 200) {
       agentData = await resp.json();
       document.getElementById('agent-name').textContent = agentData.name;
+      if (agentData.default_caller_id) {
+        document.getElementById('agent-caller-id-info').style.display = 'block';
+        document.getElementById('agent-caller-id-text').textContent = agentData.default_caller_id;
+      } else {
+        document.getElementById('agent-caller-id-info').style.display = 'none';
+      }
       document.getElementById('settings-panel').classList.remove('visible');
       alert('Настройки сохранены. Промпт оркестратора обновлён.');
     } else {

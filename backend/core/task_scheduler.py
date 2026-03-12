@@ -327,12 +327,29 @@ class TaskScheduler:
                 return None, False
 
             caller_id = None
+
+            # 1. Task-level caller_id
             if task.caller_id:
                 if child_account.phone_numbers:
                     for phone in child_account.phone_numbers:
                         if phone.phone_number == task.caller_id and phone.is_active:
                             caller_id = task.caller_id
                             break
+
+            # 2. AgentConfig.default_caller_id
+            if not caller_id and agent_contact:
+                agent_cfg = db.query(AgentConfig).filter(
+                    AgentConfig.id == agent_contact.agent_config_id
+                ).first()
+                if agent_cfg and agent_cfg.default_caller_id:
+                    if child_account.phone_numbers:
+                        for phone in child_account.phone_numbers:
+                            if phone.phone_number == agent_cfg.default_caller_id and phone.is_active:
+                                caller_id = agent_cfg.default_caller_id
+                                logger.info(f"   📞 Using agent default_caller_id: {caller_id}")
+                                break
+
+            # 3. First active number (fallback)
             if not caller_id and child_account.phone_numbers:
                 for phone in child_account.phone_numbers:
                     if phone.is_active:
@@ -569,12 +586,11 @@ class TaskScheduler:
                 db.commit()
                 return
             
-            # ✅ v4.1: Выбор caller_id — из задачи или автоматически
+            # ✅ v4.1: Выбор caller_id — из задачи, агента или автоматически
             caller_id = None
 
             # 1. Если в задаче указан конкретный caller_id — используем его
             if task.caller_id:
-                # Проверяем что этот номер существует и активен
                 caller_id_valid = False
                 if child_account.phone_numbers:
                     for phone in child_account.phone_numbers:
@@ -586,9 +602,18 @@ class TaskScheduler:
 
                 if not caller_id_valid:
                     logger.warning(f"[TASK-SCHEDULER] ⚠️ Task caller_id '{task.caller_id}' is not active or not found")
-                    logger.warning(f"   Falling back to first active number...")
+                    logger.warning(f"   Falling back to agent/auto-select...")
 
-            # 2. Если caller_id не указан или не валиден — берём первый активный
+            # 2. AgentConfig.default_caller_id (если есть активный агент)
+            if not caller_id and agent_config and agent_config.default_caller_id:
+                if child_account.phone_numbers:
+                    for phone in child_account.phone_numbers:
+                        if phone.phone_number == agent_config.default_caller_id and phone.is_active:
+                            caller_id = agent_config.default_caller_id
+                            logger.info(f"   📞 Using agent default_caller_id: {caller_id}")
+                            break
+
+            # 3. Если caller_id не указан или не валиден — берём первый активный
             if not caller_id:
                 if child_account.phone_numbers:
                     for phone in child_account.phone_numbers:
@@ -597,7 +622,7 @@ class TaskScheduler:
                             logger.info(f"   📞 Auto-selected caller_id: {caller_id}")
                             break
 
-            # 3. Если вообще нет активных номеров — ошибка
+            # 4. Если вообще нет активных номеров — ошибка
             if not caller_id:
                 logger.error(f"[TASK-SCHEDULER] ❌ No active phone numbers for caller_id")
                 task.status = TaskStatus.FAILED

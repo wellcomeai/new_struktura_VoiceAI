@@ -43,6 +43,9 @@ class AgentConfig(Base):
     working_hours_start = Column(Integer, default=9, nullable=False)
     working_hours_end = Column(Integer, default=21, nullable=False)
 
+    # Номер для исходящих звонков (caller_id)
+    default_caller_id = Column(String(50), nullable=True)
+
     # Чат с агентом
     chat_history = Column(JSONB, default=list, nullable=False)
 

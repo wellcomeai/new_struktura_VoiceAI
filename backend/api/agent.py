@@ -53,6 +53,7 @@ class AgentUpdateRequest(BaseModel):
     working_hours_start: Optional[int] = Field(None, ge=0, le=23)
     working_hours_end: Optional[int] = Field(None, ge=0, le=23)
     is_active: Optional[bool] = None
+    default_caller_id: Optional[str] = Field(None, max_length=50)
 
 
 class AgentChatRequest(BaseModel):
@@ -155,6 +156,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "doc_rules_and_goals": agent.doc_rules_and_goals,
         "working_hours_start": agent.working_hours_start,
         "working_hours_end": agent.working_hours_end,
+        "default_caller_id": agent.default_caller_id,
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "updated_at": agent.updated_at.isoformat() if agent.updated_at else None,
     }
@@ -283,8 +285,8 @@ async def update_agent(
             setattr(agent, field, update_data[field])
             docs_changed = True
 
-    for field in ['name', 'working_hours_start', 'working_hours_end', 'is_active']:
-        if field in update_data and update_data[field] is not None:
+    for field in ['name', 'working_hours_start', 'working_hours_end', 'is_active', 'default_caller_id']:
+        if field in update_data:
             setattr(agent, field, update_data[field])
 
     if docs_changed:
@@ -436,6 +438,50 @@ async def get_agent_stats(
         "no_answer_calls": no_answer_calls,
         "scheduled_tasks": scheduled_tasks,
     }
+
+
+# ============================================================================
+# ENDPOINTS — PHONE NUMBERS
+# ============================================================================
+
+
+@router.get("/phone-numbers")
+async def get_phone_numbers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get available phone numbers for caller_id selection."""
+    from backend.models.voximplant_child import VoximplantChildAccount, VoximplantPhoneNumber
+
+    numbers = []
+
+    # 1. Partner integration — VoximplantPhoneNumber via child account
+    child_account = None
+    if hasattr(current_user, 'voximplant_child_account') and current_user.voximplant_child_account:
+        child_account = current_user.voximplant_child_account
+
+    if child_account and child_account.phone_numbers:
+        for phone in child_account.phone_numbers:
+            if phone.is_active:
+                numbers.append({
+                    "phone_number": phone.phone_number,
+                    "region": phone.phone_region,
+                    "source": phone.phone_source or "voximplant",
+                    "is_active": True,
+                })
+
+    # 2. Legacy integration — caller_id from user config
+    if not numbers and current_user.has_voximplant_config():
+        vox_config = current_user.get_voximplant_config()
+        if vox_config and vox_config.get("caller_id"):
+            numbers.append({
+                "phone_number": vox_config["caller_id"],
+                "region": None,
+                "source": "legacy",
+                "is_active": True,
+            })
+
+    return {"phone_numbers": numbers}
 
 
 # ============================================================================
