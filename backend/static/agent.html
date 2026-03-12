@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voicyfy Agent | Voicyfy</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary-blue: #2563eb;
+      --primary-blue-light: #3b82f6;
+      --primary-blue-dark: #1d4ed8;
+      --accent-blue: #4a86e8;
+      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
+      --text-dark: #0f172a;
+      --text-gray: #64748b;
+      --text-light: #94a3b8;
+      --bg-light: #f8fafc;
+      --bg-blue-light: #eff6ff;
+      --white: #ffffff;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+      --radius-md: 0.5rem;
+      --radius-lg: 1rem;
+      --radius-full: 9999px;
+      --transition-sm: all 0.2s ease;
+      --transition-md: all 0.3s ease;
+      --green-500: #10b981;
+      --green-100: rgba(16,185,129,0.1);
+      --orange-500: #f97316;
+      --orange-100: rgba(249,115,22,0.1);
+      --red-500: #ef4444;
+      --red-100: rgba(239,68,68,0.1);
+      --purple-500: #8b5cf6;
+      --purple-100: rgba(139,92,246,0.1);
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    body { background-color:var(--bg-light); color:var(--text-dark); min-height:100vh; display:flex; line-height:1.5; }
+
+    /* SIDEBAR */
+    .sidebar { width:260px; background-color:var(--white); border-right:1px solid var(--border-color); height:100vh; position:fixed; left:0; top:0; overflow-y:auto; display:flex; flex-direction:column; z-index:10; transition:var(--transition-md); }
+    .sidebar-header { padding:1.5rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; }
+    .sidebar-logo { font-size:1.25rem; font-weight:700; color:var(--text-dark); text-decoration:none; display:flex; align-items:center; gap:0.5rem; }
+    .logo-icon { width:30px; height:30px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; }
+    .logo-icon img { width:100%; height:100%; object-fit:contain; border-radius:var(--radius-md); }
+    .mobile-toggle { display:none; background:none; border:none; color:var(--text-gray); font-size:1.25rem; cursor:pointer; }
+    .sidebar-nav { padding:1.5rem 0; flex-grow:1; }
+    .sidebar-nav-item { display:flex; align-items:center; padding:0.75rem 1.5rem; color:var(--text-gray); text-decoration:none; transition:var(--transition-sm); border-left:3px solid transparent; }
+    .sidebar-nav-item.active { background-color:var(--bg-blue-light); color:var(--primary-blue); border-left-color:var(--primary-blue); font-weight:500; }
+    .sidebar-nav-item:hover { background-color:var(--bg-blue-light); color:var(--primary-blue); }
+    .sidebar-nav-item i { margin-right:0.75rem; width:20px; text-align:center; }
+    .sidebar-section { padding:0 1.5rem; margin-bottom:0.75rem; margin-top:1.5rem; color:var(--text-light); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+    .sidebar-footer { padding:1rem 1.5rem; border-top:1px solid var(--border-color); }
+
+    /* MAIN CONTENT */
+    .main-content { flex:1; margin-left:260px; display:flex; flex-direction:column; min-height:100vh; transition:var(--transition-md); }
+    .top-nav { background-color:var(--white); border-bottom:1px solid var(--border-color); padding:1rem 2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow-sm); }
+    .page-title { font-size:1.25rem; font-weight:600; }
+    .content-area { padding:2rem; flex:1; }
+
+    /* BUTTONS */
+    .btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.625rem 1.25rem; border-radius:var(--radius-md); font-weight:500; font-size:0.875rem; cursor:pointer; transition:var(--transition-sm); border:none; text-decoration:none; }
+    .btn-primary { background:var(--gradient-blue); color:var(--white); }
+    .btn-primary:hover { opacity:0.9; transform:translateY(-1px); }
+    .btn-secondary { background:var(--white); color:var(--text-dark); border:1px solid var(--border-color); }
+    .btn-secondary:hover { background:var(--bg-light); }
+    .btn-danger { background:var(--red-500); color:var(--white); }
+    .btn-danger:hover { opacity:0.9; }
+    .btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+    /* WIZARD */
+    .wizard-container { max-width:700px; margin:0 auto; }
+    .wizard-progress { display:flex; align-items:center; justify-content:center; gap:0.5rem; margin-bottom:2rem; }
+    .wizard-step-dot { width:12px; height:12px; border-radius:50%; background:var(--border-color); transition:var(--transition-md); }
+    .wizard-step-dot.active { background:var(--primary-blue); transform:scale(1.2); }
+    .wizard-step-dot.done { background:var(--green-500); }
+    .wizard-step-line { width:24px; height:2px; background:var(--border-color); }
+    .wizard-step-line.done { background:var(--green-500); }
+
+    .wizard-card { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:2rem; animation:fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+
+    .wizard-card h2 { font-size:1.5rem; margin-bottom:0.5rem; }
+    .wizard-card p.hint { color:var(--text-gray); font-size:0.875rem; margin-bottom:1.5rem; }
+    .wizard-card textarea { width:100%; min-height:180px; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; font-size:0.9rem; resize:vertical; font-family:inherit; line-height:1.6; transition:var(--transition-sm); }
+    .wizard-card textarea:focus { outline:none; border-color:var(--primary-blue); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+    .wizard-card input[type="text"], .wizard-card input[type="password"], .wizard-card input[type="number"] {
+      width:100%; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.75rem 1rem; font-size:0.9rem; font-family:inherit; transition:var(--transition-sm);
+    }
+    .wizard-card input:focus { outline:none; border-color:var(--primary-blue); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+    .wizard-card label { display:block; font-weight:500; margin-bottom:0.5rem; font-size:0.875rem; }
+    .wizard-actions { display:flex; justify-content:space-between; margin-top:1.5rem; gap:1rem; }
+    .field-group { margin-bottom:1.25rem; }
+    .field-row { display:flex; gap:1rem; }
+    .field-row .field-group { flex:1; }
+
+    /* KEY CHECK */
+    .key-status { display:flex; align-items:center; gap:0.5rem; padding:0.75rem 1rem; border-radius:var(--radius-md); margin-bottom:1rem; font-size:0.875rem; }
+    .key-status.ok { background:var(--green-100); color:var(--green-500); }
+    .key-status.missing { background:var(--orange-100); color:var(--orange-500); }
+
+    /* CREATION ANIMATION */
+    .creation-checklist { list-style:none; padding:0; }
+    .creation-checklist li { padding:0.75rem 0; font-size:1rem; display:flex; align-items:center; gap:0.75rem; color:var(--text-gray); }
+    .creation-checklist li.done { color:var(--green-500); }
+    .creation-checklist li .check-icon { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.75rem; }
+    .creation-checklist li.pending .check-icon { border:2px solid var(--border-color); }
+    .creation-checklist li.done .check-icon { background:var(--green-500); color:var(--white); }
+    .spinner { width:20px; height:20px; border:2px solid var(--border-color); border-top-color:var(--primary-blue); border-radius:50%; animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* DASHBOARD */
+    .dashboard-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; }
+    .agent-status { display:flex; align-items:center; gap:0.75rem; }
+    .status-dot { width:12px; height:12px; border-radius:50%; }
+    .status-dot.active { background:var(--green-500); box-shadow:0 0 8px rgba(16,185,129,0.4); }
+    .status-dot.inactive { background:var(--text-light); }
+
+    .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:2rem; }
+    .stat-card { background:var(--white); border-radius:var(--radius-lg); padding:1.5rem; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
+    .stat-card .stat-value { font-size:2rem; font-weight:700; color:var(--text-dark); }
+    .stat-card .stat-label { font-size:0.8rem; color:var(--text-gray); margin-top:0.25rem; }
+
+    /* CHAT */
+    .chat-container { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid var(--border-color); display:flex; flex-direction:column; height:400px; }
+    .chat-header { padding:1rem 1.5rem; border-bottom:1px solid var(--border-color); font-weight:600; }
+    .chat-messages { flex:1; overflow-y:auto; padding:1rem 1.5rem; display:flex; flex-direction:column; gap:0.75rem; }
+    .chat-bubble { max-width:80%; padding:0.75rem 1rem; border-radius:var(--radius-lg); font-size:0.9rem; line-height:1.5; word-wrap:break-word; }
+    .chat-bubble.user { background:var(--primary-blue); color:var(--white); align-self:flex-end; border-bottom-right-radius:4px; }
+    .chat-bubble.assistant { background:var(--bg-light); color:var(--text-dark); align-self:flex-start; border-bottom-left-radius:4px; }
+    .chat-input-area { padding:1rem 1.5rem; border-top:1px solid var(--border-color); display:flex; gap:0.75rem; }
+    .chat-input-area input { flex:1; border:1px solid var(--border-color); border-radius:var(--radius-full); padding:0.75rem 1.25rem; font-size:0.9rem; font-family:inherit; }
+    .chat-input-area input:focus { outline:none; border-color:var(--primary-blue); }
+    .chat-input-area button { background:var(--gradient-blue); color:var(--white); border:none; border-radius:50%; width:42px; height:42px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:var(--transition-sm); }
+    .chat-input-area button:hover { opacity:0.9; }
+
+    /* SETTINGS PANEL */
+    .settings-panel { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid var(--border-color); padding:1.5rem; margin-top:2rem; display:none; }
+    .settings-panel.visible { display:block; }
+
+    .hidden { display:none !important; }
+
+    /* RESPONSIVE */
+    @media (max-width:768px) {
+      .sidebar { transform:translateX(-100%); }
+      .sidebar.open { transform:translateX(0); }
+      .main-content { margin-left:0; }
+      .mobile-toggle { display:block; }
+      .stats-grid { grid-template-columns:repeat(2,1fr); }
+      .chat-bubble { max-width:90%; }
+      .field-row { flex-direction:column; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/static/dashboard.html" class="sidebar-logo">
+        <div class="logo-icon">
+          <i class="fas fa-robot"></i>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+      <button class="mobile-toggle" id="sidebar-close">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="sidebar-section">Основное</div>
+      <a href="/static/dashboard.html" class="sidebar-nav-item">
+        <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agents.html" class="sidebar-nav-item">
+        <i class="fas fa-robot"></i> OpenAI агенты
+      </a>
+      <a href="/static/gemini-agents.html" class="sidebar-nav-item">
+        <i class="fas fa-gem"></i> Gemini агенты
+      </a>
+      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
+        <i class="fas fa-wave-square"></i> Cartesia агенты
+      </a>
+      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
+        <i class="fas fa-book"></i> База знаний
+      </a>
+      <a href="/static/telephony.html" class="sidebar-nav-item">
+        <i class="fas fa-phone"></i> Телефония
+      </a>
+      <a href="/static/conversations.html" class="sidebar-nav-item">
+        <i class="fas fa-comments"></i> Диалоги
+      </a>
+      <a href="/static/crm.html" class="sidebar-nav-item">
+        <i class="fas fa-address-book"></i> CRM
+      </a>
+
+      <div class="sidebar-section">ИИ Агент</div>
+      <a href="/static/agent.html" class="sidebar-nav-item active">
+        <i class="fas fa-brain"></i> Voicyfy Agent
+      </a>
+
+      <div class="sidebar-section">ИИ Интерфейс</div>
+      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
+        <i class="fas fa-microphone"></i> JARVIS AI
+      </a>
+
+      <div class="sidebar-section">Аккаунт</div>
+      <a href="/static/settings.html" class="sidebar-nav-item">
+        <i class="fas fa-gear"></i> Настройки
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru" class="btn btn-secondary" style="width:100%; text-decoration:none; justify-content:center;" id="logout-button">
+        <i class="fas fa-sign-out-alt"></i> Выйти
+      </a>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main-content" id="main-content">
+    <div class="top-nav">
+      <button class="mobile-toggle" id="sidebar-toggle">
+        <i class="fas fa-bars"></i>
+      </button>
+      <h1 class="page-title">Voicyfy Agent</h1>
+      <div></div>
+    </div>
+
+    <div class="content-area">
+
+      <!-- LOADING -->
+      <div id="loading-state" style="text-align:center; padding:4rem;">
+        <div class="spinner" style="margin:0 auto 1rem;"></div>
+        <p style="color:var(--text-gray);">Загрузка...</p>
+      </div>
+
+      <!-- WIZARD (onboarding) -->
+      <div id="wizard-view" class="hidden">
+        <div class="wizard-container">
+          <div class="wizard-progress" id="wizard-progress"></div>
+          <div id="wizard-content"></div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD (active agent) -->
+      <div id="dashboard-view" class="hidden">
+        <div class="dashboard-header">
+          <div class="agent-status">
+            <div class="status-dot" id="agent-status-dot"></div>
+            <div>
+              <h2 id="agent-name">Мой агент</h2>
+              <p style="color:var(--text-gray); font-size:0.875rem;" id="agent-gemini-name"></p>
+            </div>
+          </div>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-secondary" id="btn-settings"><i class="fas fa-cog"></i> Настройки</button>
+            <button class="btn btn-danger" id="btn-delete"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Всего звонков</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-success">0</div><div class="stat-label">Успешных</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-followup">0</div><div class="stat-label">Перезвон</div></div>
+          <div class="stat-card"><div class="stat-value" id="stat-noanswer">0</div><div class="stat-label">Недозвон</div></div>
+        </div>
+
+        <div class="chat-container">
+          <div class="chat-header"><i class="fas fa-comment-dots"></i> Чат с агентом</div>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Напишите сообщение..." autocomplete="off">
+            <button id="chat-send"><i class="fas fa-paper-plane"></i></button>
+          </div>
+        </div>
+
+        <!-- Settings panel (hidden by default) -->
+        <div class="settings-panel" id="settings-panel">
+          <h3 style="margin-bottom:1rem;">Настройки агента</h3>
+          <div class="field-group">
+            <label>Имя агента</label>
+            <input type="text" id="edit-name">
+          </div>
+          <div class="field-group">
+            <label>Кто мы (doc_who_am_i)</label>
+            <textarea id="edit-doc1" rows="4"></textarea>
+          </div>
+          <div class="field-group">
+            <label>Кому звоним (doc_who_we_call)</label>
+            <textarea id="edit-doc2" rows="4"></textarea>
+          </div>
+          <div class="field-group">
+            <label>Как говорим (doc_how_we_talk)</label>
+            <textarea id="edit-doc3" rows="4"></textarea>
+          </div>
+          <div class="field-group">
+            <label>Что предлагаем (doc_what_we_offer)</label>
+            <textarea id="edit-doc4" rows="4"></textarea>
+          </div>
+          <div class="field-group">
+            <label>Правила и цели (doc_rules_and_goals)</label>
+            <textarea id="edit-doc5" rows="4"></textarea>
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <label>Рабочие часы с</label>
+              <input type="number" id="edit-hours-start" min="0" max="23">
+            </div>
+            <div class="field-group">
+              <label>Рабочие часы до</label>
+              <input type="number" id="edit-hours-end" min="0" max="23">
+            </div>
+          </div>
+          <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+            <button class="btn btn-primary" id="btn-save-settings"><i class="fas fa-save"></i> Сохранить</button>
+            <button class="btn btn-secondary" id="btn-cancel-settings">Отмена</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+<script>
+// ============================================================================
+// STATE
+// ============================================================================
+const API_BASE = '/api/agent';
+let currentStep = 0;
+let formData = {};
+let agentData = null;
+const TOTAL_STEPS = 7; // 0=keys, 1-5=docs, 6=creation
+
+function getToken() {
+  return localStorage.getItem('token');
+}
+
+async function apiFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { window.location.href = '/static/login.html'; return; }
+  const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...options.headers };
+  const resp = await fetch(url, { ...options, headers });
+  if (resp.status === 401) { localStorage.removeItem('token'); window.location.href = '/static/login.html'; return; }
+  return resp;
+}
+
+// ============================================================================
+// INIT
+// ============================================================================
+document.addEventListener('DOMContentLoaded', async () => {
+  // Restore form data from localStorage
+  try { formData = JSON.parse(localStorage.getItem('agent_wizard_data') || '{}'); } catch(e) {}
+
+  // Check if agent exists
+  try {
+    const resp = await apiFetch(API_BASE + '/');
+    if (resp.status === 200) {
+      agentData = await resp.json();
+      showDashboard();
+    } else {
+      showWizard();
+    }
+  } catch(e) {
+    showWizard();
+  }
+
+  // Mobile sidebar toggle
+  document.getElementById('sidebar-toggle')?.addEventListener('click', () => document.getElementById('sidebar').classList.add('open'));
+  document.getElementById('sidebar-close')?.addEventListener('click', () => document.getElementById('sidebar').classList.remove('open'));
+
+  // Logout
+  document.getElementById('logout-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    localStorage.removeItem('token');
+    window.location.href = '/';
+  });
+});
+
+// ============================================================================
+// WIZARD
+// ============================================================================
+function showWizard() {
+  document.getElementById('loading-state').classList.add('hidden');
+  document.getElementById('dashboard-view').classList.add('hidden');
+  document.getElementById('wizard-view').classList.remove('hidden');
+  renderWizardStep();
+}
+
+function renderProgress() {
+  const el = document.getElementById('wizard-progress');
+  let html = '';
+  for (let i = 0; i < TOTAL_STEPS; i++) {
+    const cls = i < currentStep ? 'done' : (i === currentStep ? 'active' : '');
+    html += `<div class="wizard-step-dot ${cls}"></div>`;
+    if (i < TOTAL_STEPS - 1) html += `<div class="wizard-step-line ${i < currentStep ? 'done' : ''}"></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderWizardStep() {
+  renderProgress();
+  const container = document.getElementById('wizard-content');
+
+  if (currentStep === 0) { renderKeyStep(container); return; }
+  if (currentStep === 6) { renderCreationStep(container); return; }
+
+  const steps = [
+    null,
+    { key: 'doc_who_am_i', title: 'Кто мы', hint: 'Опишите вашу компанию: название, сфера деятельности, УТП, средний чек, основные преимущества.', placeholder: 'Мы — компания "ТехноПром", занимаемся продажей IT-решений для бизнеса. Средний чек 150 000 руб. Наше УТП — внедрение за 3 дня с гарантией результата.' },
+    { key: 'doc_who_we_call', title: 'Кому звоним', hint: 'Опишите портрет вашего клиента: сегмент, должность, боли, типичные возражения.', placeholder: 'Наши клиенты — руководители отделов продаж в компаниях от 50 сотрудников. Основная боль — потеря лидов из-за медленной обработки. Типичные возражения: "дорого", "у нас уже есть CRM".' },
+    { key: 'doc_how_we_talk', title: 'Как говорим', hint: 'Укажите имя агента, стиль общения, примерный скрипт разговора.', placeholder: 'Агент "Алиса". Стиль — дружелюбный, но деловой. Всегда представляется: "Здравствуйте, меня зовут Алиса, я из компании ТехноПром". Не давить, если клиент не готов — предложить перезвон.', nameField: true },
+    { key: 'doc_what_we_offer', title: 'Что предлагаем', hint: 'Перечислите продукты, услуги, цены, текущие акции.', placeholder: 'Тариф "Старт" — 50 000 руб/мес, до 10 пользователей. Тариф "Про" — 120 000 руб/мес, безлимит. Акция: первый месяц бесплатно при заключении договора до конца марта.' },
+    { key: 'doc_rules_and_goals', title: 'Правила и цели', hint: 'KPI, политика повторных звонков, рабочие часы, что считать успехом.', placeholder: 'Цель: 20 встреч в месяц. Максимум 3 попытки на один контакт. Перезвонить через 24ч если не ответил. Не звонить в выходные. Успех = назначенная встреча или отправленное КП.', hoursFields: true }
+  ];
+
+  const step = steps[currentStep];
+
+  let extraFields = '';
+  if (step.nameField) {
+    extraFields = `<div class="field-group">
+      <label>Имя агента</label>
+      <input type="text" id="wizard-agent-name" value="${escapeHtml(formData.name || '')}" placeholder="Например: Алиса">
+    </div>`;
+  }
+  if (step.hoursFields) {
+    extraFields += `<div class="field-row">
+      <div class="field-group">
+        <label>Рабочие часы с (0-23)</label>
+        <input type="number" id="wizard-hours-start" min="0" max="23" value="${formData.working_hours_start ?? 9}">
+      </div>
+      <div class="field-group">
+        <label>Рабочие часы до (0-23)</label>
+        <input type="number" id="wizard-hours-end" min="0" max="23" value="${formData.working_hours_end ?? 21}">
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = `
+    <div class="wizard-card">
+      <h2>Шаг ${currentStep}: ${step.title}</h2>
+      <p class="hint">${step.hint}</p>
+      ${extraFields}
+      <div class="field-group">
+        <textarea id="wizard-textarea" placeholder="${escapeHtml(step.placeholder)}">${escapeHtml(formData[step.key] || '')}</textarea>
+      </div>
+      <div class="wizard-actions">
+        <button class="btn btn-secondary" onclick="prevStep()"><i class="fas fa-arrow-left"></i> Назад</button>
+        <button class="btn btn-primary" onclick="nextStep()">Далее <i class="fas fa-arrow-right"></i></button>
+      </div>
+    </div>`;
+}
+
+async function renderKeyStep(container) {
+  // Fetch user to check keys
+  const resp = await apiFetch('/api/users/me');
+  if (!resp || resp.status !== 200) return;
+  const user = await resp.json();
+
+  const hasOpenAI = user.has_api_key;
+  const hasGemini = user.has_gemini_api_key;
+
+  if (hasOpenAI && hasGemini) {
+    currentStep = 1;
+    renderWizardStep();
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="wizard-card">
+      <h2>Шаг 0: API ключи</h2>
+      <p class="hint">Для работы Voicyfy Agent нужны два API ключа. Они используются для оркестратора (OpenAI) и голосового ассистента (Google Gemini).</p>
+
+      <div class="key-status ${hasOpenAI ? 'ok' : 'missing'}">
+        <i class="fas ${hasOpenAI ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
+        OpenAI API Key — ${hasOpenAI ? 'подключен' : 'не указан'}
+      </div>
+      ${!hasOpenAI ? '<div class="field-group"><label>OpenAI API Key</label><input type="password" id="key-openai" placeholder="sk-..."></div>' : ''}
+
+      <div class="key-status ${hasGemini ? 'ok' : 'missing'}">
+        <i class="fas ${hasGemini ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
+        Google Gemini API Key — ${hasGemini ? 'подключен' : 'не указан'}
+      </div>
+      ${!hasGemini ? '<div class="field-group"><label>Google Gemini API Key</label><input type="password" id="key-gemini" placeholder="AIza..."></div>' : ''}
+
+      <div class="wizard-actions">
+        <div></div>
+        <button class="btn btn-primary" onclick="saveKeys()" id="btn-save-keys">
+          <i class="fas fa-key"></i> Сохранить и продолжить
+        </button>
+      </div>
+    </div>`;
+}
+
+async function saveKeys() {
+  const btn = document.getElementById('btn-save-keys');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Сохранение...';
+
+  const body = {};
+  const openaiEl = document.getElementById('key-openai');
+  const geminiEl = document.getElementById('key-gemini');
+  if (openaiEl && openaiEl.value.trim()) body.openai_api_key = openaiEl.value.trim();
+  if (geminiEl && geminiEl.value.trim()) body.gemini_api_key = geminiEl.value.trim();
+
+  if (Object.keys(body).length === 0) {
+    currentStep = 1;
+    renderWizardStep();
+    return;
+  }
+
+  try {
+    const resp = await apiFetch('/api/users/me', { method: 'PUT', body: JSON.stringify(body) });
+    if (resp.status === 200) {
+      currentStep = 1;
+      renderWizardStep();
+    } else {
+      alert('Ошибка сохранения ключей');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-key"></i> Сохранить и продолжить';
+    }
+  } catch(e) {
+    alert('Ошибка сети');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-key"></i> Сохранить и продолжить';
+  }
+}
+
+function saveCurrentStepData() {
+  const steps = [null, 'doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk', 'doc_what_we_offer', 'doc_rules_and_goals'];
+  if (currentStep >= 1 && currentStep <= 5) {
+    const textarea = document.getElementById('wizard-textarea');
+    if (textarea) formData[steps[currentStep]] = textarea.value;
+
+    if (currentStep === 3) {
+      const nameEl = document.getElementById('wizard-agent-name');
+      if (nameEl) formData.name = nameEl.value;
+    }
+    if (currentStep === 5) {
+      const startEl = document.getElementById('wizard-hours-start');
+      const endEl = document.getElementById('wizard-hours-end');
+      if (startEl) formData.working_hours_start = parseInt(startEl.value) || 9;
+      if (endEl) formData.working_hours_end = parseInt(endEl.value) || 21;
+    }
+  }
+  localStorage.setItem('agent_wizard_data', JSON.stringify(formData));
+}
+
+function nextStep() {
+  saveCurrentStepData();
+
+  // Validate
+  const steps = [null, 'doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk', 'doc_what_we_offer', 'doc_rules_and_goals'];
+  if (currentStep >= 1 && currentStep <= 5) {
+    const val = formData[steps[currentStep]];
+    if (!val || !val.trim()) {
+      alert('Пожалуйста, заполните поле перед продолжением.');
+      return;
+    }
+  }
+  if (currentStep === 3 && (!formData.name || !formData.name.trim())) {
+    alert('Укажите имя агента.');
+    return;
+  }
+
+  currentStep++;
+  renderWizardStep();
+}
+
+function prevStep() {
+  saveCurrentStepData();
+  if (currentStep > 1) { currentStep--; renderWizardStep(); }
+}
+
+async function renderCreationStep(container) {
+  container.innerHTML = `
+    <div class="wizard-card" style="text-align:center;">
+      <h2>Создание агента</h2>
+      <p class="hint">Подождите, идёт настройка вашего агента...</p>
+      <ul class="creation-checklist" id="creation-checklist">
+        <li class="pending" id="cr-docs"><div class="check-icon"><div class="spinner" style="width:16px;height:16px;border-width:2px;"></div></div> Сохранение документов</li>
+        <li class="pending" id="cr-prompt"><div class="check-icon"></div> Генерация промпта</li>
+        <li class="pending" id="cr-voice"><div class="check-icon"></div> Создание голосового агента</li>
+        <li class="pending" id="cr-active"><div class="check-icon"></div> Активация агента</li>
+      </ul>
+      <div id="cr-error" class="hidden" style="color:var(--red-500); margin-top:1rem;"></div>
+      <div id="cr-success" class="hidden" style="margin-top:1.5rem;">
+        <button class="btn btn-primary" onclick="location.reload()"><i class="fas fa-rocket"></i> Перейти к агенту</button>
+      </div>
+    </div>`;
+
+  // Animate checklist
+  await animateChecklist('cr-docs');
+
+  try {
+    const body = {
+      name: formData.name || 'Мой агент',
+      doc_who_am_i: formData.doc_who_am_i || '',
+      doc_who_we_call: formData.doc_who_we_call || '',
+      doc_how_we_talk: formData.doc_how_we_talk || '',
+      doc_what_we_offer: formData.doc_what_we_offer || '',
+      doc_rules_and_goals: formData.doc_rules_and_goals || '',
+      working_hours_start: formData.working_hours_start ?? 9,
+      working_hours_end: formData.working_hours_end ?? 21
+    };
+
+    const resp = await apiFetch(API_BASE + '/create', {
+      method: 'POST',
+      body: JSON.stringify(body)
+    });
+
+    if (resp.status === 200 || resp.status === 201) {
+      await markDone('cr-docs');
+      await animateChecklist('cr-prompt');
+      await markDone('cr-prompt');
+      await animateChecklist('cr-voice');
+      await markDone('cr-voice');
+      await animateChecklist('cr-active');
+      await markDone('cr-active');
+
+      localStorage.removeItem('agent_wizard_data');
+      document.getElementById('cr-success').classList.remove('hidden');
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      document.getElementById('cr-error').classList.remove('hidden');
+      document.getElementById('cr-error').textContent = 'Ошибка: ' + (err.detail || 'Неизвестная ошибка');
+    }
+  } catch(e) {
+    document.getElementById('cr-error').classList.remove('hidden');
+    document.getElementById('cr-error').textContent = 'Ошибка сети: ' + e.message;
+  }
+}
+
+function animateChecklist(id) {
+  return new Promise(resolve => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.querySelector('.check-icon').innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>';
+    }
+    setTimeout(resolve, 600);
+  });
+}
+
+function markDone(id) {
+  return new Promise(resolve => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove('pending');
+      el.classList.add('done');
+      el.querySelector('.check-icon').innerHTML = '<i class="fas fa-check"></i>';
+    }
+    setTimeout(resolve, 400);
+  });
+}
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+function showDashboard() {
+  document.getElementById('loading-state').classList.add('hidden');
+  document.getElementById('wizard-view').classList.add('hidden');
+  document.getElementById('dashboard-view').classList.remove('hidden');
+
+  // Fill data
+  document.getElementById('agent-name').textContent = agentData.name || 'Мой агент';
+  document.getElementById('agent-gemini-name').textContent = agentData.gemini_assistant_name ? 'Голос: ' + agentData.gemini_assistant_name : '';
+
+  const dot = document.getElementById('agent-status-dot');
+  dot.classList.toggle('active', agentData.is_active);
+  dot.classList.toggle('inactive', !agentData.is_active);
+
+  // Load stats
+  loadStats();
+
+  // Fill settings
+  document.getElementById('edit-name').value = agentData.name || '';
+  document.getElementById('edit-doc1').value = agentData.doc_who_am_i || '';
+  document.getElementById('edit-doc2').value = agentData.doc_who_we_call || '';
+  document.getElementById('edit-doc3').value = agentData.doc_how_we_talk || '';
+  document.getElementById('edit-doc4').value = agentData.doc_what_we_offer || '';
+  document.getElementById('edit-doc5').value = agentData.doc_rules_and_goals || '';
+  document.getElementById('edit-hours-start').value = agentData.working_hours_start ?? 9;
+  document.getElementById('edit-hours-end').value = agentData.working_hours_end ?? 21;
+
+  // Events
+  document.getElementById('btn-settings').addEventListener('click', () => {
+    document.getElementById('settings-panel').classList.toggle('visible');
+  });
+  document.getElementById('btn-cancel-settings').addEventListener('click', () => {
+    document.getElementById('settings-panel').classList.remove('visible');
+  });
+  document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+  document.getElementById('btn-delete').addEventListener('click', deleteAgent);
+
+  // Chat
+  document.getElementById('chat-send').addEventListener('click', sendChatMessage);
+  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
+}
+
+async function loadStats() {
+  try {
+    const resp = await apiFetch(API_BASE + '/stats');
+    if (resp.status === 200) {
+      const stats = await resp.json();
+      document.getElementById('stat-total').textContent = stats.total_calls;
+      document.getElementById('stat-success').textContent = stats.success_calls;
+      document.getElementById('stat-followup').textContent = stats.followup_calls;
+      document.getElementById('stat-noanswer').textContent = stats.no_answer_calls;
+    }
+  } catch(e) { console.error('Stats error:', e); }
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('btn-save-settings');
+  btn.disabled = true;
+
+  const body = {
+    name: document.getElementById('edit-name').value,
+    doc_who_am_i: document.getElementById('edit-doc1').value,
+    doc_who_we_call: document.getElementById('edit-doc2').value,
+    doc_how_we_talk: document.getElementById('edit-doc3').value,
+    doc_what_we_offer: document.getElementById('edit-doc4').value,
+    doc_rules_and_goals: document.getElementById('edit-doc5').value,
+    working_hours_start: parseInt(document.getElementById('edit-hours-start').value) || 9,
+    working_hours_end: parseInt(document.getElementById('edit-hours-end').value) || 21,
+  };
+
+  try {
+    const resp = await apiFetch(API_BASE + '/', { method: 'PUT', body: JSON.stringify(body) });
+    if (resp.status === 200) {
+      agentData = await resp.json();
+      document.getElementById('agent-name').textContent = agentData.name;
+      document.getElementById('settings-panel').classList.remove('visible');
+      alert('Настройки сохранены. Промпт оркестратора обновлён.');
+    } else {
+      const err = await resp.json().catch(() => ({}));
+      alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
+    }
+  } catch(e) {
+    alert('Ошибка сети');
+  }
+  btn.disabled = false;
+}
+
+async function deleteAgent() {
+  if (!confirm('Удалить агента? Это действие нельзя отменить.')) return;
+
+  try {
+    const resp = await apiFetch(API_BASE + '/', { method: 'DELETE' });
+    if (resp.status === 200) {
+      location.reload();
+    } else {
+      alert('Ошибка удаления');
+    }
+  } catch(e) { alert('Ошибка сети'); }
+}
+
+// ============================================================================
+// CHAT
+// ============================================================================
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  addChatBubble(msg, 'user');
+
+  // Show typing indicator
+  const typingId = 'typing-' + Date.now();
+  const messagesEl = document.getElementById('chat-messages');
+  const typingEl = document.createElement('div');
+  typingEl.id = typingId;
+  typingEl.className = 'chat-bubble assistant';
+  typingEl.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>';
+  messagesEl.appendChild(typingEl);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  try {
+    const resp = await apiFetch(API_BASE + '/chat', { method: 'POST', body: JSON.stringify({ message: msg }) });
+    document.getElementById(typingId)?.remove();
+
+    if (resp.status === 200) {
+      const data = await resp.json();
+      addChatBubble(data.reply, 'assistant');
+    } else {
+      addChatBubble('Ошибка отправки сообщения.', 'assistant');
+    }
+  } catch(e) {
+    document.getElementById(typingId)?.remove();
+    addChatBubble('Ошибка сети.', 'assistant');
+  }
+}
+
+function addChatBubble(text, role) {
+  const messagesEl = document.getElementById('chat-messages');
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble ' + role;
+  bubble.textContent = text;
+  messagesEl.appendChild(bubble);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// ============================================================================
+// UTILS
+// ============================================================================
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

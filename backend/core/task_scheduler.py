@@ -28,7 +28,9 @@ from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
+from backend.models.agent_config import AgentConfig
 from backend.services.voximplant_partner import get_voximplant_partner_service
+from backend.services.agent_orchestrator import PreCallOrchestrator, PostCallOrchestrator
 
 logger = get_logger(__name__)
 
@@ -204,7 +206,23 @@ class TaskScheduler:
                 task.call_result = "Assistant not found"
                 db.commit()
                 return
-            
+
+            # =====================================================================
+            # ✅ v5.0: VOICYFY AGENT — PreCall Orchestrator
+            # =====================================================================
+            agent_config = db.query(AgentConfig).filter(
+                AgentConfig.user_id == user.id,
+                AgentConfig.is_active == True
+            ).first()
+
+            if agent_config and user.openai_api_key:
+                try:
+                    pre_call = PreCallOrchestrator()
+                    pre_result = await pre_call.run(task, contact, agent_config, user, db)
+                    logger.info(f"[TASK-SCHEDULER] ✅ PreCall completed: {pre_result.get('call_strategy', '')[:80]}")
+                except Exception as e:
+                    logger.error(f"[TASK-SCHEDULER] ⚠️ PreCall failed (continuing without): {e}")
+
             # =====================================================================
             # ✅ v4.0: ВЫБОР ИНТЕГРАЦИИ
             # =====================================================================
@@ -362,13 +380,30 @@ class TaskScheduler:
                 
                 logger.info(f"[TASK-SCHEDULER] ✅ Task {task.id} completed successfully (Partner API)")
                 logger.info(f"   Call session ID: {call_session_id}")
+
+                # ✅ v5.0: Launch PostCall if agent is active
+                agent_config = db.query(AgentConfig).filter(
+                    AgentConfig.user_id == contact.user_id,
+                    AgentConfig.is_active == True
+                ).first()
+                if agent_config and task.pre_call_response_id:
+                    user = db.query(User).filter(User.id == contact.user_id).first()
+                    if user and user.openai_api_key:
+                        asyncio.create_task(
+                            PostCallOrchestrator.poll_and_run(
+                                task_id=str(task.id),
+                                agent_config_id=str(agent_config.id),
+                                user_openai_key=user.openai_api_key
+                            )
+                        )
+                        logger.info(f"[TASK-SCHEDULER] 🤖 PostCall polling started for task {task.id}")
             else:
                 error_msg = result.get("error", "Unknown error")
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Partner API error: {error_msg}"
-                
+
                 logger.error(f"[TASK-SCHEDULER] ❌ Partner API error for task {task.id}: {error_msg}")
-            
+
             db.commit()
             
         except Exception as e:
@@ -471,9 +506,25 @@ class TaskScheduler:
                     task.call_completed_at = datetime.utcnow()
                     task.call_session_id = str(call_session_id) if call_session_id else None
                     task.call_result = f"Call initiated successfully via Legacy API. Session ID: {call_session_id}"
-                    
+
                     logger.info(f"[TASK-SCHEDULER] ✅ Task {task.id} completed successfully (Legacy API)")
                     logger.info(f"   Call session ID: {call_session_id}")
+
+                    # ✅ v5.0: Launch PostCall if agent is active
+                    agent_config = db.query(AgentConfig).filter(
+                        AgentConfig.user_id == user.id,
+                        AgentConfig.is_active == True
+                    ).first()
+                    if agent_config and task.pre_call_response_id:
+                        if user.openai_api_key:
+                            asyncio.create_task(
+                                PostCallOrchestrator.poll_and_run(
+                                    task_id=str(task.id),
+                                    agent_config_id=str(agent_config.id),
+                                    user_openai_key=user.openai_api_key
+                                )
+                            )
+                            logger.info(f"[TASK-SCHEDULER] 🤖 PostCall polling started for task {task.id}")
                 else:
                     # Ошибка от Voximplant
                     error_msg = response_data.get("error", {}).get("msg", "Unknown Voximplant error")

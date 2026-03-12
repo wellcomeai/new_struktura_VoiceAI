@@ -6,7 +6,7 @@ Task model для системы задач и автоматических зв
 ✅ ВЕРСИЯ 2.0: Поддержка OpenAI + Gemini ассистентов
 """
 
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum, Index, CheckConstraint
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Enum, Index, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -111,6 +111,11 @@ class Task(Base):
     # Если указан — звонок идёт с этого номера
     # Если NULL — автоматически выбирается первый активный номер пользователя
     caller_id = Column(String(20), nullable=True)
+
+    # Agent orchestrator fields
+    pre_call_response_id = Column(String(255), nullable=True)
+    post_call_decision = Column(String(50), nullable=True)
+    retry_count = Column(Integer, default=0, nullable=False)
     
     # ==================== Результат выполнения ====================
     # ID звонка в Voximplant (заполняется после звонка)

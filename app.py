@@ -41,6 +41,7 @@ from backend.api import (
     voximplant_settings,
     telephony,
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
+    agent,  # ✅ v5.0: Voicyfy Agent API
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -186,6 +187,7 @@ app.include_router(functions.router, prefix="/api/functions", tags=["Functions"]
 app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voximplant Settings"])
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
+app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
 
 # ============================================================================
 # STATIC FILES

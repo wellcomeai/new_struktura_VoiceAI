@@ -7,7 +7,7 @@ Contact model для CRM функциональности.
 """
 
 from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -40,6 +40,9 @@ class Contact(Base):
     
     # Заметки (оставлено для обратной совместимости)
     notes = Column(Text, nullable=True)
+
+    # Долгосрочная память агента по контакту
+    agent_memory = Column(JSONB, default=dict, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
