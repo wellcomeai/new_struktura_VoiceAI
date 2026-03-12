@@ -343,7 +343,7 @@ let agentData = null;
 const TOTAL_STEPS = 7; // 0=keys, 1-5=docs, 6=creation
 
 function getToken() {
-  return localStorage.getItem('token');
+  return localStorage.getItem('auth_token');
 }
 
 async function apiFetch(url, options = {}) {
@@ -351,7 +351,7 @@ async function apiFetch(url, options = {}) {
   if (!token) { window.location.href = '/static/login.html'; return; }
   const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...options.headers };
   const resp = await fetch(url, { ...options, headers });
-  if (resp.status === 401) { localStorage.removeItem('token'); window.location.href = '/static/login.html'; return; }
+  if (resp.status === 401) { localStorage.removeItem('auth_token'); window.location.href = '/static/login.html'; return; }
   return resp;
 }
 
@@ -382,7 +382,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Logout
   document.getElementById('logout-button')?.addEventListener('click', (e) => {
     e.preventDefault();
-    localStorage.removeItem('token');
+    localStorage.removeItem('auth_token');
     window.location.href = '/';
   });
 });
