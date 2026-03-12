@@ -164,6 +164,22 @@
     .modal-card { background:var(--white); border-radius:var(--radius-lg); padding:2rem; width:90%; max-width:480px; box-shadow:var(--shadow-lg); }
     .modal-card h3 { margin-bottom:1rem; }
 
+    /* DEBUG LOG */
+    .log-entry { font-family:monospace; font-size:0.8rem; padding:0.5rem 0.75rem; margin-bottom:0.5rem; border-radius:6px; border-left:4px solid; }
+    .log-entry.user_message { border-color:#2563eb; background:#eff6ff; }
+    .log-entry.gpt_thinking { border-color:#8b5cf6; background:#f5f3ff; }
+    .log-entry.tool_call { border-color:#f97316; background:#fff7ed; }
+    .log-entry.tool_result { border-color:#10b981; background:#ecfdf5; }
+    .log-entry.tool_error { border-color:#ef4444; background:#fef2f2; }
+    .log-entry.gpt_response { border-color:#64748b; background:#f8fafc; }
+    .log-entry .log-header { display:flex; gap:0.75rem; align-items:center; cursor:pointer; }
+    .log-entry .log-type { font-weight:700; text-transform:uppercase; font-size:0.7rem; }
+    .log-entry .log-ts { color:#94a3b8; }
+    .log-entry .log-preview { color:#475569; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .log-entry .log-detail { display:none; margin-top:0.5rem; white-space:pre-wrap; word-break:break-all; }
+    .log-entry.expanded .log-detail { display:block; }
+    .tab-btn .badge { background:#ef4444; color:white; border-radius:10px; padding:0 6px; font-size:0.7rem; margin-left:4px; }
+
     .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:2rem; }
     .stat-card { background:var(--white); border-radius:var(--radius-lg); padding:1.5rem; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
     .stat-card .stat-value { font-size:2rem; font-weight:700; color:var(--text-dark); }
@@ -322,6 +338,7 @@
           <button class="tab-btn active" data-tab="tab-chat">Чат с агентом</button>
           <button class="tab-btn" data-tab="tab-contacts">Контакты</button>
           <button class="tab-btn" data-tab="tab-calls">История звонков</button>
+          <button class="tab-btn" data-tab="tab-log" id="tab-btn-log">&#128295; Лог</button>
         </div>
 
         <!-- TAB: Chat -->
@@ -384,6 +401,15 @@
             <tbody id="calls-tbody"></tbody>
           </table>
           <div class="pagination" id="calls-pagination"></div>
+        </div>
+
+        <!-- TAB: Log -->
+        <div class="tab-content" id="tab-log">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h3>Debug Log</h3>
+            <button id="btn-clear-log" class="btn btn-secondary"><i class="fas fa-trash"></i> Очистить</button>
+          </div>
+          <div id="log-container"></div>
         </div>
 
         <!-- Settings panel (hidden by default) -->
@@ -823,7 +849,16 @@ function showDashboard() {
       // Load data when tab is opened
       if (btn.dataset.tab === 'tab-contacts') { contactsPage = 0; loadContacts(); }
       if (btn.dataset.tab === 'tab-calls') { callsPage = 0; loadCalls(); }
+      // Clear badge when log tab is opened
+      if (btn.dataset.tab === 'tab-log') {
+        document.getElementById('tab-btn-log').innerHTML = '&#128295; Лог';
+      }
     });
+  });
+
+  // Clear log button
+  document.getElementById('btn-clear-log')?.addEventListener('click', () => {
+    document.getElementById('log-container').innerHTML = '';
   });
 
   // Add contact button
@@ -1095,6 +1130,15 @@ async function sendChatMessage() {
     if (resp.status === 200) {
       const data = await resp.json();
       addChatBubble(data.reply, 'assistant');
+      // Debug log
+      if (data.debug_log && data.debug_log.length) {
+        appendDebugLog(data.debug_log);
+        // Badge on log tab if not active
+        const logTab = document.getElementById('tab-btn-log');
+        if (logTab && !logTab.classList.contains('active')) {
+          logTab.innerHTML = '&#128295; Лог <span class="badge">+' + data.debug_log.length + '</span>';
+        }
+      }
     } else {
       addChatBubble('Ошибка отправки сообщения.', 'assistant');
     }
@@ -1111,6 +1155,59 @@ function addChatBubble(text, role) {
   bubble.textContent = text;
   messagesEl.appendChild(bubble);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// ============================================================================
+// DEBUG LOG
+// ============================================================================
+const LOG_ICONS = {
+  user_message: '&#128172;',
+  gpt_thinking: '&#129504;',
+  tool_call:    '&#128295;',
+  tool_result:  '&#9989;',
+  tool_error:   '&#10060;',
+  gpt_response: '&#129302;'
+};
+
+function appendDebugLog(entries) {
+  const container = document.getElementById('log-container');
+
+  // Session divider
+  const divider = document.createElement('div');
+  divider.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:0.75rem;margin:0.5rem 0;">── ' + new Date().toLocaleTimeString() + ' ──</div>';
+  container.prepend(divider);
+
+  // Add entries in reverse (newest on top)
+  [...entries].reverse().forEach(entry => {
+    const el = document.createElement('div');
+    el.className = 'log-entry ' + entry.type;
+
+    const preview = typeof entry.data === 'string'
+      ? entry.data.slice(0, 80)
+      : JSON.stringify(entry.data).slice(0, 80);
+
+    const detail = typeof entry.data === 'string'
+      ? entry.data
+      : JSON.stringify(entry.data, null, 2);
+
+    const ts = (entry.ts || '').split('T')[1]?.slice(0,8) || '';
+
+    el.innerHTML = '<div class="log-header" onclick="this.parentElement.classList.toggle(\'expanded\')">'
+      + '<span>' + (LOG_ICONS[entry.type] || '&#8226;') + '</span>'
+      + '<span class="log-type">' + entry.type + '</span>'
+      + '<span class="log-ts">' + ts + '</span>'
+      + '<span class="log-preview">' + escapeHtml(preview) + '</span>'
+      + '<i class="fas fa-chevron-down" style="color:#94a3b8;font-size:0.7rem;"></i>'
+      + '</div>'
+      + '<div class="log-detail">' + escapeHtml(detail) + '</div>';
+
+    container.prepend(el);
+  });
+
+  // Limit to 200 entries
+  while (container.children.length > 200) {
+    container.removeChild(container.lastChild);
+  }
 }
 
 // ============================================================================

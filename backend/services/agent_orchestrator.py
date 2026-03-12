@@ -464,18 +464,30 @@ class ChatOrchestrator:
     Supports multi-turn dialog through previous_response_id.
     """
 
+    @staticmethod
+    def _now_ts() -> str:
+        return datetime.utcnow().isoformat()
+
     async def run(
         self,
         message: str,
         agent_config: AgentConfig,
         user: User,
         db
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Process a chat message with the agent.
-        Returns the final assistant text reply.
+        Returns dict with: reply (str), debug_log (list of log entries).
         """
         client = AsyncOpenAI(api_key=user.openai_api_key)
+        debug_log: List[Dict[str, Any]] = []
+
+        # Log user message
+        debug_log.append({
+            "ts": self._now_ts(),
+            "type": "user_message",
+            "data": message,
+        })
 
         # Get last response_id from chat history for conversation continuity
         last_response_id = None
@@ -498,6 +510,13 @@ class ChatOrchestrator:
         if last_response_id:
             kwargs["previous_response_id"] = last_response_id
 
+        # Log GPT thinking
+        debug_log.append({
+            "ts": self._now_ts(),
+            "type": "gpt_thinking",
+            "data": f"model: gpt-5-2025-08-07, previous_response_id: {last_response_id or 'None'}, tools: {len(AGENT_CHAT_TOOLS)}, instructions length: {len(instructions)}",
+        })
+
         try:
             response = await client.responses.create(**kwargs)
         except Exception as e:
@@ -505,6 +524,11 @@ class ChatOrchestrator:
             if last_response_id and "previous_response_id" in str(e).lower():
                 logger.warning(f"[AGENT-CHAT] Stale response_id, retrying without chain: {e}")
                 kwargs.pop("previous_response_id", None)
+                debug_log.append({
+                    "ts": self._now_ts(),
+                    "type": "gpt_thinking",
+                    "data": "Retrying without previous_response_id (stale chain)",
+                })
                 response = await client.responses.create(**kwargs)
             else:
                 raise
@@ -533,8 +557,33 @@ class ChatOrchestrator:
                     except json.JSONDecodeError:
                         tool_args = {}
 
+                    # Log tool call
+                    debug_log.append({
+                        "ts": self._now_ts(),
+                        "type": "tool_call",
+                        "data": {"tool": tool_name, "args": tool_args},
+                    })
+
                     logger.info(f"[AGENT-CHAT] Executing tool: {tool_name}")
-                    result_str = await execute_tool(tool_name, tool_args, context, db)
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                        # Log tool result
+                        try:
+                            result_parsed = json.loads(result_str)
+                        except (json.JSONDecodeError, TypeError):
+                            result_parsed = result_str
+                        debug_log.append({
+                            "ts": self._now_ts(),
+                            "type": "tool_result",
+                            "data": {"tool": tool_name, "result": result_parsed},
+                        })
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+                        debug_log.append({
+                            "ts": self._now_ts(),
+                            "type": "tool_error",
+                            "data": {"tool": tool_name, "error": str(e)},
+                        })
 
                     tool_results.append({
                         "type": "function_call_output",
@@ -565,6 +614,13 @@ class ChatOrchestrator:
         if not final_text:
             final_text = response.output_text or "Готово."
 
+        # Log GPT response
+        debug_log.append({
+            "ts": self._now_ts(),
+            "type": "gpt_response",
+            "data": final_text[:500],
+        })
+
         # Save to chat history
         new_history = list(history)
         new_history.append({
@@ -581,4 +637,4 @@ class ChatOrchestrator:
         agent_config.chat_history = new_history[-20:]
         db.commit()
 
-        return final_text
+        return {"reply": final_text, "debug_log": debug_log}

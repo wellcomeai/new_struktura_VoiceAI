@@ -359,7 +359,7 @@ async def agent_chat(
 
     try:
         orchestrator = ChatOrchestrator()
-        reply = await orchestrator.run(
+        result = await orchestrator.run(
             message=body.message,
             agent_config=agent,
             user=current_user,
@@ -369,7 +369,11 @@ async def agent_chat(
         logger.error(f"[AGENT] Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"chat_error: {str(e)}")
 
-    return {"reply": reply, "timestamp": datetime.utcnow().isoformat()}
+    return {
+        "reply": result["reply"],
+        "timestamp": datetime.utcnow().isoformat(),
+        "debug_log": result.get("debug_log", []),
+    }
 
 
 # ============================================================================
