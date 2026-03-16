@@ -496,35 +496,94 @@ class VoximplantPartnerService:
         self,
         child_account_id: str,
         child_api_key: str,
+        subuser_login: Optional[str] = None,
+        subuser_password: Optional[str] = None,
         start_page: str = "card"
     ) -> Dict[str, Any]:
         """Получить URL для страницы биллинга."""
-        billing_url = (
-            f"{self.BILLING_URL}"
-            f"?account_id={child_account_id}"
-            f"&api_key={child_api_key}"
-            f"&_start_page={start_page}"
-            f"&_lang=RU"
-            f"&hide_account_name=false"
-        )
+        if subuser_login and subuser_password:
+            billing_url = (
+                f"{self.BILLING_URL}"
+                f"?account_id={child_account_id}"
+                f"&subuser_login={subuser_login}"
+                f"&subuser_password={subuser_password}"
+                f"&_start_page={start_page}"
+                f"&_lang=RU"
+                f"&hide_account_name=false"
+            )
+        else:
+            billing_url = (
+                f"{self.BILLING_URL}"
+                f"?account_id={child_account_id}"
+                f"&api_key={child_api_key}"
+                f"&_start_page={start_page}"
+                f"&_lang=RU"
+                f"&hide_account_name=false"
+            )
         return {"success": True, "url": billing_url}
     
     async def get_account_balance(
         self,
         child_account_id: str,
-        child_api_key: str
+        child_api_key: str,
+        service_account_key: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Получить баланс аккаунта (с fallback через мастер-аккаунт при ошибке 100)"""
+        """Получить баланс аккаунта (JWT -> api_key -> мастер-аккаунт fallback)"""
         url = f"{self.API_BASE_URL}/GetAccountInfo"
-        params = {"account_id": child_account_id, "api_key": child_api_key}
-
         client = await self._get_client()
+
+        # 1. Попытка через JWT (service account)
+        if service_account_key:
+            try:
+                import jwt as pyjwt
+                import time
+
+                creds = json.loads(service_account_key)
+                payload = {
+                    "iss": str(creds["account_id"]),
+                    "iat": int(time.time()),
+                    "exp": int(time.time()) + 3600,
+                }
+                token = pyjwt.encode(
+                    payload,
+                    creds["private_key"],
+                    algorithm="RS256",
+                    headers={"kid": creds["key_id"]}
+                )
+
+                response = await client.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"}
+                )
+                result = response.json()
+
+                if "error" not in result:
+                    account_info = result.get("result", {})
+                    return {
+                        "success": True,
+                        "balance": account_info.get("live_balance", 0),
+                        "currency": account_info.get("currency", "RUR"),
+                    }
+
+                logger.warning(
+                    f"[VOX_PARTNER] GetAccountInfo JWT failed for account {child_account_id}: "
+                    f"{result.get('error', {}).get('msg')}, falling back to api_key..."
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[VOX_PARTNER] GetAccountInfo JWT error for account {child_account_id}: {e}, "
+                    f"falling back to api_key..."
+                )
+
+        # 2. Попытка через child api_key
+        params = {"account_id": child_account_id, "api_key": child_api_key}
         response = await client.post(url, data=params)
         result = response.json()
 
         if "error" in result:
             error_code = result.get("error", {}).get("code")
             if error_code == 100:
+                # 3. Fallback через мастер-аккаунт
                 logger.warning(
                     f"[VOX_PARTNER] GetAccountInfo: child api_key failed (code 100) "
                     f"for account {child_account_id}, trying parent..."

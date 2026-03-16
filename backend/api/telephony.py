@@ -786,7 +786,8 @@ async def get_telephony_status(
         
         balance_result = await service.get_account_balance(
             child_account_id=child_account.vox_account_id,
-            child_api_key=child_account.vox_api_key
+            child_api_key=child_account.vox_api_key,
+            service_account_key=child_account.vox_service_account_key
         )
         
         # Обновляем статус в БД если изменился
@@ -941,6 +942,8 @@ async def get_billing_url(
         result = await service.get_billing_url(
             child_account_id=child_account.vox_account_id,
             child_api_key=child_account.vox_api_key,
+            subuser_login=child_account.vox_subuser_login,
+            subuser_password=child_account.vox_subuser_password,
             start_page=start_page
         )
         
@@ -977,7 +980,8 @@ async def get_balance(
         
         result = await service.get_account_balance(
             child_account_id=child_account.vox_account_id,
-            child_api_key=child_account.vox_api_key
+            child_api_key=child_account.vox_api_key,
+            service_account_key=child_account.vox_service_account_key
         )
         
         if not result.get("success"):
