@@ -514,23 +514,91 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str
     ) -> Dict[str, Any]:
-        """Получить баланс аккаунта"""
+        """Получить баланс аккаунта (с fallback через мастер-аккаунт при ошибке 100)"""
         url = f"{self.API_BASE_URL}/GetAccountInfo"
         params = {"account_id": child_account_id, "api_key": child_api_key}
-        
+
         client = await self._get_client()
         response = await client.post(url, data=params)
         result = response.json()
-        
+
         if "error" in result:
-            return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
-        
+            error_code = result.get("error", {}).get("code")
+            if error_code == 100:
+                logger.warning(
+                    f"[VOX_PARTNER] GetAccountInfo: child api_key failed (code 100) "
+                    f"for account {child_account_id}, trying parent..."
+                )
+                parent_params = {
+                    "account_id": self.parent_account_id,
+                    "api_key": self.parent_api_key,
+                    "child_account_id": child_account_id,
+                }
+                response = await client.post(url, data=parent_params)
+                result = response.json()
+                if "error" in result:
+                    return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+            else:
+                return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+
         account_info = result.get("result", {})
         return {
             "success": True,
             "balance": account_info.get("live_balance", 0),
             "currency": account_info.get("currency", "RUR"),
         }
+
+    async def get_call_history_for_account(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        from_date: str,
+        to_date: str,
+        count: int = 5,
+        with_calls: str = "true",
+        desc_order: str = "true",
+    ) -> Dict[str, Any]:
+        """Получить историю звонков (с fallback через мастер-аккаунт при ошибке 100)"""
+        url = f"{self.API_BASE_URL}/GetCallHistory"
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "from_date": from_date,
+            "to_date": to_date,
+            "count": count,
+            "with_calls": with_calls,
+            "desc_order": desc_order,
+        }
+
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+
+        if "error" in result:
+            error_code = result.get("error", {}).get("code")
+            if error_code == 100:
+                logger.warning(
+                    f"[VOX_PARTNER] GetCallHistory: child api_key failed (code 100) "
+                    f"for account {child_account_id}, trying parent..."
+                )
+                parent_params = {
+                    "account_id": self.parent_account_id,
+                    "api_key": self.parent_api_key,
+                    "child_account_id": child_account_id,
+                    "from_date": from_date,
+                    "to_date": to_date,
+                    "count": count,
+                    "with_calls": with_calls,
+                    "desc_order": desc_order,
+                }
+                response = await client.post(url, data=parent_params)
+                result = response.json()
+                if "error" in result:
+                    return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+            else:
+                return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+
+        return {"success": True, "result": result.get("result", [])}
     
     # =========================================================================
     # ТЕЛЕФОННЫЕ НОМЕРА

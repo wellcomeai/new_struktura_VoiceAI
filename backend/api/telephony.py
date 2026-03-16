@@ -1055,6 +1055,26 @@ async def get_call_history(
             response.raise_for_status()
             data = response.json()
 
+            # Fallback через мастер-аккаунт при Authorization failed (code 100)
+            if "error" in data and data.get("error", {}).get("code") == 100:
+                logger.warning(
+                    f"[TELEPHONY] GetCallHistory: child api_key failed (code 100) "
+                    f"for account {child_account.vox_account_id}, trying parent..."
+                )
+                params = {
+                    "account_id": settings.VOXIMPLANT_PARENT_ACCOUNT_ID,
+                    "api_key": settings.VOXIMPLANT_PARENT_API_KEY,
+                    "child_account_id": child_account.vox_account_id,
+                    "from_date": f"{from_date} 00:00:00",
+                    "to_date": f"{to_date} 23:59:59",
+                    "count": count,
+                    "with_calls": "true",
+                    "desc_order": "true",
+                }
+                response = await client.get(vox_url, params=params)
+                response.raise_for_status()
+                data = response.json()
+
         # 4. Парсинг результатов
         calls = []
         for session in data.get("result", []):
