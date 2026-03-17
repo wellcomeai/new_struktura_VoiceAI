@@ -36,6 +36,7 @@ Routes:
     POST   /api/telephony/admin/setup-outbound-rules - 🔐 Создать outbound rules для всех аккаунтов
     POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
     POST   /api/telephony/admin/setup-cartesia-scenarios - 🔐 Скопировать Cartesia сценарии на все аккаунты
+    POST   /api/telephony/admin/enable-sms-all - 🔐 Включить SMS на всех номерах всех аккаунтов
 
 ✅ v1.0: Базовый функционал партнёрской интеграции
 ✅ v1.1: Исправлен регистр enum (lowercase)
@@ -62,6 +63,10 @@ Routes:
          - Сохранение vox_service_account_id и vox_service_account_key
 ✅ v3.3: PUBLIC CALL SESSION IDS - возврат session_ids в ответе /public/call
 ✅ v3.4: PUBLIC CALL LOOKUP - получение данных звонка по session_history_id
+✅ v3.5: SMS INTEGRATION - отправка SMS через Voximplant:
+         - Функция send_sms для Gemini (backend/functions/send_sms.py)
+         - Авто-включение SMS при покупке номера
+         - Admin endpoint /admin/enable-sms-all для миграции
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
@@ -1573,7 +1578,52 @@ async def buy_phone_number(
         db.refresh(phone_record)
         
         logger.info(f"[TELEPHONY] ✅ Phone number purchased: {request.phone_number}")
-        
+
+        # =====================================================================
+        # 5. Автоматически включаем SMS если номер поддерживает
+        # =====================================================================
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as sms_client:
+                # Проверяем поддержку SMS на купленном номере
+                phone_info_resp = await sms_client.get(
+                    "https://api.voximplant.com/platform_api/GetPhoneNumbers/",
+                    params={
+                        "account_id": child_account.vox_account_id,
+                        "api_key": child_account.vox_api_key,
+                        "phone_number": request.phone_number.replace("+", "")
+                    }
+                )
+                phone_info_data = phone_info_resp.json()
+                phone_list = phone_info_data.get("result", [])
+
+                if phone_list and isinstance(phone_list, list):
+                    phone_info = phone_list[0]
+                    is_sms_supported = phone_info.get("is_sms_supported", False)
+                    is_sms_enabled = phone_info.get("is_sms_enabled", False)
+
+                    if is_sms_supported and not is_sms_enabled:
+                        enable_resp = await sms_client.get(
+                            "https://api.voximplant.com/platform_api/ControlSms/",
+                            params={
+                                "account_id": child_account.vox_account_id,
+                                "api_key": child_account.vox_api_key,
+                                "phone_number": request.phone_number.replace("+", ""),
+                                "command": "enable"
+                            }
+                        )
+                        enable_data = enable_resp.json()
+                        if enable_data.get("result") == 1:
+                            logger.info(f"[TELEPHONY] ✅ SMS auto-enabled for {request.phone_number}")
+                        else:
+                            logger.warning(f"[TELEPHONY] ⚠️ SMS enable failed for {request.phone_number}: {enable_data}")
+                    elif is_sms_supported and is_sms_enabled:
+                        logger.info(f"[TELEPHONY] ℹ️ SMS already enabled for {request.phone_number}")
+                    else:
+                        logger.info(f"[TELEPHONY] ℹ️ SMS not supported for {request.phone_number} (landline)")
+        except Exception as sms_err:
+            logger.warning(f"[TELEPHONY] ⚠️ SMS auto-enable failed (non-critical): {sms_err}")
+
         return BuyNumberResponse(
             success=True,
             message="Номер успешно куплен",
@@ -4235,3 +4285,169 @@ async def webhook_verification_status(
     except Exception as e:
         logger.error(f"[TELEPHONY] Webhook error: {e}", exc_info=True)
         return {"status": "error", "message": str(e)}
+
+
+# =============================================================================
+# ADMIN: ENABLE SMS ON ALL NUMBERS
+# =============================================================================
+
+@router.post("/admin/enable-sms-all")
+async def admin_enable_sms_all(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN ONLY: Активировать SMS на всех существующих номерах всех пользователей.
+
+    Для каждого номера проверяет поддержку SMS через Voximplant API:
+    - Если is_sms_supported=True и is_sms_enabled=False → включает SMS
+    - Если is_sms_supported=False → пропускает (городские номера)
+    - Если is_sms_enabled=True → уже включено, пропускает
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    import httpx
+
+    try:
+        child_accounts = db.query(VoximplantChildAccount).all()
+        logger.info(f"[SMS-ADMIN] Found {len(child_accounts)} child accounts")
+
+        results = {
+            "total_accounts": len(child_accounts),
+            "enabled": 0,
+            "already_enabled": 0,
+            "not_supported": 0,
+            "failed": 0,
+            "details": []
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for account in child_accounts:
+                if not account.vox_account_id or not account.vox_api_key:
+                    results["details"].append({
+                        "account_id": str(account.id),
+                        "status": "skipped",
+                        "reason": "no credentials"
+                    })
+                    continue
+
+                # Получаем список номеров аккаунта
+                try:
+                    resp = await client.get(
+                        "https://api.voximplant.com/platform_api/GetPhoneNumbers/",
+                        params={
+                            "account_id": account.vox_account_id,
+                            "api_key": account.vox_api_key
+                        }
+                    )
+                    data = resp.json()
+                except Exception as e:
+                    logger.error(f"[SMS-ADMIN] GetPhoneNumbers failed for {account.vox_account_id}: {e}")
+                    results["failed"] += 1
+                    results["details"].append({
+                        "account_id": str(account.vox_account_id),
+                        "status": "error",
+                        "reason": f"GetPhoneNumbers failed: {str(e)}"
+                    })
+                    continue
+
+                phone_numbers = data.get("result", [])
+                if not isinstance(phone_numbers, list):
+                    logger.warning(f"[SMS-ADMIN] Unexpected response for {account.vox_account_id}: {data}")
+                    continue
+
+                for phone in phone_numbers:
+                    phone_number = phone.get("phone_number", "")
+                    is_sms_supported = phone.get("is_sms_supported", False)
+                    is_sms_enabled = phone.get("is_sms_enabled", False)
+
+                    if not is_sms_supported:
+                        results["not_supported"] += 1
+                        results["details"].append({
+                            "phone": phone_number,
+                            "account_id": str(account.vox_account_id),
+                            "status": "not_supported"
+                        })
+                        continue
+
+                    if is_sms_enabled:
+                        results["already_enabled"] += 1
+                        results["details"].append({
+                            "phone": phone_number,
+                            "account_id": str(account.vox_account_id),
+                            "status": "already_enabled"
+                        })
+                        continue
+
+                    # Включаем SMS
+                    try:
+                        enable_resp = await client.get(
+                            "https://api.voximplant.com/platform_api/ControlSms/",
+                            params={
+                                "account_id": account.vox_account_id,
+                                "api_key": account.vox_api_key,
+                                "phone_number": phone_number.replace("+", ""),
+                                "command": "enable"
+                            }
+                        )
+                        enable_data = enable_resp.json()
+
+                        if enable_data.get("result") == 1:
+                            results["enabled"] += 1
+                            logger.info(f"[SMS-ADMIN] ✅ SMS enabled: {phone_number} (account {account.vox_account_id})")
+                            results["details"].append({
+                                "phone": phone_number,
+                                "account_id": str(account.vox_account_id),
+                                "status": "enabled"
+                            })
+                        else:
+                            error_code = enable_data.get("error", {}).get("code")
+                            if error_code == 107:
+                                results["already_enabled"] += 1
+                                results["details"].append({
+                                    "phone": phone_number,
+                                    "account_id": str(account.vox_account_id),
+                                    "status": "already_enabled"
+                                })
+                            elif error_code == 153:
+                                results["not_supported"] += 1
+                                results["details"].append({
+                                    "phone": phone_number,
+                                    "account_id": str(account.vox_account_id),
+                                    "status": "not_supported"
+                                })
+                            else:
+                                results["failed"] += 1
+                                error_msg = enable_data.get("error", {}).get("msg", str(enable_data))
+                                logger.error(f"[SMS-ADMIN] ❌ SMS enable failed: {phone_number} — {error_msg}")
+                                results["details"].append({
+                                    "phone": phone_number,
+                                    "account_id": str(account.vox_account_id),
+                                    "status": "failed",
+                                    "reason": error_msg
+                                })
+                    except Exception as e:
+                        results["failed"] += 1
+                        logger.error(f"[SMS-ADMIN] ❌ ControlSms error for {phone_number}: {e}")
+                        results["details"].append({
+                            "phone": phone_number,
+                            "account_id": str(account.vox_account_id),
+                            "status": "failed",
+                            "reason": str(e)
+                        })
+
+        logger.info(
+            f"[SMS-ADMIN] Done: enabled={results['enabled']}, "
+            f"already={results['already_enabled']}, "
+            f"not_supported={results['not_supported']}, "
+            f"failed={results['failed']}"
+        )
+
+        return results
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[SMS-ADMIN] Error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
