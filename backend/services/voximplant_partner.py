@@ -36,6 +36,8 @@ https://voximplant.com/docs/references/httpapi/accounts
          - get_keys() - получение списка Service Accounts
          - delete_key() - удаление Service Account
          - setup_service_account() - комплексная настройка с сохранением credentials
+✅ v3.3: BUGFIX - исправлен NameError: true → True в add_sip_registration
+✅ v3.3: BUGFIX - URL-энкодинг subuser_login/subuser_password в get_billing_url и get_verification_url
 """
 
 import httpx
@@ -43,6 +45,7 @@ import json
 import secrets
 import string
 from typing import Optional, Dict, Any, List
+from urllib.parse import quote  # ✅ v3.3: для URL-энкодинга паролей
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
@@ -328,11 +331,15 @@ class VoximplantPartnerService:
         session_id = session_result.get("result")
         
         # Шаг 3: Формируем URL
+        # ✅ v3.3: URL-энкодинг логина и session_id на случай спецсимволов
+        encoded_login = quote(subuser_login, safe='')
+        encoded_session = quote(str(session_id), safe='')
+
         verification_url = (
             f"{self.VERIFICATION_URL}"
             f"?account_id={child_account_id}"
-            f"&subuser_login={subuser_login}"
-            f"&session_id={session_id}"
+            f"&subuser_login={encoded_login}"
+            f"&session_id={encoded_session}"
             f"&tab={verification_type}"
             f"&_lang=RU"
         )
@@ -502,11 +509,15 @@ class VoximplantPartnerService:
     ) -> Dict[str, Any]:
         """Получить URL для страницы биллинга."""
         if subuser_login and subuser_password:
+            # ✅ v3.3: URL-энкодинг логина и пароля — спецсимволы (#, %, & и т.д.) сломают URL без этого
+            encoded_login = quote(subuser_login, safe='')
+            encoded_password = quote(subuser_password, safe='')
+
             billing_url = (
                 f"{self.BILLING_URL}"
                 f"?account_id={child_account_id}"
-                f"&subuser_login={subuser_login}"
-                f"&subuser_password={subuser_password}"
+                f"&subuser_login={encoded_login}"
+                f"&subuser_password={encoded_password}"
                 f"&_start_page={start_page}"
                 f"&_lang=RU"
                 f"&hide_account_name=false"
@@ -1740,7 +1751,7 @@ class VoximplantPartnerService:
             "proxy": sip_proxy,
             "sip_username": sip_login,
             "sip_password": sip_password,
-            "is_persistent": true,
+            "is_persistent": True,  # ✅ v3.3: исправлен NameError (было: true)
             "application_id": application_id,
             "rule_id": rule_id,
         }
