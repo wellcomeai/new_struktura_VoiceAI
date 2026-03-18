@@ -254,6 +254,12 @@ class BuyNumberResponse(BaseModel):
     phone_number: Optional[str] = None
 
 
+class DeleteNumberResponse(BaseModel):
+    """Ответ на удаление номера"""
+    success: bool
+    message: str
+
+
 class MyNumberInfo(BaseModel):
     """Информация о моём номере"""
     id: str
@@ -1638,6 +1644,80 @@ async def buy_phone_number(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=str(e)
+        )
+
+
+@router.delete("/my-numbers/{phone_number_id}", response_model=DeleteNumberResponse)
+async def delete_phone_number(
+    phone_number_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Удалить (деактивировать) телефонный номер.
+
+    Действие необратимо, средства не возвращаются.
+    """
+    try:
+        phone_record = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.id == phone_number_id
+        ).first()
+
+        if not phone_record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Номер не найден"
+            )
+
+        if phone_record.child_account.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Нет доступа к этому номеру"
+            )
+
+        service = get_voximplant_partner_service()
+        child_account = phone_record.child_account
+
+        # Удаляем правило маршрутизации если есть
+        if phone_record.vox_rule_id:
+            try:
+                await service.delete_rule(
+                    child_account_id=child_account.vox_account_id,
+                    child_api_key=child_account.vox_api_key,
+                    rule_id=phone_record.vox_rule_id
+                )
+                logger.info(f"[TELEPHONY] Rule {phone_record.vox_rule_id} deleted")
+            except Exception as rule_err:
+                logger.warning(f"[TELEPHONY] Failed to delete rule {phone_record.vox_rule_id}: {rule_err}")
+
+        # Деактивируем номер в Voximplant (только реальные номера, не SIP)
+        if phone_record.phone_number_id and not phone_record.phone_number_id.startswith("sip_"):
+            deactivate_result = await service.deactivate_phone_number(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                phone_id=phone_record.phone_number_id
+            )
+            if not deactivate_result.get("success"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=deactivate_result.get("error", "Ошибка деактивации номера")
+                )
+
+        phone_number = phone_record.phone_number
+        db.delete(phone_record)
+        db.commit()
+
+        logger.info(f"[TELEPHONY] Phone number deleted: {phone_number}")
+        return DeleteNumberResponse(success=True, message=f"Номер {phone_number} удалён")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY] Error deleting number: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 

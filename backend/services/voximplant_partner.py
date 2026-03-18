@@ -914,6 +914,35 @@ class VoximplantPartnerService:
             "total": len(numbers),
         }
     
+    async def deactivate_phone_number(
+        self,
+        child_account_id: str,
+        child_api_key: str,
+        phone_id: str
+    ) -> Dict[str, Any]:
+        """
+        Деактивировать (удалить) телефонный номер.
+        Требует роль Owner. Возврат средств невозможен.
+        API: DeactivatePhoneNumber
+        """
+        url = f"{self.API_BASE_URL}/DeactivatePhoneNumber"
+        params = {
+            "account_id": child_account_id,
+            "api_key": child_api_key,
+            "phone_id": phone_id,
+        }
+
+        client = await self._get_client()
+        response = await client.post(url, data=params)
+        result = response.json()
+
+        if "error" in result:
+            logger.error(f"[VOXIMPLANT] Failed to deactivate phone {phone_id}: {result}")
+            return {"success": False, "error": result.get("error", {}).get("msg", "Unknown error")}
+
+        logger.info(f"[VOXIMPLANT] Phone deactivated: {phone_id}")
+        return {"success": True}
+
     # =========================================================================
     # ПРИЛОЖЕНИЯ (APPLICATIONS)
     # =========================================================================

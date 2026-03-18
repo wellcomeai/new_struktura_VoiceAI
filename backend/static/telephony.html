@@ -2140,6 +2140,7 @@
                   <th>Оплачен до</th>
                   <th>Действия</th>
                   <th>Исходящие звонки</th>
+                  <th>Удалить</th>
                 </tr>
               </thead>
               <tbody id="numbers-tbody">
@@ -2173,6 +2174,13 @@
                   <i class="fas fa-phone-alt"></i> Перейти
                 </a>
               </td>
+              <td>
+                <button class="btn btn-danger btn-sm delete-number-btn"
+                        data-id="${num.id}"
+                        data-phone="${num.phone_number}">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </td>
             `;
             
             tbody.appendChild(tr);
@@ -2184,12 +2192,39 @@
               openBindModal(btn.dataset.id, btn.dataset.phone);
             });
           });
+
+          // Обработчики для кнопок удаления
+          document.querySelectorAll('.delete-number-btn').forEach(btn => {
+            btn.addEventListener('click', () => deletePhoneNumber(btn.dataset.id, btn.dataset.phone));
+          });
           
         } catch (error) {
           console.error('Ошибка загрузки номеров:', error);
         }
       }
       
+      // Удаление номера
+      async function deletePhoneNumber(phoneId, phoneNumber) {
+        const confirmed = confirm(
+          `⚠️ Удалить номер ${formatPhoneNumber(phoneNumber)}?\n\n` +
+          `Номер будет удалён немедленно.\n` +
+          `Средства за текущий месяц возврату не подлежат.\n\n` +
+          `Это действие необратимо.`
+        );
+        if (!confirmed) return;
+
+        try {
+          setLoading(true);
+          await api.fetch(`/telephony/my-numbers/${phoneId}`, { method: 'DELETE' });
+          showNotification(`Номер ${formatPhoneNumber(phoneNumber)} удалён`, 'success');
+          await loadTelephonyStatus();
+        } catch (error) {
+          showNotification(error.message || 'Ошибка удаления номера', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
       // Форматирование информации о дате оплаты
       function formatRenewalInfo(renewalDate, price) {
         if (!renewalDate) {
