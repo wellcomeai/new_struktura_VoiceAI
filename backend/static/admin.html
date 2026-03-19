@@ -1241,10 +1241,15 @@
           </div>
           
           <div class="card-header" style="margin-top: 2rem;">
-            <h2 class="card-title">Управление подпиской</h2>
-            <button class="btn btn-primary" id="edit-subscription-btn">
-              <i class="fas fa-edit"></i> Изменить подписку
-            </button>
+            <h2 class="card-title">Управление аккаунтом</h2>
+            <div style="display: flex; gap: 0.75rem;">
+              <button class="btn btn-warning" id="reset-password-btn">
+                <i class="fas fa-key"></i> Сбросить пароль
+              </button>
+              <button class="btn btn-primary" id="edit-subscription-btn">
+                <i class="fas fa-edit"></i> Изменить подписку
+              </button>
+            </div>
           </div>
           
           <div class="section-item subscription-info" id="subscription-info">
@@ -1333,6 +1338,40 @@
       </div>
     </div>
     
+    <!-- Модальное окно сброса пароля -->
+    <div class="modal-overlay" id="password-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 class="modal-title">🔑 Сброс пароля</h3>
+          <button class="modal-close" id="password-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 1rem; color: var(--text-gray); font-size: 0.875rem;">
+            Пользователь: <strong id="password-reset-user-email">—</strong>
+          </p>
+          <div class="form-group">
+            <label class="form-label" for="new-password">Новый пароль</label>
+            <input
+              type="text"
+              id="new-password"
+              class="form-control"
+              placeholder="Минимум 6 символов"
+              autocomplete="off"
+            >
+          </div>
+          <p style="font-size: 0.75rem; color: var(--text-light);">
+            ⚠️ Пароль будет виден при вводе. Передайте его пользователю напрямую.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" id="password-modal-cancel">Отмена</button>
+          <button class="btn btn-warning" id="password-modal-save">
+            <i class="fas fa-key"></i> Сбросить пароль
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Уведомление -->
     <div class="notification notification-success" id="notification" style="display: none;">
       <div class="notification-icon">
@@ -1387,7 +1426,17 @@
       const userNameDisplay = document.getElementById('user-name');
       const userAvatar = document.getElementById('user-avatar');
       const dropdownLogout = document.getElementById('dropdown-logout');
-      
+
+      // Переменные для сброса пароля
+      const passwordModal = document.getElementById('password-modal');
+      const passwordModalClose = document.getElementById('password-modal-close');
+      const passwordModalCancel = document.getElementById('password-modal-cancel');
+      const passwordModalSave = document.getElementById('password-modal-save');
+      const newPasswordInput = document.getElementById('new-password');
+      const passwordResetUserEmail = document.getElementById('password-reset-user-email');
+      let passwordResetUserId = null;
+      let passwordResetUserEmailValue = null;
+
       // Элементы статистики - Пользователи
       const totalUsersElement = document.getElementById('total-users');
       const activeUsersElement = document.getElementById('active-users');
@@ -1529,6 +1578,10 @@
         // ✅ v2.2: Исправлено - теперь отправляем JSON body
         updateUserSubscription(userId, data) {
           return this.post(`/admin/users/${userId}/subscription`, data);
+        },
+
+        resetUserPassword(userId, newPassword) {
+          return this.post(`/admin/users/${userId}/reset-password`, { new_password: newPassword });
         },
         
         getAdminStatistics() {
@@ -1690,6 +1743,9 @@
                 <button class="table-action edit-subscription" data-id="${user.id}" title="Изменить подписку">
                   <i class="fas fa-edit"></i>
                 </button>
+                <button class="table-action reset-password" data-id="${user.id}" data-email="${user.email}" title="Сбросить пароль">
+                  <i class="fas fa-key"></i>
+                </button>
               </td>
             `;
             
@@ -1707,6 +1763,14 @@
             button.addEventListener('click', function() {
               const userId = this.getAttribute('data-id');
               openSubscriptionModal(userId);
+            });
+          });
+
+          document.querySelectorAll('.reset-password').forEach(button => {
+            button.addEventListener('click', function() {
+              const userId = this.getAttribute('data-id');
+              const userEmail = this.getAttribute('data-email');
+              openPasswordModal(userId, userEmail);
             });
           });
         },
@@ -2165,6 +2229,14 @@
         }
       }
       
+      function openPasswordModal(userId, userEmail) {
+        passwordResetUserId = userId;
+        passwordResetUserEmailValue = userEmail;
+        passwordResetUserEmail.textContent = userEmail || userId;
+        newPasswordInput.value = '';
+        passwordModal.classList.add('visible');
+      }
+
       async function checkExpiredSubscriptions() {
         try {
           ui.setLoading(true);
@@ -2234,6 +2306,47 @@
       
       modalClose.addEventListener('click', ui.hideModal);
       modalCancel.addEventListener('click', ui.hideModal);
+
+      // Сброс пароля — закрытие модала
+      passwordModalClose.addEventListener('click', () => {
+        passwordModal.classList.remove('visible');
+      });
+      passwordModalCancel.addEventListener('click', () => {
+        passwordModal.classList.remove('visible');
+      });
+
+      // Сброс пароля — сохранение
+      passwordModalSave.addEventListener('click', async function() {
+        const newPassword = newPasswordInput.value.trim();
+
+        if (!passwordResetUserId) {
+          ui.showNotification('ID пользователя не указан', 'error');
+          return;
+        }
+
+        if (newPassword.length < 6) {
+          ui.showNotification('Пароль должен быть не менее 6 символов', 'error');
+          return;
+        }
+
+        try {
+          ui.setLoading(true);
+          await api.resetUserPassword(passwordResetUserId, newPassword);
+          passwordModal.classList.remove('visible');
+          ui.showNotification(`✅ Пароль успешно изменён для ${passwordResetUserEmailValue}`, 'success');
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при сбросе пароля', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      });
+
+      // Кнопка сброса пароля в деталях пользователя
+      document.getElementById('reset-password-btn').addEventListener('click', function() {
+        if (!selectedUserId) return;
+        const emailEl = document.querySelector('#user-profile .item-value');
+        openPasswordModal(selectedUserId, emailEl ? emailEl.textContent : selectedUserId);
+      });
       
       // ✅ v2.2: Исправленное сохранение подписки
       modalSave.addEventListener('click', async function() {

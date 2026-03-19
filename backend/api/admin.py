@@ -41,6 +41,10 @@ class SubscriptionUpdateRequest(BaseModel):
     is_trial: bool = False
 
 
+class AdminPasswordResetRequest(BaseModel):
+    new_password: str
+
+
 @router.get("/users", response_model=List[Dict[str, Any]])
 async def get_all_users(
     skip: int = Query(0, ge=0),
@@ -568,4 +572,47 @@ async def get_admin_statistics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve admin statistics"
+        )
+
+
+@router.post("/users/{user_id}/reset-password", response_model=Dict[str, Any])
+async def admin_reset_password(
+    user_id: str = Path(..., description="User ID"),
+    request: AdminPasswordResetRequest = ...,
+    current_user: User = Depends(check_admin_access),
+    db: Session = Depends(get_db)
+):
+    """
+    Reset password for a specific user.
+    Admin only endpoint.
+    Uses SHA-256 hashing (same as backend/core/security.py hash_password).
+    """
+    import hashlib
+
+    try:
+        user = await UserService.get_user_by_id(db, user_id)
+
+        if len(request.new_password) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password must be at least 6 characters"
+            )
+
+        user.password_hash = hashlib.sha256(request.new_password.encode()).hexdigest()
+        db.commit()
+
+        logger.info(f"Admin {current_user.email} reset password for user {user.email}")
+
+        return {
+            "success": True,
+            "message": f"Password successfully reset for {user.email}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error resetting password: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
         )
