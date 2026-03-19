@@ -281,22 +281,32 @@ class SearchContactByPhoneFunction(FunctionBase):
                     if asst:
                         assistant_name = asst.name
 
-                # Все сообщения сессии — от старых к новым
-                messages_raw = db.query(Conversation).filter(
+                # Все строки сессии от старых к новым
+                rows = db.query(Conversation).filter(
                     Conversation.session_id == session.session_id,
                     Conversation.contact_id == contact.id
                 ).order_by(asc(Conversation.created_at)).all()
 
+                # Каждая строка = user_message + assistant_message
+                # Раскладываем в плоский хронологический список
                 messages = []
-                for msg in messages_raw:
-                    messages.append({
-                        "role": msg.role,
-                        "content": msg.content,
-                        "created_at": (
-                            msg.created_at.isoformat()
-                            if msg.created_at else None
-                        )
-                    })
+                for row in rows:
+                    created = (
+                        row.created_at.isoformat()
+                        if row.created_at else None
+                    )
+                    if row.user_message:
+                        messages.append({
+                            "role": "user",
+                            "content": row.user_message,
+                            "created_at": created
+                        })
+                    if row.assistant_message:
+                        messages.append({
+                            "role": "assistant",
+                            "content": row.assistant_message,
+                            "created_at": created
+                        })
 
                 conversations.append({
                     "session_id": session.session_id,
