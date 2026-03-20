@@ -85,6 +85,24 @@ AGENT_CHAT_TOOLS = [
     },
     {
         "type": "function",
+        "name": "get_agent_tasks",
+        "description": "Получить список задач на звонки. Использовать когда пользователь спрашивает о запланированных звонках, расписании, следующих задачах. Также вызывать ПЕРЕД созданием новой задачи чтобы проверить дубли.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {
+                    "type": "string",
+                    "description": "UUID контакта агента — фильтр по конкретному контакту (опционально)",
+                },
+                "status_filter": {
+                    "type": "string",
+                    "description": "Фильтр по статусу: scheduled, completed, failed, cancelled (опционально)",
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
         "name": "get_agent_stats",
         "description": "Получить сводную статистику агента: контакты, звонки, задачи.",
         "parameters": {
@@ -200,6 +218,22 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
     assistant_id = agent_config.assistant_id if agent_config else None
 
+    # Cancel existing SCHEDULED tasks for this contact to prevent duplicates
+    existing_tasks = db.query(Task).filter(
+        Task.agent_contact_id == agent_contact_id,
+        Task.status == TaskStatus.SCHEDULED,
+        Task.is_agent_task == True,
+    ).all()
+
+    cancelled_count = 0
+    for existing_task in existing_tasks:
+        existing_task.status = TaskStatus.CANCELLED
+        cancelled_count += 1
+
+    if cancelled_count > 0:
+        logger.info(f"[AGENT-TOOLS] Cancelled {cancelled_count} duplicate SCHEDULED tasks for contact {agent_contact_id}")
+
+    # Create new task
     task = Task(
         is_agent_task=True,
         agent_contact_id=agent_contact_id,
@@ -214,8 +248,14 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     db.add(task)
     db.commit()
     db.refresh(task)
+
     logger.info(f"[AGENT-TOOLS] Created agent task {task.id} for contact {agent_contact_id} at {scheduled_at}")
-    return {"ok": True, "task_id": str(task.id), "scheduled_at": scheduled_at.isoformat()}
+    return {
+        "ok": True,
+        "task_id": str(task.id),
+        "scheduled_at": scheduled_at.isoformat(),
+        "cancelled_duplicates": cancelled_count,
+    }
 
 
 async def fn_update_contact_memory(args: dict, db: Session) -> dict:
@@ -295,6 +335,38 @@ async def fn_get_contact_call_history(args: dict, db: Session) -> dict:
                 "completed_at": c.completed_at.isoformat() if c.completed_at else None,
             }
             for c in calls
+        ],
+    }
+
+
+async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
+    """Получить задачи агента с опциональными фильтрами."""
+    q = db.query(Task).filter(
+        Task.user_id == user_id,
+        Task.is_agent_task == True,
+    )
+
+    if args.get("agent_contact_id"):
+        q = q.filter(Task.agent_contact_id == args["agent_contact_id"])
+
+    if args.get("status_filter"):
+        q = q.filter(Task.status == args["status_filter"])
+
+    tasks = q.order_by(Task.scheduled_time.asc()).limit(20).all()
+
+    return {
+        "ok": True,
+        "count": len(tasks),
+        "tasks": [
+            {
+                "id": str(t.id),
+                "title": t.title,
+                "status": t.status.value,
+                "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
+                "description": t.description,
+                "agent_contact_id": str(t.agent_contact_id) if t.agent_contact_id else None,
+            }
+            for t in tasks
         ],
     }
 
@@ -390,6 +462,7 @@ _TOOL_MAP = {
     "update_contact_memory": "fn_update_contact_memory",
     "get_agent_contacts": "fn_get_agent_contacts",
     "get_contact_call_history": "fn_get_contact_call_history",
+    "get_agent_tasks": "fn_get_agent_tasks",
     "get_agent_stats": "fn_get_agent_stats",
     "set_contact_status": "fn_set_contact_status",
     "send_telegram_notification": "fn_send_telegram_notification",
@@ -418,6 +491,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_agent_contacts(tool_args, user_id, db)
         elif tool_name == "get_contact_call_history":
             result = await fn_get_contact_call_history(tool_args, db)
+        elif tool_name == "get_agent_tasks":
+            result = await fn_get_agent_tasks(tool_args, user_id, db)
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, db)
         elif tool_name == "set_contact_status":
