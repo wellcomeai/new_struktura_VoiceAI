@@ -18,6 +18,8 @@ from typing import Optional, Dict, Any, List
 
 from openai import AsyncOpenAI
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from backend.core.logging import get_logger
 from backend.db.session import SessionLocal
 from backend.models.agent_config import AgentConfig
@@ -558,6 +560,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 task.post_call_decision = post_call_decision
                 task.status = TaskStatus.COMPLETED
 
+            flag_modified(agent_contact, 'memory')
             db.commit()
             logger.info(f"[AGENT-POSTCALL] ✅ Call {agent_call.id} completed: {post_call_decision}")
             logger.info(f"[AGENT-POSTCALL] postcall_log saved: {len(tool_calls_log)} tool calls")
@@ -583,6 +586,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             if task:
                 task.post_call_decision = agent_call.post_call_decision
                 task.status = TaskStatus.COMPLETED
+            flag_modified(agent_contact, 'memory')
             db.commit()
 
 

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import func
 
 from backend.core.logging import get_logger
@@ -283,6 +284,7 @@ async def fn_update_contact_memory(args: dict, db: Session) -> dict:
     memory["last_call"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
 
     contact.memory = memory
+    flag_modified(contact, 'memory')
     db.commit()
     logger.info(f"[AGENT-TOOLS] Updated memory for contact {agent_contact_id}")
     return {"ok": True, "contact_id": agent_contact_id}
