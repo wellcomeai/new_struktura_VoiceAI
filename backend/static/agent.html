@@ -433,21 +433,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
       </div>
     </div>
 
-    <!-- Row 3: Documents -->
-    <div class="card card-docs" style="flex-shrink:0">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <div class="card-label" style="margin-bottom:0">Документы агента</div>
-        <button class="btn-sm btn-blue" onclick="openDocsModal(null)">Изменить</button>
+    <!-- Row 3: Document cards grid -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;flex-shrink:0">
+      <div class="card" style="cursor:pointer" onclick="openDocsModal('doc_who_am_i')">
+        <div class="card-label">Кто мы</div>
+        <div id="doc-preview-who_am_i" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
       </div>
-      <div class="doc-pills">
-        <span class="doc-pill" onclick="openDocsModal('doc_who_am_i')">Кто мы</span>
-        <span class="doc-pill" onclick="openDocsModal('doc_who_we_call')">Кому звоним</span>
-        <span class="doc-pill" onclick="openDocsModal('doc_how_we_talk')">Как говорим</span>
-        <span class="doc-pill" onclick="openDocsModal('doc_what_we_offer')">Что предлагаем</span>
-        <span class="doc-pill" onclick="openDocsModal('doc_rules_and_goals')">Правила и цели</span>
+      <div class="card" style="cursor:pointer" onclick="openDocsModal('doc_who_we_call')">
+        <div class="card-label">Кому звоним</div>
+        <div id="doc-preview-who_we_call" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
       </div>
-      <div style="font-size:11px;color:var(--hint);margin-top:10px">
-        Нажмите на раздел чтобы редактировать
+      <div class="card" style="cursor:pointer" onclick="openDocsModal('doc_how_we_talk')">
+        <div class="card-label">Как говорим</div>
+        <div id="doc-preview-how_we_talk" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
+      </div>
+      <div class="card" style="cursor:pointer" onclick="openDocsModal('doc_what_we_offer')">
+        <div class="card-label">Что предлагаем</div>
+        <div id="doc-preview-what_we_offer" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
+      </div>
+      <div class="card" style="cursor:pointer;grid-column:1/-1" onclick="openDocsModal('doc_rules_and_goals')">
+        <div class="card-label">Правила и цели</div>
+        <div id="doc-preview-rules_and_goals" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
       </div>
     </div>
 
@@ -697,6 +703,22 @@ function showDashboard() {
   document.getElementById('agent-status-text').textContent = agentData.is_active ? 'Активен' : 'Пауза';
   document.getElementById('agent-voice-name').textContent = agentData.gemini_assistant_name || 'Gemini Voice';
 
+  // Fill doc previews
+  const docMap = {
+    'doc_who_am_i': 'doc-preview-who_am_i',
+    'doc_who_we_call': 'doc-preview-who_we_call',
+    'doc_how_we_talk': 'doc-preview-how_we_talk',
+    'doc_what_we_offer': 'doc-preview-what_we_offer',
+    'doc_rules_and_goals': 'doc-preview-rules_and_goals',
+  };
+  Object.entries(docMap).forEach(([field, elId]) => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    const val = agentData[field];
+    el.textContent = val && val.trim() ? val.trim() : 'Нажмите чтобы заполнить';
+    el.style.color = val && val.trim() ? 'var(--text)' : 'var(--hint)';
+  });
+
   loadStats();
   loadRecentCalls();
   fillDocsForm();
@@ -862,6 +884,21 @@ async function saveDocs() {
     if (r && r.status === 200) {
       agentData = await r.json();
       document.getElementById('nav-agent-name').textContent = agentData.name;
+      // Refresh doc previews
+      const docMap2 = {
+        'doc_who_am_i': 'doc-preview-who_am_i',
+        'doc_who_we_call': 'doc-preview-who_we_call',
+        'doc_how_we_talk': 'doc-preview-how_we_talk',
+        'doc_what_we_offer': 'doc-preview-what_we_offer',
+        'doc_rules_and_goals': 'doc-preview-rules_and_goals',
+      };
+      Object.entries(docMap2).forEach(([field, elId]) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        const val = agentData[field];
+        el.textContent = val && val.trim() ? val.trim() : 'Нажмите чтобы заполнить';
+        el.style.color = val && val.trim() ? 'var(--text)' : 'var(--hint)';
+      });
       closeDocsModal();
       showToast('Настройки сохранены. Промпт обновлён.', 'success');
     } else {
