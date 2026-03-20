@@ -190,6 +190,51 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 }
 .add-btn:hover { background: var(--blue-dark); }
 
+/* ── THINKING / DEBUG LOG ── */
+.thinking-row {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12px; color: var(--muted); margin-top: 4px;
+  animation: msgIn 0.2s ease;
+}
+.thinking-spinner {
+  width: 12px; height: 12px; border: 1.5px solid var(--border);
+  border-top-color: var(--blue); border-radius: 50%;
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+.debug-tag {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 4px 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 11px; color: var(--muted); cursor: pointer;
+  transition: border-color var(--transition), color var(--transition);
+  user-select: none;
+}
+.debug-tag:hover { border-color: var(--blue-border); color: var(--blue); }
+.debug-tag .chevron { font-size: 9px; transition: transform var(--transition); }
+.debug-tag.open .chevron { transform: rotate(180deg); }
+.debug-log {
+  margin-top: 6px; border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; font-size: 11.5px; animation: msgIn 0.15s ease;
+}
+.debug-entry {
+  padding: 8px 12px; border-bottom: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.debug-entry:last-child { border-bottom: none; }
+.debug-entry-header { display: flex; align-items: center; gap: 8px; }
+.debug-entry-type {
+  font-size: 10px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+}
+.de-thinking { background: #EEF2FF; color: #4338CA; }
+.de-tool_call { background: #FFF7ED; color: #C2410C; }
+.de-tool_result { background: #F0FDF4; color: #166534; }
+.de-tool_error { background: var(--red-light); color: var(--red); }
+.de-gpt_response { background: var(--blue-light); color: var(--blue-dark); }
+.de-user_message { background: var(--bg); color: var(--muted); }
+.debug-entry-text { font-size: 11px; color: var(--muted); line-height: 1.5; word-break: break-all; }
+.debug-entry-detail { font-size: 10.5px; color: var(--hint); font-family: monospace; background: var(--bg); padding: 4px 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; margin-top: 2px; }
+
 /* ── MODALS ── */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15,15,30,0.45); z-index: 100;
@@ -797,27 +842,41 @@ async function loadPhoneNumbers() {
 }
 
 // ── CHAT ──
+// Tool name → human readable text
+const TOOL_LABELS = {
+  get_contact_call_history: 'Изучаю историю звонков',
+  get_agent_contacts:       'Загружаю контакты',
+  get_agent_stats:          'Считаю статистику',
+  create_agent_contact:     'Создаю контакт',
+  create_agent_task:        'Планирую звонок',
+  update_contact_memory:    'Обновляю память контакта',
+  set_contact_status:       'Меняю статус контакта',
+  send_telegram_notification: 'Отправляю уведомление',
+};
+
 async function sendMessage() {
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
   if (!text) return;
   inp.value = ''; inp.style.height = 'auto';
   addBubble(text, 'user');
-  const typingId = showTyping();
+  const thinkingId = showThinking('Анализирую запрос...');
   document.getElementById('chat-send').disabled = true;
+  const startTs = Date.now();
   try {
     const r = await apiFetch(API + '/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
-    removeTyping(typingId);
+    removeThinking(thinkingId);
     if (r && r.status === 200) {
       const d = await r.json();
-      addBubble(d.reply, 'assistant');
+      const elapsed = ((Date.now() - startTs) / 1000).toFixed(1);
+      addAgentBubble(d.reply, d.debug_log || [], elapsed);
       loadStats();
       loadRecentCalls();
     } else {
       addBubble('Ошибка при отправке сообщения.', 'assistant');
     }
   } catch(e) {
-    removeTyping(typingId);
+    removeThinking(thinkingId);
     addBubble('Ошибка сети.', 'assistant');
   }
   document.getElementById('chat-send').disabled = false;
@@ -838,17 +897,124 @@ function addBubble(text, role) {
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-function showTyping() {
+function addAgentBubble(text, debugLog, elapsed) {
   const msgs = document.getElementById('chat-messages');
-  const id = 'typing-' + Date.now();
+  const now = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+  const toolCalls = debugLog.filter(e => e.type === 'tool_call');
+  const actionCount = toolCalls.length;
+
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+
+  // Build debug log HTML
+  const logId = 'dbg-' + Date.now();
+  const logEntries = debugLog.filter(e =>
+    ['gpt_thinking','tool_call','tool_result','tool_error','gpt_response'].includes(e.type)
+  );
+
+  let entriesHtml = logEntries.map(e => {
+    const typeMap = {
+      gpt_thinking:  { cls: 'de-thinking',    label: 'Думаю' },
+      tool_call:     { cls: 'de-tool_call',   label: e.data?.tool || 'Инструмент' },
+      tool_result:   { cls: 'de-tool_result', label: 'Результат' },
+      tool_error:    { cls: 'de-tool_error',  label: 'Ошибка' },
+      gpt_response:  { cls: 'de-gpt_response',label: 'Ответ' },
+    };
+    const t = typeMap[e.type] || { cls: 'de-user_message', label: e.type };
+
+    let mainText = '';
+    let detailText = '';
+
+    if (e.type === 'tool_call') {
+      mainText = TOOL_LABELS[e.data?.tool] || e.data?.tool || '';
+      const args = e.data?.args;
+      if (args && Object.keys(args).length) {
+        detailText = Object.entries(args).slice(0, 3)
+          .map(([k,v]) => k + ': ' + (typeof v === 'object' ? JSON.stringify(v).slice(0,60) : String(v).slice(0,60)))
+          .join('\n');
+      }
+    } else if (e.type === 'tool_result') {
+      const res = e.data?.result;
+      if (res && typeof res === 'object') {
+        const count = res.count !== undefined ? 'найдено: ' + res.count : '';
+        const ok = res.ok !== undefined ? (res.ok ? 'успешно' : 'ошибка') : '';
+        mainText = [count, ok].filter(Boolean).join(' · ') || 'получен ответ';
+        if (res.calls) detailText = res.calls.slice(0,2).map(c => (c.status||'') + ' · ' + (c.post_call_decision||'')).join('\n');
+        else if (res.contacts) detailText = res.contacts.slice(0,2).map(c => (c.name||c.phone||'')).join('\n');
+      } else {
+        mainText = 'получен ответ';
+      }
+    } else if (e.type === 'gpt_thinking') {
+      mainText = typeof e.data === 'string' ? e.data.slice(0, 80) : 'обрабатываю';
+    } else if (e.type === 'gpt_response') {
+      mainText = typeof e.data === 'string' ? e.data.slice(0, 80) + (e.data.length > 80 ? '...' : '') : '';
+    } else if (e.type === 'tool_error') {
+      mainText = e.data?.error || 'ошибка инструмента';
+    }
+
+    return `<div class="debug-entry">
+      <div class="debug-entry-header">
+        <span class="debug-entry-type ${t.cls}">${t.label}</span>
+        ${mainText ? `<span class="debug-entry-text">${esc(mainText)}</span>` : ''}
+      </div>
+      ${detailText ? `<div class="debug-entry-detail">${esc(detailText)}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  const tagLabel = actionCount > 0
+    ? `${actionCount} ${actionCount === 1 ? 'действие' : actionCount < 5 ? 'действия' : 'действий'} · ${elapsed}с`
+    : `${elapsed}с`;
+
+  div.innerHTML = `
+    <div class="msg-avatar">AI</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${esc(text).replace(/\n/g,'<br>')}</div>
+      <div class="msg-time">${now}</div>
+      ${logEntries.length ? `
+        <div class="debug-tag" id="tag-${logId}" onclick="toggleDebugLog('${logId}')">
+          <span>${tagLabel}</span>
+          <span class="chevron">&#8964;</span>
+        </div>
+        <div class="debug-log" id="${logId}" style="display:none">
+          ${entriesHtml}
+        </div>
+      ` : ''}
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function toggleDebugLog(id) {
+  const log = document.getElementById(id);
+  const tag = document.getElementById('tag-' + id);
+  if (!log || !tag) return;
+  const isOpen = log.style.display !== 'none';
+  log.style.display = isOpen ? 'none' : 'block';
+  tag.classList.toggle('open', !isOpen);
+}
+
+function showThinking(text) {
+  const msgs = document.getElementById('chat-messages');
+  const id = 'thinking-' + Date.now();
   const div = document.createElement('div');
   div.className = 'msg assistant'; div.id = id;
-  div.innerHTML = `<div class="msg-avatar">AI</div><div class="msg-body"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+  div.innerHTML = `
+    <div class="msg-avatar">AI</div>
+    <div class="msg-body">
+      <div class="thinking-row">
+        <div class="thinking-spinner"></div>
+        <span id="${id}-text">${esc(text)}</span>
+      </div>
+    </div>`;
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   return id;
 }
-function removeTyping(id) { document.getElementById(id)?.remove(); }
+
+function removeThinking(id) { document.getElementById(id)?.remove(); }
+
+function showTyping() { return showThinking('Анализирую...'); }
+function removeTyping(id) { removeThinking(id); }
 
 // ── DOCS MODAL ──
 let activeDocTab = 'doc_who_am_i';
