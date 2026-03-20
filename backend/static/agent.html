@@ -80,6 +80,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .chat-header-sub { font-size: 11px; color: var(--hint); margin-top: 1px; }
 .chat-messages {
   flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+  justify-content: flex-end;
 }
 .chat-messages::-webkit-scrollbar { width: 4px; }
 .chat-messages::-webkit-scrollbar-track { background: transparent; }
@@ -130,7 +131,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 /* ── RIGHT PANEL ── */
 .panel-col {
   width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
-  overflow-y: auto; overflow-x: hidden;
+  overflow: hidden; height: 100%;
   transition: width var(--transition), opacity var(--transition), margin var(--transition);
 }
 .panel-col::-webkit-scrollbar { width: 4px; }
@@ -149,9 +150,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
 .card-big-num { font-size: 32px; font-weight: 600; color: var(--text); line-height: 1; }
 .card-sub { font-size: 11px; color: var(--hint); margin-top: 4px; }
-.cards-row { display: flex; gap: 10px; }
+.cards-row { display: flex; gap: 10px; align-items: stretch; }
 .cards-row .card { flex: 1; }
-.card-docs { border-color: var(--blue) !important; cursor: default; }
+.card-docs { border-color: var(--blue) !important; cursor: default; flex: 1; }
 .card-docs:hover { border-color: var(--blue) !important; }
 .doc-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .doc-pill {
@@ -405,21 +406,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
 
     <!-- Row 2: Last calls (tall) + Queue + Agent -->
-    <div class="cards-row" style="align-items:flex-start">
-      <div class="card no-hover" style="flex:1">
+    <div class="cards-row" style="flex:1;min-height:0">
+      <div class="card no-hover" style="flex:1;display:flex;flex-direction:column">
         <div class="card-label">Последние звонки</div>
-        <div class="call-list" id="last-calls-list">
+        <div class="call-list" id="last-calls-list" style="flex:1">
           <div style="font-size:12px;color:var(--hint);padding:8px 0">Нет звонков</div>
         </div>
         <span class="all-calls-link" onclick="openCallsModal()">Все звонки →</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;flex:1">
-        <div class="card no-hover">
+        <div class="card no-hover" style="flex:1">
           <div class="card-label">В очереди</div>
           <div class="card-big-num" id="stat-queue">—</div>
           <div class="card-sub">задачи на звонок</div>
         </div>
-        <div class="card no-hover">
+        <div class="card no-hover" style="flex:1">
           <div class="card-label">Агент</div>
           <div class="agent-status-row">
             <div class="status-dot" id="agent-dot"></div>
@@ -433,7 +434,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
 
     <!-- Row 3: Documents -->
-    <div class="card card-docs">
+    <div class="card card-docs" style="flex-shrink:0">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
         <div class="card-label" style="margin-bottom:0">Документы агента</div>
         <button class="btn-sm btn-blue" onclick="openDocsModal(null)">Изменить</button>
