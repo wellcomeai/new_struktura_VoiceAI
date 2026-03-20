@@ -131,7 +131,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 /* ── RIGHT PANEL ── */
 .panel-col {
   width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
-  overflow: hidden; height: 100%;
+  overflow-y: auto; overflow-x: hidden;
   transition: width var(--transition), opacity var(--transition), margin var(--transition);
 }
 .panel-col::-webkit-scrollbar { width: 4px; }
@@ -406,8 +406,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
 
     <!-- Row 2: Last calls (tall) + Queue + Agent -->
-    <div class="cards-row" style="flex:1;min-height:0">
-      <div class="card no-hover" style="flex:1;display:flex;flex-direction:column">
+    <div class="cards-row">
+      <div class="card no-hover" style="display:flex;flex-direction:column">
         <div class="card-label">Последние звонки</div>
         <div class="call-list" id="last-calls-list" style="flex:1">
           <div style="font-size:12px;color:var(--hint);padding:8px 0">Нет звонков</div>
@@ -415,12 +415,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <span class="all-calls-link" onclick="openCallsModal()">Все звонки →</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;flex:1">
-        <div class="card no-hover" style="flex:1">
+        <div class="card no-hover">
           <div class="card-label">В очереди</div>
           <div class="card-big-num" id="stat-queue">—</div>
           <div class="card-sub">задачи на звонок</div>
         </div>
-        <div class="card no-hover" style="flex:1">
+        <div class="card no-hover">
           <div class="card-label">Агент</div>
           <div class="agent-status-row">
             <div class="status-dot" id="agent-dot"></div>
