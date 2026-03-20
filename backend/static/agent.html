@@ -434,7 +434,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     </div>
 
     <!-- Row 3: Document cards grid -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;flex-shrink:0">
+    <div style="flex-shrink:0;background:var(--white);border:1px solid var(--blue);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:500">Документы агента</span>
+        <button class="btn-sm btn-blue" onclick="openDocsModal(null)">Изменить</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="card" style="cursor:pointer" onclick="openDocsModal('doc_who_am_i')">
         <div class="card-label">Кто мы</div>
         <div id="doc-preview-who_am_i" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
@@ -455,6 +460,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
         <div class="card-label">Правила и цели</div>
         <div id="doc-preview-rules_and_goals" style="font-size:11.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">Нажмите чтобы заполнить</div>
       </div>
+    </div>
     </div>
 
   </div>
