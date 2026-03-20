@@ -1,1272 +1,1182 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voicyfy Agent | Voicyfy</title>
-  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
-  <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#2563eb">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    :root {
-      --primary-blue: #2563eb;
-      --primary-blue-light: #3b82f6;
-      --primary-blue-dark: #1d4ed8;
-      --accent-blue: #4a86e8;
-      --gradient-blue: linear-gradient(135deg, #4a86e8, #2563eb);
-      --text-dark: #0f172a;
-      --text-gray: #64748b;
-      --text-light: #94a3b8;
-      --bg-light: #f8fafc;
-      --bg-blue-light: #eff6ff;
-      --white: #ffffff;
-      --border-color: #e2e8f0;
-      --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
-      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
-      --radius-md: 0.5rem;
-      --radius-lg: 1rem;
-      --radius-full: 9999px;
-      --transition-sm: all 0.2s ease;
-      --transition-md: all 0.3s ease;
-      --green-500: #10b981;
-      --green-100: rgba(16,185,129,0.1);
-      --orange-500: #f97316;
-      --orange-100: rgba(249,115,22,0.1);
-      --red-500: #ef4444;
-      --red-100: rgba(239,68,68,0.1);
-      --purple-500: #8b5cf6;
-      --purple-100: rgba(139,92,246,0.1);
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voicyfy Agent</title>
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+:root {
+  --bg: #F5F6F8;
+  --white: #FFFFFF;
+  --blue: #378ADD;
+  --blue-dark: #185FA5;
+  --blue-light: #F0F4FF;
+  --blue-border: #C8D8F8;
+  --text: #1a1a2e;
+  --muted: #888780;
+  --hint: #B4B2A9;
+  --green: #1D9E75;
+  --red: #E24B4A;
+  --red-light: #FEF2F2;
+  --border: #E0E3E8;
+  --border-soft: #F0F1F3;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --radius-pill: 6px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --transition: 0.3s ease;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
 
-    * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
-    body { background-color:var(--bg-light); color:var(--text-dark); min-height:100vh; display:flex; line-height:1.5; }
+/* ── TOP NAV ── */
+.top-nav {
+  height: 48px; background: var(--white); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
+  z-index: 10;
+}
+.nav-back {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  border-radius: var(--radius-sm); background: var(--bg); border: 1px solid var(--border);
+  color: var(--muted); font-size: 13px; cursor: pointer; text-decoration: none;
+  transition: background var(--transition);
+}
+.nav-back:hover { background: var(--border); }
+.nav-title { flex: 1; text-align: center; font-size: 15px; font-weight: 500; color: var(--text); }
+.nav-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 2px rgba(29,158,117,0.2); }
+.status-dot.inactive { background: var(--hint); box-shadow: none; }
+.nav-toggle {
+  width: 36px; height: 36px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--bg); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition), border-color var(--transition); color: var(--muted);
+}
+.nav-toggle:hover { background: var(--blue-light); border-color: var(--blue-border); color: var(--blue); }
+.nav-toggle.active { background: var(--blue-light); border-color: var(--blue-border); color: var(--blue); }
 
-    /* SIDEBAR */
-    .sidebar { width:260px; background-color:var(--white); border-right:1px solid var(--border-color); height:100vh; position:fixed; left:0; top:0; overflow-y:auto; display:flex; flex-direction:column; z-index:10; transition:var(--transition-md); }
-    .sidebar-header { padding:1.5rem; border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; }
-    .sidebar-logo { font-size:1.25rem; font-weight:700; color:var(--text-dark); text-decoration:none; display:flex; align-items:center; gap:0.5rem; }
-    .logo-icon { width:30px; height:30px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; }
-    .logo-icon img { width:100%; height:100%; object-fit:contain; border-radius:var(--radius-md); }
-    .mobile-toggle { display:none; background:none; border:none; color:var(--text-gray); font-size:1.25rem; cursor:pointer; }
-    .sidebar-nav { padding:1.5rem 0; flex-grow:1; }
-    .sidebar-nav-item { display:flex; align-items:center; padding:0.75rem 1.5rem; color:var(--text-gray); text-decoration:none; transition:var(--transition-sm); border-left:3px solid transparent; }
-    .sidebar-nav-item.active { background-color:var(--bg-blue-light); color:var(--primary-blue); border-left-color:var(--primary-blue); font-weight:500; }
-    .sidebar-nav-item:hover { background-color:var(--bg-blue-light); color:var(--primary-blue); }
-    .sidebar-nav-item i { margin-right:0.75rem; width:20px; text-align:center; }
-    .sidebar-section { padding:0 1.5rem; margin-bottom:0.75rem; margin-top:1.5rem; color:var(--text-light); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
-    .sidebar-footer { padding:1rem 1.5rem; border-top:1px solid var(--border-color); }
+/* ── MAIN LAYOUT ── */
+.main-layout {
+  flex: 1; display: flex; overflow: hidden; gap: 12px; padding: 12px;
+}
 
-    /* MAIN CONTENT */
-    .main-content { flex:1; margin-left:260px; display:flex; flex-direction:column; min-height:100vh; transition:var(--transition-md); }
-    .top-nav { background-color:var(--white); border-bottom:1px solid var(--border-color); padding:1rem 2rem; display:flex; justify-content:space-between; align-items:center; box-shadow:var(--shadow-sm); }
-    .page-title { font-size:1.25rem; font-weight:600; }
-    .content-area { padding:2rem; flex:1; }
+/* ── CHAT ── */
+.chat-col {
+  flex: 1; background: var(--white); border-radius: var(--radius);
+  border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: var(--shadow); min-width: 0;
+}
+.chat-header {
+  padding: 14px 18px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.chat-header-icon {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--blue-light);
+  border: 1px solid var(--blue-border); display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--blue);
+}
+.chat-header-title { font-size: 14px; font-weight: 500; color: var(--text); }
+.chat-header-sub { font-size: 11px; color: var(--hint); margin-top: 1px; }
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.chat-messages::-webkit-scrollbar { width: 4px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.msg { display: flex; gap: 8px; max-width: 80%; animation: msgIn 0.2s ease; }
+@keyframes msgIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg.assistant { align-self: flex-start; }
+.msg-avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500;
+}
+.msg.assistant .msg-avatar { background: var(--blue-light); color: var(--blue); border: 1px solid var(--blue-border); }
+.msg.user .msg-avatar { background: var(--blue); color: #fff; }
+.msg-body { display: flex; flex-direction: column; gap: 3px; }
+.msg-bubble {
+  padding: 10px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.55; word-break: break-word;
+}
+.msg.assistant .msg-bubble { background: var(--blue-light); color: var(--text); border: 1px solid var(--blue-border); border-bottom-left-radius: 4px; }
+.msg.user .msg-bubble { background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+.msg-time { font-size: 10px; color: var(--hint); padding: 0 2px; }
+.msg.user .msg-time { text-align: right; }
+.typing-indicator { display: flex; align-items: center; gap: 4px; padding: 12px 14px; background: var(--blue-light); border: 1px solid var(--blue-border); border-radius: 12px; border-bottom-left-radius: 4px; }
+.typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--blue); animation: typingBounce 1.2s infinite ease-in-out; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typingBounce { 0%,80%,100%{ transform:scale(0.6); opacity:0.4; } 40%{ transform:scale(1); opacity:1; } }
+.chat-input-area {
+  padding: 12px 16px; border-top: 1px solid var(--border-soft);
+  display: flex; gap: 8px; align-items: flex-end; flex-shrink: 0;
+}
+.chat-input {
+  flex: 1; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+  font-size: 13.5px; font-family: inherit; resize: none; outline: none; background: var(--bg);
+  color: var(--text); max-height: 120px; min-height: 42px; line-height: 1.4;
+  transition: border-color var(--transition);
+}
+.chat-input:focus { border-color: var(--blue); background: var(--white); }
+.chat-send {
+  width: 42px; height: 42px; border-radius: 10px; background: var(--blue);
+  border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; transition: background var(--transition), transform 0.1s; flex-shrink: 0;
+}
+.chat-send:hover { background: var(--blue-dark); }
+.chat-send:active { transform: scale(0.95); }
+.chat-send:disabled { background: var(--border); cursor: not-allowed; }
 
-    /* BUTTONS */
-    .btn { display:inline-flex; align-items:center; gap:0.5rem; padding:0.625rem 1.25rem; border-radius:var(--radius-md); font-weight:500; font-size:0.875rem; cursor:pointer; transition:var(--transition-sm); border:none; text-decoration:none; }
-    .btn-primary { background:var(--gradient-blue); color:var(--white); }
-    .btn-primary:hover { opacity:0.9; transform:translateY(-1px); }
-    .btn-secondary { background:var(--white); color:var(--text-dark); border:1px solid var(--border-color); }
-    .btn-secondary:hover { background:var(--bg-light); }
-    .btn-danger { background:var(--red-500); color:var(--white); }
-    .btn-danger:hover { opacity:0.9; }
-    .btn:disabled { opacity:0.5; cursor:not-allowed; }
+/* ── RIGHT PANEL ── */
+.panel-col {
+  width: 320px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; overflow-x: hidden;
+  transition: width var(--transition), opacity var(--transition), margin var(--transition);
+}
+.panel-col::-webkit-scrollbar { width: 4px; }
+.panel-col::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.panel-col.hidden { width: 0; opacity: 0; pointer-events: none; margin: 0; }
 
-    /* WIZARD */
-    .wizard-container { max-width:700px; margin:0 auto; }
-    .wizard-progress { display:flex; align-items:center; justify-content:center; gap:0.5rem; margin-bottom:2rem; }
-    .wizard-step-dot { width:12px; height:12px; border-radius:50%; background:var(--border-color); transition:var(--transition-md); }
-    .wizard-step-dot.active { background:var(--primary-blue); transform:scale(1.2); }
-    .wizard-step-dot.done { background:var(--green-500); }
-    .wizard-step-line { width:24px; height:2px; background:var(--border-color); }
-    .wizard-step-line.done { background:var(--green-500); }
+/* ── CARDS ── */
+.card {
+  background: var(--white); border-radius: var(--radius);
+  border: 1px solid var(--border); padding: 16px; box-shadow: var(--shadow);
+  cursor: pointer; transition: border-color var(--transition), box-shadow var(--transition);
+}
+.card:hover { border-color: var(--blue-border); box-shadow: 0 2px 8px rgba(55,138,221,0.1); }
+.card.no-hover { cursor: default; }
+.card.no-hover:hover { border-color: var(--border); box-shadow: var(--shadow); }
+.card-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.card-big-num { font-size: 32px; font-weight: 600; color: var(--text); line-height: 1; }
+.card-sub { font-size: 11px; color: var(--hint); margin-top: 4px; }
+.cards-row { display: flex; gap: 10px; }
+.cards-row .card { flex: 1; }
+.card-docs { border-color: var(--blue) !important; cursor: default; }
+.card-docs:hover { border-color: var(--blue) !important; }
+.doc-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.doc-pill {
+  padding: 5px 10px; background: var(--blue-light); border: 1px solid var(--blue-border);
+  border-radius: var(--radius-pill); font-size: 11px; color: var(--blue-dark);
+  cursor: pointer; transition: background var(--transition);
+}
+.doc-pill:hover { background: #dceeff; }
+.card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.btn-sm {
+  padding: 6px 12px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500;
+  cursor: pointer; border: none; transition: background var(--transition);
+}
+.btn-blue { background: var(--blue); color: #fff; }
+.btn-blue:hover { background: var(--blue-dark); }
+.btn-ghost { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); }
+.call-list { display: flex; flex-direction: column; }
+.call-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.call-item:last-child { border-bottom: none; }
+.call-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.call-dot.no_answer { background: var(--red); }
+.call-dot.answered { background: var(--green); }
+.call-info { flex: 1; min-width: 0; }
+.call-name { font-size: 12px; font-weight: 500; color: var(--text); }
+.call-meta { font-size: 10px; color: var(--hint); margin-top: 1px; }
+.all-calls-link { font-size: 11px; color: var(--blue); cursor: pointer; margin-top: 8px; display: inline-block; }
+.all-calls-link:hover { text-decoration: underline; }
+.agent-status-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.agent-type-badge { font-size: 10px; color: var(--hint); background: var(--bg); padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); }
+.add-btn {
+  width: 26px; height: 26px; border-radius: 6px; background: var(--blue); color: #fff;
+  border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition);
+}
+.add-btn:hover { background: var(--blue-dark); }
 
-    .wizard-card { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-md); padding:2rem; animation:fadeIn 0.3s ease; }
-    @keyframes fadeIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+/* ── MODALS ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(15,15,30,0.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  animation: overlayIn 0.15s ease;
+}
+@keyframes overlayIn { from { opacity:0; } to { opacity:1; } }
+.modal-overlay.hidden { display: none; }
+.modal {
+  background: var(--white); border-radius: var(--radius); width: 100%; max-width: 560px;
+  max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  animation: modalIn 0.2s ease;
+}
+@keyframes modalIn { from { opacity:0; transform: translateY(12px) scale(0.98); } to { opacity:1; transform:none; } }
+.modal-lg { max-width: 680px; }
+.modal-header {
+  padding: 18px 20px 14px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.modal-title { font-size: 16px; font-weight: 500; }
+.modal-close {
+  width: 32px; height: 32px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--muted);
+  font-size: 14px; transition: background var(--transition);
+}
+.modal-close:hover { background: var(--red-light); color: var(--red); border-color: #fca5a5; }
+.modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+.modal-body::-webkit-scrollbar { width: 4px; }
+.modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.modal-footer {
+  padding: 14px 20px; border-top: 1px solid var(--border-soft);
+  display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+}
+.form-group { margin-bottom: 16px; }
+.form-label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.form-input, .form-textarea, .form-select {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 13.5px; font-family: inherit; color: var(--text); background: var(--bg);
+  transition: border-color var(--transition); outline: none;
+}
+.form-input:focus, .form-textarea:focus, .form-select:focus { border-color: var(--blue); background: var(--white); }
+.form-textarea { resize: vertical; min-height: 100px; line-height: 1.6; }
+.form-row { display: flex; gap: 12px; }
+.form-row .form-group { flex: 1; }
+.form-hint { font-size: 11px; color: var(--hint); margin-top: 4px; }
+.doc-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+.doc-tab {
+  padding: 6px 12px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  transition: all var(--transition);
+}
+.doc-tab.active { background: var(--blue-light); border-color: var(--blue-border); color: var(--blue-dark); }
+.doc-pane { display: none; }
+.doc-pane.active { display: block; }
+.save-warning {
+  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
+  background: #FFFBEB; border: 1px solid #FCD34D; border-radius: var(--radius-sm);
+  font-size: 12px; color: #92400E; margin-bottom: 16px;
+}
 
-    .wizard-card h2 { font-size:1.5rem; margin-bottom:0.5rem; }
-    .wizard-card p.hint { color:var(--text-gray); font-size:0.875rem; margin-bottom:1.5rem; }
-    .wizard-card textarea { width:100%; min-height:180px; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; font-size:0.9rem; resize:vertical; font-family:inherit; line-height:1.6; transition:var(--transition-sm); }
-    .wizard-card textarea:focus { outline:none; border-color:var(--primary-blue); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
-    .wizard-card input[type="text"], .wizard-card input[type="password"], .wizard-card input[type="number"] {
-      width:100%; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.75rem 1rem; font-size:0.9rem; font-family:inherit; transition:var(--transition-sm);
-    }
-    .wizard-card input:focus { outline:none; border-color:var(--primary-blue); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
-    .wizard-card label { display:block; font-weight:500; margin-bottom:0.5rem; font-size:0.875rem; }
-    .wizard-actions { display:flex; justify-content:space-between; margin-top:1.5rem; gap:1rem; }
-    .field-group { margin-bottom:1.25rem; }
-    .field-row { display:flex; gap:1rem; }
-    .field-row .field-group { flex:1; }
+/* ── CALLS TABLE ── */
+.calls-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.calls-table th { padding: 8px 10px; text-align: left; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+.calls-table td { padding: 10px; border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.calls-table tr:hover td { background: var(--bg); cursor: pointer; }
+.calls-table tr:last-child td { border-bottom: none; }
+.status-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+  border-radius: 4px; font-size: 11px; font-weight: 500;
+}
+.badge-no-answer { background: var(--red-light); color: var(--red); }
+.badge-answered { background: #F0FDF4; color: #166534; }
+.badge-followup { background: var(--blue-light); color: var(--blue-dark); }
+.badge-success { background: #F0FDF4; color: #166534; }
+.badge-do-not-call { background: #FEF2F2; color: #991B1B; }
+.transcript-row td { background: var(--bg) !important; padding: 12px 16px !important; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
 
-    /* KEY CHECK */
-    .key-status { display:flex; align-items:center; gap:0.5rem; padding:0.75rem 1rem; border-radius:var(--radius-md); margin-bottom:1rem; font-size:0.875rem; }
-    .key-status.ok { background:var(--green-100); color:var(--green-500); }
-    .key-status.missing { background:var(--orange-100); color:var(--orange-500); }
+/* ── WIZARD ── */
+.wizard-overlay {
+  position: fixed; inset: 0; background: var(--bg); z-index: 200;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px;
+}
+.wizard-overlay.hidden { display: none; }
+.wizard-card { background: var(--white); border-radius: var(--radius); padding: 36px; width: 100%; max-width: 580px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+.wizard-logo { text-align: center; margin-bottom: 28px; }
+.wizard-logo-text { font-size: 20px; font-weight: 600; color: var(--text); }
+.wizard-logo-sub { font-size: 13px; color: var(--hint); margin-top: 4px; }
+.wizard-progress { display: flex; align-items: center; gap: 4px; margin-bottom: 28px; }
+.w-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border); transition: all var(--transition); }
+.w-dot.done { background: var(--green); }
+.w-dot.active { background: var(--blue); transform: scale(1.3); }
+.w-line { flex: 1; height: 2px; background: var(--border); transition: background var(--transition); }
+.w-line.done { background: var(--green); }
+.wizard-card h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.wizard-card p.hint { font-size: 13px; color: var(--muted); margin-bottom: 20px; line-height: 1.6; }
+.wizard-actions { display: flex; justify-content: space-between; margin-top: 24px; gap: 12px; }
+.btn { padding: 10px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all var(--transition); display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover { background: var(--blue-dark); }
+.btn-secondary { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--border); }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { opacity: 0.9; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.key-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius-sm); margin-bottom: 10px; font-size: 13px; }
+.key-ok { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
+.key-missing { background: #FFFBEB; color: #92400E; border: 1px solid #FCD34D; }
+.creation-list { list-style: none; }
+.creation-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; font-size: 14px; color: var(--muted); border-bottom: 1px solid var(--border-soft); }
+.creation-item:last-child { border-bottom: none; }
+.creation-item.done { color: var(--green); }
+.creation-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+.creation-item.done .creation-icon { background: var(--green); color: #fff; }
+.creation-item.pending .creation-icon { border: 2px solid var(--border); }
+.spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-    /* CREATION ANIMATION */
-    .creation-checklist { list-style:none; padding:0; }
-    .creation-checklist li { padding:0.75rem 0; font-size:1rem; display:flex; align-items:center; gap:0.75rem; color:var(--text-gray); }
-    .creation-checklist li.done { color:var(--green-500); }
-    .creation-checklist li .check-icon { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:0.75rem; }
-    .creation-checklist li.pending .check-icon { border:2px solid var(--border-color); }
-    .creation-checklist li.done .check-icon { background:var(--green-500); color:var(--white); }
-    .spinner { width:20px; height:20px; border:2px solid var(--border-color); border-top-color:var(--primary-blue); border-radius:50%; animation:spin 0.8s linear infinite; }
-    @keyframes spin { to { transform:rotate(360deg); } }
+/* ── LOADING ── */
+#loading-screen { position: fixed; inset: 0; background: var(--bg); z-index: 300; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+#loading-screen.hidden { display: none; }
+#loading-screen .spinner { width: 32px; height: 32px; border-width: 3px; }
+#loading-screen p { font-size: 13px; color: var(--hint); }
 
-    /* DASHBOARD */
-    .dashboard-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem; }
-    .agent-status { display:flex; align-items:center; gap:0.75rem; }
-    .status-dot { width:12px; height:12px; border-radius:50%; }
-    .status-dot.active { background:var(--green-500); box-shadow:0 0 8px rgba(16,185,129,0.4); }
-    .status-dot.inactive { background:var(--text-light); }
-
-    /* TABS */
-    .tabs { display:flex; gap:0; margin-bottom:2rem; border-bottom:2px solid var(--border-color); }
-    .tab-btn { padding:0.75rem 1.5rem; cursor:pointer; font-weight:500; font-size:0.9rem; color:var(--text-gray); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; transition:var(--transition-sm); }
-    .tab-btn.active { color:var(--primary-blue); border-bottom-color:var(--primary-blue); }
-    .tab-btn:hover { color:var(--primary-blue); }
-    .tab-content { display:none; }
-    .tab-content.active { display:block; }
-
-    /* TABLE */
-    .data-table { width:100%; border-collapse:collapse; background:var(--white); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
-    .data-table th { padding:0.75rem 1rem; text-align:left; font-size:0.8rem; color:var(--text-gray); text-transform:uppercase; letter-spacing:0.03em; background:var(--bg-light); border-bottom:1px solid var(--border-color); }
-    .data-table td { padding:0.75rem 1rem; font-size:0.875rem; border-bottom:1px solid var(--border-color); }
-    .data-table tr:last-child td { border-bottom:none; }
-    .data-table tr:hover td { background:var(--bg-blue-light); }
-
-    .status-badge { display:inline-flex; align-items:center; gap:0.25rem; padding:0.25rem 0.75rem; border-radius:var(--radius-full); font-size:0.75rem; font-weight:500; }
-    .status-new { background:#f1f5f9; color:#64748b; }
-    .status-calling { background:#dbeafe; color:#2563eb; animation:pulse 1.5s infinite; }
-    .status-active { background:var(--green-100); color:var(--green-500); }
-    .status-success { background:#065f46; color:#fff; }
-    .status-rejected { background:var(--red-100); color:var(--red-500); }
-    .status-do_not_call { background:#7f1d1d; color:#fff; }
-    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.6;} }
-
-    .decision-badge { font-size:0.8rem; }
-    .transcript-row { display:none; }
-    .transcript-row.visible { display:table-row; }
-    .transcript-row td { padding:1rem; background:var(--bg-light); white-space:pre-wrap; font-size:0.8rem; color:var(--text-gray); }
-
-    .pagination { display:flex; justify-content:center; gap:0.5rem; margin-top:1rem; }
-    .pagination button { padding:0.5rem 1rem; border:1px solid var(--border-color); background:var(--white); border-radius:var(--radius-md); cursor:pointer; font-size:0.85rem; }
-    .pagination button.active { background:var(--primary-blue); color:var(--white); border-color:var(--primary-blue); }
-    .pagination button:disabled { opacity:0.4; cursor:not-allowed; }
-
-    /* MODAL */
-    .modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:100; }
-    .modal-card { background:var(--white); border-radius:var(--radius-lg); padding:2rem; width:90%; max-width:480px; box-shadow:var(--shadow-lg); }
-    .modal-card h3 { margin-bottom:1rem; }
-
-    /* DEBUG LOG */
-    .log-entry { font-family:monospace; font-size:0.8rem; padding:0.5rem 0.75rem; margin-bottom:0.5rem; border-radius:6px; border-left:4px solid; }
-    .log-entry.user_message { border-color:#2563eb; background:#eff6ff; }
-    .log-entry.gpt_thinking { border-color:#8b5cf6; background:#f5f3ff; }
-    .log-entry.tool_call { border-color:#f97316; background:#fff7ed; }
-    .log-entry.tool_result { border-color:#10b981; background:#ecfdf5; }
-    .log-entry.tool_error { border-color:#ef4444; background:#fef2f2; }
-    .log-entry.gpt_response { border-color:#64748b; background:#f8fafc; }
-    .log-entry .log-header { display:flex; gap:0.75rem; align-items:center; cursor:pointer; }
-    .log-entry .log-type { font-weight:700; text-transform:uppercase; font-size:0.7rem; }
-    .log-entry .log-ts { color:#94a3b8; }
-    .log-entry .log-preview { color:#475569; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .log-entry .log-detail { display:none; margin-top:0.5rem; white-space:pre-wrap; word-break:break-all; }
-    .log-entry.expanded .log-detail { display:block; }
-    .tab-btn .badge { background:#ef4444; color:white; border-radius:10px; padding:0 6px; font-size:0.7rem; margin-left:4px; }
-
-    .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:2rem; }
-    .stat-card { background:var(--white); border-radius:var(--radius-lg); padding:1.5rem; box-shadow:var(--shadow-sm); border:1px solid var(--border-color); }
-    .stat-card .stat-value { font-size:2rem; font-weight:700; color:var(--text-dark); }
-    .stat-card .stat-label { font-size:0.8rem; color:var(--text-gray); margin-top:0.25rem; }
-
-    /* CHAT */
-    .chat-container { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid var(--border-color); display:flex; flex-direction:column; height:400px; }
-    .chat-header { padding:1rem 1.5rem; border-bottom:1px solid var(--border-color); font-weight:600; }
-    .chat-messages { flex:1; overflow-y:auto; padding:1rem 1.5rem; display:flex; flex-direction:column; gap:0.75rem; }
-    .chat-bubble { max-width:80%; padding:0.75rem 1rem; border-radius:var(--radius-lg); font-size:0.9rem; line-height:1.5; word-wrap:break-word; }
-    .chat-bubble.user { background:var(--primary-blue); color:var(--white); align-self:flex-end; border-bottom-right-radius:4px; }
-    .chat-bubble.assistant { background:var(--bg-light); color:var(--text-dark); align-self:flex-start; border-bottom-left-radius:4px; }
-    .chat-input-area { padding:1rem 1.5rem; border-top:1px solid var(--border-color); display:flex; gap:0.75rem; }
-    .chat-input-area input { flex:1; border:1px solid var(--border-color); border-radius:var(--radius-full); padding:0.75rem 1.25rem; font-size:0.9rem; font-family:inherit; }
-    .chat-input-area input:focus { outline:none; border-color:var(--primary-blue); }
-    .chat-input-area button { background:var(--gradient-blue); color:var(--white); border:none; border-radius:50%; width:42px; height:42px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:var(--transition-sm); }
-    .chat-input-area button:hover { opacity:0.9; }
-
-    /* SETTINGS PANEL */
-    .settings-panel { background:var(--white); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); border:1px solid var(--border-color); padding:1.5rem; margin-top:2rem; display:none; }
-    .settings-panel.visible { display:block; }
-
-    .hidden { display:none !important; }
-
-    /* RESPONSIVE */
-    @media (max-width:768px) {
-      .sidebar { transform:translateX(-100%); }
-      .sidebar.open { transform:translateX(0); }
-      .main-content { margin-left:0; }
-      .mobile-toggle { display:block; }
-      .stats-grid { grid-template-columns:repeat(2,1fr); }
-      .chat-bubble { max-width:90%; }
-      .field-row { flex-direction:column; }
-    }
-  </style>
+@media (max-width: 768px) {
+  .panel-col { display: none; }
+  .nav-toggle { display: none; }
+  .main-layout { padding: 8px; }
+}
+</style>
 </head>
 <body>
 
-  <!-- SIDEBAR -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <a href="/static/dashboard.html" class="sidebar-logo">
-        <div class="logo-icon">
-          <i class="fas fa-robot"></i>
-        </div>
-        <span>Voicyfy</span>
-      </a>
-      <button class="mobile-toggle" id="sidebar-close">
-        <i class="fas fa-times"></i>
-      </button>
+<!-- Loading -->
+<div id="loading-screen">
+  <div class="spinner"></div>
+  <p>Загрузка...</p>
+</div>
+
+<!-- Wizard overlay -->
+<div class="wizard-overlay hidden" id="wizard-overlay">
+  <div class="wizard-card">
+    <div class="wizard-logo">
+      <div class="wizard-logo-text">Voicyfy Agent</div>
+      <div class="wizard-logo-sub">Настройте автономного агента для звонков</div>
     </div>
+    <div class="wizard-progress" id="wizard-progress"></div>
+    <div id="wizard-content"></div>
+  </div>
+</div>
 
-    <nav class="sidebar-nav">
-      <div class="sidebar-section">Основное</div>
-      <a href="/static/dashboard.html" class="sidebar-nav-item">
-        <i class="fas fa-home"></i> Дашборд
-      </a>
-      <a href="/static/agents.html" class="sidebar-nav-item">
-        <i class="fas fa-robot"></i> OpenAI агенты
-      </a>
-      <a href="/static/gemini-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-gem"></i> Gemini агенты
-      </a>
-      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-wave-square"></i> Cartesia агенты
-      </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
-        <i class="fas fa-book"></i> База знаний
-      </a>
-      <a href="/static/telephony.html" class="sidebar-nav-item">
-        <i class="fas fa-phone"></i> Телефония
-      </a>
-      <a href="/static/conversations.html" class="sidebar-nav-item">
-        <i class="fas fa-comments"></i> Диалоги
-      </a>
-      <a href="/static/crm.html" class="sidebar-nav-item">
-        <i class="fas fa-address-book"></i> CRM
-      </a>
+<!-- Top nav -->
+<nav class="top-nav" id="top-nav" style="display:none">
+  <a href="/static/dashboard.html" class="nav-back">
+    <i class="fas fa-arrow-left" style="font-size:11px"></i> Voicyfy
+  </a>
+  <div class="nav-title" id="nav-agent-name">Voicyfy Agent</div>
+  <div class="nav-status">
+    <div class="status-dot" id="nav-status-dot"></div>
+    <span id="nav-status-text">Активен</span>
+  </div>
+  <button class="nav-toggle active" id="panel-toggle" title="Скрыть/показать панель">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path id="chevron-icon" d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path id="chevron-icon2" d="M6 3L1 8L6 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</nav>
 
-      <div class="sidebar-section">ИИ Агент</div>
-      <a href="/static/agent.html" class="sidebar-nav-item active">
-        <i class="fas fa-brain"></i> Voicyfy Agent
-      </a>
+<!-- Main layout -->
+<div class="main-layout" id="main-layout" style="display:none">
 
-      <div class="sidebar-section">ИИ Интерфейс</div>
-      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
-        <i class="fas fa-microphone"></i> JARVIS AI
-      </a>
-
-      <div class="sidebar-section">Аккаунт</div>
-      <a href="/static/settings.html" class="sidebar-nav-item">
-        <i class="fas fa-gear"></i> Настройки
-      </a>
-    </nav>
-
-    <div class="sidebar-footer">
-      <a href="https://voicyfy.ru" class="btn btn-secondary" style="width:100%; text-decoration:none; justify-content:center;" id="logout-button">
-        <i class="fas fa-sign-out-alt"></i> Выйти
-      </a>
-    </div>
-  </aside>
-
-  <!-- MAIN -->
-  <main class="main-content" id="main-content">
-    <div class="top-nav">
-      <button class="mobile-toggle" id="sidebar-toggle">
-        <i class="fas fa-bars"></i>
-      </button>
-      <h1 class="page-title">Voicyfy Agent</h1>
-      <div></div>
-    </div>
-
-    <div class="content-area">
-
-      <!-- LOADING -->
-      <div id="loading-state" style="text-align:center; padding:4rem;">
-        <div class="spinner" style="margin:0 auto 1rem;"></div>
-        <p style="color:var(--text-gray);">Загрузка...</p>
+  <!-- CHAT -->
+  <div class="chat-col">
+    <div class="chat-header">
+      <div class="chat-header-icon"><i class="fas fa-robot"></i></div>
+      <div>
+        <div class="chat-header-title">Чат с агентом</div>
+        <div class="chat-header-sub">Управляйте агентом через диалог</div>
       </div>
-
-      <!-- WIZARD (onboarding) -->
-      <div id="wizard-view" class="hidden">
-        <div class="wizard-container">
-          <div class="wizard-progress" id="wizard-progress"></div>
-          <div id="wizard-content"></div>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="msg assistant">
+        <div class="msg-avatar">AI</div>
+        <div class="msg-body">
+          <div class="msg-bubble">Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?</div>
+          <div class="msg-time">сейчас</div>
         </div>
       </div>
+    </div>
+    <div class="chat-input-area">
+      <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение агенту..." rows="1"></textarea>
+      <button class="chat-send" id="chat-send"><i class="fas fa-paper-plane"></i></button>
+    </div>
+  </div>
 
-      <!-- DASHBOARD (active agent) -->
-      <div id="dashboard-view" class="hidden">
-        <div class="dashboard-header">
-          <div class="agent-status">
-            <div class="status-dot" id="agent-status-dot"></div>
-            <div>
-              <h2 id="agent-name">Мой агент</h2>
-              <p style="color:var(--text-gray); font-size:0.875rem;" id="agent-gemini-name"></p>
-              <p style="color:var(--text-gray); font-size:0.75rem; display:none;" id="agent-caller-id-info"><i class="fas fa-phone" style="margin-right:4px;"></i> <span id="agent-caller-id-text"></span></p>
-            </div>
-          </div>
-          <div style="display:flex; gap:0.5rem;">
-            <button class="btn btn-secondary" id="btn-settings"><i class="fas fa-cog"></i> Настройки</button>
-            <button class="btn btn-danger" id="btn-delete"><i class="fas fa-trash"></i></button>
-          </div>
+  <!-- RIGHT PANEL -->
+  <div class="panel-col" id="panel-col">
+
+    <!-- Row 1: Stats + Contacts -->
+    <div class="cards-row">
+      <div class="card" onclick="openCallsModal()">
+        <div class="card-label">Звонков</div>
+        <div class="card-big-num" id="stat-calls">—</div>
+        <div class="card-sub">всего совершено</div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div class="card-label">Контакты</div>
+          <button class="add-btn" onclick="event.stopPropagation();openAddContactModal()" title="Добавить контакт"><i class="fas fa-plus" style="font-size:10px"></i></button>
         </div>
+        <div class="card-big-num" id="stat-contacts">—</div>
+        <div class="card-sub">в базе агента</div>
+      </div>
+    </div>
 
-        <div class="stats-grid" id="stats-grid">
-          <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Всего звонков</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-success">0</div><div class="stat-label">Успешных</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-followup">0</div><div class="stat-label">Перезвон</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-noanswer">0</div><div class="stat-label">Недозвон</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-contacts">0</div><div class="stat-label">Контактов</div></div>
-          <div class="stat-card"><div class="stat-value" id="stat-scheduled">0</div><div class="stat-label">В очереди</div></div>
+    <!-- Row 2: Last calls (tall) + Queue + Agent -->
+    <div class="cards-row" style="align-items:flex-start">
+      <div class="card no-hover" style="flex:1">
+        <div class="card-label">Последние звонки</div>
+        <div class="call-list" id="last-calls-list">
+          <div style="font-size:12px;color:var(--hint);padding:8px 0">Нет звонков</div>
         </div>
-
-        <!-- TABS -->
-        <div class="tabs">
-          <button class="tab-btn active" data-tab="tab-chat">Чат с агентом</button>
-          <button class="tab-btn" data-tab="tab-contacts">Контакты</button>
-          <button class="tab-btn" data-tab="tab-calls">История звонков</button>
-          <button class="tab-btn" data-tab="tab-log" id="tab-btn-log">&#128295; Лог</button>
+        <span class="all-calls-link" onclick="openCallsModal()">Все звонки →</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;flex:1">
+        <div class="card no-hover">
+          <div class="card-label">В очереди</div>
+          <div class="card-big-num" id="stat-queue">—</div>
+          <div class="card-sub">задачи на звонок</div>
         </div>
-
-        <!-- TAB: Chat -->
-        <div class="tab-content active" id="tab-chat">
-          <div class="chat-container">
-            <div class="chat-header"><i class="fas fa-comment-dots"></i> Чат с агентом</div>
-            <div class="chat-messages" id="chat-messages"></div>
-            <div class="chat-input-area">
-              <input type="text" id="chat-input" placeholder="Напишите сообщение..." autocomplete="off">
-              <button id="chat-send"><i class="fas fa-paper-plane"></i></button>
-            </div>
+        <div class="card no-hover">
+          <div class="card-label">Агент</div>
+          <div class="agent-status-row">
+            <div class="status-dot" id="agent-dot"></div>
+            <span style="font-size:13px;font-weight:500" id="agent-status-text">—</span>
           </div>
-        </div>
-
-        <!-- TAB: Contacts -->
-        <div class="tab-content" id="tab-contacts">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <select id="contacts-status-filter" style="padding:0.5rem; border:1px solid var(--border-color); border-radius:var(--radius-md); font-size:0.85rem;">
-                <option value="">Все статусы</option>
-                <option value="new">new</option>
-                <option value="calling">calling</option>
-                <option value="active">active</option>
-                <option value="success">success</option>
-                <option value="rejected">rejected</option>
-                <option value="do_not_call">do_not_call</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" id="btn-add-contact"><i class="fas fa-plus"></i> Добавить контакт</button>
-          </div>
-          <table class="data-table" id="contacts-table">
-            <thead>
-              <tr>
-                <th>Имя</th>
-                <th>Телефон</th>
-                <th>Компания</th>
-                <th>Статус</th>
-                <th>Попыток</th>
-                <th>Последний звонок</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="contacts-tbody"></tbody>
-          </table>
-          <div class="pagination" id="contacts-pagination"></div>
-        </div>
-
-        <!-- TAB: Calls -->
-        <div class="tab-content" id="tab-calls">
-          <table class="data-table" id="calls-table">
-            <thead>
-              <tr>
-                <th>Контакт</th>
-                <th>Дата</th>
-                <th>Длит.</th>
-                <th>Статус</th>
-                <th>Решение</th>
-              </tr>
-            </thead>
-            <tbody id="calls-tbody"></tbody>
-          </table>
-          <div class="pagination" id="calls-pagination"></div>
-        </div>
-
-        <!-- TAB: Log -->
-        <div class="tab-content" id="tab-log">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h3>Debug Log</h3>
-            <button id="btn-clear-log" class="btn btn-secondary"><i class="fas fa-trash"></i> Очистить</button>
-          </div>
-          <div id="log-container"></div>
-        </div>
-
-        <!-- Settings panel (hidden by default) -->
-        <div class="settings-panel" id="settings-panel">
-          <h3 style="margin-bottom:1rem;">Настройки агента</h3>
-          <div class="field-group">
-            <label>Имя агента</label>
-            <input type="text" id="edit-name">
-          </div>
-          <div class="field-group">
-            <label>Кто мы (doc_who_am_i)</label>
-            <textarea id="edit-doc1" rows="4"></textarea>
-          </div>
-          <div class="field-group">
-            <label>Кому звоним (doc_who_we_call)</label>
-            <textarea id="edit-doc2" rows="4"></textarea>
-          </div>
-          <div class="field-group">
-            <label>Как говорим (doc_how_we_talk)</label>
-            <textarea id="edit-doc3" rows="4"></textarea>
-          </div>
-          <div class="field-group">
-            <label>Что предлагаем (doc_what_we_offer)</label>
-            <textarea id="edit-doc4" rows="4"></textarea>
-          </div>
-          <div class="field-group">
-            <label>Правила и цели (doc_rules_and_goals)</label>
-            <textarea id="edit-doc5" rows="4"></textarea>
-          </div>
-          <div class="field-row">
-            <div class="field-group">
-              <label>Рабочие часы с</label>
-              <input type="number" id="edit-hours-start" min="0" max="23">
-            </div>
-            <div class="field-group">
-              <label>Рабочие часы до</label>
-              <input type="number" id="edit-hours-end" min="0" max="23">
-            </div>
-          </div>
-          <div class="field-group">
-            <label>Номер для исходящих звонков (Caller ID)</label>
-            <select id="edit-caller-id" style="width:100%; border:1px solid var(--border-color); border-radius:var(--radius-md); padding:0.75rem 1rem; font-size:0.9rem; font-family:inherit; background:var(--white);">
-              <option value="">Автоматически</option>
-            </select>
-            <p style="color:var(--text-gray); font-size:0.75rem; margin-top:0.25rem;">Номер, который увидит абонент при звонке</p>
-          </div>
-          <div style="display:flex; gap:0.5rem; margin-top:1rem;">
-            <button class="btn btn-primary" id="btn-save-settings"><i class="fas fa-save"></i> Сохранить</button>
-            <button class="btn btn-secondary" id="btn-cancel-settings">Отмена</button>
+          <div style="margin-top:8px">
+            <span class="agent-type-badge" id="agent-voice-name">—</span>
           </div>
         </div>
       </div>
-
     </div>
-  </main>
+
+    <!-- Row 3: Documents -->
+    <div class="card card-docs">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <div class="card-label" style="margin-bottom:0">Документы агента</div>
+        <button class="btn-sm btn-blue" onclick="openDocsModal(null)">Изменить</button>
+      </div>
+      <div class="doc-pills">
+        <span class="doc-pill" onclick="openDocsModal('doc_who_am_i')">Кто мы</span>
+        <span class="doc-pill" onclick="openDocsModal('doc_who_we_call')">Кому звоним</span>
+        <span class="doc-pill" onclick="openDocsModal('doc_how_we_talk')">Как говорим</span>
+        <span class="doc-pill" onclick="openDocsModal('doc_what_we_offer')">Что предлагаем</span>
+        <span class="doc-pill" onclick="openDocsModal('doc_rules_and_goals')">Правила и цели</span>
+      </div>
+      <div style="font-size:11px;color:var(--hint);margin-top:10px">
+        Нажмите на раздел чтобы редактировать
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- MODAL: Documents -->
+<!-- ═══════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="docs-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">Документы агента</div>
+      <button class="modal-close" onclick="closeDocsModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="save-warning">
+        <i class="fas fa-info-circle" style="margin-top:1px;flex-shrink:0"></i>
+        <span>После сохранения промпт оркестратора будет перегенерирован (~10 секунд). Не закрывайте окно.</span>
+      </div>
+      <div class="doc-tabs">
+        <div class="doc-tab active" onclick="switchDocTab('doc_who_am_i', this)">Кто мы</div>
+        <div class="doc-tab" onclick="switchDocTab('doc_who_we_call', this)">Кому звоним</div>
+        <div class="doc-tab" onclick="switchDocTab('doc_how_we_talk', this)">Как говорим</div>
+        <div class="doc-tab" onclick="switchDocTab('doc_what_we_offer', this)">Что предлагаем</div>
+        <div class="doc-tab" onclick="switchDocTab('doc_rules_and_goals', this)">Правила и цели</div>
+        <div class="doc-tab" onclick="switchDocTab('settings', this)">Настройки</div>
+      </div>
+
+      <div class="doc-pane active" id="pane-doc_who_am_i">
+        <div class="form-group">
+          <label class="form-label">Кто мы — описание компании</label>
+          <textarea class="form-textarea" id="input-doc_who_am_i" rows="7" placeholder="Опишите вашу компанию: название, сфера деятельности, УТП, средний чек, основные преимущества..."></textarea>
+        </div>
+      </div>
+      <div class="doc-pane" id="pane-doc_who_we_call">
+        <div class="form-group">
+          <label class="form-label">Кому звоним — портрет клиента</label>
+          <textarea class="form-textarea" id="input-doc_who_we_call" rows="7" placeholder="Опишите портрет вашего клиента: сегмент, должность, боли, типичные возражения..."></textarea>
+        </div>
+      </div>
+      <div class="doc-pane" id="pane-doc_how_we_talk">
+        <div class="form-group">
+          <label class="form-label">Как говорим — стиль общения</label>
+          <textarea class="form-textarea" id="input-doc_how_we_talk" rows="7" placeholder="Укажите имя агента, стиль общения, примерный скрипт разговора..."></textarea>
+        </div>
+      </div>
+      <div class="doc-pane" id="pane-doc_what_we_offer">
+        <div class="form-group">
+          <label class="form-label">Что предлагаем — продукты и цены</label>
+          <textarea class="form-textarea" id="input-doc_what_we_offer" rows="7" placeholder="Перечислите продукты, услуги, цены, текущие акции..."></textarea>
+        </div>
+      </div>
+      <div class="doc-pane" id="pane-doc_rules_and_goals">
+        <div class="form-group">
+          <label class="form-label">Правила и цели — KPI и политика</label>
+          <textarea class="form-textarea" id="input-doc_rules_and_goals" rows="7" placeholder="KPI, политика повторных звонков, рабочие часы, что считать успехом..."></textarea>
+        </div>
+      </div>
+      <div class="doc-pane" id="pane-settings">
+        <div class="form-group">
+          <label class="form-label">Имя агента</label>
+          <input type="text" class="form-input" id="input-agent-name" placeholder="Мой агент">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Рабочие часы с</label>
+            <input type="number" class="form-input" id="input-hours-start" min="0" max="23" placeholder="9">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Рабочие часы до</label>
+            <input type="number" class="form-input" id="input-hours-end" min="0" max="23" placeholder="21">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Номер для исходящих (Caller ID)</label>
+          <select class="form-select" id="input-caller-id">
+            <option value="">Автоматически</option>
+          </select>
+          <div class="form-hint">Номер который увидит абонент при звонке</div>
+        </div>
+        <div class="form-group" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)">
+          <label class="form-label" style="color:var(--red)">Опасная зона</label>
+          <button class="btn btn-danger" onclick="deleteAgent()"><i class="fas fa-trash"></i> Удалить агента</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeDocsModal()">Отмена</button>
+      <button class="btn btn-primary" id="docs-save-btn" onclick="saveDocs()"><i class="fas fa-save"></i> Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- MODAL: Add Contact -->
+<!-- ═══════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="contact-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Добавить контакт</div>
+      <button class="modal-close" onclick="closeContactModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Телефон *</label>
+        <input type="text" class="form-input" id="contact-phone" placeholder="+79001234567">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Имя</label>
+        <input type="text" class="form-input" id="contact-name" placeholder="Иван Петров">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Компания</label>
+          <input type="text" class="form-input" id="contact-company" placeholder="ООО Ромашка">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Должность</label>
+          <input type="text" class="form-input" id="contact-position" placeholder="Директор">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Заметки</label>
+        <textarea class="form-textarea" id="contact-notes" rows="3" placeholder="Любая дополнительная информация о контакте..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeContactModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="saveContact()"><i class="fas fa-plus"></i> Добавить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- MODAL: All Calls -->
+<!-- ═══════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="calls-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">История звонков</div>
+      <button class="modal-close" onclick="closeCallsModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <table class="calls-table" id="calls-table">
+        <thead>
+          <tr>
+            <th>Контакт</th>
+            <th>Дата</th>
+            <th>Длит.</th>
+            <th>Статус</th>
+            <th>Решение</th>
+          </tr>
+        </thead>
+        <tbody id="calls-tbody">
+          <tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Загрузка...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeCallsModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
 
 <script>
-// ============================================================================
-// STATE
-// ============================================================================
-const API_BASE = '/api/agent';
-let currentStep = 0;
-let formData = {};
+const API = '/api/agent';
 let agentData = null;
-const TOTAL_STEPS = 7; // 0=keys, 1-5=docs, 6=creation
-let contactsPage = 0;
-let callsPage = 0;
-const PAGE_SIZE = 20;
+let panelOpen = localStorage.getItem('agent_panel_open') !== 'false';
+const TOTAL_WIZARD_STEPS = 7;
+let wizardStep = 0;
+let wizardFormData = {};
 
-function getToken() {
-  return localStorage.getItem('auth_token');
-}
+function getToken() { return localStorage.getItem('auth_token'); }
 
 async function apiFetch(url, options = {}) {
   const token = getToken();
-  if (!token) { window.location.href = '/static/login.html'; return; }
+  if (!token) { location.href = '/static/login.html'; return; }
   const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...options.headers };
   const resp = await fetch(url, { ...options, headers });
-  if (resp.status === 401) { localStorage.removeItem('auth_token'); window.location.href = '/static/login.html'; return; }
+  if (resp.status === 401) { localStorage.removeItem('auth_token'); location.href = '/static/login.html'; return; }
   return resp;
 }
 
-// ============================================================================
-// INIT
-// ============================================================================
+// ── INIT ──
 document.addEventListener('DOMContentLoaded', async () => {
-  // Restore form data from localStorage
-  try { formData = JSON.parse(localStorage.getItem('agent_wizard_data') || '{}'); } catch(e) {}
-
-  // Check if agent exists
+  if (!getToken()) { location.href = '/static/login.html'; return; }
   try {
-    const resp = await apiFetch(API_BASE + '/');
+    const resp = await apiFetch(API + '/');
     if (resp.status === 200) {
       agentData = await resp.json();
       showDashboard();
     } else {
       showWizard();
     }
-  } catch(e) {
-    showWizard();
-  }
+  } catch(e) { showWizard(); }
 
-  // Mobile sidebar toggle
-  document.getElementById('sidebar-toggle')?.addEventListener('click', () => document.getElementById('sidebar').classList.add('open'));
-  document.getElementById('sidebar-close')?.addEventListener('click', () => document.getElementById('sidebar').classList.remove('open'));
-
-  // Logout
-  document.getElementById('logout-button')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    localStorage.removeItem('auth_token');
-    window.location.href = '/';
+  // Panel toggle
+  const toggle = document.getElementById('panel-toggle');
+  applyPanelState();
+  toggle.addEventListener('click', () => {
+    panelOpen = !panelOpen;
+    localStorage.setItem('agent_panel_open', panelOpen);
+    applyPanelState();
   });
-});
-
-// ============================================================================
-// WIZARD
-// ============================================================================
-function showWizard() {
-  document.getElementById('loading-state').classList.add('hidden');
-  document.getElementById('dashboard-view').classList.add('hidden');
-  document.getElementById('wizard-view').classList.remove('hidden');
-  renderWizardStep();
-}
-
-function renderProgress() {
-  const el = document.getElementById('wizard-progress');
-  let html = '';
-  for (let i = 0; i < TOTAL_STEPS; i++) {
-    const cls = i < currentStep ? 'done' : (i === currentStep ? 'active' : '');
-    html += `<div class="wizard-step-dot ${cls}"></div>`;
-    if (i < TOTAL_STEPS - 1) html += `<div class="wizard-step-line ${i < currentStep ? 'done' : ''}"></div>`;
-  }
-  el.innerHTML = html;
-}
-
-function renderWizardStep() {
-  renderProgress();
-  const container = document.getElementById('wizard-content');
-
-  if (currentStep === 0) { renderKeyStep(container); return; }
-  if (currentStep === 6) { renderCreationStep(container); return; }
-
-  const steps = [
-    null,
-    { key: 'doc_who_am_i', title: 'Кто мы', hint: 'Опишите вашу компанию: название, сфера деятельности, УТП, средний чек, основные преимущества.', placeholder: 'Мы — компания "ТехноПром", занимаемся продажей IT-решений для бизнеса. Средний чек 150 000 руб. Наше УТП — внедрение за 3 дня с гарантией результата.' },
-    { key: 'doc_who_we_call', title: 'Кому звоним', hint: 'Опишите портрет вашего клиента: сегмент, должность, боли, типичные возражения.', placeholder: 'Наши клиенты — руководители отделов продаж в компаниях от 50 сотрудников. Основная боль — потеря лидов из-за медленной обработки. Типичные возражения: "дорого", "у нас уже есть CRM".' },
-    { key: 'doc_how_we_talk', title: 'Как говорим', hint: 'Укажите имя агента, стиль общения, примерный скрипт разговора.', placeholder: 'Агент "Алиса". Стиль — дружелюбный, но деловой. Всегда представляется: "Здравствуйте, меня зовут Алиса, я из компании ТехноПром". Не давить, если клиент не готов — предложить перезвон.', nameField: true },
-    { key: 'doc_what_we_offer', title: 'Что предлагаем', hint: 'Перечислите продукты, услуги, цены, текущие акции.', placeholder: 'Тариф "Старт" — 50 000 руб/мес, до 10 пользователей. Тариф "Про" — 120 000 руб/мес, безлимит. Акция: первый месяц бесплатно при заключении договора до конца марта.' },
-    { key: 'doc_rules_and_goals', title: 'Правила и цели', hint: 'KPI, политика повторных звонков, рабочие часы, что считать успехом.', placeholder: 'Цель: 20 встреч в месяц. Максимум 3 попытки на один контакт. Перезвонить через 24ч если не ответил. Не звонить в выходные. Успех = назначенная встреча или отправленное КП.', hoursFields: true }
-  ];
-
-  const step = steps[currentStep];
-
-  let extraFields = '';
-  if (step.nameField) {
-    extraFields = `<div class="field-group">
-      <label>Имя агента</label>
-      <input type="text" id="wizard-agent-name" value="${escapeHtml(formData.name || '')}" placeholder="Например: Алиса">
-    </div>`;
-  }
-  if (step.hoursFields) {
-    extraFields += `<div class="field-row">
-      <div class="field-group">
-        <label>Рабочие часы с (0-23)</label>
-        <input type="number" id="wizard-hours-start" min="0" max="23" value="${formData.working_hours_start ?? 9}">
-      </div>
-      <div class="field-group">
-        <label>Рабочие часы до (0-23)</label>
-        <input type="number" id="wizard-hours-end" min="0" max="23" value="${formData.working_hours_end ?? 21}">
-      </div>
-    </div>`;
-  }
-
-  container.innerHTML = `
-    <div class="wizard-card">
-      <h2>Шаг ${currentStep}: ${step.title}</h2>
-      <p class="hint">${step.hint}</p>
-      ${extraFields}
-      <div class="field-group">
-        <textarea id="wizard-textarea" placeholder="${escapeHtml(step.placeholder)}">${escapeHtml(formData[step.key] || '')}</textarea>
-      </div>
-      <div class="wizard-actions">
-        <button class="btn btn-secondary" onclick="prevStep()"><i class="fas fa-arrow-left"></i> Назад</button>
-        <button class="btn btn-primary" onclick="nextStep()">Далее <i class="fas fa-arrow-right"></i></button>
-      </div>
-    </div>`;
-}
-
-async function renderKeyStep(container) {
-  // Fetch user to check keys
-  const resp = await apiFetch('/api/users/me');
-  if (!resp || resp.status !== 200) return;
-  const user = await resp.json();
-
-  const hasOpenAI = user.has_api_key;
-  const hasGemini = user.has_gemini_api_key;
-
-  if (hasOpenAI && hasGemini) {
-    currentStep = 1;
-    renderWizardStep();
-    return;
-  }
-
-  container.innerHTML = `
-    <div class="wizard-card">
-      <h2>Шаг 0: API ключи</h2>
-      <p class="hint">Для работы Voicyfy Agent нужны два API ключа. Они используются для оркестратора (OpenAI) и голосового ассистента (Google Gemini).</p>
-
-      <div class="key-status ${hasOpenAI ? 'ok' : 'missing'}">
-        <i class="fas ${hasOpenAI ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
-        OpenAI API Key — ${hasOpenAI ? 'подключен' : 'не указан'}
-      </div>
-      ${!hasOpenAI ? '<div class="field-group"><label>OpenAI API Key</label><input type="password" id="key-openai" placeholder="sk-..."></div>' : ''}
-
-      <div class="key-status ${hasGemini ? 'ok' : 'missing'}">
-        <i class="fas ${hasGemini ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
-        Google Gemini API Key — ${hasGemini ? 'подключен' : 'не указан'}
-      </div>
-      ${!hasGemini ? '<div class="field-group"><label>Google Gemini API Key</label><input type="password" id="key-gemini" placeholder="AIza..."></div>' : ''}
-
-      <div class="wizard-actions">
-        <div></div>
-        <button class="btn btn-primary" onclick="saveKeys()" id="btn-save-keys">
-          <i class="fas fa-key"></i> Сохранить и продолжить
-        </button>
-      </div>
-    </div>`;
-}
-
-async function saveKeys() {
-  const btn = document.getElementById('btn-save-keys');
-  btn.disabled = true;
-  btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div> Сохранение...';
-
-  const body = {};
-  const openaiEl = document.getElementById('key-openai');
-  const geminiEl = document.getElementById('key-gemini');
-  if (openaiEl && openaiEl.value.trim()) body.openai_api_key = openaiEl.value.trim();
-  if (geminiEl && geminiEl.value.trim()) body.gemini_api_key = geminiEl.value.trim();
-
-  if (Object.keys(body).length === 0) {
-    currentStep = 1;
-    renderWizardStep();
-    return;
-  }
-
-  try {
-    const resp = await apiFetch('/api/users/me', { method: 'PUT', body: JSON.stringify(body) });
-    if (resp.status === 200) {
-      currentStep = 1;
-      renderWizardStep();
-    } else {
-      alert('Ошибка сохранения ключей');
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-key"></i> Сохранить и продолжить';
-    }
-  } catch(e) {
-    alert('Ошибка сети');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-key"></i> Сохранить и продолжить';
-  }
-}
-
-function saveCurrentStepData() {
-  const steps = [null, 'doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk', 'doc_what_we_offer', 'doc_rules_and_goals'];
-  if (currentStep >= 1 && currentStep <= 5) {
-    const textarea = document.getElementById('wizard-textarea');
-    if (textarea) formData[steps[currentStep]] = textarea.value;
-
-    if (currentStep === 3) {
-      const nameEl = document.getElementById('wizard-agent-name');
-      if (nameEl) formData.name = nameEl.value;
-    }
-    if (currentStep === 5) {
-      const startEl = document.getElementById('wizard-hours-start');
-      const endEl = document.getElementById('wizard-hours-end');
-      if (startEl) formData.working_hours_start = parseInt(startEl.value) || 9;
-      if (endEl) formData.working_hours_end = parseInt(endEl.value) || 21;
-    }
-  }
-  localStorage.setItem('agent_wizard_data', JSON.stringify(formData));
-}
-
-function nextStep() {
-  saveCurrentStepData();
-
-  // Validate
-  const steps = [null, 'doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk', 'doc_what_we_offer', 'doc_rules_and_goals'];
-  if (currentStep >= 1 && currentStep <= 5) {
-    const val = formData[steps[currentStep]];
-    if (!val || !val.trim()) {
-      alert('Пожалуйста, заполните поле перед продолжением.');
-      return;
-    }
-  }
-  if (currentStep === 3 && (!formData.name || !formData.name.trim())) {
-    alert('Укажите имя агента.');
-    return;
-  }
-
-  currentStep++;
-  renderWizardStep();
-}
-
-function prevStep() {
-  saveCurrentStepData();
-  if (currentStep > 1) { currentStep--; renderWizardStep(); }
-}
-
-async function renderCreationStep(container) {
-  container.innerHTML = `
-    <div class="wizard-card" style="text-align:center;">
-      <h2>Создание агента</h2>
-      <p class="hint">Подождите, идёт настройка вашего агента...</p>
-      <ul class="creation-checklist" id="creation-checklist">
-        <li class="pending" id="cr-docs"><div class="check-icon"><div class="spinner" style="width:16px;height:16px;border-width:2px;"></div></div> Сохранение документов</li>
-        <li class="pending" id="cr-prompt"><div class="check-icon"></div> Генерация промпта</li>
-        <li class="pending" id="cr-voice"><div class="check-icon"></div> Создание голосового агента</li>
-        <li class="pending" id="cr-active"><div class="check-icon"></div> Активация агента</li>
-      </ul>
-      <div id="cr-error" class="hidden" style="color:var(--red-500); margin-top:1rem;"></div>
-      <div id="cr-success" class="hidden" style="margin-top:1.5rem;">
-        <button class="btn btn-primary" onclick="location.reload()"><i class="fas fa-rocket"></i> Перейти к агенту</button>
-      </div>
-    </div>`;
-
-  // Animate checklist
-  await animateChecklist('cr-docs');
-
-  try {
-    const body = {
-      name: formData.name || 'Мой агент',
-      doc_who_am_i: formData.doc_who_am_i || '',
-      doc_who_we_call: formData.doc_who_we_call || '',
-      doc_how_we_talk: formData.doc_how_we_talk || '',
-      doc_what_we_offer: formData.doc_what_we_offer || '',
-      doc_rules_and_goals: formData.doc_rules_and_goals || '',
-      working_hours_start: formData.working_hours_start ?? 9,
-      working_hours_end: formData.working_hours_end ?? 21
-    };
-
-    const resp = await apiFetch(API_BASE + '/create', {
-      method: 'POST',
-      body: JSON.stringify(body)
-    });
-
-    if (resp.status === 200 || resp.status === 201) {
-      await markDone('cr-docs');
-      await animateChecklist('cr-prompt');
-      await markDone('cr-prompt');
-      await animateChecklist('cr-voice');
-      await markDone('cr-voice');
-      await animateChecklist('cr-active');
-      await markDone('cr-active');
-
-      localStorage.removeItem('agent_wizard_data');
-      document.getElementById('cr-success').classList.remove('hidden');
-    } else {
-      const err = await resp.json().catch(() => ({}));
-      document.getElementById('cr-error').classList.remove('hidden');
-      document.getElementById('cr-error').textContent = 'Ошибка: ' + (err.detail || 'Неизвестная ошибка');
-    }
-  } catch(e) {
-    document.getElementById('cr-error').classList.remove('hidden');
-    document.getElementById('cr-error').textContent = 'Ошибка сети: ' + e.message;
-  }
-}
-
-function animateChecklist(id) {
-  return new Promise(resolve => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.querySelector('.check-icon').innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>';
-    }
-    setTimeout(resolve, 600);
-  });
-}
-
-function markDone(id) {
-  return new Promise(resolve => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.classList.remove('pending');
-      el.classList.add('done');
-      el.querySelector('.check-icon').innerHTML = '<i class="fas fa-check"></i>';
-    }
-    setTimeout(resolve, 400);
-  });
-}
-
-// ============================================================================
-// DASHBOARD
-// ============================================================================
-function showDashboard() {
-  document.getElementById('loading-state').classList.add('hidden');
-  document.getElementById('wizard-view').classList.add('hidden');
-  document.getElementById('dashboard-view').classList.remove('hidden');
-
-  // Fill data
-  document.getElementById('agent-name').textContent = agentData.name || 'Мой агент';
-  document.getElementById('agent-gemini-name').textContent = agentData.gemini_assistant_name ? 'Голос: ' + agentData.gemini_assistant_name : '';
-
-  // Show caller_id in header
-  if (agentData.default_caller_id) {
-    document.getElementById('agent-caller-id-info').style.display = 'block';
-    document.getElementById('agent-caller-id-text').textContent = agentData.default_caller_id;
-  }
-
-  const dot = document.getElementById('agent-status-dot');
-  dot.classList.toggle('active', agentData.is_active);
-  dot.classList.toggle('inactive', !agentData.is_active);
-
-  // Load stats
-  loadStats();
-
-  // Fill settings
-  document.getElementById('edit-name').value = agentData.name || '';
-  document.getElementById('edit-doc1').value = agentData.doc_who_am_i || '';
-  document.getElementById('edit-doc2').value = agentData.doc_who_we_call || '';
-  document.getElementById('edit-doc3').value = agentData.doc_how_we_talk || '';
-  document.getElementById('edit-doc4').value = agentData.doc_what_we_offer || '';
-  document.getElementById('edit-doc5').value = agentData.doc_rules_and_goals || '';
-  document.getElementById('edit-hours-start').value = agentData.working_hours_start ?? 9;
-  document.getElementById('edit-hours-end').value = agentData.working_hours_end ?? 21;
-
-  // Load phone numbers for caller_id selector
-  loadPhoneNumbers();
-
-  // Events
-  document.getElementById('btn-settings').addEventListener('click', () => {
-    document.getElementById('settings-panel').classList.toggle('visible');
-  });
-  document.getElementById('btn-cancel-settings').addEventListener('click', () => {
-    document.getElementById('settings-panel').classList.remove('visible');
-  });
-  document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
-  document.getElementById('btn-delete').addEventListener('click', deleteAgent);
 
   // Chat
-  document.getElementById('chat-send').addEventListener('click', sendChatMessage);
-  document.getElementById('chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChatMessage();
-  });
+  document.getElementById('chat-send').addEventListener('click', sendMessage);
+  const inp = document.getElementById('chat-input');
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+  inp.addEventListener('input', () => { inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 120) + 'px'; });
+});
 
-  // Tabs
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      btn.classList.add('active');
-      const target = document.getElementById(btn.dataset.tab);
-      if (target) target.classList.add('active');
-      // Load data when tab is opened
-      if (btn.dataset.tab === 'tab-contacts') { contactsPage = 0; loadContacts(); }
-      if (btn.dataset.tab === 'tab-calls') { callsPage = 0; loadCalls(); }
-      // Clear badge when log tab is opened
-      if (btn.dataset.tab === 'tab-log') {
-        document.getElementById('tab-btn-log').innerHTML = '&#128295; Лог';
-      }
-    });
-  });
+function applyPanelState() {
+  const panel = document.getElementById('panel-col');
+  const toggle = document.getElementById('panel-toggle');
+  const icon1 = document.getElementById('chevron-icon');
+  const icon2 = document.getElementById('chevron-icon2');
+  if (panelOpen) {
+    panel.classList.remove('hidden');
+    toggle.classList.add('active');
+    icon1.setAttribute('d', 'M10 3L5 8L10 13');
+    icon2.setAttribute('d', 'M6 3L1 8L6 13');
+  } else {
+    panel.classList.add('hidden');
+    toggle.classList.remove('active');
+    icon1.setAttribute('d', 'M6 3L11 8L6 13');
+    icon2.setAttribute('d', 'M10 3L15 8L10 13');
+  }
+}
 
-  // Clear log button
-  document.getElementById('btn-clear-log')?.addEventListener('click', () => {
-    document.getElementById('log-container').innerHTML = '';
-  });
+// ── DASHBOARD ──
+function showDashboard() {
+  document.getElementById('loading-screen').classList.add('hidden');
+  document.getElementById('wizard-overlay').classList.add('hidden');
+  document.getElementById('top-nav').style.display = 'flex';
+  document.getElementById('main-layout').style.display = 'flex';
 
-  // Add contact button
-  document.getElementById('btn-add-contact').addEventListener('click', showAddContactModal);
+  document.getElementById('nav-agent-name').textContent = agentData.name || 'Voicyfy Agent';
+  const dot = document.getElementById('nav-status-dot');
+  const txt = document.getElementById('nav-status-text');
+  dot.classList.toggle('inactive', !agentData.is_active);
+  txt.textContent = agentData.is_active ? 'Активен' : 'Пауза';
 
-  // Contacts status filter
-  document.getElementById('contacts-status-filter').addEventListener('change', () => { contactsPage = 0; loadContacts(); });
+  const agentDot = document.getElementById('agent-dot');
+  agentDot.classList.toggle('inactive', !agentData.is_active);
+  document.getElementById('agent-status-text').textContent = agentData.is_active ? 'Активен' : 'Пауза';
+  document.getElementById('agent-voice-name').textContent = agentData.gemini_assistant_name || 'Gemini Voice';
+
+  loadStats();
+  loadRecentCalls();
+  fillDocsForm();
+  loadPhoneNumbers();
 }
 
 async function loadStats() {
   try {
-    const resp = await apiFetch(API_BASE + '/stats');
-    if (resp.status === 200) {
-      const stats = await resp.json();
-      document.getElementById('stat-total').textContent = stats.total_calls || 0;
-      document.getElementById('stat-success').textContent = stats.success_calls || 0;
-      document.getElementById('stat-followup').textContent = stats.followup_calls || 0;
-      document.getElementById('stat-noanswer').textContent = stats.no_answer_calls || 0;
-      document.getElementById('stat-contacts').textContent = stats.total_contacts || 0;
-      document.getElementById('stat-scheduled').textContent = stats.scheduled_tasks || 0;
+    const r = await apiFetch(API + '/stats');
+    if (!r || r.status !== 200) return;
+    const s = await r.json();
+    document.getElementById('stat-calls').textContent = s.total_calls || 0;
+    document.getElementById('stat-contacts').textContent = s.total_contacts || 0;
+    document.getElementById('stat-queue').textContent = s.scheduled_tasks || 0;
+  } catch(e) {}
+}
+
+async function loadRecentCalls() {
+  try {
+    const r = await apiFetch(API + '/calls?limit=5&offset=0');
+    if (!r || r.status !== 200) return;
+    const data = await r.json();
+    const list = document.getElementById('last-calls-list');
+    if (!data.calls || !data.calls.length) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--hint);padding:8px 0">Нет звонков</div>';
+      return;
     }
-  } catch(e) { console.error('Stats error:', e); }
+    list.innerHTML = data.calls.slice(0, 5).map(c => `
+      <div class="call-item">
+        <div class="call-dot ${c.status === 'answered' ? 'answered' : 'no_answer'}"></div>
+        <div class="call-info">
+          <div class="call-name">${esc(c.contact_name || '—')}</div>
+          <div class="call-meta">${decisionRu(c.post_call_decision)} · ${fmtDate(c.started_at)}</div>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {}
 }
 
-// ============================================================================
-// CONTACTS
-// ============================================================================
-async function loadContacts() {
-  const statusFilter = document.getElementById('contacts-status-filter').value;
-  let url = API_BASE + '/contacts?limit=' + PAGE_SIZE + '&offset=' + (contactsPage * PAGE_SIZE);
-  if (statusFilter) url += '&status=' + statusFilter;
-
-  try {
-    const resp = await apiFetch(url);
-    if (resp.status !== 200) return;
-    const data = await resp.json();
-    renderContacts(data.contacts, data.total);
-  } catch(e) { console.error('Contacts error:', e); }
-}
-
-function renderContacts(contacts, total) {
-  const tbody = document.getElementById('contacts-tbody');
-  if (!contacts.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-gray);padding:2rem;">Нет контактов</td></tr>';
-    document.getElementById('contacts-pagination').innerHTML = '';
-    return;
-  }
-
-  tbody.innerHTML = contacts.map(c => {
-    const statusCls = 'status-' + (c.status || 'new');
-    const statusIcon = c.status === 'do_not_call' ? ' &#128683;' : '';
-    const lastCall = c.last_called_at ? new Date(c.last_called_at).toLocaleString('ru') : '—';
-    return `<tr>
-      <td>${escapeHtml(c.name || '—')}</td>
-      <td>${escapeHtml(c.phone)}</td>
-      <td>${escapeHtml(c.company || '—')}</td>
-      <td><span class="status-badge ${statusCls}">${c.status}${statusIcon}</span></td>
-      <td>${c.attempts_count || 0}</td>
-      <td>${lastCall}</td>
-      <td><button class="btn btn-danger" style="padding:0.3rem 0.6rem;font-size:0.75rem;" onclick="deleteContact('${c.id}')"><i class="fas fa-trash"></i></button></td>
-    </tr>`;
-  }).join('');
-
-  renderPagination('contacts-pagination', total, contactsPage, (p) => { contactsPage = p; loadContacts(); });
-}
-
-function showAddContactModal() {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.id = 'add-contact-modal';
-  overlay.innerHTML = `<div class="modal-card">
-    <h3>Добавить контакт</h3>
-    <div class="field-group"><label>Имя</label><input type="text" id="mc-name" placeholder="Иван Петров"></div>
-    <div class="field-group"><label>Телефон *</label><input type="text" id="mc-phone" placeholder="+79001234567"></div>
-    <div class="field-group"><label>Компания</label><input type="text" id="mc-company" placeholder="ООО Рога и Копыта"></div>
-    <div class="field-group"><label>Должность</label><input type="text" id="mc-position" placeholder="Директор"></div>
-    <div class="field-group"><label>Заметки</label><textarea id="mc-notes" rows="2" style="width:100%;border:1px solid var(--border-color);border-radius:var(--radius-md);padding:0.5rem;font-family:inherit;"></textarea></div>
-    <div style="display:flex;gap:0.5rem;margin-top:1rem;">
-      <button class="btn btn-primary" onclick="submitAddContact()"><i class="fas fa-plus"></i> Создать</button>
-      <button class="btn btn-secondary" onclick="document.getElementById('add-contact-modal').remove()">Отмена</button>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-}
-
-async function submitAddContact() {
-  const phone = document.getElementById('mc-phone').value.trim();
-  if (!phone) { alert('Укажите телефон'); return; }
-
-  const body = {
-    name: document.getElementById('mc-name').value.trim() || null,
-    phone: phone,
-    company: document.getElementById('mc-company').value.trim() || null,
-    position: document.getElementById('mc-position').value.trim() || null,
-    notes: document.getElementById('mc-notes').value.trim() || null,
-  };
-
-  try {
-    const resp = await apiFetch(API_BASE + '/contacts', { method: 'POST', body: JSON.stringify(body) });
-    if (resp.status === 200 || resp.status === 201) {
-      document.getElementById('add-contact-modal')?.remove();
-      loadContacts();
-      loadStats();
-    } else {
-      const err = await resp.json().catch(() => ({}));
-      alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
-    }
-  } catch(e) { alert('Ошибка сети'); }
-}
-
-async function deleteContact(contactId) {
-  if (!confirm('Удалить контакт? Все связанные звонки будут удалены.')) return;
-  try {
-    const resp = await apiFetch(API_BASE + '/contacts/' + contactId, { method: 'DELETE' });
-    if (resp.status === 200) { loadContacts(); loadStats(); }
-    else alert('Ошибка удаления');
-  } catch(e) { alert('Ошибка сети'); }
-}
-
-// ============================================================================
-// CALLS
-// ============================================================================
-async function loadCalls() {
-  let url = API_BASE + '/calls?limit=' + PAGE_SIZE + '&offset=' + (callsPage * PAGE_SIZE);
-
-  try {
-    const resp = await apiFetch(url);
-    if (resp.status !== 200) return;
-    const data = await resp.json();
-    renderCalls(data.calls, data.total);
-  } catch(e) { console.error('Calls error:', e); }
-}
-
-function renderCalls(calls, total) {
-  const tbody = document.getElementById('calls-tbody');
-  if (!calls.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-gray);padding:2rem;">Нет звонков</td></tr>';
-    document.getElementById('calls-pagination').innerHTML = '';
-    return;
-  }
-
-  const decisionIcons = { SUCCESS: '&#9989;', FOLLOWUP: '&#128260;', NO_ANSWER: '&#128245;', REJECTED: '&#10060;', DO_NOT_CALL: '&#128683;' };
-
-  let html = '';
-  calls.forEach((c, i) => {
-    const contactLabel = (c.contact_name || '') + ' ' + (c.contact_phone || '');
-    const date = c.started_at ? new Date(c.started_at).toLocaleString('ru') : (c.created_at ? new Date(c.created_at).toLocaleString('ru') : '—');
-    const dur = c.duration_seconds ? c.duration_seconds + 's' : '—';
-    const icon = decisionIcons[c.post_call_decision] || '';
-    const hasTranscript = c.transcript && c.transcript.length > 0;
-
-    html += `<tr style="cursor:${hasTranscript ? 'pointer' : 'default'};" onclick="toggleTranscript('tr-${i}')">
-      <td>${escapeHtml(contactLabel.trim() || '—')}</td>
-      <td>${date}</td>
-      <td>${dur}</td>
-      <td><span class="status-badge status-${c.status || 'scheduled'}">${c.status || '—'}</span></td>
-      <td><span class="decision-badge">${icon} ${c.post_call_decision || '—'}</span></td>
-    </tr>`;
-
-    if (hasTranscript) {
-      html += `<tr class="transcript-row" id="tr-${i}"><td colspan="5">${escapeHtml(c.transcript)}</td></tr>`;
-    }
-  });
-  tbody.innerHTML = html;
-
-  renderPagination('calls-pagination', total, callsPage, (p) => { callsPage = p; loadCalls(); });
-}
-
-function toggleTranscript(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.toggle('visible');
-}
-
-// ============================================================================
-// PAGINATION
-// ============================================================================
-function renderPagination(containerId, total, currentPage, onPageChange) {
-  const container = document.getElementById(containerId);
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  if (totalPages <= 1) { container.innerHTML = ''; return; }
-
-  let html = '';
-  html += `<button ${currentPage === 0 ? 'disabled' : ''} onclick="void(0)"><i class="fas fa-chevron-left"></i></button>`;
-  for (let i = 0; i < totalPages && i < 10; i++) {
-    html += `<button class="${i === currentPage ? 'active' : ''}" data-page="${i}">${i + 1}</button>`;
-  }
-  html += `<button ${currentPage >= totalPages - 1 ? 'disabled' : ''} onclick="void(0)"><i class="fas fa-chevron-right"></i></button>`;
-  container.innerHTML = html;
-
-  container.querySelectorAll('button[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => onPageChange(parseInt(btn.dataset.page)));
-  });
-  const btns = container.querySelectorAll('button');
-  btns[0].addEventListener('click', () => { if (currentPage > 0) onPageChange(currentPage - 1); });
-  btns[btns.length - 1].addEventListener('click', () => { if (currentPage < totalPages - 1) onPageChange(currentPage + 1); });
+function fillDocsForm() {
+  if (!agentData) return;
+  const fields = ['doc_who_am_i','doc_who_we_call','doc_how_we_talk','doc_what_we_offer','doc_rules_and_goals'];
+  fields.forEach(f => { const el = document.getElementById('input-' + f); if (el) el.value = agentData[f] || ''; });
+  const nameEl = document.getElementById('input-agent-name');
+  if (nameEl) nameEl.value = agentData.name || '';
+  const hsEl = document.getElementById('input-hours-start');
+  const heEl = document.getElementById('input-hours-end');
+  if (hsEl) hsEl.value = agentData.working_hours_start ?? 9;
+  if (heEl) heEl.value = agentData.working_hours_end ?? 21;
+  const callerEl = document.getElementById('input-caller-id');
+  if (callerEl && agentData.default_caller_id) callerEl.value = agentData.default_caller_id;
 }
 
 async function loadPhoneNumbers() {
-  const select = document.getElementById('edit-caller-id');
   try {
-    const resp = await apiFetch(API_BASE + '/phone-numbers');
-    if (resp.status === 200) {
-      const data = await resp.json();
-      select.innerHTML = '<option value="">Автоматически</option>';
-      (data.phone_numbers || []).forEach(p => {
-        const label = p.region ? `${p.phone_number} (${p.region})` : p.phone_number;
-        const opt = document.createElement('option');
-        opt.value = p.phone_number;
-        opt.textContent = label;
-        select.appendChild(opt);
-      });
-      // Set current value
-      if (agentData && agentData.default_caller_id) {
-        select.value = agentData.default_caller_id;
-      }
+    const r = await apiFetch(API + '/phone-numbers');
+    if (!r || r.status !== 200) return;
+    const data = await r.json();
+    const sel = document.getElementById('input-caller-id');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Автоматически</option>';
+    (data.phone_numbers || []).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.phone_number;
+      opt.textContent = p.region ? `${p.phone_number} (${p.region})` : p.phone_number;
+      sel.appendChild(opt);
+    });
+    if (agentData && agentData.default_caller_id) sel.value = agentData.default_caller_id;
+  } catch(e) {}
+}
+
+// ── CHAT ──
+async function sendMessage() {
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ''; inp.style.height = 'auto';
+  addBubble(text, 'user');
+  const typingId = showTyping();
+  document.getElementById('chat-send').disabled = true;
+  try {
+    const r = await apiFetch(API + '/chat', { method: 'POST', body: JSON.stringify({ message: text }) });
+    removeTyping(typingId);
+    if (r && r.status === 200) {
+      const d = await r.json();
+      addBubble(d.reply, 'assistant');
+      loadStats();
+      loadRecentCalls();
+    } else {
+      addBubble('Ошибка при отправке сообщения.', 'assistant');
     }
   } catch(e) {
-    console.error('Failed to load phone numbers:', e);
+    removeTyping(typingId);
+    addBubble('Ошибка сети.', 'assistant');
   }
+  document.getElementById('chat-send').disabled = false;
 }
 
-async function saveSettings() {
-  const btn = document.getElementById('btn-save-settings');
-  btn.disabled = true;
-
-  const callerIdVal = document.getElementById('edit-caller-id').value;
-  const body = {
-    name: document.getElementById('edit-name').value,
-    doc_who_am_i: document.getElementById('edit-doc1').value,
-    doc_who_we_call: document.getElementById('edit-doc2').value,
-    doc_how_we_talk: document.getElementById('edit-doc3').value,
-    doc_what_we_offer: document.getElementById('edit-doc4').value,
-    doc_rules_and_goals: document.getElementById('edit-doc5').value,
-    working_hours_start: parseInt(document.getElementById('edit-hours-start').value) || 9,
-    working_hours_end: parseInt(document.getElementById('edit-hours-end').value) || 21,
-    default_caller_id: callerIdVal || null,
-  };
-
-  try {
-    const resp = await apiFetch(API_BASE + '/', { method: 'PUT', body: JSON.stringify(body) });
-    if (resp.status === 200) {
-      agentData = await resp.json();
-      document.getElementById('agent-name').textContent = agentData.name;
-      if (agentData.default_caller_id) {
-        document.getElementById('agent-caller-id-info').style.display = 'block';
-        document.getElementById('agent-caller-id-text').textContent = agentData.default_caller_id;
-      } else {
-        document.getElementById('agent-caller-id-info').style.display = 'none';
-      }
-      document.getElementById('settings-panel').classList.remove('visible');
-      alert('Настройки сохранены. Промпт оркестратора обновлён.');
-    } else {
-      const err = await resp.json().catch(() => ({}));
-      alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
-    }
-  } catch(e) {
-    alert('Ошибка сети');
-  }
-  btn.disabled = false;
-}
-
-async function deleteAgent() {
-  if (!confirm('Удалить агента? Это действие нельзя отменить.')) return;
-
-  try {
-    const resp = await apiFetch(API_BASE + '/', { method: 'DELETE' });
-    if (resp.status === 200) {
-      location.reload();
-    } else {
-      alert('Ошибка удаления');
-    }
-  } catch(e) { alert('Ошибка сети'); }
-}
-
-// ============================================================================
-// CHAT
-// ============================================================================
-async function sendChatMessage() {
-  const input = document.getElementById('chat-input');
-  const msg = input.value.trim();
-  if (!msg) return;
-
-  input.value = '';
-  addChatBubble(msg, 'user');
-
-  // Show typing indicator
-  const typingId = 'typing-' + Date.now();
-  const messagesEl = document.getElementById('chat-messages');
-  const typingEl = document.createElement('div');
-  typingEl.id = typingId;
-  typingEl.className = 'chat-bubble assistant';
-  typingEl.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>';
-  messagesEl.appendChild(typingEl);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-
-  try {
-    const resp = await apiFetch(API_BASE + '/chat', { method: 'POST', body: JSON.stringify({ message: msg }) });
-    document.getElementById(typingId)?.remove();
-
-    if (resp.status === 200) {
-      const data = await resp.json();
-      addChatBubble(data.reply, 'assistant');
-      // Debug log
-      if (data.debug_log && data.debug_log.length) {
-        appendDebugLog(data.debug_log);
-        // Badge on log tab if not active
-        const logTab = document.getElementById('tab-btn-log');
-        if (logTab && !logTab.classList.contains('active')) {
-          logTab.innerHTML = '&#128295; Лог <span class="badge">+' + data.debug_log.length + '</span>';
-        }
-      }
-    } else {
-      addChatBubble('Ошибка отправки сообщения.', 'assistant');
-    }
-  } catch(e) {
-    document.getElementById(typingId)?.remove();
-    addChatBubble('Ошибка сети.', 'assistant');
-  }
-}
-
-function addChatBubble(text, role) {
-  const messagesEl = document.getElementById('chat-messages');
-  const bubble = document.createElement('div');
-  bubble.className = 'chat-bubble ' + role;
-  bubble.textContent = text;
-  messagesEl.appendChild(bubble);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-// ============================================================================
-// DEBUG LOG
-// ============================================================================
-const LOG_ICONS = {
-  user_message: '&#128172;',
-  gpt_thinking: '&#129504;',
-  tool_call:    '&#128295;',
-  tool_result:  '&#9989;',
-  tool_error:   '&#10060;',
-  gpt_response: '&#129302;'
-};
-
-function appendDebugLog(entries) {
-  const container = document.getElementById('log-container');
-
-  // Session divider
-  const divider = document.createElement('div');
-  divider.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:0.75rem;margin:0.5rem 0;">── ' + new Date().toLocaleTimeString() + ' ──</div>';
-  container.prepend(divider);
-
-  // Add entries in reverse (newest on top)
-  [...entries].reverse().forEach(entry => {
-    const el = document.createElement('div');
-    el.className = 'log-entry ' + entry.type;
-
-    const preview = typeof entry.data === 'string'
-      ? entry.data.slice(0, 80)
-      : JSON.stringify(entry.data).slice(0, 80);
-
-    const detail = typeof entry.data === 'string'
-      ? entry.data
-      : JSON.stringify(entry.data, null, 2);
-
-    const ts = (entry.ts || '').split('T')[1]?.slice(0,8) || '';
-
-    el.innerHTML = '<div class="log-header" onclick="this.parentElement.classList.toggle(\'expanded\')">'
-      + '<span>' + (LOG_ICONS[entry.type] || '&#8226;') + '</span>'
-      + '<span class="log-type">' + entry.type + '</span>'
-      + '<span class="log-ts">' + ts + '</span>'
-      + '<span class="log-preview">' + escapeHtml(preview) + '</span>'
-      + '<i class="fas fa-chevron-down" style="color:#94a3b8;font-size:0.7rem;"></i>'
-      + '</div>'
-      + '<div class="log-detail">' + escapeHtml(detail) + '</div>';
-
-    container.prepend(el);
-  });
-
-  // Limit to 200 entries
-  while (container.children.length > 200) {
-    container.removeChild(container.lastChild);
-  }
-}
-
-// ============================================================================
-// UTILS
-// ============================================================================
-function escapeHtml(str) {
+function addBubble(text, role) {
+  const msgs = document.getElementById('chat-messages');
+  const now = new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  div.className = 'msg ' + role;
+  div.innerHTML = `
+    <div class="msg-avatar">${role === 'user' ? 'Вы' : 'AI'}</div>
+    <div class="msg-body">
+      <div class="msg-bubble">${esc(text).replace(/\n/g,'<br>')}</div>
+      <div class="msg-time">${now}</div>
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
 }
+
+function showTyping() {
+  const msgs = document.getElementById('chat-messages');
+  const id = 'typing-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'msg assistant'; div.id = id;
+  div.innerHTML = `<div class="msg-avatar">AI</div><div class="msg-body"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return id;
+}
+function removeTyping(id) { document.getElementById(id)?.remove(); }
+
+// ── DOCS MODAL ──
+let activeDocTab = 'doc_who_am_i';
+function openDocsModal(tab) {
+  fillDocsForm();
+  if (tab) switchDocTab(tab, null);
+  document.getElementById('docs-modal-overlay').classList.remove('hidden');
+}
+function closeDocsModal() { document.getElementById('docs-modal-overlay').classList.add('hidden'); }
+function switchDocTab(tab, el) {
+  activeDocTab = tab;
+  document.querySelectorAll('.doc-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.doc-tab').forEach(t => t.classList.remove('active'));
+  const pane = document.getElementById('pane-' + tab);
+  if (pane) pane.classList.add('active');
+  if (el) el.classList.add('active');
+  else {
+    const tabs = document.querySelectorAll('.doc-tab');
+    const map = {'doc_who_am_i':0,'doc_who_we_call':1,'doc_how_we_talk':2,'doc_what_we_offer':3,'doc_rules_and_goals':4,'settings':5};
+    if (map[tab] !== undefined) tabs[map[tab]]?.classList.add('active');
+  }
+}
+async function saveDocs() {
+  const btn = document.getElementById('docs-save-btn');
+  btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block;margin-right:6px"></div> Сохранение...';
+  const body = {
+    name: document.getElementById('input-agent-name')?.value || agentData.name,
+    doc_who_am_i: document.getElementById('input-doc_who_am_i')?.value || '',
+    doc_who_we_call: document.getElementById('input-doc_who_we_call')?.value || '',
+    doc_how_we_talk: document.getElementById('input-doc_how_we_talk')?.value || '',
+    doc_what_we_offer: document.getElementById('input-doc_what_we_offer')?.value || '',
+    doc_rules_and_goals: document.getElementById('input-doc_rules_and_goals')?.value || '',
+    working_hours_start: parseInt(document.getElementById('input-hours-start')?.value) || 9,
+    working_hours_end: parseInt(document.getElementById('input-hours-end')?.value) || 21,
+    default_caller_id: document.getElementById('input-caller-id')?.value || null,
+  };
+  try {
+    const r = await apiFetch(API + '/', { method: 'PUT', body: JSON.stringify(body) });
+    if (r && r.status === 200) {
+      agentData = await r.json();
+      document.getElementById('nav-agent-name').textContent = agentData.name;
+      closeDocsModal();
+      showToast('Настройки сохранены. Промпт обновлён.', 'success');
+    } else {
+      const err = await r?.json().catch(() => ({}));
+      showToast('Ошибка: ' + (err.detail || 'Неизвестная ошибка'), 'error');
+    }
+  } catch(e) { showToast('Ошибка сети', 'error'); }
+  btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Сохранить';
+}
+
+// ── ADD CONTACT ──
+function openAddContactModal() { document.getElementById('contact-modal-overlay').classList.remove('hidden'); }
+function closeContactModal() {
+  document.getElementById('contact-modal-overlay').classList.add('hidden');
+  ['contact-phone','contact-name','contact-company','contact-position','contact-notes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+}
+async function saveContact() {
+  const phone = document.getElementById('contact-phone')?.value.trim();
+  if (!phone) { showToast('Укажите номер телефона', 'error'); return; }
+  const body = {
+    phone,
+    name: document.getElementById('contact-name')?.value.trim() || null,
+    company: document.getElementById('contact-company')?.value.trim() || null,
+    position: document.getElementById('contact-position')?.value.trim() || null,
+    notes: document.getElementById('contact-notes')?.value.trim() || null,
+  };
+  try {
+    const r = await apiFetch(API + '/contacts', { method: 'POST', body: JSON.stringify(body) });
+    if (r && r.status === 200) {
+      closeContactModal();
+      loadStats();
+      showToast('Контакт добавлен. Первый звонок запланирован через 1 час.', 'success');
+    } else {
+      const err = await r?.json().catch(() => ({}));
+      showToast('Ошибка: ' + (err.detail || 'Неизвестная ошибка'), 'error');
+    }
+  } catch(e) { showToast('Ошибка сети', 'error'); }
+}
+
+// ── CALLS MODAL ──
+let openCallRows = new Set();
+async function openCallsModal() {
+  document.getElementById('calls-modal-overlay').classList.remove('hidden');
+  openCallRows.clear();
+  const tbody = document.getElementById('calls-tbody');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+  try {
+    const r = await apiFetch(API + '/calls?limit=50&offset=0');
+    if (!r || r.status !== 200) return;
+    const data = await r.json();
+    if (!data.calls || !data.calls.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Звонков нет</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.calls.map((c, i) => {
+      const dur = c.duration_seconds ? Math.floor(c.duration_seconds) + 'с' : '—';
+      const date = fmtDate(c.started_at);
+      const statusBadge = c.status === 'answered'
+        ? '<span class="status-badge badge-answered">Ответил</span>'
+        : '<span class="status-badge badge-no-answer">Не ответил</span>';
+      const decision = decisionBadge(c.post_call_decision);
+      const hasTranscript = c.transcript && c.transcript !== '(Транскрипт недоступен)';
+      return `
+        <tr onclick="toggleTranscript(${i})" style="${hasTranscript ? 'cursor:pointer' : ''}">
+          <td style="font-weight:500">${esc(c.contact_name || '—')} <span style="font-size:11px;color:var(--hint)">${esc(c.contact_phone || '')}</span></td>
+          <td style="color:var(--muted)">${date}</td>
+          <td style="color:var(--muted)">${dur}</td>
+          <td>${statusBadge}</td>
+          <td>${decision}</td>
+        </tr>
+        ${hasTranscript ? `<tr class="transcript-row" id="tr-${i}" style="display:none"><td colspan="5">${esc(c.transcript)}</td></tr>` : ''}
+      `;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Ошибка загрузки</td></tr>';
+  }
+}
+function toggleTranscript(i) {
+  const row = document.getElementById('tr-' + i);
+  if (!row) return;
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+function closeCallsModal() { document.getElementById('calls-modal-overlay').classList.add('hidden'); }
+
+// ── DELETE AGENT ──
+async function deleteAgent() {
+  if (!confirm('Удалить агента? Это действие нельзя отменить. Все контакты и звонки будут удалены.')) return;
+  try {
+    const r = await apiFetch(API + '/', { method: 'DELETE' });
+    if (r && r.status === 200) { location.reload(); }
+    else showToast('Ошибка удаления', 'error');
+  } catch(e) { showToast('Ошибка сети', 'error'); }
+}
+
+// ── WIZARD ──
+function showWizard() {
+  document.getElementById('loading-screen').classList.add('hidden');
+  document.getElementById('wizard-overlay').classList.remove('hidden');
+  try { wizardFormData = JSON.parse(localStorage.getItem('agent_wizard_data') || '{}'); } catch(e) {}
+  wizardStep = 0;
+  renderWizardStep();
+}
+
+function renderWizardProgress() {
+  const el = document.getElementById('wizard-progress');
+  let html = '';
+  for (let i = 0; i < TOTAL_WIZARD_STEPS; i++) {
+    const cls = i < wizardStep ? 'done' : i === wizardStep ? 'active' : '';
+    html += `<div class="w-dot ${cls}"></div>`;
+    if (i < TOTAL_WIZARD_STEPS - 1) html += `<div class="w-line ${i < wizardStep ? 'done' : ''}"></div>`;
+  }
+  el.innerHTML = html;
+}
+
+async function renderWizardStep() {
+  renderWizardProgress();
+  const c = document.getElementById('wizard-content');
+
+  if (wizardStep === 0) {
+    const r = await apiFetch('/api/users/me');
+    const user = r && r.status === 200 ? await r.json() : {};
+    const hasOpenAI = user.has_api_key;
+    const hasGemini = user.has_gemini_api_key;
+    if (hasOpenAI && hasGemini) { wizardStep = 1; renderWizardStep(); return; }
+    c.innerHTML = `
+      <h2>API ключи</h2>
+      <p class="hint">Для работы агента нужны ключи OpenAI (оркестратор) и Google Gemini (голос).</p>
+      <div class="key-row ${hasOpenAI ? 'key-ok' : 'key-missing'}">
+        <i class="fas ${hasOpenAI ? 'fa-check-circle' : 'fa-exclamation-triangle'}"></i>
+        OpenAI API Key — ${hasOpenAI ? 'подключён' : 'не указан'}
+      </div>
+      ${!hasOpenAI ? '<div class="form-group"><label class="form-label">OpenAI API Key</label><input type="password" class="form-input" id="key-openai" placeholder="sk-..."></div>' : ''}
+      <div class="key-row ${hasGemini ? 'key-ok' : 'key-missing'}">
+        <i class="fas ${hasGemini ? 'fa-check-circle' : 'fa-exclamation-triangle'}"></i>
+        Google Gemini API Key — ${hasGemini ? 'подключён' : 'не указан'}
+      </div>
+      ${!hasGemini ? '<div class="form-group"><label class="form-label">Google Gemini API Key</label><input type="password" class="form-input" id="key-gemini" placeholder="AIza..."></div>' : ''}
+      <div class="wizard-actions">
+        <div></div>
+        <button class="btn btn-primary" onclick="saveWizardKeys()"><i class="fas fa-arrow-right"></i> Продолжить</button>
+      </div>`;
+    return;
+  }
+
+  if (wizardStep === 6) { renderCreationStep(c); return; }
+
+  const steps = [null,
+    { key: 'doc_who_am_i', title: 'Кто мы', hint: 'Опишите компанию: название, сфера деятельности, УТП, средний чек.', placeholder: 'Мы — компания "Ромашка", продаём CRM для малого бизнеса...', hasName: false },
+    { key: 'doc_who_we_call', title: 'Кому звоним', hint: 'Портрет клиента: должность, боли, возражения.', placeholder: 'Руководители отделов продаж в компаниях от 20 человек...', hasName: false },
+    { key: 'doc_how_we_talk', title: 'Как говорим', hint: 'Стиль общения и имя агента.', placeholder: 'Агент "Алиса". Дружелюбно, кратко, без давления...', hasName: true },
+    { key: 'doc_what_we_offer', title: 'Что предлагаем', hint: 'Продукты, цены, акции.', placeholder: 'Тариф "Старт" — 5 000 ₽/мес. Тариф "Про" — 12 000 ₽/мес...', hasName: false },
+    { key: 'doc_rules_and_goals', title: 'Правила и цели', hint: 'KPI, лимиты звонков, что считать успехом.', placeholder: 'Цель: назначить встречу. Макс 3 попытки на контакт...', hasHours: true },
+  ];
+  const s = steps[wizardStep];
+  c.innerHTML = `
+    <h2>Шаг ${wizardStep}: ${s.title}</h2>
+    <p class="hint">${s.hint}</p>
+    ${s.hasName ? `<div class="form-group"><label class="form-label">Имя агента</label><input type="text" class="form-input" id="w-name" value="${esc(wizardFormData.name||'')}" placeholder="Алиса"></div>` : ''}
+    <div class="form-group">
+      <textarea class="form-textarea" id="w-textarea" rows="6" placeholder="${esc(s.placeholder)}">${esc(wizardFormData[s.key]||'')}</textarea>
+    </div>
+    ${s.hasHours ? `<div class="form-row"><div class="form-group"><label class="form-label">Рабочие часы с</label><input type="number" class="form-input" id="w-h-start" min="0" max="23" value="${wizardFormData.working_hours_start??9}"></div><div class="form-group"><label class="form-label">Рабочие часы до</label><input type="number" class="form-input" id="w-h-end" min="0" max="23" value="${wizardFormData.working_hours_end??21}"></div></div>` : ''}
+    <div class="wizard-actions">
+      <button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button>
+      <button class="btn btn-primary" onclick="wizardNext()">Далее <i class="fas fa-arrow-right"></i></button>
+    </div>`;
+}
+
+async function saveWizardKeys() {
+  const body = {};
+  const o = document.getElementById('key-openai');
+  const g = document.getElementById('key-gemini');
+  if (o?.value.trim()) body.openai_api_key = o.value.trim();
+  if (g?.value.trim()) body.gemini_api_key = g.value.trim();
+  if (Object.keys(body).length) {
+    const r = await apiFetch('/api/users/me', { method: 'PUT', body: JSON.stringify(body) });
+    if (!r || r.status !== 200) { showToast('Ошибка сохранения ключей', 'error'); return; }
+  }
+  wizardStep = 1; renderWizardStep();
+}
+
+function wizardSaveStep() {
+  const keys = [null,'doc_who_am_i','doc_who_we_call','doc_how_we_talk','doc_what_we_offer','doc_rules_and_goals'];
+  if (wizardStep >= 1 && wizardStep <= 5) {
+    const ta = document.getElementById('w-textarea');
+    if (ta) wizardFormData[keys[wizardStep]] = ta.value;
+    const nm = document.getElementById('w-name');
+    if (nm) wizardFormData.name = nm.value;
+    const hs = document.getElementById('w-h-start');
+    const he = document.getElementById('w-h-end');
+    if (hs) wizardFormData.working_hours_start = parseInt(hs.value)||9;
+    if (he) wizardFormData.working_hours_end = parseInt(he.value)||21;
+  }
+  localStorage.setItem('agent_wizard_data', JSON.stringify(wizardFormData));
+}
+
+function wizardNext() {
+  wizardSaveStep();
+  const keys = [null,'doc_who_am_i','doc_who_we_call','doc_how_we_talk','doc_what_we_offer','doc_rules_and_goals'];
+  if (wizardStep >= 1 && wizardStep <= 5) {
+    const val = wizardFormData[keys[wizardStep]];
+    if (!val?.trim()) { showToast('Заполните поле перед продолжением', 'error'); return; }
+  }
+  if (wizardStep === 3 && !wizardFormData.name?.trim()) { showToast('Укажите имя агента', 'error'); return; }
+  wizardStep++; renderWizardStep();
+}
+function wizardBack() { wizardSaveStep(); if (wizardStep > 1) { wizardStep--; renderWizardStep(); } }
+
+async function renderCreationStep(c) {
+  c.innerHTML = `
+    <h2>Создание агента</h2>
+    <p class="hint">Настройка вашего агента...</p>
+    <ul class="creation-list">
+      <li class="creation-item" id="cr-docs"><div class="creation-icon pending"></div>Сохранение документов</li>
+      <li class="creation-item" id="cr-prompt"><div class="creation-icon pending"></div>Генерация промпта оркестратора</li>
+      <li class="creation-item" id="cr-voice"><div class="creation-icon pending"></div>Создание голосового агента</li>
+      <li class="creation-item" id="cr-done"><div class="creation-icon pending"></div>Активация</li>
+    </ul>
+    <div id="cr-error" style="display:none;margin-top:16px;padding:12px;background:var(--red-light);color:var(--red);border-radius:var(--radius-sm);font-size:13px"></div>
+    <div id="cr-success" style="display:none;margin-top:20px;text-align:center">
+      <button class="btn btn-primary" onclick="location.reload()"><i class="fas fa-rocket"></i> Открыть агента</button>
+    </div>`;
+
+  await animCr('cr-docs');
+  try {
+    const body = {
+      name: wizardFormData.name || 'Мой агент',
+      doc_who_am_i: wizardFormData.doc_who_am_i || '',
+      doc_who_we_call: wizardFormData.doc_who_we_call || '',
+      doc_how_we_talk: wizardFormData.doc_how_we_talk || '',
+      doc_what_we_offer: wizardFormData.doc_what_we_offer || '',
+      doc_rules_and_goals: wizardFormData.doc_rules_and_goals || '',
+      working_hours_start: wizardFormData.working_hours_start ?? 9,
+      working_hours_end: wizardFormData.working_hours_end ?? 21,
+    };
+    const r = await apiFetch(API + '/create', { method: 'POST', body: JSON.stringify(body) });
+    if (r && (r.status === 200 || r.status === 201)) {
+      doneCr('cr-docs'); await animCr('cr-prompt'); doneCr('cr-prompt');
+      await animCr('cr-voice'); doneCr('cr-voice');
+      await animCr('cr-done'); doneCr('cr-done');
+      localStorage.removeItem('agent_wizard_data');
+      document.getElementById('cr-success').style.display = 'block';
+    } else {
+      const err = await r?.json().catch(() => ({}));
+      document.getElementById('cr-error').style.display = 'block';
+      document.getElementById('cr-error').textContent = 'Ошибка: ' + (err.detail || 'Неизвестная ошибка');
+    }
+  } catch(e) {
+    document.getElementById('cr-error').style.display = 'block';
+    document.getElementById('cr-error').textContent = 'Ошибка сети: ' + e.message;
+  }
+}
+
+function animCr(id) {
+  return new Promise(r => {
+    const el = document.getElementById(id);
+    if (el) { el.querySelector('.creation-icon').innerHTML = '<div class="spinner"></div>'; }
+    setTimeout(r, 700);
+  });
+}
+function doneCr(id) {
+  const el = document.getElementById(id);
+  if (el) { el.classList.add('done'); el.querySelector('.creation-icon').innerHTML = '<i class="fas fa-check"></i>'; }
+}
+
+// ── HELPERS ──
+function decisionRu(d) {
+  const map = { FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил', REJECTED:'Отказался', DO_NOT_CALL:'Не беспокоить' };
+  return map[d] || d || '—';
+}
+function decisionBadge(d) {
+  const cls = { FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer', REJECTED:'badge-no-answer', DO_NOT_CALL:'badge-do-not-call' };
+  return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`;
+}
+function fmtDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return 'сегодня ' + d.toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'});
+  if (diff === 1) return 'вчера ' + d.toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'});
+  return d.toLocaleDateString('ru', {day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('ru', {hour:'2-digit',minute:'2-digit'});
+}
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML;
+}
+
+let toastTimer;
+function showToast(msg, type='success') {
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a2e;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;opacity:0;transition:all 0.25s ease;white-space:nowrap;max-width:90vw;text-align:center';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = type === 'error' ? '#7f1d1d' : type === 'success' ? '#14532d' : '#1a1a2e';
+  t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; }, 3500);
+}
+
+// Close modals on overlay click
+['docs-modal-overlay','contact-modal-overlay','calls-modal-overlay'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', function(e) {
+    if (e.target === this) this.classList.add('hidden');
+  });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    ['docs-modal-overlay','contact-modal-overlay','calls-modal-overlay'].forEach(id => {
+      document.getElementById(id)?.classList.add('hidden');
+    });
+  }
+});
 </script>
 </body>
 </html>
