@@ -1,12 +1,14 @@
 """
 AgentCall — запись о каждом звонке агента.
 Связывает AgentContact -> Task -> Conversation (транскрипт).
+
+✅ v2.1: Добавлены поля precall_log и postcall_log (JSONB)
 """
 
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from .base import Base
@@ -73,6 +75,12 @@ class AgentCall(Base):
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+    # ✅ v2.1: Логи рассуждений оркестратора
+    # precall_log: что GPT думал перед звонком (стратегия, тон, ключевые факты)
+    precall_log = Column(JSONB, nullable=True)
+    # postcall_log: какие tools вызывал, с какими аргументами, финальное решение
+    postcall_log = Column(JSONB, nullable=True)
+
     # Relationships
     contact = relationship("AgentContact", back_populates="calls", foreign_keys=[agent_contact_id])
     agent_config = relationship("AgentConfig", foreign_keys=[agent_config_id])
@@ -110,4 +118,7 @@ class AgentCall(Base):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            # ✅ v2.1: Логи оркестратора
+            "precall_log": self.precall_log,
+            "postcall_log": self.postcall_log,
         }
