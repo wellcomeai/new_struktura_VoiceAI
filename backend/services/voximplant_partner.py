@@ -461,7 +461,7 @@ class VoximplantPartnerService:
             "api_key": child_api_key,
             "callback_url": callback_url,
             "account_document_status_updated": "true",
-            "sms_inbound": "true",
+            "incoming_sms_notification_url": "https://voicyfy.ru/api/telephony/webhook/sms",
         }
         
         logger.info(f"[VOXIMPLANT] Setting callback URL for account {child_account_id}: {callback_url}")
