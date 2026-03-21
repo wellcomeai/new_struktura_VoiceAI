@@ -4298,8 +4298,10 @@ async def webhook_verification_status(
     """
     try:
         body = await request.json()
-        logger.info(f"[TELEPHONY] Webhook received: {body}")
-        
+
+        # 🔍 ВРЕМЕННЫЙ ЛОГ — удалить после диагностики
+        logger.info(f"[WEBHOOK-RAW] {json.dumps(body, ensure_ascii=False)[:3000]}")
+
         callbacks = body.get("callbacks", [])
         
         if not callbacks and body.get("type") == "account_document_status_updated":
