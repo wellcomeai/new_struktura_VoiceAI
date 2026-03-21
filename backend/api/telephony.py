@@ -37,6 +37,10 @@ Routes:
     POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
     POST   /api/telephony/admin/setup-cartesia-scenarios - 🔐 Скопировать Cartesia сценарии на все аккаунты
     POST   /api/telephony/admin/enable-sms-all - 🔐 Включить SMS на всех номерах всех аккаунтов
+    POST   /api/telephony/webhook/sms         - Webhook для приёма входящих SMS
+    GET    /api/telephony/sms                  - Список входящих SMS
+    POST   /api/telephony/sms/{id}/read        - Отметить SMS прочитанной
+    POST   /api/telephony/admin/setup-sms-webhooks - 🔐 Обновить webhook на всех аккаунтах
 
 ✅ v1.0: Базовый функционал партнёрской интеграции
 ✅ v1.1: Исправлен регистр enum (lowercase)
@@ -88,6 +92,7 @@ from backend.models.voximplant_child import (
     VoximplantPhoneNumber,
     VoximplantVerificationStatus
 )
+from backend.models.sms_message import SmsMessage
 from backend.services.voximplant_partner import (
     VoximplantPartnerService,
     get_voximplant_partner_service,
@@ -4531,3 +4536,217 @@ async def admin_enable_sms_all(
     except Exception as e:
         logger.error(f"[SMS-ADMIN] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SMS INBOUND WEBHOOK & API (v3.6)
+# =============================================================================
+
+@router.post("/webhook/sms")
+async def webhook_sms(request: Request, db: Session = Depends(get_db)):
+    """
+    Публичный webhook для приёма входящих SMS от Voximplant.
+    Всегда возвращает {"status": "ok"} — ошибки только логируются.
+    """
+    try:
+        payload = await request.json()
+        callbacks = payload.get("callbacks", [])
+        logger.info(f"[TELEPHONY-SMS] Received webhook with {len(callbacks)} callback(s)")
+
+        for cb in callbacks:
+            try:
+                if cb.get("type") != "sms_inbound":
+                    continue
+
+                account_id = cb.get("account_id")
+                sms_data = cb.get("sms_inbound", {})
+                source_number = sms_data.get("source_number", "")
+                destination_number = sms_data.get("destination_number", "")
+                sms_body = sms_data.get("sms_body", "")
+
+                logger.info(
+                    f"[TELEPHONY-SMS] Inbound SMS: account_id={account_id}, "
+                    f"from={source_number}, to={destination_number}, "
+                    f"body_len={len(sms_body)}"
+                )
+
+                # Найти child account по vox_account_id
+                child_account = db.query(VoximplantChildAccount).filter(
+                    VoximplantChildAccount.vox_account_id == str(account_id)
+                ).first()
+
+                if not child_account:
+                    logger.warning(
+                        f"[TELEPHONY-SMS] Child account not found for vox_account_id={account_id}"
+                    )
+                    continue
+
+                sms_message = SmsMessage(
+                    child_account_id=child_account.id,
+                    from_number=source_number,
+                    to_number=destination_number,
+                    body=sms_body,
+                    direction="inbound",
+                    is_read=False,
+                    vox_account_id=str(account_id),
+                )
+                db.add(sms_message)
+                db.commit()
+
+                logger.info(
+                    f"[TELEPHONY-SMS] SMS saved: id={sms_message.id}, "
+                    f"child_account={child_account.id}"
+                )
+
+            except Exception as e:
+                logger.error(f"[TELEPHONY-SMS] Error processing callback: {e}", exc_info=True)
+                db.rollback()
+
+    except Exception as e:
+        logger.error(f"[TELEPHONY-SMS] Webhook error: {e}", exc_info=True)
+
+    return {"status": "ok"}
+
+
+@router.get("/sms")
+async def get_sms_list(
+    phone_number: Optional[str] = Query(None, description="Фильтр по номеру получателя"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Список входящих SMS текущего пользователя."""
+    # Найти child account текущего пользователя
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+
+    if not child_account:
+        return {"messages": [], "total": 0, "unread": 0}
+
+    # Базовый запрос
+    query = db.query(SmsMessage).filter(
+        SmsMessage.child_account_id == child_account.id
+    )
+
+    # Фильтр по номеру (по последним 10 цифрам)
+    if phone_number:
+        normalized = normalize_phone_number(phone_number)
+        if len(normalized) >= 10:
+            phone_suffix = normalized[-10:]
+            query = query.filter(
+                SmsMessage.to_number.op("~")(f"{phone_suffix}$")
+            )
+
+    # Общее количество и непрочитанные
+    from sqlalchemy import func as sql_func
+    total = query.count()
+    unread = db.query(sql_func.count(SmsMessage.id)).filter(
+        SmsMessage.child_account_id == child_account.id,
+        SmsMessage.is_read == False,
+    ).scalar() or 0
+
+    # Получить сообщения
+    messages = query.order_by(SmsMessage.received_at.desc()).offset(offset).limit(limit).all()
+
+    return {
+        "messages": [
+            {
+                "id": str(msg.id),
+                "from_number": msg.from_number,
+                "to_number": msg.to_number,
+                "body": msg.body,
+                "is_read": msg.is_read,
+                "received_at": msg.received_at.isoformat() if msg.received_at else None,
+            }
+            for msg in messages
+        ],
+        "total": total,
+        "unread": unread,
+    }
+
+
+@router.post("/sms/{sms_id}/read")
+async def mark_sms_read(
+    sms_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Отметить SMS как прочитанное. Проверяет принадлежность через child_account."""
+    # Найти SMS с проверкой владельца через JOIN
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+
+    if not child_account:
+        raise HTTPException(status_code=404, detail="Telephony not connected")
+
+    sms = db.query(SmsMessage).filter(
+        SmsMessage.id == sms_id,
+        SmsMessage.child_account_id == child_account.id,
+    ).first()
+
+    if not sms:
+        raise HTTPException(status_code=404, detail="SMS not found")
+
+    sms.is_read = True
+    db.commit()
+
+    return {"success": True}
+
+
+@router.post("/admin/setup-sms-webhooks")
+async def admin_setup_sms_webhooks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 Admin: Обновить webhook на всех аккаунтах для включения sms_inbound callback.
+    """
+    if current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    service = get_voximplant_partner_service()
+    accounts = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.is_active == True
+    ).all()
+
+    results = {"updated": 0, "failed": 0, "details": []}
+
+    for account in accounts:
+        try:
+            result = await service.set_account_callback(
+                child_account_id=str(account.vox_account_id),
+                child_api_key=account.vox_api_key,
+            )
+            if result.get("success"):
+                results["updated"] += 1
+                results["details"].append({
+                    "account_id": str(account.vox_account_id),
+                    "status": "updated",
+                })
+            else:
+                results["failed"] += 1
+                results["details"].append({
+                    "account_id": str(account.vox_account_id),
+                    "status": "failed",
+                    "reason": result.get("error", "Unknown"),
+                })
+        except Exception as e:
+            results["failed"] += 1
+            logger.error(
+                f"[TELEPHONY-SMS] Webhook setup failed for account {account.vox_account_id}: {e}"
+            )
+            results["details"].append({
+                "account_id": str(account.vox_account_id),
+                "status": "failed",
+                "reason": str(e),
+            })
+
+    logger.info(
+        f"[TELEPHONY-SMS] Admin webhook setup done: "
+        f"updated={results['updated']}, failed={results['failed']}"
+    )
+
+    return results

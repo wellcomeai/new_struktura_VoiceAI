@@ -1732,6 +1732,36 @@
           </div>
         </div>
 
+        <!-- Входящие SMS -->
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h2 class="card-title">
+                💬 Входящие SMS
+                <span id="sms-unread-badge" style="
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  background: #ef4444;
+                  color: white;
+                  border-radius: 999px;
+                  font-size: 0.7rem;
+                  font-weight: 700;
+                  min-width: 20px;
+                  height: 20px;
+                  padding: 0 6px;
+                  margin-left: 6px;
+                  vertical-align: middle;
+                " hidden></span>
+              </h2>
+              <p class="card-description">SMS полученные на ваши номера</p>
+            </div>
+            <button class="btn btn-primary" id="open-sms-btn">
+              <i class="fas fa-sms"></i> Открыть
+            </button>
+          </div>
+        </div>
+
       </div>
       
     </div>
@@ -1920,6 +1950,24 @@
         <div id="call-history-container">
           <!-- Рендерится из JS при открытии -->
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальное окно: Входящие SMS -->
+  <div class="modal-overlay" id="sms-modal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 class="modal-title">💬 Входящие SMS</h3>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <button class="btn btn-secondary btn-sm" id="refresh-sms-btn">
+            <i class="fas fa-sync-alt"></i> Обновить
+          </button>
+          <button class="modal-close" id="close-sms-modal">&times;</button>
+        </div>
+      </div>
+      <div class="modal-body compact">
+        <div id="sms-container"></div>
       </div>
     </div>
   </div>
@@ -3312,9 +3360,119 @@
         document.getElementById('sip-connect-modal').classList.remove('show');
       });
 
+      // =====================================================================
+      // SMS — загрузка, модалка, badge
+      // =====================================================================
+
+      const smsModal = document.getElementById('sms-modal');
+
+      async function loadSms() {
+        const container = document.getElementById('sms-container');
+        container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-light);"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+
+        try {
+          const result = await api.get('/telephony/sms?limit=50');
+          const messages = result.messages || [];
+
+          if (messages.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-light);"><i class="fas fa-inbox" style="font-size:2rem;margin-bottom:0.5rem;display:block;"></i>Нет входящих SMS</div>';
+            return;
+          }
+
+          let html = '<table class="data-table" style="width:100%;"><thead><tr>' +
+            '<th>Время</th><th>От кого</th><th>На номер</th><th>Сообщение</th><th>Статус</th>' +
+            '</tr></thead><tbody>';
+
+          for (const msg of messages) {
+            const date = msg.received_at ? new Date(msg.received_at).toLocaleString('ru-RU') : '—';
+            const bodyPreview = msg.body.length > 80 ? msg.body.substring(0, 80) + '…' : msg.body;
+            const statusBadge = msg.is_read
+              ? '<span style="color:#10b981;font-size:0.8rem;">✓ Прочитано</span>'
+              : '<span style="color:#ef4444;font-weight:600;font-size:0.8rem;">● Новое</span>';
+            const rowStyle = msg.is_read ? '' : 'background:rgba(239,68,68,0.05);';
+
+            html += `<tr style="cursor:pointer;${rowStyle}" data-sms-id="${msg.id}" data-sms-body="${msg.body.replace(/"/g, '&quot;')}" data-sms-read="${msg.is_read}">` +
+              `<td style="white-space:nowrap;font-size:0.85rem;">${date}</td>` +
+              `<td style="font-family:monospace;font-size:0.85rem;">${msg.from_number}</td>` +
+              `<td style="font-family:monospace;font-size:0.85rem;">${msg.to_number}</td>` +
+              `<td style="font-size:0.85rem;">${bodyPreview}</td>` +
+              `<td>${statusBadge}</td>` +
+              '</tr>';
+          }
+
+          html += '</tbody></table>';
+          container.innerHTML = html;
+
+          // Клик по строке — показать полный текст и отметить прочитанной
+          container.querySelectorAll('tr[data-sms-id]').forEach(row => {
+            row.addEventListener('click', async () => {
+              const smsId = row.getAttribute('data-sms-id');
+              const fullBody = row.getAttribute('data-sms-body');
+              const isRead = row.getAttribute('data-sms-read') === 'true';
+
+              alert(fullBody);
+
+              if (!isRead) {
+                try {
+                  await api.post(`/telephony/sms/${smsId}/read`);
+                  row.setAttribute('data-sms-read', 'true');
+                  row.style.background = '';
+                  row.querySelector('td:last-child').innerHTML = '<span style="color:#10b981;font-size:0.8rem;">✓ Прочитано</span>';
+                  updateSmsBadge();
+                } catch (e) {
+                  console.error('Error marking SMS as read:', e);
+                }
+              }
+            });
+          });
+
+          // Обновить badge
+          updateSmsBadge();
+
+        } catch (e) {
+          console.error('Error loading SMS:', e);
+          container.innerHTML = '<div style="text-align:center;padding:2rem;color:#ef4444;">Ошибка загрузки SMS</div>';
+        }
+      }
+
+      async function updateSmsBadge() {
+        try {
+          const result = await api.get('/telephony/sms?limit=1');
+          const badge = document.getElementById('sms-unread-badge');
+          if (result.unread > 0) {
+            badge.textContent = result.unread;
+            badge.hidden = false;
+          } else {
+            badge.hidden = true;
+          }
+        } catch (e) {
+          // silent
+        }
+      }
+
+      // Открытие модалки SMS
+      document.getElementById('open-sms-btn').addEventListener('click', () => {
+        smsModal.classList.add('show');
+        loadSms();
+      });
+
+      document.getElementById('close-sms-modal').addEventListener('click', () => {
+        smsModal.classList.remove('show');
+      });
+
+      document.getElementById('refresh-sms-btn').addEventListener('click', loadSms);
+
+      // Закрытие по клику на overlay
+      smsModal.addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('show');
+      });
+
       // Инициализация
       loadUserInfo();
       loadTelephonyStatus();
+
+      // Загрузить badge непрочитанных SMS после загрузки статуса
+      setTimeout(updateSmsBadge, 1500);
     });
   </script>
 

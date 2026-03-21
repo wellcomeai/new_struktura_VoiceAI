@@ -60,6 +60,9 @@ from .voximplant_child import (
     VoximplantVerificationStatus
 )
 
+# ✅ НОВОЕ v3.6: SMS модель для входящих SMS через Voximplant
+from .sms_message import SmsMessage
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -110,4 +113,6 @@ __all__ = [
     "VoximplantChildAccount",
     "VoximplantPhoneNumber",
     "VoximplantVerificationStatus",
+    # ✅ НОВОЕ v3.6: SMS модель
+    "SmsMessage",
 ]
