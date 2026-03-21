@@ -2934,24 +2934,23 @@ async def public_outbound_call(
 @router.get("/outbound-config", response_model=OutboundConfigResponse)
 async def get_outbound_config(
     assistant_id: str = Query(..., description="UUID ассистента"),
-    assistant_type: str = Query(..., description="Тип ассистента: openai или gemini"),
+    assistant_type: Optional[str] = Query(None, description="Тип ассистента (необязательно, определяется автоматически)"),
     db: Session = Depends(get_db),
 ):
     """
     Получить конфигурацию для исходящего сценария Voximplant.
-    
+
     ⚠️ Это ПУБЛИЧНЫЙ endpoint - НЕ требует авторизации.
     Вызывается из сценария Voximplant при исходящем звонке.
-    
-    GET /api/telephony/outbound-config?assistant_id=...&assistant_type=openai
+
+    GET /api/telephony/outbound-config?assistant_id=...
     """
     try:
         logger.info(f"[TELEPHONY-OUTBOUND] Config request: assistant_id={assistant_id}, type={assistant_type}")
-        
+
         # =====================================================================
         # 1. Получаем ассистента
         # =====================================================================
-        assistant = None
         assistant_name = None
         system_prompt = None
         voice = None
@@ -2961,63 +2960,36 @@ async def get_outbound_config(
         enable_thinking = False
         thinking_budget = 0
         user_id = None
-        
+
         try:
             assistant_uuid = uuid.UUID(assistant_id)
         except ValueError:
             logger.warning(f"[TELEPHONY-OUTBOUND] Invalid assistant_id format: {assistant_id}")
             return OutboundConfigResponse(success=False)
-        
-        if assistant_type == "openai":
-            from backend.models.assistant import AssistantConfig
-            assistant = db.query(AssistantConfig).filter(
-                AssistantConfig.id == assistant_uuid
-            ).first()
-            
-            if assistant:
-                assistant_name = assistant.name
-                system_prompt = assistant.system_prompt
-                voice = assistant.voice or "alloy"
-                language = assistant.language or "ru"
-                functions_config = assistant.functions
-                google_sheet_id = assistant.google_sheet_id
-                user_id = assistant.user_id
-                
-        elif assistant_type == "gemini":
-            from backend.models.gemini_assistant import GeminiAssistantConfig
-            assistant = db.query(GeminiAssistantConfig).filter(
-                GeminiAssistantConfig.id == assistant_uuid
-            ).first()
 
-            if assistant:
-                assistant_name = assistant.name
-                system_prompt = assistant.system_prompt
-                voice = assistant.voice or "Aoede"
-                language = assistant.language or "ru"
-                functions_config = assistant.functions
-                google_sheet_id = assistant.google_sheet_id
-                enable_thinking = assistant.enable_thinking or False
-                thinking_budget = assistant.thinking_budget or 0
-                user_id = assistant.user_id
-
-        elif assistant_type == "cartesia":
-            from backend.models.cartesia_assistant import CartesiaAssistantConfig
-            assistant = db.query(CartesiaAssistantConfig).filter(
-                CartesiaAssistantConfig.id == assistant_uuid
-            ).first()
-
-            if assistant:
-                assistant_name = assistant.name
-                system_prompt = assistant.system_prompt
-                functions_config = assistant.functions
-                user_id = assistant.user_id
-        else:
-            logger.warning(f"[TELEPHONY-OUTBOUND] Unknown assistant_type: {assistant_type}")
-            return OutboundConfigResponse(success=False)
-
-        if not assistant:
+        # Автоматический поиск по всем таблицам
+        try:
+            assistant, assistant_type, user_id = find_assistant_by_id(db, assistant_uuid)
+        except HTTPException:
             logger.warning(f"[TELEPHONY-OUTBOUND] Assistant not found: {assistant_id}")
             return OutboundConfigResponse(success=False)
+
+        assistant_name = assistant.name
+        system_prompt = assistant.system_prompt
+        functions_config = assistant.functions
+
+        if assistant_type == "openai":
+            voice = assistant.voice or "alloy"
+            language = assistant.language or "ru"
+            google_sheet_id = assistant.google_sheet_id
+        elif assistant_type == "gemini":
+            voice = assistant.voice or "Aoede"
+            language = assistant.language or "ru"
+            google_sheet_id = assistant.google_sheet_id
+            enable_thinking = assistant.enable_thinking or False
+            thinking_budget = assistant.thinking_budget or 0
+        elif assistant_type == "cartesia":
+            pass  # cartesia-specific fields handled below
 
         # =====================================================================
         # 2. Получаем пользователя и API ключ
