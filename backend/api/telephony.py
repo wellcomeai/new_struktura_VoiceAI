@@ -4312,7 +4312,43 @@ async def webhook_verification_status(
         
         for callback in callbacks:
             callback_type = callback.get("type", "account_document_status_updated")
-            
+
+            # 🆕 Обработка входящих SMS
+            if callback_type == "sms_inbound":
+                try:
+                    sms_data = callback.get("sms_inbound", {})
+                    vox_account_id = str(callback.get("account_id", ""))
+                    from_number = sms_data.get("source_number", "")
+                    to_number = sms_data.get("destination_number", "")
+                    body_text = sms_data.get("sms_body", "")
+
+                    logger.info(f"[TELEPHONY-SMS] Incoming SMS: from={from_number} to={to_number} account={vox_account_id}")
+
+                    if vox_account_id and from_number and to_number and body_text:
+                        child_account = db.query(VoximplantChildAccount).filter(
+                            VoximplantChildAccount.vox_account_id == vox_account_id
+                        ).first()
+
+                        if child_account:
+                            from backend.models.sms_message import SmsMessage
+                            sms = SmsMessage(
+                                child_account_id=child_account.id,
+                                vox_account_id=vox_account_id,
+                                from_number=from_number,
+                                to_number=to_number,
+                                body=body_text,
+                                direction="inbound",
+                                is_read=False,
+                            )
+                            db.add(sms)
+                            db.commit()
+                            logger.info(f"[TELEPHONY-SMS] ✅ SMS saved for account {vox_account_id}")
+                        else:
+                            logger.warning(f"[TELEPHONY-SMS] ⚠️ Child account not found: {vox_account_id}")
+                except Exception as sms_err:
+                    logger.error(f"[TELEPHONY-SMS] ❌ Error saving SMS: {sms_err}")
+                continue
+
             if callback_type not in ["account_document_status_updated", None]:
                 logger.info(f"[TELEPHONY] Skipping callback type: {callback_type}")
                 continue
