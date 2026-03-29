@@ -1658,7 +1658,34 @@
             <div class="testing-container">
               <div class="testing-info-box">
                 <h4 class="testing-info-title">Голосовой ассистент готов к использованию. Для взаимодействия нажмите на кнопку в правом нижнем углу экрана.</h4>
-                
+
+                <!-- Переключатель модели -->
+                <div style="display: flex; gap: 0.75rem; margin-bottom: 1.5rem;">
+                  <button
+                    class="btn btn-primary"
+                    id="test-model-25"
+                    onclick="switchTestModel('2.5')"
+                    style="flex: 1; justify-content: center;">
+                    🔵 Gemini 2.5 Flash (стабильный)
+                  </button>
+                  <button
+                    class="btn btn-outline"
+                    id="test-model-31"
+                    onclick="switchTestModel('3.1')"
+                    style="flex: 1; justify-content: center;">
+                    🟣 Gemini 3.1 Flash Live (новый)
+                  </button>
+                </div>
+
+                <!-- Индикатор активной модели -->
+                <div id="active-model-indicator" style="
+                  text-align: center;
+                  font-size: 0.875rem;
+                  color: var(--text-gray);
+                  margin-bottom: 1rem;">
+                  Активна: <strong id="active-model-name">Gemini 2.5 Flash</strong>
+                </div>
+
                 <div class="testing-instructions">
                   <div class="testing-instruction-item">
                     <div class="testing-instruction-icon">
@@ -2545,7 +2572,7 @@
       
       // Автозагрузка виджета на вкладке тестирования
       if (tabId === 'testing' && currentAgentId) {
-        setTimeout(() => loadDemoWidget(currentAgentId), 500);
+        setTimeout(() => loadDemoWidget(currentAgentId, activeTestModel), 500);
       } else {
         loadDemoWidget(null);
       }
@@ -2585,33 +2612,82 @@
     // ФУНКЦИЯ ЗАГРУЗКИ ДЕМО ВИДЖЕТА
     // ============================================================================
     
-    function loadDemoWidget(assistantId) {
+    // Текущая тестируемая модель ('2.5' или '3.1')
+    let activeTestModel = '2.5';
+
+    function switchTestModel(version) {
+      activeTestModel = version;
+
+      const btn25 = document.getElementById('test-model-25');
+      const btn31 = document.getElementById('test-model-31');
+
+      if (version === '2.5') {
+        btn25.className = 'btn btn-primary';
+        btn25.style.flex = '1';
+        btn25.style.justifyContent = 'center';
+        btn31.className = 'btn btn-outline';
+        btn31.style.flex = '1';
+        btn31.style.justifyContent = 'center';
+        document.getElementById('active-model-name').textContent = 'Gemini 2.5 Flash';
+        document.getElementById('active-model-name').style.color = 'var(--primary-blue)';
+      } else {
+        btn31.className = 'btn btn-primary';
+        btn31.style.cssText = 'flex: 1; justify-content: center; background-color: #7c3aed;';
+        btn25.className = 'btn btn-outline';
+        btn25.style.flex = '1';
+        btn25.style.justifyContent = 'center';
+        document.getElementById('active-model-name').textContent = 'Gemini 3.1 Flash Live';
+        document.getElementById('active-model-name').style.color = '#7c3aed';
+      }
+
+      if (currentAgentId) {
+        loadDemoWidget(currentAgentId, version);
+      }
+    }
+
+    function loadDemoWidget(assistantId, version) {
+      if (version === undefined) version = activeTestModel;
+
       const container = document.getElementById('demo-widget-container');
       const scriptEl = document.getElementById('demo-widget-script');
-      
+
       scriptEl.innerHTML = '';
       container.style.display = 'none';
-      
-      const oldWidget = document.getElementById('gemini-voice-widget');
-      if (oldWidget) oldWidget.remove();
-      
+
+      // Remove old widgets of both versions
+      const oldWidget25 = document.getElementById('gemini-voice-widget');
+      if (oldWidget25) oldWidget25.remove();
+      const oldWidget31 = document.getElementById('gemini-31-voice-widget');
+      if (oldWidget31) oldWidget31.remove();
+
+      // Remove old widget scripts
+      const oldScripts = document.querySelectorAll(
+        'script[src*="gemini-widget.js"], script[src*="gemini-31-widget.js"]'
+      );
+      oldScripts.forEach(s => s.remove());
+
       if (!assistantId) {
         return;
       }
-      
+
       container.style.display = 'block';
+
+      const scriptSrc = version === '3.1'
+        ? '/static/gemini-31-widget.js'
+        : '/static/gemini-widget.js';
+
       const script = document.createElement('script');
-      script.src = '/static/gemini-widget.js';
+      script.src = scriptSrc;
       script.dataset.assistantId = assistantId;
       script.dataset.server = window.location.origin;
       script.dataset.position = 'bottom-right';
       script.async = true;
       script.onload = () => {
-        console.log('[DEMO-WIDGET] Widget loaded successfully');
+        console.log(`[DEMO-WIDGET] ${version} widget loaded successfully`);
       };
       script.onerror = () => {
-        console.error('[DEMO-WIDGET] Failed to load widget');
-        showNotification('Ошибка загрузки виджета', 'error');
+        console.error(`[DEMO-WIDGET] Failed to load ${version} widget`);
+        showNotification(`Ошибка загрузки виджета ${version}`, 'error');
       };
       document.head.appendChild(script);
     }
