@@ -342,43 +342,45 @@ class GeminiLiveClient31:
         self.enabled_functions = [normalize_function_name(tool["function_declarations"][0]["name"]) for tool in tools]
         logger.info(f"[GEMINI-31-CLIENT] Functions activated: {self.enabled_functions}")
 
-        # Gemini 3.1 Live: key "config" instead of "setup"
+        # Gemini 3.1 Live: same "setup" key as 2.5, but with thinkingConfig in generationConfig
         setup_payload = {
-            "config": {
+            "setup": {
                 "model": f"models/{self.model}",
-                "responseModalities": ["AUDIO"],
+                "generationConfig": {
+                    "responseModalities": ["AUDIO"],
+                    "speechConfig": {
+                        "voiceConfig": {
+                            "prebuiltVoiceConfig": {
+                                "voiceName": voice
+                            }
+                        }
+                    },
+                    "thinkingConfig": {
+                        "thinkingBudget": 0
+                    }
+                },
                 "systemInstruction": {
                     "parts": [{"text": system_message}]
                 },
-                "speechConfig": {
-                    "voiceConfig": {
-                        "prebuiltVoiceConfig": {
-                            "voiceName": voice
-                        }
-                    }
-                },
                 "outputAudioTranscription": {},
-                "inputAudioTranscription": {},
-                "thinkingConfig": {
-                    "thinkingBudget": 0
-                }
+                "inputAudioTranscription": {}
             }
         }
 
         # Add tools if any
         if tools:
-            setup_payload["config"]["tools"] = tools
+            setup_payload["setup"]["tools"] = tools
 
         try:
-            logger.info(f"[GEMINI-31-CLIENT] Sending config message (3.1 protocol)...")
-            logger.info(f"[GEMINI-31-CLIENT] Config payload keys: {list(setup_payload['config'].keys())}")
+            logger.info(f"[GEMINI-31-CLIENT] Sending setup message (3.1 model)...")
+            logger.info(f"[GEMINI-31-CLIENT] Setup payload keys: {list(setup_payload['setup'].keys())}")
             logger.info(f"[GEMINI-31-CLIENT] Gemini will use automatic VAD (no manual commit needed)")
             logger.info(f"[GEMINI-31-CLIENT] Transcription enabled for both input and output audio")
             logger.info(f"[GEMINI-31-CLIENT] thinkingBudget=0 (optimized for voice latency)")
 
             await self.ws.send(json.dumps(setup_payload))
 
-            logger.info(f"[GEMINI-31-CLIENT] Session config sent successfully")
+            logger.info(f"[GEMINI-31-CLIENT] Session setup sent successfully")
             logger.info(f"[GEMINI-31-CLIENT]   Model: {self.model}")
             logger.info(f"[GEMINI-31-CLIENT]   Voice: {voice}")
             logger.info(f"[GEMINI-31-CLIENT]   Tools: {len(tools)}")
