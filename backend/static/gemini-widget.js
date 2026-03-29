@@ -234,12 +234,14 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     function init() {
         console.log('[GEMINI-WIDGET] 🚀 Initializing v2.8.2 (latency fix)...');
         
-        // Helper to find script tag
+        // Helper to find script tag — match by src first, then fallback to last data-assistantId
         const getScriptTag = () => {
-            const scripts = document.querySelectorAll('script');
-            for (let i = 0; i < scripts.length; i++) {
-                if (scripts[i].hasAttribute('data-assistantId') || scripts[i].dataset.assistantId) return scripts[i];
-            }
+            // Prefer script with matching src (handles multiple widgets on same page)
+            const bySrc = document.querySelector('script[src*="gemini-widget.js"][data-assistantId]');
+            if (bySrc) return bySrc;
+            // Fallback: last script with data-assistantId
+            const all = document.querySelectorAll('script[data-assistantId]');
+            if (all.length > 0) return all[all.length - 1];
             return document.currentScript;
         };
 
@@ -351,6 +353,9 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     }
 
     function createStyles() {
+        // Remove existing styles to avoid duplicates on re-init
+        const existing = document.getElementById('wellcomeai-widget-styles');
+        if (existing) existing.remove();
         const styleEl = document.createElement('style');
         styleEl.id = 'wellcomeai-widget-styles';
         styleEl.textContent = `
@@ -773,6 +778,9 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     }
 
     function createWidgetHTML() {
+        // Remove existing widget container to avoid duplicates on re-init
+        const existingContainer = document.getElementById('wellcomeai-widget-container');
+        if (existingContainer) existingContainer.remove();
         const widgetContainer = document.createElement('div');
         widgetContainer.className = 'wellcomeai-widget-container';
         widgetContainer.id = 'wellcomeai-widget-container';

@@ -2654,17 +2654,31 @@
       scriptEl.innerHTML = '';
       container.style.display = 'none';
 
-      // Remove old widgets of both versions
-      const oldWidget25 = document.getElementById('gemini-voice-widget');
-      if (oldWidget25) oldWidget25.remove();
-      const oldWidget31 = document.getElementById('gemini-31-voice-widget');
-      if (oldWidget31) oldWidget31.remove();
+      // ═══════════════════════════════════════════════════════════
+      // ПОЛНАЯ ОЧИСТКА ПРЕДЫДУЩЕГО ВИДЖЕТА
+      // Виджеты используют одинаковые ID: wellcomeai-widget-container,
+      // wellcomeai-widget-styles. Нужно удалить ВСЁ перед повторной загрузкой.
+      // ═══════════════════════════════════════════════════════════
 
-      // Remove old widget scripts
+      // 1. Удаляем DOM-контейнер виджета (кнопка + развёрнутая панель)
+      const oldWidgetContainer = document.getElementById('wellcomeai-widget-container');
+      if (oldWidgetContainer) oldWidgetContainer.remove();
+
+      // 2. Удаляем стили виджета
+      const oldStyles = document.getElementById('wellcomeai-widget-styles');
+      if (oldStyles) oldStyles.remove();
+
+      // 3. Удаляем все скрипты виджетов из <head>
       const oldScripts = document.querySelectorAll(
         'script[src*="gemini-widget.js"], script[src*="gemini-31-widget.js"]'
       );
       oldScripts.forEach(s => s.remove());
+
+      // 4. Удаляем скрипты по устаревшим ID (на случай если были)
+      ['gemini-voice-widget', 'gemini-31-voice-widget'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+      });
 
       if (!assistantId) {
         return;
@@ -2677,7 +2691,8 @@
         : '/static/gemini-widget.js';
 
       const script = document.createElement('script');
-      script.src = scriptSrc;
+      // Cache-bust: браузер не перевыполнит IIFE для того же URL
+      script.src = scriptSrc + '?t=' + Date.now();
       script.dataset.assistantId = assistantId;
       script.dataset.server = window.location.origin;
       script.dataset.position = 'bottom-right';
