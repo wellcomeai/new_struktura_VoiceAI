@@ -356,7 +356,7 @@ class GeminiLiveClient31:
                         }
                     },
                     "thinkingConfig": {
-                        "thinkingBudget": 0
+                        "thinkingLevel": "minimal"
                     }
                 },
                 "systemInstruction": {
@@ -376,7 +376,7 @@ class GeminiLiveClient31:
             logger.info(f"[GEMINI-31-CLIENT] Setup payload keys: {list(setup_payload['setup'].keys())}")
             logger.info(f"[GEMINI-31-CLIENT] Gemini will use automatic VAD (no manual commit needed)")
             logger.info(f"[GEMINI-31-CLIENT] Transcription enabled for both input and output audio")
-            logger.info(f"[GEMINI-31-CLIENT] thinkingBudget=0 (optimized for voice latency)")
+            logger.info(f"[GEMINI-31-CLIENT] thinkingLevel=minimal (optimized for voice latency)")
 
             await self.ws.send(json.dumps(setup_payload))
 
@@ -384,7 +384,7 @@ class GeminiLiveClient31:
             logger.info(f"[GEMINI-31-CLIENT]   Model: {self.model}")
             logger.info(f"[GEMINI-31-CLIENT]   Voice: {voice}")
             logger.info(f"[GEMINI-31-CLIENT]   Tools: {len(tools)}")
-            logger.info(f"[GEMINI-31-CLIENT]   Thinking: budget=0 (minimal)")
+            logger.info(f"[GEMINI-31-CLIENT]   Thinking: level=minimal")
             logger.info(f"[GEMINI-31-CLIENT]   Transcription: ENABLED")
         except Exception as e:
             logger.error(f"[GEMINI-31-CLIENT] ❌ Error sending setup: {e}")
@@ -439,17 +439,11 @@ class GeminiLiveClient31:
             logger.info(f"[GEMINI-31-CLIENT]    Message: {greeting_message[:100]}...")
             logger.info(f"[GEMINI-31-CLIENT] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
-            # Send as user message to trigger response
-            # We instruct Gemini to say the greeting
+            # Gemini 3.1: clientContent запрещён во время разговора,
+            # используем realtimeInput с текстом
             payload = {
-                "clientContent": {
-                    "turns": [{
-                        "role": "user",
-                        "parts": [{
-                            "text": f"Поприветствуй пользователя голосом. Скажи именно это: \"{greeting_message}\""
-                        }]
-                    }],
-                    "turnComplete": True
+                "realtimeInput": {
+                    "text": f"Поприветствуй пользователя голосом. Скажи именно это: \"{greeting_message}\""
                 }
             }
             
@@ -483,18 +477,15 @@ class GeminiLiveClient31:
         try:
             logger.info(f"[GEMINI-31-CLIENT] 💬 Sending text message: {text[:100]}...")
             
+            # Gemini 3.1: clientContent запрещён, используем realtimeInput
             payload = {
-                "clientContent": {
-                    "turns": [{
-                        "role": "user",
-                        "parts": [{"text": text}]
-                    }],
-                    "turnComplete": True
+                "realtimeInput": {
+                    "text": text
                 }
             }
-            
+
             await self.ws.send(json.dumps(payload))
-            logger.info(f"[GEMINI-31-CLIENT] ✅ Text message sent")
+            logger.info(f"[GEMINI-31-CLIENT] ✅ Text message sent via realtimeInput")
             return True
             
         except Exception as e:
