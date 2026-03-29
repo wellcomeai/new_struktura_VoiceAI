@@ -1739,7 +1739,7 @@
                 <span class="widget-badge beta">Beta</span>
               </div>
               <p class="widget-type-description">
-                Ассистент видит экран пользователя и может комментировать происходящее. 
+                Ассистент видит экран пользователя и может комментировать происходящее.
                 Требуется разрешение пользователя на захват экрана. Скриншоты делаются каждые 3 секунды.
               </p>
               <div class="embed-container">
@@ -1748,6 +1748,30 @@
                 </div>
                 <div class="embed-actions">
                   <button class="btn btn-primary" id="copy-embed-code-screen">
+                    <i class="fas fa-copy"></i> Копировать код
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Блок 3: Gemini 3.1 Flash Live (Новый) -->
+            <div class="widget-type-block gemini31" style="border-left: 4px solid #7c3aed; background: linear-gradient(135deg, rgba(124,58,237,0.03), rgba(79,70,229,0.03));">
+              <div class="widget-type-header">
+                <i class="fas fa-bolt" style="color: #7c3aed;"></i>
+                <h4>Gemini 3.1 Flash Live</h4>
+                <span class="widget-badge beta" style="background-color: rgba(124,58,237,0.15); color: #7c3aed;">New</span>
+              </div>
+              <p class="widget-type-description">
+                Новая модель Gemini 3.1 Flash Live с улучшенным качеством речи и меньшей задержкой.
+                Thinking отключён (budget=0) для максимальной скорости голосового ответа.
+                Виджет визуально отличается фиолетовым цветом.
+              </p>
+              <div class="embed-container">
+                <div class="embed-code" id="embed-code-31">
+                  <!-- Код будет загружен динамически -->
+                </div>
+                <div class="embed-actions">
+                  <button class="btn btn-primary" id="copy-embed-code-31" style="background-color: #7c3aed;">
                     <i class="fas fa-copy"></i> Копировать код
                   </button>
                 </div>
@@ -2596,6 +2620,23 @@
     // ГЕНЕРАЦИЯ EMBED-КОДА ДЛЯ ВИДЖЕТА С ЗАХВАТОМ ЭКРАНА
     // ============================================================================
     
+    function generateGemini31EmbedCode(assistantId) {
+      const serverUrl = window.location.origin;
+      return `<!-- Gemini 3.1 Flash Live Widget -->
+<scr` + `ipt>
+    (function() {
+        var script = document.createElement('script');
+        script.src = '${serverUrl}/static/gemini-31-widget.js';
+        script.dataset.assistantId = '${assistantId}';
+        script.dataset.server = '${serverUrl}';
+        script.dataset.position = 'bottom-right';
+        script.async = true;
+        document.head.appendChild(script);
+    })();
+</scr` + `ipt>
+<!-- End Gemini 3.1 Flash Live Widget -->`;
+    }
+
     function generateScreenCaptureEmbedCode(assistantId) {
       const serverUrl = window.location.origin;
       return `<!-- WellcomeAI Gemini Voice Assistant + Screen Capture -->
@@ -2735,6 +2776,10 @@
         // Генерируем код для виджета с захватом экрана
         const screenCaptureEmbedCode = generateScreenCaptureEmbedCode(id);
         document.getElementById('embed-code-screen').textContent = screenCaptureEmbedCode;
+
+        // Генерируем код для Gemini 3.1 виджета
+        const gemini31EmbedCode = generateGemini31EmbedCode(id);
+        document.getElementById('embed-code-31').textContent = gemini31EmbedCode;
         
         document.getElementById('view-embed-code').style.display = 'inline-flex';
         document.getElementById('delete-agent').style.display = 'inline-flex';
@@ -2964,6 +3009,7 @@
       document.getElementById('agent-id-display').textContent = '-';
       document.getElementById('embed-code').textContent = '<!-- Код появится после сохранения агента -->';
       document.getElementById('embed-code-screen').textContent = '<!-- Код появится после сохранения агента -->';
+      document.getElementById('embed-code-31').textContent = '<!-- Код появится после сохранения агента -->';
     }
     
     // ============================================================================
@@ -3104,6 +3150,13 @@
         const embedCode = document.getElementById('embed-code-screen').textContent;
         navigator.clipboard.writeText(embedCode).then(() => {
           showNotification('Код виджета с захватом экрана скопирован!', 'success');
+        });
+      });
+
+      document.getElementById('copy-embed-code-31').addEventListener('click', function() {
+        const embedCode = document.getElementById('embed-code-31').textContent;
+        navigator.clipboard.writeText(embedCode).then(() => {
+          showNotification('Код виджета Gemini 3.1 скопирован!', 'success');
         });
       });
       

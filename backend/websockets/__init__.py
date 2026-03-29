@@ -23,6 +23,10 @@ from .openai_client_new import OpenAIRealtimeClientNew
 from .gemini_client import GeminiLiveClient
 from .handler_gemini import handle_gemini_websocket_connection
 
+# 🆕 Gemini 3.1 Flash Live
+from .gemini_client_31 import GeminiLiveClient31
+from .handler_gemini_31 import handle_gemini_31_websocket_connection
+
 # 🤖 Google Gemini + Browser Agent (v2.0)
 from .browser_handler_gemini import handle_gemini_websocket_connection as handle_gemini_browser_websocket_connection
 
@@ -54,6 +58,10 @@ __all__ = [
     # 🆕 Google Gemini Live API (без Browser Agent)
     "GeminiLiveClient",
     "handle_gemini_websocket_connection",
+
+    # 🆕 Gemini 3.1 Flash Live
+    "GeminiLiveClient31",
+    "handle_gemini_31_websocket_connection",
     
     # 🤖 Google Gemini + Browser Agent (v2.0)
     "handle_gemini_browser_websocket_connection",

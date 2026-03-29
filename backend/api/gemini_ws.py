@@ -37,6 +37,8 @@ from backend.websockets import (
     handle_gemini_websocket_connection,
     handle_gemini_browser_websocket_connection
 )
+# 🆕 Gemini 3.1 Flash Live
+from backend.websockets.handler_gemini_31 import handle_gemini_31_websocket_connection
 # 🆕 v3.0: Isolated LLM streaming
 from backend.websockets.openai_client_streaming import handle_openai_streaming_websocket
 # 🆕 v3.3: Voximplant ↔ Gemini bridge
@@ -94,6 +96,45 @@ async def gemini_websocket_endpoint(
         logger.error(f"[GEMINI-WS] WebSocket error for assistant {assistant_id}: {e}")
         logger.error(f"[GEMINI-WS] Traceback: {traceback.format_exc()}")
         
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except:
+            pass
+
+
+# =============================================================================
+# 🆕 GEMINI 3.1 FLASH LIVE - New model endpoint
+# =============================================================================
+
+@router.websocket("/ws/gemini-31/{assistant_id}")
+async def gemini_31_websocket_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket endpoint for Gemini 3.1 Flash Live API.
+
+    Differences from /ws/gemini/{assistant_id}:
+    - Model: gemini-3.1-flash-live-preview
+    - Init message: "config" key instead of "setup"
+    - Thinking: thinkingBudget=0 (minimal latency)
+    - Response protocol: identical to 2.5
+    """
+    try:
+        logger.info(f"[GEMINI-31-WS] New connection: assistant_id={assistant_id}")
+
+        await handle_gemini_31_websocket_connection(
+            websocket=websocket,
+            assistant_id=assistant_id,
+            db=db
+        )
+
+    except WebSocketDisconnect:
+        logger.info(f"[GEMINI-31-WS] Client disconnected: assistant_id={assistant_id}")
+    except Exception as e:
+        logger.error(f"[GEMINI-31-WS] Error for assistant {assistant_id}: {e}")
+        logger.error(f"[GEMINI-31-WS] Traceback: {traceback.format_exc()}")
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except:
@@ -348,7 +389,8 @@ async def gemini_health_check():
             "browser_agent",
             "isolated_llm_streaming",
             "user_api_keys",
-            "voximplant_bridge"
+            "voximplant_bridge",
+            "gemini_31_flash_live"
         ]
     }
 
