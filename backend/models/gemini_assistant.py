@@ -57,7 +57,7 @@ class GeminiAssistantConfig(Base):
     enable_thinking = Column(Boolean, default=False, nullable=False)
     thinking_budget = Column(Integer, default=1024, nullable=True)  # Token budget for thinking
     enable_screen_context = Column(Boolean, default=False, nullable=False)  # For future UI
-    model = Column(String(100), default="gemini-2.5-flash-native-audio-preview", nullable=False)
+    model = Column(String(100), default="models/gemini-2.5-flash-native-audio-preview-12-2025", nullable=False)
     
     # Relationships
     user = relationship("User", back_populates="gemini_assistants")

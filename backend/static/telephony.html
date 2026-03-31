@@ -1856,7 +1856,7 @@
         <div class="form-group" id="gemini-model-group" style="display:none;">
           <label>Модель Gemini</label>
           <select id="bind-gemini-model" class="form-control">
-            <option value="gemini-2.5-flash-native-audio-preview">
+            <option value="models/gemini-2.5-flash-native-audio-preview-12-2025">
               Gemini 2.5 Flash — стабильная
             </option>
             <option value="gemini-3.1-flash-live-preview">
@@ -3006,7 +3006,7 @@
         document.getElementById('bind-assistant-modal').querySelector('.modal-title').textContent =
           `Привязать ассистента к ${formatPhoneNumber(phoneNumber)}`;
         document.getElementById('gemini-model-group').style.display = 'none';
-        document.getElementById('bind-gemini-model').value = 'gemini-2.5-flash-native-audio-preview';
+        document.getElementById('bind-gemini-model').value = 'models/gemini-2.5-flash-native-audio-preview-12-2025';
         loadAssistantsForBind();
         bindAssistantModal.classList.add('show');
       }
