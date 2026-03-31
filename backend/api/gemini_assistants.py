@@ -57,6 +57,7 @@ class GeminiAssistantCreate(BaseModel):
     enable_thinking: bool = Field(default=False, description="Enable thinking mode")
     thinking_budget: Optional[int] = Field(default=1024, ge=128, le=4096, description="Thinking token budget")
     enable_screen_context: bool = Field(default=False, description="Enable screen context")
+    model: str = Field(default="gemini-2.5-flash-native-audio-preview", description="Gemini model name")
 
 
 class GeminiAssistantUpdate(BaseModel):
@@ -76,6 +77,7 @@ class GeminiAssistantUpdate(BaseModel):
     enable_thinking: Optional[bool] = None
     thinking_budget: Optional[int] = Field(None, ge=128, le=4096)
     enable_screen_context: Optional[bool] = None
+    model: Optional[str] = None
 
 
 class GeminiAssistantResponse(BaseModel):
@@ -100,6 +102,7 @@ class GeminiAssistantResponse(BaseModel):
     enable_thinking: bool
     thinking_budget: Optional[int]
     enable_screen_context: bool
+    model: str
 
     class Config:
         from_attributes = True
@@ -188,7 +191,8 @@ def build_assistant_response(assistant: GeminiAssistantConfig) -> GeminiAssistan
         max_tokens=assistant.max_tokens,
         enable_thinking=assistant.enable_thinking,
         thinking_budget=assistant.thinking_budget,
-        enable_screen_context=assistant.enable_screen_context
+        enable_screen_context=assistant.enable_screen_context,
+        model=assistant.model
     )
 
 
@@ -301,7 +305,8 @@ async def create_gemini_assistant(
             is_public=False,
             enable_thinking=assistant_data.enable_thinking,
             thinking_budget=assistant_data.thinking_budget,
-            enable_screen_context=assistant_data.enable_screen_context
+            enable_screen_context=assistant_data.enable_screen_context,
+            model=assistant_data.model
         )
         
         db.add(assistant)

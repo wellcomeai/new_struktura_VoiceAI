@@ -273,6 +273,7 @@ class MyNumberInfo(BaseModel):
     assistant_type: Optional[str] = None
     assistant_id: Optional[str] = None
     assistant_name: Optional[str] = None
+    assistant_model: Optional[str] = None
     first_phrase: Optional[str] = None
     is_active: bool
     phone_next_renewal: Optional[str] = None
@@ -285,6 +286,7 @@ class BindAssistantRequest(BaseModel):
     assistant_type: str
     assistant_id: str
     first_phrase: Optional[str] = None
+    gemini_model: Optional[str] = Field(None, description="Gemini model string (только для gemini)")
 
 
 class SipConnectRequest(BaseModel):
@@ -1779,6 +1781,7 @@ async def get_my_numbers(
         for num in numbers:
             # Получаем имя ассистента если привязан
             assistant_name = None
+            assistant_model = None
             if num.assistant_id and num.assistant_type:
                 if num.assistant_type == "openai":
                     from backend.models.assistant import AssistantConfig
@@ -1792,6 +1795,7 @@ async def get_my_numbers(
                         GeminiAssistantConfig.id == num.assistant_id
                     ).first()
                     assistant_name = assistant.name if assistant else None
+                    assistant_model = assistant.model if assistant else None
                 elif num.assistant_type == "cartesia":
                     from backend.models.cartesia_assistant import CartesiaAssistantConfig
                     assistant = db.query(CartesiaAssistantConfig).filter(
@@ -1810,6 +1814,7 @@ async def get_my_numbers(
                 assistant_type=num.assistant_type,
                 assistant_id=str(num.assistant_id) if num.assistant_id else None,
                 assistant_name=assistant_name,
+                assistant_model=assistant_model,
                 first_phrase=num.first_phrase,
                 is_active=num.is_active,
                 phone_next_renewal=vox_info.get("phone_next_renewal"),
@@ -1939,7 +1944,11 @@ async def bind_assistant_to_number(
         phone_record.assistant_type = request.assistant_type
         phone_record.assistant_id = assistant_uuid
         phone_record.first_phrase = request.first_phrase
-        
+
+        if request.assistant_type == "gemini" and request.gemini_model:
+            assistant.model = request.gemini_model
+            db.add(assistant)
+
         db.commit()
         
         logger.info(f"[TELEPHONY] ✅ Assistant {request.assistant_id} bound to {phone_record.phone_number}")
@@ -3045,7 +3054,10 @@ async def get_outbound_config(
             language=language,
             functions=functions if functions else None,
             google_sheet_id=google_sheet_id,
-            model="gpt-4o-realtime-preview" if assistant_type == "openai" else None,
+            model=(
+                "gpt-4o-realtime-preview" if assistant_type == "openai"
+                else (assistant.model if assistant_type == "gemini" else None)
+            ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
             cartesia_voice_id=cartesia_voice_id,
@@ -3938,7 +3950,10 @@ async def get_scenario_config(
             language=language,
             functions=functions if functions else None,
             google_sheet_id=google_sheet_id,
-            model="gpt-4o-realtime-preview" if phone_record.assistant_type == "openai" else None,
+            model=(
+                "gpt-4o-realtime-preview" if phone_record.assistant_type == "openai"
+                else (assistant.model if phone_record.assistant_type == "gemini" else None)
+            ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
             cartesia_voice_id=cartesia_voice_id,

@@ -1852,7 +1852,22 @@
             <option value="cartesia">Cartesia</option>
           </select>
         </div>
-        
+
+        <div class="form-group" id="gemini-model-group" style="display:none;">
+          <label>Модель Gemini</label>
+          <select id="bind-gemini-model" class="form-control">
+            <option value="gemini-2.5-flash-native-audio-preview">
+              Gemini 2.5 Flash — стабильная
+            </option>
+            <option value="gemini-3.1-flash-live-preview">
+              Gemini 3.1 Flash Live — меньше латентность (новая)
+            </option>
+          </select>
+          <div class="form-helper" style="font-size:0.75rem; color:var(--text-light); margin-top:0.3rem;">
+            Модель будет применена для всех звонков через этого ассистента
+          </div>
+        </div>
+
         <div class="form-group">
           <label>Выберите ассистента</label>
           <select id="bind-assistant-select" class="form-control">
@@ -2201,9 +2216,17 @@
           result.numbers.forEach(num => {
             const tr = document.createElement('tr');
             
-            const assistantBadge = num.assistant_name 
-              ? `<span class="assistant-badge"><i class="fas fa-robot"></i> ${num.assistant_name}</span>`
-              : `<span class="assistant-badge not-bound"><i class="fas fa-unlink"></i> Не привязан</span>`;
+            let assistantBadge;
+            if (num.assistant_name) {
+              let modelLabel = '';
+              if (num.assistant_type === 'gemini' && num.assistant_model) {
+                const shortModel = num.assistant_model.includes('3.1') ? '3.1' : '2.5';
+                modelLabel = `<div style="font-size:0.7rem; color:var(--text-light); margin-top:0.2rem;">Gemini ${shortModel}</div>`;
+              }
+              assistantBadge = `<span class="assistant-badge"><i class="fas fa-robot"></i> ${num.assistant_name}</span>${modelLabel}`;
+            } else {
+              assistantBadge = `<span class="assistant-badge not-bound"><i class="fas fa-unlink"></i> Не привязан</span>`;
+            }
             
             // Форматирование информации об оплате
             const renewalInfo = formatRenewalInfo(num.phone_next_renewal, num.phone_price);
@@ -2980,8 +3003,10 @@
       // Модальное окно привязки ассистента
       function openBindModal(phoneId, phoneNumber) {
         document.getElementById('bind-phone-id').value = phoneId;
-        document.getElementById('bind-assistant-modal').querySelector('.modal-title').textContent = 
+        document.getElementById('bind-assistant-modal').querySelector('.modal-title').textContent =
           `Привязать ассистента к ${formatPhoneNumber(phoneNumber)}`;
+        document.getElementById('gemini-model-group').style.display = 'none';
+        document.getElementById('bind-gemini-model').value = 'gemini-2.5-flash-native-audio-preview';
         loadAssistantsForBind();
         bindAssistantModal.classList.add('show');
       }
@@ -3019,7 +3044,11 @@
         }
       }
       
-      document.getElementById('bind-assistant-type').addEventListener('change', loadAssistantsForBind);
+      document.getElementById('bind-assistant-type').addEventListener('change', function() {
+        const geminiModelGroup = document.getElementById('gemini-model-group');
+        geminiModelGroup.style.display = this.value === 'gemini' ? 'block' : 'none';
+        loadAssistantsForBind();
+      });
       
       document.getElementById('close-bind-modal').addEventListener('click', () => {
         bindAssistantModal.classList.remove('show');
@@ -3046,7 +3075,10 @@
           await api.post('/telephony/bind-assistant', {
             phone_number_id: phoneId,
             assistant_type: assistantType,
-            assistant_id: assistantId
+            assistant_id: assistantId,
+            gemini_model: assistantType === 'gemini'
+              ? document.getElementById('bind-gemini-model').value
+              : null
           });
           
           showNotification('Ассистент успешно привязан!', 'success');
