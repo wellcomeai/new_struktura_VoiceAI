@@ -1514,21 +1514,18 @@
     // ============================================================================
     async function loadApiKeyStatus() {
       try {
-        // Проверяем наличие ключа через настройки пользователя
-        const user = currentUser || await apiRequest('/users/me');
-        const hasKey = !!(user.openrouter_api_key_preview || user.has_openrouter_key);
-
+        const status = await apiRequest('/grok-assistants/cascade/api-keys');
         const warning = document.getElementById('keys-warning');
 
-        if (user.openrouter_api_key_preview) {
-          document.getElementById('openrouter-key-input').placeholder = user.openrouter_api_key_preview;
+        if (status.openrouter_key_preview) {
+          document.getElementById('openrouter-key-input').placeholder = status.openrouter_key_preview;
         }
 
+        const hasKey = status.has_openrouter_key;
         warning.style.display = hasKey ? 'none' : 'flex';
         return hasKey;
       } catch (e) {
         console.error('Error loading API key status:', e);
-        // Если не можем проверить — считаем что ключ есть, чтобы не блокировать UI
         return true;
       }
     }
@@ -1542,7 +1539,7 @@
 
       setLoading(true);
       try {
-        await apiRequest('/users/settings', {
+        await apiRequest('/grok-assistants/cascade/api-keys', {
           method: 'PUT',
           body: { openrouter_api_key: key }
         });
@@ -1571,7 +1568,7 @@
 
       setLoading(true);
       try {
-        await apiRequest('/users/settings', {
+        await apiRequest('/grok-assistants/cascade/api-keys', {
           method: 'PUT',
           body: { openrouter_api_key: '' }
         });
