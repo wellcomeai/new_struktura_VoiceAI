@@ -33,6 +33,8 @@ Routes:
     POST   /api/telephony/setup-scenarios    - Настроить сценарии
     POST   /api/telephony/repair-numbers     - Починить номера с отсутствующим phone_id
     POST   /api/telephony/admin/update-all-scenarios - 🔐 Обновить сценарии у всех аккаунтов
+    POST   /api/telephony/admin/deploy-scenarios     - 🔐 SSE-стриминг обновления сценариев (замена update-all-scenarios)
+    POST   /api/telephony/admin/deploy-turn-taking   - 🔐 SSE раскатка vox-turn-taking на все аккаунты
     POST   /api/telephony/admin/setup-outbound-rules - 🔐 Создать outbound rules для всех аккаунтов
     POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
     POST   /api/telephony/admin/setup-cartesia-scenarios - 🔐 Скопировать Cartesia сценарии на все аккаунты
@@ -81,6 +83,9 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 import uuid
 import json
+import asyncio
+
+from fastapi.responses import StreamingResponse
 
 from backend.db.session import get_db
 from backend.core.dependencies import get_current_user
@@ -3245,6 +3250,306 @@ async def admin_update_all_scenarios(
     except Exception as e:
         logger.error(f"[TELEPHONY-ADMIN] Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# SSE helper
+# =============================================================================
+
+def sse_event(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+# =============================================================================
+# ADMIN: SSE deploy-scenarios (замена update-all-scenarios без таймаутов)
+# =============================================================================
+
+@router.post("/admin/deploy-scenarios")
+async def admin_deploy_scenarios_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: SSE-стриминг обновления сценариев на всех дочерних аккаунтах.
+    Замена admin/update-all-scenarios — не таймаутится.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    service = get_voximplant_partner_service()
+
+    # --- Загрузка ДО стрима (быстро) ---
+    parent_scenarios = {}
+    parent_list = await service.get_parent_scenarios(with_script=False)
+    if not parent_list.get("success"):
+        raise HTTPException(status_code=500, detail="Failed to get parent scenarios")
+
+    for scenario in parent_list.get("scenarios", []):
+        scenario_id = scenario.get("scenario_id")
+        scenario_name = scenario.get("scenario_name")
+        script_result = await service.get_scenarios(
+            account_id=service.parent_account_id,
+            api_key=service.parent_api_key,
+            with_script=True,
+            scenario_id=scenario_id
+        )
+        if script_result.get("success") and script_result.get("scenarios"):
+            script = script_result["scenarios"][0].get("scenario_script")
+            if script:
+                parent_scenarios[scenario_name] = script
+
+    child_accounts = db.query(VoximplantChildAccount).all()
+
+    # --- SSE стрим ---
+    async def generate():
+        yield sse_event({
+            "type": "start",
+            "total_accounts": len(child_accounts),
+            "total_scenarios": len(parent_scenarios),
+            "scenario_names": list(parent_scenarios.keys())
+        })
+
+        updated = 0
+        failed = 0
+        skipped = 0
+
+        for i, child in enumerate(child_accounts):
+            if not child.vox_scenario_ids:
+                skipped += 1
+                yield sse_event({
+                    "type": "account", "index": i + 1,
+                    "account_id": child.vox_account_id,
+                    "status": "skipped", "reason": "no scenarios"
+                })
+                continue
+
+            account_updated = []
+            account_errors = []
+
+            for scenario_name, child_scenario_id in child.vox_scenario_ids.items():
+                if scenario_name not in parent_scenarios:
+                    continue
+
+                update_result = await service.update_scenario(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    scenario_id=int(child_scenario_id),
+                    scenario_script=parent_scenarios[scenario_name]
+                )
+
+                if update_result.get("success"):
+                    account_updated.append(scenario_name)
+                else:
+                    account_errors.append(f"{scenario_name}: {update_result.get('error')}")
+
+            if account_updated:
+                updated += 1
+                status = "updated"
+            elif account_errors:
+                failed += 1
+                status = "failed"
+            else:
+                skipped += 1
+                status = "skipped"
+
+            yield sse_event({
+                "type": "account", "index": i + 1,
+                "account_id": child.vox_account_id,
+                "status": status,
+                "updated": account_updated,
+                "errors": account_errors if account_errors else None
+            })
+
+            await asyncio.sleep(0.05)
+
+        yield sse_event({
+            "type": "done",
+            "updated": updated, "failed": failed,
+            "skipped": skipped, "total": len(child_accounts)
+        })
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# =============================================================================
+# ADMIN: SSE deploy-turn-taking
+# =============================================================================
+
+@router.post("/admin/deploy-turn-taking")
+async def admin_deploy_turn_taking_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: Раскатить vox-turn-taking на все дочерние аккаунты (SSE).
+
+    1. Загружает/обновляет сценарий vox-turn-taking
+    2. Обновляет inbound rules для cascade-номеров (turn-taking первым)
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    service = get_voximplant_partner_service()
+
+    # --- Загружаем код vox-turn-taking с parent ---
+    parent_list = await service.get_parent_scenarios(with_script=False)
+    if not parent_list.get("success"):
+        raise HTTPException(status_code=500, detail="Failed to get parent scenarios")
+
+    tt_script = None
+    for scenario in parent_list.get("scenarios", []):
+        if scenario.get("scenario_name") == "vox-turn-taking":
+            script_result = await service.get_scenarios(
+                account_id=service.parent_account_id,
+                api_key=service.parent_api_key,
+                with_script=True,
+                scenario_id=scenario.get("scenario_id")
+            )
+            if script_result.get("success") and script_result.get("scenarios"):
+                tt_script = script_result["scenarios"][0].get("scenario_script")
+            break
+
+    if not tt_script:
+        raise HTTPException(
+            status_code=404,
+            detail="Сценарий 'vox-turn-taking' не найден на parent аккаунте. "
+                   "Сначала создайте его на родительском аккаунте Voximplant."
+        )
+
+    child_accounts = db.query(VoximplantChildAccount).all()
+
+    # Предзагрузка cascade-номеров для каждого аккаунта
+    account_phones = {}
+    for child in child_accounts:
+        phones = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.child_account_id == child.id,
+            VoximplantPhoneNumber.assistant_type == "cascade",
+            VoximplantPhoneNumber.vox_rule_id.isnot(None)
+        ).all()
+        account_phones[child.id] = phones
+
+    async def generate():
+        yield sse_event({
+            "type": "start",
+            "total_accounts": len(child_accounts),
+            "script_length": len(tt_script)
+        })
+
+        results = {"deployed": 0, "rules_updated": 0, "failed": 0, "skipped": 0}
+
+        for i, child in enumerate(child_accounts):
+            if not child.vox_application_id:
+                results["skipped"] += 1
+                yield sse_event({
+                    "type": "account", "index": i + 1,
+                    "account_id": child.vox_account_id,
+                    "status": "skipped", "reason": "no app"
+                })
+                continue
+
+            scenario_ids = dict(child.vox_scenario_ids or {})
+            changed = False
+            tt_scenario_id = None
+            account_errors = []
+            rules_patched = 0
+
+            # ШАГ 1: Залить/обновить vox-turn-taking
+            if "vox-turn-taking" in scenario_ids:
+                upd = await service.update_scenario(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    scenario_id=int(scenario_ids["vox-turn-taking"]),
+                    scenario_script=tt_script
+                )
+                if upd.get("success"):
+                    tt_scenario_id = int(scenario_ids["vox-turn-taking"])
+                else:
+                    account_errors.append(f"update: {upd.get('error')}")
+            else:
+                add = await service.add_scenario(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    scenario_name="vox-turn-taking",
+                    scenario_script=tt_script
+                )
+                if add.get("success"):
+                    tt_scenario_id = add.get("scenario_id")
+                    scenario_ids["vox-turn-taking"] = str(tt_scenario_id)
+                    changed = True
+                elif "not unique" in (add.get("error") or "").lower():
+                    # Сценарий уже есть на аккаунте, но не в нашей БД
+                    existing = await service.get_scenarios(
+                        account_id=child.vox_account_id,
+                        api_key=child.vox_api_key,
+                        with_script=False
+                    )
+                    if existing.get("success"):
+                        for s in existing.get("scenarios", []):
+                            if s.get("scenario_name") == "vox-turn-taking":
+                                tt_scenario_id = s.get("scenario_id")
+                                scenario_ids["vox-turn-taking"] = str(tt_scenario_id)
+                                changed = True
+                                await service.update_scenario(
+                                    child_account_id=child.vox_account_id,
+                                    child_api_key=child.vox_api_key,
+                                    scenario_id=int(tt_scenario_id),
+                                    scenario_script=tt_script
+                                )
+                                break
+                    if not tt_scenario_id:
+                        account_errors.append("not unique but could not find existing scenario")
+                else:
+                    account_errors.append(f"add: {add.get('error')}")
+
+            # ШАГ 2: Обновить inbound rules для cascade-номеров
+            if tt_scenario_id:
+                cascade_inbound_id = scenario_ids.get("inbound_cascade")
+
+                if cascade_inbound_id:
+                    cascade_phones = account_phones.get(child.id, [])
+
+                    for phone in cascade_phones:
+                        rule_upd = await service.set_rule_info(
+                            child_account_id=child.vox_account_id,
+                            child_api_key=child.vox_api_key,
+                            rule_id=phone.vox_rule_id,
+                            scenario_id=[int(tt_scenario_id), int(cascade_inbound_id)]
+                        )
+                        if rule_upd.get("success"):
+                            rules_patched += 1
+                        else:
+                            account_errors.append(
+                                f"rule {phone.vox_rule_id}: {rule_upd.get('error')}"
+                            )
+
+            # ШАГ 3: Сохранить в БД
+            if changed:
+                child.vox_scenario_ids = scenario_ids
+                flag_modified(child, "vox_scenario_ids")
+                db.commit()
+
+            if tt_scenario_id:
+                results["deployed"] += 1
+                results["rules_updated"] += rules_patched
+            elif account_errors:
+                results["failed"] += 1
+            else:
+                results["skipped"] += 1
+
+            yield sse_event({
+                "type": "account", "index": i + 1,
+                "account_id": child.vox_account_id,
+                "status": "ok" if tt_scenario_id else "failed",
+                "scenario_id": tt_scenario_id,
+                "rules_patched": rules_patched,
+                "errors": account_errors if account_errors else None
+            })
+
+            await asyncio.sleep(0.05)
+
+        yield sse_event({"type": "done", **results})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.post("/admin/setup-outbound-rules")

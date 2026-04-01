@@ -44,7 +44,7 @@ import httpx
 import json
 import secrets
 import string
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from urllib.parse import quote  # ✅ v3.3: для URL-энкодинга паролей
 
 from backend.core.logging import get_logger
@@ -1278,18 +1278,24 @@ class VoximplantPartnerService:
         application_id: str,
         rule_name: str,
         rule_pattern: str,
-        scenario_id: int
+        scenario_id: Union[int, List[int]]
     ) -> Dict[str, Any]:
         """Создать правило маршрутизации."""
         url = f"{self.API_BASE_URL}/AddRule"
-        
+
+        # Voximplant API принимает scenario_id как "id1;id2" для sequenced scenarios
+        if isinstance(scenario_id, list):
+            formatted_scenario_id = ";".join(str(s) for s in scenario_id)
+        else:
+            formatted_scenario_id = scenario_id
+
         params = {
             "account_id": child_account_id,
             "api_key": child_api_key,
             "application_id": application_id,
             "rule_name": rule_name,
             "rule_pattern": rule_pattern,
-            "scenario_id": scenario_id,
+            "scenario_id": formatted_scenario_id,
         }
         
         logger.info(f"[VOXIMPLANT] Creating rule '{rule_name}' (pattern: {rule_pattern})")
@@ -1312,21 +1318,24 @@ class VoximplantPartnerService:
         child_account_id: str,
         child_api_key: str,
         rule_id: str,
-        scenario_id: Optional[int] = None,
+        scenario_id: Optional[Union[int, List[int]]] = None,
         rule_name: Optional[str] = None,
         rule_pattern: Optional[str] = None
     ) -> Dict[str, Any]:
         """Обновить правило маршрутизации."""
         url = f"{self.API_BASE_URL}/SetRuleInfo"
-        
+
         params = {
             "account_id": child_account_id,
             "api_key": child_api_key,
             "rule_id": rule_id,
         }
-        
-        if scenario_id:
-            params["scenario_id"] = scenario_id
+
+        if scenario_id is not None:
+            if isinstance(scenario_id, list):
+                params["scenario_id"] = ";".join(str(s) for s in scenario_id)
+            else:
+                params["scenario_id"] = scenario_id
         if rule_name:
             params["rule_name"] = rule_name
         if rule_pattern:
