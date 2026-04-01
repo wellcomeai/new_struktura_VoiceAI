@@ -3278,24 +3278,23 @@
     
     async function initPage() {
       if (!checkAuth()) return;
-      
+
       initVoiceOptions();
-      
+
       const hasApiKey = await loadUserData();
-      
+
+      // Загружаем лимиты и применяем матрицу доступа к сайдбару всегда,
+      // независимо от наличия API ключа
+      await loadAssistantsLimitInfo();
+      applyFeatureAccessToSidebar();
+
       const urlParams = new URLSearchParams(window.location.search);
       const id = urlParams.get('id');
       const mode = urlParams.get('mode');
-      
+
       if (!hasApiKey) {
         checkApiKeyAndShowContent(false);
       } else {
-        // Загружаем лимиты только когда есть API ключ
-        await loadAssistantsLimitInfo();
-        
-        // Применяем матрицу доступа к сайдбару
-        applyFeatureAccessToSidebar();
-        
         if (id) {
           currentAgentId = id;
           switchToEditMode();
