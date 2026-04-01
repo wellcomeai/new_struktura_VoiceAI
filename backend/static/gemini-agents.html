@@ -2781,6 +2781,12 @@
         if (el) el.remove();
       });
 
+      // 5. Удаляем элементы fullscreen виджета (fsw-*)
+      ['fsw-btn', 'fsw-panel', 'fsw-overlay', 'fsw-styles'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+      });
+
       if (!assistantId) {
         return;
       }
@@ -2800,12 +2806,13 @@
       const script = document.createElement('script');
       // Cache-bust: браузер не перевыполнит IIFE для того же URL
       script.src = scriptSrc + '?t=' + Date.now();
-      script.dataset.assistantId = assistantId;
-      script.dataset.server = window.location.origin;
-      script.dataset.position = 'bottom-right';
+      // Используем setAttribute чтобы атрибут был именно data-assistantId (не data-assistant-id)
+      script.setAttribute('data-assistantId', assistantId);
+      script.setAttribute('data-server', window.location.origin);
+      script.setAttribute('data-position', 'bottom-right');
       // Для fullscreen виджета — передаём модель
       if (type === 'fullscreen') {
-        script.dataset.model = version;
+        script.setAttribute('data-model', version);
       }
       script.async = true;
       script.onload = () => {
@@ -2863,10 +2870,10 @@
     (function() {
         var script = document.createElement('script');
         script.src = '${serverUrl}/static/gemini-widget-fullscreen.js';
-        script.dataset.assistantId = '${assistantId}';
-        script.dataset.server = '${serverUrl}';
-        script.dataset.model = '2.5';
-        script.dataset.position = 'bottom-right';
+        script.setAttribute('data-assistantId', '${assistantId}');
+        script.setAttribute('data-server', '${serverUrl}');
+        script.setAttribute('data-model', '2.5');
+        script.setAttribute('data-position', 'bottom-right');
         script.async = true;
         document.head.appendChild(script);
     })();
@@ -2881,10 +2888,10 @@
     (function() {
         var script = document.createElement('script');
         script.src = '${serverUrl}/static/gemini-widget-fullscreen.js';
-        script.dataset.assistantId = '${assistantId}';
-        script.dataset.server = '${serverUrl}';
-        script.dataset.model = '3.1';
-        script.dataset.position = 'bottom-right';
+        script.setAttribute('data-assistantId', '${assistantId}');
+        script.setAttribute('data-server', '${serverUrl}');
+        script.setAttribute('data-model', '3.1');
+        script.setAttribute('data-position', 'bottom-right');
         script.async = true;
         document.head.appendChild(script);
     })();
