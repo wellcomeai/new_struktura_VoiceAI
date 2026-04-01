@@ -2887,16 +2887,12 @@
 
             const isTrialPlan = subscriptionInfo.is_trial === true;
 
-            // Блокируем если: истёк платный тариф ИЛИ истёк триал
-            // free без is_trial = бессрочный бесплатный (не блокируем)
-            const shouldCheckExpiry = (planCode && planCode !== 'free') || isTrialPlan;
-
-            if (shouldCheckExpiry) {
-              if (daysLeft !== null && daysLeft <= 0) {
-                ui.showSubscriptionExpiredModal(isTrialPlan);
-                renderSubscriptionDetails(subscriptionInfo);
-                return;
-              }
+            // Блокируем всех у кого истёк срок (days_left <= 0)
+            // Единственное исключение: days_left = null — нет данных, не блокируем
+            if (daysLeft !== null && daysLeft <= 0) {
+              ui.showSubscriptionExpiredModal(isTrialPlan);
+              renderSubscriptionDetails(subscriptionInfo);
+              return;
             }
           }
 
