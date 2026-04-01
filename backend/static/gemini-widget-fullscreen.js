@@ -1,6 +1,15 @@
 /**
- * 🚀 Gemini Fullscreen Voice Widget v1.0.0 - PRODUCTION
- * Based on gemini-widget.js v2.8.2 — full logic preserved
+ * 🚀 Gemini Fullscreen Voice Widget v2.0.0 - PRODUCTION
+ *
+ * CHANGELOG v2.0.0 (fixes over v1.0.0):
+ *   - FIX: same URL → onload не срабатывал (сброс src + requestAnimationFrame)
+ *   - FIX: z-index порядок — overlay теперь выше всего (2147483647)
+ *   - FIX: STATE.mode не обновлялся при handleMinimize()
+ *   - NEW: btn + panel уходят off-screen при открытии картинки (position-aware translate)
+ *   - NEW: современный frosted-glass pill с [Свернуть | ✕] в image-режиме
+ *   - NEW: кнопка «Закрыть» прямо из fullscreen overlay
+ *   - NEW: градиентные scrim-overlay сверху и снизу картинки
+ *   - NEW: анимация entrance для img-controls с transition-delay
  *
  * Supports:
  *   data-model="2.5"  → /ws/gemini/{id}       (gemini-2.5-flash-native-audio)
@@ -8,12 +17,12 @@
  *
  * UI States:
  *   BUTTON  — small pulsing button in corner
- *   DIALOG  — expanded 320×460 panel with sphere (same as original)
+ *   DIALOG  — expanded 320×460 panel with sphere
  *   IMAGE   — fullscreen overlay (on show_image function call)
  *             minimize button → back to DIALOG (audio continues)
- *             close (×)       → back to BUTTON  (disconnect)
+ *             close (✕)      → back to BUTTON  (disconnect)
  *
- * @version 1.0.0
+ * @version 2.0.0
  * @author WellcomeAI Team
  */
 
@@ -94,7 +103,7 @@
     };
 
     // ============================================================================
-    // AUDIOWORKLET — RECORDER (v2.8.2: 512 buffer + 24kHz→16kHz downsample)
+    // AUDIOWORKLET — RECORDER
     // ============================================================================
 
     const RECORDER_WORKLET_CODE = `
@@ -202,7 +211,7 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
     // ============================================================================
 
     function init() {
-        console.log('[FSW] 🚀 Gemini Fullscreen Widget v1.0.0');
+        console.log('[FSW] 🚀 Gemini Fullscreen Widget v2.0.0');
 
         const ua = navigator.userAgent.toLowerCase();
         STATE.isIOS     = /iphone|ipad|ipod/.test(ua);
@@ -268,6 +277,11 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
         const { v, h } = getPosCSS();
         const isTop = v === 'top';
 
+        // position-aware translate for image-mode slide-off
+        // btn/panel slide toward their own corner (out of view)
+        const tx = h === 'right' ? '90px' : '-90px';
+        const ty = v === 'bottom' ? '90px' : '-90px';
+
         const s = document.createElement('style');
         s.id = 'fsw-styles';
         s.textContent = `
@@ -275,19 +289,29 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 /* ── TRIGGER BUTTON ── */
 #fsw-btn {
     position: fixed; ${v}: 20px; ${h}: 20px;
-    z-index: 2147483647;
+    z-index: 2147483646;
     width: 60px; height: 60px; border-radius: 50%;
     background: linear-gradient(135deg, #4a86e8, #2b59c3);
     box-shadow: 0 8px 32px rgba(74,134,232,.3), 0 0 0 1px rgba(255,255,255,.1);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; border: none; outline: none;
-    transition: transform .3s ease, box-shadow .3s ease;
+    transition: transform .45s cubic-bezier(.4,0,.2,1),
+                opacity   .45s cubic-bezier(.4,0,.2,1),
+                box-shadow .3s ease;
     overflow: hidden;
 }
-#fsw-btn:hover { transform: scale(1.05); box-shadow: 0 10px 30px rgba(74,134,232,.4), 0 0 0 1px rgba(255,255,255,.15); }
+#fsw-btn:hover { box-shadow: 0 10px 30px rgba(74,134,232,.4), 0 0 0 1px rgba(255,255,255,.15); }
 #fsw-btn.dialog-open { transform: scale(0.9); box-shadow: 0 4px 15px rgba(0,0,0,.2); }
 @keyframes fsw-btn-pulse { 0%{box-shadow:0 0 0 0 rgba(74,134,232,.7)} 70%{box-shadow:0 0 0 10px rgba(74,134,232,0)} 100%{box-shadow:0 0 0 0 rgba(74,134,232,0)} }
 #fsw-btn.pulse { animation: fsw-btn-pulse 2s infinite; }
+
+/* IMAGE MODE — slide btn off-screen toward its corner */
+#fsw-btn.fsw-image-mode {
+    transform: translate(${tx}, ${ty}) scale(0.6) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    animation: none !important;
+}
 
 .fsw-btn-inner { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
 .fsw-pulse-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; animation: fsw-pulse-ring 3s ease-out infinite; background: radial-gradient(rgba(255,255,255,.8) 0%, rgba(255,255,255,0) 70%); opacity: 0; }
@@ -304,19 +328,26 @@ registerProcessor('audio-stream-processor', AudioStreamProcessor);
 /* ── DIALOG PANEL ── */
 #fsw-panel {
     position: fixed; ${v}: 20px; ${h}: 20px;
-    ${isTop ? '' : ''}
-    z-index: 2147483646;
+    z-index: 2147483645;
     width: 320px; height: 0; opacity: 0; pointer-events: none;
     background: rgba(255,255,255,.95);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-radius: 20px;
     box-shadow: 0 10px 30px rgba(0,0,0,.15), 0 0 0 1px rgba(0,0,0,.05);
     overflow: hidden;
-    transition: height .5s cubic-bezier(.175,.885,.32,1.275), opacity .4s ease;
+    transition: height  .5s  cubic-bezier(.175,.885,.32,1.275),
+                opacity .4s  ease,
+                transform .45s cubic-bezier(.4,0,.2,1);
     display: flex; flex-direction: column;
 }
-${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' :
-          '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }'}
+#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }
+
+/* IMAGE MODE — slide panel off-screen toward its corner */
+#fsw-panel.fsw-image-mode {
+    transform: translate(${tx}, ${ty}) scale(0.85) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
 
 /* ── HEADER ── */
 #fsw-header {
@@ -417,46 +448,133 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
 #fsw-dot.disconnected { background: #ef4444; }
 #fsw-dot.interrupted  { background: #d97706; }
 
-/* ── FULLSCREEN IMAGE OVERLAY ── */
+/* ═══════════════════════════════════════════════════════
+   FULLSCREEN IMAGE OVERLAY — v2.0.0 redesign
+   ═══════════════════════════════════════════════════════ */
+
 #fsw-overlay {
     position: fixed; inset: 0;
-    z-index: 2147483645;
+    z-index: 2147483647;          /* HIGHEST — above panel and button */
     background: #000;
     opacity: 0; pointer-events: none;
-    transition: opacity .4s ease;
+    transition: opacity .45s cubic-bezier(.4,0,.2,1);
 }
 #fsw-overlay.show { opacity: 1; pointer-events: all; }
 
+/* Main image */
 #fsw-img {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
     object-fit: cover;
-    opacity: 0; transition: opacity .5s ease;
+    opacity: 0;
+    transition: opacity .55s cubic-bezier(.4,0,.2,1);
 }
 #fsw-img.show { opacity: 1; }
 
-#fsw-minimize {
-    position: absolute; top: 18px; right: 18px;
-    width: 48px; height: 48px; border-radius: 50%;
-    background: rgba(0,0,0,.55);
-    border: 1.5px solid rgba(255,255,255,.3);
-    color: #fff; font-size: 18px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: background .2s, transform .2s;
-    z-index: 10; outline: none;
+/* Top scrim — makes controls always readable */
+.fsw-scrim-top {
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 140px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.65) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 2;
 }
-#fsw-minimize:hover { background: rgba(0,0,0,.75); transform: scale(1.08); }
 
+/* Bottom scrim — for description text */
+.fsw-scrim-bottom {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 160px;
+    background: linear-gradient(to top, rgba(0,0,0,.75) 0%, transparent 100%);
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* ── FROSTED GLASS PILL CONTROLS ── */
+#fsw-img-controls {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    background: rgba(15, 15, 15, 0.52);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 50px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,.4), 0 0 0 .5px rgba(255,255,255,.06) inset;
+    /* entrance animation */
+    opacity: 0;
+    transform: translateY(-12px) scale(.96);
+    transition: opacity .4s ease, transform .4s ease;
+    /* delayed entrance after overlay appears */
+    transition-delay: .25s;
+}
+#fsw-overlay.show #fsw-img-controls {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+#fsw-minimize-img {
+    display: flex; align-items: center; gap: 7px;
+    background: none; border: none; outline: none;
+    color: rgba(255,255,255,.9);
+    font: 500 13px/1 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: .2px;
+    padding: 11px 16px 11px 14px;
+    cursor: pointer;
+    transition: background .2s, color .2s;
+    white-space: nowrap;
+}
+#fsw-minimize-img:hover {
+    background: rgba(255,255,255,.1);
+    color: #fff;
+}
+#fsw-minimize-img i { font-size: 12px; opacity: .85; }
+
+.fsw-ctrl-sep {
+    width: 1px; height: 22px;
+    background: rgba(255,255,255,.18);
+    flex-shrink: 0;
+}
+
+#fsw-img-close {
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none; outline: none;
+    color: rgba(255,255,255,.8);
+    font-size: 13px;
+    padding: 11px 14px;
+    cursor: pointer;
+    transition: background .2s, color .2s;
+}
+#fsw-img-close:hover {
+    background: rgba(239, 68, 68, .35);
+    color: #fff;
+}
+
+/* ── IMAGE DESCRIPTION ── */
 #fsw-img-desc {
-    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,.52); color: #fff;
-    font: 14px/1.5 'Segoe UI',Roboto,sans-serif;
-    padding: 8px 20px; border-radius: 20px;
-    max-width: 80%; text-align: center;
-    opacity: 0; transition: opacity .4s .3s ease;
+    position: absolute;
+    bottom: 32px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    font: 500 15px/1.55 'Segoe UI', Roboto, sans-serif;
+    color: rgba(255,255,255,.95);
+    text-align: center;
+    max-width: min(560px, 80vw);
+    text-shadow: 0 1px 6px rgba(0,0,0,.5);
+    /* entrance animation */
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+    transition: opacity .5s ease, transform .5s ease;
+    transition-delay: .4s;
     pointer-events: none;
 }
-#fsw-img-desc.show { opacity: 1; }
+#fsw-img-desc.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
         `;
         document.head.appendChild(s);
     }
@@ -501,7 +619,21 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
 
 <div id="fsw-overlay">
   <img id="fsw-img" src="" alt="">
-  <button id="fsw-minimize" aria-label="Свернуть"><i class="fas fa-chevron-down"></i></button>
+  <div class="fsw-scrim-top"></div>
+  <div class="fsw-scrim-bottom"></div>
+
+  <!-- Frosted-glass pill: Свернуть | ✕ -->
+  <div id="fsw-img-controls">
+    <button id="fsw-minimize-img" aria-label="Свернуть">
+      <i class="fas fa-compress-alt"></i>
+      Свернуть
+    </button>
+    <div class="fsw-ctrl-sep"></div>
+    <button id="fsw-img-close" aria-label="Завершить">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+
   <div id="fsw-img-desc"></div>
 </div>`);
 
@@ -515,21 +647,22 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
 
     function cacheUI() {
         STATE.ui = {
-            btn:       document.getElementById('fsw-btn'),
-            panel:     document.getElementById('fsw-panel'),
-            sphere:    document.getElementById('fsw-sphere'),
-            waveBars:  document.querySelectorAll('.fsw-wave-bar'),
-            loader:    document.getElementById('fsw-loader'),
-            dot:       document.getElementById('fsw-dot'),
-            statusEl:  document.getElementById('fsw-status'),
-            statusTxt: document.getElementById('fsw-status-text'),
-            errorEl:   document.getElementById('fsw-error'),
-            retryBtn:  document.getElementById('fsw-retry'),
-            closeBtn:  document.getElementById('fsw-close-btn'),
-            overlay:   document.getElementById('fsw-overlay'),
-            img:       document.getElementById('fsw-img'),
-            minimize:  document.getElementById('fsw-minimize'),
-            imgDesc:   document.getElementById('fsw-img-desc'),
+            btn:        document.getElementById('fsw-btn'),
+            panel:      document.getElementById('fsw-panel'),
+            sphere:     document.getElementById('fsw-sphere'),
+            waveBars:   document.querySelectorAll('.fsw-wave-bar'),
+            loader:     document.getElementById('fsw-loader'),
+            dot:        document.getElementById('fsw-dot'),
+            statusEl:   document.getElementById('fsw-status'),
+            statusTxt:  document.getElementById('fsw-status-text'),
+            errorEl:    document.getElementById('fsw-error'),
+            retryBtn:   document.getElementById('fsw-retry'),
+            closeBtn:   document.getElementById('fsw-close-btn'),
+            overlay:    document.getElementById('fsw-overlay'),
+            img:        document.getElementById('fsw-img'),
+            minimize:   document.getElementById('fsw-minimize-img'),  // updated id
+            imgClose:   document.getElementById('fsw-img-close'),     // NEW
+            imgDesc:    document.getElementById('fsw-img-desc'),
         };
     }
 
@@ -538,6 +671,7 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
         STATE.ui.closeBtn.addEventListener('click', handleClose);
         STATE.ui.retryBtn.addEventListener('click', connectWebSocket);
         STATE.ui.minimize.addEventListener('click', handleMinimize);
+        STATE.ui.imgClose.addEventListener('click', handleClose);  // NEW: close from image mode
     }
 
     // ============================================================================
@@ -553,23 +687,26 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
     }
 
     function handleClose() {
-        hideImageOverlay();
+        // Works from both dialog and image modes
+        if (STATE.mode === 'image') hideImageOverlay();
         toMode('button');
         if (STATE.isRecording) stopRecording();
         stopPlayback();
         if (STATE.ws) { try { STATE.ws.close(); } catch {} STATE.ws = null; }
-        STATE.isConnected = false;
+        STATE.isConnected     = false;
         STATE.isSetupComplete = false;
-        STATE.readyToRecord = false;
-        if (STATE.pingInterval)  { clearInterval(STATE.pingInterval);  STATE.pingInterval  = null; }
-        if (STATE.setupTimeout)  { clearTimeout(STATE.setupTimeout);   STATE.setupTimeout  = null; }
+        STATE.readyToRecord   = false;
+        if (STATE.pingInterval) { clearInterval(STATE.pingInterval); STATE.pingInterval = null; }
+        if (STATE.setupTimeout) { clearTimeout(STATE.setupTimeout);  STATE.setupTimeout = null; }
         STATE.reconnectAttempts = 0;
     }
 
     function handleMinimize() {
-        // image → dialog, audio keeps running
+        // image → dialog — audio keeps running
+        STATE.mode = 'dialog'; // set BEFORE hideImageOverlay so toMode won't conflict
         hideImageOverlay();
-        toMode('dialog');
+        // Panel already has .open (it was open before image), btn already .dialog-open
+        // fsw-image-mode removal in hideImageOverlay slides them back in
     }
 
     function toMode(mode) {
@@ -584,47 +721,76 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
             ui.btn.classList.add('dialog-open');
             ui.btn.classList.remove('pulse');
         }
-        // 'image' — overlay managed separately
     }
 
     // ============================================================================
-    // IMAGE OVERLAY
+    // IMAGE OVERLAY  (v2.0.0 — fixes same-URL + slide-off)
     // ============================================================================
 
     function showImageOverlay(url, description) {
         const ui = STATE.ui;
-        STATE.currentImageUrl = url;
         STATE.mode = 'image';
 
-        ui.img.classList.remove('show');
+        // ── Slide btn + panel off-screen toward their corner ──
+        ui.btn.classList.add('fsw-image-mode');
+        ui.panel.classList.add('fsw-image-mode');
+
+        // Reset description immediately (before new image loads)
         ui.imgDesc.classList.remove('show');
+        ui.imgDesc.textContent = '';
+
+        // Show overlay backdrop first
         ui.overlay.classList.add('show');
-        ui.img.src = url;
 
-        ui.img.onload = () => {
-            ui.img.classList.add('show');
-            if (description && description.trim()) {
-                ui.imgDesc.textContent = description;
-                ui.imgDesc.classList.add('show');
-            }
-        };
+        // ── FIX: same-URL onload never fires when src hasn't changed ──
+        // Reset src → force browser to treat next assignment as new load
+        ui.img.classList.remove('show');
+        ui.img.onload  = null;
+        ui.img.onerror = null;
+        ui.img.src = '';
 
-        ui.img.onerror = () => {
-            console.warn('[FSW] Image failed:', url);
-            hideImageOverlay();
-            toMode('dialog');
-        };
+        // Use rAF to ensure src='' has flushed before reassignment
+        requestAnimationFrame(() => {
+            STATE.currentImageUrl = url;
+
+            ui.img.onload = () => {
+                ui.img.classList.add('show');
+                if (description?.trim()) {
+                    ui.imgDesc.textContent = description;
+                    ui.imgDesc.classList.add('show');
+                }
+            };
+
+            ui.img.onerror = () => {
+                console.warn('[FSW] Image failed to load:', url);
+                hideImageOverlay();
+                if (STATE.mode !== 'button') toMode('dialog');
+            };
+
+            ui.img.src = url;
+        });
     }
 
     function hideImageOverlay() {
         const ui = STATE.ui;
+
+        // Remove image mode from btn + panel — they slide back in
+        ui.btn.classList.remove('fsw-image-mode');
+        ui.panel.classList.remove('fsw-image-mode');
+
+        // Start fade-out sequence
         ui.img.classList.remove('show');
         ui.imgDesc.classList.remove('show');
+
         setTimeout(() => {
             ui.overlay.classList.remove('show');
+            // Clear after overlay fully fades so no flicker
+            ui.img.onload  = null;
+            ui.img.onerror = null;
             ui.img.src = '';
             ui.imgDesc.textContent = '';
-        }, 400);
+        }, 450); // matches overlay transition duration
+
         STATE.currentImageUrl = null;
     }
 
@@ -856,6 +1022,7 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
             // ── SHOW IMAGE ──
             case 'function_call.completed':
                 if (data.function === 'show_image' && data.result?.url) {
+                    // Ensure dialog is open before going to image mode
                     if (STATE.mode === 'button') toMode('dialog');
                     showImageOverlay(data.result.url, data.result.description || '');
                 }
@@ -898,7 +1065,7 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
                 }
             });
 
-            const source     = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
+            const source      = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
             const workletNode = new AudioWorkletNode(STATE.audioContext, 'recorder-worklet');
 
             workletNode.port.onmessage = (event) => {
@@ -907,10 +1074,8 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
                 const audioData = event.data.data;
                 const pcmData   = float32ToPCM16(audioData);
 
-                // Visualization
                 updateAudioVisualization(audioData);
 
-                // VAD — visual sphere + server notification
                 const rms = calculateRMS(audioData);
                 const db  = 20 * Math.log10(rms + 1e-10);
 
@@ -918,7 +1083,6 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
                     if (!STATE.isSpeaking) {
                         STATE.ui.sphere.classList.add('listening');
                     }
-                    // Throttled speech.user_started (max once per 500ms)
                     const now = Date.now();
                     if (STATE.ws?.readyState === WebSocket.OPEN && now - STATE.lastSpeechNotifyTime > 500) {
                         STATE.lastSpeechNotifyTime = now;
@@ -926,7 +1090,6 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
                     }
                 }
 
-                // Send audio
                 if (STATE.ws?.readyState === WebSocket.OPEN) {
                     STATE.ws.send(JSON.stringify({
                         type: 'input_audio_buffer.append',
@@ -985,7 +1148,7 @@ ${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' 
             const bytes  = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
 
-            const pcm16  = new Int16Array(bytes.buffer);
+            const pcm16   = new Int16Array(bytes.buffer);
             const float32 = new Float32Array(pcm16.length);
             for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
 
