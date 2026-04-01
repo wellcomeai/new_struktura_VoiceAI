@@ -309,7 +309,7 @@ class SipConnectRequest(BaseModel):
     sip_password: str
     phone_number: str       # номер клиента у SIP провайдера (для входящих)
     assistant_id: str
-    assistant_type: str     # "gemini" | "openai" | "cartesia"
+    assistant_type: str     # "gemini" | "openai" | "cartesia" | "cascade"
     first_phrase: Optional[str] = None
     custom_proxy: Optional[str] = None  # только для provider="other"
 
@@ -1826,6 +1826,13 @@ async def get_my_numbers(
                         CartesiaAssistantConfig.id == num.assistant_id
                     ).first()
                     assistant_name = assistant.name if assistant else None
+                elif num.assistant_type == "cascade":
+                    from backend.models.grok_assistant import GrokAssistantConfig
+                    assistant = db.query(GrokAssistantConfig).filter(
+                        GrokAssistantConfig.id == num.assistant_id,
+                        GrokAssistantConfig.assistant_type == "cascade"
+                    ).first()
+                    assistant_name = assistant.name if assistant else None
 
             # Получаем данные из Voximplant по нормализованному номеру
             normalized = normalize_phone_number(num.phone_number)
@@ -1910,10 +1917,17 @@ async def bind_assistant_to_number(
                 CartesiaAssistantConfig.id == assistant_uuid,
                 CartesiaAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "cascade":
+            from backend.models.grok_assistant import GrokAssistantConfig
+            assistant = db.query(GrokAssistantConfig).filter(
+                GrokAssistantConfig.id == assistant_uuid,
+                GrokAssistantConfig.assistant_type == "cascade",
+                GrokAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini' или 'cartesia'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia' или 'cascade'"
             )
 
         if not assistant:
@@ -2594,10 +2608,17 @@ async def start_outbound_call(
                 CartesiaAssistantConfig.id == assistant_uuid,
                 CartesiaAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "cascade":
+            from backend.models.grok_assistant import GrokAssistantConfig
+            assistant = db.query(GrokAssistantConfig).filter(
+                GrokAssistantConfig.id == assistant_uuid,
+                GrokAssistantConfig.assistant_type == "cascade",
+                GrokAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini' или 'cartesia'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia' или 'cascade'"
             )
 
         if not assistant:

@@ -1850,6 +1850,7 @@
             <option value="openai">OpenAI</option>
             <option value="gemini">Gemini</option>
             <option value="cartesia">Cartesia</option>
+            <option value="cascade">Cascade (OpenRouter)</option>
           </select>
         </div>
 
@@ -2223,7 +2224,8 @@
                 const shortModel = num.assistant_model.includes('3.1') ? '3.1' : '2.5';
                 modelLabel = `<div style="font-size:0.7rem; color:var(--text-light); margin-top:0.2rem;">Gemini ${shortModel}</div>`;
               }
-              assistantBadge = `<span class="assistant-badge"><i class="fas fa-robot"></i> ${num.assistant_name}</span>${modelLabel}`;
+              const icon = num.assistant_type === 'cascade' ? 'fa-route' : 'fa-robot';
+              assistantBadge = `<span class="assistant-badge"><i class="fas ${icon}"></i> ${num.assistant_name}</span>${modelLabel}`;
             } else {
               assistantBadge = `<span class="assistant-badge not-bound"><i class="fas fa-unlink"></i> Не привязан</span>`;
             }
@@ -3021,7 +3023,8 @@
           const endpoints = {
             openai: '/assistants',
             gemini: '/gemini-assistants',
-            cartesia: '/cartesia-assistants'
+            cartesia: '/cartesia-assistants',
+            cascade: '/grok-assistants/cascade'
           };
           const endpoint = endpoints[type] || '/assistants';
 
@@ -3290,7 +3293,7 @@
       async function loadAssistantsForSip(type) {
         const select = document.getElementById('sip-assistant-select');
         select.innerHTML = '<option value="">Загрузка...</option>';
-        const endpoints = { openai: '/assistants', gemini: '/gemini-assistants', cartesia: '/cartesia-assistants' };
+        const endpoints = { openai: '/assistants', gemini: '/gemini-assistants', cartesia: '/cartesia-assistants', cascade: '/grok-assistants/cascade' };
         try {
           const data = await api.get(endpoints[type] || '/assistants');
           const assistants = Array.isArray(data) ? data : (data.assistants || []);
@@ -3569,6 +3572,7 @@
             <option value="gemini">Gemini</option>
             <option value="openai">OpenAI</option>
             <option value="cartesia">Cartesia</option>
+            <option value="cascade">Cascade (OpenRouter)</option>
           </select>
         </div>
 
