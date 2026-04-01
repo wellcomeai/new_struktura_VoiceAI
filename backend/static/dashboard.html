@@ -2885,12 +2885,15 @@
               ? Number(subscriptionInfo.days_left)
               : null;
 
-            // free план — бессрочный, никогда не блокируем
-            if (planCode && planCode !== 'free') {
+            const isTrialPlan = subscriptionInfo.is_trial === true;
+
+            // Блокируем если: истёк платный тариф ИЛИ истёк триал
+            // free без is_trial = бессрочный бесплатный (не блокируем)
+            const shouldCheckExpiry = (planCode && planCode !== 'free') || isTrialPlan;
+
+            if (shouldCheckExpiry) {
               if (daysLeft !== null && daysLeft <= 0) {
-                const isTrialPlan = subscriptionInfo.is_trial === true;
                 ui.showSubscriptionExpiredModal(isTrialPlan);
-                // Рендерим детали подписки и выходим
                 renderSubscriptionDetails(subscriptionInfo);
                 return;
               }
