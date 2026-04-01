@@ -35,7 +35,8 @@ class User(Base, BaseModel):
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
     grok_api_key = Column(String, nullable=True)    # ✅ v2.9: xAI Grok API key
     cartesia_api_key = Column(String, nullable=True)  # ✅ v4.0: Cartesia TTS API key
-    
+    openrouter_api_key = Column(String(255), nullable=True)  # ✅ Cascade: OpenRouter API key
+
     # ✅ v2.8: Voximplant настройки для автоматических звонков
     voximplant_account_id = Column(String(100), nullable=True)
     voximplant_api_key = Column(String(500), nullable=True)
@@ -97,6 +98,7 @@ class User(Base, BaseModel):
         data.pop("gemini_api_key", None)
         data.pop("grok_api_key", None)           # ✅ v2.9: Скрываем Grok API key
         data.pop("cartesia_api_key", None)       # ✅ v4.0: Скрываем Cartesia API key
+        data.pop("openrouter_api_key", None)     # ✅ Cascade: Скрываем OpenRouter API key
         data.pop("voximplant_api_key", None)
         data.pop("telegram_bot_token", None)     # ✅ v3.9: Скрываем Telegram токен
         data.pop("google_sheets_token", None)
@@ -197,5 +199,7 @@ class User(Base, BaseModel):
             providers.append("elevenlabs")
         if self.cartesia_api_key:
             providers.append("cartesia")
+        if self.openrouter_api_key:
+            providers.append("openrouter")
 
         return providers

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cascade Assistant - Test Page</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 20px; }
+        h1 { margin-bottom: 20px; font-size: 24px; }
+        h2 { margin: 20px 0 10px; font-size: 18px; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        label { display: block; margin-bottom: 4px; font-weight: 500; font-size: 14px; }
+        input, select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; margin-bottom: 12px; }
+        textarea { min-height: 80px; resize: vertical; }
+        button { padding: 10px 20px; background: #4f46e5; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 8px; margin-bottom: 8px; }
+        button:hover { background: #4338ca; }
+        button.danger { background: #ef4444; }
+        button.danger:hover { background: #dc2626; }
+        button.secondary { background: #6b7280; }
+        button.secondary:hover { background: #4b5563; }
+        .row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .row > div { flex: 1; min-width: 200px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f9fafb; font-weight: 600; }
+        .msg { padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; }
+        .msg.ok { background: #d1fae5; color: #065f46; }
+        .msg.err { background: #fee2e2; color: #991b1b; }
+        pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; max-height: 400px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Cascade Assistant - Test Page</h1>
+
+    <!-- Settings -->
+    <div class="card">
+        <h2>Настройки</h2>
+        <div class="row">
+            <div>
+                <label>OpenRouter API Key</label>
+                <input type="password" id="openrouterKey" placeholder="sk-or-...">
+                <button class="secondary" onclick="saveKey()">Сохранить ключ в профиль</button>
+            </div>
+            <div>
+                <label>OpenRouter Model</label>
+                <input type="text" id="openrouterModel" value="meta-llama/llama-3.3-70b-instruct">
+            </div>
+        </div>
+        <div class="row">
+            <div>
+                <label>TTS Provider</label>
+                <select id="ttsProvider" onchange="updateVoices()">
+                    <option value="yandex">Яндекс</option>
+                    <option value="tinkoff">Т-Банк</option>
+                    <option value="sber">Сбер Салют</option>
+                </select>
+            </div>
+            <div>
+                <label>TTS Voice</label>
+                <select id="ttsVoice"></select>
+            </div>
+        </div>
+        <label>System Prompt</label>
+        <textarea id="systemPrompt">Ты полезный голосовой ассистент. Отвечай кратко и по делу на русском языке.</textarea>
+        <label>Greeting Message</label>
+        <input type="text" id="greetingMessage" value="Здравствуйте! Чем я могу вам помочь?">
+        <label>Name</label>
+        <input type="text" id="assistantName" value="Cascade Test">
+        <div id="settingsMsg"></div>
+    </div>
+
+    <!-- Create -->
+    <div class="card">
+        <h2>Создание ассистента</h2>
+        <button onclick="createAssistant()">Создать ассистента</button>
+        <div id="createMsg"></div>
+    </div>
+
+    <!-- List -->
+    <div class="card">
+        <h2>Список ассистентов</h2>
+        <button class="secondary" onclick="loadAssistants()">Обновить</button>
+        <div id="listMsg"></div>
+        <table id="assistantsTable" class="hidden">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Model</th>
+                    <th>TTS</th>
+                    <th>Voice</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="assistantsBody"></tbody>
+        </table>
+    </div>
+
+    <!-- Debug Config -->
+    <div class="card">
+        <h2>Конфиг для сценария (отладка)</h2>
+        <div class="row">
+            <div>
+                <label>Phone number</label>
+                <input type="text" id="debugPhone" placeholder="74951234567">
+            </div>
+            <div>
+                <label>Assistant ID (для outbound)</label>
+                <input type="text" id="debugAssistantId" placeholder="uuid">
+            </div>
+        </div>
+        <button onclick="getInboundConfig()">Inbound Config</button>
+        <button onclick="getOutboundConfig()">Outbound Config</button>
+        <div id="configMsg"></div>
+        <pre id="configOutput" class="hidden"></pre>
+    </div>
+
+    <script>
+        const API = '';
+        const token = () => localStorage.getItem('access_token');
+        const headers = () => ({ 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token() });
+
+        const TTS_PROVIDERS = {
+            yandex: [
+                { id: 'alena', name: 'Алёна' }, { id: 'filipp', name: 'Филипп' },
+                { id: 'jane', name: 'Джейн' }, { id: 'madirus', name: 'Мадирус' },
+                { id: 'omazh', name: 'Омаж' }, { id: 'zahar', name: 'Захар' }
+            ],
+            tinkoff: [
+                { id: 'ru_female_tanya', name: 'Таня' }, { id: 'ru_male_boris', name: 'Борис' },
+                { id: 'ru_female_alyona', name: 'Алёна' }, { id: 'ru_male_dorofeev', name: 'Дорофеев' }
+            ],
+            sber: [
+                { id: 'Nadia', name: 'Надя' }, { id: 'Bys_n', name: 'Бас' },
+                { id: 'May_n', name: 'Майя' }, { id: 'Tur_n', name: 'Тур' }
+            ]
+        };
+
+        function msg(elId, text, ok) {
+            const el = document.getElementById(elId);
+            el.className = 'msg ' + (ok ? 'ok' : 'err');
+            el.textContent = text;
+        }
+
+        function updateVoices() {
+            const provider = document.getElementById('ttsProvider').value;
+            const sel = document.getElementById('ttsVoice');
+            sel.innerHTML = '';
+            (TTS_PROVIDERS[provider] || []).forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.textContent = v.name;
+                sel.appendChild(opt);
+            });
+        }
+
+        async function saveKey() {
+            const key = document.getElementById('openrouterKey').value.trim();
+            if (!key) { msg('settingsMsg', 'Введите ключ', false); return; }
+            try {
+                const r = await fetch(API + '/api/users/settings', {
+                    method: 'PUT', headers: headers(),
+                    body: JSON.stringify({ openrouter_api_key: key })
+                });
+                if (r.ok) msg('settingsMsg', 'Ключ сохранён', true);
+                else msg('settingsMsg', 'Ошибка: ' + (await r.json()).detail, false);
+            } catch (e) { msg('settingsMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        async function createAssistant() {
+            const body = {
+                name: document.getElementById('assistantName').value,
+                system_prompt: document.getElementById('systemPrompt').value,
+                greeting_message: document.getElementById('greetingMessage').value,
+                openrouter_model: document.getElementById('openrouterModel').value,
+                tts_provider: document.getElementById('ttsProvider').value,
+                tts_voice: document.getElementById('ttsVoice').value,
+                is_telephony_enabled: true
+            };
+            try {
+                const r = await fetch(API + '/api/grok-assistants/cascade', {
+                    method: 'POST', headers: headers(), body: JSON.stringify(body)
+                });
+                const data = await r.json();
+                if (r.ok) {
+                    msg('createMsg', 'Создан! ID: ' + data.id, true);
+                    loadAssistants();
+                } else {
+                    msg('createMsg', 'Ошибка: ' + (data.detail || JSON.stringify(data)), false);
+                }
+            } catch (e) { msg('createMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        async function loadAssistants() {
+            try {
+                const r = await fetch(API + '/api/grok-assistants/cascade', { headers: headers() });
+                const data = await r.json();
+                if (!r.ok) { msg('listMsg', 'Ошибка: ' + (data.detail || ''), false); return; }
+                const tbody = document.getElementById('assistantsBody');
+                tbody.innerHTML = '';
+                const table = document.getElementById('assistantsTable');
+                if (data.length === 0) {
+                    table.classList.add('hidden');
+                    msg('listMsg', 'Нет ассистентов', true);
+                    return;
+                }
+                table.classList.remove('hidden');
+                document.getElementById('listMsg').textContent = '';
+                data.forEach(a => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td title="${a.id}">${a.id.substring(0, 8)}...</td>
+                        <td>${a.name}</td>
+                        <td>${a.openrouter_model || '-'}</td>
+                        <td>${a.tts_provider || '-'}</td>
+                        <td>${a.tts_voice || '-'}</td>
+                        <td>
+                            <button class="danger" onclick="deleteAssistant('${a.id}')">Удалить</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) { msg('listMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        async function deleteAssistant(id) {
+            if (!confirm('Удалить ассистента?')) return;
+            try {
+                const r = await fetch(API + '/api/grok-assistants/cascade/' + id, {
+                    method: 'DELETE', headers: headers()
+                });
+                if (r.ok || r.status === 204) {
+                    msg('listMsg', 'Удалён', true);
+                    loadAssistants();
+                } else {
+                    const data = await r.json();
+                    msg('listMsg', 'Ошибка: ' + (data.detail || ''), false);
+                }
+            } catch (e) { msg('listMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        async function getInboundConfig() {
+            const phone = document.getElementById('debugPhone').value.trim();
+            if (!phone) { msg('configMsg', 'Введите номер', false); return; }
+            try {
+                const r = await fetch(API + '/api/telephony/config?phone=' + encodeURIComponent(phone));
+                const data = await r.json();
+                document.getElementById('configOutput').classList.remove('hidden');
+                document.getElementById('configOutput').textContent = JSON.stringify(data, null, 2);
+                msg('configMsg', r.ok ? 'OK' : 'Error', r.ok);
+            } catch (e) { msg('configMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        async function getOutboundConfig() {
+            const id = document.getElementById('debugAssistantId').value.trim();
+            if (!id) { msg('configMsg', 'Введите assistant ID', false); return; }
+            try {
+                const r = await fetch(API + '/api/telephony/outbound-config?assistant_id=' + encodeURIComponent(id));
+                const data = await r.json();
+                document.getElementById('configOutput').classList.remove('hidden');
+                document.getElementById('configOutput').textContent = JSON.stringify(data, null, 2);
+                msg('configMsg', r.ok ? 'OK' : 'Error', r.ok);
+            } catch (e) { msg('configMsg', 'Ошибка: ' + e.message, false); }
+        }
+
+        // Init
+        updateVoices();
+        if (token()) loadAssistants();
+    </script>
+</body>
+</html>

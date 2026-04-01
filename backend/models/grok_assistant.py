@@ -89,7 +89,15 @@ class GrokAssistantConfig(Base):
     
     # Telephony settings
     is_telephony_enabled = Column(Boolean, default=False, nullable=False)
-    
+
+    # ── Cascade LLM fields (assistant_type = "cascade") ──────────────────────
+    assistant_type    = Column(String(20),  default="grok",   nullable=False)
+    openrouter_model  = Column(String(150), nullable=True)
+    tts_provider      = Column(String(30),  nullable=True)
+    tts_voice         = Column(String(100), nullable=True)
+    tts_lang          = Column(String(10),  default="ru", nullable=False)
+    asr_lang          = Column(String(10),  default="ru", nullable=False)
+
     # Relationships
     user = relationship("User", back_populates="grok_assistants")
     conversations = relationship(

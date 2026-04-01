@@ -634,11 +634,20 @@ def check_and_fix_all_missing_columns():
                 'gemini_api_key': 'VARCHAR NULL',
                 'grok_api_key': 'VARCHAR NULL',  # 🆕 v3.0
                 'cartesia_api_key': 'VARCHAR NULL',  # 🆕 v4.0
+                'openrouter_api_key': 'VARCHAR(255) NULL',  # 🆕 Cascade
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
                 'caller_number': 'VARCHAR(50) NULL',
                 'contact_id': 'UUID NULL',
+            },
+            'grok_assistant_configs': {
+                'assistant_type': "VARCHAR(20) DEFAULT 'grok' NOT NULL",
+                'openrouter_model': 'VARCHAR(150) NULL',
+                'tts_provider': 'VARCHAR(30) NULL',
+                'tts_voice': 'VARCHAR(100) NULL',
+                'tts_lang': "VARCHAR(10) DEFAULT 'ru' NOT NULL",
+                'asr_lang': "VARCHAR(10) DEFAULT 'ru' NOT NULL",
             },
             'assistant_configs': {
                 # Добавьте если нужно

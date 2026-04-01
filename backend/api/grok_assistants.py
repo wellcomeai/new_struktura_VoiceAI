@@ -141,6 +141,73 @@ class GrokConversationResponse(BaseModel):
         from_attributes = True
 
 
+# ============================================================================
+# CASCADE PYDANTIC SCHEMAS
+# ============================================================================
+
+class CascadeAssistantCreate(BaseModel):
+    name:              str            = Field(..., min_length=1, max_length=255)
+    description:       Optional[str]  = Field(None, max_length=500)
+    system_prompt:     str            = Field(..., min_length=1)
+    greeting_message:  Optional[str]  = Field(
+        default="Здравствуйте! Чем я могу вам помочь?", max_length=500
+    )
+    openrouter_model:  str            = Field(default="meta-llama/llama-3.3-70b-instruct")
+    temperature:       float          = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens:        int            = Field(default=1024, ge=1, le=8192)
+    tts_provider:      str            = Field(default="yandex")
+    tts_voice:         str            = Field(default="alena")
+    tts_lang:          str            = Field(default="ru")
+    asr_lang:          str            = Field(default="ru")
+    functions:         Optional[List[dict]] = None
+    google_sheet_id:   Optional[str]  = None
+    is_telephony_enabled: bool        = Field(default=True)
+
+
+class CascadeAssistantUpdate(BaseModel):
+    name:              Optional[str]   = Field(None, min_length=1, max_length=255)
+    description:       Optional[str]   = Field(None, max_length=500)
+    system_prompt:     Optional[str]   = Field(None, min_length=1)
+    greeting_message:  Optional[str]   = Field(None, max_length=500)
+    openrouter_model:  Optional[str]   = None
+    temperature:       Optional[float] = Field(None, ge=0.0, le=2.0)
+    max_tokens:        Optional[int]   = Field(None, ge=1, le=8192)
+    tts_provider:      Optional[str]   = None
+    tts_voice:         Optional[str]   = None
+    tts_lang:          Optional[str]   = None
+    asr_lang:          Optional[str]   = None
+    functions:         Optional[List[dict]] = None
+    google_sheet_id:   Optional[str]   = None
+    is_active:         Optional[bool]  = None
+    is_telephony_enabled: Optional[bool] = None
+
+
+class CascadeAssistantResponse(BaseModel):
+    id:               str
+    user_id:          str
+    name:             str
+    description:      Optional[str]
+    system_prompt:    str
+    greeting_message: Optional[str]
+    openrouter_model: Optional[str]
+    temperature:      float
+    max_tokens:       int
+    tts_provider:     Optional[str]
+    tts_voice:        Optional[str]
+    tts_lang:         str
+    asr_lang:         str
+    functions:        Optional[Any]
+    google_sheet_id:  Optional[str]
+    is_active:        bool
+    is_telephony_enabled: bool
+    total_conversations: int
+    created_at:       datetime
+    updated_at:       datetime
+
+    class Config:
+        from_attributes = True
+
+
 class EmbedCodeResponse(BaseModel):
     """Schema for embed code response"""
     embed_code: str
@@ -155,6 +222,38 @@ class GrokVoicesResponse(BaseModel):
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+TTS_PROVIDERS = {
+    "yandex": {
+        "name": "Яндекс",
+        "voices": [
+            {"id": "alena",   "name": "Алёна",    "gender": "female"},
+            {"id": "filipp",  "name": "Филипп",   "gender": "male"},
+            {"id": "jane",    "name": "Джейн",    "gender": "female"},
+            {"id": "madirus", "name": "Мадирус",  "gender": "male"},
+            {"id": "omazh",   "name": "Омаж",     "gender": "female"},
+            {"id": "zahar",   "name": "Захар",    "gender": "male"},
+        ]
+    },
+    "tinkoff": {
+        "name": "Т-Банк",
+        "voices": [
+            {"id": "ru_female_tanya",  "name": "Таня",     "gender": "female"},
+            {"id": "ru_male_boris",    "name": "Борис",    "gender": "male"},
+            {"id": "ru_female_alyona", "name": "Алёна",    "gender": "female"},
+            {"id": "ru_male_dorofeev", "name": "Дорофеев", "gender": "male"},
+        ]
+    },
+    "sber": {
+        "name": "Сбер Салют",
+        "voices": [
+            {"id": "Nadia", "name": "Надя", "gender": "female"},
+            {"id": "Bys_n", "name": "Бас",  "gender": "male"},
+            {"id": "May_n", "name": "Майя", "gender": "female"},
+            {"id": "Tur_n", "name": "Тур",  "gender": "male"},
+        ]
+    },
+}
 
 GROK_VOICES = [
     {"id": "Ara", "name": "Ara", "gender": "Female", "tone": "Warm, friendly", "description": "Default voice, balanced and conversational"},
@@ -255,7 +354,8 @@ async def get_grok_assistants(
         logger.info(f"[GROK-API] Fetching assistants for user {current_user.id}")
         
         assistants = db.query(GrokAssistantConfig).filter(
-            GrokAssistantConfig.user_id == current_user.id
+            GrokAssistantConfig.user_id == current_user.id,
+            GrokAssistantConfig.assistant_type == "grok"
         ).order_by(GrokAssistantConfig.created_at.desc()).all()
         
         logger.info(f"[GROK-API] Found {len(assistants)} Grok assistants")
@@ -740,3 +840,161 @@ async def verify_grok_google_sheet(
             "success": False,
             "message": f"Ошибка проверки: {str(e)}"
         }
+
+
+# ============================================================================
+# CASCADE HELPER FUNCTIONS
+# ============================================================================
+
+def get_cascade_or_404(assistant_id: str, user_id: str, db: Session) -> GrokAssistantConfig:
+    try:
+        uid = uuid.UUID(assistant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid assistant ID format")
+
+    a = db.query(GrokAssistantConfig).filter(
+        GrokAssistantConfig.id == uid,
+        GrokAssistantConfig.assistant_type == "cascade"
+    ).first()
+
+    if not a:
+        raise HTTPException(status_code=404, detail="Cascade assistant not found")
+    if str(a.user_id) != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return a
+
+
+def cascade_to_response(a: GrokAssistantConfig) -> CascadeAssistantResponse:
+    return CascadeAssistantResponse(
+        id=str(a.id),
+        user_id=str(a.user_id),
+        name=a.name,
+        description=a.description,
+        system_prompt=a.system_prompt,
+        greeting_message=a.greeting_message,
+        openrouter_model=a.openrouter_model,
+        temperature=a.temperature,
+        max_tokens=a.max_tokens,
+        tts_provider=a.tts_provider,
+        tts_voice=a.tts_voice,
+        tts_lang=a.tts_lang or "ru",
+        asr_lang=a.asr_lang or "ru",
+        functions=a.functions,
+        google_sheet_id=a.google_sheet_id,
+        is_active=a.is_active,
+        is_telephony_enabled=a.is_telephony_enabled,
+        total_conversations=a.total_conversations,
+        created_at=a.created_at,
+        updated_at=a.updated_at,
+    )
+
+
+# ============================================================================
+# CASCADE ASSISTANT ENDPOINTS (OpenRouter + Voximplant ASR/TTS)
+# ============================================================================
+
+@router.get("/cascade/tts-providers")
+async def get_cascade_tts_providers():
+    """Список TTS провайдеров и голосов для Cascade."""
+    return {"providers": TTS_PROVIDERS}
+
+
+@router.get("/cascade", response_model=List[CascadeAssistantResponse])
+async def list_cascade_assistants(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Получить все Cascade ассистенты пользователя."""
+    assistants = db.query(GrokAssistantConfig).filter(
+        GrokAssistantConfig.user_id == current_user.id,
+        GrokAssistantConfig.assistant_type == "cascade"
+    ).order_by(GrokAssistantConfig.created_at.desc()).all()
+    return [cascade_to_response(a) for a in assistants]
+
+
+@router.get("/cascade/{assistant_id}", response_model=CascadeAssistantResponse)
+async def get_cascade_assistant(
+    assistant_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    a = get_cascade_or_404(assistant_id, str(current_user.id), db)
+    return cascade_to_response(a)
+
+
+@router.post("/cascade", response_model=CascadeAssistantResponse, status_code=201)
+async def create_cascade_assistant(
+    data: CascadeAssistantCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Создать Cascade ассистента. Требует openrouter_api_key в настройках."""
+    if not current_user.openrouter_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="OpenRouter API key required. Add it in settings."
+        )
+    if data.tts_provider not in TTS_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}"
+        )
+
+    assistant = GrokAssistantConfig(
+        user_id=current_user.id,
+        assistant_type="cascade",
+        name=data.name,
+        description=data.description,
+        system_prompt=data.system_prompt,
+        greeting_message=data.greeting_message,
+        openrouter_model=data.openrouter_model,
+        temperature=data.temperature,
+        max_tokens=data.max_tokens,
+        tts_provider=data.tts_provider,
+        tts_voice=data.tts_voice,
+        tts_lang=data.tts_lang,
+        asr_lang=data.asr_lang,
+        functions=data.functions,
+        google_sheet_id=data.google_sheet_id,
+        is_active=True,
+        is_public=False,
+        is_telephony_enabled=data.is_telephony_enabled,
+    )
+    db.add(assistant)
+    db.commit()
+    db.refresh(assistant)
+    logger.info(f"[CASCADE] Created: {assistant.id} for user {current_user.id}")
+    return cascade_to_response(assistant)
+
+
+@router.put("/cascade/{assistant_id}", response_model=CascadeAssistantResponse)
+async def update_cascade_assistant(
+    assistant_id: str,
+    data: CascadeAssistantUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    a = get_cascade_or_404(assistant_id, str(current_user.id), db)
+    if data.tts_provider and data.tts_provider not in TTS_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}"
+        )
+    for key, value in data.dict(exclude_unset=True).items():
+        setattr(a, key, value)
+    db.commit()
+    db.refresh(a)
+    logger.info(f"[CASCADE] Updated: {assistant_id}")
+    return cascade_to_response(a)
+
+
+@router.delete("/cascade/{assistant_id}", status_code=204)
+async def delete_cascade_assistant(
+    assistant_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    a = get_cascade_or_404(assistant_id, str(current_user.id), db)
+    db.delete(a)
+    db.commit()
+    logger.info(f"[CASCADE] Deleted: {assistant_id}")

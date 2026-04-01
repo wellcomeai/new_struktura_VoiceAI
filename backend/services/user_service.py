@@ -75,6 +75,7 @@ class UserService:
             gemini_api_key=user.gemini_api_key,
             grok_api_key=user.grok_api_key,  # 🆕 v3.0
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
+            openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
 
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
@@ -82,17 +83,18 @@ class UserService:
             has_gemini_api_key=bool(user.gemini_api_key),
             has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
-            
+            has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
             updated_at=user.updated_at,
-            
+
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
             subscription_end_date=user.subscription_end_date
         )
-    
+
     @staticmethod
     async def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
         """
@@ -131,6 +133,7 @@ class UserService:
             gemini_api_key=user.gemini_api_key,
             grok_api_key=user.grok_api_key,  # 🆕 v3.0
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
+            openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
 
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
@@ -138,11 +141,12 @@ class UserService:
             has_gemini_api_key=bool(user.gemini_api_key),
             has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
-            
+            has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
             updated_at=user.updated_at,
-            
+
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
@@ -200,6 +204,10 @@ class UserService:
             if 'cartesia_api_key' in update_data:
                 user.cartesia_api_key = update_data.pop('cartesia_api_key')
 
+            # 🆕 Cascade: Обработка OpenRouter API ключа
+            if 'openrouter_api_key' in update_data:
+                user.openrouter_api_key = update_data.pop('openrouter_api_key')
+
             # Обновляем остальные поля
             for key, value in update_data.items():
                 setattr(user, key, value)
@@ -222,17 +230,21 @@ class UserService:
                 elevenlabs_api_key=user.elevenlabs_api_key,
                 gemini_api_key=user.gemini_api_key,
                 grok_api_key=user.grok_api_key,  # 🆕 v3.0
-                
+                cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
+                openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
+
                 # ✅ Статусы наличия ключей
                 has_api_key=bool(user.openai_api_key),
                 has_elevenlabs_api_key=bool(user.elevenlabs_api_key),
                 has_gemini_api_key=bool(user.gemini_api_key),
                 has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
-                
+                has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
+                has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
                 updated_at=user.updated_at,
-                
+
                 # ✅ Тарифы
                 is_trial=user.is_trial,
                 is_admin=user.is_admin,
