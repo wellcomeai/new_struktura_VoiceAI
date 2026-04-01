@@ -1946,24 +1946,37 @@ async def bind_assistant_to_number(
         # =====================================================================
         if phone_record.vox_rule_id and child_account.vox_scenario_ids:
             scenario_name = get_scenario_key(request.assistant_type, "inbound")
-            scenario_id = child_account.get_scenario_id(scenario_name)
-            
-            if scenario_id:
+            raw_scenario_id = child_account.get_scenario_id(scenario_name)
+
+            if raw_scenario_id:
+                # Для cascade — добавляем vox-turn-taking первым в цепочке
+                # VoxEngine выполняет sequenced-сценарии по порядку:
+                # vox-turn-taking объявляет глобальный VoxTurnTaking,
+                # inbound_cascade его использует
+                if request.assistant_type == "cascade":
+                    tt_id = child_account.get_scenario_id("vox-turn-taking")
+                    if tt_id:
+                        scenario_id = [int(tt_id), int(raw_scenario_id)]
+                    else:
+                        scenario_id = int(raw_scenario_id)
+                else:
+                    scenario_id = int(raw_scenario_id)
+
                 service = get_voximplant_partner_service()
-                
+
                 # Удаляем старый Rule
                 delete_result = await service.delete_rule(
                     child_account_id=child_account.vox_account_id,
                     child_api_key=child_account.vox_api_key,
                     rule_id=phone_record.vox_rule_id
                 )
-                
+
                 if delete_result.get("success"):
                     logger.info(f"[TELEPHONY] ✅ Old rule deleted: {phone_record.vox_rule_id}")
-                    
+
                     # Создаём новый Rule с правильным сценарием
                     phone_pattern = normalize_phone_number(phone_record.phone_number)
-                    
+
                     new_rule_result = await service.add_rule(
                         child_account_id=child_account.vox_account_id,
                         child_api_key=child_account.vox_api_key,
