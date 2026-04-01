@@ -1,17 +1,17 @@
 /**
- * 🚀 Gemini Fullscreen Voice Widget v1.0.0
- * Supports: gemini-2.5-flash + gemini-3.1-flash-live
+ * 🚀 Gemini Fullscreen Voice Widget v1.0.0 - PRODUCTION
+ * Based on gemini-widget.js v2.8.2 — full logic preserved
  *
- * States:
- *   1. BUTTON   — small pulsing button in corner
- *   2. DIALOG   — expanded 320×460 panel with sphere
- *   3. IMAGE    — fullscreen overlay with image (audio continues)
+ * Supports:
+ *   data-model="2.5"  → /ws/gemini/{id}       (gemini-2.5-flash-native-audio)
+ *   data-model="3.1"  → /ws/gemini-31/{id}    (gemini-3.1-flash-live-preview)
  *
- * Attributes:
- *   data-assistantId  — agent ID
- *   data-server       — server URL
- *   data-model        — "2.5" | "3.1" (default: "2.5")
- *   data-position     — "bottom-right" | "bottom-left" | "top-right" | "top-left"
+ * UI States:
+ *   BUTTON  — small pulsing button in corner
+ *   DIALOG  — expanded 320×460 panel with sphere (same as original)
+ *   IMAGE   — fullscreen overlay (on show_image function call)
+ *             minimize button → back to DIALOG (audio continues)
+ *             close (×)       → back to BUTTON  (disconnect)
  *
  * @version 1.0.0
  * @author WellcomeAI Team
@@ -20,63 +20,84 @@
 (function () {
     'use strict';
 
-    // ─────────────────────────────────────────────
-    // CONFIG
-    // ─────────────────────────────────────────────
+    // ============================================================================
+    // CONFIGURATION
+    // ============================================================================
+
     const CONFIG = {
         assistantId: null,
         serverUrl: null,
         model: '2.5',
         position: 'bottom-right',
+
         audio: {
+            inputSampleRate: 16000,
             outputSampleRate: 24000,
             playbackSampleRate: 24000,
             actualSampleRate: null,
             needsResampling: false
         },
+
+        vad: {
+            enabled: true,
+            speechThreshold: -38,
+            visualSilenceThreshold: -45
+        },
+
         ws: {
             reconnectDelay: 2000,
             maxReconnectAttempts: 5,
             pingInterval: 30000
         },
+
         setup: {
             waitAfterSetup: 800,
             maxSetupWait: 10000
         }
     };
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // STATE
-    // ─────────────────────────────────────────────
+    // ============================================================================
+
     const STATE = {
-        // connection
         ws: null,
         isConnected: false,
         isSetupComplete: false,
         readyToRecord: false,
-        reconnectAttempts: 0,
-        pingInterval: null,
-        setupTimeout: null,
-        // audio
+        isRecording: false,
+        isPlaying: false,
+        isSpeaking: false,
+
         audioContext: null,
         mediaStream: null,
         audioWorkletNode: null,
         audioStreamNode: null,
+        pingInterval: null,
+        reconnectAttempts: 0,
+        setupTimeout: null,
+
         audioWorkletReady: false,
         streamWorkletReady: false,
-        // ui mode: 'button' | 'dialog' | 'image'
-        mode: 'button',
-        isRecording: false,
-        isPlaying: false,
-        isSpeaking: false,
+
+        isIOS: false,
+        isAndroid: false,
+        isMobile: false,
+
+        lastInterruptionTime: 0,
+        lastSpeechNotifyTime: 0,
+
+        mode: 'button', // 'button' | 'dialog' | 'image'
         currentImageUrl: null,
+
         ui: {}
     };
 
-    // ─────────────────────────────────────────────
-    // AUDIO WORKLETS
-    // ─────────────────────────────────────────────
-    const RECORDER_WORKLET = `
+    // ============================================================================
+    // AUDIOWORKLET — RECORDER (v2.8.2: 512 buffer + 24kHz→16kHz downsample)
+    // ============================================================================
+
+    const RECORDER_WORKLET_CODE = `
 class RecorderWorkletProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
@@ -87,24 +108,27 @@ class RecorderWorkletProcessor extends AudioWorkletProcessor {
         this.targetRate = 16000;
         this.resampleRatio = this.inputRate / this.targetRate;
     }
-    downsample(input) {
-        if (this.resampleRatio === 1) return input;
-        const outLen = Math.floor(input.length / this.resampleRatio);
-        const out = new Float32Array(outLen);
-        for (let i = 0; i < outLen; i++) {
-            const src = i * this.resampleRatio;
-            const f = Math.floor(src);
-            const c = Math.min(f + 1, input.length - 1);
-            out[i] = input[f] * (1 - (src - f)) + input[c] * (src - f);
+
+    downsample(inputData) {
+        if (this.resampleRatio === 1) return inputData;
+        const outputLength = Math.floor(inputData.length / this.resampleRatio);
+        const output = new Float32Array(outputLength);
+        for (let i = 0; i < outputLength; i++) {
+            const srcIndex = i * this.resampleRatio;
+            const srcFloor = Math.floor(srcIndex);
+            const srcCeil  = Math.min(srcFloor + 1, inputData.length - 1);
+            const t = srcIndex - srcFloor;
+            output[i] = inputData[srcFloor] * (1 - t) + inputData[srcCeil] * t;
         }
-        return out;
+        return output;
     }
+
     process(inputs) {
-        const ch = inputs[0]?.[0];
-        if (!ch) return true;
-        const ds = this.downsample(ch);
-        for (let i = 0; i < ds.length; i++) {
-            this.buffer[this.bufferIndex++] = ds[i];
+        const input = inputs[0];
+        if (!input || !input[0]) return true;
+        const downsampled = this.downsample(input[0]);
+        for (let i = 0; i < downsampled.length; i++) {
+            this.buffer[this.bufferIndex++] = downsampled[i];
             if (this.bufferIndex >= this.bufferSize) {
                 this.port.postMessage({ type: 'audioData', data: this.buffer.slice(0, this.bufferIndex) });
                 this.bufferIndex = 0;
@@ -113,61 +137,109 @@ class RecorderWorkletProcessor extends AudioWorkletProcessor {
         return true;
     }
 }
-registerProcessor('recorder-worklet-fs', RecorderWorkletProcessor);
+registerProcessor('recorder-worklet', RecorderWorkletProcessor);
 `;
 
-    const STREAM_WORKLET = `
+    // ============================================================================
+    // AUDIOWORKLET — STREAM PLAYER
+    // ============================================================================
+
+    const STREAM_WORKLET_CODE = `
 class AudioStreamProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.queue = [];
-        this.current = null;
-        this.idx = 0;
+        this.audioQueue = [];
+        this.currentBuffer = null;
+        this.bufferIndex = 0;
+        this.samplesProcessed = 0;
+        this.isActive = false;
+
         this.port.onmessage = (e) => {
-            if (e.data.type === 'audioData') this.queue.push(e.data.buffer);
-            else if (e.data.type === 'clear') { this.queue = []; this.current = null; this.idx = 0; }
+            if (e.data.type === 'audioData') {
+                this.audioQueue.push(e.data.buffer);
+                if (!this.isActive) {
+                    this.isActive = true;
+                    this.port.postMessage({ type: 'started' });
+                }
+            } else if (e.data.type === 'clear') {
+                this.audioQueue = [];
+                this.currentBuffer = null;
+                this.bufferIndex = 0;
+                this.isActive = false;
+                this.port.postMessage({ type: 'cleared' });
+            } else if (e.data.type === 'stop') {
+                this.isActive = false;
+                this.port.postMessage({ type: 'stopped' });
+            }
         };
     }
-    process(_, outputs) {
-        const out = outputs[0]?.[0];
-        if (!out) return true;
+
+    process(inputs, outputs) {
+        const output = outputs[0];
+        if (!output || !output[0]) return true;
+        const out = output[0];
         for (let i = 0; i < out.length; i++) {
-            if (!this.current || this.idx >= this.current.length) {
-                this.current = this.queue.shift() || null;
-                this.idx = 0;
+            if (!this.currentBuffer || this.bufferIndex >= this.currentBuffer.length) {
+                if (this.audioQueue.length > 0) {
+                    this.currentBuffer = this.audioQueue.shift();
+                    this.bufferIndex = 0;
+                } else { out[i] = 0; continue; }
             }
-            out[i] = this.current ? this.current[this.idx++] : 0;
+            out[i] = this.currentBuffer[this.bufferIndex++];
+            this.samplesProcessed++;
+        }
+        if (this.samplesProcessed % 4800 === 0) {
+            this.port.postMessage({ type: 'stats', queueLength: this.audioQueue.length, samplesProcessed: this.samplesProcessed });
         }
         return true;
     }
 }
-registerProcessor('stream-worklet-fs', AudioStreamProcessor);
+registerProcessor('audio-stream-processor', AudioStreamProcessor);
 `;
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // INIT
-    // ─────────────────────────────────────────────
-    function init() {
-        const tag = findScriptTag();
-        if (!tag) return console.error('[FS-WIDGET] script tag not found');
+    // ============================================================================
 
-        CONFIG.assistantId = tag.dataset.assistantid || tag.getAttribute('data-assistantId');
-        CONFIG.serverUrl   = tag.dataset.server;
-        CONFIG.model       = tag.dataset.model || '2.5';
-        CONFIG.position    = tag.dataset.position || 'bottom-right';
+    function init() {
+        console.log('[FSW] 🚀 Gemini Fullscreen Widget v1.0.0');
+
+        const ua = navigator.userAgent.toLowerCase();
+        STATE.isIOS     = /iphone|ipad|ipod/.test(ua);
+        STATE.isAndroid = /android/.test(ua);
+        STATE.isMobile  = STATE.isIOS || STATE.isAndroid;
+
+        if (STATE.isIOS) console.log('[FSW] iOS device detected');
+
+        const tag = findScriptTag();
+        if (!tag) return console.error('[FSW] script tag not found');
+
+        CONFIG.assistantId = tag.getAttribute('data-assistantId') || tag.dataset.assistantid;
+        CONFIG.serverUrl   = tag.getAttribute('data-server')      || tag.dataset.server;
+        CONFIG.model       = tag.getAttribute('data-model')       || tag.dataset.model || '2.5';
+        const pos          = tag.getAttribute('data-position')    || tag.dataset.position;
+        if (pos) CONFIG.position = pos;
 
         if (!CONFIG.assistantId || !CONFIG.serverUrl) {
-            return console.error('[FS-WIDGET] missing assistantId or server');
+            return console.error('[FSW] missing assistantId or server');
         }
 
-        loadFontAwesome();
+        if (!document.getElementById('fsw-fa-css')) {
+            const l = document.createElement('link');
+            l.id = 'fsw-fa-css'; l.rel = 'stylesheet';
+            l.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+            document.head.appendChild(l);
+        }
+
         injectStyles();
         buildDOM();
         cacheUI();
         bindEvents();
 
-        document.addEventListener('click', initAudio, { once: true });
-        document.addEventListener('touchstart', initAudio, { once: true });
+        document.addEventListener('click',      resumeAudioCtx, { once: true });
+        document.addEventListener('touchstart', resumeAudioCtx, { once: true });
+
+        console.log(`[FSW] ✅ Init OK | model:${CONFIG.model} | pos:${CONFIG.position}`);
     }
 
     function findScriptTag() {
@@ -178,182 +250,183 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
         return all.length ? all[all.length - 1] : document.currentScript;
     }
 
-    function loadFontAwesome() {
-        if (document.getElementById('fa-css-fs')) return;
-        const l = document.createElement('link');
-        l.id = 'fa-css-fs';
-        l.rel = 'stylesheet';
-        l.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
-        document.head.appendChild(l);
-    }
-
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // STYLES
-    // ─────────────────────────────────────────────
-    function posCSS() {
-        const p = CONFIG.position.split('-');
-        return `${p[0]}: 20px; ${p[1]}: 20px;`;
+    // ============================================================================
+
+    function getPosCSS() {
+        const parts = CONFIG.position.toLowerCase().split('-');
+        const v = parts.includes('top')  ? 'top'   : 'bottom';
+        const h = parts.includes('left') ? 'left'  : 'right';
+        return { v, h };
     }
 
     function injectStyles() {
-        const old = document.getElementById('fs-widget-styles');
+        const old = document.getElementById('fsw-styles');
         if (old) old.remove();
+
+        const { v, h } = getPosCSS();
+        const isTop = v === 'top';
+
         const s = document.createElement('style');
-        s.id = 'fs-widget-styles';
+        s.id = 'fsw-styles';
         s.textContent = `
-/* ── trigger button ── */
+
+/* ── TRIGGER BUTTON ── */
 #fsw-btn {
-    position: fixed; ${posCSS()}
+    position: fixed; ${v}: 20px; ${h}: 20px;
     z-index: 2147483647;
     width: 60px; height: 60px; border-radius: 50%;
     background: linear-gradient(135deg, #4a86e8, #2b59c3);
-    box-shadow: 0 8px 32px rgba(74,134,232,.35);
+    box-shadow: 0 8px 32px rgba(74,134,232,.3), 0 0 0 1px rgba(255,255,255,.1);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; border: none; outline: none;
-    transition: transform .3s, box-shadow .3s;
+    transition: transform .3s ease, box-shadow .3s ease;
+    overflow: hidden;
 }
-#fsw-btn:hover { transform: scale(1.06); }
-#fsw-btn.pulse { animation: fsw-pulse 2s infinite; }
-@keyframes fsw-pulse {
-    0%   { box-shadow: 0 0 0 0 rgba(74,134,232,.7); }
-    70%  { box-shadow: 0 0 0 10px rgba(74,134,232,0); }
-    100% { box-shadow: 0 0 0 0 rgba(74,134,232,0); }
-}
-.fsw-bars-mini { display:flex; align-items:center; gap:3px; height:26px; }
-.fsw-bar-mini  { width:3px; border-radius:2px; background:#fff; opacity:.9;
-    animation: fsw-eq 1.2s ease-in-out infinite; }
+#fsw-btn:hover { transform: scale(1.05); box-shadow: 0 10px 30px rgba(74,134,232,.4), 0 0 0 1px rgba(255,255,255,.15); }
+#fsw-btn.dialog-open { transform: scale(0.9); box-shadow: 0 4px 15px rgba(0,0,0,.2); }
+@keyframes fsw-btn-pulse { 0%{box-shadow:0 0 0 0 rgba(74,134,232,.7)} 70%{box-shadow:0 0 0 10px rgba(74,134,232,0)} 100%{box-shadow:0 0 0 0 rgba(74,134,232,0)} }
+#fsw-btn.pulse { animation: fsw-btn-pulse 2s infinite; }
+
+.fsw-btn-inner { position: relative; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
+.fsw-pulse-ring { position: absolute; width: 100%; height: 100%; border-radius: 50%; animation: fsw-pulse-ring 3s ease-out infinite; background: radial-gradient(rgba(255,255,255,.8) 0%, rgba(255,255,255,0) 70%); opacity: 0; }
+@keyframes fsw-pulse-ring { 0%{transform:scale(.5);opacity:0} 25%{opacity:.4} 100%{transform:scale(1.2);opacity:0} }
+
+.fsw-bars-mini { display: flex; align-items: center; height: 26px; gap: 4px; justify-content: center; }
+.fsw-bar-mini  { width: 3px; border-radius: 1.5px; background: #fff; opacity: .9; animation: fsw-eq 1.2s ease-in-out infinite; }
 .fsw-bar-mini:nth-child(1){height:7px;animation-delay:0s}
 .fsw-bar-mini:nth-child(2){height:12px;animation-delay:.3s}
 .fsw-bar-mini:nth-child(3){height:18px;animation-delay:.1s}
 .fsw-bar-mini:nth-child(4){height:9px;animation-delay:.5s}
 @keyframes fsw-eq { 0%,100%{height:5px} 50%{height:18px} }
 
-/* ── dialog panel ── */
+/* ── DIALOG PANEL ── */
 #fsw-panel {
-    position: fixed; ${posCSS()}
+    position: fixed; ${v}: 20px; ${h}: 20px;
+    ${isTop ? '' : ''}
     z-index: 2147483646;
     width: 320px; height: 0; opacity: 0; pointer-events: none;
-    background: rgba(255,255,255,.96);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    background: rgba(255,255,255,.95);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-radius: 20px;
-    box-shadow: 0 12px 40px rgba(0,0,0,.18);
-    display: flex; flex-direction: column;
+    box-shadow: 0 10px 30px rgba(0,0,0,.15), 0 0 0 1px rgba(0,0,0,.05);
     overflow: hidden;
-    transition: height .45s cubic-bezier(.175,.885,.32,1.275),
-                opacity .35s ease;
+    transition: height .5s cubic-bezier(.175,.885,.32,1.275), opacity .4s ease;
+    display: flex; flex-direction: column;
 }
-#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }
+${isTop ? '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }' :
+          '#fsw-panel.open { height: 460px; opacity: 1; pointer-events: all; }'}
+
+/* ── HEADER ── */
 #fsw-header {
-    padding: 14px 18px;
-    background: linear-gradient(135deg,#1e3a8a,#3b82f6);
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #1e3a8a, #3b82f6);
     color: #fff; display: flex; justify-content: space-between; align-items: center;
     border-radius: 20px 20px 0 0; flex-shrink: 0;
 }
-#fsw-title { font: 600 15px/1 'Segoe UI',sans-serif; letter-spacing:.3px; }
-#fsw-close-btn {
-    background:none;border:none;color:#fff;font-size:17px;cursor:pointer;
-    opacity:.8; transition:opacity .2s, transform .2s;
-}
+#fsw-title { font: 600 16px/1 'Segoe UI',Roboto,sans-serif; letter-spacing: .3px; }
+#fsw-close-btn { background:none; border:none; color:#fff; font-size:18px; cursor:pointer; opacity:.8; transition:opacity .2s,transform .2s; padding:0; }
 #fsw-close-btn:hover { opacity:1; transform:scale(1.1); }
+
+/* ── BODY ── */
 #fsw-body {
-    flex:1; display:flex; flex-direction:column;
-    align-items:center; justify-content:center;
-    background:#f9fafc; position:relative; padding:20px 20px 12px;
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #f9fafc; position: relative; padding: 20px 20px 10px;
 }
 
-/* sphere */
+/* ── SPHERE ── */
 #fsw-sphere {
-    width:180px; height:180px; border-radius:50%;
-    background:linear-gradient(135deg,#f3f4f6,#e5e7eb);
-    box-shadow:0 10px 25px rgba(0,0,0,.1), inset 0 2px 5px rgba(255,255,255,.5);
-    position:relative; overflow:hidden;
-    display:flex; align-items:center; justify-content:center;
+    width: 180px; height: 180px; border-radius: 50%;
+    background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+    box-shadow: 0 10px 25px rgba(0,0,0,.1), inset 0 2px 5px rgba(255,255,255,.5);
+    position: relative; overflow: hidden;
     transition: background .3s, box-shadow .3s;
+    display: flex; align-items: center; justify-content: center;
 }
 #fsw-sphere::before {
-    content:''; position:absolute; width:140%; height:140%; border-radius:40%;
-    background:linear-gradient(45deg,rgba(255,255,255,.3),rgba(74,134,232,.2));
-    animation:fsw-wave 8s linear infinite;
+    content: ''; position: absolute; width: 140%; height: 140%; border-radius: 40%;
+    background: linear-gradient(45deg, rgba(255,255,255,.3), rgba(74,134,232,.2));
+    animation: fsw-wave 8s linear infinite;
 }
-@keyframes fsw-wave { to{ transform:rotate(360deg); } }
+@keyframes fsw-wave { to{ transform: rotate(360deg); } }
+
 #fsw-sphere.listening {
-    background:linear-gradient(135deg,#dbeafe,#eff6ff);
-    box-shadow:0 0 30px rgba(37,99,235,.5),inset 0 2px 5px rgba(255,255,255,.5);
+    background: linear-gradient(135deg, #dbeafe, #eff6ff);
+    box-shadow: 0 0 30px rgba(37,99,235,.5), inset 0 2px 5px rgba(255,255,255,.5);
 }
 #fsw-sphere.listening::before { animation-duration:4s; background:linear-gradient(45deg,rgba(255,255,255,.5),rgba(37,99,235,.3)); }
 #fsw-sphere.listening::after  { content:''; position:absolute; width:100%; height:100%; border-radius:50%; border:3px solid rgba(37,99,235,.5); animation:fsw-ring 1.5s ease-out infinite; }
 @keyframes fsw-ring { 0%{transform:scale(.95);opacity:.7} 50%{transform:scale(1.05);opacity:.3} 100%{transform:scale(.95);opacity:.7} }
+
 #fsw-sphere.speaking {
-    background:linear-gradient(135deg,#dcfce7,#ecfdf5);
-    box-shadow:0 0 30px rgba(5,150,105,.5),inset 0 2px 5px rgba(255,255,255,.5);
+    background: linear-gradient(135deg, #dcfce7, #ecfdf5);
+    box-shadow: 0 0 30px rgba(5,150,105,.5), inset 0 2px 5px rgba(255,255,255,.5);
 }
 #fsw-sphere.speaking::before { animation-duration:3s; background:linear-gradient(45deg,rgba(255,255,255,.5),rgba(5,150,105,.3)); }
 #fsw-sphere.speaking::after  { content:''; position:absolute; width:100%; height:100%; border-radius:50%; background:radial-gradient(circle,transparent 50%,rgba(5,150,105,.1) 100%); animation:fsw-ripple 2s ease-out infinite; }
 @keyframes fsw-ripple { 0%{transform:scale(.8);opacity:0} 50%{opacity:.5} 100%{transform:scale(1.2);opacity:0} }
+
 #fsw-sphere.interrupted {
-    background:linear-gradient(135deg,#fef3c7,#fffbeb);
-    box-shadow:0 0 30px rgba(217,119,6,.5),inset 0 2px 5px rgba(255,255,255,.5);
-}
-#fsw-mic { color:#3b82f6; font-size:32px; z-index:10; transition:color .3s; }
-#fsw-sphere.listening .fsw-mic  { color:#2563eb; }
-#fsw-sphere.speaking .fsw-mic   { color:#059669; }
-#fsw-sphere.interrupted .fsw-mic{ color:#d97706; }
-
-/* waveform bars */
-#fsw-waves { display:flex; align-items:flex-end; gap:2px; height:30px; margin-top:10px; }
-.fsw-wave-bar { width:3px; height:2px; background:#3b82f6; border-radius:1px; transition:height .1s; }
-
-/* status */
-#fsw-status {
-    position:absolute; bottom:48px; left:50%; transform:translateX(-50%);
-    font:11px/1 'Segoe UI',sans-serif; color:#475569;
-    padding:4px 8px; border-radius:10px; background:rgba(255,255,255,.8);
-    display:flex; align-items:center; gap:5px;
-    opacity:0; transition:opacity .3s; white-space:nowrap;
-}
-#fsw-status.show { opacity:.85; }
-#fsw-dot { width:6px; height:6px; border-radius:50%; background:#10b981; }
-#fsw-dot.connecting { background:#f59e0b; }
-#fsw-dot.disconnected { background:#ef4444; }
-
-/* error */
-#fsw-error {
-    display:none; color:#ef4444; background:rgba(254,226,226,.85);
-    border:1px solid #ef4444; border-radius:8px;
-    font:13px/1.4 'Segoe UI',sans-serif; padding:8px 12px;
-    text-align:center; margin-top:10px;
-}
-#fsw-error.show { display:block; }
-#fsw-retry {
-    margin-top:6px; background:#ef4444; color:#fff; border:none;
-    border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;
+    background: linear-gradient(135deg, #fef3c7, #fffbeb);
+    box-shadow: 0 0 30px rgba(217,119,6,.5), inset 0 2px 5px rgba(255,255,255,.5);
 }
 
-/* loader */
+.fsw-mic-icon { color: #3b82f6; font-size: 32px; z-index: 10; transition: color .3s ease; }
+#fsw-sphere.listening   .fsw-mic-icon { color: #2563eb; }
+#fsw-sphere.speaking    .fsw-mic-icon { color: #059669; }
+#fsw-sphere.interrupted .fsw-mic-icon { color: #d97706; }
+
+/* ── WAVE BARS ── */
+.fsw-audio-vis  { position: absolute; width: 100%; max-width: 160px; height: 30px; bottom: -5px; opacity: .8; pointer-events: none; }
+.fsw-audio-bars { display: flex; align-items: flex-end; height: 30px; gap: 2px; width: 100%; justify-content: center; }
+.fsw-wave-bar   { width: 3px; height: 2px; background: #3b82f6; border-radius: 1px; transition: height .1s ease; }
+
+/* ── LOADER ── */
 #fsw-loader {
-    position:absolute; inset:0; border-radius:20px;
-    background:rgba(255,255,255,.86); backdrop-filter:blur(5px);
-    display:flex; align-items:center; justify-content:center;
-    opacity:0; visibility:hidden; transition:opacity .3s,visibility .3s;
+    position: absolute; inset: 0; border-radius: 20px;
+    background: rgba(255,255,255,.85); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; visibility: hidden; transition: opacity .3s, visibility .3s;
 }
-#fsw-loader.show { opacity:1; visibility:visible; }
-.fsw-spinner {
-    width:38px; height:38px; border-radius:50%;
-    border:3px solid rgba(59,130,246,.2); border-top-color:#3b82f6;
-    animation:fsw-spin 1s linear infinite;
-}
-@keyframes fsw-spin { to{ transform:rotate(360deg); } }
+#fsw-loader.show { opacity: 1; visibility: visible; }
+.fsw-spinner { width: 40px; height: 40px; border-radius: 50%; border: 3px solid rgba(59,130,246,.2); border-top-color: #3b82f6; animation: fsw-spin 1s linear infinite; }
+@keyframes fsw-spin { to{ transform: rotate(360deg); } }
 
-/* ── fullscreen image overlay ── */
+/* ── ERROR ── */
+#fsw-error {
+    display: none; color: #ef4444; background: rgba(254,226,226,.8);
+    border: 1px solid #ef4444; padding: 8px 12px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; margin-top: 10px; text-align: center;
+    position: relative; z-index: 20;
+}
+#fsw-error.show { display: block; }
+#fsw-retry { background: #ef4444; color: #fff; border: none; border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 8px; display: block; }
+
+/* ── STATUS ── */
+#fsw-status {
+    position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: #475569; padding: 4px 8px; border-radius: 10px;
+    background: rgba(255,255,255,.8); display: flex; align-items: center; gap: 5px;
+    opacity: 0; transition: opacity .3s; white-space: nowrap;
+}
+#fsw-status.show { opacity: .8; }
+#fsw-dot { width: 6px; height: 6px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
+#fsw-dot.connecting   { background: #f59e0b; }
+#fsw-dot.disconnected { background: #ef4444; }
+#fsw-dot.interrupted  { background: #d97706; }
+
+/* ── FULLSCREEN IMAGE OVERLAY ── */
 #fsw-overlay {
     position: fixed; inset: 0;
     z-index: 2147483645;
     background: #000;
-    display: flex; align-items: center; justify-content: center;
     opacity: 0; pointer-events: none;
     transition: opacity .4s ease;
 }
 #fsw-overlay.show { opacity: 1; pointer-events: all; }
+
 #fsw-img {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
@@ -361,54 +434,65 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
     opacity: 0; transition: opacity .5s ease;
 }
 #fsw-img.show { opacity: 1; }
+
 #fsw-minimize {
     position: absolute; top: 18px; right: 18px;
-    width: 44px; height: 44px; border-radius: 50%;
-    background: rgba(0,0,0,.55); border: 1.5px solid rgba(255,255,255,.25);
+    width: 48px; height: 48px; border-radius: 50%;
+    background: rgba(0,0,0,.55);
+    border: 1.5px solid rgba(255,255,255,.3);
     color: #fff; font-size: 18px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: background .2s, transform .2s;
-    z-index: 10;
+    z-index: 10; outline: none;
 }
-#fsw-minimize:hover { background:rgba(0,0,0,.75); transform:scale(1.08); }
+#fsw-minimize:hover { background: rgba(0,0,0,.75); transform: scale(1.08); }
+
 #fsw-img-desc {
     position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,.5); color: #fff;
-    font: 14px/1.5 'Segoe UI',sans-serif; padding: 8px 18px; border-radius: 20px;
+    background: rgba(0,0,0,.52); color: #fff;
+    font: 14px/1.5 'Segoe UI',Roboto,sans-serif;
+    padding: 8px 20px; border-radius: 20px;
     max-width: 80%; text-align: center;
-    opacity: 0; transition: opacity .4s .3s;
+    opacity: 0; transition: opacity .4s .3s ease;
+    pointer-events: none;
 }
 #fsw-img-desc.show { opacity: 1; }
         `;
         document.head.appendChild(s);
     }
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // DOM
-    // ─────────────────────────────────────────────
+    // ============================================================================
+
     function buildDOM() {
-        // remove old
         ['fsw-btn','fsw-panel','fsw-overlay'].forEach(id => document.getElementById(id)?.remove());
 
-        // trigger button
         document.body.insertAdjacentHTML('beforeend', `
-<button id="fsw-btn" class="pulse" title="Голосовой ассистент">
-  <div class="fsw-bars-mini">
-    <div class="fsw-bar-mini"></div><div class="fsw-bar-mini"></div>
-    <div class="fsw-bar-mini"></div><div class="fsw-bar-mini"></div>
+<button id="fsw-btn" class="pulse" aria-label="Голосовой ассистент">
+  <div class="fsw-btn-inner">
+    <div class="fsw-pulse-ring"></div>
+    <div class="fsw-bars-mini">
+      <div class="fsw-bar-mini"></div>
+      <div class="fsw-bar-mini"></div>
+      <div class="fsw-bar-mini"></div>
+      <div class="fsw-bar-mini"></div>
+    </div>
   </div>
 </button>
 
 <div id="fsw-panel">
   <div id="fsw-header">
-    <span id="fsw-title">Голосовой ассистент</span>
-    <button id="fsw-close-btn"><i class="fas fa-times"></i></button>
+    <span id="fsw-title">Голосовой Ассистент</span>
+    <button id="fsw-close-btn" aria-label="Закрыть"><i class="fas fa-times"></i></button>
   </div>
   <div id="fsw-body">
     <div id="fsw-sphere">
-      <i class="fas fa-microphone fsw-mic" id="fsw-mic"></i>
+      <i class="fas fa-microphone fsw-mic-icon"></i>
+      <div class="fsw-audio-vis">
+        <div class="fsw-audio-bars" id="fsw-audio-bars"></div>
+      </div>
     </div>
-    <div id="fsw-waves"></div>
     <div id="fsw-error">Ошибка соединения<br><button id="fsw-retry">Повторить</button></div>
     <div id="fsw-status"><div id="fsw-dot"></div><span id="fsw-status-text">Подключение...</span></div>
     <div id="fsw-loader" class="show"><div class="fsw-spinner"></div></div>
@@ -417,16 +501,15 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
 
 <div id="fsw-overlay">
   <img id="fsw-img" src="" alt="">
-  <button id="fsw-minimize" title="Свернуть"><i class="fas fa-chevron-down"></i></button>
+  <button id="fsw-minimize" aria-label="Свернуть"><i class="fas fa-chevron-down"></i></button>
   <div id="fsw-img-desc"></div>
 </div>`);
 
-        // create wave bars
-        const w = document.getElementById('fsw-waves');
+        const barsEl = document.getElementById('fsw-audio-bars');
         for (let i = 0; i < 20; i++) {
             const b = document.createElement('div');
             b.className = 'fsw-wave-bar';
-            w.appendChild(b);
+            barsEl.appendChild(b);
         }
     }
 
@@ -451,83 +534,89 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
     }
 
     function bindEvents() {
-        STATE.ui.btn.addEventListener('click', onBtnClick);
-        STATE.ui.closeBtn.addEventListener('click', onClose);
-        STATE.ui.retryBtn.addEventListener('click', connectWS);
-        STATE.ui.minimize.addEventListener('click', onMinimize);
+        STATE.ui.btn.addEventListener('click', handleOpen);
+        STATE.ui.closeBtn.addEventListener('click', handleClose);
+        STATE.ui.retryBtn.addEventListener('click', connectWebSocket);
+        STATE.ui.minimize.addEventListener('click', handleMinimize);
     }
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // MODE TRANSITIONS
-    // ─────────────────────────────────────────────
-    async function onBtnClick() {
+    // ============================================================================
+
+    async function handleOpen() {
         if (STATE.mode !== 'button') return;
-        setMode('dialog');
-        if (!STATE.audioContext) await initAudio();
-        if (!STATE.isConnected && !STATE.ws) connectWS();
+        toMode('dialog');
+        if (!STATE.audioContext) await initAudioContext();
+        if (!STATE.isConnected && !STATE.ws) connectWebSocket();
         else if (STATE.isConnected && STATE.readyToRecord && !STATE.isRecording) startRecording();
     }
 
-    function onClose() {
-        // dialog → button, disconnect
-        hideImage();
-        setMode('button');
-        stopRecording();
+    function handleClose() {
+        hideImageOverlay();
+        toMode('button');
+        if (STATE.isRecording) stopRecording();
         stopPlayback();
-        if (STATE.ws) { STATE.ws.close(); STATE.ws = null; }
+        if (STATE.ws) { try { STATE.ws.close(); } catch {} STATE.ws = null; }
         STATE.isConnected = false;
+        STATE.isSetupComplete = false;
         STATE.readyToRecord = false;
-        if (STATE.pingInterval) { clearInterval(STATE.pingInterval); STATE.pingInterval = null; }
+        if (STATE.pingInterval)  { clearInterval(STATE.pingInterval);  STATE.pingInterval  = null; }
+        if (STATE.setupTimeout)  { clearTimeout(STATE.setupTimeout);   STATE.setupTimeout  = null; }
+        STATE.reconnectAttempts = 0;
     }
 
-    function onMinimize() {
-        // image → dialog (audio keeps going)
-        hideImage();
-        setMode('dialog');
+    function handleMinimize() {
+        // image → dialog, audio keeps running
+        hideImageOverlay();
+        toMode('dialog');
     }
 
-    function setMode(mode) {
+    function toMode(mode) {
         STATE.mode = mode;
         const ui = STATE.ui;
         if (mode === 'button') {
             ui.panel.classList.remove('open');
+            ui.btn.classList.remove('dialog-open');
             ui.btn.classList.add('pulse');
         } else if (mode === 'dialog') {
             ui.panel.classList.add('open');
+            ui.btn.classList.add('dialog-open');
             ui.btn.classList.remove('pulse');
-        } else if (mode === 'image') {
-            // overlay shown separately in showImage()
         }
+        // 'image' — overlay managed separately
     }
 
-    // ─────────────────────────────────────────────
-    // IMAGE DISPLAY
-    // ─────────────────────────────────────────────
-    function showImage(url, description) {
+    // ============================================================================
+    // IMAGE OVERLAY
+    // ============================================================================
+
+    function showImageOverlay(url, description) {
         const ui = STATE.ui;
         STATE.currentImageUrl = url;
         STATE.mode = 'image';
 
-        // fade out old image first if any
         ui.img.classList.remove('show');
         ui.imgDesc.classList.remove('show');
-
         ui.overlay.classList.add('show');
         ui.img.src = url;
 
         ui.img.onload = () => {
             ui.img.classList.add('show');
-            if (description) {
+            if (description && description.trim()) {
                 ui.imgDesc.textContent = description;
                 ui.imgDesc.classList.add('show');
             }
         };
+
         ui.img.onerror = () => {
-            console.warn('[FS-WIDGET] Image load failed:', url);
+            console.warn('[FSW] Image failed:', url);
+            hideImageOverlay();
+            toMode('dialog');
         };
     }
 
-    function hideImage() {
+    function hideImageOverlay() {
         const ui = STATE.ui;
         ui.img.classList.remove('show');
         ui.imgDesc.classList.remove('show');
@@ -539,21 +628,24 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
         STATE.currentImageUrl = null;
     }
 
-    // ─────────────────────────────────────────────
-    // UI STATE
-    // ─────────────────────────────────────────────
-    function uiState(state, msg) {
-        const ui = STATE.ui;
-        ui.sphere.classList.remove('listening','speaking','interrupted');
-        ui.dot.classList.remove('connecting','disconnected');
+    // ============================================================================
+    // UI STATE UPDATES
+    // ============================================================================
 
-        if (msg) {
-            ui.statusTxt.textContent = msg;
+    function updateUIState(state, message) {
+        const ui = STATE.ui;
+        if (!ui.sphere) return;
+
+        ui.sphere.classList.remove('listening', 'speaking', 'interrupted');
+        ui.dot.classList.remove('connecting', 'disconnected', 'interrupted');
+
+        if (message) {
+            ui.statusTxt.textContent = message;
             ui.statusEl.classList.add('show');
             setTimeout(() => ui.statusEl.classList.remove('show'), 3000);
         }
 
-        switch(state) {
+        switch (state) {
             case 'connecting':
                 ui.dot.classList.add('connecting');
                 ui.loader.classList.add('show');
@@ -570,6 +662,7 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
                 break;
             case 'interrupted':
                 ui.sphere.classList.add('interrupted');
+                ui.dot.classList.add('interrupted');
                 break;
             case 'error':
                 ui.dot.classList.add('disconnected');
@@ -582,120 +675,153 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
         }
     }
 
-    function updateWaves(data) {
+    function updateAudioVisualization(audioData) {
+        if (!STATE.ui.waveBars?.length) return;
         const bars = STATE.ui.waveBars;
-        if (!bars?.length) return;
-        const step = Math.floor(data.length / bars.length);
+        const step = Math.floor(audioData.length / bars.length);
         for (let i = 0; i < bars.length; i++) {
             let sum = 0;
-            for (let j = 0; j < step; j++) sum += Math.abs(data[i * step + j] || 0);
-            bars[i].style.height = (2 + Math.min(28, Math.floor(sum / step * 150))) + 'px';
+            for (let j = 0; j < step; j++) {
+                const idx = i * step + j;
+                if (idx < audioData.length) sum += Math.abs(audioData[idx]);
+            }
+            bars[i].style.height = (2 + Math.min(28, Math.floor((sum / step) * 150))) + 'px';
         }
     }
 
-    function resetWaves() {
+    function resetAudioVisualization() {
         STATE.ui.waveBars?.forEach(b => b.style.height = '2px');
     }
 
-    // ─────────────────────────────────────────────
-    // AUDIO INIT
-    // ─────────────────────────────────────────────
-    async function initAudio() {
+    // ============================================================================
+    // AUDIO CONTEXT
+    // ============================================================================
+
+    async function initAudioContext() {
         if (STATE.audioContext) {
             if (STATE.audioContext.state === 'suspended') await STATE.audioContext.resume();
             return;
         }
         const Ctx = window.AudioContext || window.webkitAudioContext;
-        STATE.audioContext = new Ctx({ sampleRate: CONFIG.audio.playbackSampleRate, latencyHint: 'interactive' });
+        STATE.audioContext = new Ctx({
+            sampleRate: CONFIG.audio.playbackSampleRate,
+            latencyHint: 'interactive'
+        });
         CONFIG.audio.actualSampleRate = STATE.audioContext.sampleRate;
-        CONFIG.audio.needsResampling = STATE.audioContext.sampleRate !== CONFIG.audio.outputSampleRate;
-        await loadWorklets();
+        CONFIG.audio.needsResampling  = STATE.audioContext.sampleRate !== CONFIG.audio.outputSampleRate;
+
+        console.log(`[FSW] AudioContext: ${CONFIG.audio.actualSampleRate}Hz | needsResample: ${CONFIG.audio.needsResampling}`);
+        await loadAudioWorklets();
     }
 
-    async function loadWorklets() {
-        const load = (code, name) => {
+    async function resumeAudioCtx() {
+        if (STATE.audioContext?.state === 'suspended') await STATE.audioContext.resume();
+    }
+
+    async function loadAudioWorklets() {
+        const addModule = async (code) => {
             const blob = new Blob([code], { type: 'application/javascript' });
             const url  = URL.createObjectURL(blob);
-            return STATE.audioContext.audioWorklet.addModule(url).then(() => URL.revokeObjectURL(url));
+            await STATE.audioContext.audioWorklet.addModule(url);
+            URL.revokeObjectURL(url);
         };
         try {
-            await load(RECORDER_WORKLET, 'recorder-worklet-fs');
+            await addModule(RECORDER_WORKLET_CODE);
             STATE.audioWorkletReady = true;
-            await load(STREAM_WORKLET, 'stream-worklet-fs');
+            await addModule(STREAM_WORKLET_CODE);
             STATE.streamWorkletReady = true;
-        } catch(e) { console.error('[FS-WIDGET] worklet load failed', e); }
+            console.log('[FSW] ✅ AudioWorklets loaded');
+        } catch (e) {
+            console.error('[FSW] ❌ AudioWorklet load failed:', e);
+        }
     }
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // WEBSOCKET
-    // ─────────────────────────────────────────────
-    function wsEndpoint() {
-        const base = CONFIG.serverUrl.replace(/^http/, 'ws');
+    // ============================================================================
+
+    function getWSEndpoint() {
+        const base = CONFIG.serverUrl.replace('https://', 'wss://').replace('http://', 'ws://');
         return CONFIG.model === '3.1'
             ? `${base}/ws/gemini-31/${CONFIG.assistantId}`
             : `${base}/ws/gemini/${CONFIG.assistantId}`;
     }
 
-    function connectWS() {
-        uiState('connecting', 'Подключение...');
+    function connectWebSocket() {
+        updateUIState('connecting', 'Подключение...');
         try {
-            STATE.ws = new WebSocket(wsEndpoint());
+            STATE.ws = new WebSocket(getWSEndpoint());
             STATE.ws.binaryType = 'arraybuffer';
 
             STATE.ws.onopen = () => {
+                console.log('[FSW] ✅ WS connected');
                 STATE.isConnected = true;
                 STATE.reconnectAttempts = 0;
-                uiState('connected', 'Соединение установлено');
+                updateUIState('connected', 'Соединение установлено');
+
                 STATE.pingInterval = setInterval(() => {
-                    if (STATE.ws?.readyState === WebSocket.OPEN) STATE.ws.send(JSON.stringify({ type: 'ping' }));
+                    if (STATE.ws?.readyState === WebSocket.OPEN) {
+                        STATE.ws.send(JSON.stringify({ type: 'ping' }));
+                    }
                 }, CONFIG.ws.pingInterval);
+
+                // Fallback if setup.complete never arrives
                 STATE.setupTimeout = setTimeout(() => {
                     if (!STATE.isSetupComplete) {
                         STATE.isSetupComplete = true;
                         STATE.readyToRecord = true;
-                        if (STATE.mode === 'dialog') startRecording();
+                        if (STATE.mode !== 'button') startRecording();
                     }
                 }, CONFIG.setup.maxSetupWait);
             };
 
-            STATE.ws.onmessage = onMessage;
+            STATE.ws.onmessage = handleWSMessage;
 
-            STATE.ws.onerror = () => uiState('error', 'Ошибка сервера');
+            STATE.ws.onerror = (err) => {
+                console.error('[FSW] WS error:', err);
+                updateUIState('error', 'Ошибка сервера');
+            };
 
-            STATE.ws.onclose = () => {
+            STATE.ws.onclose = (ev) => {
+                console.log('[FSW] WS closed:', ev.code);
                 STATE.isConnected = false;
                 STATE.readyToRecord = false;
                 stopPlayback();
                 if (STATE.isRecording) stopRecording();
-                uiState('disconnected', 'Отключено');
                 if (STATE.pingInterval) { clearInterval(STATE.pingInterval); STATE.pingInterval = null; }
+                updateUIState('disconnected', 'Отключено');
+
                 if (STATE.mode !== 'button' && STATE.reconnectAttempts < CONFIG.ws.maxReconnectAttempts) {
                     STATE.reconnectAttempts++;
-                    setTimeout(connectWS, CONFIG.ws.reconnectDelay);
+                    console.log(`[FSW] Reconnect attempt ${STATE.reconnectAttempts}...`);
+                    setTimeout(connectWebSocket, CONFIG.ws.reconnectDelay);
                 }
             };
-        } catch(e) {
-            console.error('[FS-WIDGET] WS error', e);
-            uiState('error', 'Ошибка сети');
+
+        } catch (e) {
+            console.error('[FSW] WS init error:', e);
+            updateUIState('error', 'Ошибка сети');
         }
     }
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // MESSAGE HANDLER
-    // ─────────────────────────────────────────────
-    function onMessage(event) {
+    // ============================================================================
+
+    function handleWSMessage(event) {
         if (event.data instanceof ArrayBuffer || event.data instanceof Blob) return;
         let data;
         try { data = JSON.parse(event.data); } catch { return; }
 
-        switch(data.type) {
+        switch (data.type) {
+
             case 'gemini.setup.complete':
                 STATE.isSetupComplete = true;
                 clearTimeout(STATE.setupTimeout);
-                uiState('connected', 'Настройка завершена');
+                updateUIState('connected', 'Настройка завершена');
                 setTimeout(() => {
                     STATE.readyToRecord = true;
-                    if (STATE.mode === 'dialog') startRecording();
+                    if (STATE.mode !== 'button') startRecording();
                 }, CONFIG.setup.waitAfterSetup);
                 break;
 
@@ -705,152 +831,240 @@ registerProcessor('stream-worklet-fs', AudioStreamProcessor);
 
             case 'assistant.speech.started':
                 STATE.isSpeaking = true;
-                uiState('playing', 'Ассистент говорит');
+                updateUIState('playing', 'Ассистент говорит');
                 if (!STATE.isPlaying) startAudioStream();
                 break;
 
             case 'assistant.speech.ended':
                 STATE.isSpeaking = false;
                 stopPlayback();
-                if (STATE.isRecording) uiState('recording', 'Слушаю...');
+                if (STATE.isRecording) updateUIState('recording', 'Слушаю...');
+                if (STATE.ws?.readyState === WebSocket.OPEN) {
+                    STATE.ws.send(JSON.stringify({ type: 'audio_playback.stopped' }));
+                }
                 break;
 
             case 'conversation.interrupted':
                 STATE.isSpeaking = false;
                 stopPlayback();
-                uiState('interrupted', 'Прервано');
-                setTimeout(() => { if (STATE.isRecording) uiState('recording', 'Слушаю...'); }, 800);
+                updateUIState('interrupted', 'Прервано');
+                setTimeout(() => {
+                    if (STATE.isRecording) updateUIState('recording', 'Слушаю...');
+                }, 800);
                 break;
 
+            // ── SHOW IMAGE ──
             case 'function_call.completed':
                 if (data.function === 'show_image' && data.result?.url) {
-                    showImage(data.result.url, data.result.description || '');
-                    // open dialog if minimized so user sees minimize button exists
-                    if (STATE.mode === 'button') setMode('dialog');
+                    if (STATE.mode === 'button') toMode('dialog');
+                    showImageOverlay(data.result.url, data.result.description || '');
                 }
                 break;
 
+            case 'pong':
+                break;
+
+            case 'connection_status':
+                console.log('[FSW] Server status:', data.message);
+                break;
+
             case 'error':
-                uiState('error', data.error?.message || 'Ошибка');
+                console.error('[FSW] Server error:', data.error);
+                updateUIState('error', data.error?.message || 'Ошибка');
                 break;
         }
     }
 
-    // ─────────────────────────────────────────────
-    // AUDIO — RECORDING
-    // ─────────────────────────────────────────────
+    // ============================================================================
+    // RECORDING
+    // ============================================================================
+
     async function startRecording() {
-        if (STATE.isRecording || !STATE.audioWorkletReady) return;
+        if (STATE.isRecording) return;
+        console.log('[FSW] 🎙️ Starting recording...');
+
+        if (STATE.audioContext?.state === 'suspended') {
+            await STATE.audioContext.resume();
+        }
+
+        if (!STATE.audioWorkletReady) await initAudioContext();
+
         try {
             STATE.mediaStream = await navigator.mediaDevices.getUserMedia({
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
             });
-            const src  = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
-            const node = new AudioWorkletNode(STATE.audioContext, 'recorder-worklet-fs');
 
-            node.port.onmessage = (e) => {
+            const source     = STATE.audioContext.createMediaStreamSource(STATE.mediaStream);
+            const workletNode = new AudioWorkletNode(STATE.audioContext, 'recorder-worklet');
+
+            workletNode.port.onmessage = (event) => {
                 if (!STATE.isRecording) return;
-                const pcm = float32ToPCM(e.data.data);
-                updateWaves(e.data.data);
+
+                const audioData = event.data.data;
+                const pcmData   = float32ToPCM16(audioData);
+
+                // Visualization
+                updateAudioVisualization(audioData);
+
+                // VAD — visual sphere + server notification
+                const rms = calculateRMS(audioData);
+                const db  = 20 * Math.log10(rms + 1e-10);
+
+                if (db > CONFIG.vad.speechThreshold) {
+                    if (!STATE.isSpeaking) {
+                        STATE.ui.sphere.classList.add('listening');
+                    }
+                    // Throttled speech.user_started (max once per 500ms)
+                    const now = Date.now();
+                    if (STATE.ws?.readyState === WebSocket.OPEN && now - STATE.lastSpeechNotifyTime > 500) {
+                        STATE.lastSpeechNotifyTime = now;
+                        STATE.ws.send(JSON.stringify({ type: 'speech.user_started' }));
+                    }
+                }
+
+                // Send audio
                 if (STATE.ws?.readyState === WebSocket.OPEN) {
                     STATE.ws.send(JSON.stringify({
                         type: 'input_audio_buffer.append',
-                        audio: bufToB64(pcm.buffer)
+                        audio: arrayBufferToBase64(pcmData.buffer)
                     }));
                 }
             };
 
-            src.connect(node);
-            STATE.audioWorkletNode = { src, node };
+            source.connect(workletNode);
+            // NOTE: do NOT connect workletNode to destination — would echo mic
+            STATE.audioWorkletNode = { source, workletNode };
             STATE.isRecording = true;
-            uiState('recording', 'Слушаю...');
-        } catch(e) {
-            console.error('[FS-WIDGET] mic error', e);
-            uiState('error', 'Нет доступа к микрофону');
+
+            updateUIState('recording', 'Слушаю...');
+            console.log('[FSW] ✅ Recording started');
+
+        } catch (err) {
+            console.error('[FSW] Mic error:', err);
+            updateUIState('error', 'Нет доступа к микрофону');
         }
     }
 
     function stopRecording() {
         if (!STATE.isRecording) return;
         STATE.isRecording = false;
-        STATE.mediaStream?.getTracks().forEach(t => t.stop());
-        STATE.mediaStream = null;
+
+        if (STATE.ws?.readyState === WebSocket.OPEN) {
+            STATE.ws.send(JSON.stringify({ type: 'speech.user_stopped' }));
+        }
+
+        if (STATE.mediaStream) {
+            STATE.mediaStream.getTracks().forEach(t => t.stop());
+            STATE.mediaStream = null;
+        }
+
         if (STATE.audioWorkletNode) {
-            try { STATE.audioWorkletNode.src.disconnect(); STATE.audioWorkletNode.node.disconnect(); } catch {}
+            try {
+                STATE.audioWorkletNode.source.disconnect();
+                STATE.audioWorkletNode.workletNode?.disconnect();
+            } catch {}
             STATE.audioWorkletNode = null;
         }
-        resetWaves();
+
+        resetAudioVisualization();
+        console.log('[FSW] 🛑 Recording stopped');
     }
 
-    // ─────────────────────────────────────────────
-    // AUDIO — PLAYBACK
-    // ─────────────────────────────────────────────
+    // ============================================================================
+    // PLAYBACK
+    // ============================================================================
+
     function handleAudioDelta(data) {
         if (!data.delta) return;
         try {
-            const bytes  = Uint8Array.from(atob(data.delta), c => c.charCodeAt(0));
+            const binaryString = atob(data.delta);
+            const bytes  = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+
             const pcm16  = new Int16Array(bytes.buffer);
-            const f32    = new Float32Array(pcm16.length);
-            for (let i = 0; i < pcm16.length; i++) f32[i] = pcm16[i] / 32768;
-            const audio  = CONFIG.audio.needsResampling
-                ? resample(f32, CONFIG.audio.outputSampleRate, CONFIG.audio.actualSampleRate) : f32;
-            STATE.audioStreamNode?.port.postMessage({ type: 'audioData', buffer: audio });
+            const float32 = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 32768.0;
+
+            let audioData = float32;
+            if (CONFIG.audio.needsResampling) {
+                audioData = resampleAudio(float32, CONFIG.audio.outputSampleRate, CONFIG.audio.actualSampleRate);
+            }
+
+            STATE.audioStreamNode?.port.postMessage({ type: 'audioData', buffer: audioData });
             if (!STATE.isPlaying) startAudioStream();
-        } catch(e) { console.error('[FS-WIDGET] audio delta', e); }
+
+        } catch (e) {
+            console.error('[FSW] Audio delta error:', e);
+        }
     }
 
     function startAudioStream() {
         if (STATE.isPlaying || !STATE.streamWorkletReady) return;
         try {
             if (!STATE.audioStreamNode) {
-                STATE.audioStreamNode = new AudioWorkletNode(STATE.audioContext, 'stream-worklet-fs');
+                STATE.audioStreamNode = new AudioWorkletNode(STATE.audioContext, 'audio-stream-processor');
                 STATE.audioStreamNode.connect(STATE.audioContext.destination);
             }
             STATE.isPlaying = true;
-        } catch(e) { console.error('[FS-WIDGET] stream error', e); }
+        } catch (e) {
+            console.error('[FSW] Stream start error:', e);
+        }
     }
 
     function stopPlayback() {
         if (!STATE.isPlaying) return;
         STATE.audioStreamNode?.port.postMessage({ type: 'clear' });
         STATE.isPlaying = false;
-        resetWaves();
+        resetAudioVisualization();
     }
 
-    // ─────────────────────────────────────────────
+    // ============================================================================
     // UTILS
-    // ─────────────────────────────────────────────
-    function float32ToPCM(f32) {
-        const out = new Int16Array(f32.length);
-        for (let i = 0; i < f32.length; i++) {
-            const s = Math.max(-1, Math.min(1, f32[i]));
-            out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        return out;
-    }
+    // ============================================================================
 
-    function bufToB64(buf) {
-        const bytes = new Uint8Array(buf);
-        let bin = '';
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return btoa(bin);
-    }
-
-    function resample(buf, inRate, outRate) {
-        if (inRate === outRate) return buf;
-        const ratio = inRate / outRate;
-        const out   = new Float32Array(Math.round(buf.length / ratio));
+    function resampleAudio(inputBuffer, inputRate, outputRate) {
+        if (inputRate === outputRate) return inputBuffer;
+        const ratio = inputRate / outputRate;
+        const out   = new Float32Array(Math.round(inputBuffer.length / ratio));
         for (let i = 0; i < out.length; i++) {
             const s = i * ratio;
-            const f = Math.floor(s), c = Math.min(f + 1, buf.length - 1);
-            out[i] = buf[f] * (1 - (s - f)) + buf[c] * (s - f);
+            const f = Math.floor(s);
+            const c = Math.min(f + 1, inputBuffer.length - 1);
+            out[i]  = inputBuffer[f] * (1 - (s - f)) + inputBuffer[c] * (s - f);
         }
         return out;
     }
 
-    // ─────────────────────────────────────────────
+    function float32ToPCM16(float32Array) {
+        const pcm16 = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i++) {
+            const s = Math.max(-1, Math.min(1, float32Array[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return pcm16;
+    }
+
+    function calculateRMS(float32Array) {
+        let sum = 0;
+        for (let i = 0; i < float32Array.length; i++) sum += float32Array[i] * float32Array[i];
+        return Math.sqrt(sum / float32Array.length);
+    }
+
+    function arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary  = '';
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+    }
+
+    // ============================================================================
     // STARTUP
-    // ─────────────────────────────────────────────
+    // ============================================================================
+
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
 
