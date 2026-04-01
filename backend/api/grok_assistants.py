@@ -10,6 +10,8 @@ Handles CRUD operations for Grok Voice Agent API assistants.
 ✅ Error handling
 ✅ Grok-specific features (web_search, x_search)
 ✅ Fixed functions field type (List[dict] instead of dict)
+🆕 v1.2: Cascade assistants (OpenRouter + Voximplant ASR/TTS)
+🆕 v1.3: Cascade API keys endpoints
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -208,6 +210,25 @@ class CascadeAssistantResponse(BaseModel):
         from_attributes = True
 
 
+# ============================================================================
+# CASCADE API KEYS SCHEMAS
+# ============================================================================
+
+class CascadeApiKeysUpdate(BaseModel):
+    """Schema for updating OpenRouter API key for Cascade agents."""
+    openrouter_api_key: Optional[str] = None
+
+
+class CascadeApiKeysStatus(BaseModel):
+    """Schema for API key status response."""
+    has_openrouter_key: bool
+    openrouter_key_preview: Optional[str] = None
+
+
+# ============================================================================
+# OTHER SCHEMAS
+# ============================================================================
+
 class EmbedCodeResponse(BaseModel):
     """Schema for embed code response"""
     embed_code: str
@@ -267,6 +288,13 @@ GROK_VOICES = [
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+def mask_api_key(key: Optional[str]) -> Optional[str]:
+    """Return masked version of API key for display."""
+    if not key or len(key) < 8:
+        return None
+    return f"{key[:6]}...{key[-4:]}"
+
 
 async def verify_assistant_access(
     assistant_id: str,
@@ -328,7 +356,7 @@ def validate_audio_format(format: str) -> str:
 
 
 # ============================================================================
-# API ENDPOINTS
+# GROK API ENDPOINTS
 # ============================================================================
 
 @router.get("/voices", response_model=GrokVoicesResponse)
@@ -843,6 +871,66 @@ async def verify_grok_google_sheet(
 
 
 # ============================================================================
+# CASCADE API KEYS ENDPOINTS
+# ⚠️ ВАЖНО: Эти роуты ДОЛЖНЫ быть ВЫШЕ /cascade/{assistant_id},
+#    иначе FastAPI попытается распарсить "api-keys" как UUID
+# ============================================================================
+
+@router.get("/cascade/api-keys", response_model=CascadeApiKeysStatus)
+async def get_cascade_api_keys_status(
+    current_user: User = Depends(get_current_user)
+):
+    """Get status of OpenRouter API key for Cascade agents."""
+    return CascadeApiKeysStatus(
+        has_openrouter_key=bool(current_user.openrouter_api_key),
+        openrouter_key_preview=mask_api_key(current_user.openrouter_api_key),
+    )
+
+
+@router.put("/cascade/api-keys", response_model=CascadeApiKeysStatus)
+async def update_cascade_api_keys(
+    keys_data: CascadeApiKeysUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update OpenRouter API key for Cascade agents."""
+    try:
+        if keys_data.openrouter_api_key is not None:
+            if keys_data.openrouter_api_key == "":
+                current_user.openrouter_api_key = None
+            else:
+                current_user.openrouter_api_key = keys_data.openrouter_api_key
+
+        db.commit()
+        db.refresh(current_user)
+
+        logger.info(f"[CASCADE] OpenRouter API key updated for user {current_user.id}")
+
+        return CascadeApiKeysStatus(
+            has_openrouter_key=bool(current_user.openrouter_api_key),
+            openrouter_key_preview=mask_api_key(current_user.openrouter_api_key),
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[CASCADE] Error updating API key: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update API key"
+        )
+
+
+# ============================================================================
+# CASCADE TTS PROVIDERS ENDPOINT
+# ============================================================================
+
+@router.get("/cascade/tts-providers")
+async def get_cascade_tts_providers():
+    """Список TTS провайдеров и голосов для Cascade."""
+    return {"providers": TTS_PROVIDERS}
+
+
+# ============================================================================
 # CASCADE HELPER FUNCTIONS
 # ============================================================================
 
@@ -890,14 +978,8 @@ def cascade_to_response(a: GrokAssistantConfig) -> CascadeAssistantResponse:
 
 
 # ============================================================================
-# CASCADE ASSISTANT ENDPOINTS (OpenRouter + Voximplant ASR/TTS)
+# CASCADE ASSISTANT CRUD ENDPOINTS (OpenRouter + Voximplant ASR/TTS)
 # ============================================================================
-
-@router.get("/cascade/tts-providers")
-async def get_cascade_tts_providers():
-    """Список TTS провайдеров и голосов для Cascade."""
-    return {"providers": TTS_PROVIDERS}
-
 
 @router.get("/cascade", response_model=List[CascadeAssistantResponse])
 async def list_cascade_assistants(
