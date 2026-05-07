@@ -1505,6 +1505,50 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+
+    .coming-soon-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      z-index: 10;
+      border-radius: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: all;
+    }
+
+    .coming-soon-badge {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #fff;
+      padding: 20px 32px;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(79, 70, 229, 0.35);
+      text-align: center;
+    }
+
+    .coming-soon-badge i {
+      font-size: 2rem;
+      margin-bottom: 4px;
+    }
+
+    .coming-soon-badge span {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    .coming-soon-badge small {
+      font-size: 0.8rem;
+      opacity: 0.85;
+      font-weight: 400;
+    }
   </style>
 </head>
 <body>
@@ -1704,13 +1748,20 @@
         </div>
 
         <!-- SIP транки -->
-        <div class="card" id="sip-trunks-card">
+        <div class="card" id="sip-trunks-card" style="position: relative;">
+          <div class="coming-soon-overlay">
+            <div class="coming-soon-badge">
+              <i class="fas fa-rocket"></i>
+              <span>СКОРО</span>
+              <small>Функция появится в следующем релизе</small>
+            </div>
+          </div>
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
             <div>
               <h2 class="card-title">SIP транки</h2>
               <p class="card-description">Подключите свой номер от Новофон, Манго, Sipuni и др.</p>
             </div>
-            <button class="btn btn-primary" id="connect-sip-btn">
+            <button class="btn btn-primary" id="connect-sip-btn" disabled title="Скоро" style="pointer-events: none; opacity: 0.5;">
               <i class="fas fa-plug"></i> Подключить SIP
             </button>
           </div>
