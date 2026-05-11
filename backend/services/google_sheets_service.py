@@ -68,9 +68,54 @@ except Exception as e:
 
 class GoogleSheetsService:
     """Service for Google Sheets with enhanced logging and Caller Number tracking"""
-    
+
     _service = None
-    
+    _docs_service = None
+
+    @classmethod
+    def _get_docs_service(cls):
+        """Get Google Docs API service (reuses same service account)"""
+        if cls._docs_service is not None:
+            log_sheets("[GOOGLE-DOCS] Using cached Docs service")
+            return cls._docs_service
+
+        try:
+            log_sheets("[GOOGLE-DOCS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            log_sheets("[GOOGLE-DOCS] 🔧 INITIALIZING GOOGLE DOCS SERVICE")
+            log_sheets("[GOOGLE-DOCS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            if not SERVICE_ACCOUNT_INFO or "private_key" not in SERVICE_ACCOUNT_INFO:
+                log_sheets("[GOOGLE-DOCS] ❌ Missing service account data", "ERROR")
+                raise ValueError("Missing service account data. Check GOOGLE_SERVICE_ACCOUNT_JSON")
+
+            try:
+                log_sheets("[GOOGLE-DOCS] Creating credentials...")
+                credentials = service_account.Credentials.from_service_account_info(
+                    SERVICE_ACCOUNT_INFO,
+                    scopes=['https://www.googleapis.com/auth/documents']
+                )
+                log_sheets(f"[GOOGLE-DOCS] ✅ Credentials created for: {credentials.service_account_email}")
+            except Exception as e:
+                log_sheets(f"[GOOGLE-DOCS] ❌ Credentials creation failed: {str(e)}", "ERROR")
+                raise
+
+            log_sheets("[GOOGLE-DOCS] Refreshing token...")
+            request = google.auth.transport.requests.Request()
+            credentials.refresh(request)
+            log_sheets("[GOOGLE-DOCS] ✅ Token obtained successfully")
+
+            log_sheets("[GOOGLE-DOCS] Building Docs API service...")
+            service = build('docs', 'v1', credentials=credentials, cache_discovery=False)
+            cls._docs_service = service
+            log_sheets("[GOOGLE-DOCS] ✅ Google Docs API service initialized")
+            log_sheets("[GOOGLE-DOCS] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            return service
+        except Exception as e:
+            log_sheets(f"[GOOGLE-DOCS] ❌ CRITICAL: Service initialization failed: {str(e)}", "ERROR")
+            log_sheets(f"[GOOGLE-DOCS] Traceback: {traceback.format_exc()}", "ERROR")
+            raise
+
     @classmethod
     def _get_sheets_service(cls):
         """Get Google Sheets API service with detailed logging"""

@@ -264,6 +264,9 @@
       <a href="#fn-google-doc" class="sidebar-item">
         <i class="fas fa-file-alt"></i> read_google_doc
       </a>
+      <a href="#fn-write-google-doc" class="sidebar-item">
+        <i class="fas fa-file-edit"></i> write_google_doc
+      </a>
       <a href="#fn-telegram" class="sidebar-item">
         <i class="fab fa-telegram"></i> send_telegram_notification
       </a>
@@ -671,6 +674,102 @@ url: https://docs.google.com/document/d/1XYZ.../edit
         <div class="alert warning">
           <i class="fas fa-exclamation-triangle"></i>
           <div class="alert-text"><strong>Ограничение:</strong> Функция читает только публичные документы с доступом «Все, у кого есть ссылка → Просмотр». Приватные документы недоступны.</div>
+        </div>
+      </div>
+
+      <hr class="article-divider">
+
+      <!-- ===== WRITE GOOGLE DOC ===== -->
+      <div class="article" id="fn-write-google-doc">
+        <div class="article-header">
+          <div class="article-icon"><i class="fas fa-file-edit"></i></div>
+          <h1 class="article-title">Функция: write_google_doc</h1>
+          <span class="fn-badge integration"><i class="fas fa-plug"></i> Интеграция</span>
+        </div>
+        <p class="article-desc">Добавляет текст в конец Google Документа. Может добавить заголовок перед текстом. Использует тот же сервисный аккаунт что и Google Таблицы — отдельной настройки API не требуется.</p>
+
+        <div class="content-section">
+          <div class="section-header"><h2 class="section-title"><i class="fas fa-cog"></i> Настройка документа</h2></div>
+          <div class="section-body">
+            <ol class="steps">
+              <li>Откройте Google Документ, в который нужно записывать данные</li>
+              <li>Нажмите «Настроить доступ» → добавьте email сервисного аккаунта с правами <strong>Редактор</strong></li>
+              <li>Email сервисного аккаунта указан в разделе «Интеграции» в настройках Voicyfy</li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="content-section">
+          <div class="section-header"><h2 class="section-title"><i class="fas fa-terminal"></i> Промпт-пример — Итоги звонка</h2></div>
+          <div class="section-body">
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">Системный промпт</span><button class="copy-btn" onclick="copyCode(this,'code-wdoc-prompt1')"><i class="fas fa-copy"></i> Копировать</button></div>
+              <div class="code-content"><pre id="code-wdoc-prompt1">Ты — менеджер по продажам.
+После каждого разговора записывай итоги в рабочий документ.
+
+Документ итогов: https://docs.google.com/document/d/1ABC.../edit
+
+По завершении звонка вызови write_google_doc:
+- url: https://docs.google.com/document/d/1ABC.../edit
+- heading: "Звонок [дата] — [имя клиента]"
+- text: "Телефон: [номер]
+Интерес: [что обсуждали]
+Результат: [договорились о чём]
+Следующий шаг: [действие]"</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-section">
+          <div class="section-header"><h2 class="section-title"><i class="fas fa-terminal"></i> Промпт-пример — Лог заявок</h2></div>
+          <div class="section-body">
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">Системный промпт</span><button class="copy-btn" onclick="copyCode(this,'code-wdoc-prompt2')"><i class="fas fa-copy"></i> Копировать</button></div>
+              <div class="code-content"><pre id="code-wdoc-prompt2">Ты — оператор горячей линии. Фиксируй каждую заявку в документе.
+
+Документ: https://docs.google.com/document/d/1XYZ.../edit
+
+После получения заявки вызови write_google_doc:
+- url: https://docs.google.com/document/d/1XYZ.../edit
+- heading: "[Время] Заявка от [имя]"
+- text: "Контакт: [телефон]
+Запрос: [суть]
+Приоритет: [высокий/средний/низкий]"</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-section">
+          <div class="section-header"><h2 class="section-title"><i class="fas fa-eye"></i> Как выглядит результат в документе</h2></div>
+          <div class="section-body">
+            <div class="code-block">
+              <div class="code-header"><span class="code-lang">Google Документ</span><button class="copy-btn" onclick="copyCode(this,'code-wdoc-result')"><i class="fas fa-copy"></i> Копировать</button></div>
+              <div class="code-content"><pre id="code-wdoc-result">## Звонок 10.05.2025 — Иван Петров
+Телефон: +79991234567
+Интерес: Тариф Про, 3 пользователя
+Результат: Отправить КП на почту
+Следующий шаг: Перезвонить в пятницу
+
+## Звонок 10.05.2025 — Мария Сидорова
+Телефон: +79161234567
+Интерес: Демо-доступ
+Результат: Создан тестовый аккаунт
+Следующий шаг: Созвон через неделю</pre></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="content-section">
+          <div class="section-header"><h2 class="section-title"><i class="fas fa-question-circle"></i> Вопросы по функции</h2></div>
+          <div class="section-body">
+            <table class="wiki-table">
+              <tbody>
+                <tr><td style="color:var(--text-gray);width:40%">Куда добавляется текст?</td><td>Всегда в конец документа — существующий текст не затрагивается</td></tr>
+                <tr><td style="color:var(--text-gray)">Можно ли писать в середину?</td><td>Нет, только append в конец. Для большинства задач (лог, заметки) этого достаточно</td></tr>
+                <tr><td style="color:var(--text-gray)">Отличие от Google Sheets?</td><td>Docs — для свободного текста и заметок, Sheets — для структурированных данных с колонками</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
