@@ -250,7 +250,6 @@ class OpenAIRealtimeClientNew:
 
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
-            ("OpenAI-Beta", "realtime=v1"),
             ("User-Agent", "WellcomeAI-Production/3.3-FunctionLogsFix")
         ]
         

@@ -3122,7 +3122,7 @@ async def get_outbound_config(
             functions=functions if functions else None,
             google_sheet_id=google_sheet_id,
             model=(
-                "gpt-4o-realtime-preview" if assistant_type == "openai"
+                "gpt-realtime-1.5" if assistant_type == "openai"
                 else (assistant.model if assistant_type == "gemini" else None)
             ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
@@ -4558,7 +4558,7 @@ async def get_scenario_config(
             functions=functions if functions else None,
             google_sheet_id=google_sheet_id,
             model=(
-                "gpt-4o-realtime-preview" if phone_record.assistant_type == "openai"
+                "gpt-realtime-1.5" if phone_record.assistant_type == "openai"
                 else (assistant.model if phone_record.assistant_type == "gemini" else None)
             ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
