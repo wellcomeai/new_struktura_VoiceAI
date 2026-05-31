@@ -1321,12 +1321,12 @@ async def handle_openai_messages_new(
                         user_transcript = response_data.get("transcript", "")
                         log_to_render(f"👤 USER TRANSCRIPT: {user_transcript}")
                 
-                # Transcript events
-                if msg_type == "response.audio_transcript.delta":
+                # Transcript events (gpt-realtime-2 uses "output_audio_transcript", legacy GA uses "audio_transcript")
+                if msg_type in ("response.audio_transcript.delta", "response.output_audio_transcript.delta"):
                     delta_text = response_data.get("delta", "")
                     assistant_transcript += delta_text
-                
-                if msg_type == "response.audio_transcript.done":
+
+                if msg_type in ("response.audio_transcript.done", "response.output_audio_transcript.done"):
                     transcript = response_data.get("transcript", "")
                     if transcript:
                         assistant_transcript = transcript

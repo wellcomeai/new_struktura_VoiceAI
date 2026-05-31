@@ -2195,11 +2195,29 @@
                 return;
               }
               
-              // Игнорируем неизвестные типы сообщений с .ack
-              if (data.type && data.type.includes('.ack')) {
+              // Игнорируем служебные события OpenAI gpt-realtime-2, которые виджету не нужны
+              const IGNORED_PREFIXES = [
+                '.ack',
+                'conversation.item.added',
+                'conversation.item.done',
+                'conversation.item.input_audio_transcription',
+                'response.created',
+                'response.output_item.',
+                'response.content_part.',
+                'response.output_audio_transcript.',
+                'response.output_audio.done',
+                'input_audio_buffer.committed',
+                'input_audio_buffer.cleared',
+                'rate_limits.updated'
+              ];
+              if (data.type && IGNORED_PREFIXES.some(prefix => data.type.includes(prefix))) {
                 return;
               }
-              
+              if (data.type === 'pong') {
+                lastPongTime = Date.now();
+                return;
+              }
+
               widgetLog(`[v4.0] Неизвестный тип сообщения: ${data.type}`, "warn");
               
             } catch (parseError) {
