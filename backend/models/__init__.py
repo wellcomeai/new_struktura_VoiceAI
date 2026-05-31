@@ -40,6 +40,9 @@ from .grok_assistant import GrokAssistantConfig, GrokConversation, GrokVoice
 # ✅ НОВОЕ v4.0: Импортируем Cartesia модель для Cartesia TTS
 from .cartesia_assistant import CartesiaAssistantConfig
 
+# ✅ НОВОЕ v1.0: Импортируем Translate модели (OpenAI Realtime Translation API)
+from .translate_assistant import TranslateAssistantConfig, TranslateConversation
+
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
 
@@ -94,6 +97,9 @@ __all__ = [
     "GrokVoice",
     # ✅ НОВОЕ v4.0: Cartesia модель
     "CartesiaAssistantConfig",
+    # ✅ НОВОЕ v1.0: Translate модели (OpenAI Realtime Translation)
+    "TranslateAssistantConfig",
+    "TranslateConversation",
     # ✅ НОВОЕ: CRM модели
     "Contact",
     "ContactNote",

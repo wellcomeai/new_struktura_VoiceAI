@@ -20,6 +20,8 @@ from .assistants import router as assistants_router
 from .gemini_assistants import router as gemini_assistants_router
 from .grok_assistants import router as grok_assistants_router  # 🆕 v3.0: Grok CRUD
 from .cartesia_assistants import router as cartesia_assistants_router  # 🆕 v4.0: Cartesia CRUD
+from .translate_assistants import router as translate_assistants_router  # 🆕 v1.0: Translate CRUD
+from .translate_ws import router as translate_ws_router  # 🆕 v1.0: Translate WebSocket
 from .files import router as files_router
 from .websocket import router as websocket_router
 from .gemini_ws import router as gemini_ws_router
@@ -50,6 +52,8 @@ api_router.include_router(users_router, tags=["Users"])
 api_router.include_router(gemini_assistants_router, prefix="/gemini-assistants", tags=["Gemini Assistants"])
 api_router.include_router(grok_assistants_router, prefix="/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 api_router.include_router(cartesia_assistants_router, prefix="/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
+api_router.include_router(translate_assistants_router, prefix="/translate-assistants", tags=["Translate Assistants"])  # 🆕 v1.0
+api_router.include_router(translate_ws_router, tags=["Translate WebSocket"])  # 🆕 v1.0
 api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(websocket_router, tags=["WebSocket"])
 api_router.include_router(gemini_ws_router, tags=["Gemini WebSocket"])
@@ -79,6 +83,8 @@ __all__ = [
     "gemini_assistants_router",
     "grok_assistants_router",  # 🆕 v3.0
     "cartesia_assistants_router",  # 🆕 v4.0
+    "translate_assistants_router",  # 🆕 v1.0
+    "translate_ws_router",  # 🆕 v1.0
     "files_router",
     "websocket_router",
     "gemini_ws_router",

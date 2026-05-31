@@ -70,6 +70,7 @@ class User(Base, BaseModel):
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
     grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v2.9
     cartesia_assistants = relationship("CartesiaAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v4.0
+    translate_assistants = relationship("TranslateAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v1.0
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
     subscription_plan_rel = relationship("SubscriptionPlan", foreign_keys=[subscription_plan_id])
     elevenlabs_agents = relationship("ElevenLabsAgent", back_populates="user", cascade="all, delete-orphan")

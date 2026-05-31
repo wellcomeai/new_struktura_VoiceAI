@@ -362,7 +362,18 @@ const api = {
     console.log(`[API] Получение кода встраивания для Gemini агента ${id}`);
     return this.get(`/gemini-assistants/${id}/embed-code`);
   },
-  
+
+  // ============================================================================
+  // 🆕 v1.0: ПЕРЕВОДЧИК (Translate Assistants)
+  // ============================================================================
+
+  getTranslateAssistants() { return this.get('/translate-assistants'); },
+  getTranslateAssistant(id) { return this.get(`/translate-assistants/${id}`); },
+  createTranslateAssistant(data) { return this.post('/translate-assistants', data); },
+  updateTranslateAssistant(id, data) { return this.put(`/translate-assistants/${id}`, data); },
+  deleteTranslateAssistant(id) { return this.delete(`/translate-assistants/${id}`); },
+  getTranslateEmbedCode(id) { return this.get(`/translate-assistants/${id}/embed-code`); },
+
   // ============================================================================
   // ФУНКЦИИ
   // ============================================================================

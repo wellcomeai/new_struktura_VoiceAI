@@ -141,6 +141,7 @@ async function loadAssistantsLimitInfo() {
       assistantsLimitInfo = {
         openaiCount: 0,
         geminiCount: 0,
+        translateCount: 0,
         totalCount: 0,
         maxAllowed: 999999,
         canCreate: true
@@ -149,7 +150,7 @@ async function loadAssistantsLimitInfo() {
     }
     
     // Параллельно запрашиваем все данные
-    const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
+    const [openaiAssistants, geminiAssistants, translateAssistants, subscription] = await Promise.all([
       api.getAssistants().catch(err => {
         console.warn('[LIMITS] Ошибка загрузки OpenAI ассистентов:', err);
         return [];
@@ -158,15 +159,21 @@ async function loadAssistantsLimitInfo() {
         console.warn('[LIMITS] Ошибка загрузки Gemini ассистентов:', err);
         return [];
       }),
+      // 🆕 v1.0: Учитываем переводчиков в общем лимите ассистентов
+      api.getTranslateAssistants().catch(err => {
+        console.warn('[LIMITS] Ошибка загрузки переводчиков:', err);
+        return [];
+      }),
       api.getSubscription().catch(err => {
         console.warn('[LIMITS] Ошибка загрузки подписки:', err);
         return null;
       })
     ]);
-    
+
     const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
     const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
-    const totalCount = openaiCount + geminiCount;
+    const translateCount = Array.isArray(translateAssistants) ? translateAssistants.length : 0;
+    const totalCount = openaiCount + geminiCount + translateCount;
     
     // Определяем лимит с учётом привилегий
     let maxAllowed = 3; // Дефолтный лимит
@@ -190,11 +197,12 @@ async function loadAssistantsLimitInfo() {
     assistantsLimitInfo = {
       openaiCount,
       geminiCount,
+      translateCount,
       totalCount,
       maxAllowed,
       canCreate: totalCount < maxAllowed
     };
-    
+
     console.log('[LIMITS] Информация о лимитах:', assistantsLimitInfo);
     
     return assistantsLimitInfo;
@@ -205,6 +213,7 @@ async function loadAssistantsLimitInfo() {
     assistantsLimitInfo = {
       openaiCount: 0,
       geminiCount: 0,
+      translateCount: 0,
       totalCount: 0,
       maxAllowed: 3,
       canCreate: true

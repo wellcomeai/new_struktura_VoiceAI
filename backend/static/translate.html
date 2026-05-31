@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Переводчик — Voicyfy</title>
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+:root {
+  --bg: #F5F6F8;
+  --white: #FFFFFF;
+  --blue: #378ADD;
+  --blue-dark: #185FA5;
+  --blue-light: #F0F4FF;
+  --blue-border: #C8D8F8;
+  --text: #1a1a2e;
+  --muted: #888780;
+  --border: #E0E3E8;
+  --green: #1D9E75;
+  --red: #E24B4A;
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+.page { max-width:880px; margin:0 auto; padding:32px 20px 64px; }
+
+.page-head { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.page-title { font-size:24px; font-weight:700; }
+.badge-realtime { background:#FEF3C7; color:#92400E; font-size:10px; padding:3px 8px; border-radius:4px; text-transform:uppercase; font-weight:700; letter-spacing:.5px; }
+.page-sub { color:var(--muted); font-size:14px; margin-bottom:28px; }
+
+.btn { border:none; border-radius:var(--radius-sm); padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; transition:.2s; display:inline-flex; align-items:center; gap:8px; }
+.btn-primary { background:var(--blue); color:#fff; }
+.btn-primary:hover { background:var(--blue-dark); }
+.btn-ghost { background:var(--white); color:var(--text); border:1px solid var(--border); }
+.btn-ghost:hover { background:var(--blue-light); }
+.btn-danger { background:var(--red); color:#fff; }
+
+.toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+
+.cards { display:grid; gap:14px; }
+.card { background:var(--white); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); }
+.card-row { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.card-name { font-size:16px; font-weight:600; margin-bottom:4px; }
+.card-meta { color:var(--muted); font-size:13px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.lang-pill { background:var(--blue-light); color:var(--blue-dark); border:1px solid var(--blue-border); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:600; }
+.card-actions { display:flex; gap:8px; flex-shrink:0; }
+.icon-btn { width:36px; height:36px; border-radius:8px; border:1px solid var(--border); background:var(--white); color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:.2s; }
+.icon-btn:hover { background:var(--blue-light); color:var(--blue); border-color:var(--blue-border); }
+
+.empty { text-align:center; padding:60px 20px; color:var(--muted); }
+.empty i { font-size:42px; color:var(--blue-border); margin-bottom:14px; }
+
+/* Modal */
+.overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); display:none; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+.overlay.show { display:flex; }
+.modal { background:var(--white); border-radius:var(--radius); width:100%; max-width:480px; padding:26px; box-shadow:0 20px 60px rgba(0,0,0,.2); max-height:90vh; overflow-y:auto; }
+.modal-title { font-size:18px; font-weight:700; margin-bottom:6px; }
+.modal-text { color:var(--muted); font-size:14px; margin-bottom:20px; line-height:1.5; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; }
+
+.field { margin-bottom:16px; }
+.field label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; }
+.field input[type=text], .field textarea, .field select {
+  width:100%; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; font-size:14px; font-family:inherit; color:var(--text); background:var(--white);
+}
+.field textarea { resize:vertical; min-height:60px; }
+.field .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+.check { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:14px; }
+.check input { width:16px; height:16px; }
+
+.embed-box { background:#0f172a; color:#e2e8f0; border-radius:var(--radius-sm); padding:14px; font-family:'SF Mono',Menlo,monospace; font-size:12px; white-space:pre-wrap; word-break:break-all; margin-bottom:14px; }
+
+.loading { text-align:center; padding:50px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-head">
+    <span class="page-title"><i class="fas fa-language" style="color:var(--blue);margin-right:8px;"></i>Переводчик</span>
+    <span class="badge-realtime">realtime</span>
+  </div>
+  <div class="page-sub">Перевод речи в реальном времени на базе OpenAI Realtime Translation. Встраивается на сайт виджетом.</div>
+
+  <div id="content">
+    <div class="loading"><i class="fas fa-spinner fa-spin"></i> Загрузка…</div>
+  </div>
+</div>
+
+<!-- Модалка: нет OpenAI ключа -->
+<div class="overlay" id="keyModal">
+  <div class="modal">
+    <div class="modal-title">Нужен OpenAI API ключ</div>
+    <div class="modal-text">Для работы переводчика нужен OpenAI API ключ. Сейчас перенаправим на вкладку «OpenAI Агенты», чтобы его указать.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="keyCancelBtn">Отмена</button>
+      <button class="btn btn-primary" id="keyGoBtn">Перейти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: форма создания/редактирования -->
+<div class="overlay" id="formModal">
+  <div class="modal">
+    <div class="modal-title" id="formTitle">Новый переводчик</div>
+    <div class="modal-text">Настройте перевод. Входной язык определяется автоматически.</div>
+    <input type="hidden" id="editId">
+    <div class="field">
+      <label>Название</label>
+      <input type="text" id="f_name" placeholder="Например, Перевод для поддержки">
+    </div>
+    <div class="field">
+      <label>Описание</label>
+      <textarea id="f_description" placeholder="Необязательно"></textarea>
+    </div>
+    <div class="field">
+      <label>Язык перевода</label>
+      <select id="f_output_language"></select>
+    </div>
+    <div class="field">
+      <label>Приветственное сообщение</label>
+      <input type="text" id="f_greeting" placeholder="Необязательно">
+    </div>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="f_transcript" checked> Показывать транскрипт исходной речи</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="formCancelBtn">Отмена</button>
+      <button class="btn btn-primary" id="formSaveBtn">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: embed-код -->
+<div class="overlay" id="embedModal">
+  <div class="modal">
+    <div class="modal-title">Код встраивания</div>
+    <div class="modal-text">Вставьте этот код на свой сайт перед закрывающим тегом &lt;/body&gt;.</div>
+    <div class="embed-box" id="embedCode"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="embedCloseBtn">Закрыть</button>
+      <button class="btn btn-primary" id="embedCopyBtn">Скопировать</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Языки перевода (13) ────────────────────────────────────────────────
+const LANGUAGES = [
+  { code:'ru', flag:'🇷🇺', name:'Русский' },
+  { code:'en', flag:'🇬🇧', name:'Английский' },
+  { code:'es', flag:'🇪🇸', name:'Испанский' },
+  { code:'fr', flag:'🇫🇷', name:'Французский' },
+  { code:'de', flag:'🇩🇪', name:'Немецкий' },
+  { code:'it', flag:'🇮🇹', name:'Итальянский' },
+  { code:'pt', flag:'🇵🇹', name:'Португальский' },
+  { code:'nl', flag:'🇳🇱', name:'Нидерландский' },
+  { code:'pl', flag:'🇵🇱', name:'Польский' },
+  { code:'ja', flag:'🇯🇵', name:'Японский' },
+  { code:'ko', flag:'🇰🇷', name:'Корейский' },
+  { code:'zh', flag:'🇨🇳', name:'Китайский' },
+  { code:'ar', flag:'🇸🇦', name:'Арабский' }
+];
+function langLabel(code) {
+  const l = LANGUAGES.find(x => x.code === code);
+  return l ? (l.flag + ' ' + l.name) : code;
+}
+
+// ── Auth / API ──────────────────────────────────────────────────────────
+function getToken() { return localStorage.getItem('auth_token'); }
+
+async function apiFetch(url, options = {}) {
+  const token = getToken();
+  if (!token) { location.href = '/static/login.html'; throw new Error('no token'); }
+  const headers = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(options.headers || {}) };
+  const resp = await fetch(url, { ...options, headers });
+  if (resp.status === 401) { localStorage.removeItem('auth_token'); location.href = '/static/login.html'; throw new Error('unauthorized'); }
+  return resp;
+}
+
+// ── Элементы ──────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function showModal(id) { $(id).classList.add('show'); }
+function hideModal(id) { $(id).classList.remove('show'); }
+
+// ── Инициализация ───────────────────────────────────────────────────────
+async function init() {
+  // Гард на OpenAI ключ
+  try {
+    const resp = await apiFetch('/api/users/me');
+    const user = await resp.json();
+    if (user.has_api_key === false) {
+      showModal('keyModal');
+      return;
+    }
+  } catch (e) {
+    console.error('init error', e);
+    $('content').innerHTML = '<div class="empty"><i class="fas fa-triangle-exclamation"></i><div>Не удалось загрузить данные</div></div>';
+    return;
+  }
+
+  // Заполняем dropdown языков
+  $('f_output_language').innerHTML = LANGUAGES
+    .map(l => `<option value="${l.code}">${l.flag} ${l.name}</option>`).join('');
+
+  await loadList();
+}
+
+let CURRENT_ITEMS = [];
+
+async function loadList() {
+  $('content').innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Загрузка…</div>';
+  try {
+    const resp = await apiFetch('/api/translate-assistants');
+    const items = await resp.json();
+    CURRENT_ITEMS = Array.isArray(items) ? items : [];
+    renderList(CURRENT_ITEMS);
+  } catch (e) {
+    console.error(e);
+    $('content').innerHTML = '<div class="empty"><i class="fas fa-triangle-exclamation"></i><div>Ошибка загрузки</div></div>';
+  }
+}
+
+function renderList(items) {
+  let html = '<div class="toolbar"><div></div>'
+    + '<button class="btn btn-primary" onclick="openCreate()"><i class="fas fa-plus"></i> Новый переводчик</button></div>';
+
+  if (!items || items.length === 0) {
+    html += '<div class="empty"><i class="fas fa-language"></i><div>У вас пока нет переводчиков</div>'
+      + '<div style="margin-top:8px;font-size:13px;">Создайте первый, чтобы получить код встраивания.</div></div>';
+    $('content').innerHTML = html;
+    return;
+  }
+
+  html += '<div class="cards">';
+  items.forEach(a => {
+    html += `<div class="card"><div class="card-row">
+      <div>
+        <div class="card-name">${escapeHtml(a.name)}</div>
+        <div class="card-meta">
+          <span class="lang-pill">${langLabel(a.output_language)}</span>
+          ${a.description ? '<span>' + escapeHtml(a.description) + '</span>' : ''}
+          <span><i class="fas fa-comments"></i> ${a.total_conversations || 0}</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="icon-btn" title="Код встраивания" onclick="openEmbed('${a.id}')"><i class="fas fa-code"></i></button>
+        <button class="icon-btn" title="Редактировать" onclick="openEdit('${a.id}')"><i class="fas fa-pen"></i></button>
+        <button class="icon-btn" title="Удалить" onclick="deleteItem('${a.id}','${escapeHtml(a.name)}')"><i class="fas fa-trash"></i></button>
+      </div>
+    </div></div>`;
+  });
+  html += '</div>';
+  $('content').innerHTML = html;
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Create / Edit ─────────────────────────────────────────────────────
+function openCreate() {
+  $('formTitle').textContent = 'Новый переводчик';
+  $('editId').value = '';
+  $('f_name').value = '';
+  $('f_description').value = '';
+  $('f_output_language').value = 'ru';
+  $('f_greeting').value = '';
+  $('f_transcript').checked = true;
+  showModal('formModal');
+}
+
+function openEdit(id) {
+  const a = CURRENT_ITEMS.find(x => x.id === id);
+  if (!a) return;
+  $('formTitle').textContent = 'Редактировать переводчик';
+  $('editId').value = a.id;
+  $('f_name').value = a.name || '';
+  $('f_description').value = a.description || '';
+  $('f_output_language').value = a.output_language || 'ru';
+  $('f_greeting').value = a.greeting_message || '';
+  $('f_transcript').checked = a.enable_source_transcript !== false;
+  showModal('formModal');
+}
+
+async function saveForm() {
+  const id = $('editId').value;
+  const name = $('f_name').value.trim();
+  if (!name) { alert('Укажите название'); return; }
+
+  const payload = {
+    name,
+    description: $('f_description').value.trim() || null,
+    output_language: $('f_output_language').value,
+    greeting_message: $('f_greeting').value.trim() || null,
+    enable_source_transcript: $('f_transcript').checked
+  };
+
+  try {
+    let resp;
+    if (id) {
+      resp = await apiFetch('/api/translate-assistants/' + id, { method:'PUT', body: JSON.stringify(payload) });
+    } else {
+      resp = await apiFetch('/api/translate-assistants', { method:'POST', body: JSON.stringify(payload) });
+    }
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      if (err.detail === 'openai_key_required') {
+        hideModal('formModal');
+        showModal('keyModal');
+        return;
+      }
+      const msg = typeof err.detail === 'string' ? err.detail
+        : (err.detail && err.detail.message) ? err.detail.message : 'Не удалось сохранить';
+      alert(msg);
+      return;
+    }
+
+    hideModal('formModal');
+    await loadList();
+  } catch (e) {
+    console.error(e);
+    alert('Ошибка сохранения');
+  }
+}
+
+async function deleteItem(id, name) {
+  if (!confirm('Удалить переводчик «' + name + '»?')) return;
+  try {
+    const resp = await apiFetch('/api/translate-assistants/' + id, { method:'DELETE' });
+    if (resp.ok) await loadList();
+    else alert('Не удалось удалить');
+  } catch (e) { console.error(e); alert('Ошибка удаления'); }
+}
+
+// ── Embed ─────────────────────────────────────────────────────────────
+async function openEmbed(id) {
+  try {
+    const resp = await apiFetch('/api/translate-assistants/' + id + '/embed-code');
+    if (!resp.ok) { alert('Не удалось получить код'); return; }
+    const data = await resp.json();
+    $('embedCode').textContent = data.embed_code;
+    showModal('embedModal');
+  } catch (e) { console.error(e); alert('Ошибка'); }
+}
+
+// ── Слушатели ─────────────────────────────────────────────────────────
+$('keyGoBtn').addEventListener('click', () => { window.location.href = '/static/agents.html'; });
+$('keyCancelBtn').addEventListener('click', () => { window.location.href = '/static/dashboard.html'; });
+$('formCancelBtn').addEventListener('click', () => hideModal('formModal'));
+$('formSaveBtn').addEventListener('click', saveForm);
+$('embedCloseBtn').addEventListener('click', () => hideModal('embedModal'));
+$('embedCopyBtn').addEventListener('click', () => {
+  navigator.clipboard.writeText($('embedCode').textContent).then(() => {
+    $('embedCopyBtn').textContent = 'Скопировано!';
+    setTimeout(() => { $('embedCopyBtn').textContent = 'Скопировать'; }, 1500);
+  });
+});
+
+init();
+</script>
+</body>
+</html>

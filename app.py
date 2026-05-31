@@ -36,6 +36,8 @@ from backend.api import (
     grok_ws,  # 🆕 v3.0: Grok WebSocket API
     grok_assistants,  # 🆕 v3.0: Grok Assistants CRUD API
     cartesia_assistants,  # 🆕 v4.0: Cartesia Assistants CRUD API
+    translate_assistants,  # 🆕 v1.0: Translate Assistants CRUD API
+    translate_ws,  # 🆕 v1.0: Translate WebSocket API
     contacts,  # ✅ CRM API
     functions,
     voximplant_settings,
@@ -166,8 +168,10 @@ app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistant
 app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])
 app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 app.include_router(cartesia_assistants.router, prefix="/api/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
+app.include_router(translate_assistants.router, prefix="/api/translate-assistants", tags=["Translate Assistants"])  # 🆕 v1.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # BEFORE websocket.router — /ws/llm-stream must match before /ws/{assistant_id}
+app.include_router(translate_ws.router, tags=["Translate WebSocket"])  # BEFORE websocket.router — /ws/translate/{id} must match before /ws/{assistant_id}
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(grok_ws.router, tags=["Grok WebSocket"])  # 🆕 v3.0
 app.include_router(healthcheck.router, tags=["Health"])
