@@ -1,23 +1,16 @@
 /**
  * WellcomeAI Widget Loader Script
- * Версия: 3.2.2 - Server VAD Only (No Client Commit)
+ * Версия: 4.0 - gpt-realtime-2 compatibility
  *
- * ✅ Использует OpenAI Realtime GA API
- * ✅ Model: gpt-realtime-mini
- * ✅ Совместим с handler_realtime_new.py v2.12.4 + openai_client_new.py v3.1
+ * ✅ Использует OpenAI Realtime API (gpt-realtime-2)
+ * ✅ Совместим с handler_realtime_new.py v3.0 + openai_client_new.py v4.0
  * ✅ Автоматический захват DOM каждые 3 секунды
  *
- * ✨ NEW in v3.2.2 - SERVER VAD ONLY:
- * 🔇 Удалён клиентский commit — server VAD единственный механизм
- * 🔇 Убрана детекция тишины из onaudioprocess
- * 🔊 Воспроизведение через AudioContext (AEC работает корректно)
- * 🔊 Пауза стриминга ~300мс после окончания воспроизведения (echo tail)
- * 🧹 Освобождение audioProcessor при закрытии виджета
- *
- * Previous features maintained:
- * ⚡ Streaming audio playback
- * ⚡ Instant UI feedback
- * 🎨 Clean UX без технических деталей
+ * ✨ v4.0 changes:
+ * - Совместим с новой моделью gpt-realtime-2 на сервере
+ * - Косметическое обновление версий
+ * - Server VAD единственный механизм коммита
+ * - Воспроизведение через AudioContext (AEC работает корректно)
  */
 
 (function() {
@@ -59,12 +52,12 @@
   // Функция для логирования
   const widgetLog = (message, type = 'info') => {
     if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('render.com')) {
-      const logPrefix = '[WellcomeAI Widget v3.2.1]';
+      const logPrefix = '[WellcomeAI Widget v4.0]';
       const timestamp = new Date().toISOString().slice(11, 23);
       const formattedMessage = `${timestamp} | ${type.toUpperCase()} | ${message}`;
       console.log(`${logPrefix} ${formattedMessage}`);
     } else if (DEBUG_MODE || type === 'error') {
-      const prefix = '[WellcomeAI Widget v3.2.1]';
+      const prefix = '[WellcomeAI Widget v4.0]';
       if (type === 'error') {
         console.error(`${prefix} ERROR:`, message);
       } else if (type === 'warn') {
@@ -212,8 +205,8 @@
   // Формируем WebSocket URL с указанием ID ассистента
   const WS_URL = SERVER_URL.replace(/^http/, 'ws') + '/ws/' + ASSISTANT_ID;
   
-  widgetLog(`[v3.2.1 Clean UI] Configuration: Server: ${SERVER_URL}, Assistant: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
-  widgetLog(`[v3.2.1 Clean UI] WebSocket URL: ${WS_URL}`);
+  widgetLog(`[v4.0 Clean UI] Configuration: Server: ${SERVER_URL}, Assistant: ${ASSISTANT_ID}, Position: ${WIDGET_POSITION.vertical}-${WIDGET_POSITION.horizontal}`);
+  widgetLog(`[v4.0 Clean UI] WebSocket URL: ${WS_URL}`);
   widgetLog(`Device: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
 
   // ============= SCREEN CAPTURE FUNCTIONS =============
@@ -222,22 +215,22 @@
   function loadHtml2Canvas() {
     return new Promise((resolve, reject) => {
       if (window.html2canvas) {
-        widgetLog('[v3.2.1 SCREEN] html2canvas already loaded');
+        widgetLog('[v4.0 SCREEN] html2canvas already loaded');
         html2canvasLoaded = true;
         resolve();
         return;
       }
       
-      widgetLog('[v3.2.1 SCREEN] Loading html2canvas library...');
+      widgetLog('[v4.0 SCREEN] Loading html2canvas library...');
       const script = document.createElement('script');
       script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
       script.onload = () => {
-        widgetLog('[v3.2.1 SCREEN] html2canvas loaded successfully');
+        widgetLog('[v4.0 SCREEN] html2canvas loaded successfully');
         html2canvasLoaded = true;
         resolve();
       };
       script.onerror = (error) => {
-        widgetLog('[v3.2.1 SCREEN] Failed to load html2canvas', 'error');
+        widgetLog('[v4.0 SCREEN] Failed to load html2canvas', 'error');
         reject(error);
       };
       document.head.appendChild(script);
@@ -247,12 +240,12 @@
   // Функция автоматического захвата страницы
   async function capturePageContext() {
     if (!window.html2canvas || !html2canvasLoaded) {
-      widgetLog('[v3.2.1 SCREEN] html2canvas not available', 'warn');
+      widgetLog('[v4.0 SCREEN] html2canvas not available', 'warn');
       return null;
     }
     
     try {
-      widgetLog('[v3.2.1 SCREEN] Starting page capture...');
+      widgetLog('[v4.0 SCREEN] Starting page capture...');
       
       // Захватываем body страницы (без виджета)
       const canvas = await window.html2canvas(document.body, {
@@ -274,12 +267,12 @@
       const imageBase64 = canvas.toDataURL('image/jpeg', 0.6); // JPEG 60% качества
       
       const sizeKB = Math.round(imageBase64.length / 1024);
-      widgetLog(`[v3.2.1 SCREEN] Page captured successfully, size: ${sizeKB}KB`);
+      widgetLog(`[v4.0 SCREEN] Page captured successfully, size: ${sizeKB}KB`);
       
       return imageBase64;
       
     } catch (error) {
-      widgetLog(`[v3.2.1 SCREEN] Capture failed: ${error.message}`, 'error');
+      widgetLog(`[v4.0 SCREEN] Capture failed: ${error.message}`, 'error');
       return null;
     }
   }
@@ -287,7 +280,7 @@
   // Отправка контекста экрана ассистенту
   async function sendScreenContextToAssistant(websocketConnection) {
     if (!websocketConnection || websocketConnection.readyState !== WebSocket.OPEN) {
-      widgetLog('[v3.2.1 SCREEN] WebSocket not ready for screen context', 'warn');
+      widgetLog('[v4.0 SCREEN] WebSocket not ready for screen context', 'warn');
       return;
     }
     
@@ -305,25 +298,25 @@
         timestamp: Date.now()
       }));
       
-      widgetLog('[v3.2.1 SCREEN] Context sent silently to assistant');
+      widgetLog('[v4.0 SCREEN] Context sent silently to assistant');
     } catch (error) {
-      widgetLog(`[v3.2.1 SCREEN] Failed to send context: ${error.message}`, 'error');
+      widgetLog(`[v4.0 SCREEN] Failed to send context: ${error.message}`, 'error');
     }
   }
 
   // Запуск автоматического мониторинга
   function startScreenMonitoring(websocketConnection) {
     if (isScreenMonitoringActive) {
-      widgetLog('[v3.2.1 SCREEN] Monitoring already active');
+      widgetLog('[v4.0 SCREEN] Monitoring already active');
       return;
     }
     
     if (!html2canvasLoaded) {
-      widgetLog('[v3.2.1 SCREEN] html2canvas not loaded, cannot start monitoring', 'warn');
+      widgetLog('[v4.0 SCREEN] html2canvas not loaded, cannot start monitoring', 'warn');
       return;
     }
     
-    widgetLog(`[v3.2.1 SCREEN] Starting automatic screen monitoring (every ${SCREEN_CAPTURE_INTERVAL/1000} seconds)`);
+    widgetLog(`[v4.0 SCREEN] Starting automatic screen monitoring (every ${SCREEN_CAPTURE_INTERVAL/1000} seconds)`);
     isScreenMonitoringActive = true;
     
     // Первый захват сразу после небольшой задержки
@@ -347,7 +340,7 @@
       return;
     }
     
-    widgetLog('[v3.2.1 SCREEN] Stopping screen monitoring');
+    widgetLog('[v4.0 SCREEN] Stopping screen monitoring');
     isScreenMonitoringActive = false;
     
     if (screenMonitoringInterval) {
@@ -847,7 +840,7 @@
       
     `;
     document.head.appendChild(styleEl);
-    widgetLog("[v3.2.1] Styles created and added to head");
+    widgetLog("[v4.0] Styles created and added to head");
   }
 
   // Загрузка Font Awesome для иконок
@@ -932,7 +925,7 @@
 
     widgetContainer.innerHTML = widgetHTML;
     document.body.appendChild(widgetContainer);
-    widgetLog("[v3.2.1] HTML structure created and appended to body");
+    widgetLog("[v4.0] HTML structure created and appended to body");
     
     // Делаем кнопку виджета видимой
     const widgetButton = document.getElementById('wellcomeai-widget-button');
@@ -945,7 +938,7 @@
 
   // ОБНОВЛЕННАЯ инициализация аудио с специальной поддержкой iOS
   async function initializeAudio() {
-    widgetLog(`[v3.2.1 AUDIO] Начало инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
+    widgetLog(`[v4.0 AUDIO] Начало инициализации для ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
     try {
       // 1. Проверяем поддержку getUserMedia
@@ -960,13 +953,13 @@
           sampleRate: 24000,
           latencyHint: 'interactive'
         });
-        widgetLog(`[v3.2.1 AUDIO] AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
+        widgetLog(`[v4.0 AUDIO] AudioContext создан с частотой ${window.globalAudioContext.sampleRate} Гц`);
       }
 
       // 3. Активируем AudioContext если приостановлен
       if (window.globalAudioContext.state === 'suspended') {
         await window.globalAudioContext.resume();
-        widgetLog('[v3.2.1 AUDIO] AudioContext активирован');
+        widgetLog('[v4.0 AUDIO] AudioContext активирован');
       }
 
       // 4. Получаем доступ к микрофону с едиными настройками
@@ -982,12 +975,12 @@
         };
 
         window.globalMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-        widgetLog(`[v3.2.1 AUDIO] Микрофон активирован`);
+        widgetLog(`[v4.0 AUDIO] Микрофон активирован`);
 
         // Обработчик закрытия потока
         window.globalMicStream.getAudioTracks().forEach(track => {
           track.onended = () => {
-            widgetLog('[v3.2.1 AUDIO] Поток микрофона завершен');
+            widgetLog('[v4.0 AUDIO] Поток микрофона завершен');
             window.globalMicStream = null;
           };
         });
@@ -1007,9 +1000,9 @@
           silentSource.connect(window.globalAudioContext.destination);
           silentSource.start(0);
           
-          widgetLog('[v3.2.1 AUDIO iOS] Тишина воспроизведена для разблокировки iOS');
+          widgetLog('[v4.0 AUDIO iOS] Тишина воспроизведена для разблокировки iOS');
         } catch (iosError) {
-          widgetLog(`[v3.2.1 AUDIO iOS] Ошибка при создании буфера тишины: ${iosError.message}`, 'warn');
+          widgetLog(`[v4.0 AUDIO iOS] Ошибка при создании буфера тишины: ${iosError.message}`, 'warn');
         }
       }
 
@@ -1017,19 +1010,19 @@
       if (isMobile) {
         // Проверяем что контекст действительно работает
         if (window.globalAudioContext.state !== 'running') {
-          widgetLog('[v3.2.1 AUDIO Mobile] Пытаемся снова активировать AudioContext');
+          widgetLog('[v4.0 AUDIO Mobile] Пытаемся снова активировать AudioContext');
           await window.globalAudioContext.resume();
         }
       }
 
       // 7. Устанавливаем флаг успешной инициализации
       window.audioInitialized = true;
-      widgetLog('[v3.2.1 AUDIO] Инициализация завершена успешно');
+      widgetLog('[v4.0 AUDIO] Инициализация завершена успешно');
       
       return true;
 
     } catch (error) {
-      widgetLog(`[v3.2.1 AUDIO] Ошибка инициализации: ${error.message}`, 'error');
+      widgetLog(`[v4.0 AUDIO] Ошибка инициализации: ${error.message}`, 'error');
       return false;
     }
   }
@@ -1038,7 +1031,7 @@
   function initWidget() {
     // Проверяем, что ID ассистента существует
     if (!ASSISTANT_ID) {
-      widgetLog("[v3.2.1] Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
+      widgetLog("[v4.0] Assistant ID not found. Please add data-assistantId attribute to the script tag.", 'error');
       alert('WellcomeAI Widget Error: Assistant ID not found. Please check console for details.');
       return;
     }
@@ -1059,7 +1052,7 @@
     
     // Проверка элементов
     if (!widgetButton || !widgetClose || !mainCircle || !audioBars || !loaderModal || !messageDisplay) {
-      widgetLog("[v3.2.1] Some UI elements were not found!", 'error');
+      widgetLog("[v4.0] Some UI elements were not found!", 'error');
       return;
     }
     
@@ -1100,9 +1093,6 @@
     
     // ⚡ v3.2.0: Optimized audio config (synced with backend v3.1)
     const AUDIO_CONFIG = {
-      silenceThreshold: 0.01,
-      silenceDuration: isMobile ? 150 : 120,  // ⚡ Synced with backend optimizations
-      bufferCheckInterval: 50,
       soundDetectionThreshold: 0.02,
       amplificationFactor: isMobile ? 2.0 : 1.0
     };
@@ -1138,7 +1128,7 @@
         }
         return bytes.buffer;
       } catch (e) {
-        widgetLog(`[v3.2.1] Ошибка при декодировании base64: ${e.message}`, "error");
+        widgetLog(`[v4.0] Ошибка при декодировании base64: ${e.message}`, "error");
         return new ArrayBuffer(0);
       }
     }
@@ -1193,7 +1183,7 @@
       return wavBuffer;
     }
 
-    // v3.2.2: Воспроизведение через AudioContext — AEC работает корректно
+    // v4.0: Воспроизведение через AudioContext — AEC работает корректно
     function playNextAudio() {
       if (audioPlaybackQueue.length === 0) {
         if (typeof audioChunksBuffer !== 'undefined' && audioChunksBuffer.length > 0) {
@@ -1259,21 +1249,21 @@
             if (window.globalAudioContext.state === 'suspended') {
               window.globalAudioContext.resume().then(() => {
                 source.start(0);
-                widgetLog('[v3.2.2] Воспроизведение начато (iOS resume)');
+                widgetLog('[v4.0] Воспроизведение начато (iOS resume)');
               });
             } else {
               source.start(0);
-              widgetLog('[v3.2.2] Воспроизведение через AudioContext начато');
+              widgetLog('[v4.0] Воспроизведение через AudioContext начато');
             }
           },
           function(error) {
-            widgetLog(`[v3.2.2] decodeAudioData error: ${error}`, 'error');
+            widgetLog(`[v4.0] decodeAudioData error: ${error}`, 'error');
             playNextAudio();
           }
         );
 
       } catch (error) {
-        widgetLog(`[v3.2.2] Ошибка воспроизведения: ${error.message}`, 'error');
+        widgetLog(`[v4.0] Ошибка воспроизведения: ${error.message}`, 'error');
         playNextAudio();
       }
     }
@@ -1293,7 +1283,7 @@
     function handleInterruptionEvent(eventData) {
       const now = Date.now();
       
-      widgetLog(`[v3.2.1 INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
+      widgetLog(`[v4.0 INTERRUPTION] Получено событие перебивания: ${JSON.stringify(eventData)}`);
       
       interruptionState.interruption_count = eventData.interruption_count || (interruptionState.interruption_count + 1);
       interruptionState.last_interruption = eventData.timestamp || now;
@@ -1313,12 +1303,12 @@
       
       updateConnectionStatus('interrupted', `Перебивание #${interruptionState.interruption_count}`);
       
-      widgetLog(`[v3.2.1 INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
+      widgetLog(`[v4.0 INTERRUPTION] Обработано перебивание #${interruptionState.interruption_count}`);
     }
     
-    // v3.2.2: Остановка всех аудио воспроизведений
+    // v4.0: Остановка всех аудио воспроизведений
     function stopAllAudioPlayback() {
-      widgetLog('[v3.2.2] Остановка всех аудио воспроизведений');
+      widgetLog('[v4.0] Остановка всех аудио воспроизведений');
 
       isPlayingAudio = false;
       lastPlaybackEndTime = Date.now(); // хвост эха при принудительной остановке
@@ -1357,9 +1347,9 @@
       }
     }
     
-    // v3.2.2: Переключение в режим прослушивания
+    // v4.0: Переключение в режим прослушивания
     function switchToListeningMode() {
-      widgetLog('[v3.2.2] Переключение в режим прослушивания');
+      widgetLog('[v4.0] Переключение в режим прослушивания');
 
       if (isListening) return;
 
@@ -1383,7 +1373,7 @@
     
     // Обработка начала речи пользователя
     function handleSpeechStarted(eventData) {
-      widgetLog(`[v3.2.1 INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[v4.0 INTERRUPTION] Пользователь начал говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_user_speaking = true;
       
@@ -1399,7 +1389,7 @@
     
     // Обработка окончания речи пользователя
     function handleSpeechStopped(eventData) {
-      widgetLog(`[v3.2.1 INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[v4.0 INTERRUPTION] Пользователь закончил говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_user_speaking = false;
       
@@ -1413,21 +1403,21 @@
     
     // Обработка начала речи ассистента
     function handleAssistantSpeechStarted(eventData) {
-      widgetLog(`[v3.2.1 INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[v4.0 INTERRUPTION] Ассистент начал говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_assistant_speaking = true;
       
       mainCircle.classList.remove('listening', 'interrupted');
       mainCircle.classList.add('speaking');
       
-      // ⚡ v3.2.0: Instant UI feedback (but no message in v3.2.1 Clean UI)
+      // ⚡ v3.2.0: Instant UI feedback (but no message in v4.0 Clean UI)
       
       updateConnectionStatus('connected', 'Ассистент говорит');
     }
     
     // Обработка окончания речи ассистента
     function handleAssistantSpeechEnded(eventData) {
-      widgetLog(`[v3.2.1 INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
+      widgetLog(`[v4.0 INTERRUPTION] Ассистент закончил говорить: ${JSON.stringify(eventData)}`);
       
       interruptionState.is_assistant_speaking = false;
       
@@ -1473,7 +1463,7 @@
       }, 3000);
     }
 
-    // v3.2.2: Полная остановка всех аудио процессов
+    // v4.0: Полная остановка всех аудио процессов
     function stopAllAudioProcessing() {
       isListening = false;
 
@@ -1483,7 +1473,7 @@
       audioPlaybackQueue = [];
       firstAudioChunkReceived = false;
 
-      // v3.2.2: Disconnect audioProcessor (не обнуляем — пересоздастся в startListening)
+      // v4.0: Disconnect audioProcessor (не обнуляем — пересоздастся в startListening)
       if (audioProcessor) {
         try { audioProcessor.disconnect(); } catch(e) {}
       }
@@ -1567,7 +1557,7 @@
     
     // Открыть виджет
     async function openWidget() {
-      widgetLog("[v3.2.1] Opening widget");
+      widgetLog("[v4.0] Opening widget");
       
       widgetContainer.style.zIndex = "2147483647";
       widgetButton.style.zIndex = "2147483647";
@@ -1585,7 +1575,7 @@
       
       // ЕДИНАЯ ИНИЦИАЛИЗАЦИЯ для всех устройств при открытии виджета
       if (!window.audioInitialized) {
-        widgetLog('[v3.2.1 AUDIO] Начинаем инициализацию аудио при открытии виджета');
+        widgetLog('[v4.0 AUDIO] Начинаем инициализацию аудио при открытии виджета');
         
         const success = await initializeAudio();
         
@@ -1606,12 +1596,12 @@
 
         // Запускаем мониторинг экрана если доступен html2canvas и Vision AI включен
         if (window._visionEnabled && html2canvasLoaded && !isScreenMonitoringActive) {
-          widgetLog('[v3.2.1 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
+          widgetLog('[v4.0 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
           setTimeout(() => {
             startScreenMonitoring(websocket);
           }, 1000);
         } else if (!window._visionEnabled) {
-          widgetLog('[v3.2.1 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
+          widgetLog('[v4.0 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
         }
       } else if (isReconnecting) {
         updateConnectionStatus('connecting', 'Подключение...');
@@ -1622,21 +1612,21 @@
     
     // Закрыть виджет
     function closeWidget() {
-      widgetLog("[v3.2.1] Closing widget");
+      widgetLog("[v4.0] Closing widget");
 
       // Останавливаем мониторинг экрана
       stopScreenMonitoring();
 
       stopAllAudioProcessing();
 
-      // v3.2.2: Освобождаем audioProcessor при закрытии виджета
+      // v4.0: Освобождаем audioProcessor при закрытии виджета
       if (audioProcessor) {
         try {
           audioProcessor.disconnect();
           audioProcessor.onaudioprocess = null;
         } catch(e) {}
         audioProcessor = null;
-        widgetLog('[v3.2.2] AudioProcessor освобождён');
+        widgetLog('[v4.0] AudioProcessor освобождён');
       }
 
       widgetContainer.classList.remove('active');
@@ -1661,7 +1651,7 @@
         try {
           websocket.close(1000, 'Widget closed');
         } catch (e) {
-          widgetLog('[v3.2.1] Error closing websocket: ' + e.message, 'warn');
+          widgetLog('[v4.0] Error closing websocket: ' + e.message, 'warn');
         }
         websocket = null;
       }
@@ -1672,29 +1662,29 @@
       isConnected = false;
       isListening = false;
       isReconnecting = false;
-      widgetLog("[v3.2.1] WebSocket disconnected on widget close");
+      widgetLog("[v4.0] WebSocket disconnected on widget close");
     }
     
     // Начало записи голоса
     async function startListening() {
       if (!isConnected || isPlayingAudio || isReconnecting || isListening) {
-        widgetLog(`[v3.2.1] Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
+        widgetLog(`[v4.0] Не удается начать прослушивание: isConnected=${isConnected}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}, isListening=${isListening}`);
         return;
       }
       
       // Проверяем инициализацию аудио
       if (!window.audioInitialized || !window.globalAudioContext || !window.globalMicStream) {
-        widgetLog('[v3.2.1] Аудио не инициализировано, пытаемся инициализировать', 'warn');
+        widgetLog('[v4.0] Аудио не инициализировано, пытаемся инициализировать', 'warn');
         const success = await initializeAudio();
         if (!success) {
-          widgetLog('[v3.2.1] Не удалось инициализировать аудио', 'error');
+          widgetLog('[v4.0] Не удалось инициализировать аудио', 'error');
           showMessage("Ошибка доступа к микрофону");
           return;
         }
       }
       
       isListening = true;
-      widgetLog('[v3.2.1] Начинаем прослушивание');
+      widgetLog('[v4.0] Начинаем прослушивание');
       
       // Отправляем команду для очистки буфера ввода
       if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -1708,9 +1698,9 @@
       if (window.globalAudioContext.state === 'suspended') {
         try {
           await window.globalAudioContext.resume();
-          widgetLog('[v3.2.1] AudioContext возобновлен');
+          widgetLog('[v4.0] AudioContext возобновлен');
         } catch (error) {
-          widgetLog(`[v3.2.1] Не удалось возобновить AudioContext: ${error}`, 'error');
+          widgetLog(`[v4.0] Не удалось возобновить AudioContext: ${error}`, 'error');
           isListening = false;
           return;
         }
@@ -1721,9 +1711,9 @@
         const bufferSize = 2048;
         
         audioProcessor = window.globalAudioContext.createScriptProcessor(bufferSize, 1, 1);
-        widgetLog(`[v3.2.1] Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
+        widgetLog(`[v4.0] Создан ScriptProcessorNode с размером буфера ${bufferSize}`);
         
-        // v3.2.2: Simplified audio handler — server VAD manages commits
+        // v4.0: Simplified audio handler — server VAD manages commits
         audioProcessor.onaudioprocess = function(e) {
           // ПАУЗА: не стримим пока ассистент говорит — иначе его голос попадает в микрофон
           const echoTailActive = (Date.now() - lastPlaybackEndTime) < PLAYBACK_ECHO_TAIL_MS;
@@ -1760,7 +1750,7 @@
               audio: arrayBufferToBase64(pcm16Data.buffer)
             }));
           } catch (error) {
-            widgetLog(`[v3.2.2] Ошибка отправки аудио: ${error.message}`, "error");
+            widgetLog(`[v4.0] Ошибка отправки аудио: ${error.message}`, "error");
           }
 
           // Визуальный индикатор прослушивания
@@ -1791,10 +1781,10 @@
         mainCircle.classList.remove('speaking');
       }
       
-      widgetLog("[v3.2.1] Прослушивание начато успешно");
+      widgetLog("[v4.0] Прослушивание начато успешно");
     }
     
-    // v3.2.2: commitAudioBuffer and sendCommitBuffer removed — server VAD manages commits
+    // v4.0: commitAudioBuffer and sendCommitBuffer removed — server VAD manages commits
     
     // Обновление визуализации аудио
     function updateAudioVisualization(audioData) {
@@ -1831,7 +1821,7 @@
       const maxAttempts = isMobile ? MOBILE_MAX_RECONNECT_ATTEMPTS : MAX_RECONNECT_ATTEMPTS;
       
       if (reconnectAttempts >= maxAttempts) {
-        widgetLog('[v3.2.1] Maximum reconnection attempts reached');
+        widgetLog('[v4.0] Maximum reconnection attempts reached');
         isReconnecting = false;
         connectionFailedPermanently = true;
         
@@ -1859,7 +1849,7 @@
       
       reconnectAttempts++;
       
-      widgetLog(`[v3.2.1] Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
+      widgetLog(`[v4.0] Reconnecting in ${delay/1000} seconds, attempt ${reconnectAttempts}/${maxAttempts}`);
       
       setTimeout(() => {
         if (isReconnecting) {
@@ -1892,20 +1882,20 @@
     async function connectWebSocket() {
       try {
         loaderModal.classList.add('active');
-        widgetLog("[v3.2.1] Подключение...");
+        widgetLog("[v4.0] Подключение...");
         
         isReconnecting = true;
         
         hideConnectionError();
         
         if (!ASSISTANT_ID) {
-          widgetLog('[v3.2.1] Assistant ID not found!', 'error');
+          widgetLog('[v4.0] Assistant ID not found!', 'error');
           showMessage("Ошибка: ID ассистента не указан. Проверьте код встраивания.");
           loaderModal.classList.remove('active');
           return false;
         }
         
-        widgetLog(`[v3.2.1] Connecting to WebSocket at: ${WS_URL}`);
+        widgetLog(`[v4.0] Connecting to WebSocket at: ${WS_URL}`);
         
         if (websocket) {
           try {
@@ -1929,7 +1919,7 @@
         websocket.binaryType = 'arraybuffer';
         
         connectionTimeout = setTimeout(() => {
-          widgetLog("[v3.2.1] Превышено время ожидания соединения", "error");
+          widgetLog("[v4.0] Превышено время ожидания соединения", "error");
           
           if (websocket) {
             websocket.close();
@@ -1956,7 +1946,7 @@
                     Math.min(15000, Math.pow(1.5, reconnectAttempts) * 1000) :
                     Math.min(30000, Math.pow(2, reconnectAttempts) * 1000);
                     
-            widgetLog(`[v3.2.1] Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
+            widgetLog(`[v4.0] Попытка переподключения через ${delay/1000} секунд (${reconnectAttempts}/${maxAttempts})`);
             
             if (isWidgetOpen) {
               showMessage(`Превышено время ожидания. Повторная попытка через ${Math.round(delay/1000)} сек...`);
@@ -1971,7 +1961,7 @@
         
         websocket.onopen = function() {
           clearTimeout(connectionTimeout);
-          widgetLog('[v3.2.1] ✅ WebSocket connection established');
+          widgetLog('[v4.0] ✅ WebSocket connection established');
           isConnected = true;
           isReconnecting = false;
           reconnectAttempts = 0;
@@ -1990,21 +1980,21 @@
                 lastPingTime = Date.now();
                 
                 if (Date.now() - lastPongTime > pingIntervalTime * 3) {
-                  widgetLog("[v3.2.1] Ping timeout, no pong received", "warn");
+                  widgetLog("[v4.0] Ping timeout, no pong received", "warn");
                   
                   clearInterval(pingInterval);
                   websocket.close();
                   reconnectWithDelay(1000);
                 }
               } catch (e) {
-                widgetLog(`[v3.2.1] Error sending ping: ${e.message}`, "error");
+                widgetLog(`[v4.0] Error sending ping: ${e.message}`, "error");
               }
             }
           }, pingIntervalTime);
           
           hideConnectionError();
           
-          widgetLog("[v3.2.1] Session managed by server (v2.10 async + v3.1 client)");
+          widgetLog("[v4.0] Session managed by server (v2.10 async + v3.1 client)");
           
           if (isWidgetOpen) {
             updateConnectionStatus('connected', 'Готов к разговору');
@@ -2012,12 +2002,12 @@
             
             // Запускаем мониторинг экрана если html2canvas загружен и Vision AI включен
             if (window._visionEnabled && html2canvasLoaded && !isScreenMonitoringActive) {
-              widgetLog('[v3.2.1 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
+              widgetLog('[v4.0 SCREEN] Starting automatic screen monitoring (every 3 seconds)');
               setTimeout(() => {
                 startScreenMonitoring(websocket);
               }, 1000);
             } else if (!window._visionEnabled) {
-              widgetLog('[v3.2.1 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
+              widgetLog('[v4.0 SCREEN] Vision AI disabled for this assistant — screen monitoring skipped');
             }
           }
         };
@@ -2025,12 +2015,12 @@
         websocket.onmessage = function(event) {
           try {
             if (event.data instanceof Blob) {
-              widgetLog("[v3.2.1] Получены бинарные данные от сервера");
+              widgetLog("[v4.0] Получены бинарные данные от сервера");
               return;
             }
             
             if (!event.data) {
-              widgetLog("[v3.2.1] Получено пустое сообщение от сервера", "warn");
+              widgetLog("[v4.0] Получено пустое сообщение от сервера", "warn");
               return;
             }
 
@@ -2040,7 +2030,7 @@
               lastPongTime = Date.now();
               
               if (data.type !== 'input_audio_buffer.append') {
-                widgetLog(`[v3.2.1] Получено сообщение типа: ${data.type || 'unknown'}`);
+                widgetLog(`[v4.0] Получено сообщение типа: ${data.type || 'unknown'}`);
               }
               
               // Обработка событий перебивания
@@ -2070,7 +2060,7 @@
               }
               
               if (data.type === 'response.cancelled') {
-                widgetLog(`[v3.2.1 INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
+                widgetLog(`[v4.0 INTERRUPTION] Ответ отменен: ${JSON.stringify(data)}`);
                 
                 stopAllAudioPlayback();
                 
@@ -2088,19 +2078,19 @@
               }
               
               if (data.type === 'session.created' || data.type === 'session.updated') {
-                widgetLog(`[v3.2.1] Получена информация о сессии: ${data.type}`);
+                widgetLog(`[v4.0] Получена информация о сессии: ${data.type}`);
                 return;
               }
               
               if (data.type === 'connection_status') {
-                widgetLog(`[v3.2.1] Статус соединения: ${data.status} - ${data.message}`);
+                widgetLog(`[v4.0] Статус соединения: ${data.status} - ${data.message}`);
                 if (data.status === 'connected') {
                   isConnected = true;
                   reconnectAttempts = 0;
                   connectionFailedPermanently = false;
                   // ✅ Читаем флаги от сервера
                   window._visionEnabled = data.enable_vision === true;
-                  widgetLog(`[v3.2.1] Vision AI: ${window._visionEnabled ? 'включен' : 'выключен'}`);
+                  widgetLog(`[v4.0] Vision AI: ${window._visionEnabled ? 'включен' : 'выключен'}`);
 
                   hideConnectionError();
 
@@ -2113,7 +2103,7 @@
               
               if (data.type === 'error') {
                 if (data.error && data.error.code === 'input_audio_buffer_commit_empty') {
-                  widgetLog("[v3.2.1] Ошибка: пустой аудиобуфер", "warn");
+                  widgetLog("[v4.0] Ошибка: пустой аудиобуфер", "warn");
                   if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                     setTimeout(() => { 
                       startListening(); 
@@ -2122,7 +2112,7 @@
                   return;
                 }
                 
-                widgetLog(`[v3.2.1] Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
+                widgetLog(`[v4.0] Ошибка от сервера: ${data.error ? data.error.message : 'Неизвестная ошибка'}`, "error");
                 showMessage(data.error ? data.error.message : 'Произошла ошибка на сервере', 5000);
                 return;
               } 
@@ -2163,14 +2153,14 @@
               }
               
               if (data.type === 'response.audio.done') {
-                widgetLog('[v3.2.1 STREAMING] Audio done received');
+                widgetLog('[v4.0 STREAMING] Audio done received');
                 firstAudioChunkReceived = false;
                 audioChunksBuffer = [];
                 return;
               }
               
               if (data.type === 'response.done') {
-                widgetLog('[v3.2.1] Response done received');
+                widgetLog('[v4.0] Response done received');
                 if (isWidgetOpen && !isPlayingAudio && !isReconnecting) {
                   setTimeout(() => {
                     startListening();
@@ -2179,28 +2169,28 @@
                 return;
               }
               
-              // 🎨 v3.2.1 CLEAN UI: Hide LLM result from user (voice only)
+              // 🎨 v4.0 CLEAN UI: Hide LLM result from user (voice only)
               if (data.type === 'llm_result') {
-                widgetLog('[v3.2.1 CLEAN] LLM result received (hidden from user - voice only)');
+                widgetLog('[v4.0 CLEAN] LLM result received (hidden from user - voice only)');
                 // Don't show text - user will hear voice response
                 return;
               }
               
-              // 🎨 v3.2.1 CLEAN UI: Hide function execution from user
+              // 🎨 v4.0 CLEAN UI: Hide function execution from user
               if (data.type === 'function_call.executing') {
-                widgetLog('[v3.2.1 CLEAN] Function executing (hidden from user)');
+                widgetLog('[v4.0 CLEAN] Function executing (hidden from user)');
                 // Don't show anything to user
                 return;
               }
               
               if (data.type === 'function_call.completed') {
-                widgetLog('[v3.2.1 CLEAN] Function completed (hidden from user)');
+                widgetLog('[v4.0 CLEAN] Function completed (hidden from user)');
                 // Don't show anything to user
                 return;
               }
               
               if (data.type === 'function_call.delivery_error' || data.type === 'function_call.error') {
-                widgetLog('[v3.2.1 CLEAN] Function error (hidden from user)', 'error');
+                widgetLog('[v4.0 CLEAN] Function error (hidden from user)', 'error');
                 // Don't show errors to user - just log
                 return;
               }
@@ -2210,26 +2200,26 @@
                 return;
               }
               
-              widgetLog(`[v3.2.1] Неизвестный тип сообщения: ${data.type}`, "warn");
+              widgetLog(`[v4.0] Неизвестный тип сообщения: ${data.type}`, "warn");
               
             } catch (parseError) {
-              widgetLog(`[v3.2.1] Ошибка парсинга JSON: ${parseError.message}`, "warn");
+              widgetLog(`[v4.0] Ошибка парсинга JSON: ${parseError.message}`, "warn");
               
               if (event.data === 'pong') {
                 lastPongTime = Date.now();
-                widgetLog("[v3.2.1] Получен pong-ответ");
+                widgetLog("[v4.0] Получен pong-ответ");
                 return;
               }
               
-              widgetLog(`[v3.2.1] Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
+              widgetLog(`[v4.0] Содержимое сообщения: ${typeof event.data === 'string' ? event.data.substring(0, 100) : 'не строка'}...`, "debug");
             }
           } catch (generalError) {
-            widgetLog(`[v3.2.1] Общая ошибка обработки сообщения: ${generalError.message}`, "error");
+            widgetLog(`[v4.0] Общая ошибка обработки сообщения: ${generalError.message}`, "error");
           }
         };
         
         websocket.onclose = function(event) {
-          widgetLog(`[v3.2.1] WebSocket connection closed: ${event.code}, ${event.reason}`);
+          widgetLog(`[v4.0] WebSocket connection closed: ${event.code}, ${event.reason}`);
           isConnected = false;
           isListening = false;
 
@@ -2247,7 +2237,7 @@
           // Не переподключаемся если виджет закрыт или закрытие чистое
           if (!isWidgetOpen || event.code === 1000 || event.code === 1001) {
             isReconnecting = false;
-            widgetLog('[v3.2.1] WebSocket closed (widget closed or clean close), not reconnecting');
+            widgetLog('[v4.0] WebSocket closed (widget closed or clean close), not reconnecting');
             return;
           }
 
@@ -2255,7 +2245,7 @@
         };
         
         websocket.onerror = function(error) {
-          widgetLog(`[v3.2.1] WebSocket error: ${error}`, 'error');
+          widgetLog(`[v4.0] WebSocket error: ${error}`, 'error');
           
           if (isWidgetOpen) {
             showMessage("Ошибка соединения с сервером");
@@ -2265,7 +2255,7 @@
         
         return true;
       } catch (error) {
-        widgetLog(`[v3.2.1] Error connecting to WebSocket: ${error}`, 'error');
+        widgetLog(`[v4.0] Error connecting to WebSocket: ${error}`, 'error');
         isReconnecting = false;
         loaderModal.classList.remove('active');
         
@@ -2289,14 +2279,14 @@
 
     // Добавляем обработчики событий для интерфейса
     widgetButton.addEventListener('click', function(e) {
-      widgetLog('[v3.2.1] Button clicked');
+      widgetLog('[v4.0] Button clicked');
       e.preventDefault();
       e.stopPropagation();
       openWidget();
     });
 
     widgetClose.addEventListener('click', function(e) {
-      widgetLog('[v3.2.1] Close button clicked');
+      widgetLog('[v4.0] Close button clicked');
       e.preventDefault();
       e.stopPropagation();
       closeWidget();
@@ -2304,7 +2294,7 @@
     
     // Обработчик для основного круга - для дополнительного запуска распознавания
     mainCircle.addEventListener('click', function() {
-      widgetLog(`[v3.2.1] Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
+      widgetLog(`[v4.0] Circle clicked: isWidgetOpen=${isWidgetOpen}, isListening=${isListening}, isPlayingAudio=${isPlayingAudio}, isReconnecting=${isReconnecting}`);
       
       if (isWidgetOpen && !isListening && !isPlayingAudio && !isReconnecting) {
         if (isConnected) {
@@ -2320,7 +2310,7 @@
     // Обработчик для кнопки повторного подключения
     if (retryButton) {
       retryButton.addEventListener('click', function() {
-        widgetLog('[v3.2.1] Retry button clicked');
+        widgetLog('[v4.0] Retry button clicked');
         resetConnection();
       });
     }
@@ -2329,54 +2319,54 @@
 
     // Проверка DOM и состояния после инициализации
     setTimeout(function() {
-      widgetLog('[v3.2.1] DOM check after initialization');
+      widgetLog('[v4.0] DOM check after initialization');
       
       const widgetContainer = document.getElementById('wellcomeai-widget-container');
       const widgetButton = document.getElementById('wellcomeai-widget-button');
       const widgetExpanded = document.getElementById('wellcomeai-widget-expanded');
       
       if (!widgetContainer) {
-        widgetLog('[v3.2.1] Widget container not found in DOM!', 'error');
+        widgetLog('[v4.0] Widget container not found in DOM!', 'error');
       } else {
-        widgetLog(`[v3.2.1] Container z-index = ${getComputedStyle(widgetContainer).zIndex}`);
+        widgetLog(`[v4.0] Container z-index = ${getComputedStyle(widgetContainer).zIndex}`);
       }
       
       if (!widgetButton) {
-        widgetLog('[v3.2.1] Button not found in DOM!', 'error');
+        widgetLog('[v4.0] Button not found in DOM!', 'error');
       } else {
-        widgetLog(`[v3.2.1] Button is visible = ${getComputedStyle(widgetButton).display !== 'none'}`);
+        widgetLog(`[v4.0] Button is visible = ${getComputedStyle(widgetButton).display !== 'none'}`);
       }
       
       if (!widgetExpanded) {
-        widgetLog('[v3.2.1] Expanded widget not found in DOM!', 'error');
+        widgetLog('[v4.0] Expanded widget not found in DOM!', 'error');
       }
       
-      widgetLog(`[v3.2.1] Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
-      widgetLog(`[v3.2.1] Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
+      widgetLog(`[v4.0] Connection state = ${websocket ? websocket.readyState : 'No websocket'}`);
+      widgetLog(`[v4.0] Status flags = isConnected: ${isConnected}, isListening: ${isListening}, isPlayingAudio: ${isPlayingAudio}, isReconnecting: ${isReconnecting}, isWidgetOpen: ${isWidgetOpen}`);
       
       if (window.audioInitialized) {
-        widgetLog(`[v3.2.1 AUDIO] Audio state: initialized=${window.audioInitialized}`);
+        widgetLog(`[v4.0 AUDIO] Audio state: initialized=${window.audioInitialized}`);
         if (window.globalAudioContext) {
-          widgetLog(`[v3.2.1 AUDIO] AudioContext state=${window.globalAudioContext.state}, sampleRate=${window.globalAudioContext.sampleRate}`);
+          widgetLog(`[v4.0 AUDIO] AudioContext state=${window.globalAudioContext.state}, sampleRate=${window.globalAudioContext.sampleRate}`);
         }
         if (window.globalMicStream) {
-          widgetLog(`[v3.2.1 AUDIO] MediaStream active=${window.globalMicStream.active}, tracks=${window.globalMicStream.getAudioTracks().length}`);
+          widgetLog(`[v4.0 AUDIO] MediaStream active=${window.globalMicStream.active}, tracks=${window.globalMicStream.getAudioTracks().length}`);
         }
       }
       
-      widgetLog(`[v3.2.1] Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
+      widgetLog(`[v4.0] Interruption state: assistant_speaking=${interruptionState.is_assistant_speaking}, user_speaking=${interruptionState.is_user_speaking}, count=${interruptionState.interruption_count}`);
       
-      widgetLog(`[v3.2.1 SCREEN] Screen monitoring: active=${isScreenMonitoringActive}, html2canvas=${html2canvasLoaded}`);
+      widgetLog(`[v4.0 SCREEN] Screen monitoring: active=${isScreenMonitoringActive}, html2canvas=${html2canvasLoaded}`);
       
-      widgetLog('[v3.2.1] ✅ Clean UI optimizations active: No technical versions, hidden function messages');
+      widgetLog('[v4.0] ✅ Clean UI optimizations active: No technical versions, hidden function messages');
     }, 2000);
   }
 
   // Инициализируем виджет
   function initializeWidget() {
-    widgetLog('[v3.2.1] Starting clean UI initialization');
+    widgetLog('[v4.0] Starting clean UI initialization');
     
-    widgetLog(`[v3.2.1] Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
+    widgetLog(`[v4.0] Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
     
     loadFontAwesome();
     createStyles();
@@ -2385,28 +2375,28 @@
     
     // Загружаем html2canvas параллельно с основной инициализацией
     loadHtml2Canvas().then(() => {
-      widgetLog('[v3.2.1 SCREEN] html2canvas ready for screen monitoring');
+      widgetLog('[v4.0 SCREEN] html2canvas ready for screen monitoring');
     }).catch(error => {
-      widgetLog(`[v3.2.1 SCREEN] Failed to load html2canvas: ${error}`, 'error');
+      widgetLog(`[v4.0 SCREEN] Failed to load html2canvas: ${error}`, 'error');
     });
     
     initWidget();
     
-    widgetLog('[v3.2.1] ✅ Widget initialization complete - Clean UI v3.2.1');
-    widgetLog('[v3.2.1] ⚡ Features: Streaming audio, Instant UI feedback, Optimized commit, Clean UX');
-    widgetLog('[v3.2.1] 🔗 Compatible with: backend v2.10 (async functions) + client v3.1 (optimized)');
+    widgetLog('[v4.0] ✅ Widget initialization complete');
+    widgetLog('[v4.0] ⚡ Features: Streaming audio, Instant UI feedback, Clean UX');
+    widgetLog('[v4.0] 🔗 Compatible with: backend handler v3.0 + client v4.0 (gpt-realtime-2)');
   }
   
   // Проверяем, есть ли уже виджет на странице
   if (!document.getElementById('wellcomeai-widget-container')) {
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', initializeWidget);
-      widgetLog('[v3.2.1] Will initialize on DOMContentLoaded');
+      widgetLog('[v4.0] Will initialize on DOMContentLoaded');
     } else {
-      widgetLog('[v3.2.1] DOM already loaded, initializing immediately');
+      widgetLog('[v4.0] DOM already loaded, initializing immediately');
       initializeWidget();
     }
   } else {
-    widgetLog('[v3.2.1] Widget already exists on the page, skipping initialization');
+    widgetLog('[v4.0] Widget already exists on the page, skipping initialization');
   }
 })();

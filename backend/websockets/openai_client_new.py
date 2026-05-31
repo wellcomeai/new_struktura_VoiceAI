@@ -1,22 +1,25 @@
 # backend/websockets/openai_client_new.py
 """
-🚀 PRODUCTION VERSION 3.3 - OpenAI Realtime API Client (Function Logs Fix)
-Model: gpt-realtime-mini
+🚀 PRODUCTION VERSION 4.0 - OpenAI Realtime API Client (gpt-realtime-2)
+Model: gpt-realtime-2
 
-✨ NEW in v3.3 - FIX FUNCTION LOGS:
-✅ RESTORED: Conversation record creation in update_session()
-✅ Function logs now properly linked via conversation_id
-✅ Fixes missing function calls in conversation history
+✨ NEW in v4.0 - MIGRATION TO gpt-realtime-2:
+✅ Переход на новое поколение моделей (gpt-realtime-2)
+✅ Новая вложенная структура session (audio.input / audio.output)
+✅ reasoning.effort: "minimal" — минимальный уровень рассуждений
+✅ Удалён параметр temperature (не поддерживается в новой модели)
+✅ Удалена iOS-оптимизация формата (использовала старую плоскую структуру)
+✅ Контекст 128k (вместо 32k в GA)
+✅ Поддержка parallel tool calls и preambles
 
-Previous features (v3.2):
+Previous version (v3.3):
+✅ Conversation record creation для function_logs
+✅ Auto response.create после function result
 ✅ No duplicate conversations (records updated, not recreated)
 ✅ Faster VAD response times (80-150ms improvement)
 ✅ Optimized token limits (2000 vs 4000 - faster generation)
 ✅ More aggressive speech detection thresholds
 ✅ Reduced audio processing latency
-
-Previous fixes (v3.0):
-✅ Auto response.create after function result (fixes silence bug)
 ✅ Fixed double JSON serialization bug
 ✅ Enhanced error handling
 ✅ Performance monitoring
@@ -121,42 +124,16 @@ def get_device_vad_settings(user_agent: str = "") -> Dict[str, Any]:
         }
 
 
-def get_ios_optimized_session_config(base_config: Dict[str, Any], user_agent: str = "") -> Dict[str, Any]:
-    """
-    🚀 v3.1 PERFORMANCE OPTIMIZED - Return optimized session config for iOS devices.
-    
-    Improvements:
-    - Faster VAD settings
-    - Optimized token limits
-    """
-    user_agent_lower = user_agent.lower()
-    
-    if "iphone" in user_agent_lower or "ipad" in user_agent_lower:
-        ios_config = base_config.copy()
-        
-        # ⚡ v3.1: Apply optimized VAD settings
-        ios_config["turn_detection"]["threshold"] = 0.35
-        ios_config["turn_detection"]["prefix_padding_ms"] = 200      # ⚡ Reduced from 300
-        ios_config["turn_detection"]["silence_duration_ms"] = 250    # ⚡ Reduced from 500
-        
-        ios_config["input_audio_format"] = "pcm16"
-        ios_config["output_audio_format"] = "pcm16"
-        
-        # ⚡ v3.1: Optimized token limit for faster generation
-        ios_config["max_response_output_tokens"] = 2000              # ⚡ Reduced from 4000
-        ios_config["temperature"] = 0.6
-        
-        logger.info(f"[REALTIME-CLIENT v3.3] Applied iOS performance optimizations")
-        return ios_config
-    
-    return base_config
-
-
 class OpenAIRealtimeClientNew:
     """
-    🚀 PRODUCTION v3.3 - Client for OpenAI Realtime GA API (gpt-realtime-mini)
-    
-    ✨ NEW in v3.3 - FIX FUNCTION LOGS:
+    🚀 PRODUCTION v4.0 - Client for OpenAI Realtime API (gpt-realtime-2)
+
+    ✨ NEW in v4.0 - MIGRATION TO gpt-realtime-2:
+    - New nested session structure (audio.input / audio.output)
+    - reasoning.effort: "minimal"
+    - temperature removed (unsupported)
+
+    ✨ v3.3 - FIX FUNCTION LOGS:
     - RESTORED conversation record creation in update_session()
     - Function logs properly linked via conversation_id
     - Handler updates existing record instead of creating new one
@@ -194,7 +171,7 @@ class OpenAIRealtimeClientNew:
         self.is_connected = False
         
         # GA API URL with model parameter
-        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+        self.openai_url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2"
         
         self.session_id = str(uuid.uuid4())
         # 🆕 v3.3: conversation_record_id создаётся в update_session() для привязки function_logs
@@ -212,7 +189,7 @@ class OpenAIRealtimeClientNew:
         
         # ⚡ v3.1: Apply optimized VAD settings
         self.vad_settings = get_device_vad_settings(user_agent)
-        logger.info(f"[REALTIME-CLIENT v3.3] Optimized VAD settings: {self.vad_settings}")
+        logger.info(f"[REALTIME-CLIENT v4.0] Optimized VAD settings: {self.vad_settings}")
         
         # Device detection
         self.is_ios = "iphone" in user_agent.lower() or "ipad" in user_agent.lower()
@@ -220,11 +197,11 @@ class OpenAIRealtimeClientNew:
         self.is_mobile = self.is_ios or self.is_android
         
         if self.is_ios:
-            logger.info(f"[REALTIME-CLIENT v3.3] iOS device detected, applying performance optimizations")
+            logger.info(f"[REALTIME-CLIENT v4.0] iOS device detected, applying performance optimizations")
         elif self.is_android:
-            logger.info(f"[REALTIME-CLIENT v3.3] Android device detected, applying performance optimizations")
+            logger.info(f"[REALTIME-CLIENT v4.0] Android device detected, applying performance optimizations")
         else:
-            logger.info(f"[REALTIME-CLIENT v3.3] Desktop device detected, applying fastest performance settings")
+            logger.info(f"[REALTIME-CLIENT v4.0] Desktop device detected, applying fastest performance settings")
         
         # Extract functions
         if hasattr(assistant_config, "functions"):
@@ -234,23 +211,23 @@ class OpenAIRealtimeClientNew:
             elif isinstance(functions, dict) and "enabled_functions" in functions:
                 self.enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
             
-            logger.info(f"[REALTIME-CLIENT v3.3] Enabled functions: {self.enabled_functions}")
+            logger.info(f"[REALTIME-CLIENT v4.0] Enabled functions: {self.enabled_functions}")
         
         # Webhook URL
         if "send_webhook" in self.enabled_functions and hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
             self.webhook_url = extract_webhook_url_from_prompt(assistant_config.system_prompt)
             if self.webhook_url:
-                logger.info(f"[REALTIME-CLIENT v3.3] Webhook configured")
+                logger.info(f"[REALTIME-CLIENT v4.0] Webhook configured")
 
     async def connect(self) -> bool:
         """Establish WebSocket connection to OpenAI Realtime GA API."""
         if not self.api_key:
-            logger.error("[REALTIME-CLIENT v3.3] OpenAI API key not provided")
+            logger.error("[REALTIME-CLIENT v4.0] OpenAI API key not provided")
             return False
 
         headers = [
             ("Authorization", f"Bearer {self.api_key}"),
-            ("User-Agent", "WellcomeAI-Production/3.3-FunctionLogsFix")
+            ("User-Agent", "WellcomeAI-Production/4.0-Realtime2")
         ]
         
         try:
@@ -266,7 +243,7 @@ class OpenAIRealtimeClientNew:
                 timeout=30
             )
             self.is_connected = True
-            logger.info(f"[REALTIME-CLIENT v3.3] ✅ Connected to OpenAI GA API (model: gpt-realtime-mini)")
+            logger.info(f"[REALTIME-CLIENT v4.0] ✅ Connected to OpenAI GA API (model: gpt-realtime-2)")
 
             # Get settings
             voice = self.assistant_config.voice or DEFAULT_VOICE
@@ -280,7 +257,7 @@ class OpenAIRealtimeClientNew:
                 elif isinstance(functions, dict) and "enabled_functions" in functions:
                     self.enabled_functions = [normalize_function_name(name) for name in functions.get("enabled_functions", [])]
                 
-                logger.info(f"[REALTIME-CLIENT v3.3] Functions loaded: {self.enabled_functions}")
+                logger.info(f"[REALTIME-CLIENT v4.0] Functions loaded: {self.enabled_functions}")
 
             # Webhook URL
             if "send_webhook" in self.enabled_functions:
@@ -292,22 +269,22 @@ class OpenAIRealtimeClientNew:
                 system_message=system_message,
                 functions=functions
             ):
-                logger.error("[REALTIME-CLIENT v3.3] Failed to update session settings")
+                logger.error("[REALTIME-CLIENT v4.0] Failed to update session settings")
                 await self.close()
                 return False
 
-            logger.info(f"[REALTIME-CLIENT v3.3] Session initialized successfully with performance optimizations")
+            logger.info(f"[REALTIME-CLIENT v4.0] Session initialized successfully with performance optimizations")
             return True
         except asyncio.TimeoutError:
-            logger.error(f"[REALTIME-CLIENT v3.3] Connection timeout")
+            logger.error(f"[REALTIME-CLIENT v4.0] Connection timeout")
             return False
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Failed to connect: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Failed to connect: {e}")
             return False
 
     async def reconnect(self) -> bool:
         """Reconnect to OpenAI Realtime GA API."""
-        logger.info(f"[REALTIME-CLIENT v3.3] Attempting reconnection...")
+        logger.info(f"[REALTIME-CLIENT v4.0] Attempting reconnection...")
         try:
             if self.ws:
                 try:
@@ -326,10 +303,10 @@ class OpenAIRealtimeClientNew:
             
             result = await self.connect()
             if result:
-                logger.info(f"[REALTIME-CLIENT v3.3] ✅ Reconnection successful")
+                logger.info(f"[REALTIME-CLIENT v4.0] ✅ Reconnection successful")
             return result
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Reconnection error: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Reconnection error: {e}")
             return False
 
     async def update_session(
@@ -339,21 +316,24 @@ class OpenAIRealtimeClientNew:
         functions: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
     ) -> bool:
         """
-        🚀 v3.3 - Update session settings for GA API.
-        
-        ✨ v3.3 FIX: RESTORED conversation record creation!
-        This is needed for function_logs to be properly linked.
-        Handler will UPDATE this record (not create new one).
-        
-        Previous improvements (v3.1):
-        - Optimized VAD settings
-        - Reduced token limits for faster generation
+        🚀 v4.0 - Update session settings for gpt-realtime-2.
+
+        КРИТИЧЕСКИЕ ИЗМЕНЕНИЯ vs GA v3.3:
+        - Структура session переписана: audio.input / audio.output вместо плоских полей
+        - voice теперь в audio.output.voice
+        - turn_detection теперь в audio.input.turn_detection
+        - input_audio_format → audio.input.format (объект, не строка)
+        - input_audio_transcription → audio.input.transcription
+        - modalities → output_modalities
+        - temperature удалено (поле не поддерживается)
+        - Добавлено reasoning.effort: "minimal" (минимальный уровень рассуждений)
+        - Добавлен session.type: "realtime"
         """
         if not self.is_connected or not self.ws:
-            logger.error("[REALTIME-CLIENT v3.3] Cannot update session: not connected")
+            logger.error("[REALTIME-CLIENT v4.0] Cannot update session: not connected")
             return False
-            
-        # ⚡ v3.1: Apply optimized VAD settings
+
+        # Turn detection (server_vad — оставляем без изменений, как и обсуждали)
         turn_detection = {
             "type": "server_vad",
             "threshold": self.vad_settings["threshold"],
@@ -361,10 +341,9 @@ class OpenAIRealtimeClientNew:
             "silence_duration_ms": self.vad_settings["silence_duration_ms"],
             "create_response": True,
         }
-        
-        # Functions
+
+        # Functions (логика без изменений)
         normalized_functions = normalize_functions(functions)
-        
         tools = []
         for func_def in normalized_functions:
             tools.append({
@@ -373,57 +352,60 @@ class OpenAIRealtimeClientNew:
                 "description": func_def["description"],
                 "parameters": func_def["parameters"]
             })
-        
+
         self.enabled_functions = [normalize_function_name(tool["name"]) for tool in tools]
-        logger.info(f"[REALTIME-CLIENT v3.3] Functions activated: {self.enabled_functions}")
-        
+        logger.info(f"[REALTIME-CLIENT v4.0] Functions activated: {self.enabled_functions}")
+
         tool_choice = "auto" if tools else "none"
-        
-        # Transcription
-        input_audio_transcription = {
-            "model": "whisper-1"
-        }
-        
-        # ⚡ v3.1: Optimized token limit for faster generation
-        optimized_max_tokens = 2000  # Reduced from 4000 (30-50% faster generation!)
-        
-        # Session payload (type NOT included - set via URL)
+
+        # 🆕 v4.0: Новая вложенная структура session для gpt-realtime-2
         payload = {
             "type": "session.update",
             "session": {
-                "model": "gpt-realtime-mini",
-                "turn_detection": turn_detection,
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "voice": voice,
+                "type": "realtime",
+                "model": "gpt-realtime-2",
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {
+                            "type": "audio/pcm",
+                            "rate": 24000
+                        },
+                        "turn_detection": turn_detection,
+                        "transcription": {
+                            "model": "whisper-1"
+                        }
+                    },
+                    "output": {
+                        "format": {
+                            "type": "audio/pcm"
+                        },
+                        "voice": voice
+                    }
+                },
                 "instructions": system_message,
-                "modalities": ["text", "audio"],
-                "temperature": 0.7,
-                "max_response_output_tokens": optimized_max_tokens,  # ⚡ v3.1 optimization
                 "tools": tools,
                 "tool_choice": tool_choice,
-                "input_audio_transcription": input_audio_transcription
+                "max_output_tokens": 2000,
+                # ⚡ Минимальный уровень рассуждений — ставим жёстко
+                "reasoning": {
+                    "effort": "minimal"
+                }
             }
         }
-        
-        # iOS optimizations (includes v3.1 performance improvements)
-        payload["session"] = get_ios_optimized_session_config(payload["session"], self.user_agent)
-        
+
         try:
             await self.ws.send(json.dumps(payload))
             device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-            logger.info(f"[REALTIME-CLIENT v3.3] ✅ Session configured for {device_info} (tools: {len(tools)}, max_tokens: {optimized_max_tokens})")
+            logger.info(
+                f"[REALTIME-CLIENT v4.0] ✅ Session configured for {device_info} "
+                f"(model: gpt-realtime-2, reasoning: minimal, tools: {len(tools)})"
+            )
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error sending session.update: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error sending session.update: {e}")
             return False
 
-        # ============================================================================
-        # 🆕 v3.3 FIX: RESTORED conversation record creation for function_logs!
-        # ============================================================================
-        # This creates an initial record that function_logs can reference.
-        # The handler will UPDATE this record with actual dialog content.
-        # This fixes the bug where function_logs had NULL conversation_id.
-        # ============================================================================
+        # Создание Conversation record для привязки function_logs (логика без изменений)
         if self.db_session:
             try:
                 conv = Conversation(
@@ -436,14 +418,11 @@ class OpenAIRealtimeClientNew:
                 self.db_session.commit()
                 self.db_session.refresh(conv)
                 self.conversation_record_id = str(conv.id)
-                logger.info(f"[REALTIME-CLIENT v3.3] ✅ Conversation record created: {self.conversation_record_id}")
-                logger.info(f"[REALTIME-CLIENT v3.3]    Session ID: {self.session_id}")
-                logger.info(f"[REALTIME-CLIENT v3.3]    Function logs will be linked to this record")
+                logger.info(f"[REALTIME-CLIENT v4.0] ✅ Conversation record created: {self.conversation_record_id}")
             except Exception as e:
-                logger.error(f"[REALTIME-CLIENT v3.3] Error creating conversation: {e}")
+                logger.error(f"[REALTIME-CLIENT v4.0] Error creating conversation: {e}")
 
-        logger.info(f"[REALTIME-CLIENT v3.3] ✅ Session ready")
-
+        logger.info(f"[REALTIME-CLIENT v4.0] ✅ Session ready (gpt-realtime-2)")
         return True
 
     async def handle_interruption(self) -> bool:
@@ -454,13 +433,13 @@ class OpenAIRealtimeClientNew:
             protection_time = 0.15 if self.is_ios else 0.2
             
             if current_time - self.last_interruption_time < protection_time:
-                logger.info(f"[REALTIME-CLIENT v3.3] Ignoring duplicate interruption (debounce: {protection_time}s)")
+                logger.info(f"[REALTIME-CLIENT v4.0] Ignoring duplicate interruption (debounce: {protection_time}s)")
                 return True
                 
             self.last_interruption_time = current_time
             self.interruption_occurred = True
             
-            logger.info(f"[REALTIME-CLIENT v3.3] Handling interruption")
+            logger.info(f"[REALTIME-CLIENT v4.0] Handling interruption")
             
             if self.is_assistant_speaking and self.current_response_id:
                 await self.cancel_current_response(self.current_response_id, self.current_audio_samples)
@@ -469,21 +448,21 @@ class OpenAIRealtimeClientNew:
             self.current_response_id = None
             self.current_audio_samples = 0
             
-            logger.info("[REALTIME-CLIENT v3.3] Interruption handled successfully")
+            logger.info("[REALTIME-CLIENT v4.0] Interruption handled successfully")
             return True
             
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error handling interruption: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error handling interruption: {e}")
             return False
 
     async def cancel_current_response(self, item_id: str = None, sample_count: int = 0) -> bool:
         """Cancel current assistant response."""
         if not self.is_connected or not self.ws:
-            logger.error("[REALTIME-CLIENT v3.3] Cannot cancel response: not connected")
+            logger.error("[REALTIME-CLIENT v4.0] Cannot cancel response: not connected")
             return False
             
         try:
-            logger.info(f"[REALTIME-CLIENT v3.3] Cancelling response")
+            logger.info(f"[REALTIME-CLIENT v4.0] Cancelling response")
             
             cancel_payload = {
                 "type": "response.cancel",
@@ -496,12 +475,12 @@ class OpenAIRealtimeClientNew:
                 cancel_payload["sample_count"] = sample_count
                 
             await self.ws.send(json.dumps(cancel_payload))
-            logger.info("[REALTIME-CLIENT v3.3] Cancel command sent")
+            logger.info("[REALTIME-CLIENT v4.0] Cancel command sent")
             
             return True
             
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error cancelling response: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error cancelling response: {e}")
             return False
 
     async def clear_audio_buffer_on_interruption(self) -> bool:
@@ -514,10 +493,10 @@ class OpenAIRealtimeClientNew:
                 "type": "input_audio_buffer.clear",
                 "event_id": f"clear_interrupt_{int(time.time() * 1000)}"
             }))
-            logger.info("[REALTIME-CLIENT v3.3] Audio buffer cleared after interruption")
+            logger.info("[REALTIME-CLIENT v4.0] Audio buffer cleared after interruption")
             return True
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error clearing buffer: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error clearing buffer: {e}")
             return False
 
     def set_assistant_speaking(self, speaking: bool, response_id: str = None) -> None:
@@ -543,7 +522,7 @@ class OpenAIRealtimeClientNew:
             self.last_function_name = function_name
             
             normalized_function_name = normalize_function_name(function_name) or function_name
-            logger.info(f"[REALTIME-CLIENT v3.3] Function normalization: {function_name} -> {normalized_function_name}")
+            logger.info(f"[REALTIME-CLIENT v4.0] Function normalization: {function_name} -> {normalized_function_name}")
             
             if normalized_function_name not in self.enabled_functions:
                 error_msg = f"Unauthorized function: {normalized_function_name}"
@@ -558,7 +537,7 @@ class OpenAIRealtimeClientNew:
                 try:
                     arguments = json.loads(arguments)
                 except json.JSONDecodeError:
-                    logger.warning(f"[REALTIME-CLIENT v3.3] Failed to parse arguments: {arguments}")
+                    logger.warning(f"[REALTIME-CLIENT v4.0] Failed to parse arguments: {arguments}")
                     arguments = {}
             
             context = {
@@ -575,7 +554,7 @@ class OpenAIRealtimeClientNew:
             
             return result
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error processing function call: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error processing function call: {e}")
             return {"error": str(e)}
 
     async def send_function_result(self, function_call_id: str, result: Dict[str, Any]) -> Dict[str, bool]:
@@ -592,14 +571,14 @@ class OpenAIRealtimeClientNew:
         """
         if not self.is_connected or not self.ws:
             error_msg = "Cannot send function result: not connected"
-            logger.error(f"[REALTIME-CLIENT v3.3] {error_msg}")
+            logger.error(f"[REALTIME-CLIENT v4.0] {error_msg}")
             return {
                 "success": False,
                 "error": error_msg
             }
         
         try:
-            logger.info(f"[REALTIME-CLIENT v3.3] Sending function result: {function_call_id}")
+            logger.info(f"[REALTIME-CLIENT v4.0] Sending function result: {function_call_id}")
             
             short_item_id = generate_short_id("func_")
             
@@ -615,31 +594,28 @@ class OpenAIRealtimeClientNew:
                 }
             }
             
-            logger.info(f"[REALTIME-CLIENT v3.3] Sending function_call_output...")
+            logger.info(f"[REALTIME-CLIENT v4.0] Sending function_call_output...")
             await self.ws.send(json.dumps(result_payload))
-            logger.info(f"[REALTIME-CLIENT v3.3] ✅ Function result sent")
+            logger.info(f"[REALTIME-CLIENT v4.0] ✅ Function result sent")
             
             # Step 2: IMMEDIATELY create response (v3.0 fix, maintained in v3.3)
-            logger.info(f"[REALTIME-CLIENT v3.3] Creating automatic response after function...")
+            logger.info(f"[REALTIME-CLIENT v4.0] Creating automatic response after function...")
             
             # ⚡ v3.1: Apply optimized token limits
-            max_tokens = 2000  # Optimized from 4000
-            temperature = 0.6 if self.is_ios else 0.7
-            
+            max_tokens = 2000
+
             response_payload = {
                 "type": "response.create",
                 "event_id": f"resp_auto_{int(time.time() * 1000)}",
                 "response": {
-                    "modalities": ["text", "audio"],
-                    "voice": self.assistant_config.voice or DEFAULT_VOICE,
+                    "output_modalities": ["audio"],
                     "instructions": getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE,
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens  # ⚡ v3.1 optimization
+                    "max_output_tokens": max_tokens
                 }
             }
             
             await self.ws.send(json.dumps(response_payload))
-            logger.info(f"[REALTIME-CLIENT v3.3] ✅ Auto response.create sent (optimized: {max_tokens} tokens)")
+            logger.info(f"[REALTIME-CLIENT v4.0] ✅ Auto response.create sent (optimized: {max_tokens} tokens)")
             
             return {
                 "success": True,
@@ -648,7 +624,7 @@ class OpenAIRealtimeClientNew:
             
         except Exception as e:
             error_msg = f"Error sending function result: {e}"
-            logger.error(f"[REALTIME-CLIENT v3.3] {error_msg}")
+            logger.error(f"[REALTIME-CLIENT v4.0] {error_msg}")
             return {
                 "success": False,
                 "error": error_msg
@@ -661,8 +637,8 @@ class OpenAIRealtimeClientNew:
         This method is kept for backward compatibility but is no longer needed.
         The v3.0+ send_function_result() automatically triggers response.create.
         """
-        logger.warning(f"[REALTIME-CLIENT v3.3] create_response_after_function() called but is deprecated since v3.0")
-        logger.warning(f"[REALTIME-CLIENT v3.3] Response.create now happens automatically in send_function_result()")
+        logger.warning(f"[REALTIME-CLIENT v4.0] create_response_after_function() called but is deprecated since v3.0")
+        logger.warning(f"[REALTIME-CLIENT v4.0] Response.create now happens automatically in send_function_result()")
         return True
 
     async def send_screen_context(self, image_base64: str, silent: bool = True) -> bool:
@@ -678,12 +654,12 @@ class OpenAIRealtimeClientNew:
             True if sent successfully
         """
         if not self.is_connected or not self.ws:
-            logger.error("[REALTIME-CLIENT v3.3] Cannot send context: not connected")
+            logger.error("[REALTIME-CLIENT v4.0] Cannot send context: not connected")
             return False
         
         try:
             image_size_kb = len(image_base64) // 1024
-            logger.info(f"[REALTIME-CLIENT v3.3] Sending screen context silently ({image_size_kb}KB)")
+            logger.info(f"[REALTIME-CLIENT v4.0] Sending screen context silently ({image_size_kb}KB)")
             
             short_item_id = generate_short_id("ctx_")
             
@@ -704,7 +680,7 @@ class OpenAIRealtimeClientNew:
             }
             
             await self.ws.send(json.dumps(payload))
-            logger.info("[REALTIME-CLIENT v3.3] ✅ Context image added to conversation")
+            logger.info("[REALTIME-CLIENT v4.0] ✅ Context image added to conversation")
             
             if not silent:
                 # ⚡ v3.1: Apply optimized settings for context responses
@@ -712,21 +688,19 @@ class OpenAIRealtimeClientNew:
                     "type": "response.create",
                     "event_id": f"resp_ctx_{int(time.time() * 1000)}",
                     "response": {
-                        "modalities": ["text", "audio"],
-                        "voice": self.assistant_config.voice or DEFAULT_VOICE,
-                        "temperature": 0.7,
+                        "output_modalities": ["audio"],
                         "max_output_tokens": 400  # Kept small for context responses
                     }
                 }
                 await self.ws.send(json.dumps(response_payload))
-                logger.info("[REALTIME-CLIENT v3.3] Response.create sent for context")
+                logger.info("[REALTIME-CLIENT v4.0] Response.create sent for context")
             else:
-                logger.info("[REALTIME-CLIENT v3.3] ⏸️ Silent mode - no response requested")
+                logger.info("[REALTIME-CLIENT v4.0] ⏸️ Silent mode - no response requested")
             
             return True
             
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error sending screen context: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error sending screen context: {e}")
             return False
 
     async def process_audio(self, audio_buffer: bytes) -> bool:
@@ -742,11 +716,11 @@ class OpenAIRealtimeClientNew:
             }))
             return True
         except ConnectionClosed:
-            logger.error("[REALTIME-CLIENT v3.3] Connection closed while sending audio")
+            logger.error("[REALTIME-CLIENT v4.0] Connection closed while sending audio")
             self.is_connected = False
             return False
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error processing audio: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error processing audio: {e}")
             return False
 
     async def commit_audio(self) -> bool:
@@ -760,11 +734,11 @@ class OpenAIRealtimeClientNew:
             }))
             return True
         except ConnectionClosed:
-            logger.error("[REALTIME-CLIENT v3.3] Connection closed while committing audio")
+            logger.error("[REALTIME-CLIENT v4.0] Connection closed while committing audio")
             self.is_connected = False
             return False
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error committing audio: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error committing audio: {e}")
             return False
 
     async def clear_audio_buffer(self) -> bool:
@@ -778,11 +752,11 @@ class OpenAIRealtimeClientNew:
             }))
             return True
         except ConnectionClosed:
-            logger.error("[REALTIME-CLIENT v3.3] Connection closed while clearing buffer")
+            logger.error("[REALTIME-CLIENT v4.0] Connection closed while clearing buffer")
             self.is_connected = False
             return False
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error clearing buffer: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error clearing buffer: {e}")
             return False
 
     async def close(self) -> None:
@@ -791,9 +765,9 @@ class OpenAIRealtimeClientNew:
             try:
                 await self.ws.close()
                 device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-                logger.info(f"[REALTIME-CLIENT v3.3] WebSocket closed ({device_info})")
+                logger.info(f"[REALTIME-CLIENT v4.0] WebSocket closed ({device_info})")
             except Exception as e:
-                logger.error(f"[REALTIME-CLIENT v3.3] Error closing WebSocket: {e}")
+                logger.error(f"[REALTIME-CLIENT v4.0] Error closing WebSocket: {e}")
         self.is_connected = False
         
         self.is_assistant_speaking = False
@@ -812,11 +786,11 @@ class OpenAIRealtimeClientNew:
                     data = json.loads(message)
                     yield data
                 except json.JSONDecodeError:
-                    logger.error(f"[REALTIME-CLIENT v3.3] Failed to decode: {message[:100]}...")
+                    logger.error(f"[REALTIME-CLIENT v4.0] Failed to decode: {message[:100]}...")
         except ConnectionClosed:
             device_info = "iOS" if self.is_ios else ("Android" if self.is_android else "Desktop")
-            logger.info(f"[REALTIME-CLIENT v3.3] WebSocket closed ({device_info})")
+            logger.info(f"[REALTIME-CLIENT v4.0] WebSocket closed ({device_info})")
             self.is_connected = False
         except Exception as e:
-            logger.error(f"[REALTIME-CLIENT v3.3] Error receiving messages: {e}")
+            logger.error(f"[REALTIME-CLIENT v4.0] Error receiving messages: {e}")
             self.is_connected = False
