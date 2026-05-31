@@ -3,6 +3,9 @@
  * OpenAI Realtime Translation API (gpt-realtime-translate)
  *
  * ✅ v1.0: Initial Translate widget
+ * ✅ v1.1: data-test-mode (broadcast событий через window),
+ *          data-show-subtitles (скрыть встроенные субтитры),
+ *          уникальные классы контейнера/кнопки, надёжный динамический инжект
  *
  * Логика:
  *  - Кнопка-микрофон: toggle записи
@@ -20,13 +23,22 @@
     'use strict';
 
     // ── Конфиг из data-атрибутов скрипта ──────────────────────────────────
-    var currentScript = document.currentScript || (function () {
-        var scripts = document.getElementsByTagName('script');
-        return scripts[scripts.length - 1];
-    })();
+    // ── Конфиг из data-атрибутов скрипта ──────────────────────────────────
+    // При обычном встраивании работает document.currentScript.
+    // При динамическом инжекте (вкладка «Тестирование») currentScript === null,
+    // поэтому ищем скрипт виджета с data-assistant-id вручную.
+    var currentScript = document.currentScript
+        || document.querySelector('script[data-assistant-id][src*="widget-translate.js"]')
+        || (function () {
+            var scripts = document.getElementsByTagName('script');
+            return scripts[scripts.length - 1];
+        })();
 
     var ASSISTANT_ID = currentScript.getAttribute('data-assistant-id');
     var SERVER = (currentScript.getAttribute('data-server') || window.location.origin).replace(/\/$/, '');
+    // 🆕 v1.1: режим тестирования и управление встроенными субтитрами
+    var SHOW_SUBTITLES = currentScript.getAttribute('data-show-subtitles') !== 'false';
+    var TEST_MODE = currentScript.getAttribute('data-test-mode') === 'true';
 
     if (!ASSISTANT_ID) {
         console.error('[TRANSLATE-WIDGET] data-assistant-id не указан');
@@ -188,23 +200,32 @@
 
     function handleServerEvent(data) {
         var t = data.type;
+
+        // 🆕 v1.1: в режиме тестирования транслируем все события наружу,
+        // чтобы родительская страница могла рисовать субтитры сама.
+        if (TEST_MODE) {
+            try {
+                window.dispatchEvent(new CustomEvent('voicyfy-translate-event', { detail: data }));
+            } catch (e) {}
+        }
+
         switch (t) {
             case 'session.output_audio.delta':
                 if (data.delta) playAudioChunk(data.delta);
                 break;
             case 'session.input_transcript.delta':
-                appendSubtitle('source', data.delta || '');
+                if (SHOW_SUBTITLES) appendSubtitle('source', data.delta || '');
                 break;
             case 'session.input_transcript.done':
                 // финал исходника — оставляем как есть
                 break;
             case 'session.output_transcript.delta':
-                appendSubtitle('target', data.delta || '');
+                if (SHOW_SUBTITLES) appendSubtitle('target', data.delta || '');
                 break;
             case 'session.output_transcript.done':
                 break;
             case 'translate.greeting':
-                if (data.message) setSubtitle('target', data.message);
+                if (data.message && SHOW_SUBTITLES) setSubtitle('target', data.message);
                 break;
             case 'error':
                 console.error('[TRANSLATE-WIDGET] Server error:', data);
@@ -316,7 +337,9 @@
 
     function buildUI() {
         var root = document.createElement('div');
-        root.className = 'vfy-tr-widget';
+        // 🆕 v1.1: уникальные классы контейнера/кнопки, чтобы родительская
+        // страница могла их найти и чтобы не было коллизий с обычным виджетом.
+        root.className = 'vfy-tr-widget voicyfy-translate-widget-container';
         root.innerHTML = ''
             + '<div class="vfy-tr-header">'
             + '  <span class="vfy-tr-title">Переводчик</span>'
@@ -327,7 +350,7 @@
             + '  <div class="vfy-tr-target"></div>'
             + '</div>'
             + '<div class="vfy-tr-controls">'
-            + '  <button class="vfy-tr-mic" title="Микрофон">🎤</button>'
+            + '  <button class="vfy-tr-mic voicyfy-translate-widget-button" title="Микрофон">🎤</button>'
             + '  <span class="vfy-tr-status">Подключение…</span>'
             + '</div>';
         document.body.appendChild(root);
@@ -337,6 +360,12 @@
         STATE.ui.target = root.querySelector('.vfy-tr-target');
         STATE.ui.mic = root.querySelector('.vfy-tr-mic');
         STATE.ui.status = root.querySelector('.vfy-tr-status');
+
+        // 🆕 v1.1: если субтитры рендерит сама страница — прячем встроенный блок
+        if (!SHOW_SUBTITLES) {
+            var subs = root.querySelector('.vfy-tr-subtitles');
+            if (subs) subs.style.display = 'none';
+        }
 
         STATE.ui.mic.addEventListener('click', toggleRecording);
     }
