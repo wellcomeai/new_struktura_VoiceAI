@@ -1038,8 +1038,10 @@ async def handle_openai_messages_new(
                         openai_client.increment_audio_samples(sample_count)
                 
                 if msg_type == "response.output_audio.done":
-                    log_to_render(f"🔇 Assistant stopped speaking")
+                    # gpt-realtime-2 may emit this event more than once; only log/act
+                    # on the real transition to avoid duplicate "stopped speaking" logs
                     if interruption_state["is_assistant_speaking"]:
+                        log_to_render(f"🔇 Assistant stopped speaking")
                         interruption_state["is_assistant_speaking"] = False
                         openai_client.set_assistant_speaking(False)
                         

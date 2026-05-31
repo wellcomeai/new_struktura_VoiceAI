@@ -378,7 +378,8 @@ class OpenAIRealtimeClientNew:
                     },
                     "output": {
                         "format": {
-                            "type": "audio/pcm"
+                            "type": "audio/pcm",
+                            "rate": 24000
                         },
                         "voice": voice
                     }
