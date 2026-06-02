@@ -883,6 +883,12 @@
         <i class="fas fa-search"></i> Данные звонка
         <span class="method-badge get">GET</span>
       </a>
+
+      <div class="sidebar-section">Webhooks</div>
+      <a href="#webhooks" class="sidebar-item" data-endpoint="webhooks">
+        <i class="fas fa-link"></i> Завершение диалога
+        <span class="method-badge post">POST</span>
+      </a>
     </aside>
 
     <!-- Основной контент -->
@@ -1564,6 +1570,305 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <hr class="endpoint-divider">
+
+      <!-- ================================================================
+           WEBHOOKS: conversation.completed
+           ================================================================ -->
+      <div class="endpoint-header" id="webhooks">
+        <div class="endpoint-method-url">
+          <span class="method-tag post">POST</span>
+          <code class="endpoint-url">https://your-server.com/your-webhook</code>
+        </div>
+        <h1 class="endpoint-title">Webhook: завершение диалога</h1>
+        <p class="endpoint-description">
+          Voicyfy может уведомлять ваш сервер о каждом завершённом диалоге.
+          По событию <code>conversation.completed</code> на указанный вами URL приходит
+          <code>POST</code>-запрос с полным диалогом и метаданными. Событие покрывает
+          и веб-чат, и телефонию — источник различается по полю <code>source</code>.
+          Настроить URL можно в разделе <strong>«Диалоги»</strong> → кнопка <strong>Webhook</strong>.
+        </p>
+      </div>
+
+      <!-- Как это работает -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-info-circle"></i> Как это работает
+          </h2>
+        </div>
+        <div class="section-body">
+          <ul style="margin-left: 1.25rem; line-height: 1.9;">
+            <li>Запрос отправляется методом <code>POST</code> с заголовком
+              <code>Content-Type: application/json</code> и
+              <code>User-Agent: Voicyfy-Webhook/1.0</code>.</li>
+            <li>Доставка по принципу «отправили и забыли»: без повторов и без подписи.
+              Таймаут запроса — <strong>10 секунд</strong>.</li>
+            <li>Ваш сервер должен вернуть статус <code>2xx</code>. Любой другой ответ
+              или таймаут не влияет на работу ассистента — просто логируется на нашей стороне.</li>
+            <li>Пустые диалоги (без реплик) не отправляются.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Структура payload -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-list"></i> Структура payload
+          </h2>
+        </div>
+        <div class="section-body" style="padding: 0;">
+          <table class="params-table">
+            <thead>
+              <tr>
+                <th>Поле</th>
+                <th>Тип</th>
+                <th>Описание</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="param-name">event</span></td>
+                <td><span class="param-type">string</span></td>
+                <td>
+                  <div class="param-description">Тип события.</div>
+                  <div class="param-default">Всегда: conversation.completed</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">event_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Уникальный UUID события (для дедупликации на вашей стороне).</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">timestamp</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Время формирования события в формате ISO 8601 (UTC).</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.source</span></td>
+                <td><span class="param-type">string</span></td>
+                <td>
+                  <div class="param-description">Источник диалога.</div>
+                  <div class="param-default">Значения: web_chat, telephony</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.session_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">ID сессии диалога.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.assistant_id</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">UUID ассистента.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.assistant_name</span></td>
+                <td><span class="param-type">string</span></td>
+                <td><div class="param-description">Имя ассистента.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.assistant_type</span></td>
+                <td><span class="param-type">string</span></td>
+                <td>
+                  <div class="param-description">Тип ассистента.</div>
+                  <div class="param-default">Значения: gemini, gemini_31, openai</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.caller_number</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td><div class="param-description">Номер звонившего. <code>null</code> для web_chat.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.call_direction</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td>
+                  <div class="param-description">Направление звонка. <code>null</code> для web_chat.</div>
+                  <div class="param-default">Значения: INBOUND, OUTBOUND</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.duration_seconds</span></td>
+                <td><span class="param-type">number | null</span></td>
+                <td><div class="param-description">Длительность звонка в секундах. <code>null</code> для web_chat.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.call_cost</span></td>
+                <td><span class="param-type">number | null</span></td>
+                <td><div class="param-description">Стоимость звонка. <code>null</code> для web_chat.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.record_url</span></td>
+                <td><span class="param-type">string | null</span></td>
+                <td><div class="param-description">Ссылка на аудиозапись. <code>null</code> для web_chat.</div></td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.dialog</span></td>
+                <td><span class="param-type">array</span></td>
+                <td>
+                  <div class="param-description">Массив реплик. Каждый элемент: <code>role</code> (user | assistant),
+                    <code>text</code> (строка), <code>ts</code> (Unix-время в миллисекундах).</div>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="param-name">data.messages_count</span></td>
+                <td><span class="param-type">integer</span></td>
+                <td><div class="param-description">Количество реплик в <code>dialog</code>.</div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Пример payload -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-reply"></i> Пример payload
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">JSON</span>
+              <button class="copy-btn" onclick="copyCode(this, 'webhook-payload-code')">
+                <i class="fas fa-copy"></i> Копировать
+              </button>
+            </div>
+            <div class="code-content">
+              <pre id="webhook-payload-code">{
+  <span class="code-key">"event"</span>: <span class="code-string">"conversation.completed"</span>,
+  <span class="code-key">"event_id"</span>: <span class="code-string">"f47ac10b-58cc-4372-a567-0e02b2c3d479"</span>,
+  <span class="code-key">"timestamp"</span>: <span class="code-string">"2026-02-12T09:16:46.413463Z"</span>,
+  <span class="code-key">"data"</span>: {
+    <span class="code-key">"source"</span>: <span class="code-string">"telephony"</span>,
+    <span class="code-key">"session_id"</span>: <span class="code-string">"abc123-def456"</span>,
+    <span class="code-key">"assistant_id"</span>: <span class="code-string">"550e8400-e29b-41d4-a716-446655440000"</span>,
+    <span class="code-key">"assistant_name"</span>: <span class="code-string">"Секретарь по звонкам"</span>,
+    <span class="code-key">"assistant_type"</span>: <span class="code-string">"gemini"</span>,
+    <span class="code-key">"caller_number"</span>: <span class="code-string">"79500968479"</span>,
+    <span class="code-key">"call_direction"</span>: <span class="code-string">"OUTBOUND"</span>,
+    <span class="code-key">"duration_seconds"</span>: <span class="code-number">14.0</span>,
+    <span class="code-key">"call_cost"</span>: <span class="code-number">2.0252</span>,
+    <span class="code-key">"record_url"</span>: <span class="code-string">"https://records.voximplant.com/..."</span>,
+    <span class="code-key">"dialog"</span>: [
+      {
+        <span class="code-key">"role"</span>: <span class="code-string">"user"</span>,
+        <span class="code-key">"text"</span>: <span class="code-string">"Алло"</span>,
+        <span class="code-key">"ts"</span>: <span class="code-number">1770887803248</span>
+      },
+      {
+        <span class="code-key">"role"</span>: <span class="code-string">"assistant"</span>,
+        <span class="code-key">"text"</span>: <span class="code-string">"Привет Валерий, это ассистент компании..."</span>,
+        <span class="code-key">"ts"</span>: <span class="code-number">1770887804248</span>
+      }
+    ],
+    <span class="code-key">"messages_count"</span>: <span class="code-number">2</span>
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Примеры обработки -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-code"></i> Примеры обработки
+          </h2>
+        </div>
+        <div class="section-body">
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">Python (FastAPI)</span>
+              <button class="copy-btn" onclick="copyCode(this, 'webhook-python-code')">
+                <i class="fas fa-copy"></i> Копировать
+              </button>
+            </div>
+            <div class="code-content">
+              <pre id="webhook-python-code">from fastapi import FastAPI, Request
+
+app = FastAPI()
+
+@app.post("/voicyfy-webhook")
+async def voicyfy_webhook(request: Request):
+    payload = await request.json()
+
+    if payload.get("event") != "conversation.completed":
+        return {"ok": True}
+
+    data = payload["data"]
+    print(f"[{data['source']}] {data['assistant_name']} — {data['messages_count']} реплик")
+
+    for turn in data["dialog"]:
+        print(f"  {turn['role']}: {turn['text']}")
+
+    # Всегда отвечаем 2xx, чтобы Voicyfy не считал доставку неуспешной
+    return {"ok": True}</pre>
+            </div>
+          </div>
+
+          <div class="code-block" style="margin-top: 1.25rem;">
+            <div class="code-header">
+              <span class="code-lang">Node.js (Express)</span>
+              <button class="copy-btn" onclick="copyCode(this, 'webhook-node-code')">
+                <i class="fas fa-copy"></i> Копировать
+              </button>
+            </div>
+            <div class="code-content">
+              <pre id="webhook-node-code">const express = require("express");
+const app = express();
+
+app.use(express.json());
+
+app.post("/voicyfy-webhook", (req, res) => {
+  const payload = req.body;
+
+  if (payload.event !== "conversation.completed") {
+    return res.sendStatus(200);
+  }
+
+  const { source, assistant_name, messages_count, dialog } = payload.data;
+  console.log(`[${source}] ${assistant_name} — ${messages_count} реплик`);
+
+  for (const turn of dialog) {
+    console.log(`  ${turn.role}: ${turn.text}`);
+  }
+
+  // Всегда отвечаем 2xx
+  res.sendStatus(200);
+});
+
+app.listen(3000);</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Тестирование -->
+      <div class="content-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-flask"></i> Как протестировать
+          </h2>
+        </div>
+        <div class="section-body">
+          <ol style="margin-left: 1.25rem; line-height: 1.9;">
+            <li>Создайте временный URL на
+              <a href="https://webhook.site" target="_blank" rel="noopener">webhook.site</a>.</li>
+            <li>Откройте раздел <strong>«Диалоги»</strong>, нажмите кнопку <strong>Webhook</strong>,
+              вставьте URL и включите отправку.</li>
+            <li>Сделайте тестовый звонок или проведите веб-чат с ассистентом.</li>
+            <li>На webhook.site появится событие <code>conversation.completed</code>
+              с полем <code>source</code> = <code>telephony</code> или <code>web_chat</code>.</li>
+          </ol>
         </div>
       </div>
 
