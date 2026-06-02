@@ -1446,6 +1446,46 @@ async def handle_openai_messages_new(
         log_to_render(f"❌ CRITICAL Handler error: {e}", "ERROR")
         log_to_render(f"Traceback: {traceback.format_exc()}", "ERROR")
     finally:
+        # ═══════════════════════════════════════════════════════════════
+        # 🆕 v4.0: WEBHOOK УВЕДОМЛЕНИЕ при disconnect
+        # Отправляем один итоговый webhook с полным диалогом из БД
+        # ═══════════════════════════════════════════════════════════════
+        try:
+            if openai_client and openai_client.assistant_config and openai_client.assistant_config.user_id:
+                from backend.db.session import SessionLocal
+                from backend.models.user import User
+                from backend.services.webhook_notification import send_webhook_safe
+
+                webhook_db = SessionLocal()
+                try:
+                    user = webhook_db.query(User).get(openai_client.assistant_config.user_id)
+                    if user and user.has_webhook_config():
+                        log_to_render(f"🔗 [WEBHOOK] Sending conversation.completed for session {openai_client.session_id}")
+
+                        await send_webhook_safe(
+                            db=webhook_db,
+                            webhook_url=user.webhook_url,
+                            webhook_enabled=user.webhook_enabled,
+                            source="web_chat",
+                            session_id=openai_client.session_id,
+                            assistant_id=str(openai_client.assistant_config.id),
+                            assistant_name=openai_client.assistant_config.name,
+                            assistant_type="openai",
+                            # Эти поля None для веб-чата:
+                            caller_number=None,
+                            call_direction=None,
+                            duration_seconds=None,
+                            call_cost=None,
+                            record_url=None,
+                        )
+                        log_to_render(f"✅ [WEBHOOK] Notification sent")
+                    else:
+                        log_to_render(f"ℹ️ [WEBHOOK] No webhook configured for user")
+                finally:
+                    webhook_db.close()
+        except Exception as wh_error:
+            log_to_render(f"❌ [WEBHOOK] Error sending webhook: {wh_error}", "ERROR")
+
         log_to_render(f"📊 Final handler stats:")
         log_to_render(f"   Total events processed: {event_count}")
         log_to_render(f"   Functions executed (async): {function_execution_count}")

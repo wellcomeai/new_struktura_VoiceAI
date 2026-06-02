@@ -25,6 +25,9 @@ from .r2_storage import R2StorageService
 # ✅ НОВОЕ v3.9: Telegram Notification Service
 from .telegram_notification import TelegramNotificationService, send_call_notification_safe
 
+# ✅ НОВОЕ v4.0: Webhook Notification Service
+from .webhook_notification import WebhookNotificationService, send_webhook_safe
+
 # Export services
 __all__ = [
     "AuthService",
@@ -45,4 +48,7 @@ __all__ = [
     # ✅ НОВОЕ v3.9: Telegram Notifications
     "TelegramNotificationService",
     "send_call_notification_safe",
+    # ✅ НОВОЕ v4.0: Webhook Notifications
+    "WebhookNotificationService",
+    "send_webhook_safe",
 ]

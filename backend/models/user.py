@@ -46,7 +46,11 @@ class User(Base, BaseModel):
     # ✅ НОВОЕ v3.9: Telegram настройки для уведомлений о звонках
     telegram_bot_token = Column(String(100), nullable=True)
     telegram_chat_id = Column(String(50), nullable=True)  # Может быть отрицательным для групп/каналов
-    
+
+    # ✅ НОВОЕ v4.0: Webhook настройки для уведомлений о завершённых диалогах
+    webhook_url = Column(String(500), nullable=True)
+    webhook_enabled = Column(Boolean, default=False, nullable=False, index=True)
+
     subscription_plan = Column(String, default="free")
     usage_tokens = Column(Integer, default=0)
     last_login = Column(DateTime(timezone=True), nullable=True)
@@ -102,6 +106,7 @@ class User(Base, BaseModel):
         data.pop("openrouter_api_key", None)     # ✅ Cascade: Скрываем OpenRouter API key
         data.pop("voximplant_api_key", None)
         data.pop("telegram_bot_token", None)     # ✅ v3.9: Скрываем Telegram токен
+        data.pop("webhook_url", None)            # ✅ v4.0: Скрываем webhook URL из публичных ответов
         data.pop("google_sheets_token", None)
         
         # Преобразуем UUID в строку для сериализации JSON
@@ -166,7 +171,20 @@ class User(Base, BaseModel):
             "bot_token": self.telegram_bot_token,
             "chat_id": self.telegram_chat_id
         }
-    
+
+    def has_webhook_config(self):
+        """✅ НОВОЕ v4.0: Проверить, настроен ли webhook URL"""
+        return bool(self.webhook_url and self.webhook_enabled)
+
+    def get_webhook_config(self):
+        """✅ НОВОЕ v4.0: Получить настройки webhook"""
+        if not self.has_webhook_config():
+            return None
+        return {
+            "url": self.webhook_url,
+            "enabled": self.webhook_enabled
+        }
+
     def has_active_subscription(self):
         """Проверить, активна ли подписка пользователя"""
         if self.is_admin:

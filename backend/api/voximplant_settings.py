@@ -140,6 +140,59 @@ class TelegramTestResponse(BaseModel):
 
 
 # ============================================================================
+# 🆕 v4.0: WEBHOOK SCHEMAS
+# ============================================================================
+
+class WebhookConfigUpdate(BaseModel):
+    """Схема для обновления настроек webhook"""
+    webhook_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="URL для отправки webhook-уведомлений о завершённых диалогах"
+    )
+    webhook_enabled: bool = Field(
+        False,
+        description="Включить отправку webhook-уведомлений"
+    )
+
+    @validator('webhook_url')
+    def validate_webhook_url(cls, v):
+        """Базовая валидация URL"""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError('URL должен начинаться с http:// или https://')
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "webhook_url": "https://your-server.com/voicyfy-webhook",
+                "webhook_enabled": True
+            }
+        }
+
+
+class WebhookConfigResponse(BaseModel):
+    """Схема ответа с настройками webhook"""
+    webhook_url: Optional[str] = None
+    webhook_enabled: bool = False
+    is_configured: bool = False
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "webhook_url": "https://your-server.com/voicyfy-webhook",
+                "webhook_enabled": True,
+                "is_configured": True
+            }
+        }
+
+
+# ============================================================================
 # VOXIMPLANT API ENDPOINTS
 # ============================================================================
 
@@ -549,3 +602,120 @@ async def test_telegram_settings(
     except Exception as e:
         logger.error(f"[TELEGRAM-SETTINGS] Error testing settings: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Ошибка проверки настроек: {str(e)}")
+
+
+# ============================================================================
+# 🆕 v4.0: WEBHOOK API ENDPOINTS
+# ============================================================================
+
+@router.get("/webhook-settings", response_model=WebhookConfigResponse)
+async def get_webhook_settings(
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Получить настройки webhook-уведомлений текущего пользователя.
+
+    **Использование:**
+    - GET /api/users/webhook-settings
+
+    **Ответ:**
+    - webhook_url: URL для отправки уведомлений
+    - webhook_enabled: Включена ли отправка
+    - is_configured: true если URL заполнен и отправка включена
+    """
+    try:
+        logger.info(f"[WEBHOOK-SETTINGS] Getting settings for user {current_user.id}")
+
+        return WebhookConfigResponse(
+            webhook_url=current_user.webhook_url,
+            webhook_enabled=bool(current_user.webhook_enabled),
+            is_configured=current_user.has_webhook_config()
+        )
+
+    except Exception as e:
+        logger.error(f"[WEBHOOK-SETTINGS] Error getting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка получения настроек: {str(e)}")
+
+
+@router.put("/webhook-settings", response_model=WebhookConfigResponse)
+async def update_webhook_settings(
+    config: WebhookConfigUpdate,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Обновить настройки webhook-уведомлений.
+
+    **Использование:**
+    - PUT /api/users/webhook-settings
+
+    **Body:**
+    ```json
+    {
+        "webhook_url": "https://your-server.com/voicyfy-webhook",
+        "webhook_enabled": true
+    }
+    ```
+
+    **Примечание:**
+    - По событию `conversation.completed` на указанный URL приходит POST
+      с полным диалогом и метаданными (для веб-чата и телефонии).
+    - Если webhook_enabled = false или URL пустой — уведомления не отправляются.
+    """
+    try:
+        logger.info(f"[WEBHOOK-SETTINGS] Updating settings for user {current_user.id}")
+
+        current_user.webhook_url = config.webhook_url
+        current_user.webhook_enabled = bool(config.webhook_enabled)
+
+        db.commit()
+        db.refresh(current_user)
+
+        logger.info(f"[WEBHOOK-SETTINGS] ✅ Settings updated for user {current_user.id}")
+
+        return WebhookConfigResponse(
+            webhook_url=current_user.webhook_url,
+            webhook_enabled=bool(current_user.webhook_enabled),
+            is_configured=current_user.has_webhook_config()
+        )
+
+    except ValueError as ve:
+        logger.warning(f"[WEBHOOK-SETTINGS] Validation error: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[WEBHOOK-SETTINGS] Error updating settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка обновления настроек: {str(e)}")
+
+
+@router.delete("/webhook-settings")
+async def delete_webhook_settings(
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Удалить настройки webhook-уведомлений.
+
+    **Использование:**
+    - DELETE /api/users/webhook-settings
+    """
+    try:
+        logger.info(f"[WEBHOOK-SETTINGS] Deleting settings for user {current_user.id}")
+
+        current_user.webhook_url = None
+        current_user.webhook_enabled = False
+
+        db.commit()
+
+        logger.info(f"[WEBHOOK-SETTINGS] ✅ Settings deleted for user {current_user.id}")
+
+        return {
+            "success": True,
+            "message": "Настройки webhook успешно удалены"
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[WEBHOOK-SETTINGS] Error deleting settings: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Ошибка удаления настроек: {str(e)}")

@@ -1383,10 +1383,49 @@ async def log_conversation_data(
                         logger.info(f"[VOXIMPLANT-v3.9] 📤 Telegram notification scheduled")
                     else:
                         logger.info(f"[VOXIMPLANT-v3.9] ℹ️ Telegram not configured for user {assistant.user_id}")
-                        
+
                 except Exception as tg_error:
                     logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Telegram notification error: {tg_error}")
-            
+
+            # ================================================================
+            # 🆕 v4.0: WEBHOOK УВЕДОМЛЕНИЕ
+            # ================================================================
+            webhook_notification_scheduled = False
+
+            if db_result and assistant.user_id:
+                try:
+                    user = db.query(User).get(assistant.user_id)
+                    if user and user.has_webhook_config():
+                        from backend.services.webhook_notification import send_webhook_safe
+
+                        logger.info(f"[VOXIMPLANT-v3.9] 🔗 Webhook config found, scheduling notification...")
+
+                        asyncio.create_task(
+                            send_webhook_safe(
+                                db=SessionLocal(),  # ⚠️ Новая сессия для async task
+                                webhook_url=user.webhook_url,
+                                webhook_enabled=user.webhook_enabled,
+                                source="telephony",
+                                session_id=conversation_id,
+                                assistant_id=str(assistant.id),
+                                assistant_name=assistant.name,
+                                assistant_type=assistant_type,
+                                caller_number=normalized_phone,
+                                call_direction=call_direction,
+                                duration_seconds=call_duration,
+                                call_cost=call_cost,
+                                record_url=permanent_record_url,
+                            )
+                        )
+
+                        webhook_notification_scheduled = True
+                        logger.info(f"[VOXIMPLANT-v3.9] 📤 Webhook notification scheduled")
+                    else:
+                        logger.info(f"[VOXIMPLANT-v3.9] ℹ️ Webhook not configured for user {assistant.user_id}")
+
+                except Exception as wh_error:
+                    logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Webhook notification error: {wh_error}")
+
             # ================================================================
             # 🆕 v3.7: ЗАПУСК ОТЛОЖЕННОГО ПЕРЕСЧЁТА ЕСЛИ НЕ ПОЛУЧИЛИ BREAKDOWN
             # ================================================================
@@ -1457,6 +1496,7 @@ async def log_conversation_data(
             logger.info(f"[VOXIMPLANT-v3.9]   🎙️ Запись: {'✅ R2' if r2_saved else '⚠️ Temp' if permanent_record_url else '❌ НЕТ'}")
             logger.info(f"[VOXIMPLANT-v3.9]   📝 Dialog: {len(dialog) if dialog else 0} turns")
             logger.info(f"[VOXIMPLANT-v3.9]   📱 Telegram: {'✅ Scheduled' if telegram_notification_scheduled else '❌ Not configured'}")
+            logger.info(f"[VOXIMPLANT-v3.9]   🔗 Webhook: {'✅ Scheduled' if webhook_notification_scheduled else '❌ Not configured'}")
             logger.info(f"[VOXIMPLANT-v3.9]   💰 Total Cost: {call_cost}")
             if cost_breakdown:
                 logger.info(f"[VOXIMPLANT-v3.9]      ├─ Calls: {cost_breakdown['calls_cost']}")
@@ -1483,6 +1523,8 @@ async def log_conversation_data(
                 "dialog_turns": len(dialog) if dialog else 0,
                 # 🆕 v3.9: Статус Telegram уведомления
                 "telegram_notification_scheduled": telegram_notification_scheduled,
+                # 🆕 v4.0: Статус Webhook уведомления
+                "webhook_notification_scheduled": webhook_notification_scheduled,
                 # v3.7: Возвращаем полную стоимость и статус отложенного пересчёта
                 "call_cost": float(call_cost) if call_cost is not None else None,
                 "call_duration": float(call_duration) if call_duration is not None else None,

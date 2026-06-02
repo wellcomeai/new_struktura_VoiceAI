@@ -278,6 +278,9 @@ def create_elevenlabs_tables():
         # Список колонок которые должны быть в таблице users
         required_columns = {
             'elevenlabs_api_key': 'VARCHAR NULL',
+            # ✅ НОВОЕ v4.0: Webhook настройки для уведомлений о завершённых диалогах
+            'webhook_url': 'VARCHAR(500) NULL',
+            'webhook_enabled': 'BOOLEAN NOT NULL DEFAULT FALSE',
         }
         
         # Проверяем таблицу users

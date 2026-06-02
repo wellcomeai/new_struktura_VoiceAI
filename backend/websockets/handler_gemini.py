@@ -1296,7 +1296,47 @@ async def handle_gemini_messages(
                         log_to_render(f"❌ Final Sheets save failed", "ERROR")
                 except Exception as e:
                     log_to_render(f"❌ Final Sheets error: {e}", "ERROR")
-        
+
+        # ═══════════════════════════════════════════════════════════════
+        # 🆕 v4.0: WEBHOOK УВЕДОМЛЕНИЕ при disconnect
+        # Отправляем один итоговый webhook с полным диалогом из БД
+        # ═══════════════════════════════════════════════════════════════
+        try:
+            if gemini_client and gemini_client.assistant_config and gemini_client.assistant_config.user_id:
+                from backend.db.session import SessionLocal
+                from backend.models.user import User
+                from backend.services.webhook_notification import send_webhook_safe
+
+                webhook_db = SessionLocal()
+                try:
+                    user = webhook_db.query(User).get(gemini_client.assistant_config.user_id)
+                    if user and user.has_webhook_config():
+                        log_to_render(f"🔗 [WEBHOOK] Sending conversation.completed for session {gemini_client.session_id}")
+
+                        await send_webhook_safe(
+                            db=webhook_db,
+                            webhook_url=user.webhook_url,
+                            webhook_enabled=user.webhook_enabled,
+                            source="web_chat",
+                            session_id=gemini_client.session_id,
+                            assistant_id=str(gemini_client.assistant_config.id),
+                            assistant_name=gemini_client.assistant_config.name,
+                            assistant_type="gemini",
+                            # Эти поля None для веб-чата:
+                            caller_number=None,
+                            call_direction=None,
+                            duration_seconds=None,
+                            call_cost=None,
+                            record_url=None,
+                        )
+                        log_to_render(f"✅ [WEBHOOK] Notification sent")
+                    else:
+                        log_to_render(f"ℹ️ [WEBHOOK] No webhook configured for user")
+                finally:
+                    webhook_db.close()
+        except Exception as wh_error:
+            log_to_render(f"❌ [WEBHOOK] Error sending webhook: {wh_error}", "ERROR")
+
         log_to_render(f"📊 Final handler stats:")
         log_to_render(f"   Total events processed: {event_count}")
         log_to_render(f"   Functions executed: {function_execution_count}")

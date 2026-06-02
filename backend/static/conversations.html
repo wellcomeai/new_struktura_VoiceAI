@@ -323,7 +323,41 @@
     .btn-telegram .status-dot.not-configured {
       background-color: rgba(255, 255, 255, 0.5);
     }
-    
+
+    /* Webhook кнопка */
+    .btn-webhook {
+      background-color: #6366f1;
+      color: var(--white);
+      border: none;
+      position: relative;
+    }
+
+    .btn-webhook:hover {
+      background-color: #4f46e5;
+    }
+
+    .btn-webhook .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-left: 0.25rem;
+    }
+
+    .btn-webhook .status-dot.configured {
+      background-color: #10b981;
+      box-shadow: 0 0 4px #10b981;
+    }
+
+    .btn-webhook .status-dot.not-configured {
+      background-color: rgba(255, 255, 255, 0.5);
+    }
+
+    /* Webhook модалка использует telegram-* классы для единообразия,
+       но с собственным акцентным цветом заголовка */
+    .webhook-modal .modal-header {
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+    }
+
     /* Контейнер для содержимого */
     .content-container {
       padding: 2rem;
@@ -1750,6 +1784,10 @@
             <i class="fab fa-telegram"></i> Telegram
             <span class="status-dot not-configured" id="telegram-status-dot"></span>
           </button>
+          <button class="btn btn-webhook" id="webhook-settings-btn">
+            <i class="fas fa-link"></i> Webhook
+            <span class="status-dot not-configured" id="webhook-status-dot"></span>
+          </button>
         </div>
       </div>
       
@@ -1870,7 +1908,75 @@
       </div>
     </div>
   </div>
-  
+
+  <!-- Модальное окно Webhook настроек -->
+  <div class="modal-overlay" id="webhook-modal-overlay">
+    <div class="modal telegram-modal webhook-modal">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <h2 class="modal-title">
+            <i class="fas fa-link"></i> Webhook уведомления
+          </h2>
+        </div>
+        <button class="modal-close" id="webhook-modal-close">&times;</button>
+      </div>
+
+      <div class="telegram-modal-body">
+        <!-- Статус -->
+        <div class="telegram-status not-configured" id="webhook-status">
+          <i class="fas fa-circle"></i>
+          <span id="webhook-status-text">Не настроено</span>
+        </div>
+
+        <!-- Инструкция -->
+        <div class="telegram-instruction">
+          <h4><i class="fas fa-info-circle"></i> Как это работает?</h4>
+          <p style="margin-bottom: 0.75rem; color: var(--text-dark);">
+            После завершения каждого диалога (веб-чат и телефония) на указанный URL
+            отправляется POST-запрос с событием <code>conversation.completed</code>:
+          </p>
+          <ul style="margin-left: 1rem; margin-bottom: 1rem; color: var(--text-gray);">
+            <li>💬 Полный диалог (массив реплик с ролью и текстом)</li>
+            <li>🤖 Имя, ID и тип ассистента</li>
+            <li>📞 Для телефонии — номер, направление, длительность, стоимость, запись</li>
+            <li>🔖 Поле <code>source</code> = <code>web_chat</code> или <code>telephony</code></li>
+          </ul>
+
+          <h4><i class="fas fa-cog"></i> Как проверить:</h4>
+          <ol>
+            <li>Создайте временный URL на <a href="https://webhook.site" target="_blank">webhook.site</a></li>
+            <li>Вставьте его в поле ниже и включите отправку</li>
+            <li>Сделайте тестовый звонок или веб-чат — событие появится на webhook.site</li>
+          </ol>
+        </div>
+
+        <!-- Форма -->
+        <div class="telegram-form-group">
+          <label for="webhook-url">Webhook URL</label>
+          <input type="text" id="webhook-url" class="telegram-input" placeholder="https://your-server.com/voicyfy-webhook">
+          <div class="input-hint">URL вашего сервера для приёма POST-запросов (http:// или https://)</div>
+        </div>
+
+        <div class="telegram-form-group">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+            <input type="checkbox" id="webhook-enabled" style="width: auto; cursor: pointer;">
+            Включить отправку вебхуков
+          </label>
+          <div class="input-hint">Если выключено — уведомления отправляться не будут</div>
+        </div>
+      </div>
+
+      <div class="telegram-modal-footer">
+        <button class="btn btn-danger" id="webhook-delete-btn" style="display: none;">
+          <i class="fas fa-trash"></i> Удалить
+        </button>
+        <button class="btn btn-primary" id="webhook-save-btn">
+          <i class="fas fa-save"></i> Сохранить
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Уведомление -->
   <div class="notification notification-success" id="notification" style="display: none;">
     <div class="notification-icon">
@@ -1967,7 +2073,19 @@
       const telegramSaveBtn = document.getElementById('telegram-save-btn');
       const telegramTestBtn = document.getElementById('telegram-test-btn');
       const telegramDeleteBtn = document.getElementById('telegram-delete-btn');
-      
+
+      // Webhook элементы
+      const webhookSettingsBtn = document.getElementById('webhook-settings-btn');
+      const webhookStatusDot = document.getElementById('webhook-status-dot');
+      const webhookModalOverlay = document.getElementById('webhook-modal-overlay');
+      const webhookModalClose = document.getElementById('webhook-modal-close');
+      const webhookStatus = document.getElementById('webhook-status');
+      const webhookStatusText = document.getElementById('webhook-status-text');
+      const webhookUrlInput = document.getElementById('webhook-url');
+      const webhookEnabledInput = document.getElementById('webhook-enabled');
+      const webhookSaveBtn = document.getElementById('webhook-save-btn');
+      const webhookDeleteBtn = document.getElementById('webhook-delete-btn');
+
       // Состояние
       let currentPage = 0;
       let totalPages = 1;
@@ -1977,6 +2095,9 @@
       
       // Telegram состояние
       let telegramConfigured = false;
+
+      // Webhook состояние
+      let webhookConfigured = false;
       
       // Код текущего тарифа пользователя
       let currentUserPlanCode = 'free';
@@ -2479,7 +2600,133 @@
       
       telegramBotToken.addEventListener('input', checkTelegramInputs);
       telegramChatId.addEventListener('input', checkTelegramInputs);
-      
+
+      // ============================================================================
+      // WEBHOOK НАСТРОЙКИ
+      // ============================================================================
+
+      function updateWebhookUI(configured) {
+        webhookConfigured = configured;
+
+        // Обновляем точку на кнопке
+        if (configured) {
+          webhookStatusDot.classList.remove('not-configured');
+          webhookStatusDot.classList.add('configured');
+        } else {
+          webhookStatusDot.classList.remove('configured');
+          webhookStatusDot.classList.add('not-configured');
+        }
+
+        // Обновляем статус в модалке
+        if (configured) {
+          webhookStatus.classList.remove('not-configured');
+          webhookStatus.classList.add('configured');
+          webhookStatusText.textContent = '✓ Настроено и активно';
+          webhookDeleteBtn.style.display = 'flex';
+        } else {
+          webhookStatus.classList.remove('configured');
+          webhookStatus.classList.add('not-configured');
+          webhookStatusText.textContent = 'Не настроено';
+          webhookDeleteBtn.style.display = 'none';
+        }
+      }
+
+      async function loadWebhookSettings() {
+        try {
+          const settings = await api.get('/users/webhook-settings');
+
+          webhookUrlInput.value = settings.webhook_url || '';
+          webhookEnabledInput.checked = !!settings.webhook_enabled;
+          updateWebhookUI(!!settings.is_configured);
+        } catch (error) {
+          console.error('[WEBHOOK] Error loading settings:', error);
+          updateWebhookUI(false);
+        }
+      }
+
+      async function saveWebhookSettings() {
+        const url = webhookUrlInput.value.trim();
+        const enabled = webhookEnabledInput.checked;
+
+        // Если включаем отправку — URL обязателен
+        if (enabled && !url) {
+          showNotification('Укажите URL для отправки вебхуков', 'error');
+          webhookUrlInput.classList.add('error');
+          return;
+        }
+
+        if (url && !(url.startsWith('http://') || url.startsWith('https://'))) {
+          showNotification('URL должен начинаться с http:// или https://', 'error');
+          webhookUrlInput.classList.add('error');
+          return;
+        }
+
+        webhookUrlInput.classList.remove('error');
+
+        try {
+          setLoading(true);
+
+          await api.put('/users/webhook-settings', {
+            webhook_url: url || null,
+            webhook_enabled: enabled
+          });
+
+          showNotification('Настройки webhook сохранены', 'success');
+          await loadWebhookSettings();
+
+        } catch (error) {
+          console.error('[WEBHOOK] Save error:', error);
+          showNotification(error.message || 'Ошибка сохранения настроек', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      async function deleteWebhookSettings() {
+        if (!confirm('Вы уверены, что хотите удалить настройки webhook? Уведомления о диалогах перестанут приходить.')) {
+          return;
+        }
+
+        try {
+          setLoading(true);
+
+          await api.delete('/users/webhook-settings');
+
+          webhookUrlInput.value = '';
+          webhookEnabledInput.checked = false;
+          updateWebhookUI(false);
+
+          showNotification('Настройки webhook удалены', 'success');
+
+        } catch (error) {
+          console.error('[WEBHOOK] Delete error:', error);
+          showNotification(error.message || 'Ошибка удаления настроек', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      function openWebhookModal() {
+        loadWebhookSettings();
+        webhookModalOverlay.classList.add('show');
+      }
+
+      function closeWebhookModal() {
+        webhookModalOverlay.classList.remove('show');
+      }
+
+      // Обработчики Webhook
+      webhookSettingsBtn.addEventListener('click', openWebhookModal);
+      webhookModalClose.addEventListener('click', closeWebhookModal);
+      webhookModalOverlay.addEventListener('click', (e) => {
+        if (e.target === webhookModalOverlay) {
+          closeWebhookModal();
+        }
+      });
+
+      webhookSaveBtn.addEventListener('click', saveWebhookSettings);
+      webhookDeleteBtn.addEventListener('click', deleteWebhookSettings);
+
       // ============================================================================
       // УДАЛЕНИЕ ДИАЛОГА
       // ============================================================================
@@ -3093,6 +3340,8 @@
         if (e.key === 'Escape') {
           if (telegramModalOverlay.classList.contains('show')) {
             closeTelegramModal();
+          } else if (webhookModalOverlay.classList.contains('show')) {
+            closeWebhookModal();
           } else if (modalOverlay.classList.contains('show')) {
             closeModal();
           }
@@ -3119,6 +3368,9 @@
       
       // Загружаем статус Telegram при старте
       loadTelegramSettings();
+
+      // Загружаем статус Webhook при старте
+      loadWebhookSettings();
 
       // Обработчики модалки блокировки функции
       document.getElementById('feature-modal-overlay').addEventListener('click', hideFeatureBlockedModal);
