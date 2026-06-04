@@ -32,7 +32,10 @@ from backend.services.agent_tools import (
     AGENT_CHAT_TOOLS,
     AGENT_POSTCALL_TOOLS,
     execute_tool,
+    to_chat_completions_tools,
 )
+from backend.services.agent_prompts import build_orchestrator_prompt
+from backend.services.openrouter_client import get_openrouter_client
 
 logger = get_logger(__name__)
 
@@ -93,8 +96,137 @@ class PreCallOrchestrator:
         """
         Run PreCall phase: generate first_phrase and call strategy.
         Returns dict with: first_phrase, call_strategy, tone, key_points
+
+        Развилка по uses_hardcoded_prompt:
+        - v3 (TRUE):  OpenRouter Chat Completions + захардкоженный промпт.
+        - v2 (FALSE): OpenAI Responses API + сгенерированный промпт (старые агенты).
         """
-        logger.info(f"[AGENT-PRECALL] Starting for task {task.id}, contact {agent_contact.name or agent_contact.phone}")
+        if getattr(agent_config, "uses_hardcoded_prompt", False):
+            return await self._run_v3_openrouter(task, agent_contact, agent_call, agent_config, user, db)
+        return await self._run_v2_responses_api(task, agent_contact, agent_call, agent_config, user, db)
+
+    def _build_precall_input(self, task, agent_contact, db) -> str:
+        memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
+        previous_calls = (
+            db.query(AgentCall)
+            .filter(AgentCall.agent_contact_id == agent_contact.id)
+            .order_by(AgentCall.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        calls_context = ""
+        for pc in reversed(previous_calls):
+            calls_context += f"\n--- Звонок {pc.created_at.strftime('%Y-%m-%d %H:%M') if pc.created_at else '?'} ---\n"
+            calls_context += f"Статус: {pc.status}, Решение: {pc.post_call_decision or 'N/A'}\n"
+            if pc.transcript:
+                calls_context += f"Транскрипт: {pc.transcript[:500]}\n"
+
+        return f"""ЗАДАЧА: {task.title}
+ОПИСАНИЕ: {task.description or 'Нет описания'}
+КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
+КОМПАНИЯ: {agent_contact.company or 'Не указана'}
+ДОЛЖНОСТЬ: {agent_contact.position or 'Не указана'}
+ПАМЯТЬ О КОНТАКТЕ: {memory_json}
+ПОПЫТКА: {agent_contact.attempts_count + 1}
+
+ПРЕДЫДУЩИЕ ЗВОНКИ:
+{calls_context or 'Нет предыдущих звонков'}"""
+
+    async def _run_v3_openrouter(
+        self,
+        task: Task,
+        agent_contact: AgentContact,
+        agent_call: AgentCall,
+        agent_config: AgentConfig,
+        user: User,
+        db
+    ) -> Dict[str, Any]:
+        """PreCall v3 — OpenRouter Chat Completions, JSON-стратегия, без tools."""
+        logger.info(f"[AGENT-PRECALL] (v3/OpenRouter) Starting for task {task.id}, "
+                    f"contact {agent_contact.name or agent_contact.phone}, model {agent_config.orchestrator_model}")
+
+        system_prompt = build_orchestrator_prompt(agent_config)
+        base_input = self._build_precall_input(task, agent_contact, db)
+        user_input = base_input + """
+
+Подготовь звонок. Верни ответ строго в JSON формате без markdown:
+{"first_phrase": "точная первая фраза агента", "call_strategy": "краткое описание тактики", "tone": "дружелюбный/деловой/настойчивый", "key_points": ["факт1", "факт2"]}"""
+
+        output_text = ""
+        try:
+            client = get_openrouter_client()
+            response = await client.chat_completion(
+                model=agent_config.orchestrator_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_input},
+                ],
+                tools=None,
+                temperature=0.7,
+            )
+            output_text = response["choices"][0]["message"].get("content", "") or ""
+            logger.info(f"[AGENT-PRECALL] (v3) Raw response: {output_text[:200]}")
+
+            json_text = output_text
+            if "```json" in json_text:
+                json_text = json_text.split("```json")[1].split("```")[0]
+            elif "```" in json_text:
+                json_text = json_text.split("```")[1].split("```")[0]
+
+            result = json.loads(json_text.strip())
+
+            agent_call.pre_call_response_id = None
+            agent_call.custom_greeting = result.get("first_phrase", "")
+            agent_call.call_strategy = result.get("call_strategy", "")
+
+            agent_call.precall_log = {
+                "response_id": None,
+                "model": agent_config.orchestrator_model,
+                "first_phrase": result.get("first_phrase", ""),
+                "call_strategy": result.get("call_strategy", ""),
+                "tone": result.get("tone", ""),
+                "key_points": result.get("key_points", []),
+                "attempts_before": agent_contact.attempts_count,
+                "memory_snapshot": agent_contact.memory or {},
+                "generated_at": datetime.utcnow().isoformat(),
+            }
+
+            task.custom_greeting = result.get("first_phrase", "")
+            db.commit()
+
+            logger.info(f"[AGENT-PRECALL] (v3) ✅ Success. Strategy: {result.get('call_strategy', '')[:80]}")
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"[AGENT-PRECALL] (v3) JSON parse error: {e}")
+            agent_call.pre_call_response_id = None
+            agent_call.custom_greeting = output_text[:200]
+            agent_call.call_strategy = "fallback"
+            agent_call.precall_log = {
+                "error": "json_parse_error",
+                "raw_output": output_text[:500],
+                "model": agent_config.orchestrator_model,
+                "generated_at": datetime.utcnow().isoformat(),
+            }
+            task.custom_greeting = agent_call.custom_greeting
+            db.commit()
+            return {"first_phrase": agent_call.custom_greeting, "call_strategy": "fallback", "tone": "деловой", "key_points": []}
+
+        except Exception as e:
+            logger.error(f"[AGENT-PRECALL] (v3) Error: {e}", exc_info=True)
+            raise
+
+    async def _run_v2_responses_api(
+        self,
+        task: Task,
+        agent_contact: AgentContact,
+        agent_call: AgentCall,
+        agent_config: AgentConfig,
+        user: User,
+        db
+    ) -> Dict[str, Any]:
+        """PreCall v2 (legacy) — OpenAI Responses API + сгенерированный промпт."""
+        logger.info(f"[AGENT-PRECALL] (v2/Responses) Starting for task {task.id}, contact {agent_contact.name or agent_contact.phone}")
 
         client = AsyncOpenAI(api_key=user.openai_api_key)
 
@@ -355,24 +487,7 @@ class PostCallOrchestrator:
         finally:
             db.close()
 
-    async def _analyze(
-        self,
-        agent_call: AgentCall,
-        agent_contact: AgentContact,
-        agent_config: AgentConfig,
-        user: User,
-        task: Optional[Task],
-        transcript: str,
-        call_status: str,
-        duration_seconds: float,
-        openai_key: str,
-        db
-    ):
-        """Run PostCall analysis with gpt-5 using AGENT_POSTCALL_TOOLS."""
-        logger.info(f"[AGENT-POSTCALL] Analyzing call {agent_call.id}")
-
-        client = AsyncOpenAI(api_key=openai_key)
-
+    def _build_postcall_input(self, agent_call, agent_contact, transcript, call_status, duration_seconds, db) -> str:
         previous_calls = (
             db.query(AgentCall)
             .filter(
@@ -393,7 +508,7 @@ class PostCallOrchestrator:
 
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
 
-        post_call_input = f"""КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
+        return f"""КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
 ПАМЯТЬ О КОНТАКТЕ: {memory_json}
 ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}
@@ -410,14 +525,225 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
 Проанализируй звонок и выполни необходимые действия через tools:
 1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
-2. ОБЯЗАТЕЛЬНО вызови create_agent_task — задача на перезвон создаётся ВСЕГДА.
-   - Если клиент ответил — перезвони через разумное время (1-3 дня).
+2. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ случая
+   когда цель звонка уже достигнута (тогда перезвон не нужен).
+   - Если клиент ответил и цель НЕ достигнута / попросил перезвонить — перезвони
+     через разумное время (1-3 дня).
    - Если не ответил — перезвони через 24 часа.
-   - Единственное исключение: клиент явно попросил НИКОГДА не звонить.
-3. Если клиент явно попросил никогда не звонить — вызови set_contact_status(do_not_call)
-   и НЕ создавай задачу.
-4. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification.
-5. Установи статус контакта через set_contact_status (active, success, rejected)."""
+3. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification."""
+
+    async def _analyze(
+        self,
+        agent_call: AgentCall,
+        agent_contact: AgentContact,
+        agent_config: AgentConfig,
+        user: User,
+        task: Optional[Task],
+        transcript: str,
+        call_status: str,
+        duration_seconds: float,
+        openai_key: str,
+        db
+    ):
+        """
+        Run PostCall analysis. Развилка по uses_hardcoded_prompt:
+        - v3 (TRUE):  OpenRouter Chat Completions + AGENT_POSTCALL_TOOLS, без цепочки.
+        - v2 (FALSE): OpenAI Responses API (старые агенты).
+        """
+        if getattr(agent_config, "uses_hardcoded_prompt", False):
+            return await self._analyze_v3_openrouter(
+                agent_call, agent_contact, agent_config, user, task,
+                transcript, call_status, duration_seconds, db
+            )
+        return await self._analyze_v2_responses_api(
+            agent_call, agent_contact, agent_config, user, task,
+            transcript, call_status, duration_seconds, openai_key, db
+        )
+
+    async def _analyze_v3_openrouter(
+        self,
+        agent_call: AgentCall,
+        agent_contact: AgentContact,
+        agent_config: AgentConfig,
+        user: User,
+        task: Optional[Task],
+        transcript: str,
+        call_status: str,
+        duration_seconds: float,
+        db
+    ):
+        """PostCall v3 — OpenRouter Chat Completions, без previous_response_id."""
+        logger.info(f"[AGENT-POSTCALL] (v3/OpenRouter) Analyzing call {agent_call.id}, model {agent_config.orchestrator_model}")
+
+        system_prompt = build_orchestrator_prompt(agent_config)
+        post_call_input = self._build_postcall_input(
+            agent_call, agent_contact, transcript, call_status, duration_seconds, db
+        )
+        # Подставляем стратегию PreCall в текст (симуляция цепочки)
+        post_call_input += f"""
+
+СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
+Первая фраза: {agent_call.custom_greeting or '(не задана)'}
+Тактика: {agent_call.call_strategy or '(не задана)'}"""
+
+        tools = to_chat_completions_tools(AGENT_POSTCALL_TOOLS)
+        tool_calls_log: List[Dict[str, Any]] = []
+
+        context = {
+            "agent_config_id": str(agent_call.agent_config_id),
+            "user_id": str(agent_call.user_id),
+            "user": user,
+        }
+
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": post_call_input},
+        ]
+
+        try:
+            client = get_openrouter_client()
+            post_call_decision = None
+            created_task = False
+            max_iterations = 10
+            iteration = 0
+
+            while iteration < max_iterations:
+                iteration += 1
+                response = await client.chat_completion(
+                    model=agent_config.orchestrator_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.5,
+                )
+                msg = response["choices"][0]["message"]
+                tool_calls = msg.get("tool_calls") or []
+
+                if not tool_calls:
+                    break
+
+                # Append assistant message with tool_calls to history
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": tool_calls,
+                })
+
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    tool_name = fn.get("name", "")
+                    try:
+                        tool_args = json.loads(fn.get("arguments") or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"[AGENT-POSTCALL] (v3) Executing tool: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:200]})")
+
+                    tool_entry = {
+                        "tool": tool_name,
+                        "args": tool_args,
+                        "ts": datetime.utcnow().isoformat(),
+                    }
+                    result_str = await execute_tool(tool_name, tool_args, context, db)
+                    try:
+                        tool_entry["result"] = json.loads(result_str)
+                    except Exception:
+                        tool_entry["result"] = result_str
+                    tool_calls_log.append(tool_entry)
+
+                    if tool_name == "create_agent_task":
+                        try:
+                            result_data = json.loads(result_str)
+                            if result_data.get("ok") and result_data.get("task_id"):
+                                agent_call.next_task_id = result_data["task_id"]
+                                created_task = True
+                        except Exception:
+                            pass
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "content": result_str,
+                    })
+
+            # Determine final decision (SUCCESS / NO_ANSWER / FOLLOWUP only)
+            if call_status == "answered":
+                post_call_decision = "FOLLOWUP" if created_task else "SUCCESS"
+            else:
+                post_call_decision = "NO_ANSWER"
+
+            agent_call.transcript = transcript
+            agent_call.duration_seconds = int(duration_seconds)
+            agent_call.status = "answered" if call_status == "answered" else "no_answer"
+            agent_call.completed_at = datetime.utcnow()
+            agent_call.post_call_decision = post_call_decision
+
+            agent_call.postcall_log = {
+                "response_id": None,
+                "model": agent_config.orchestrator_model,
+                "call_status": call_status,
+                "duration_seconds": duration_seconds,
+                "tool_calls": tool_calls_log,
+                "final_decision": post_call_decision,
+                "transcript_length": len(transcript),
+                "analyzed_at": datetime.utcnow().isoformat(),
+            }
+
+            agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
+            agent_contact.last_called_at = datetime.utcnow()
+            if agent_contact.status == "calling":
+                agent_contact.status = "active"
+
+            if task:
+                task.post_call_decision = post_call_decision
+                task.status = TaskStatus.COMPLETED
+
+            flag_modified(agent_contact, 'memory')
+            db.commit()
+            logger.info(f"[AGENT-POSTCALL] (v3) ✅ Call {agent_call.id} completed: {post_call_decision} ({len(tool_calls_log)} tool calls)")
+
+        except Exception as e:
+            logger.error(f"[AGENT-POSTCALL] (v3) Analysis error: {e}", exc_info=True)
+            agent_call.postcall_log = {
+                "error": str(e),
+                "model": agent_config.orchestrator_model,
+                "call_status": call_status,
+                "tool_calls": tool_calls_log,
+                "analyzed_at": datetime.utcnow().isoformat(),
+            }
+            agent_call.status = "no_answer" if call_status != "answered" else "answered"
+            agent_call.post_call_decision = "NO_ANSWER" if call_status != "answered" else "SUCCESS"
+            agent_call.completed_at = datetime.utcnow()
+            agent_call.transcript = transcript
+            agent_call.duration_seconds = int(duration_seconds)
+            agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
+            agent_contact.last_called_at = datetime.utcnow()
+            if task:
+                task.post_call_decision = agent_call.post_call_decision
+                task.status = TaskStatus.COMPLETED
+            flag_modified(agent_contact, 'memory')
+            db.commit()
+
+    async def _analyze_v2_responses_api(
+        self,
+        agent_call: AgentCall,
+        agent_contact: AgentContact,
+        agent_config: AgentConfig,
+        user: User,
+        task: Optional[Task],
+        transcript: str,
+        call_status: str,
+        duration_seconds: float,
+        openai_key: str,
+        db
+    ):
+        """PostCall v2 (legacy) — OpenAI Responses API with AGENT_POSTCALL_TOOLS."""
+        logger.info(f"[AGENT-POSTCALL] (v2/Responses) Analyzing call {agent_call.id}")
+
+        client = AsyncOpenAI(api_key=openai_key)
+
+        post_call_input = self._build_postcall_input(
+            agent_call, agent_contact, transcript, call_status, duration_seconds, db
+        )
 
         # ✅ v2.1: Список для сбора всех tool calls
         tool_calls_log: List[Dict[str, Any]] = []
@@ -476,18 +802,6 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                             tool_entry["result"] = result_str
 
                         tool_calls_log.append(tool_entry)
-
-                        # Track decision
-                        if tool_name == "set_contact_status":
-                            status_val = tool_args.get("status", "")
-                            if status_val == "do_not_call":
-                                post_call_decision = "DO_NOT_CALL"
-                            elif status_val == "success":
-                                post_call_decision = "SUCCESS"
-                            elif status_val == "rejected":
-                                post_call_decision = "REJECTED"
-                            else:
-                                post_call_decision = post_call_decision or "FOLLOWUP"
 
                         if tool_name == "create_agent_task":
                             try:
@@ -615,7 +929,125 @@ class ChatOrchestrator:
         """
         Process a chat message with the agent.
         Returns dict with: reply (str), debug_log (list of log entries).
+
+        Развилка по uses_hardcoded_prompt:
+        - v3 (TRUE):  OpenRouter Chat Completions + захардкоженный промпт.
+        - v2 (FALSE): OpenAI Responses API (старые агенты).
         """
+        if getattr(agent_config, "uses_hardcoded_prompt", False):
+            return await self._run_v3_openrouter(message, agent_config, user, db)
+        return await self._run_v2_responses_api(message, agent_config, user, db)
+
+    async def _run_v3_openrouter(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db
+    ) -> Dict[str, Any]:
+        """Chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
+        debug_log: List[Dict[str, Any]] = []
+        debug_log.append({"ts": self._now_ts(), "type": "user_message", "data": message})
+
+        system_prompt = build_orchestrator_prompt(agent_config)
+        history = agent_config.chat_history or []
+
+        # Build messages from stored chat history (role/content only)
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for msg in history[-20:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        debug_log.append({
+            "ts": self._now_ts(),
+            "type": "gpt_thinking",
+            "data": f"model: {agent_config.orchestrator_model}, tools: {len(tools)}, history: {len(messages) - 2} msgs",
+        })
+
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            response = await client.chat_completion(
+                model=agent_config.orchestrator_model,
+                messages=messages,
+                tools=tools,
+                temperature=0.7,
+            )
+            msg = response["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls") or []
+
+            if not tool_calls:
+                final_text = msg.get("content") or ""
+                break
+
+            messages.append({
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            })
+
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                tool_name = fn.get("name", "")
+                try:
+                    tool_args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                debug_log.append({"ts": self._now_ts(), "type": "tool_call", "data": {"tool": tool_name, "args": tool_args}})
+                logger.info(f"[AGENT-CHAT] (v3) Executing tool: {tool_name}")
+                try:
+                    result_str = await execute_tool(tool_name, tool_args, context, db)
+                    try:
+                        result_parsed = json.loads(result_str)
+                    except (json.JSONDecodeError, TypeError):
+                        result_parsed = result_str
+                    debug_log.append({"ts": self._now_ts(), "type": "tool_result", "data": {"tool": tool_name, "result": result_parsed}})
+                except Exception as e:
+                    result_str = json.dumps({"ok": False, "error": str(e)})
+                    debug_log.append({"ts": self._now_ts(), "type": "tool_error", "data": {"tool": tool_name, "error": str(e)}})
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "content": result_str,
+                })
+
+        if not final_text:
+            final_text = "Готово."
+
+        debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
+
+        new_history = list(history)
+        new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
+        new_history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+        agent_config.chat_history = new_history[-20:]
+        db.commit()
+
+        return {"reply": final_text, "debug_log": debug_log}
+
+    async def _run_v2_responses_api(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db
+    ) -> Dict[str, Any]:
+        """Chat v2 (legacy) — OpenAI Responses API."""
         client = AsyncOpenAI(api_key=user.openai_api_key)
         debug_log: List[Dict[str, Any]] = []
 

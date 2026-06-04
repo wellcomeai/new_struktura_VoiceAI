@@ -181,6 +181,16 @@ class TaskScheduler:
         try:
             logger.info(f"[TASK-SCHEDULER] 🤖 Executing AGENT task {task.id}: {task.title}")
 
+            # ✅ v3.0: Skip if the user's agent is inactive (toggle off).
+            # Leave the task SCHEDULED so it runs once the agent is re-activated.
+            agent_config = db.query(AgentConfig).filter(
+                AgentConfig.user_id == task.user_id,
+                AgentConfig.is_active == True
+            ).first()
+            if not agent_config:
+                logger.info(f"[TASK-SCHEDULER] Skipping agent task {task.id}: agent is inactive")
+                return  # не помечаем как failed — просто пропускаем, ждём активации
+
             # Lock task immediately
             task.status = TaskStatus.PENDING
             task.call_started_at = datetime.utcnow()
@@ -244,8 +254,13 @@ class TaskScheduler:
             agent_contact.status = "calling"
             db.commit()
 
-            # PreCall with AgentContact
-            if agent_config and user.openai_api_key:
+            # PreCall with AgentContact.
+            # v3 agents use OpenRouter (system key) → run regardless of user's OpenAI key.
+            # v2 (legacy) agents require the user's OpenAI key.
+            can_orchestrate = agent_config and (
+                agent_config.uses_hardcoded_prompt or user.openai_api_key
+            )
+            if can_orchestrate:
                 try:
                     pre_call = PreCallOrchestrator()
                     pre_result = await pre_call.run(task, agent_contact, agent_call, agent_config, user, db)
@@ -290,13 +305,13 @@ class TaskScheduler:
                 task.call_result = f"Agent call initiated. Session: {call_session_id}"
                 db.commit()
 
-                # Launch PostCall with agent_call_id
-                if agent_config and user.openai_api_key:
+                # Launch PostCall with agent_call_id (v3 → OpenRouter, v2 → user OpenAI key)
+                if can_orchestrate:
                     asyncio.create_task(
                         PostCallOrchestrator.poll_and_run(
                             agent_call_id=str(agent_call.id),
                             agent_config_id=str(agent_config.id),
-                            user_openai_key=user.openai_api_key,
+                            user_openai_key=user.openai_api_key or "",
                         )
                     )
                     logger.info(f"[TASK-SCHEDULER] 🤖 Agent PostCall started for call {agent_call.id}")
@@ -482,20 +497,10 @@ class TaskScheduler:
                 return
 
             # =====================================================================
-            # ✅ v5.0: VOICYFY AGENT — PreCall Orchestrator
+            # ✅ v3.0: PreCall убран из обычных задач — Voicyfy Agent работает
+            # только через agent tasks (execute_agent_task). Для обычных Task'ов
+            # PreCall не нужен.
             # =====================================================================
-            agent_config = db.query(AgentConfig).filter(
-                AgentConfig.user_id == user.id,
-                AgentConfig.is_active == True
-            ).first()
-
-            if agent_config and user.openai_api_key:
-                try:
-                    pre_call = PreCallOrchestrator()
-                    pre_result = await pre_call.run(task, contact, agent_config, user, db)
-                    logger.info(f"[TASK-SCHEDULER] ✅ PreCall completed: {pre_result.get('call_strategy', '')[:80]}")
-                except Exception as e:
-                    logger.error(f"[TASK-SCHEDULER] ⚠️ PreCall failed (continuing without): {e}")
 
             # =====================================================================
             # ✅ v4.0: ВЫБОР ИНТЕГРАЦИИ

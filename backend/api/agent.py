@@ -17,11 +17,17 @@ from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.assistant import AssistantConfig
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
 from backend.core.dependencies import get_current_user
+from backend.services.agent_prompts import get_voice_agent_prompt
+from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
+from backend.services.agent_tools import assistant_task_kwargs
 
 logger = get_logger(__name__)
 
@@ -32,15 +38,21 @@ router = APIRouter()
 # ============================================================================
 
 
+VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia")
+
+
 class AgentCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
+    assistant_type: str = Field(...)  # "gemini" | "openai" | "cartesia"
     doc_who_am_i: str = Field(..., min_length=1)
     doc_who_we_call: str = Field(..., min_length=1)
     doc_how_we_talk: str = Field(..., min_length=1)
     doc_what_we_offer: str = Field(..., min_length=1)
     doc_rules_and_goals: str = Field(..., min_length=1)
+    additional_instructions: Optional[str] = None
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
+    orchestrator_model: Optional[str] = None  # default → get_default_model()
 
 
 class AgentUpdateRequest(BaseModel):
@@ -50,10 +62,13 @@ class AgentUpdateRequest(BaseModel):
     doc_how_we_talk: Optional[str] = None
     doc_what_we_offer: Optional[str] = None
     doc_rules_and_goals: Optional[str] = None
+    additional_instructions: Optional[str] = None
     working_hours_start: Optional[int] = Field(None, ge=0, le=23)
     working_hours_end: Optional[int] = Field(None, ge=0, le=23)
     is_active: Optional[bool] = None
     default_caller_id: Optional[str] = Field(None, max_length=50)
+    orchestrator_model: Optional[str] = None
+    assistant_type: Optional[str] = None
 
 
 class AgentChatRequest(BaseModel):
@@ -134,26 +149,85 @@ async def _generate_orchestrator_prompt(
     return response.choices[0].message.content
 
 
+def _check_telephony_verified(current_user: User, db: Session):
+    """Raise HTTPException(400) if telephony is not verified for the user."""
+    child_account = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == current_user.id
+    ).first()
+    if not child_account or not child_account.is_verified:
+        raise HTTPException(status_code=400, detail="telephony_not_verified")
+
+
+def _check_assistant_keys(assistant_type: str, current_user: User):
+    """Validate required API keys for the chosen assistant type."""
+    if assistant_type == "gemini":
+        if not current_user.gemini_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_gemini")
+    elif assistant_type == "openai":
+        if not current_user.openai_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_openai")
+    elif assistant_type == "cartesia":
+        if not current_user.openai_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_openai")
+        if not current_user.cartesia_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_cartesia")
+
+
+def _create_voice_assistant(assistant_type: str, name: str, user_id, db):
+    """Create a voice assistant of the given type with the hardcoded base prompt."""
+    prompt = get_voice_agent_prompt()
+    if assistant_type == "gemini":
+        va = GeminiAssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
+            system_prompt=prompt, voice="Kore", language="ru-RU",
+            greeting_message="", is_active=True, is_public=False,
+            temperature=0.7, max_tokens=4000,
+        )
+    elif assistant_type == "openai":
+        va = AssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
+            system_prompt=prompt, voice="alloy", language="ru",
+            greeting_message="", is_active=True, is_public=False,
+            temperature=0.7, max_tokens=4000,
+        )
+    elif assistant_type == "cartesia":
+        va = CartesiaAssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
+            system_prompt=prompt, greeting_message="", is_active=True,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="invalid_assistant_type")
+    db.add(va)
+    db.flush()
+    return va
+
+
 def _agent_to_dict(agent: AgentConfig) -> dict:
     """Serialize AgentConfig to dict for API response."""
-    gemini_name = None
-    if agent.gemini_assistant:
-        gemini_name = agent.gemini_assistant.name
+    voice = agent.get_voice_assistant() if agent.assistant_type else agent.gemini_assistant
+    voice_name = voice.name if voice else None
 
     return {
         "id": str(agent.id),
         "user_id": str(agent.user_id),
-        "assistant_id": str(agent.assistant_id) if agent.assistant_id else None,
-        "gemini_assistant_name": gemini_name,
+        "assistant_type": agent.assistant_type,
+        "assistant_id": str(agent.get_voice_assistant_id()) if agent.get_voice_assistant_id() else None,
+        "gemini_assistant_id": str(agent.gemini_assistant_id) if agent.gemini_assistant_id else None,
+        "openai_assistant_id": str(agent.openai_assistant_id) if agent.openai_assistant_id else None,
+        "cartesia_assistant_id": str(agent.cartesia_assistant_id) if agent.cartesia_assistant_id else None,
+        "voice_assistant_name": voice_name,
+        "gemini_assistant_name": voice_name,  # backward-compat for older frontend
         "name": agent.name,
         "is_active": agent.is_active,
         "orchestrator_model": agent.orchestrator_model,
         "orchestrator_prompt": agent.orchestrator_prompt,
+        "uses_hardcoded_prompt": agent.uses_hardcoded_prompt,
         "doc_who_am_i": agent.doc_who_am_i,
         "doc_who_we_call": agent.doc_who_we_call,
         "doc_how_we_talk": agent.doc_how_we_talk,
         "doc_what_we_offer": agent.doc_what_we_offer,
         "doc_rules_and_goals": agent.doc_rules_and_goals,
+        "additional_instructions": agent.additional_instructions,
         "working_hours_start": agent.working_hours_start,
         "working_hours_end": agent.working_hours_end,
         "default_caller_id": agent.default_caller_id,
@@ -189,72 +263,62 @@ async def create_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new Voicyfy Agent (one per user)."""
-    if not current_user.openai_api_key:
-        raise HTTPException(status_code=400, detail="openai_key_required")
+    """Create a new Voicyfy Agent v3.0 (one per user). No gpt-4o-mini generation."""
+    # 1. Validate assistant_type
+    if body.assistant_type not in VALID_ASSISTANT_TYPES:
+        raise HTTPException(status_code=400, detail="invalid_assistant_type")
 
-    if not current_user.gemini_api_key:
-        raise HTTPException(status_code=400, detail="gemini_key_required")
+    # 2. Validate orchestrator_model
+    orchestrator_model = body.orchestrator_model or get_default_model()
+    if not is_valid_model(orchestrator_model):
+        raise HTTPException(status_code=400, detail="invalid_orchestrator_model")
 
+    # 3. Telephony must be verified
+    _check_telephony_verified(current_user, db)
+
+    # 4. Required API keys for the chosen assistant type
+    _check_assistant_keys(body.assistant_type, current_user)
+
+    # 5. One agent per user
     existing = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="already_exists")
 
-    try:
-        orchestrator_prompt = await _generate_orchestrator_prompt(
-            doc_who_am_i=body.doc_who_am_i,
-            doc_who_we_call=body.doc_who_we_call,
-            doc_how_we_talk=body.doc_how_we_talk,
-            doc_what_we_offer=body.doc_what_we_offer,
-            doc_rules_and_goals=body.doc_rules_and_goals,
-            openai_api_key=current_user.openai_api_key
-        )
-    except Exception as e:
-        logger.error(f"[AGENT] Failed to generate orchestrator prompt: {e}")
-        raise HTTPException(status_code=500, detail=f"prompt_generation_failed: {str(e)}")
-
-    company_name = body.doc_who_am_i.split('\n')[0][:50] if body.doc_who_am_i else body.name
-
-    gemini_assistant = GeminiAssistantConfig(
-        id=uuid.uuid4(),
-        user_id=current_user.id,
-        name=f"{body.name} Voice",
-        system_prompt=VOICE_AGENT_SYSTEM_PROMPT.format(company_name=company_name),
-        voice="Kore",
-        language="ru-RU",
-        greeting_message="",
-        is_active=True,
-        is_public=False,
-        temperature=0.7,
-        max_tokens=4000,
+    # 6. Create the voice assistant with the hardcoded base prompt
+    voice_assistant = _create_voice_assistant(
+        body.assistant_type, body.name, current_user.id, db
     )
-    db.add(gemini_assistant)
-    db.flush()
 
+    # 7. Create the AgentConfig (uses_hardcoded_prompt = TRUE, no orchestrator_prompt)
     agent = AgentConfig(
         id=uuid.uuid4(),
         user_id=current_user.id,
-        assistant_id=gemini_assistant.id,
         name=body.name,
+        assistant_type=body.assistant_type,
+        gemini_assistant_id=voice_assistant.id if body.assistant_type == "gemini" else None,
+        openai_assistant_id=voice_assistant.id if body.assistant_type == "openai" else None,
+        cartesia_assistant_id=voice_assistant.id if body.assistant_type == "cartesia" else None,
         is_active=True,
-        orchestrator_model="gpt-5-2025-08-07",
-        orchestrator_prompt=orchestrator_prompt,
+        orchestrator_model=orchestrator_model,
+        orchestrator_prompt=None,  # собирается на лету из захардкоженного шаблона
         doc_who_am_i=body.doc_who_am_i,
         doc_who_we_call=body.doc_who_we_call,
         doc_how_we_talk=body.doc_how_we_talk,
         doc_what_we_offer=body.doc_what_we_offer,
         doc_rules_and_goals=body.doc_rules_and_goals,
+        additional_instructions=body.additional_instructions,
         working_hours_start=body.working_hours_start,
         working_hours_end=body.working_hours_end,
+        uses_hardcoded_prompt=True,
         chat_history=[],
     )
     db.add(agent)
     db.commit()
     db.refresh(agent)
 
-    logger.info(f"[AGENT] Created agent '{body.name}' for user {current_user.id}")
+    logger.info(f"[AGENT] Created v3 agent '{body.name}' ({body.assistant_type}) for user {current_user.id}")
     return _agent_to_dict(agent)
 
 
@@ -265,31 +329,59 @@ async def update_agent(
     db: Session = Depends(get_db)
 ):
     """Update the agent's documents and settings."""
-    if not current_user.openai_api_key:
-        raise HTTPException(status_code=400, detail="openai_key_required")
-
     agent = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
+    update_data = body.dict(exclude_unset=True)
+
+    # ── Смена типа голосового ассистента ──
+    new_type = update_data.get("assistant_type")
+    if new_type and new_type != agent.assistant_type:
+        if new_type not in VALID_ASSISTANT_TYPES:
+            raise HTTPException(status_code=400, detail="invalid_assistant_type")
+        _check_assistant_keys(new_type, current_user)
+        # Create new voice assistant; keep old one (numbers/history may reference it),
+        # just clear the old FK.
+        new_voice = _create_voice_assistant(new_type, agent.name, current_user.id, db)
+        agent.gemini_assistant_id = None
+        agent.openai_assistant_id = None
+        agent.cartesia_assistant_id = None
+        if new_type == "gemini":
+            agent.gemini_assistant_id = new_voice.id
+        elif new_type == "openai":
+            agent.openai_assistant_id = new_voice.id
+        elif new_type == "cartesia":
+            agent.cartesia_assistant_id = new_voice.id
+        agent.assistant_type = new_type
+        logger.info(f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id}")
+
+    # ── Смена модели оркестратора ──
+    if "orchestrator_model" in update_data and update_data["orchestrator_model"]:
+        if not is_valid_model(update_data["orchestrator_model"]):
+            raise HTTPException(status_code=400, detail="invalid_orchestrator_model")
+        agent.orchestrator_model = update_data["orchestrator_model"]
+
     docs_changed = False
     doc_fields = ['doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk',
                   'doc_what_we_offer', 'doc_rules_and_goals']
-
-    update_data = body.dict(exclude_unset=True)
 
     for field in doc_fields:
         if field in update_data and update_data[field] is not None:
             setattr(agent, field, update_data[field])
             docs_changed = True
 
-    for field in ['name', 'working_hours_start', 'working_hours_end', 'is_active', 'default_caller_id']:
+    for field in ['name', 'additional_instructions', 'working_hours_start',
+                  'working_hours_end', 'is_active', 'default_caller_id']:
         if field in update_data:
             setattr(agent, field, update_data[field])
 
-    if docs_changed:
+    # ── Регенерация промпта через gpt-4o-mini — ТОЛЬКО для старых агентов ──
+    if docs_changed and not agent.uses_hardcoded_prompt:
+        if not current_user.openai_api_key:
+            raise HTTPException(status_code=400, detail="openai_key_required")
         try:
             agent.orchestrator_prompt = await _generate_orchestrator_prompt(
                 doc_who_am_i=agent.doc_who_am_i or "",
@@ -322,12 +414,10 @@ async def delete_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    if agent.assistant_id:
-        gemini = db.query(GeminiAssistantConfig).filter(
-            GeminiAssistantConfig.id == agent.assistant_id
-        ).first()
-        if gemini:
-            db.delete(gemini)
+    # Delete the active voice assistant (whichever type)
+    voice = agent.get_voice_assistant() if agent.assistant_type else agent.gemini_assistant
+    if voice:
+        db.delete(voice)
 
     db.delete(agent)
     db.commit()
@@ -347,15 +437,16 @@ async def agent_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Text chat with the agent using GPT-5 + AGENT_CHAT_TOOLS."""
-    if not current_user.openai_api_key:
-        raise HTTPException(status_code=400, detail="openai_key_required")
-
+    """Text chat with the agent. v3 → OpenRouter, v2 (legacy) → OpenAI Responses API."""
     agent = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
+
+    # Legacy agents still need the user's OpenAI key
+    if not agent.uses_hardcoded_prompt and not current_user.openai_api_key:
+        raise HTTPException(status_code=400, detail="openai_key_required")
 
     from backend.services.agent_orchestrator import ChatOrchestrator
 
@@ -438,6 +529,67 @@ async def get_agent_stats(
         "no_answer_calls": no_answer_calls,
         "scheduled_tasks": scheduled_tasks,
     }
+
+
+# ============================================================================
+# ENDPOINTS — ORCHESTRATOR MODELS
+# ============================================================================
+
+
+@router.get("/orchestrator-models")
+async def get_orchestrator_models(
+    current_user: User = Depends(get_current_user),
+):
+    """Return the list of available orchestrator models for the wizard select."""
+    return {"models": ORCHESTRATOR_MODELS, "default": get_default_model()}
+
+
+# ============================================================================
+# ENDPOINTS — TASKS (upcoming scheduled calls for the dashboard)
+# ============================================================================
+
+
+@router.get("/tasks")
+async def list_agent_tasks(
+    status: Optional[str] = Query("scheduled"),
+    limit: int = Query(10, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List the agent's upcoming tasks (with contact names) for the dashboard."""
+    q = db.query(Task).filter(
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+    )
+    if status:
+        try:
+            q = q.filter(Task.status == TaskStatus(status))
+        except ValueError:
+            q = q.filter(Task.status == status)
+
+    tasks = q.order_by(Task.scheduled_time.asc()).limit(limit).all()
+
+    # Resolve contact names in one pass
+    contact_ids = [t.agent_contact_id for t in tasks if t.agent_contact_id]
+    contacts_map = {}
+    if contact_ids:
+        rows = db.query(AgentContact).filter(AgentContact.id.in_(contact_ids)).all()
+        contacts_map = {str(c.id): c for c in rows}
+
+    result = []
+    for t in tasks:
+        c = contacts_map.get(str(t.agent_contact_id)) if t.agent_contact_id else None
+        result.append({
+            "id": str(t.id),
+            "title": t.title,
+            "description": t.description,
+            "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
+            "status": t.status.value if hasattr(t.status, "value") else t.status,
+            "contact_name": (c.name or c.phone) if c else None,
+            "contact_phone": c.phone if c else None,
+        })
+
+    return {"total": len(result), "tasks": result}
 
 
 # ============================================================================
@@ -538,17 +690,17 @@ async def create_agent_contact(
     db.add(contact)
     db.flush()
 
-    # Auto-create first task in 1 hour
+    # Auto-create first task in 1 hour (route assistant FK by agent type)
     task = Task(
         is_agent_task=True,
         agent_contact_id=contact.id,
-        gemini_assistant_id=agent.assistant_id,
         user_id=current_user.id,
         contact_id=None,
         status=TaskStatus.SCHEDULED,
         scheduled_time=datetime.utcnow() + timedelta(hours=1),
         title=f"Первый звонок: {body.name or body.phone}",
         description=body.notes or "",
+        **assistant_task_kwargs(agent),
     )
     db.add(task)
     db.commit()

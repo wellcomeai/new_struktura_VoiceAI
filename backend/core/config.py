@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     
     # OpenAI settings
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+
+    # ✅ v3.0: OpenRouter — системный ключ для оркестратора Voicyfy Agent
+    OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
     REALTIME_WS_URL: str = os.getenv(
         "REALTIME_WS_URL", 
         "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"

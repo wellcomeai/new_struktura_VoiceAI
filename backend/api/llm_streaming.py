@@ -250,7 +250,7 @@ def _agent_config_to_response(cfg: AgentConfig) -> dict:
         "id": str(cfg.id),
         "user_id": str(cfg.user_id),
         "name": cfg.name,
-        "assistant_id": str(cfg.assistant_id) if cfg.assistant_id else None,
+        "assistant_id": str(cfg.gemini_assistant_id) if cfg.gemini_assistant_id else None,
         "orchestrator_model": cfg.orchestrator_model,
         "orchestrator_prompt": cfg.orchestrator_prompt,
         "agent_model": cfg.agent_model,
@@ -277,7 +277,7 @@ async def create_agent_config(
     cfg = AgentConfig(
         user_id=current_user.id,
         name=payload.name,
-        assistant_id=uuid.UUID(payload.assistant_id) if payload.assistant_id else None,
+        gemini_assistant_id=uuid.UUID(payload.assistant_id) if payload.assistant_id else None,
         orchestrator_model=payload.orchestrator_model,
         orchestrator_prompt=payload.orchestrator_prompt,
         agent_model=payload.agent_model,
@@ -303,7 +303,7 @@ async def list_agent_configs(
     if assistant_id:
         try:
             aid = uuid.UUID(assistant_id)
-            query = query.filter(AgentConfig.assistant_id == aid)
+            query = query.filter(AgentConfig.gemini_assistant_id == aid)
         except ValueError:
             pass
     configs = query.order_by(AgentConfig.created_at.desc()).all()
@@ -350,7 +350,7 @@ async def update_agent_config(
         raise HTTPException(status_code=403, detail="Access denied")
 
     cfg.name = payload.name
-    cfg.assistant_id = uuid.UUID(payload.assistant_id) if payload.assistant_id else None
+    cfg.gemini_assistant_id = uuid.UUID(payload.assistant_id) if payload.assistant_id else None
     cfg.orchestrator_model = payload.orchestrator_model
     cfg.orchestrator_prompt = payload.orchestrator_prompt
     cfg.agent_model = payload.agent_model

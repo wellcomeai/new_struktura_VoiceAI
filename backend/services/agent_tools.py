@@ -23,6 +23,50 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# HELPERS
+# ============================================================================
+
+def assistant_task_kwargs(agent_config) -> dict:
+    """
+    Возвращает kwargs для Task с правильным FK голосового ассистента
+    в зависимости от assistant_type агента (gemini / openai / cartesia).
+    Для старых агентов без assistant_type — fallback на gemini_assistant_id.
+    """
+    if not agent_config:
+        return {}
+    a_type = getattr(agent_config, "assistant_type", None)
+    vid = agent_config.get_voice_assistant_id() if a_type else agent_config.gemini_assistant_id
+    if a_type == "openai":
+        return {"assistant_id": vid}
+    if a_type == "cartesia":
+        return {"cartesia_assistant_id": vid}
+    # gemini (and legacy default)
+    return {"gemini_assistant_id": vid}
+
+
+def to_chat_completions_tools(tools: list) -> list:
+    """
+    Конвертирует tools из формата OpenAI Responses API (flat:
+    {"type":"function","name":...,"parameters":...}) в формат Chat Completions /
+    OpenRouter (nested: {"type":"function","function":{...}}).
+    """
+    converted = []
+    for t in tools:
+        if t.get("type") == "function" and "name" in t:
+            converted.append({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters", {"type": "object", "properties": {}}),
+                },
+            })
+        else:
+            converted.append(t)
+    return converted
+
+
+# ============================================================================
 # TOOL DEFINITIONS FOR GPT-5 RESPONSES API
 # ============================================================================
 
@@ -61,15 +105,10 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "get_agent_contacts",
-        "description": "Получить список контактов агента с опциональным фильтром по статусу.",
+        "description": "Получить список контактов агента.",
         "parameters": {
             "type": "object",
-            "properties": {
-                "status_filter": {
-                    "type": "string",
-                    "description": "Фильтр по статусу: new, calling, active, success, rejected, do_not_call",
-                },
-            },
+            "properties": {},
         },
     },
     {
@@ -138,7 +177,7 @@ AGENT_POSTCALL_TOOLS = [
     {
         "type": "function",
         "name": "create_agent_task",
-        "description": "Создать задачу на перезвон. ОБЯЗАТЕЛЬНО вызывай этот tool после каждого звонка, кроме случая когда клиент просит никогда не звонить (тогда вызови set_contact_status с do_not_call).",
+        "description": "Создать задачу на перезвон. ОБЯЗАТЕЛЬНО вызывай этот tool после каждого звонка, кроме случая когда цель звонка уже достигнута.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -148,23 +187,6 @@ AGENT_POSTCALL_TOOLS = [
                 "notes": {"type": "string", "description": "Описание / заметки"},
             },
             "required": ["agent_contact_id", "scheduled_at", "title"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "set_contact_status",
-        "description": "Установить статус контакта: active, success, rejected, do_not_call.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "success", "rejected", "do_not_call"],
-                    "description": "Новый статус контакта",
-                },
-            },
-            "required": ["agent_contact_id", "status"],
         },
     },
     {
@@ -215,9 +237,8 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     except (ValueError, TypeError):
         scheduled_at = datetime.utcnow() + timedelta(hours=1)
 
-    # Get assistant_id from agent_config
+    # Get assistant from agent_config (type-aware — gemini/openai/cartesia)
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
-    assistant_id = agent_config.assistant_id if agent_config else None
 
     # Cancel existing SCHEDULED tasks for this contact to prevent duplicates
     existing_tasks = db.query(Task).filter(
@@ -234,17 +255,17 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     if cancelled_count > 0:
         logger.info(f"[AGENT-TOOLS] Cancelled {cancelled_count} duplicate SCHEDULED tasks for contact {agent_contact_id}")
 
-    # Create new task
+    # Create new task — route assistant to the correct Task FK by type
     task = Task(
         is_agent_task=True,
         agent_contact_id=agent_contact_id,
-        gemini_assistant_id=assistant_id,
         user_id=user_id,
         contact_id=None,
         status=TaskStatus.SCHEDULED,
         scheduled_time=scheduled_at,
         title=args.get("title", "Звонок агента"),
         description=args.get("notes", ""),
+        **assistant_task_kwargs(agent_config),
     )
     db.add(task)
     db.commit()
@@ -292,9 +313,6 @@ async def fn_update_contact_memory(args: dict, db: Session) -> dict:
 
 async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
     q = db.query(AgentContact).filter(AgentContact.user_id == user_id)
-    status_filter = args.get("status_filter")
-    if status_filter:
-        q = q.filter(AgentContact.status == status_filter)
     contacts = q.order_by(AgentContact.created_at.desc()).limit(50).all()
     return {
         "ok": True,
@@ -305,7 +323,6 @@ async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
                 "name": c.name,
                 "phone": c.phone,
                 "company": c.company,
-                "status": c.status,
                 "attempts_count": c.attempts_count,
                 "last_called_at": c.last_called_at.isoformat() if c.last_called_at else None,
             }
@@ -420,20 +437,6 @@ async def fn_get_agent_stats(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_set_contact_status(args: dict, db: Session) -> dict:
-    agent_contact_id = args["agent_contact_id"]
-    new_status = args["status"]
-
-    contact = db.query(AgentContact).filter(AgentContact.id == agent_contact_id).first()
-    if not contact:
-        return {"ok": False, "error": "Contact not found"}
-
-    contact.status = new_status
-    db.commit()
-    logger.info(f"[AGENT-TOOLS] Set contact {agent_contact_id} status to {new_status}")
-    return {"ok": True, "contact_id": agent_contact_id, "status": new_status}
-
-
 async def fn_send_telegram_notification(args: dict, user: User, db: Session) -> dict:
     message = args["message"]
 
@@ -466,7 +469,6 @@ _TOOL_MAP = {
     "get_contact_call_history": "fn_get_contact_call_history",
     "get_agent_tasks": "fn_get_agent_tasks",
     "get_agent_stats": "fn_get_agent_stats",
-    "set_contact_status": "fn_set_contact_status",
     "send_telegram_notification": "fn_send_telegram_notification",
 }
 
@@ -497,8 +499,6 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_agent_tasks(tool_args, user_id, db)
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, db)
-        elif tool_name == "set_contact_status":
-            result = await fn_set_contact_status(tool_args, db)
         elif tool_name == "send_telegram_notification":
             result = await fn_send_telegram_notification(tool_args, user, db)
         else:
