@@ -78,7 +78,7 @@ class AgentContact(Base):
             "notes": self.notes,
             "status": self.status,
             "memory": self.memory or {},
-            "attempts_count": self.attempts_count,
+            "attempts_count": self.attempts_count or 0,
             "last_called_at": self.last_called_at.isoformat() if self.last_called_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

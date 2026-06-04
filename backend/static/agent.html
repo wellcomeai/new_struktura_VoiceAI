@@ -349,7 +349,10 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <div class="stat-icon green"><i class="fas fa-users"></i></div>
         <div class="stat-num" id="stat-contacts">—</div>
         <div class="stat-label">Контакты</div>
-        <span class="stat-go" onclick="openAddContactModal()">Добавить →</span>
+        <div style="display:flex;gap:10px;margin-top:7px">
+          <span class="stat-go" onclick="openContactsListModal()">Все →</span>
+          <span class="stat-go" onclick="openAddContactModal()">Добавить →</span>
+        </div>
       </div>
     </div>
 
@@ -521,13 +524,44 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 <div class="modal-overlay hidden" id="calls-modal-overlay">
   <div class="modal modal-lg">
     <div class="modal-header"><div class="modal-title">История звонков</div><button class="modal-close" onclick="closeCallsModal()"><i class="fas fa-times"></i></button></div>
-    <div class="modal-body">
-      <table class="calls-table">
-        <thead><tr><th>Контакт</th><th>Дата</th><th>Длит.</th><th>Статус</th><th>Решение</th></tr></thead>
-        <tbody id="calls-tbody"><tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Загрузка...</td></tr></tbody>
-      </table>
-    </div>
+    <div class="modal-body"><div class="empty">Загрузка...</div></div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeCallsModal()">Закрыть</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Contacts list -->
+<div class="modal-overlay hidden" id="contacts-list-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">Контакты агента <span id="contacts-list-count" style="color:var(--hint);font-weight:400;font-size:13px"></span></div>
+      <button class="modal-close" onclick="closeContactsListModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <input type="text" class="form-input" id="contacts-search" placeholder="🔍 Поиск по имени, телефону или компании..." style="flex:1">
+        <button class="btn btn-primary btn-sm" onclick="openAddContactModal()"><i class="fas fa-plus"></i> Добавить</button>
+      </div>
+      <div id="contacts-list-body">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Contact details -->
+<div class="modal-overlay hidden" id="contact-details-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title" id="contact-details-title">Контакт</div>
+      <button class="modal-close" onclick="closeContactDetailsModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" id="contact-details-body">
+      <div class="empty">Загрузка...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger btn-sm" id="contact-delete-btn"><i class="fas fa-trash"></i> Удалить контакт</button>
+      <button class="btn btn-secondary" onclick="closeContactDetailsModal()">Закрыть</button>
+    </div>
   </div>
 </div>
 
@@ -562,7 +596,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('active-toggle').addEventListener('change', toggleActive);
   document.querySelectorAll('.doc-tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
-  ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay'].forEach(id => {
+  ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay',
+   'contacts-list-modal-overlay','contact-details-modal-overlay'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', function(e){ if(e.target===this) this.classList.add('hidden'); });
   });
 });
@@ -888,37 +923,276 @@ async function saveContact(){
 // ── CALLS MODAL ──
 async function openCallsModal(){
   document.getElementById('calls-modal-overlay').classList.remove('hidden');
-  const tb = document.getElementById('calls-tbody');
-  tb.innerHTML='<tr><td colspan="5" style="text-align:center;padding:24px"><div class="spinner" style="margin:0 auto"></div></td></tr>';
+  const tb = document.querySelector('#calls-modal-overlay .modal-body');
+  tb.innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner" style="margin:0 auto"></div></div>';
   try{
     const r = await apiFetch(API + '/calls?limit=50&offset=0');
-    if(!r || r.status!==200) return;
+    if(!r || r.status !== 200){ tb.innerHTML='<div class="empty">Ошибка</div>'; return; }
     const data = await r.json();
-    if(!data.calls || !data.calls.length){ tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Звонков нет</td></tr>'; return; }
-    tb.innerHTML = data.calls.map((c,i) => {
-      const dur = c.duration_seconds ? Math.floor(c.duration_seconds)+'с' : '—';
-      const sb = c.status==='answered' ? '<span class="status-badge badge-answered">Ответил</span>' : '<span class="status-badge badge-no-answer">Не ответил</span>';
-      const has = c.transcript && c.transcript !== '(Транскрипт недоступен)';
-      return `<tr onclick="toggleTr(${i})" style="${has?'cursor:pointer':''}">
-        <td style="font-weight:600">${esc(c.contact_name||'—')} <span style="font-size:11px;color:var(--hint)">${esc(c.contact_phone||'')}</span></td>
-        <td style="color:var(--muted)">${fmtDate(c.started_at)}</td>
-        <td style="color:var(--muted)">${dur}</td>
-        <td>${sb}</td>
-        <td>${decisionBadge(c.post_call_decision)}</td>
-      </tr>${has?`<tr class="transcript-row" id="tr-${i}" style="display:none"><td colspan="5">${esc(c.transcript)}</td></tr>`:''}`;
-    }).join('');
-  }catch(e){ tb.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--hint);padding:24px">Ошибка</td></tr>'; }
+    if(!data.calls || !data.calls.length){
+      tb.innerHTML = '<div class="empty">Звонков пока не было</div>';
+      return;
+    }
+    tb.innerHTML = data.calls.map((c, i) => `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div class="avatar">${esc((c.contact_name||'?').trim().charAt(0).toUpperCase())}</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:13.5px">${esc(c.contact_name || '—')}</div>
+            <div style="font-size:11.5px;color:var(--hint)">${esc(c.contact_phone || '')}</div>
+          </div>
+        </div>
+        ${renderCallExpanded(c, 'mc-' + i)}
+      </div>
+    `).join('');
+  }catch(e){
+    tb.innerHTML = '<div class="empty">Ошибка сети</div>';
+  }
 }
-function toggleTr(i){ const r=document.getElementById('tr-'+i); if(r) r.style.display = r.style.display==='none'?'table-row':'none'; }
 function closeCallsModal(){ document.getElementById('calls-modal-overlay').classList.add('hidden'); }
 
+// ── UNIVERSAL CALL CARD (used in calls history + contact details) ──
+const POSTCALL_TOOL_LABELS = {
+  update_contact_memory: { label: 'Обновил память о контакте', icon: 'fa-brain', color: '#7C3AED' },
+  create_agent_task: { label: 'Запланировал перезвон', icon: 'fa-calendar-plus', color: '#2563EB' },
+  send_telegram_notification: { label: 'Отправил уведомление в Telegram', icon: 'fa-paper-plane', color: '#0891B2' },
+};
+
+function renderCallExpanded(call, uid){
+  const dur = call.duration_seconds ? Math.floor(call.duration_seconds)+'с' : '—';
+  const decisionBadgeHtml = decisionBadge(call.post_call_decision);
+  const statusHtml = call.status==='answered'
+    ? '<span class="status-badge badge-answered">Ответил</span>'
+    : '<span class="status-badge badge-no-answer">Не ответил</span>';
+
+  const pre = call.precall_log || {};
+  const post = call.postcall_log || {};
+
+  const preBlock = (pre.first_phrase || pre.call_strategy) ? `
+    <div style="background:#EEF2FF;border-left:3px solid #4338CA;padding:12px 14px;border-radius:8px;margin:10px 0">
+      <div style="font-size:11px;font-weight:600;color:#4338CA;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">
+        <i class="fas fa-lightbulb"></i> Стратегия PreCall ${pre.model ? `· <span style="font-weight:400;color:var(--muted);text-transform:none">${esc(pre.model)}</span>` : ''}
+      </div>
+      ${pre.first_phrase ? `<div style="font-size:12px;margin-bottom:6px"><b>Первая фраза:</b> «${esc(pre.first_phrase)}»</div>` : ''}
+      ${pre.call_strategy ? `<div style="font-size:12px;margin-bottom:6px"><b>Тактика:</b> ${esc(pre.call_strategy)}</div>` : ''}
+      ${pre.tone ? `<div style="font-size:12px;margin-bottom:6px"><b>Тон:</b> ${esc(pre.tone)}</div>` : ''}
+      ${pre.key_points && pre.key_points.length ? `<div style="font-size:12px"><b>Ключевые точки:</b><ul style="margin:4px 0 0 18px;color:var(--muted)">${pre.key_points.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+    </div>
+  ` : '';
+
+  const toolsHtml = (post.tool_calls && post.tool_calls.length) ? post.tool_calls.map(tc => {
+    const meta = POSTCALL_TOOL_LABELS[tc.tool] || { label: tc.tool, icon: 'fa-cog', color: '#6b7280' };
+    const ok = tc.result && tc.result.ok !== false;
+    let detail = '';
+    if(tc.tool === 'update_contact_memory'){
+      const a = tc.args || {};
+      detail = (a.summary || '') + (a.key_facts && a.key_facts.length ? ' · Факты: ' + a.key_facts.join(', ') : '');
+    } else if(tc.tool === 'create_agent_task'){
+      const a = tc.args || {};
+      detail = `${a.title || ''} на ${a.scheduled_at ? new Date(a.scheduled_at).toLocaleString('ru') : '?'}`;
+    } else if(tc.tool === 'send_telegram_notification'){
+      detail = (tc.args || {}).message || '';
+    }
+    return `
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft)">
+        <div style="width:26px;height:26px;border-radius:7px;background:${meta.color}20;color:${meta.color};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px">
+          <i class="fas ${meta.icon}"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600">${meta.label} ${ok ? '' : '<span style="color:var(--red);font-size:10px">· ошибка</span>'}</div>
+          ${detail ? `<div style="font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4">${esc(detail)}</div>` : ''}
+        </div>
+      </div>`;
+  }).join('') : '';
+
+  const postBlock = (post.tool_calls && post.tool_calls.length) || post.final_decision ? `
+    <div style="background:#F0FDF4;border-left:3px solid #166534;padding:12px 14px;border-radius:8px;margin:10px 0">
+      <div style="font-size:11px;font-weight:600;color:#166534;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">
+        <i class="fas fa-magnifying-glass-chart"></i> Анализ PostCall ${post.model ? `· <span style="font-weight:400;color:var(--muted);text-transform:none">${esc(post.model)}</span>` : ''}
+      </div>
+      ${post.final_decision ? `<div style="font-size:12px;margin-bottom:8px"><b>Решение:</b> ${decisionRu(post.final_decision)}</div>` : ''}
+      ${toolsHtml ? `<div style="font-size:12px"><b>Действия агента:</b>${toolsHtml}</div>` : ''}
+    </div>
+  ` : '';
+
+  const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
+    <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:10px 0;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
+      ${esc(call.transcript)}
+    </div>
+  ` : '';
+
+  return `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-weight:600;font-size:12.5px">${fmtDate(call.started_at || call.created_at)}</span>
+        <span style="color:var(--muted);font-size:12px">${dur}</span>
+        ${statusHtml}
+        ${decisionBadgeHtml}
+      </div>
+      ${preBlock}
+      ${transcriptBlock}
+      ${postBlock}
+    </div>`;
+}
+
+// ── CONTACTS LIST MODAL ──
+let contactsSearchTimer = null;
+
+async function openContactsListModal(){
+  document.getElementById('contacts-list-modal-overlay').classList.remove('hidden');
+  document.getElementById('contacts-search').value = '';
+  await loadContactsList('');
+  // debounced search
+  document.getElementById('contacts-search').oninput = (e) => {
+    clearTimeout(contactsSearchTimer);
+    contactsSearchTimer = setTimeout(() => loadContactsList(e.target.value), 250);
+  };
+}
+function closeContactsListModal(){
+  document.getElementById('contacts-list-modal-overlay').classList.add('hidden');
+}
+
+async function loadContactsList(search){
+  const body = document.getElementById('contacts-list-body');
+  body.innerHTML = '<div class="empty">Загрузка...</div>';
+  try{
+    const qs = new URLSearchParams({ limit: 100, offset: 0 });
+    if(search) qs.set('search', search);
+    const r = await apiFetch(API + '/contacts?' + qs);
+    if(!r || r.status !== 200){ body.innerHTML='<div class="empty">Ошибка</div>'; return; }
+    const data = await r.json();
+    document.getElementById('contacts-list-count').textContent =
+      `· всего ${data.total}`;
+    if(!data.contacts.length){
+      body.innerHTML = `<div class="empty">${search ? 'Ничего не найдено' : 'Контактов пока нет'}</div>`;
+      return;
+    }
+    body.innerHTML = `
+      <table class="calls-table">
+        <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Попыток</th><th>Последний звонок</th></tr></thead>
+        <tbody>
+          ${data.contacts.map(c => `
+            <tr style="cursor:pointer" onclick="openContactDetailsModal('${c.id}')">
+              <td style="font-weight:600">${esc(c.name || '—')}</td>
+              <td style="color:var(--muted)">${esc(c.phone)}</td>
+              <td style="color:var(--muted)">${esc(c.company || '—')}</td>
+              <td style="color:var(--muted)">${c.attempts_count || 0}</td>
+              <td style="color:var(--muted)">${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`;
+  }catch(e){
+    body.innerHTML = '<div class="empty">Ошибка сети</div>';
+  }
+}
+
+async function openContactDetailsModal(contactId){
+  document.getElementById('contact-details-modal-overlay').classList.remove('hidden');
+  const body = document.getElementById('contact-details-body');
+  body.innerHTML = '<div class="empty">Загрузка...</div>';
+  try{
+    const r = await apiFetch(API + '/contacts/' + contactId);
+    if(!r || r.status !== 200){ body.innerHTML='<div class="empty">Ошибка</div>'; return; }
+    const c = await r.json();
+    renderContactDetails(c);
+    document.getElementById('contact-delete-btn').onclick = () => deleteContactFromModal(contactId, c.name || c.phone);
+  }catch(e){
+    body.innerHTML = '<div class="empty">Ошибка сети</div>';
+  }
+}
+function closeContactDetailsModal(){
+  document.getElementById('contact-details-modal-overlay').classList.add('hidden');
+}
+
+function renderContactDetails(c){
+  document.getElementById('contact-details-title').textContent = c.name || c.phone;
+  const mem = c.memory || {};
+  const memBlock = `
+    <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--blue-dark)">
+        <i class="fas fa-brain"></i> Память агента
+      </div>
+      ${mem.summary ? `<div style="font-size:12.5px;margin-bottom:8px;line-height:1.5">${esc(mem.summary)}</div>` : '<div class="empty" style="text-align:left;padding:0">Память ещё не накоплена</div>'}
+      ${mem.key_facts && mem.key_facts.length ? `
+        <div style="font-size:11px;color:var(--muted);margin-top:8px"><b>Ключевые факты:</b></div>
+        <ul style="font-size:12px;color:var(--muted);padding-left:18px;margin-top:4px">
+          ${mem.key_facts.map(f => `<li>${esc(f)}</li>`).join('')}
+        </ul>
+      ` : ''}
+      ${mem.best_time ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Лучшее время:</b> ${esc(mem.best_time)}</div>` : ''}
+      ${mem.tone_history && mem.tone_history.length ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Тон последних разговоров:</b> ${mem.tone_history.slice(-5).map(esc).join(' → ')}</div>` : ''}
+    </div>`;
+
+  const infoBlock = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;font-size:12.5px">
+      <div><b>Телефон:</b> ${esc(c.phone)}</div>
+      <div><b>Компания:</b> ${esc(c.company || '—')}</div>
+      <div><b>Должность:</b> ${esc(c.position || '—')}</div>
+      <div><b>Попыток:</b> ${c.attempts_count || 0}</div>
+      <div><b>Статус:</b> ${esc(c.status)}</div>
+      <div><b>Последний звонок:</b> ${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</div>
+    </div>
+    ${c.notes ? `<div style="background:var(--amber-light);padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:16px"><b>Заметки:</b> ${esc(c.notes)}</div>` : ''}`;
+
+  const callsBlock = (c.calls && c.calls.length) ? `
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px"><i class="fas fa-phone-volume"></i> История звонков (${c.calls.length})</div>
+    ${c.calls.map((call, i) => renderCallExpanded(call, 'cc-' + i)).join('')}
+  ` : '<div class="empty">Звонков пока не было</div>';
+
+  document.getElementById('contact-details-body').innerHTML = infoBlock + memBlock + callsBlock;
+}
+
+async function deleteContactFromModal(contactId, label){
+  if(!confirm(`Удалить контакт "${label}"? Это удалит всю историю звонков с ним.`)) return;
+  try{
+    const r = await apiFetch(API + '/contacts/' + contactId, { method:'DELETE' });
+    if(r && r.status === 200){
+      closeContactDetailsModal();
+      loadContactsList(document.getElementById('contacts-search').value);
+      loadStats();
+      showToast('Контакт удалён', 'success');
+    } else {
+      showToast('Ошибка удаления', 'error');
+    }
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
 async function deleteAgent(){
-  if(!confirm('Удалить агента? Это действие нельзя отменить.')) return;
+  const agentName = agentData.name || 'Агент';
+  const promptMsg =
+    `⚠️ Это удалит АГЕНТА И ВСЁ что с ним связано:\n\n` +
+    `  • Все контакты агента\n` +
+    `  • Всю историю звонков и транскрипты\n` +
+    `  • Все запланированные задачи\n` +
+    `  • Голосовых ассистентов агента\n\n` +
+    `Это действие необратимо.\n\n` +
+    `Чтобы подтвердить — введите имя агента:\n"${agentName}"`;
+
+  const confirmation = prompt(promptMsg);
+  if(confirmation === null) return;
+  if(confirmation.trim() !== agentName){
+    showToast('Имя не совпадает, удаление отменено', 'error');
+    return;
+  }
+
   try{
     const r = await apiFetch(API + '/', { method:'DELETE' });
-    if(r && r.status===200) location.reload();
-    else showToast('Ошибка удаления','error');
-  }catch(e){ showToast('Ошибка сети','error'); }
+    if(r && r.status===200){
+      const data = await r.json();
+      const s = data.summary || {};
+      showToast(
+        `Удалено: ${s.tasks||0} задач, ${s.voice_assistants||0} голосовых ассистентов`,
+        'success'
+      );
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(errText(err.detail), 'error');
+    }
+  }catch(e){
+    showToast('Ошибка сети', 'error');
+  }
 }
 
 // ════════════════ WIZARD ════════════════
@@ -1153,7 +1427,7 @@ function showToast(msg,type='success'){
   t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; },3500);
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
 </script>
 </body>
 </html>

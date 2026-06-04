@@ -10,7 +10,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from backend.core.logging import get_logger
 from backend.db.session import get_db
@@ -407,23 +407,53 @@ async def delete_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete agent and associated GeminiAssistantConfig."""
+    """
+    Полное удаление агента и ВСЕХ связанных данных:
+    - tasks (включая SCHEDULED и сирот с agent_contact_id=NULL)
+    - agent_calls и agent_contacts (каскадятся через FK)
+    - AgentConfig
+    - ВСЕ голосовые ассистенты "% Voice" пользователя
+      (включая старые от смены assistant_type)
+    """
     agent = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
     ).first()
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    # Delete the active voice assistant (whichever type)
-    voice = agent.get_voice_assistant() if agent.assistant_type else agent.gemini_assistant
-    if voice:
-        db.delete(voice)
+    summary = {"tasks": 0, "voice_assistants": 0}
 
-    db.delete(agent)
-    db.commit()
+    try:
+        # 1. tasks ПЕРВЫМИ — иначе ON DELETE SET NULL зануляет FK,
+        #    и задачи остаются сиротами навсегда
+        summary["tasks"] = db.query(Task).filter(
+            Task.user_id == current_user.id,
+            Task.is_agent_task == True,
+        ).delete(synchronize_session=False)
 
-    logger.info(f"[AGENT] Deleted agent for user {current_user.id}")
-    return {"detail": "deleted"}
+        # 2. AgentConfig — каскадом уносит agent_contacts и agent_calls
+        db.delete(agent)
+
+        # 3. Все "% Voice" ассистенты во всех трёх таблицах
+        va_total = 0
+        for model_cls in (GeminiAssistantConfig, AssistantConfig, CartesiaAssistantConfig):
+            va_total += db.query(model_cls).filter(
+                model_cls.user_id == current_user.id,
+                model_cls.name.like('% Voice'),
+            ).delete(synchronize_session=False)
+        summary["voice_assistants"] = va_total
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[AGENT] Delete failed for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"delete_failed: {str(e)}")
+
+    logger.info(
+        f"[AGENT] Fully deleted agent for user {current_user.id}: "
+        f"{summary['tasks']} tasks, {summary['voice_assistants']} voice assistants"
+    )
+    return {"detail": "deleted", "summary": summary}
 
 
 # ============================================================================
@@ -644,15 +674,25 @@ async def get_phone_numbers(
 @router.get("/contacts")
 async def list_agent_contacts(
     status: Optional[str] = Query(None),
-    limit: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, description="Поиск по name или phone (ILIKE)"),
+    limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List agent contacts with optional status filter."""
+    """List agent contacts with optional status and search filter."""
     q = db.query(AgentContact).filter(AgentContact.user_id == current_user.id)
     if status:
         q = q.filter(AgentContact.status == status)
+    if search:
+        pattern = f"%{search.strip()}%"
+        q = q.filter(
+            or_(
+                AgentContact.name.ilike(pattern),
+                AgentContact.phone.ilike(pattern),
+                AgentContact.company.ilike(pattern),
+            )
+        )
 
     total = q.count()
     contacts = q.order_by(AgentContact.created_at.desc()).offset(offset).limit(limit).all()
@@ -661,6 +701,36 @@ async def list_agent_contacts(
         "total": total,
         "contacts": [c.to_dict() for c in contacts],
     }
+
+
+@router.get("/contacts/{contact_id}")
+async def get_agent_contact_details(
+    contact_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Детали контакта + последние 20 звонков с транскриптами и размышлениями.
+    Используется в модалке детального просмотра контакта.
+    """
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    calls = (
+        db.query(AgentCall)
+        .filter(AgentCall.agent_contact_id == contact_id)
+        .order_by(AgentCall.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    contact_data = contact.to_dict()
+    contact_data["calls"] = [c.to_dict() for c in calls]
+    return contact_data
 
 
 @router.post("/contacts")

@@ -119,6 +119,6 @@ class AgentCall(Base):
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             # ✅ v2.1: Логи оркестратора
-            "precall_log": self.precall_log,
-            "postcall_log": self.postcall_log,
+            "precall_log": self.precall_log or {},
+            "postcall_log": self.postcall_log or {},
         }
