@@ -44,6 +44,7 @@ from backend.api import (
     telephony,
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
     agent,  # ✅ v5.0: Voicyfy Agent API
+    agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -192,6 +193,7 @@ app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voxim
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
+app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
 
 # ============================================================================
 # STATIC FILES

@@ -411,6 +411,8 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
   <!-- RIGHT -->
   <div class="col-right">
+
+    <!-- 1. Ближайшие задачи (limit 5) -->
     <div class="card">
       <div class="card-head">
         <div class="card-head-title"><i class="far fa-calendar-check"></i> Ближайшие задачи</div>
@@ -419,10 +421,22 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
       <div id="tasks-list"><div class="empty">Нет задач</div></div>
     </div>
 
+    <!-- 2. Telegram-бот -->
     <div class="card">
       <div class="card-head">
-        <div class="card-head-title">Агент</div>
-        <span class="card-link" onclick="openEditModal('settings')">Изменить</span>
+        <div class="card-head-title"><i class="fab fa-telegram"></i> Telegram-бот</div>
+        <span class="card-link" onclick="openTelegramModal()">Настроить</span>
+      </div>
+      <div id="telegram-status-block">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+
+    <!-- 3. Инструкции агента -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title"><i class="fas fa-sliders"></i> Инструкции агента</div>
+        <span class="card-link" onclick="openInstructionsModal()">Изменить</span>
       </div>
       <div class="agent-card-body">
         <div class="agent-avatar-lg" id="agent-avatar">A</div>
@@ -434,6 +448,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -453,9 +468,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <div class="doc-tab" data-tab="doc_how_we_talk">Как говорим</div>
         <div class="doc-tab" data-tab="doc_what_we_offer">Что предлагаем</div>
         <div class="doc-tab" data-tab="doc_rules_and_goals">Правила и цели</div>
-        <div class="doc-tab" data-tab="additional">Доп. инструкции</div>
         <div class="doc-tab" data-tab="assistant">Ассистент</div>
-        <div class="doc-tab" data-tab="settings">Настройки</div>
       </div>
 
       <div class="doc-pane active" data-pane="doc_who_am_i"><div class="form-group"><label class="form-label">Кто мы — описание компании</label><textarea class="form-textarea" id="e-doc_who_am_i" rows="8"></textarea></div></div>
@@ -463,7 +476,6 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
       <div class="doc-pane" data-pane="doc_how_we_talk"><div class="form-group"><label class="form-label">Как говорим — стиль общения</label><textarea class="form-textarea" id="e-doc_how_we_talk" rows="8"></textarea></div></div>
       <div class="doc-pane" data-pane="doc_what_we_offer"><div class="form-group"><label class="form-label">Что предлагаем — продукты и цены</label><textarea class="form-textarea" id="e-doc_what_we_offer" rows="8"></textarea></div></div>
       <div class="doc-pane" data-pane="doc_rules_and_goals"><div class="form-group"><label class="form-label">Правила и цели — KPI и политика</label><textarea class="form-textarea" id="e-doc_rules_and_goals" rows="8"></textarea></div></div>
-      <div class="doc-pane" data-pane="additional"><div class="form-group"><label class="form-label">Дополнительные инструкции</label><textarea class="form-textarea" id="e-additional_instructions" rows="8" placeholder="Любые специфические правила для агента..."></textarea><div class="form-hint">Например: «всегда уточняй удобное время перезвона», «не упоминай конкурентов».</div></div></div>
 
       <div class="doc-pane" data-pane="assistant">
         <div class="form-group">
@@ -475,32 +487,69 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
           </select>
           <div class="form-hint">Смена типа создаст нового голосового ассистента. Нужны соответствующие API-ключи.</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Модель оркестратора</label>
-          <select class="form-select" id="e-orchestrator_model"></select>
-          <div class="form-hint" id="e-model-desc"></div>
-        </div>
-      </div>
-
-      <div class="doc-pane" data-pane="settings">
-        <div class="form-group"><label class="form-label">Имя агента</label><input type="text" class="form-input" id="e-name"></div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label">Рабочие часы с</label><input type="number" class="form-input" id="e-hours-start" min="0" max="23"></div>
-          <div class="form-group"><label class="form-label">Рабочие часы до</label><input type="number" class="form-input" id="e-hours-end" min="0" max="23"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Номер для исходящих (Caller ID)</label>
-          <select class="form-select" id="e-caller-id"><option value="">Автоматически</option></select>
-        </div>
-        <div class="form-group" style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border-soft)">
-          <label class="form-label" style="color:var(--red)">Опасная зона</label>
-          <button class="btn btn-danger btn-sm" onclick="deleteAgent()"><i class="fas fa-trash"></i> Удалить агента</button>
-        </div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
       <button class="btn btn-primary" id="edit-save-btn" onclick="saveEdit()"><i class="fas fa-check"></i> Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Инструкции агента -->
+<div class="modal-overlay hidden" id="instructions-modal-overlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Инструкции агента</div>
+      <button class="modal-close" onclick="closeInstructionsModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Имя агента</label>
+        <input type="text" class="form-input" id="i-name">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Рабочие часы с</label>
+          <input type="number" class="form-input" id="i-hours-start" min="0" max="23">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Рабочие часы до</label>
+          <input type="number" class="form-input" id="i-hours-end" min="0" max="23">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Дополнительные инструкции</label>
+        <textarea class="form-textarea" id="i-additional_instructions" rows="6"
+                  placeholder="Например: «всегда уточняй удобное время перезвона», «не упоминай конкурентов»."></textarea>
+        <div class="form-hint">Любые специфические правила для агента, которые не вписываются в документы компании.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Модель оркестратора</label>
+        <select class="form-select" id="i-orchestrator_model"></select>
+        <div class="form-hint" id="i-model-desc"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Номер для исходящих (Caller ID)</label>
+        <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeInstructionsModal()">Отмена</button>
+      <button class="btn btn-primary" id="instructions-save-btn" onclick="saveInstructions()"><i class="fas fa-check"></i> Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Telegram-бот -->
+<div class="modal-overlay hidden" id="telegram-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fab fa-telegram"></i> Telegram-бот агента</div>
+      <button class="modal-close" onclick="closeTelegramModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" id="telegram-modal-body">
+      <div class="empty">Загрузка...</div>
     </div>
   </div>
 </div>
@@ -569,8 +618,11 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
 <script>
 const API = '/api/agent';
+const TG_API = '/api/agent/telegram';
 let agentData = null;
 let orchestratorModels = [];
+let phoneNumbers = [];
+let telegramState = null;
 
 function getToken(){ return localStorage.getItem('auth_token'); }
 async function apiFetch(url, options={}){
@@ -599,7 +651,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('active-toggle').addEventListener('change', toggleActive);
   document.querySelectorAll('.doc-tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
   ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay',
-   'contacts-list-modal-overlay','contact-details-modal-overlay'].forEach(id => {
+   'contacts-list-modal-overlay','contact-details-modal-overlay',
+   'instructions-modal-overlay','telegram-modal-overlay'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', function(e){ if(e.target===this) this.classList.add('hidden'); });
   });
 });
@@ -619,6 +672,7 @@ function showDashboard(){
   loadRecentCalls();
   loadTasks();
   loadPhoneNumbers();
+  loadTelegramStatus();
   const msgs = document.getElementById('chat-messages');
   if(!msgs.children.length){
     addBubble('Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?','assistant');
@@ -703,7 +757,7 @@ async function loadRecentCalls(){
 
 async function loadTasks(){
   try{
-    const r = await apiFetch(API + '/tasks?limit=6&status=scheduled');
+    const r = await apiFetch(API + '/tasks?limit=5&status=scheduled');
     if(!r || r.status!==200){ return; }
     const data = await r.json();
     const el = document.getElementById('tasks-list');
@@ -745,16 +799,20 @@ async function loadPhoneNumbers(){
     const r = await apiFetch(API + '/phone-numbers');
     if(!r || r.status!==200) return;
     const data = await r.json();
-    const sel = document.getElementById('e-caller-id');
-    sel.innerHTML='<option value="">Автоматически</option>';
-    (data.phone_numbers||[]).forEach(p => {
-      const o = document.createElement('option');
-      o.value = p.phone_number;
-      o.textContent = p.region ? `${p.phone_number} (${p.region})` : p.phone_number;
-      sel.appendChild(o);
-    });
-    if(agentData.default_caller_id) sel.value = agentData.default_caller_id;
+    phoneNumbers = data.phone_numbers || [];
   }catch(e){}
+}
+function fillCallerIdSelect(selId){
+  const sel = document.getElementById(selId);
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Автоматически</option>';
+  phoneNumbers.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p.phone_number;
+    o.textContent = p.region ? `${p.phone_number} (${p.region})` : p.phone_number;
+    sel.appendChild(o);
+  });
+  if(agentData.default_caller_id) sel.value = agentData.default_caller_id;
 }
 
 // ── TOGGLE ──
@@ -858,38 +916,17 @@ function switchTab(tab){
 }
 function fillEditForm(){
   ['doc_who_am_i','doc_who_we_call','doc_how_we_talk','doc_what_we_offer','doc_rules_and_goals'].forEach(f => { document.getElementById('e-'+f).value = agentData[f]||''; });
-  document.getElementById('e-additional_instructions').value = agentData.additional_instructions||'';
-  document.getElementById('e-name').value = agentData.name||'';
-  document.getElementById('e-hours-start').value = agentData.working_hours_start ?? 9;
-  document.getElementById('e-hours-end').value = agentData.working_hours_end ?? 21;
   document.getElementById('e-assistant_type').value = agentData.assistant_type || 'gemini';
-  const ms = document.getElementById('e-orchestrator_model');
-  ms.innerHTML = orchestratorModels.map(m => `<option value="${m.slug}">${esc(m.name)}</option>`).join('');
-  ms.value = agentData.orchestrator_model || (orchestratorModels[0]?.slug||'');
-  updateModelDesc();
-  ms.onchange = updateModelDesc;
-  if(agentData.default_caller_id) document.getElementById('e-caller-id').value = agentData.default_caller_id;
-}
-function updateModelDesc(){
-  const slug = document.getElementById('e-orchestrator_model').value;
-  const m = orchestratorModels.find(x=>x.slug===slug);
-  document.getElementById('e-model-desc').textContent = m ? m.description : '';
 }
 async function saveEdit(){
   const btn = document.getElementById('edit-save-btn');
   btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:15px;height:15px;border-width:2px"></div> Сохранение...';
   const body = {
-    name: document.getElementById('e-name').value || agentData.name,
     doc_who_am_i: document.getElementById('e-doc_who_am_i').value,
     doc_who_we_call: document.getElementById('e-doc_who_we_call').value,
     doc_how_we_talk: document.getElementById('e-doc_how_we_talk').value,
     doc_what_we_offer: document.getElementById('e-doc_what_we_offer').value,
     doc_rules_and_goals: document.getElementById('e-doc_rules_and_goals').value,
-    additional_instructions: document.getElementById('e-additional_instructions').value,
-    working_hours_start: parseInt(document.getElementById('e-hours-start').value)||9,
-    working_hours_end: parseInt(document.getElementById('e-hours-end').value)||21,
-    orchestrator_model: document.getElementById('e-orchestrator_model').value,
-    default_caller_id: document.getElementById('e-caller-id').value || null,
   };
   const newType = document.getElementById('e-assistant_type').value;
   if(newType && newType !== agentData.assistant_type) body.assistant_type = newType;
@@ -906,6 +943,289 @@ async function saveEdit(){
     }
   }catch(e){ showToast('Ошибка сети','error'); }
   btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Сохранить';
+}
+
+// ════════════════ INSTRUCTIONS MODAL ════════════════
+function openInstructionsModal(){
+  document.getElementById('i-name').value = agentData.name || '';
+  document.getElementById('i-hours-start').value = agentData.working_hours_start ?? 9;
+  document.getElementById('i-hours-end').value = agentData.working_hours_end ?? 21;
+  document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
+
+  const ms = document.getElementById('i-orchestrator_model');
+  ms.innerHTML = orchestratorModels.map(m => `<option value="${m.slug}">${esc(m.name)}</option>`).join('');
+  ms.value = agentData.orchestrator_model || (orchestratorModels[0]?.slug || '');
+  ms.onchange = () => {
+    const m = orchestratorModels.find(x => x.slug === ms.value);
+    document.getElementById('i-model-desc').textContent = m ? m.description : '';
+  };
+  ms.onchange();
+
+  fillCallerIdSelect('i-caller-id');
+
+  document.getElementById('instructions-modal-overlay').classList.remove('hidden');
+}
+
+function closeInstructionsModal(){
+  document.getElementById('instructions-modal-overlay').classList.add('hidden');
+}
+
+async function saveInstructions(){
+  const btn = document.getElementById('instructions-save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner" style="width:15px;height:15px;border-width:2px"></div> Сохранение...';
+
+  const body = {
+    name: document.getElementById('i-name').value || agentData.name,
+    working_hours_start: parseInt(document.getElementById('i-hours-start').value) || 9,
+    working_hours_end: parseInt(document.getElementById('i-hours-end').value) || 21,
+    additional_instructions: document.getElementById('i-additional_instructions').value,
+    orchestrator_model: document.getElementById('i-orchestrator_model').value,
+    default_caller_id: document.getElementById('i-caller-id').value || null,
+  };
+  try {
+    const r = await apiFetch(API + '/', { method: 'PUT', body: JSON.stringify(body) });
+    if(r && r.status === 200){
+      agentData = await r.json();
+      renderAgentHeader();
+      closeInstructionsModal();
+      showToast('Инструкции сохранены', 'success');
+    } else {
+      const err = await r?.json().catch(() => ({}));
+      showToast(errText(err.detail), 'error');
+    }
+  } catch(e) {
+    showToast('Ошибка сети', 'error');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-check"></i> Сохранить';
+}
+
+// ════════════════ TELEGRAM ════════════════
+async function loadTelegramStatus(){
+  try{
+    const r = await apiFetch(TG_API);
+    if(!r || r.status !== 200){ telegramState = null; renderTelegramStatusBlock(); return; }
+    telegramState = await r.json();
+  }catch(e){ telegramState = null; }
+  renderTelegramStatusBlock();
+}
+
+function renderTelegramStatusBlock(){
+  const el = document.getElementById('telegram-status-block');
+  if(!el) return;
+  const s = telegramState;
+  if(!s || !s.is_configured){
+    el.innerHTML = '<div class="empty">Не подключён</div>';
+    return;
+  }
+  const uname = s.bot_username ? '@' + esc(s.bot_username) : 'бот';
+  const n = (s.chat_ids || []).length;
+  const chatsWord = n === 1 ? 'чат' : (n >= 2 && n <= 4 ? 'чата' : 'чатов');
+  if(s.enabled){
+    el.innerHTML = `<div style="font-size:13px;color:var(--green-dark,#166534)"><i class="fas fa-circle-check"></i> ${uname} · ${n} ${chatsWord}</div>`;
+  } else {
+    el.innerHTML = `<div style="font-size:13px;color:var(--hint,#6b7280)"><i class="fas fa-pause-circle"></i> ${uname} · отключён</div>`;
+  }
+}
+
+function openTelegramModal(){
+  document.getElementById('telegram-modal-overlay').classList.remove('hidden');
+  renderTelegramModal();
+}
+function closeTelegramModal(){
+  document.getElementById('telegram-modal-overlay').classList.add('hidden');
+}
+
+async function renderTelegramModal(){
+  const body = document.getElementById('telegram-modal-body');
+  body.innerHTML = '<div class="empty">Загрузка...</div>';
+  try{
+    const r = await apiFetch(TG_API);
+    if(!r || r.status !== 200){ body.innerHTML = '<div class="empty">Ошибка загрузки</div>'; return; }
+    telegramState = await r.json();
+  }catch(e){ body.innerHTML = '<div class="empty">Ошибка сети</div>'; return; }
+  renderTelegramStatusBlock();
+
+  const s = telegramState;
+  if(!s.is_configured){
+    body.innerHTML = `
+      <div style="font-size:13.5px;line-height:1.6;margin-bottom:14px">
+        Подключите своего Telegram-бота, чтобы агент мог общаться из Telegram и присылать уведомления.
+        <div class="form-hint" style="margin-top:8px">Создайте бота через <b>@BotFather</b> и вставьте его токен ниже.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Токен бота</label>
+        <input type="text" class="form-input" id="tg-token" placeholder="123456:ABC-DEF...">
+      </div>
+      <button class="btn btn-primary" id="tg-connect-btn" onclick="connectTelegramBot()"><i class="fab fa-telegram"></i> Подключить</button>`;
+    return;
+  }
+
+  const chats = s.chat_ids || [];
+  const chatRows = chats.length ? chats.map(c => `
+    <tr>
+      <td style="font-family:monospace">${esc(c.chat_id)}</td>
+      <td>${esc(c.title || '—')}</td>
+      <td>${esc(c.type || '—')}</td>
+      <td style="color:var(--muted)">${c.added_at ? fmtDate(c.added_at) : '—'}</td>
+      <td style="text-align:right"><span class="btn btn-secondary btn-sm" onclick="removeTelegramChat('${esc(c.chat_id)}')"><i class="fas fa-times"></i></span></td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Чатов пока нет</td></tr>';
+
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div style="font-size:14px;font-weight:600"><i class="fab fa-telegram" style="color:#229ED9"></i> @${esc(s.bot_username || '')}</div>
+      <label class="tg-switch" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="tg-enabled" ${s.enabled ? 'checked' : ''} onchange="toggleTelegramEnabled(this.checked)">
+        <span>${s.enabled ? 'Включён' : 'Выключен'}</span>
+      </label>
+    </div>
+
+    ${s.webhook_url ? `<div class="form-group"><label class="form-label">Webhook URL</label><input type="text" class="form-input" readonly value="${esc(s.webhook_url)}" onclick="this.select()" style="font-size:11.5px;font-family:monospace"></div>` : ''}
+
+    <div style="margin:16px 0 8px;font-weight:600;font-size:13.5px">Чаты</div>
+    <table class="calls-table" style="width:100%">
+      <thead><tr><th>chat_id</th><th>Название</th><th>Тип</th><th>Добавлен</th><th></th></tr></thead>
+      <tbody>${chatRows}</tbody>
+    </table>
+    <div class="form-hint" style="margin-top:6px">Чтобы узнать chat_id, напишите боту <b>@userinfobot</b> или используйте <b>getUpdates</b>.</div>
+
+    <div class="form-row" style="margin-top:12px">
+      <div class="form-group"><input class="form-input" id="tg-new-chat-id" placeholder="chat_id (например: -1001234567890)"></div>
+      <div class="form-group"><input class="form-input" id="tg-new-chat-title" placeholder="Название (например: Отдел продаж)"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <select class="form-select" id="tg-new-chat-type">
+          <option value="private">Личка</option>
+          <option value="group">Группа</option>
+          <option value="supergroup">Супергруппа</option>
+          <option value="channel">Канал</option>
+        </select>
+      </div>
+      <div class="form-group"><button class="btn btn-primary" style="width:100%" onclick="addTelegramChat()"><i class="fas fa-plus"></i> Добавить</button></div>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)">
+      <button class="btn btn-secondary btn-sm" onclick="testTelegram()"><i class="fas fa-paper-plane"></i> Тест отправки</button>
+      <button class="btn btn-secondary btn-sm" onclick="regenerateTelegramSecret()"><i class="fas fa-rotate"></i> Регенерировать secret</button>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="disconnectTelegramBot()"><i class="fas fa-unlink"></i> Отключить бота</button>
+    </div>`;
+}
+
+async function connectTelegramBot(){
+  const token = document.getElementById('tg-token').value.trim();
+  if(!token){ showToast('Введите токен бота','error'); return; }
+  const btn = document.getElementById('tg-connect-btn');
+  btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:15px;height:15px;border-width:2px"></div> Подключение...';
+  try{
+    const r = await apiFetch(TG_API, { method:'PUT', body:JSON.stringify({ bot_token: token }) });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      showToast('Бот подключён', 'success');
+      renderTelegramModal();
+      renderTelegramStatusBlock();
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(tgErr(err.detail), 'error');
+      btn.disabled = false; btn.innerHTML = '<i class="fab fa-telegram"></i> Подключить';
+    }
+  }catch(e){ showToast('Ошибка сети','error'); btn.disabled = false; btn.innerHTML = '<i class="fab fa-telegram"></i> Подключить'; }
+}
+
+async function toggleTelegramEnabled(enabled){
+  try{
+    const r = await apiFetch(TG_API + '/enabled', { method:'PATCH', body:JSON.stringify({ enabled }) });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      renderTelegramStatusBlock();
+      showToast(enabled ? 'Бот включён' : 'Бот выключен', 'success');
+      renderTelegramModal();
+    } else { showToast('Ошибка','error'); }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function addTelegramChat(){
+  const chat_id = document.getElementById('tg-new-chat-id').value.trim();
+  const title = document.getElementById('tg-new-chat-title').value.trim();
+  const type = document.getElementById('tg-new-chat-type').value;
+  if(!chat_id){ showToast('Укажите chat_id','error'); return; }
+  try{
+    const r = await apiFetch(TG_API + '/chats', { method:'POST', body:JSON.stringify({ chat_id, title: title || null, type }) });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      showToast('Чат добавлен', 'success');
+      renderTelegramModal();
+      renderTelegramStatusBlock();
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(tgErr(err.detail), 'error');
+    }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function removeTelegramChat(chatId){
+  try{
+    const r = await apiFetch(TG_API + '/chats/' + encodeURIComponent(chatId), { method:'DELETE' });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      renderTelegramModal();
+      renderTelegramStatusBlock();
+      showToast('Чат удалён', 'success');
+    } else { showToast('Ошибка','error'); }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function testTelegram(){
+  try{
+    const r = await apiFetch(TG_API + '/test', { method:'POST' });
+    if(r && r.status === 200){
+      const d = await r.json();
+      showToast(`Отправлено: ${d.sent}/${d.total}`, d.sent > 0 ? 'success' : 'error');
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(tgErr(err.detail), 'error');
+    }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function regenerateTelegramSecret(){
+  if(!confirm('Перевыпустить webhook secret? Старый webhook перестанет работать.')) return;
+  try{
+    const r = await apiFetch(TG_API + '/regenerate-secret', { method:'POST' });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      renderTelegramModal();
+      showToast('Secret обновлён', 'success');
+    } else { showToast('Ошибка','error'); }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function disconnectTelegramBot(){
+  if(!confirm('Отключить бота? Токен и список чатов будут удалены. История чатов сохранится.')) return;
+  try{
+    const r = await apiFetch(TG_API, { method:'DELETE' });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      renderTelegramModal();
+      renderTelegramStatusBlock();
+      showToast('Бот отключён', 'success');
+    } else { showToast('Ошибка','error'); }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+function tgErr(detail){
+  const map = {
+    invalid_token:'Невалидный токен бота. Проверьте токен от @BotFather.',
+    telegram_bot_not_configured:'Бот не подключён.',
+    no_chat_ids_configured:'Сначала добавьте хотя бы один чат.',
+    already_exists:'Этот chat_id уже добавлен.',
+    invalid_chat_type:'Неверный тип чата.',
+    chat_id_required:'Укажите chat_id.',
+    agent_not_found:'Агент не найден.',
+  };
+  if(typeof detail === 'string' && map[detail]) return map[detail];
+  return 'Ошибка: ' + (detail || 'не удалось выполнить запрос');
 }
 
 // ── CONTACT ──
@@ -1441,7 +1761,7 @@ function showToast(msg,type='success'){
   t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; },3500);
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
 </script>
 </body>
 </html>

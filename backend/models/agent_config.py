@@ -77,6 +77,13 @@ class AgentConfig(Base):
     # Чат с агентом
     chat_history = Column(JSONB, default=list, nullable=False)
 
+    # ── Telegram-интеграция агента (v2.2) ──
+    telegram_bot_token = Column(String(100), nullable=True)
+    telegram_bot_username = Column(String(50), nullable=True)
+    telegram_chat_ids = Column(JSONB, default=list, nullable=False)
+    telegram_webhook_secret = Column(String(64), nullable=True, unique=True)
+    telegram_enabled = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -109,3 +116,13 @@ class AgentConfig(Base):
         if self.assistant_type == "cartesia":
             return self.cartesia_assistant_id
         return None
+
+    # ── Telegram-интеграция агента (v2.2) ──
+    def has_telegram_bot(self) -> bool:
+        return bool(self.telegram_bot_token and self.telegram_webhook_secret)
+
+    def get_telegram_chat_ids_list(self) -> list:
+        """Возвращает голый список chat_id из telegram_chat_ids."""
+        if not self.telegram_chat_ids:
+            return []
+        return [c.get("chat_id") for c in self.telegram_chat_ids if c.get("chat_id")]

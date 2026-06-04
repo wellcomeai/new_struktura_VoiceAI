@@ -593,6 +593,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             "agent_config_id": str(agent_call.agent_config_id),
             "user_id": str(agent_call.user_id),
             "user": user,
+            "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
         }
 
         messages: List[Dict[str, Any]] = [
@@ -768,6 +769,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "agent_config_id": str(agent_call.agent_config_id),
                 "user_id": str(agent_call.user_id),
                 "user": user,
+                "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
             }
 
             post_call_decision = None
@@ -938,6 +940,207 @@ class ChatOrchestrator:
             return await self._run_v3_openrouter(message, agent_config, user, db)
         return await self._run_v2_responses_api(message, agent_config, user, db)
 
+    # ========================================================================
+    # ✅ v2.2: TELEGRAM MODE
+    # История берётся из telegram_history_row.history (не agent_config.chat_history),
+    # в ответ возвращается только reply (без debug_log).
+    # ========================================================================
+
+    async def run_telegram(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db,
+        telegram_history_row,
+    ) -> Dict[str, Any]:
+        """
+        Telegram-режим оркестратора. Развилка по uses_hardcoded_prompt:
+        - v3 (TRUE):  OpenRouter Chat Completions + захардкоженный промпт.
+        - v2 (FALSE): OpenAI Responses API (старые агенты).
+        """
+        if getattr(agent_config, "uses_hardcoded_prompt", False):
+            return await self._run_telegram_v3(message, agent_config, user, db, telegram_history_row)
+        return await self._run_telegram_v2(message, agent_config, user, db, telegram_history_row)
+
+    def _persist_telegram_history(self, telegram_history_row, message: str, final_text: str, db):
+        """Дописать пару user/assistant в telegram_history_row.history, обрезать до 20, commit."""
+        history = list(telegram_history_row.history or [])
+        history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
+        history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+        telegram_history_row.history = history[-20:]
+        flag_modified(telegram_history_row, "history")
+        db.commit()
+
+    async def _run_telegram_v3(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db,
+        telegram_history_row,
+    ) -> Dict[str, Any]:
+        """Telegram chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
+        system_prompt = build_orchestrator_prompt(agent_config)
+        history = telegram_history_row.history or []
+
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for msg in history[-20:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            response = await client.chat_completion(
+                model=agent_config.orchestrator_model,
+                messages=messages,
+                tools=tools,
+                temperature=0.7,
+            )
+            msg = response["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls") or []
+
+            if not tool_calls:
+                final_text = msg.get("content") or ""
+                break
+
+            messages.append({
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            })
+
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                tool_name = fn.get("name", "")
+                try:
+                    tool_args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                logger.info(f"[AGENT-TG-CHAT] (v3) Executing tool: {tool_name}")
+                try:
+                    result_str = await execute_tool(tool_name, tool_args, context, db)
+                except Exception as e:
+                    result_str = json.dumps({"ok": False, "error": str(e)})
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "content": result_str,
+                })
+
+        if not final_text:
+            final_text = "Готово."
+
+        self._persist_telegram_history(telegram_history_row, message, final_text, db)
+        return {"reply": final_text}
+
+    async def _run_telegram_v2(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db,
+        telegram_history_row,
+    ) -> Dict[str, Any]:
+        """Telegram chat v2 (legacy) — OpenAI Responses API, история как input-список."""
+        client = AsyncOpenAI(api_key=user.openai_api_key)
+        history = telegram_history_row.history or []
+
+        instructions = CHAT_META_PROMPT + (agent_config.orchestrator_prompt or "") + CHAT_SUFFIX
+
+        input_items: List[Dict[str, Any]] = []
+        for msg in history[-20:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                input_items.append({"role": role, "content": content})
+        input_items.append({"role": "user", "content": message})
+
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        response = await client.responses.create(
+            model="gpt-5-2025-08-07",
+            instructions=instructions,
+            input=input_items,
+            tools=AGENT_CHAT_TOOLS,
+            store=True,
+        )
+
+        max_iterations = 10
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            has_tool_calls = False
+            tool_results = []
+
+            for item in response.output:
+                if item.type == "function_call":
+                    has_tool_calls = True
+                    tool_name = item.name
+                    try:
+                        tool_args = json.loads(item.arguments)
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"[AGENT-TG-CHAT] (v2) Executing tool: {tool_name}")
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+
+                    tool_results.append({
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": result_str,
+                    })
+
+            if not has_tool_calls:
+                break
+
+            response = await client.responses.create(
+                model="gpt-5-2025-08-07",
+                input=tool_results,
+                previous_response_id=response.id,
+                tools=AGENT_CHAT_TOOLS,
+                store=True,
+            )
+
+        final_text = ""
+        for item in response.output:
+            if item.type == "message":
+                for part in getattr(item, "content", []):
+                    if hasattr(part, "text"):
+                        final_text += part.text
+        if not final_text:
+            final_text = response.output_text or "Готово."
+
+        self._persist_telegram_history(telegram_history_row, message, final_text, db)
+        return {"reply": final_text}
+
     async def _run_v3_openrouter(
         self,
         message: str,
@@ -972,6 +1175,7 @@ class ChatOrchestrator:
             "agent_config_id": str(agent_config.id),
             "user_id": str(user.id),
             "user": user,
+            "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
         }
 
         client = get_openrouter_client()
@@ -1102,6 +1306,7 @@ class ChatOrchestrator:
             "agent_config_id": str(agent_config.id),
             "user_id": str(user.id),
             "user": user,
+            "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
         }
 
         max_iterations = 10

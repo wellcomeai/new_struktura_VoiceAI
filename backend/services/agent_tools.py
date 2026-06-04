@@ -437,24 +437,37 @@ async def fn_get_agent_stats(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_send_telegram_notification(args: dict, user: User, db: Session) -> dict:
+async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, db: Session) -> dict:
+    """
+    v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
+    Использует бота агента (agent_configs.telegram_bot_token), а не юзера.
+    """
+    from backend.services.agent_telegram_service import AgentTelegramService
+
     message = args["message"]
 
-    if not user.has_telegram_config():
-        return {"ok": False, "error": "Telegram not configured"}
+    if not agent_config or not agent_config.has_telegram_bot():
+        return {"ok": False, "error": "telegram_bot_not_configured"}
 
-    tg_config = user.get_telegram_config()
-    try:
-        await TelegramNotificationService.send_message(
-            bot_token=tg_config["bot_token"],
-            chat_id=tg_config["chat_id"],
-            text=f"🤖 <b>Voicyfy Agent</b>\n\n{message}",
-        )
-        logger.info(f"[AGENT-TOOLS] Telegram notification sent for user {user.id}")
-        return {"ok": True}
-    except Exception as e:
-        logger.error(f"[AGENT-TOOLS] Telegram error: {e}")
-        return {"ok": False, "error": str(e)}
+    if not agent_config.telegram_enabled:
+        return {"ok": False, "error": "telegram_disabled"}
+
+    if not agent_config.get_telegram_chat_ids_list():
+        return {"ok": False, "error": "no_chat_ids_configured"}
+
+    text = f"🤖 <b>Voicyfy Agent</b>\n\n{message}"
+    result = await AgentTelegramService.send_to_all_chats(agent_config, text)
+
+    logger.info(
+        f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "
+        f"failed={result['failed']} total={result['total']} (agent {agent_config.id})"
+    )
+    return {
+        "ok": result["sent"] > 0,
+        "sent": result["sent"],
+        "failed": result["failed"],
+        "total": result["total"],
+    }
 
 
 # ============================================================================
@@ -500,7 +513,7 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, db)
         elif tool_name == "send_telegram_notification":
-            result = await fn_send_telegram_notification(tool_args, user, db)
+            result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
