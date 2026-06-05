@@ -115,6 +115,23 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
 /* ── CHAT ── */
 .chat-col { flex:1; background:var(--white); border-radius:var(--radius); border:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; box-shadow:var(--shadow); min-width:0; }
+.sub-badge { display:flex; align-items:center; gap:10px; padding:5px 11px; border-radius:10px; background:var(--bg-soft,#f4f6fa); border:1px solid var(--border-soft); font-size:12.5px; }
+.sub-status { font-weight:600; }
+.sub-status.active { color:#1b8a4b; }
+.sub-status.trial { color:#0a66c2; }
+.sub-status.expired { color:#d32f2f; }
+.sub-status.none { color:var(--hint,#888); }
+.sub-credits { display:flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums; color:#b8860b; font-weight:600; }
+.sub-action { background:var(--blue,#2563eb); color:#fff; border:none; border-radius:8px; padding:5px 11px; font-size:12px; font-weight:600; cursor:pointer; }
+.sub-action.danger { background:#d32f2f; }
+.credits-pkg-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; }
+.credits-pkg { border:1px solid var(--border-soft); border-radius:12px; padding:14px; text-align:center; }
+.credits-pkg .pkg-name { font-weight:600; font-size:14px; }
+.credits-pkg .pkg-credits { color:#b8860b; font-weight:600; margin:6px 0; }
+.credits-pkg .pkg-price { font-size:13px; color:var(--hint); margin-bottom:10px; }
+.credits-pkg button { width:100%; background:var(--blue,#2563eb); color:#fff; border:none; border-radius:8px; padding:8px; font-weight:600; cursor:pointer; }
+.credits-tx-row { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--border-soft); font-size:13px; }
+.credits-tx-amt.pos { color:#1b8a4b; } .credits-tx-amt.neg { color:#555; } .credits-tx-amt.zero { color:var(--hint); }
 .chat-header { padding:15px 20px; border-bottom:1px solid var(--border-soft); display:flex; align-items:center; gap:11px; }
 .chat-header-icon { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); display:flex; align-items:center; justify-content:center; font-size:15px; color:#fff; }
 .chat-header-title { font-size:15px; font-weight:600; }
@@ -325,6 +342,12 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <div class="nav-agent-status" id="nav-agent-status"><i class="fas fa-circle" style="font-size:7px"></i> <span>Агент активен</span></div>
   </div>
   <div class="nav-right">
+    <!-- ✅ Бейдж статуса подписки + кредиты -->
+    <div class="sub-badge" id="sub-badge" style="display:none">
+      <span class="sub-status" id="sub-status">—</span>
+      <span class="sub-credits" id="sub-credits" title="Баланс кредитов"><i class="fas fa-coins" style="font-size:11px"></i> <span id="sub-credits-num">0</span></span>
+      <button class="sub-action" id="sub-action" style="display:none" onclick="onSubAction()">Пополнить</button>
+    </div>
     <div class="toggle-wrap">
       <span class="toggle-label" id="toggle-label">Неактивен</span>
       <label class="switch"><input type="checkbox" id="active-toggle"><span class="slider"></span></label>
@@ -334,6 +357,12 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <a href="/static/profile.html" class="icon-btn" title="Профиль"><i class="far fa-user"></i></a>
   </div>
 </nav>
+
+<!-- ✅ Баннер истёкшей подписки -->
+<div id="sub-expired-banner" style="display:none;background:#fdecea;border-bottom:1px solid #f5c2c0;color:#b71c1c;padding:11px 20px;font-size:13.5px;align-items:center;gap:12px;justify-content:center">
+  <span><i class="fas fa-triangle-exclamation"></i> Подписка истекла. Все звонки агента и работа оркестратора заблокированы.</span>
+  <button onclick="subscribeAgent()" style="background:#d32f2f;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer">Продлить за 4 990 ₽/мес</button>
+</div>
 
 <!-- MAIN -->
 <div class="main-layout" id="main-layout" style="display:none">
@@ -368,14 +397,16 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
     <div class="card">
       <div class="card-head">
-        <div class="card-head-title"><i class="fas fa-wallet"></i> Расходы агента</div>
-        <span class="card-link">Подробнее →</span>
+        <div class="card-head-title"><i class="fas fa-coins"></i> Кредиты оркестратора</div>
+        <span class="card-link" onclick="openBillingModal()">История →</span>
       </div>
-      <!-- TODO: эндпоинт расходов агента ещё не реализован — заглушка -->
-      <div class="exp-row"><span class="lbl">Сегодня</span><span class="val">—</span></div>
-      <div class="exp-row"><span class="lbl">Текущая неделя</span><span class="val">—</span></div>
-      <div class="exp-row"><span class="lbl">Текущий месяц</span><span class="val">—</span></div>
-      <div class="exp-delta" style="color:var(--hint)">Скоро будет доступно</div>
+      <div class="exp-row"><span class="lbl">Баланс</span><span class="val" id="exp-credits">—</span></div>
+      <div class="exp-row"><span class="lbl">Подписка</span><span class="val" id="exp-sub-status">—</span></div>
+      <div class="exp-row"><span class="lbl">Действует до</span><span class="val" id="exp-sub-until">—</span></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="sub-action" onclick="openCreditsModal()">Пополнить кредиты</button>
+        <button class="sub-action" style="background:transparent;color:var(--blue,#2563eb);border:1px solid var(--blue,#2563eb)" onclick="subscribeAgent()">Продлить тариф</button>
+      </div>
     </div>
 
     <div class="card">
@@ -616,6 +647,33 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
   </div>
 </div>
 
+<!-- ✅ МОДАЛКА: Пополнить кредиты -->
+<div class="modal-overlay hidden" id="credits-modal-overlay">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-coins"></i> Пополнить кредиты</div>
+      <button class="modal-close" onclick="document.getElementById('credits-modal-overlay').classList.add('hidden')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="credits-pkg-list" class="credits-pkg-grid"><div class="empty">Загрузка…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ✅ МОДАЛКА: История кредитов -->
+<div class="modal-overlay hidden" id="billing-modal-overlay">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-receipt"></i> История кредитов</div>
+      <button class="modal-close" onclick="document.getElementById('billing-modal-overlay').classList.add('hidden')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="billing-summary" style="margin-bottom:14px;font-size:13.5px"></div>
+      <div id="billing-tx-list"><div class="empty">Загрузка…</div></div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = '/api/agent';
 const TG_API = '/api/agent/telegram';
@@ -624,6 +682,10 @@ let orchestratorModels = [];
 let phoneNumbers = [];
 let telegramState = null;
 
+const CREDITS_API = '/api/credits';
+let creditsState = null;
+let creditsTimer = null;
+
 function getToken(){ return localStorage.getItem('auth_token'); }
 async function apiFetch(url, options={}){
   const token = getToken();
@@ -631,8 +693,168 @@ async function apiFetch(url, options={}){
   const headers = { 'Authorization':'Bearer '+token, 'Content-Type':'application/json', ...options.headers };
   const resp = await fetch(url, { ...options, headers });
   if(resp.status===401){ localStorage.removeItem('auth_token'); location.href='/static/login.html'; return; }
+  if(resp.status===402){ await handle402(resp); }
   return resp;
 }
+
+// ── Обработка 402 Payment Required ──
+async function handle402(resp){
+  let detail = null;
+  try{ detail = (await resp.clone().json()).detail; }catch(e){}
+  if(detail === 'subscription_expired'){
+    loadCredits();
+    alert('Подписка истекла. Продлите её, чтобы продолжить.');
+  } else if(detail === 'subscription_required'){
+    subscribeAgent();
+  } else if(detail && detail.error === 'insufficient_credits'){
+    openCreditsModal();
+    alert(`Недостаточно кредитов: нужно ${detail.required}, доступно ${detail.available}.`);
+  }
+}
+
+// ════════════════ КРЕДИТЫ / ПОДПИСКА ════════════════
+async function loadCredits(){
+  try{
+    const r = await apiFetch(CREDITS_API + '/balance');
+    if(!r || r.status!==200) return;
+    creditsState = await r.json();
+    renderCreditsBadge();
+  }catch(e){}
+}
+
+function renderCreditsBadge(){
+  if(!creditsState) return;
+  const badge = document.getElementById('sub-badge');
+  const statusEl = document.getElementById('sub-status');
+  const numEl = document.getElementById('sub-credits-num');
+  const actionEl = document.getElementById('sub-action');
+  const banner = document.getElementById('sub-expired-banner');
+  badge.style.display = 'flex';
+
+  const st = creditsState.subscription_status;
+  statusEl.className = 'sub-status ' + st;
+  if(st==='active') statusEl.textContent = '● Активен';
+  else if(st==='trial') statusEl.textContent = `● Trial — ${creditsState.days_remaining} д.`;
+  else if(st==='expired') statusEl.textContent = '● Истёк';
+  else statusEl.textContent = '○ Не активен';
+
+  numEl.textContent = (creditsState.credits_balance||0).toLocaleString('ru');
+
+  // Кнопка действия
+  if(st==='expired' || st==='none'){
+    actionEl.style.display='inline-block';
+    actionEl.className='sub-action danger';
+    actionEl.textContent='Продлить';
+  } else if((st==='active'||st==='trial') && (creditsState.credits_balance||0) < 500){
+    actionEl.style.display='inline-block';
+    actionEl.className='sub-action';
+    actionEl.textContent='Пополнить';
+  } else {
+    actionEl.style.display='none';
+  }
+
+  // Баннер блокировки
+  banner.style.display = creditsState.is_blocked ? 'flex' : 'none';
+
+  // Карточка «Кредиты оркестратора»
+  const expCredits = document.getElementById('exp-credits');
+  const expStatus = document.getElementById('exp-sub-status');
+  const expUntil = document.getElementById('exp-sub-until');
+  if(expCredits) expCredits.textContent = (creditsState.credits_balance||0).toLocaleString('ru') + ' кр.';
+  if(expStatus) expStatus.textContent = statusEl.textContent.replace(/^[●○]\s*/,'');
+  if(expUntil) expUntil.textContent = creditsState.subscription_end_date
+    ? new Date(creditsState.subscription_end_date).toLocaleDateString('ru') : '—';
+}
+
+function onSubAction(){
+  if(!creditsState) return;
+  const st = creditsState.subscription_status;
+  if(st==='expired' || st==='none') subscribeAgent();
+  else openCreditsModal();
+}
+
+async function openCreditsModal(){
+  document.getElementById('credits-modal-overlay').classList.remove('hidden');
+  const list = document.getElementById('credits-pkg-list');
+  list.innerHTML = '<div class="empty">Загрузка…</div>';
+  try{
+    const r = await apiFetch(CREDITS_API + '/packages');
+    const data = await r.json();
+    const pkgs = data.packages || [];
+    if(!pkgs.length){ list.innerHTML = '<div class="empty">Нет доступных пакетов</div>'; return; }
+    list.innerHTML = pkgs.map(p => `
+      <div class="credits-pkg">
+        <div class="pkg-name">${p.name}</div>
+        <div class="pkg-credits">${(p.credits).toLocaleString('ru')} кр.</div>
+        <div class="pkg-price">${p.price_formatted}</div>
+        <button onclick="purchasePackage('${p.code}')">Купить</button>
+      </div>`).join('');
+  }catch(e){ list.innerHTML = '<div class="empty">Ошибка загрузки</div>'; }
+}
+
+async function purchasePackage(code){
+  try{
+    const r = await apiFetch(CREDITS_API + '/purchase', { method:'POST', body: JSON.stringify({ package_code: code }) });
+    if(!r || r.status!==200){ alert('Не удалось создать платёж'); return; }
+    const data = await r.json();
+    submitRobokassaForm(data);
+  }catch(e){ alert('Ошибка: '+e.message); }
+}
+
+async function subscribeAgent(){
+  try{
+    const r = await apiFetch(CREDITS_API + '/subscribe', { method:'POST' });
+    if(!r || r.status!==200){ alert('Не удалось оформить подписку'); return; }
+    const data = await r.json();
+    if(data.trial_activated){ alert('Trial активирован! Вам доступно 1 500 кредитов на 3 дня.'); loadCredits(); return; }
+    submitRobokassaForm(data);
+  }catch(e){ alert('Ошибка: '+e.message); }
+}
+
+// Сабмит формы Robokassa (редирект на оплату)
+function submitRobokassaForm(data){
+  if(!data || !data.payment_url || !data.form_params){ alert('Некорректный ответ платёжной системы'); return; }
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = data.payment_url;
+  Object.entries(data.form_params).forEach(([k,v]) => {
+    const inp = document.createElement('input');
+    inp.type='hidden'; inp.name=k; inp.value=v;
+    form.appendChild(inp);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
+
+async function openBillingModal(){
+  document.getElementById('billing-modal-overlay').classList.remove('hidden');
+  const sum = document.getElementById('billing-summary');
+  const list = document.getElementById('billing-tx-list');
+  list.innerHTML = '<div class="empty">Загрузка…</div>';
+  if(creditsState){
+    sum.innerHTML = `Баланс: <b>${(creditsState.credits_balance||0).toLocaleString('ru')} кр.</b> · Статус: ${creditsState.subscription_status}` +
+      (creditsState.subscription_end_date ? ` · до ${new Date(creditsState.subscription_end_date).toLocaleDateString('ru')}` : '') +
+      ` <button class="sub-action" style="margin-left:8px" onclick="subscribeAgent()">Продлить</button>`;
+  }
+  try{
+    const r = await apiFetch(CREDITS_API + '/transactions?limit=50');
+    const data = await r.json();
+    const txs = data.transactions || [];
+    if(!txs.length){ list.innerHTML = '<div class="empty">Нет транзакций</div>'; return; }
+    const labels = { trial_grant:'Trial', subscription_grant:'Подписка', purchase:'Покупка', spend:'Списание', refund:'Возврат', manual_adjust:'Система' };
+    list.innerHTML = txs.map(t => {
+      const cls = t.amount>0 ? 'pos' : (t.amount<0 ? 'neg' : 'zero');
+      const amt = t.amount>0 ? `+${t.amount}` : `${t.amount}`;
+      const when = t.created_at ? new Date(t.created_at).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="credits-tx-row">
+        <span>${when} · ${labels[t.type]||t.type}${t.ref_type?` <span style="color:var(--hint)">(${t.ref_type})</span>`:''}</span>
+        <span class="credits-tx-amt ${cls}">${amt} кр · <span style="color:var(--hint)">${(t.balance_after||0).toLocaleString('ru')}</span></span>
+      </div>`;
+    }).join('');
+  }catch(e){ list.innerHTML = '<div class="empty">Ошибка загрузки</div>'; }
+}
+
+window.addEventListener('focus', () => { if(creditsState) loadCredits(); });
 
 // ── INIT ──
 document.addEventListener('DOMContentLoaded', async () => {
@@ -673,6 +895,9 @@ function showDashboard(){
   loadTasks();
   loadPhoneNumbers();
   loadTelegramStatus();
+  loadCredits();
+  if(creditsTimer) clearInterval(creditsTimer);
+  creditsTimer = setInterval(loadCredits, 30000);
   const msgs = document.getElementById('chat-messages');
   if(!msgs.children.length){
     addBubble('Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?','assistant');
@@ -1710,9 +1935,20 @@ async function renderCreation(c){
   try{
     const r = await apiFetch(API + '/create', { method:'POST', body:JSON.stringify(body) });
     if(r && (r.status===200||r.status===201)){
+      const created = await r.json().catch(()=>({}));
       done('cr-docs'); await anim('cr-voice'); done('cr-voice'); await anim('cr-act'); done('cr-act');
       localStorage.removeItem('agent_wizard_v3');
-      document.getElementById('cr-success').style.display='block';
+      const succ = document.getElementById('cr-success');
+      succ.style.display='block';
+      // ✅ Онбординг: сообщаем про trial или необходимость подписки
+      const note = document.createElement('div');
+      note.style.cssText = 'margin-top:12px;font-size:13.5px;color:var(--hint)';
+      if(created.trial_activated){
+        note.innerHTML = '🎉 Вам доступен бесплатный <b>trial на 3 дня</b> и <b>1 500 кредитов</b> для тестирования оркестратора. После trial — 4 990 ₽/мес, 20 000 кредитов входит в тариф.';
+      } else if(created.agent_trial_used){
+        note.innerHTML = 'Для работы оркестратора нужна активная подписка Voicyfy Agent. <button class="sub-action" onclick="subscribeAgent()">Оформить за 4 990 ₽/мес</button>';
+      }
+      succ.appendChild(note);
     } else {
       const err = await r?.json().catch(()=>({}));
       document.getElementById('cr-error').style.display='block';

@@ -219,6 +219,15 @@ class TaskScheduler:
                 db.commit()
                 return
 
+            # ✅ Жёсткая блокировка звонков при истёкшей подписке agent (раздел 7.2).
+            # Дублирует scheduler-блокер на случай, если он не успел пометить юзера.
+            if not user.has_active_agent_subscription():
+                task.status = TaskStatus.CANCELLED
+                task.call_result = json.dumps({"error": "subscription_expired"})
+                db.commit()
+                logger.warning(f"[TASK-SCHEDULER] Skipping agent task {task.id} — subscription expired")
+                return
+
             # Get assistant info
             assistant_id, assistant_name, assistant_type = self._get_assistant_info(task, db)
             if not assistant_id or not assistant_type:

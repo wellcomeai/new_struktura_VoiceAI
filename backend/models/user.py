@@ -69,6 +69,13 @@ class User(Base, BaseModel):
     is_admin = Column(Boolean, default=False)
     payment_status = Column(String(50), nullable=True)
 
+    # ✅ Система кредитов оркестратора Voicyfy Agent (тариф `agent`)
+    # Поля добавлены в БД вручную через SQL (см. ТЗ раздел 2.1).
+    credits_balance = Column(Integer, default=0, nullable=False)
+    agent_trial_used = Column(Boolean, default=False, nullable=False)
+    agent_trial_started_at = Column(DateTime(timezone=True), nullable=True)
+    agent_subscription_blocked = Column(Boolean, default=False, nullable=False, index=True)
+
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
@@ -196,6 +203,42 @@ class User(Base, BaseModel):
             
         return False
     
+    # ========================================================================
+    # ✅ Хелперы подписки `agent` (система кредитов оркестратора)
+    # ========================================================================
+
+    def has_active_agent_subscription(self) -> bool:
+        """True если есть активная подписка agent (включая trial)."""
+        if self.agent_subscription_blocked:
+            return False
+        if self.is_admin:
+            return True
+        if not self.subscription_end_date:
+            return False
+        from datetime import datetime, timezone
+        end = self.subscription_end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return end > datetime.now(timezone.utc)
+
+    def agent_subscription_status(self) -> str:
+        """active | trial | expired | none"""
+        if not self.subscription_plan_id:
+            return "none"
+        if not self.has_active_agent_subscription():
+            return "expired"
+        return "trial" if self.is_trial else "active"
+
+    def days_until_subscription_end(self) -> int:
+        if not self.subscription_end_date:
+            return 0
+        from datetime import datetime, timezone
+        end = self.subscription_end_date
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        delta = end - datetime.now(timezone.utc)
+        return max(0, delta.days)
+
     def is_email_verified(self):
         """Проверить, подтверждён ли email пользователя"""
         return self.email_verified

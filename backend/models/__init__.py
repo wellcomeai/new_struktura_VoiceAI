@@ -69,6 +69,10 @@ from .voximplant_child import (
 # ✅ НОВОЕ v3.6: SMS модель для входящих SMS через Voximplant
 from .sms_message import SmsMessage
 
+# ✅ НОВОЕ: Система кредитов оркестратора Voicyfy Agent
+from .credit_transaction import CreditTransaction, CreditTransactionType
+from .credit_package import CreditPackage
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -126,4 +130,8 @@ __all__ = [
     "VoximplantVerificationStatus",
     # ✅ НОВОЕ v3.6: SMS модель
     "SmsMessage",
+    # ✅ НОВОЕ: Система кредитов оркестратора
+    "CreditTransaction",
+    "CreditTransactionType",
+    "CreditPackage",
 ]

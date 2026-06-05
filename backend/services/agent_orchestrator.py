@@ -36,8 +36,20 @@ from backend.services.agent_tools import (
 )
 from backend.services.agent_prompts import build_orchestrator_prompt
 from backend.services.openrouter_client import get_openrouter_client
+from backend.services.credit_service import (
+    CreditService,
+    InsufficientCreditsError,
+    SubscriptionExpiredError,
+    SubscriptionRequiredError,
+)
 
 logger = get_logger(__name__)
+
+
+def _extract_usage(response: dict) -> tuple:
+    """Достать (prompt_tokens, completion_tokens) из ответа OpenRouter."""
+    usage = response.get("usage") or {}
+    return int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0)
 
 
 CHAT_META_PROMPT = """# РОЛЬ
@@ -158,6 +170,9 @@ class PreCallOrchestrator:
         logger.info(f"[AGENT-PRECALL] (v3/OpenRouter) Starting for task {task.id}, "
                     f"contact {agent_contact.name or agent_contact.phone}, model {agent_config.orchestrator_model}")
 
+        # Pre-flight проверка подписки/кредитов (раздел 5.1)
+        CreditService.precheck(db, user)
+
         system_prompt = build_orchestrator_prompt(agent_config)
         base_input = self._build_precall_input(task, agent_contact, db)
         user_input = base_input + """
@@ -179,6 +194,18 @@ class PreCallOrchestrator:
             )
             output_text = response["choices"][0]["message"].get("content", "") or ""
             logger.info(f"[AGENT-PRECALL] (v3) Raw response: {output_text[:200]}")
+
+            # Списываем кредиты за вызов оркестратора (раздел 5.2)
+            p_tok, c_tok = _extract_usage(response)
+            try:
+                CreditService.charge(
+                    db=db, user_id=user.id,
+                    model_slug=agent_config.orchestrator_model,
+                    prompt_tokens=p_tok, completion_tokens=c_tok,
+                    ref_type="precall", ref_id=agent_call.id, notes="precall",
+                )
+            except Exception as ce:
+                logger.error(f"[AGENT-PRECALL] (v3) Charge failed: {ce}", exc_info=True)
 
             json_text = output_text
             if "```json" in json_text:
@@ -588,6 +615,13 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         """PostCall v3 — OpenRouter Chat Completions, без previous_response_id."""
         logger.info(f"[AGENT-POSTCALL] (v3/OpenRouter) Analyzing call {agent_call.id}, model {agent_config.orchestrator_model}")
 
+        # Pre-flight проверка подписки/кредитов (раздел 5.1)
+        CreditService.precheck(db, user)
+
+        # Аккумулятор токенов по всем итерациям цикла tool calls (раздел 5.2, edge case 2)
+        total_prompt = 0
+        total_completion = 0
+
         system_prompt = build_orchestrator_prompt(agent_config)
         post_call_input = self._build_postcall_input(
             agent_call, agent_contact, transcript, call_status, duration_seconds, db
@@ -629,6 +663,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                     tools=tools,
                     temperature=0.5,
                 )
+                p_tok, c_tok = _extract_usage(response)
+                total_prompt += p_tok
+                total_completion += c_tok
                 msg = response["choices"][0]["message"]
                 tool_calls = msg.get("tool_calls") or []
 
@@ -736,6 +773,21 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 task.status = TaskStatus.COMPLETED
             flag_modified(agent_contact, 'memory')
             db.commit()
+
+        finally:
+            # Списываем кредиты за фактически потраченные токены даже при ошибке
+            # посреди цепочки tool calls (раздел 5.2, edge case 3).
+            if total_prompt or total_completion:
+                try:
+                    CreditService.charge(
+                        db=db, user_id=user.id,
+                        model_slug=agent_config.orchestrator_model,
+                        prompt_tokens=total_prompt, completion_tokens=total_completion,
+                        ref_type="postcall", ref_id=agent_call.id,
+                        notes="postcall",
+                    )
+                except Exception as ce:
+                    logger.error(f"[AGENT-POSTCALL] (v3) Charge failed: {ce}", exc_info=True)
 
     async def _analyze_v2_responses_api(
         self,
@@ -994,6 +1046,11 @@ class ChatOrchestrator:
         telegram_history_row,
     ) -> Dict[str, Any]:
         """Telegram chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
+        # Pre-flight проверка подписки/кредитов (раздел 5.1)
+        CreditService.precheck(db, user)
+        total_prompt = 0
+        total_completion = 0
+
         system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_FORMAT_HINT
         history = telegram_history_row.history or []
 
@@ -1027,6 +1084,9 @@ class ChatOrchestrator:
                 tools=tools,
                 temperature=0.7,
             )
+            p_tok, c_tok = _extract_usage(response)
+            total_prompt += p_tok
+            total_completion += c_tok
             msg = response["choices"][0]["message"]
             tool_calls = msg.get("tool_calls") or []
 
@@ -1062,6 +1122,19 @@ class ChatOrchestrator:
 
         if not final_text:
             final_text = "Готово."
+
+        # Списываем кредиты за весь диалоговый цикл (раздел 5.2)
+        if total_prompt or total_completion:
+            try:
+                CreditService.charge(
+                    db=db, user_id=user.id,
+                    model_slug=agent_config.orchestrator_model,
+                    prompt_tokens=total_prompt, completion_tokens=total_completion,
+                    ref_type="telegram_chat", ref_id=agent_config.id,
+                    notes=f"telegram_chat iterations: {iteration}",
+                )
+            except Exception as ce:
+                logger.error(f"[AGENT-TG-CHAT] (v3) Charge failed: {ce}", exc_info=True)
 
         self._persist_telegram_history(telegram_history_row, message, final_text, db)
         return {"reply": final_text}
@@ -1162,6 +1235,11 @@ class ChatOrchestrator:
         db
     ) -> Dict[str, Any]:
         """Chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
+        # Pre-flight проверка подписки/кредитов (раздел 5.1)
+        CreditService.precheck(db, user)
+        total_prompt = 0
+        total_completion = 0
+
         debug_log: List[Dict[str, Any]] = []
         debug_log.append({"ts": self._now_ts(), "type": "user_message", "data": message})
 
@@ -1204,6 +1282,9 @@ class ChatOrchestrator:
                 tools=tools,
                 temperature=0.7,
             )
+            p_tok, c_tok = _extract_usage(response)
+            total_prompt += p_tok
+            total_completion += c_tok
             msg = response["choices"][0]["message"]
             tool_calls = msg.get("tool_calls") or []
 
@@ -1248,6 +1329,19 @@ class ChatOrchestrator:
             final_text = "Готово."
 
         debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
+
+        # Списываем кредиты за весь диалоговый цикл (раздел 5.2)
+        if total_prompt or total_completion:
+            try:
+                CreditService.charge(
+                    db=db, user_id=user.id,
+                    model_slug=agent_config.orchestrator_model,
+                    prompt_tokens=total_prompt, completion_tokens=total_completion,
+                    ref_type="chat", ref_id=agent_config.id,
+                    notes=f"chat iterations: {iteration}",
+                )
+            except Exception as ce:
+                logger.error(f"[AGENT-CHAT] (v3) Charge failed: {ce}", exc_info=True)
 
         new_history = list(history)
         new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})

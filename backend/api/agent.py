@@ -28,6 +28,13 @@ from backend.core.dependencies import get_current_user
 from backend.services.agent_prompts import get_voice_agent_prompt
 from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
 from backend.services.agent_tools import assistant_task_kwargs
+from backend.services.credit_service import (
+    CreditService,
+    activate_agent_trial,
+    InsufficientCreditsError,
+    SubscriptionExpiredError,
+    SubscriptionRequiredError,
+)
 
 logger = get_logger(__name__)
 
@@ -286,6 +293,12 @@ async def create_agent(
     if existing:
         raise HTTPException(status_code=400, detail="already_exists")
 
+    # 5b. Гейтинг подписки `agent`: если trial уже использован — нужна
+    #     активная подписка agent (edge case 4). Проверяем ДО создания,
+    #     чтобы не оставлять «висячий» агент при 402.
+    if current_user.agent_trial_used and not current_user.has_active_agent_subscription():
+        raise HTTPException(status_code=402, detail="subscription_required")
+
     # 6. Create the voice assistant with the hardcoded base prompt
     voice_assistant = _create_voice_assistant(
         body.assistant_type, body.name, current_user.id, db
@@ -318,8 +331,24 @@ async def create_agent(
     db.commit()
     db.refresh(agent)
 
-    logger.info(f"[AGENT] Created v3 agent '{body.name}' ({body.assistant_type}) for user {current_user.id}")
-    return _agent_to_dict(agent)
+    # 8. Активируем бесплатный trial тарифа agent при ПЕРВОМ создании
+    #    (3 дня + 1500 кредитов). Если trial уже был — не выдаём повторно.
+    trial_activated = False
+    try:
+        trial_activated = activate_agent_trial(db, current_user)
+        if trial_activated:
+            db.refresh(current_user)
+    except Exception as e:
+        logger.error(f"[AGENT] Trial activation failed for user {current_user.id}: {e}", exc_info=True)
+
+    logger.info(
+        f"[AGENT] Created v3 agent '{body.name}' ({body.assistant_type}) for user {current_user.id} "
+        f"(trial_activated={trial_activated})"
+    )
+    result = _agent_to_dict(agent)
+    result["trial_activated"] = trial_activated
+    result["agent_trial_used"] = bool(current_user.agent_trial_used)
+    return result
 
 
 @router.put("/")
@@ -424,6 +453,27 @@ async def delete_agent(
     summary = {"tasks": 0, "voice_assistants": 0}
 
     try:
+        # 0. Считаем SCHEDULED-задачи ДО удаления — для записи в credit_transactions
+        scheduled_count = db.query(Task).filter(
+            Task.user_id == current_user.id,
+            Task.is_agent_task == True,
+            Task.status == TaskStatus.SCHEDULED,
+        ).count()
+
+        # Логируем факт удаления агента (баланс кредитов НЕ меняется).
+        # Критично для саппорта: «куда делись мои кредиты после удаления агента».
+        agent_id = agent.id
+        CreditService.log_system_event(
+            db=db,
+            user_id=current_user.id,
+            ref_type="agent_deleted",
+            ref_id=agent_id,
+            notes=(
+                f"Agent deleted by user. Tasks cancelled: {scheduled_count}. "
+                f"Credits balance preserved: {current_user.credits_balance}."
+            ),
+        )
+
         # 1. tasks ПЕРВЫМИ — иначе ON DELETE SET NULL зануляет FK,
         #    и задачи остаются сиротами навсегда
         summary["tasks"] = db.query(Task).filter(
@@ -488,6 +538,18 @@ async def agent_chat(
             user=current_user,
             db=db,
         )
+    except SubscriptionExpiredError:
+        raise HTTPException(status_code=402, detail="subscription_expired")
+    except SubscriptionRequiredError:
+        raise HTTPException(status_code=402, detail="subscription_required")
+    except InsufficientCreditsError as e:
+        raise HTTPException(status_code=402, detail={
+            "error": "insufficient_credits",
+            "required": e.required,
+            "available": e.available,
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[AGENT] Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"chat_error: {str(e)}")

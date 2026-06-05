@@ -24,6 +24,7 @@ from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
 from backend.models.subscription import SubscriptionPlan, PaymentTransaction
+from backend.models.credit_package import CreditPackage
 from backend.services.subscription_service import SubscriptionService
 
 logger = get_logger(__name__)
@@ -261,6 +262,148 @@ class RobokassaService:
             raise
     
     @classmethod
+    async def _process_credits_package_payment(
+        cls,
+        db: Session,
+        user: User,
+        inv_id: str,
+        out_sum: str,
+        package_code: str,
+    ) -> str:
+        """
+        ✅ Обработка оплаты пакета кредитов.
+        Идемпотентно через transaction.is_processed. Сверяет сумму с price_rub
+        пакета (защита от манипуляций Shp_-параметрами, edge case 7).
+        """
+        from backend.services.credit_service import CreditService
+
+        package = db.query(CreditPackage).filter(
+            CreditPackage.code == package_code,
+            CreditPackage.is_active == True,
+        ).first()
+        if not package:
+            logger.error(f"❌ Credits package {package_code} not found for payment {inv_id}")
+            return "FAIL"
+
+        # Сверяем оплаченную сумму с ценой пакета
+        try:
+            if abs(float(out_sum) - float(package.price_rub)) > 0.01:
+                logger.error(
+                    f"❌ Amount mismatch for package {package.code}: "
+                    f"paid {out_sum}, expected {package.price_rub}"
+                )
+                return "FAIL"
+        except (ValueError, TypeError):
+            logger.error(f"❌ Invalid out_sum '{out_sum}' for package payment {inv_id}")
+            return "FAIL"
+
+        transaction = db.query(PaymentTransaction).filter(
+            PaymentTransaction.external_payment_id == inv_id
+        ).first()
+
+        # Идемпотентность ДО начисления (edge case 5)
+        if transaction and transaction.is_processed:
+            logger.info(f"ℹ️ Package payment {inv_id} already processed, skipping")
+            return f"OK{inv_id}"
+
+        CreditService.grant_purchase(db, user, package, transaction)
+
+        if transaction:
+            now = datetime.now(timezone.utc)
+            transaction.status = "success"
+            transaction.is_processed = True
+            transaction.paid_at = now
+            transaction.processed_at = now
+            db.commit()
+
+        logger.info(f"✅ Credits package {package.code} (+{package.credits}) granted to user {user.id}")
+        return f"OK{inv_id}"
+
+    @classmethod
+    async def _process_agent_subscription_payment(
+        cls,
+        db: Session,
+        user: User,
+        inv_id: str,
+        out_sum: str,
+    ) -> str:
+        """
+        ✅ Обработка оплаты тарифа agent: продление на 30 дней + 20 000 кредитов.
+        Идемпотентно через transaction.is_processed.
+        """
+        from backend.services.credit_service import CreditService
+
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == "agent").first()
+        if not plan:
+            logger.error(f"❌ Agent plan not found for payment {inv_id}")
+            return "FAIL"
+
+        # Сверяем сумму с ценой плана (защита от манипуляций)
+        try:
+            if abs(float(out_sum) - float(plan.price)) > 0.01:
+                logger.error(
+                    f"❌ Amount mismatch for agent plan: paid {out_sum}, expected {plan.price}"
+                )
+                return "FAIL"
+        except (ValueError, TypeError):
+            logger.error(f"❌ Invalid out_sum '{out_sum}' for agent subscription {inv_id}")
+            return "FAIL"
+
+        transaction = db.query(PaymentTransaction).filter(
+            PaymentTransaction.external_payment_id == inv_id
+        ).first()
+
+        if transaction and transaction.is_processed:
+            logger.info(f"ℹ️ Agent subscription payment {inv_id} already processed, skipping")
+            return f"OK{inv_id}"
+
+        now = datetime.now(timezone.utc)
+
+        # Продлеваем от текущего окончания, если подписка ещё активна
+        start_date = now
+        if user.subscription_end_date:
+            end_date = user.subscription_end_date
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=timezone.utc)
+            if end_date > now:
+                start_date = end_date
+
+        user.subscription_plan_id = plan.id
+        user.subscription_start_date = user.subscription_start_date or now
+        user.subscription_end_date = start_date + timedelta(days=30)
+        user.is_trial = False
+        user.agent_subscription_blocked = False  # ✅ снятие блокировки после оплаты (раздел 7.3)
+
+        # Начисляем 20 000 кредитов
+        CreditService.grant_subscription(db, user, transaction)
+
+        if transaction:
+            transaction.status = "success"
+            transaction.is_processed = True
+            transaction.paid_at = now
+            transaction.processed_at = now
+
+        db.commit()
+
+        logger.info(
+            f"✅ Agent subscription activated for user {user.id} until "
+            f"{user.subscription_end_date}, +20000 credits"
+        )
+
+        # Партнёрская комиссия (как и для других планов)
+        try:
+            from backend.services.partner_service import PartnerService
+            await PartnerService.process_referral_payment(
+                db=db, user_id=str(user.id), transaction=transaction, amount=float(out_sum)
+            )
+        except ImportError:
+            pass
+        except Exception as partner_error:
+            logger.error(f"❌ Error processing partner commission (agent): {partner_error}")
+
+        return f"OK{inv_id}"
+
+    @classmethod
     async def process_payment_result(
         cls,
         db: Session,
@@ -345,7 +488,23 @@ class RobokassaService:
             if not user:
                 logger.error(f"❌ User {user_id} not found for payment {inv_id}")
                 return "FAIL"
-            
+
+            # =================================================================
+            # ✅ ВЕТВЛЕНИЕ: пакеты кредитов и тариф `agent` (система кредитов)
+            # =================================================================
+            shp_credits_package = custom_params.get("Shp_credits_package")
+            shp_plan_code = custom_params.get("Shp_plan_code")
+
+            if shp_credits_package:
+                return await cls._process_credits_package_payment(
+                    db, user, inv_id, out_sum, shp_credits_package
+                )
+
+            if shp_plan_code == "agent":
+                return await cls._process_agent_subscription_payment(
+                    db, user, inv_id, out_sum
+                )
+
             # Получаем план
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()
             if not plan:

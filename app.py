@@ -45,11 +45,13 @@ from backend.api import (
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
     agent,  # ✅ v5.0: Voicyfy Agent API
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
+    credits,  # ✅ Система кредитов оркестратора
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
+from backend.services.subscription_blocker import start_subscription_blocker  # ✅ Agent subscription blocker
 from backend.api.partners import router as partners_router
 
 # Alembic для миграций
@@ -194,6 +196,7 @@ app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"]
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
 app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
+app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
 
 # ============================================================================
 # STATIC FILES
@@ -914,7 +917,11 @@ async def startup_event():
             # ✅ Запуск Task Scheduler
             asyncio.create_task(start_task_scheduler(check_interval=30))
             logger.info("✅ Task Scheduler started (check every 30s)")
-            
+
+            # ✅ Запуск блокировщика истёкших подписок agent (каждые 5 мин)
+            asyncio.create_task(start_subscription_blocker())
+            logger.info("✅ Agent subscription blocker started (check every 5 min)")
+
         except Exception as e:
             logger.error(f"❌ Error starting schedulers: {str(e)}")
         

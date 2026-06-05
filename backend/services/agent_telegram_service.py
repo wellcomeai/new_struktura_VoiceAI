@@ -19,6 +19,7 @@ from typing import Optional, List
 
 import httpx
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
@@ -27,6 +28,39 @@ from backend.models.agent_telegram_chat_history import AgentTelegramChatHistory
 from backend.models.user import User
 
 logger = get_logger(__name__)
+
+# Маркер анти-спама для уведомлений об истёкшей подписке (раздел 9, edge case 9).
+# Храним последний показ внутри history JSONB как системную запись.
+_SUB_NOTICE_MARKER = "__sub_expired_notice__"
+_SUB_NOTICE_COOLDOWN_SEC = 24 * 3600
+
+
+def _should_send_sub_notice(history_row) -> bool:
+    """True если уведомление о подписке можно отправить (прошло > 24ч)."""
+    history = history_row.history or []
+    last_ts = None
+    for entry in reversed(history):
+        if isinstance(entry, dict) and entry.get("marker") == _SUB_NOTICE_MARKER:
+            last_ts = entry.get("ts")
+            break
+    if not last_ts:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(last_ts)
+    except (ValueError, TypeError):
+        return True
+    return (datetime.utcnow() - last_dt).total_seconds() >= _SUB_NOTICE_COOLDOWN_SEC
+
+
+def _mark_sub_notice_sent(history_row, db: Session) -> None:
+    """Записать маркер времени последнего уведомления о подписке."""
+    history = list(history_row.history or [])
+    # Удаляем старые маркеры, чтобы не разрастались
+    history = [e for e in history if not (isinstance(e, dict) and e.get("marker") == _SUB_NOTICE_MARKER)]
+    history.append({"marker": _SUB_NOTICE_MARKER, "ts": datetime.utcnow().isoformat()})
+    history_row.history = history
+    flag_modified(history_row, "history")
+    db.commit()
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 REQUEST_TIMEOUT = 20.0
@@ -423,7 +457,36 @@ async def process_telegram_message(
 
     # 3. ChatOrchestrator в Telegram-режиме (показываем "печатает…")
     from backend.services.agent_orchestrator import ChatOrchestrator
+    from backend.services.credit_service import (
+        CreditService,
+        InsufficientCreditsError,
+        SubscriptionExpiredError,
+        SubscriptionRequiredError,
+    )
     user = db.query(User).filter(User.id == agent.user_id).first()
+
+    # 3a. Гейтинг подписки/кредитов. Если подписка истекла или кредитов нет —
+    #     отвечаем текстом, без вызова оркестратора. Анти-спам: не чаще раза
+    #     в сутки на чат (маркер в history JSONB).
+    if user is not None:
+        try:
+            CreditService.precheck(db, user)
+        except (SubscriptionExpiredError, SubscriptionRequiredError, InsufficientCreditsError) as gate_err:
+            if isinstance(gate_err, InsufficientCreditsError):
+                notice = "На балансе закончились кредиты. Пополните в личном кабинете Voicyfy."
+            else:
+                notice = "Подписка истекла, продлите в личном кабинете Voicyfy."
+
+            if _should_send_sub_notice(history_row):
+                await AgentTelegramService.send_message(
+                    token=agent.telegram_bot_token,
+                    chat_id=chat_id,
+                    text=notice,
+                )
+                _mark_sub_notice_sent(history_row, db)
+            else:
+                logger.info(f"[AGENT-TG] Subscription notice suppressed (anti-spam) for chat {chat_id}")
+            return
 
     await AgentTelegramService._call(
         agent.telegram_bot_token, "sendChatAction",
