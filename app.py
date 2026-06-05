@@ -648,6 +648,11 @@ def check_and_fix_all_missing_columns():
                 'cartesia_api_key': 'VARCHAR NULL',  # 🆕 v4.0
                 'openrouter_api_key': 'VARCHAR(255) NULL',  # 🆕 Cascade
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
+                # 🆕 Система кредитов оркестратора Voicyfy Agent
+                'credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
+                'agent_trial_used': 'BOOLEAN DEFAULT FALSE NOT NULL',
+                'agent_trial_started_at': 'TIMESTAMP WITH TIME ZONE NULL',
+                'agent_subscription_blocked': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'conversations': {
                 'caller_number': 'VARCHAR(50) NULL',
@@ -829,6 +834,48 @@ def create_embed_configs_table():
 # APPLICATION LIFECYCLE EVENTS
 # ============================================================================
 
+def seed_credits_data():
+    """
+    Идемпотентно засеять данные системы кредитов: тариф `agent` и пакеты докупки.
+    ТЗ предполагает ручную подготовку БД, но сидинг делает фичу самовосстанавливающейся.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        logger.info("🌱 Seeding credits data (agent plan + packages)...")
+
+        inspector = inspect(engine)
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                # Тариф agent (subscription_plans уже существует)
+                if inspector.has_table('subscription_plans'):
+                    conn.execute(text("""
+                        INSERT INTO subscription_plans (code, name, price, max_assistants, description, is_active)
+                        VALUES ('agent', 'Voicyfy Agent', 4990, 1, 'AI-оркестратор автономных звонков', TRUE)
+                        ON CONFLICT (code) DO NOTHING
+                    """))
+
+                # Пакеты докупки кредитов
+                if inspector.has_table('credit_packages'):
+                    conn.execute(text("""
+                        INSERT INTO credit_packages (code, name, credits, price_rub, sort_order, is_active) VALUES
+                            ('credits_mini', 'Mini', 5000, 490, 1, TRUE),
+                            ('credits_standard', 'Standard', 15000, 1290, 2, TRUE),
+                            ('credits_pro', 'Pro', 50000, 3990, 3, TRUE),
+                            ('credits_business', 'Business', 150000, 9990, 4, TRUE),
+                            ('credits_enterprise', 'Enterprise', 500000, 29990, 5, TRUE)
+                        ON CONFLICT (code) DO NOTHING
+                    """))
+
+                trans.commit()
+                logger.info("✅ Credits data seeded")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to seed credits data: {e}")
+    except Exception as e:
+        logger.error(f"❌ seed_credits_data error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -877,6 +924,9 @@ async def startup_event():
 
                 # 🆕 Шаг 10: Создаем таблицы Cartesia
                 create_cartesia_tables()
+
+                # 🆕 Шаг 11: Сидинг данных системы кредитов (план agent + пакеты)
+                seed_credits_data()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
