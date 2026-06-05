@@ -74,17 +74,12 @@ def _settings_dict(agent: AgentConfig) -> dict:
     if agent.telegram_bot_token:
         token_masked = "***" + agent.telegram_bot_token[-4:]
 
-    webhook_url = None
-    if agent.telegram_webhook_secret:
-        webhook_url = build_webhook_url(agent.telegram_webhook_secret)
-
     return {
         "enabled": bool(agent.telegram_enabled),
         "is_configured": is_configured,
         "bot_username": agent.telegram_bot_username,
         "bot_token_masked": token_masked,
         "chat_ids": agent.telegram_chat_ids or [],
-        "webhook_url": webhook_url,
     }
 
 
@@ -100,6 +95,24 @@ async def get_telegram_settings(
 ):
     """Текущие настройки Telegram-бота агента."""
     agent = _get_agent(current_user, db)
+
+    # Авто-миграция webhook: если у Telegram зарегистрирован старый URL
+    # (например, через Selectel-прокси), тихо переустанавливаем на актуальный.
+    if agent.has_telegram_bot() and agent.telegram_webhook_secret:
+        try:
+            expected_url = build_webhook_url(agent.telegram_webhook_secret)
+            info = await AgentTelegramService.get_webhook_info(agent.telegram_bot_token)
+            if info and info.get("url") != expected_url:
+                logger.info(
+                    f"[AGENT-TG] Webhook URL drift detected for user {current_user.id}: "
+                    f"{info.get('url')} -> {expected_url}, re-registering..."
+                )
+                await AgentTelegramService.setup_webhook(
+                    agent.telegram_bot_token, expected_url, agent.telegram_webhook_secret
+                )
+        except Exception as e:
+            logger.warning(f"[AGENT-TG] Webhook drift check failed for user {current_user.id}: {e}")
+
     return _settings_dict(agent)
 
 

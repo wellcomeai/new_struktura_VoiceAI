@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # ✅ v2.2: Публичный базовый URL (для Telegram webhook и т.п.).
     # По умолчанию совпадает с HOST_URL. Вид: https://voicyfy.ru
     PUBLIC_BASE_URL: Optional[str] = os.getenv("PUBLIC_BASE_URL") or os.getenv("HOST_URL")
+
+    # ✅ Базовый URL для регистрации Telegram-webhook напрямую на Render,
+    # минуя Selectel-прокси (Telegram-серверам прокси не нужен и мешает).
+    # Вид: https://new-struktura-voiceai.onrender.com
+    TELEGRAM_WEBHOOK_BASE_URL: Optional[str] = os.getenv("TELEGRAM_WEBHOOK_BASE_URL")
     
     # Database settings
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")

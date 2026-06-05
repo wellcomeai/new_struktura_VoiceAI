@@ -246,7 +246,12 @@ def generate_webhook_secret() -> str:
 
 
 def build_webhook_url(secret: str) -> str:
-    base = (settings.PUBLIC_BASE_URL or settings.HOST_URL or "").rstrip("/")
+    base = (
+        settings.TELEGRAM_WEBHOOK_BASE_URL
+        or settings.PUBLIC_BASE_URL
+        or settings.HOST_URL
+        or ""
+    ).rstrip("/")
     return f"{base}/api/agent/telegram/webhook/{secret}"
 
 
@@ -284,6 +289,13 @@ class AgentTelegramService:
             "username": result.get("username"),
             "first_name": result.get("first_name"),
         }
+
+    @staticmethod
+    async def get_webhook_info(token: str) -> Optional[dict]:
+        """getWebhookInfo → текущая регистрация webhook у Telegram."""
+        if not token:
+            return None
+        return await AgentTelegramService._call(token, "getWebhookInfo", {})
 
     @staticmethod
     async def setup_webhook(token: str, webhook_url: str, secret: str) -> bool:

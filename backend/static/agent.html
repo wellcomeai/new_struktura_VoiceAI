@@ -1075,13 +1075,11 @@ async function renderTelegramModal(){
   body.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:14px;font-weight:600"><i class="fab fa-telegram" style="color:#229ED9"></i> @${esc(s.bot_username || '')}</div>
-      <label class="tg-switch" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-        <input type="checkbox" id="tg-enabled" ${s.enabled ? 'checked' : ''} onchange="toggleTelegramEnabled(this.checked)">
-        <span>${s.enabled ? 'Включён' : 'Выключен'}</span>
-      </label>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+        <label class="switch"><input type="checkbox" id="tg-enabled" ${s.enabled ? 'checked' : ''} onchange="toggleTelegramEnabled(this.checked)"><span class="slider"></span></label>
+        <span id="tg-enabled-label" class="${s.enabled ? 'toggle-label on' : 'toggle-label'}">${s.enabled ? 'Включён' : 'Выключен'}</span>
+      </div>
     </div>
-
-    ${s.webhook_url ? `<div class="form-group"><label class="form-label">Webhook URL</label><input type="text" class="form-input" readonly value="${esc(s.webhook_url)}" onclick="this.select()" style="font-size:11.5px;font-family:monospace"></div>` : ''}
 
     <div style="margin:16px 0 8px;font-weight:600;font-size:13.5px">Чаты</div>
     <table class="calls-table" style="width:100%">
@@ -1108,7 +1106,6 @@ async function renderTelegramModal(){
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-soft)">
       <button class="btn btn-secondary btn-sm" onclick="testTelegram()"><i class="fas fa-paper-plane"></i> Тест отправки</button>
-      <button class="btn btn-secondary btn-sm" onclick="regenerateTelegramSecret()"><i class="fas fa-rotate"></i> Регенерировать secret</button>
       <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="disconnectTelegramBot()"><i class="fas fa-unlink"></i> Отключить бота</button>
     </div>`;
 }
@@ -1134,15 +1131,28 @@ async function connectTelegramBot(){
 }
 
 async function toggleTelegramEnabled(enabled){
+  const input = document.getElementById('tg-enabled');
+  const label = document.getElementById('tg-enabled-label');
+  if(input) input.disabled = true;
   try{
     const r = await apiFetch(TG_API + '/enabled', { method:'PATCH', body:JSON.stringify({ enabled }) });
     if(r && r.status === 200){
       telegramState = await r.json();
+      const on = !!telegramState.enabled;
+      if(input) input.checked = on;
+      if(label){ label.textContent = on ? 'Включён' : 'Выключен'; label.className = on ? 'toggle-label on' : 'toggle-label'; }
       renderTelegramStatusBlock();
-      showToast(enabled ? 'Бот включён' : 'Бот выключен', 'success');
-      renderTelegramModal();
-    } else { showToast('Ошибка','error'); }
-  }catch(e){ showToast('Ошибка сети','error'); }
+      showToast(on ? 'Бот включён' : 'Бот выключен', 'success');
+    } else {
+      if(input) input.checked = !enabled;
+      showToast('Ошибка','error');
+    }
+  }catch(e){
+    if(input) input.checked = !enabled;
+    showToast('Ошибка сети','error');
+  }finally{
+    if(input) input.disabled = false;
+  }
 }
 
 async function addTelegramChat(){
@@ -1186,18 +1196,6 @@ async function testTelegram(){
       const err = await r?.json().catch(()=>({}));
       showToast(tgErr(err.detail), 'error');
     }
-  }catch(e){ showToast('Ошибка сети','error'); }
-}
-
-async function regenerateTelegramSecret(){
-  if(!confirm('Перевыпустить webhook secret? Старый webhook перестанет работать.')) return;
-  try{
-    const r = await apiFetch(TG_API + '/regenerate-secret', { method:'POST' });
-    if(r && r.status === 200){
-      telegramState = await r.json();
-      renderTelegramModal();
-      showToast('Secret обновлён', 'success');
-    } else { showToast('Ошибка','error'); }
   }catch(e){ showToast('Ошибка сети','error'); }
 }
 
