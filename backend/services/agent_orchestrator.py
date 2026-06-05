@@ -76,6 +76,19 @@ CHAT_META_PROMPT = """# РОЛЬ
 
 CHAT_SUFFIX = "\n---\nВыше — контекст бизнеса пользователя. Используй его для понимания продукта, целевой аудитории и стиля общения при планировании и анализе звонков."
 
+# ✅ v2.2: Подсказка по форматированию для Telegram-канала.
+# Telegram — узкий мобильный экран и ограниченный набор разметки.
+TELEGRAM_FORMAT_HINT = """
+
+# ФОРМАТИРОВАНИЕ ОТВЕТА (Telegram)
+Ты отвечаешь в Telegram — узкий мобильный экран. Соблюдай правила:
+- Пиши кратко и по делу, короткими абзацами.
+- Для перечислений используй маркеры «- » или цифры, НЕ таблицы.
+- НЕ рисуй markdown-таблицы (| ... | ... |) — на телефоне они нечитаемы.
+  Вместо таблицы дай список «Поле: значение» по каждому пункту.
+- Допустим лёгкий markdown: **жирный**, *курсив*, `моноширинный`.
+- Не используй заголовки решётками (#) и горизонтальные линии."""
+
 
 # ============================================================================
 # PRE-CALL ORCHESTRATOR
@@ -981,7 +994,7 @@ class ChatOrchestrator:
         telegram_history_row,
     ) -> Dict[str, Any]:
         """Telegram chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
-        system_prompt = build_orchestrator_prompt(agent_config)
+        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_FORMAT_HINT
         history = telegram_history_row.history or []
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -1065,7 +1078,7 @@ class ChatOrchestrator:
         client = AsyncOpenAI(api_key=user.openai_api_key)
         history = telegram_history_row.history or []
 
-        instructions = CHAT_META_PROMPT + (agent_config.orchestrator_prompt or "") + CHAT_SUFFIX
+        instructions = CHAT_META_PROMPT + (agent_config.orchestrator_prompt or "") + CHAT_SUFFIX + TELEGRAM_FORMAT_HINT
 
         input_items: List[Dict[str, Any]] = []
         for msg in history[-20:]:

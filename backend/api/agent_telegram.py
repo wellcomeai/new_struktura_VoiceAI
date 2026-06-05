@@ -332,6 +332,7 @@ async def telegram_webhook(
 
         # 3. Включён ли бот
         if not agent.telegram_enabled:
+            logger.info(f"[AGENT-TG] Webhook ignored: bot disabled (agent {agent.id})")
             return {"ok": True}
 
         # 4. Распарсить update
@@ -348,6 +349,10 @@ async def telegram_webhook(
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
         if not chat_id or chat_id not in agent.get_telegram_chat_ids_list():
+            logger.info(
+                f"[AGENT-TG] Webhook ignored: chat {chat_id} not in allow-list "
+                f"{agent.get_telegram_chat_ids_list()} (agent {agent.id})"
+            )
             return {"ok": True}
 
         # 6. Текст
@@ -364,6 +369,7 @@ async def telegram_webhook(
         from_user = message.get("from", {}) or {}
 
         # 8. Обработать
+        logger.info(f"[AGENT-TG] Incoming message from chat {chat_id} (agent {agent.id}): {text[:80]!r}")
         await process_telegram_message(
             agent=agent,
             chat_id=chat_id,

@@ -12,9 +12,10 @@ v2.2 Telegram bot integration
 """
 
 import asyncio
+import re
 import secrets
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 import httpx
 from sqlalchemy.orm import Session
@@ -29,6 +30,214 @@ logger = get_logger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 REQUEST_TIMEOUT = 20.0
+TELEGRAM_MAX_LEN = 4096
+
+
+# ============================================================================
+# MARKDOWN → TELEGRAM HTML
+# Модели-оркестраторы отвечают в Markdown. Telegram Bot API понимает только
+# ограниченный HTML и НЕ умеет таблицы / заголовки / markdown. Если послать
+# сырой markdown с parse_mode=HTML — Telegram падает с 400 (а юзер не видит
+# ответа). Поэтому конвертируем в безопасный Telegram-HTML.
+# ============================================================================
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def strip_html_tags(s: str) -> str:
+    """Грубое удаление HTML-тегов + раскодирование базовых сущностей (для fallback)."""
+    s = _HTML_TAG_RE.sub("", s or "")
+    return (s.replace("&lt;", "<").replace("&gt;", ">")
+             .replace("&quot;", '"').replace("&#39;", "'").replace("&amp;", "&"))
+
+
+def _md_inline(text: str) -> str:
+    """Инлайновый markdown (текст уже HTML-экранирован) → Telegram HTML."""
+    # Защищаем inline-код, чтобы внутри не сработали bold/italic
+    codes: List[str] = []
+
+    def _stash(m):
+        codes.append(m.group(1))
+        return f"\x00{len(codes) - 1}\x00"
+
+    text = re.sub(r"`([^`]+)`", _stash, text)
+
+    # Ссылки [text](url)
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r'<a href="\2">\1</a>', text)
+    # Жирный **x** / __x__
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<![A-Za-z0-9])__([^_\n]+)__(?![A-Za-z0-9])", r"<b>\1</b>", text)
+    # Курсив *x* / _x_
+    text = re.sub(r"(?<![\*\w])\*([^*\n]+)\*(?![\*\w])", r"<i>\1</i>", text)
+    text = re.sub(r"(?<![A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])", r"<i>\1</i>", text)
+    # Зачёркнутый ~~x~~
+    text = re.sub(r"~~([^~\n]+)~~", r"<s>\1</s>", text)
+
+    # Восстанавливаем код
+    text = re.sub(r"\x00(\d+)\x00", lambda m: f"<code>{codes[int(m.group(1))]}</code>", text)
+    return text
+
+
+def _split_table_row(row: str) -> List[str]:
+    row = row.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|"):
+        row = row[:-1]
+    return [c.strip() for c in row.split("|")]
+
+
+def _strip_md_markers(s: str) -> str:
+    """Убирает markdown-маркеры (для ячеек таблицы — там голый текст в моноширинном блоке)."""
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"\*([^*]+)\*", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    s = re.sub(r"~~([^~]+)~~", r"\1", s)
+    return s.strip()
+
+
+def _render_table(header: List[str], body: List[List[str]]) -> str:
+    """Markdown-таблица → выровненный моноширинный <pre> блок."""
+    cols = len(header)
+    rows = [header] + body
+    norm: List[List[str]] = []
+    for r in rows:
+        r = [_strip_md_markers(c) for c in r]
+        if len(r) < cols:
+            r = r + [""] * (cols - len(r))
+        norm.append(r[:cols])
+
+    widths = [max(len(norm[ri][ci]) for ri in range(len(norm))) for ci in range(cols)]
+
+    def fmt(r: List[str]) -> str:
+        return " | ".join(r[ci].ljust(widths[ci]) for ci in range(cols))
+
+    lines = [fmt(norm[0]), "-+-".join("-" * widths[ci] for ci in range(cols))]
+    for r in norm[1:]:
+        lines.append(fmt(r))
+    return "<pre>" + _esc("\n".join(lines)) + "</pre>"
+
+
+def markdown_to_telegram_html(md: str) -> str:
+    """
+    Конвертирует Markdown-ответ модели в безопасный Telegram-HTML.
+    Поддержка: заголовки, жирный/курсив/код/зачёркнутый, ссылки, списки,
+    блоки кода ```...```, таблицы (→ моноширинный выровненный блок), цитаты.
+    """
+    md = (md or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = md.split("\n")
+    n = len(lines)
+    out: List[str] = []
+    i = 0
+    in_code = False
+    code_buf: List[str] = []
+
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+
+        # Блок кода ```
+        if stripped.startswith("```"):
+            if not in_code:
+                in_code = True
+                code_buf = []
+            else:
+                in_code = False
+                out.append("<pre>" + _esc("\n".join(code_buf)) + "</pre>")
+            i += 1
+            continue
+        if in_code:
+            code_buf.append(line)
+            i += 1
+            continue
+
+        # Таблица: текущая строка с '|' + следующая строка-разделитель |---|
+        if ("|" in line and i + 1 < n and "-" in lines[i + 1]
+                and re.match(r"^\s*\|?[\s:\-|]+\|?\s*$", lines[i + 1])
+                and lines[i + 1].count("|") >= 1):
+            header = _split_table_row(line)
+            j = i + 2
+            body_rows = []
+            while j < n and "|" in lines[j] and lines[j].strip():
+                body_rows.append(_split_table_row(lines[j]))
+                j += 1
+            out.append(_render_table(header, body_rows))
+            i = j
+            continue
+
+        # Заголовок # .. ######
+        m = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if m:
+            out.append("<b>" + _md_inline(_esc(m.group(2).strip())) + "</b>")
+            i += 1
+            continue
+
+        # Горизонтальная линия --- *** ___
+        if re.match(r"^\s*([-*_])(\s*\1){2,}\s*$", line):
+            out.append("──────────")
+            i += 1
+            continue
+
+        # Цитата >
+        if stripped.startswith(">"):
+            out.append("<i>" + _md_inline(_esc(stripped.lstrip(">").strip())) + "</i>")
+            i += 1
+            continue
+
+        # Маркированный список
+        m = re.match(r"^(\s*)[-*+]\s+(.*)$", line)
+        if m:
+            indent = " " * len(m.group(1))
+            out.append(indent + "• " + _md_inline(_esc(m.group(2))))
+            i += 1
+            continue
+
+        # Нумерованный список
+        m = re.match(r"^(\s*)(\d+)[.)]\s+(.*)$", line)
+        if m:
+            out.append(m.group(1) + m.group(2) + ". " + _md_inline(_esc(m.group(3))))
+            i += 1
+            continue
+
+        # Обычная строка
+        out.append(_md_inline(_esc(line)))
+        i += 1
+
+    if in_code and code_buf:
+        out.append("<pre>" + _esc("\n".join(code_buf)) + "</pre>")
+
+    text = "\n".join(out)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _split_for_telegram(text: str, limit: int = TELEGRAM_MAX_LEN) -> List[str]:
+    """Режет длинный текст на части ≤ limit по границам строк (для лимита Telegram 4096)."""
+    if len(text) <= limit:
+        return [text]
+    chunks: List[str] = []
+    buf = ""
+    for line in text.split("\n"):
+        # одиночная строка длиннее лимита — жёстко режем
+        while len(line) > limit:
+            if buf:
+                chunks.append(buf)
+                buf = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        if len(buf) + len(line) + 1 > limit:
+            if buf:
+                chunks.append(buf)
+            buf = line
+        else:
+            buf = line if not buf else buf + "\n" + line
+    if buf:
+        chunks.append(buf)
+    return chunks
 
 
 def generate_webhook_secret() -> str:
@@ -98,17 +307,46 @@ class AgentTelegramService:
         return result is True or bool(result)
 
     @staticmethod
-    async def send_message(token: str, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
-        """sendMessage. Безопасная обёртка — не бросает наружу, только логирует."""
-        if not token or not chat_id:
-            return False
-        result = await AgentTelegramService._call(token, "sendMessage", {
+    async def _send_chunk(token: str, chat_id: str, text: str, parse_mode: Optional[str]) -> bool:
+        """Отправляет один кусок. При сбое HTML-парсинга — повтор без parse_mode (plain)."""
+        payload = {
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": parse_mode,
             "disable_web_page_preview": True,
-        })
-        return result is not None
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        result = await AgentTelegramService._call(token, "sendMessage", payload)
+        if result is not None:
+            return True
+        # Fallback: Telegram отклонил разметку — шлём как обычный текст
+        if parse_mode:
+            plain = strip_html_tags(text)
+            result = await AgentTelegramService._call(token, "sendMessage", {
+                "chat_id": chat_id,
+                "text": plain,
+                "disable_web_page_preview": True,
+            })
+            return result is not None
+        return False
+
+    @staticmethod
+    async def send_message(token: str, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
+        """
+        sendMessage. Безопасная обёртка — не бросает наружу, только логирует.
+        Режет длинные сообщения на части (лимит Telegram 4096) и при ошибке
+        HTML-разметки откатывается на обычный текст, чтобы ответ всё равно дошёл.
+        """
+        if not token or not chat_id:
+            return False
+        if not text:
+            return False
+        chunks = _split_for_telegram(text)
+        ok_any = False
+        for chunk in chunks:
+            ok = await AgentTelegramService._send_chunk(token, chat_id, chunk, parse_mode)
+            ok_any = ok_any or ok
+        return ok_any
 
     @staticmethod
     async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
@@ -171,9 +409,14 @@ async def process_telegram_message(
     history_row.last_sender_username = from_user.get("username") if from_user else None
     history_row.last_message_at = datetime.utcnow()
 
-    # 3. ChatOrchestrator в Telegram-режиме
+    # 3. ChatOrchestrator в Telegram-режиме (показываем "печатает…")
     from backend.services.agent_orchestrator import ChatOrchestrator
     user = db.query(User).filter(User.id == agent.user_id).first()
+
+    await AgentTelegramService._call(
+        agent.telegram_bot_token, "sendChatAction",
+        {"chat_id": chat_id, "action": "typing"},
+    )
 
     orchestrator = ChatOrchestrator()
     result = await orchestrator.run_telegram(
@@ -184,9 +427,10 @@ async def process_telegram_message(
         telegram_history_row=history_row,
     )
 
-    # 4. Ответ в Telegram
+    # 4. Ответ в Telegram — конвертируем Markdown модели в безопасный Telegram-HTML
+    reply_html = markdown_to_telegram_html(result.get("reply") or "Готово.")
     await AgentTelegramService.send_message(
         token=agent.telegram_bot_token,
         chat_id=chat_id,
-        text=result["reply"],
+        text=reply_html,
     )

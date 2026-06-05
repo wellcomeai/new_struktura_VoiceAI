@@ -442,7 +442,10 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
     Использует бота агента (agent_configs.telegram_bot_token), а не юзера.
     """
-    from backend.services.agent_telegram_service import AgentTelegramService
+    from backend.services.agent_telegram_service import (
+        AgentTelegramService,
+        markdown_to_telegram_html,
+    )
 
     message = args["message"]
 
@@ -455,7 +458,9 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     if not agent_config.get_telegram_chat_ids_list():
         return {"ok": False, "error": "no_chat_ids_configured"}
 
-    text = f"🤖 <b>Voicyfy Agent</b>\n\n{message}"
+    # Тело уведомления может быть в Markdown → конвертируем в безопасный Telegram-HTML
+    body_html = markdown_to_telegram_html(message)
+    text = f"🤖 <b>Voicyfy Agent</b>\n\n{body_html}"
     result = await AgentTelegramService.send_to_all_chats(agent_config, text)
 
     logger.info(
