@@ -101,13 +101,18 @@ class CreditService:
         - SubscriptionExpiredError если подписка истекла или заблокирована.
         - InsufficientCreditsError если кредитов меньше MIN_PRECHECK_BALANCE.
 
-        ⚠️ Админ освобождён только от проверок ПОДПИСКИ (через
+        ⚠️ Доступ к оркестратору даёт ТОЛЬКО тариф `agent` (или admin).
+        Старые тарифы (ai_voice/start/profi) → SubscriptionRequiredError.
+
+        Админ освобождён только от проверок ПОДПИСКИ (через
         has_active_agent_subscription → True), но НЕ от проверки кредитов:
         баланс < MIN_PRECHECK_BALANCE блокирует оркестратор для всех.
         """
-        if not user.subscription_plan_id:
+        # Нет тарифа agent вообще (нет плана или план не agent)
+        if not user.is_admin and not user.is_agent_plan():
             raise SubscriptionRequiredError("No agent subscription")
 
+        # Тариф agent есть, но истёк или заблокирован
         if not user.has_active_agent_subscription():
             raise SubscriptionExpiredError("Agent subscription expired or blocked")
 

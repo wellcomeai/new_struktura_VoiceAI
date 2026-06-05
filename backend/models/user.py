@@ -207,12 +207,26 @@ class User(Base, BaseModel):
     # ✅ Хелперы подписки `agent` (система кредитов оркестратора)
     # ========================================================================
 
+    def is_agent_plan(self) -> bool:
+        """True если текущий тариф пользователя — именно `agent`."""
+        try:
+            plan = self.subscription_plan_rel
+            return bool(plan and plan.code == "agent")
+        except Exception:
+            return False
+
     def has_active_agent_subscription(self) -> bool:
-        """True если есть активная подписка agent (включая trial)."""
+        """
+        True если есть активная подписка именно на тариф `agent` (включая trial).
+        Старые тарифы (ai_voice/start/profi) НЕ дают доступ к оркестратору.
+        Админ — всегда True (освобождён от проверки подписки).
+        """
         if self.agent_subscription_blocked:
             return False
         if self.is_admin:
             return True
+        if not self.is_agent_plan():
+            return False
         if not self.subscription_end_date:
             return False
         from datetime import datetime, timezone
@@ -223,7 +237,8 @@ class User(Base, BaseModel):
 
     def agent_subscription_status(self) -> str:
         """active | trial | expired | none"""
-        if not self.subscription_plan_id:
+        # Нет тарифа agent вообще (другой план или его отсутствие)
+        if not self.is_admin and not self.is_agent_plan():
             return "none"
         if not self.has_active_agent_subscription():
             return "expired"
