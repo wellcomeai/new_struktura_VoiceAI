@@ -461,18 +461,22 @@ async def delete_agent(
         ).count()
 
         # Логируем факт удаления агента (баланс кредитов НЕ меняется).
+        # Создаём транзакцию ИНЛАЙН без промежуточного commit — иначе commit
+        # внутри log_system_event «протухает» объект agent до его db.delete().
         # Критично для саппорта: «куда делись мои кредиты после удаления агента».
-        agent_id = agent.id
-        CreditService.log_system_event(
-            db=db,
+        from backend.models.credit_transaction import CreditTransaction, CreditTransactionType
+        db.add(CreditTransaction(
             user_id=current_user.id,
+            type=CreditTransactionType.MANUAL_ADJUST.value,
+            amount=0,
+            balance_after=current_user.credits_balance or 0,
             ref_type="agent_deleted",
-            ref_id=agent_id,
+            ref_id=agent.id,
             notes=(
                 f"Agent deleted by user. Tasks cancelled: {scheduled_count}. "
                 f"Credits balance preserved: {current_user.credits_balance}."
             ),
-        )
+        ))
 
         # 1. tasks ПЕРВЫМИ — иначе ON DELETE SET NULL зануляет FK,
         #    и задачи остаются сиротами навсегда

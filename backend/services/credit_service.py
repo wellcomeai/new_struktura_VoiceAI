@@ -100,11 +100,11 @@ class CreditService:
         - SubscriptionRequiredError если у юзера нет плана agent.
         - SubscriptionExpiredError если подписка истекла или заблокирована.
         - InsufficientCreditsError если кредитов меньше MIN_PRECHECK_BALANCE.
-        """
-        # Админ — без ограничений
-        if getattr(user, "is_admin", False):
-            return
 
+        ⚠️ Админ освобождён только от проверок ПОДПИСКИ (через
+        has_active_agent_subscription → True), но НЕ от проверки кредитов:
+        баланс < MIN_PRECHECK_BALANCE блокирует оркестратор для всех.
+        """
         if not user.subscription_plan_id:
             raise SubscriptionRequiredError("No agent subscription")
 
