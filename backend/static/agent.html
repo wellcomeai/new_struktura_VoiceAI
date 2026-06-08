@@ -203,6 +203,12 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .de-gpt_response { background:var(--blue-light); color:var(--blue-dark); }
 .debug-entry-text { font-size:11px; color:var(--muted); line-height:1.5; word-break:break-all; }
 .debug-entry-detail { font-size:10.5px; color:var(--hint); font-family:monospace; background:var(--bg); padding:4px 8px; border-radius:4px; white-space:pre-wrap; word-break:break-all; margin-top:2px; }
+/* ── STREAM TOOL STATUS ── */
+.tool-status { display:flex; align-items:center; gap:7px; margin-top:6px; padding:4px 2px; font-size:11.5px; color:var(--muted); }
+.tool-status .ts-spinner { width:11px; height:11px; border:2px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:ts-spin .7s linear infinite; flex-shrink:0; }
+.tool-status.done .ts-spinner { display:none; }
+.tool-status .ts-check { color:var(--blue); }
+@keyframes ts-spin { to { transform:rotate(360deg); } }
 
 /* ── TASKS ── */
 .task-item { display:flex; gap:12px; padding:11px 0; border-bottom:1px solid var(--border-soft); }
@@ -1452,23 +1458,190 @@ async function sendMessage(){
   if(!text) return;
   inp.value=''; inp.style.height='auto';
   addBubble(text,'user');
-  const tId = showTyping();
   document.getElementById('chat-send').disabled = true;
   const t0 = Date.now();
+
+  // Fallback на старый /chat (legacy v2-агенты или сбой стрима).
+  async function fallbackToPlainChat(stream){
+    if(stream) stream.remove();
+    const tId = showTyping();
+    try{
+      const r = await apiFetch(API + '/chat', { method:'POST', body:JSON.stringify({ message:text }) });
+      removeTyping(tId);
+      if(r && r.status===200){
+        const d = await r.json();
+        const el = ((Date.now()-t0)/1000).toFixed(1);
+        addAgentBubble(d.reply, d.debug_log||[], el);
+        loadStats(); loadRecentCalls(); loadTasks();
+      } else {
+        const err = await r?.json().catch(()=>({}));
+        addBubble(errText(err.detail),'assistant');
+      }
+    }catch(e){ removeTyping(tId); addBubble('Ошибка сети.','assistant'); }
+  }
+
+  const stream = createStreamingBubble();
+  let st = { acc:'', toolEvents:[], bubble:stream.bubble, status:stream.status,
+             think:stream.think, t0, raf:null, dirty:false, done:false };
   try{
-    const r = await apiFetch(API + '/chat', { method:'POST', body:JSON.stringify({ message:text }) });
-    removeTyping(tId);
-    if(r && r.status===200){
-      const d = await r.json();
-      const el = ((Date.now()-t0)/1000).toFixed(1);
-      addAgentBubble(d.reply, d.debug_log||[], el);
-      loadStats(); loadRecentCalls(); loadTasks();
-    } else {
-      const err = await r?.json().catch(()=>({}));
-      addBubble(errText(err.detail),'assistant');
+    const token = getToken();
+    if(!token){ location.href='/static/login.html'; return; }
+    const resp = await fetch(withAgentId(API + '/chat/stream'), {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+token, 'Content-Type':'application/json' },
+      body: JSON.stringify({ message:text }),
+    });
+
+    if(resp.status===401){ localStorage.removeItem('auth_token'); location.href='/static/login.html'; return; }
+    if(!resp.ok || !resp.body){
+      // 409 (legacy v2) или сетевой сбой → fallback на обычный /chat.
+      if(resp.status===409){ await fallbackToPlainChat(stream.wrap); document.getElementById('chat-send').disabled=false; return; }
+      if(resp.status===402){ await handle402(resp); stream.wrap.remove(); document.getElementById('chat-send').disabled=false; return; }
+      if(resp.status===400 || resp.status===404){
+        const err = await resp.json().catch(()=>({}));
+        stream.wrap.remove(); addBubble(errText(err.detail),'assistant');
+        document.getElementById('chat-send').disabled=false; return;
+      }
+      await fallbackToPlainChat(stream.wrap); document.getElementById('chat-send').disabled=false; return;
     }
-  }catch(e){ removeTyping(tId); addBubble('Ошибка сети.','assistant'); }
-  document.getElementById('chat-send').disabled = false;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while(true){
+      const { value, done } = await reader.read();
+      if(done) break;
+      buf += decoder.decode(value, { stream:true });
+      let nl;
+      while((nl = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+        if(line) handleStreamEvent(JSON.parse(line), st);
+      }
+    }
+    if(buf.trim()){ try{ handleStreamEvent(JSON.parse(buf.trim()), st); }catch(e){} }
+
+    if(!st.done){
+      // Поток оборвался без события done — fallback, чтобы не виснуть.
+      await fallbackToPlainChat(stream.wrap);
+    } else {
+      loadStats(); loadRecentCalls(); loadTasks();
+    }
+  }catch(e){
+    if(st.raf) cancelAnimationFrame(st.raf);
+    if(!st.done){ await fallbackToPlainChat(stream.wrap); }
+  }finally{
+    document.getElementById('chat-send').disabled = false;
+  }
+}
+
+// Создаёт пустой пузырь ассистента с индикатором «думаю» и строкой статуса.
+function createStreamingBubble(){
+  const msgs = document.getElementById('chat-messages');
+  const div = document.createElement('div'); div.className='msg assistant';
+  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body">`+
+    `<div class="msg-bubble md" data-stream-bubble><div class="typing-row" data-think><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`+
+    `<div class="tool-status" data-status style="display:none"></div>`+
+    `</div>`;
+  msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+  return {
+    wrap: div,
+    bubble: div.querySelector('[data-stream-bubble]'),
+    status: div.querySelector('[data-status]'),
+    think: div.querySelector('[data-think]'),
+  };
+}
+
+function _streamRender(st){
+  st.dirty = false;
+  st.bubble.innerHTML = renderMarkdown(st.acc);
+  const msgs = document.getElementById('chat-messages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function handleStreamEvent(ev, st){
+  const msgs = document.getElementById('chat-messages');
+  if(ev.type==='start') return;
+
+  if(ev.type==='tool_call'){
+    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_call', data:{ tool:ev.tool, args:ev.args } });
+    const label = TOOL_LABELS[ev.tool] || ev.tool || 'Инструмент';
+    st.status.style.display = 'flex';
+    st.status.classList.remove('done');
+    st.status.innerHTML = `<span class="ts-spinner"></span><span>${esc(label)}…</span>`;
+    msgs.scrollTop = msgs.scrollHeight;
+    return;
+  }
+  if(ev.type==='tool_result'){
+    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_result', data:{ tool:ev.tool, result:ev.result } });
+    let info = 'готово';
+    const res = ev.result;
+    if(res && typeof res==='object'){
+      const c = res.count!==undefined ? 'найдено: '+res.count : '';
+      const ok = res.ok!==undefined ? (res.ok?'успешно':'ошибка') : '';
+      info = [c, ok].filter(Boolean).join(' · ') || 'готово';
+    }
+    st.status.classList.add('done');
+    st.status.innerHTML = `<span class="ts-check">✓</span><span>${esc(info)}</span>`;
+    return;
+  }
+  if(ev.type==='tool_error'){
+    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_error', data:{ tool:ev.tool, error:ev.error } });
+    st.status.classList.add('done');
+    st.status.innerHTML = `<span class="ts-check" style="color:var(--danger,#e05)">✕</span><span>ошибка</span>`;
+    return;
+  }
+  if(ev.type==='token'){
+    if(st.think){ st.think.remove(); st.think=null; st.bubble.innerHTML=''; }
+    if(st.status && st.status.style.display!=='none'){ st.status.style.display='none'; }
+    st.acc += ev.text;
+    if(!st.dirty){
+      st.dirty = true;
+      st.raf = requestAnimationFrame(()=>_streamRender(st));
+    }
+    return;
+  }
+  if(ev.type==='clear_partial'){
+    st.acc = '';
+    if(st.bubble) st.bubble.innerHTML = '';
+    return;
+  }
+  if(ev.type==='done'){
+    st.done = true;
+    if(st.raf) cancelAnimationFrame(st.raf);
+    if(st.think){ st.think.remove(); st.think=null; }
+    if(st.status){ st.status.remove(); st.status=null; }
+    st.bubble.innerHTML = renderMarkdown(ev.reply);
+    const el = ((Date.now()-st.t0)/1000).toFixed(1);
+    const debugLog = ev.debug_log || st.toolEvents;
+    const body = st.bubble.parentElement;
+    const dbg = renderDebugBlock(debugLog, el);
+    if(dbg){
+      // Вставить debug-блок после времени (msg-time добавим, если нет).
+      let time = body.querySelector('.msg-time');
+      if(!time){
+        time = document.createElement('div'); time.className='msg-time';
+        time.textContent = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+        body.appendChild(time);
+      }
+      time.insertAdjacentHTML('afterend', dbg);
+    } else {
+      if(!body.querySelector('.msg-time')){
+        const time = document.createElement('div'); time.className='msg-time';
+        time.textContent = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+        body.appendChild(time);
+      }
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+    return;
+  }
+  if(ev.type==='error'){
+    st.done = true;
+    if(st.raf) cancelAnimationFrame(st.raf);
+    if(st.think){ st.think.remove(); st.think=null; }
+    if(st.status){ st.status.remove(); st.status=null; }
+    st.bubble.innerHTML = renderMarkdown(st.acc || 'Ошибка обработки запроса.');
+    return;
+  }
 }
 
 function addBubble(text, role){
@@ -1482,12 +1655,14 @@ function addBubble(text, role){
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
 
-function addAgentBubble(text, debugLog, elapsed){
-  const msgs = document.getElementById('chat-messages');
-  const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+// Строит блок debug-лога (тег «N действий · Xс» + сворачиваемый список).
+// Используется и стрим-путём (handleStreamEvent), и fallback-путём (addAgentBubble).
+function renderDebugBlock(debugLog, elapsed){
+  debugLog = debugLog || [];
   const toolCalls = debugLog.filter(e=>e.type==='tool_call');
-  const logId = 'dbg-'+Date.now();
   const logEntries = debugLog.filter(e => ['gpt_thinking','tool_call','tool_result','tool_error','gpt_response'].includes(e.type));
+  if(!logEntries.length) return '';
+  const logId = 'dbg-'+Date.now()+'-'+Math.floor(Math.random()*1e4);
   const entriesHtml = logEntries.map(e => {
     const typeMap = { gpt_thinking:{cls:'de-thinking',label:'Думаю'}, tool_call:{cls:'de-tool_call',label:e.data?.tool||'Инструмент'}, tool_result:{cls:'de-tool_result',label:'Результат'}, tool_error:{cls:'de-tool_error',label:'Ошибка'}, gpt_response:{cls:'de-gpt_response',label:'Ответ'} };
     const t = typeMap[e.type] || {cls:'de-thinking',label:e.type};
@@ -1501,8 +1676,14 @@ function addAgentBubble(text, debugLog, elapsed){
   }).join('');
   const n = toolCalls.length;
   const tag = n>0 ? `${n} ${n===1?'действие':n<5?'действия':'действий'} · ${elapsed}с` : `${elapsed}с`;
+  return `<div class="debug-tag" id="tag-${logId}" onclick="toggleLog('${logId}')"><span>${tag}</span><span class="chevron">&#8964;</span></div><div class="debug-log" id="${logId}" style="display:none">${entriesHtml}</div>`;
+}
+
+function addAgentBubble(text, debugLog, elapsed){
+  const msgs = document.getElementById('chat-messages');
+  const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
   const div = document.createElement('div'); div.className='msg assistant';
-  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble md">${renderMarkdown(text)}</div><div class="msg-time">${now}</div>${logEntries.length?`<div class="debug-tag" id="tag-${logId}" onclick="toggleLog('${logId}')"><span>${tag}</span><span class="chevron">&#8964;</span></div><div class="debug-log" id="${logId}" style="display:none">${entriesHtml}</div>`:''}</div>`;
+  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble md">${renderMarkdown(text)}</div><div class="msg-time">${now}</div>${renderDebugBlock(debugLog, elapsed)}</div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
 function toggleLog(id){ const l=document.getElementById(id), t=document.getElementById('tag-'+id); if(!l||!t)return; const open=l.style.display!=='none'; l.style.display=open?'none':'block'; t.classList.toggle('open',!open); }
