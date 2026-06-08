@@ -11,7 +11,7 @@ from fastapi import (
     APIRouter, Depends, HTTPException, Query, status,
     UploadFile, File, Form, BackgroundTasks,
 )
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -634,6 +634,64 @@ async def agent_chat(
         "timestamp": datetime.utcnow().isoformat(),
         "debug_log": result.get("debug_log", []),
     }
+
+
+@router.post("/chat/stream")
+async def agent_chat_stream(
+    body: AgentChatRequest,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Streaming text chat (NDJSON) with live tool progress + token-by-token reply.
+    Only v3 (hardcoded-prompt) agents stream. Legacy v2 → 409, the front falls
+    back to the non-streaming /chat endpoint.
+    """
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    # Legacy v2 agents don't stream — tell the front to use /chat fallback.
+    if not getattr(agent, "uses_hardcoded_prompt", False):
+        if not current_user.openai_api_key:
+            raise HTTPException(status_code=400, detail="openai_key_required")
+        raise HTTPException(status_code=409, detail="streaming_not_supported")
+
+    # Subscription/credit precheck BEFORE the stream starts, so 402 returns as
+    # an HTTP status (after 200 starts we could only emit an in-stream error).
+    try:
+        CreditService.precheck(db, current_user)
+    except SubscriptionExpiredError:
+        raise HTTPException(status_code=402, detail="subscription_expired")
+    except SubscriptionRequiredError:
+        raise HTTPException(status_code=402, detail="subscription_required")
+    except InsufficientCreditsError as e:
+        raise HTTPException(status_code=402, detail={
+            "error": "insufficient_credits",
+            "required": e.required,
+            "available": e.available,
+        })
+
+    from backend.services.agent_orchestrator import ChatOrchestrator
+    orchestrator = ChatOrchestrator()
+
+    async def event_gen():
+        try:
+            async for ev in orchestrator.run_stream(body.message, agent, current_user, db):
+                yield json.dumps(ev, ensure_ascii=False) + "\n"
+        except (SubscriptionExpiredError, SubscriptionRequiredError, InsufficientCreditsError):
+            # precheck already ran above; this path means a late check — surface in-stream.
+            yield json.dumps({"type": "error", "detail": "payment_required", "code": 402}, ensure_ascii=False) + "\n"
+        except Exception as e:
+            logger.error(f"[AGENT] stream error: {e}", exc_info=True)
+            yield json.dumps({"type": "error", "detail": f"chat_error: {e}"}, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
 
 
 # ============================================================================
