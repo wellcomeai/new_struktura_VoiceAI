@@ -12,7 +12,7 @@ send_telegram_notification из PostCall-оркестратора.
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -58,10 +58,20 @@ class TelegramChatAddRequest(BaseModel):
 # HELPERS
 # ============================================================================
 
-def _get_agent(current_user: User, db: Session) -> AgentConfig:
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+def _get_agent(current_user: User, db: Session, agent_id: Optional[str] = None) -> AgentConfig:
+    """
+    Резолв конкретного агента пользователя для настроек Telegram (v3.1).
+    При наличии agent_id ищем именно его (в пределах user_id); иначе — первого
+    по дате создания (обратная совместимость с одним агентом).
+
+    Каждый агент имеет собственный telegram_bot_token + уникальный
+    telegram_webhook_secret, поэтому у каждого агента — свой бот и свой webhook.
+    """
+    q = db.query(AgentConfig).filter(AgentConfig.user_id == current_user.id)
+    if agent_id:
+        agent = q.filter(AgentConfig.id == agent_id).first()
+    else:
+        agent = q.order_by(AgentConfig.created_at.asc()).first()
     if not agent:
         raise HTTPException(status_code=404, detail="agent_not_found")
     return agent
@@ -90,11 +100,12 @@ def _settings_dict(agent: AgentConfig) -> dict:
 @router.get("")
 @router.get("/")
 async def get_telegram_settings(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Текущие настройки Telegram-бота агента."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     # Авто-миграция webhook: если у Telegram зарегистрирован старый URL
     # (например, через Selectel-прокси), тихо переустанавливаем на актуальный.
@@ -120,11 +131,12 @@ async def get_telegram_settings(
 @router.put("/")
 async def connect_telegram_bot(
     body: TelegramConnectRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Подключить / обновить Telegram-бота агента."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     token = body.bot_token.strip()
 
@@ -132,6 +144,15 @@ async def connect_telegram_bot(
     bot_info = await AgentTelegramService.validate_token(token)
     if not bot_info:
         raise HTTPException(status_code=400, detail="invalid_token")
+
+    # 1b. Один бот = один webhook. Запрещаем переиспользовать токен другим
+    #     агентом, иначе setup_webhook перезапишет webhook первого агента.
+    token_owner = db.query(AgentConfig).filter(
+        AgentConfig.telegram_bot_token == token,
+        AgentConfig.id != agent.id,
+    ).first()
+    if token_owner:
+        raise HTTPException(status_code=400, detail="token_already_used")
 
     # 2. Снимаем webhook со старого токена, если он отличается
     old_token = agent.telegram_bot_token
@@ -163,11 +184,12 @@ async def connect_telegram_bot(
 @router.delete("")
 @router.delete("/")
 async def disconnect_telegram_bot(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Отключить и удалить Telegram-бота агента (истории чатов остаются)."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     old_token = agent.telegram_bot_token
     if old_token:
@@ -188,11 +210,12 @@ async def disconnect_telegram_bot(
 @router.patch("/enabled")
 async def set_telegram_enabled(
     body: TelegramEnabledRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Рубильник enabled/disabled."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
     agent.telegram_enabled = bool(body.enabled)
     db.commit()
     db.refresh(agent)
@@ -201,11 +224,12 @@ async def set_telegram_enabled(
 
 @router.post("/regenerate-secret")
 async def regenerate_telegram_secret(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Перевыпустить webhook secret и переустановить webhook."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
     if not agent.telegram_bot_token:
         raise HTTPException(status_code=400, detail="telegram_bot_not_configured")
 
@@ -229,11 +253,12 @@ async def regenerate_telegram_secret(
 @router.post("/chats")
 async def add_telegram_chat(
     body: TelegramChatAddRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Добавить chat_id вручную."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     chat_id = body.chat_id.strip()
     if not chat_id:
@@ -265,11 +290,12 @@ async def add_telegram_chat(
 @router.delete("/chats/{chat_id}")
 async def delete_telegram_chat(
     chat_id: str,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Удалить chat_id из массива."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     chats = list(agent.telegram_chat_ids or [])
     new_chats = [c for c in chats if c.get("chat_id") != chat_id]
@@ -288,11 +314,12 @@ async def delete_telegram_chat(
 
 @router.post("/test")
 async def test_telegram(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Отправить тестовое сообщение во все добавленные чаты."""
-    agent = _get_agent(current_user, db)
+    agent = _get_agent(current_user, db, agent_id)
 
     if not agent.has_telegram_bot():
         raise HTTPException(status_code=400, detail="telegram_bot_not_configured")

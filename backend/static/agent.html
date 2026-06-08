@@ -1353,8 +1353,9 @@ async function renderTelegramModal(){
   renderTelegramStatusBlock();
 
   const s = telegramState;
+  const agentLabel = `<div style="font-size:12.5px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)"><i class="fas fa-robot" style="margin-right:6px;color:var(--blue)"></i>Бот для агента <b>${esc(agentData?.name || 'Агент')}</b>. У каждого агента — свой отдельный Telegram-бот.</div>`;
   if(!s.is_configured){
-    body.innerHTML = `
+    body.innerHTML = agentLabel + `
       <div style="font-size:13.5px;line-height:1.6;margin-bottom:14px">
         Подключите своего Telegram-бота, чтобы агент мог общаться из Telegram и присылать уведомления.
         <div class="form-hint" style="margin-top:8px">Создайте бота через <b>@BotFather</b> и вставьте его токен ниже.</div>
@@ -1377,7 +1378,7 @@ async function renderTelegramModal(){
       <td style="text-align:right"><span class="btn btn-secondary btn-sm" onclick="removeTelegramChat('${esc(c.chat_id)}')"><i class="fas fa-times"></i></span></td>
     </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Чатов пока нет</td></tr>';
 
-  body.innerHTML = `
+  body.innerHTML = agentLabel + `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:14px;font-weight:600"><i class="fab fa-telegram" style="color:#229ED9"></i> @${esc(s.bot_username || '')}</div>
       <div style="display:flex;align-items:center;gap:8px;font-size:13px">
@@ -1525,6 +1526,7 @@ function tgErr(detail){
     already_exists:'Этот chat_id уже добавлен.',
     invalid_chat_type:'Неверный тип чата.',
     chat_id_required:'Укажите chat_id.',
+    token_already_used:'Этот бот уже подключён к другому агенту. У каждого агента должен быть свой бот.',
     agent_not_found:'Агент не найден.',
   };
   if(typeof detail === 'string' && map[detail]) return map[detail];
