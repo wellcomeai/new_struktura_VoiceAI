@@ -457,9 +457,10 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <div class="stat-icon green"><i class="fas fa-users"></i></div>
         <div class="stat-num" id="stat-contacts">—</div>
         <div class="stat-label">Контакты</div>
-        <div style="display:flex;gap:10px;margin-top:7px">
+        <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap">
           <span class="stat-go" onclick="openContactsListModal()">Все →</span>
           <span class="stat-go" onclick="openAddContactModal()">Добавить →</span>
+          <span class="stat-go" onclick="openImportModal()">Импорт →</span>
         </div>
       </div>
     </div>
@@ -715,6 +716,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <div class="modal-body">
       <div style="display:flex;gap:10px;margin-bottom:14px">
         <input type="text" class="form-input" id="contacts-search" placeholder="🔍 Поиск по имени, телефону или компании..." style="flex:1">
+        <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><i class="fas fa-file-import"></i> Импорт</button>
         <button class="btn btn-primary btn-sm" onclick="openAddContactModal()"><i class="fas fa-plus"></i> Добавить</button>
       </div>
       <div id="contacts-list-body">
@@ -737,6 +739,73 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <div class="modal-footer">
       <button class="btn btn-danger btn-sm" id="contact-delete-btn"><i class="fas fa-trash"></i> Удалить контакт</button>
       <button class="btn btn-secondary" onclick="closeContactDetailsModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: Import contacts (3 steps) -->
+<div class="modal-overlay hidden" id="import-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-file-import"></i> Импорт контактов</div>
+      <button class="modal-close" onclick="closeImportModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+
+      <!-- STEP 1: Upload -->
+      <div id="import-step-1">
+        <div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12.5px;line-height:1.6">
+          <b>Формат файла (.xlsx или .csv):</b>
+          <div style="margin-top:6px;color:var(--muted)">
+            Колонки: <b>Имя</b>, <b>Телефон*</b>, <b>Компания</b>, <b>Должность</b>,
+            <b>Информация о клиенте</b>, <b>Задача</b>, <b>Описание задачи</b>, <b>Когда звонить</b>.
+            Обязателен только телефон. Если колонки «Когда звонить» нет — звонки распределятся
+            автоматически (старт через час, параллельно по 5).
+          </div>
+          <div style="margin-top:8px;color:var(--blue);font-weight:600">
+            <i class="far fa-clock"></i> Время указывается по МСК (Москва, UTC+3)
+          </div>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="downloadImportTemplate()" style="margin-bottom:14px">
+          <i class="fas fa-download"></i> Скачать шаблон
+        </button>
+        <label for="import-file-input" id="import-dropzone" style="display:block;border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;cursor:pointer;color:var(--muted)">
+          <i class="fas fa-cloud-arrow-up" style="font-size:28px;display:block;margin-bottom:8px;color:var(--blue)"></i>
+          <span id="import-file-label">Перетащите файл сюда или нажмите для выбора</span>
+        </label>
+        <input type="file" id="import-file-input" accept=".xlsx,.csv" style="display:none">
+      </div>
+
+      <!-- STEP 2: Preview -->
+      <div id="import-step-2" style="display:none">
+        <div id="import-preview-summary"></div>
+        <div id="import-shift-confirm" style="display:none;margin-top:12px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer">
+            <input type="checkbox" id="import-shift-checkbox" onchange="updateImportProceedBtn()">
+            <span>Я согласен с переносом задач на ближайший рабочий день</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- STEP 3: Progress / Result -->
+      <div id="import-step-3" style="display:none;text-align:center;padding:20px">
+        <div id="import-progress-block">
+          <div class="spinner" style="margin:0 auto 14px"></div>
+          <div id="import-progress-text" style="font-size:13.5px;color:var(--muted)">Импортируем контакты…</div>
+        </div>
+        <div id="import-result-block" style="display:none">
+          <i class="fas fa-circle-check" style="font-size:40px;color:var(--green,#16a34a);margin-bottom:12px"></i>
+          <div id="import-result-text" style="font-size:14px;font-weight:600"></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer" id="import-modal-footer">
+      <button class="btn btn-secondary" id="import-back-btn" onclick="importBack()" style="display:none">Назад</button>
+      <button class="btn btn-secondary" id="import-errors-btn" onclick="downloadImportErrors()" style="display:none"><i class="fas fa-download"></i> Скачать список ошибок</button>
+      <button class="btn btn-secondary" onclick="closeImportModal()" id="import-cancel-btn">Отмена</button>
+      <button class="btn btn-primary" id="import-proceed-btn" onclick="executeImport()" style="display:none"><i class="fas fa-play"></i> Начать импорт</button>
+      <button class="btn btn-primary" id="import-close-btn" onclick="finishImport()" style="display:none">Закрыть</button>
     </div>
   </div>
 </div>
@@ -1005,7 +1074,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.doc-tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
   ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay',
    'contacts-list-modal-overlay','contact-details-modal-overlay',
-   'instructions-modal-overlay','telegram-modal-overlay'].forEach(id => {
+   'instructions-modal-overlay','telegram-modal-overlay','import-modal-overlay'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', function(e){ if(e.target===this) this.classList.add('hidden'); });
   });
 });
@@ -1276,13 +1345,13 @@ async function loadTasks(){
     const el = document.getElementById('tasks-list');
     if(!data.tasks || !data.tasks.length){ el.innerHTML='<div class="empty">Нет запланированных задач</div>'; return; }
     el.innerHTML = data.tasks.map(t => {
-      const d = t.scheduled_time ? new Date(t.scheduled_time) : null;
-      const day = d ? d.getDate() : '—';
-      const mon = d ? d.toLocaleDateString('ru',{month:'short'}).replace('.','').toUpperCase() : '';
-      const tm = d ? d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}) : '';
+      const parts = t.scheduled_time ? mskParts(t.scheduled_time) : null;
+      const day = parts ? parts.day : '—';
+      const mon = parts ? parts.mon : '';
+      const tm = parts ? parts.time : '';
       const rel = relTime(t.scheduled_time);
       return `<div class="task-item">
-        <div class="task-date"><div class="d">${day}</div><div class="m">${mon}</div><div class="t">${tm}</div></div>
+        <div class="task-date" title="${tm} МСК"><div class="d">${day}</div><div class="m">${mon}</div><div class="t">${tm}</div></div>
         <div class="task-body">
           <div class="task-title">${esc(t.title||'Задача')}</div>
           ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
@@ -1755,6 +1824,188 @@ async function saveContact(){
   }catch(e){ showToast('Ошибка сети','error'); }
 }
 
+// ── CONTACTS IMPORT ──
+let importState = { token:null, preview:null, file:null };
+
+async function downloadAuthedFile(url, filename){
+  try{
+    const token = getToken();
+    const resp = await fetch(url, { headers:{ 'Authorization':'Bearer '+token } });
+    if(!resp.ok){ showToast('Не удалось скачать файл','error'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+function openImportModal(){
+  importState = { token:null, preview:null, file:null };
+  document.getElementById('import-modal-overlay').classList.remove('hidden');
+  importGotoStep(1);
+  document.getElementById('import-file-input').value = '';
+  document.getElementById('import-file-label').textContent = 'Перетащите файл сюда или нажмите для выбора';
+}
+function closeImportModal(){ document.getElementById('import-modal-overlay').classList.add('hidden'); }
+
+function importGotoStep(step){
+  for(let i=1;i<=3;i++){
+    const el = document.getElementById('import-step-'+i);
+    if(el) el.style.display = (i===step) ? '' : 'none';
+  }
+  // footer buttons
+  const show = (id, on) => { const e=document.getElementById(id); if(e) e.style.display = on ? '' : 'none'; };
+  show('import-back-btn', step===2);
+  show('import-proceed-btn', step===2);
+  show('import-errors-btn', false);
+  show('import-cancel-btn', step!==3);
+  show('import-close-btn', false);
+}
+
+function importBack(){ importGotoStep(1); }
+
+async function downloadImportTemplate(){
+  await downloadAuthedFile(withAgentId(API + '/contacts/import/template'), 'contacts_template.xlsx');
+}
+
+async function downloadImportErrors(){
+  if(!importState.token) return;
+  await downloadAuthedFile(withAgentId(API + '/contacts/import/errors/' + importState.token), 'import_errors.xlsx');
+}
+
+// File input + drag&drop wiring
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('import-file-input');
+  const dz = document.getElementById('import-dropzone');
+  if(input) input.addEventListener('change', e => { if(e.target.files && e.target.files[0]) handleImportFile(e.target.files[0]); });
+  if(dz){
+    ['dragover','dragenter'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.style.borderColor='var(--blue)'; }));
+    ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.style.borderColor='var(--border)'; }));
+    dz.addEventListener('drop', e => { if(e.dataTransfer.files && e.dataTransfer.files[0]) handleImportFile(e.dataTransfer.files[0]); });
+  }
+});
+
+async function handleImportFile(file){
+  const nameLc = (file.name||'').toLowerCase();
+  if(!nameLc.endsWith('.xlsx') && !nameLc.endsWith('.csv')){
+    showToast('Поддерживаются только .xlsx и .csv','error'); return;
+  }
+  importState.file = file;
+  document.getElementById('import-file-label').textContent = file.name;
+  // go to step 2 with spinner
+  importGotoStep(2);
+  document.getElementById('import-preview-summary').innerHTML = '<div style="text-align:center;padding:24px"><div class="spinner" style="margin:0 auto"></div></div>';
+  document.getElementById('import-proceed-btn').style.display = 'none';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    if(currentAgentId) fd.append('agent_id', currentAgentId);
+    const token = getToken();
+    const resp = await fetch(API + '/contacts/import/preview', { method:'POST', headers:{ 'Authorization':'Bearer '+token }, body:fd });
+    if(resp.status === 402){ await handle402(resp); }
+    if(!resp.ok){
+      const err = await resp.json().catch(()=>({}));
+      document.getElementById('import-preview-summary').innerHTML = `<div class="empty">${esc(errText(err.detail))}</div>`;
+      return;
+    }
+    const data = await resp.json();
+    importState.token = data.preview_token;
+    importState.preview = data;
+    renderImportPreview(data);
+  }catch(e){
+    document.getElementById('import-preview-summary').innerHTML = '<div class="empty">Ошибка сети</div>';
+  }
+}
+
+function renderImportPreview(d){
+  const fmtN = n => (n||0).toLocaleString('ru');
+  const enough = d.credits_required_estimate <= d.credits_available;
+  const summary = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;margin-bottom:14px">
+      <div style="background:var(--bg);border-radius:8px;padding:10px"><b style="font-size:18px;color:var(--green,#16a34a)">${fmtN(d.valid_rows)}</b><div style="color:var(--muted);font-size:11.5px">контактов будет создано</div></div>
+      <div style="background:var(--bg);border-radius:8px;padding:10px"><b style="font-size:18px">${fmtN(d.total_rows)}</b><div style="color:var(--muted);font-size:11.5px">строк распознано</div></div>
+    </div>
+    <div style="font-size:12.5px;line-height:1.8;margin-bottom:12px">
+      ${d.errors && d.errors.length ? `<div style="color:var(--red,#dc2626)"><i class="fas fa-circle-exclamation"></i> Ошибок: <b>${d.errors.length}</b></div>` : ''}
+      ${d.duplicates && d.duplicates.length ? `<div style="color:var(--amber,#d97706)"><i class="fas fa-clone"></i> Дубликатов (будут пропущены): <b>${d.duplicates.length}</b></div>` : ''}
+      ${d.shifted_to_working_hours ? `<div style="color:var(--blue)"><i class="far fa-clock"></i> Задач сдвинуто на след. рабочий день: <b>${d.shifted_to_working_hours}</b> (рабочие часы по МСК)</div>` : ''}
+      <div style="${enough?'':'color:var(--red,#dc2626)'}"><i class="fas fa-coins"></i> Примерная стоимость: <b>${fmtN(d.credits_required_estimate)}</b> кредитов из ${fmtN(d.credits_available)}</div>
+    </div>
+    ${!enough ? `<div style="background:var(--amber-light);padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:8px">Недостаточно кредитов. <a href="#" onclick="closeImportModal();openCreditsModal();return false" style="color:var(--blue);font-weight:600">Пополнить баланс →</a></div>` : ''}
+  `;
+  document.getElementById('import-preview-summary').innerHTML = summary;
+
+  // shift confirmation checkbox
+  const shiftBox = document.getElementById('import-shift-confirm');
+  if(d.shifted_to_working_hours > 0){
+    shiftBox.style.display = '';
+    document.getElementById('import-shift-checkbox').checked = false;
+  } else {
+    shiftBox.style.display = 'none';
+  }
+
+  // errors download button
+  document.getElementById('import-errors-btn').style.display = (d.errors && d.errors.length) ? '' : 'none';
+
+  // proceed button
+  document.getElementById('import-proceed-btn').style.display = '';
+  updateImportProceedBtn();
+}
+
+function updateImportProceedBtn(){
+  const d = importState.preview || {};
+  const btn = document.getElementById('import-proceed-btn');
+  let ok = !!d.can_proceed;
+  if(d.shifted_to_working_hours > 0){
+    const cb = document.getElementById('import-shift-checkbox');
+    if(cb && !cb.checked) ok = false;
+  }
+  btn.disabled = !ok;
+  btn.style.opacity = ok ? '1' : '0.5';
+  btn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+
+async function executeImport(){
+  if(!importState.token) return;
+  const total = (importState.preview && importState.preview.valid_rows) || 0;
+  importGotoStep(3);
+  document.getElementById('import-progress-block').style.display = '';
+  document.getElementById('import-result-block').style.display = 'none';
+  document.getElementById('import-progress-text').textContent = `Импортируем ${total} контактов…`;
+  try{
+    const r = await apiFetch(API + '/contacts/import/execute', { method:'POST', body:JSON.stringify({ preview_token: importState.token, agent_id: currentAgentId || undefined }) });
+    if(!r || (r.status !== 200)){
+      const err = await r?.json().catch(()=>({}));
+      document.getElementById('import-progress-text').textContent = errText(err.detail);
+      return;
+    }
+    const data = await r.json();
+    const wait = Math.min(60, Math.max(5, data.estimated_seconds || 10)) * 1000;
+    // Импорт идёт в фоне — ждём оценочное время, затем показываем результат и обновляем списки.
+    setTimeout(() => {
+      document.getElementById('import-progress-block').style.display = 'none';
+      document.getElementById('import-result-block').style.display = '';
+      document.getElementById('import-result-text').textContent = `Готово! Создаётся ${data.total} контактов и задач.`;
+      document.getElementById('import-close-btn').style.display = '';
+      document.getElementById('import-cancel-btn').style.display = 'none';
+      loadStats(); loadTasks();
+    }, wait);
+  }catch(e){
+    document.getElementById('import-progress-text').textContent = 'Ошибка сети';
+  }
+}
+
+function finishImport(){
+  closeImportModal();
+  loadStats(); loadTasks();
+  const search = document.getElementById('contacts-search');
+  if(search && !document.getElementById('contacts-list-modal-overlay').classList.contains('hidden')){
+    loadContactsList(search.value);
+  }
+}
+
 // ── CALLS MODAL ──
 async function openCallsModal(){
   document.getElementById('calls-modal-overlay').classList.remove('hidden');
@@ -1824,7 +2075,7 @@ function renderCallExpanded(call, uid){
       detail = (a.summary || '') + (a.key_facts && a.key_facts.length ? ' · Факты: ' + a.key_facts.join(', ') : '');
     } else if(tc.tool === 'create_agent_task'){
       const a = tc.args || {};
-      detail = `${a.title || ''} на ${a.scheduled_at ? new Date(a.scheduled_at).toLocaleString('ru') : '?'}`;
+      detail = `${a.title || ''} на ${a.scheduled_at ? fmtDate(a.scheduled_at) : '?'}`;
     } else if(tc.tool === 'send_telegram_notification'){
       detail = (tc.args || {}).message || '';
     }
@@ -1934,7 +2185,9 @@ async function loadContactsList(search){
   }
 }
 
+let currentContactDetailId = null;
 async function openContactDetailsModal(contactId){
+  currentContactDetailId = contactId;
   document.getElementById('contact-details-modal-overlay').classList.remove('hidden');
   const body = document.getElementById('contact-details-body');
   body.innerHTML = '<div class="empty">Загрузка...</div>';
@@ -1972,15 +2225,25 @@ function renderContactDetails(c){
     </div>`;
 
   const infoBlock = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;font-size:12.5px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:12.5px">
       <div><b>Телефон:</b> ${esc(c.phone)}</div>
-      <div><b>Компания:</b> ${esc(c.company || '—')}</div>
-      <div><b>Должность:</b> ${esc(c.position || '—')}</div>
       <div><b>Попыток:</b> ${c.attempts_count || 0}</div>
       <div><b>Статус:</b> ${esc(c.status)}</div>
       <div><b>Последний звонок:</b> ${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</div>
     </div>
-    ${c.notes ? `<div style="background:var(--amber-light);padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:16px"><b>Заметки:</b> ${esc(c.notes)}</div>` : ''}`;
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--blue-dark)"><i class="fas fa-id-card"></i> Данные контакта</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Имя</label><input type="text" class="form-input" id="cd-name" value="${esc(c.name||'')}"></div>
+        <div class="form-group"><label class="form-label">Компания</label><input type="text" class="form-input" id="cd-company" value="${esc(c.company||'')}"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Должность</label><input type="text" class="form-input" id="cd-position" value="${esc(c.position||'')}"></div>
+      <div class="form-group"><label class="form-label">Информация о клиенте</label><textarea class="form-textarea" id="cd-notes" rows="3" style="min-height:70px">${esc(c.notes||'')}</textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary btn-sm" onclick="resetContactEdit()">Отмена</button>
+        <button class="btn btn-primary btn-sm" onclick="saveContactInfo()"><i class="fas fa-check"></i> Сохранить</button>
+      </div>
+    </div>`;
 
   const callsBlock = (c.calls && c.calls.length) ? `
     <div style="font-size:13px;font-weight:600;margin-bottom:8px"><i class="fas fa-phone-volume"></i> История звонков (${c.calls.length})</div>
@@ -1988,6 +2251,34 @@ function renderContactDetails(c){
   ` : '<div class="empty">Звонков пока не было</div>';
 
   document.getElementById('contact-details-body').innerHTML = infoBlock + memBlock + callsBlock;
+}
+
+function resetContactEdit(){
+  if(currentContactDetailId) openContactDetailsModal(currentContactDetailId);
+}
+
+async function saveContactInfo(){
+  if(!currentContactDetailId) return;
+  const body = {
+    name: document.getElementById('cd-name').value.trim() || null,
+    company: document.getElementById('cd-company').value.trim() || null,
+    position: document.getElementById('cd-position').value.trim() || null,
+    notes: document.getElementById('cd-notes').value.trim() || null,
+  };
+  try{
+    const r = await apiFetch(API + '/contacts/' + currentContactDetailId, { method:'PUT', body:JSON.stringify(body) });
+    if(r && r.status === 200){
+      showToast('Данные контакта сохранены', 'success');
+      const c = await r.json();
+      document.getElementById('contact-details-title').textContent = c.name || c.phone;
+      // обновим список под модалкой, если он открыт
+      const search = document.getElementById('contacts-search');
+      if(search) loadContactsList(search.value);
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(errText(err.detail), 'error');
+    }
+  }catch(e){ showToast('Ошибка сети', 'error'); }
 }
 
 async function deleteContactFromModal(contactId, label){
@@ -2270,13 +2561,37 @@ function errText(detail){
     agent_limit_reached:'Достигнут лимит агентов (максимум 3).',
     not_found:'Агент не найден.',
     openai_key_required:'Нужен OpenAI API ключ.',
+    unsupported_format:'Неподдерживаемый формат. Используйте .xlsx или .csv.',
+    parse_failed:'Не удалось разобрать файл. Проверьте формат.',
+    exceed_limit:'Слишком много строк. Максимум 500 за один импорт.',
+    preview_expired:'Время на подтверждение истекло. Загрузите файл заново.',
+    no_valid_rows:'В файле нет валидных контактов.',
+    forbidden:'Нет доступа.',
   };
   if(typeof detail === 'string' && map[detail]) return map[detail];
+  if(detail && typeof detail === 'object' && detail.error === 'insufficient_credits'){
+    return `Недостаточно кредитов: нужно ${detail.required}, доступно ${detail.available}.`;
+  }
   return 'Ошибка: '+(detail||'не удалось выполнить запрос');
 }
 function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил' })[d] || d || '—'; }
 function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
-function fmtDate(s){ if(!s) return '—'; const d=new Date(s), now=new Date(), diff=Math.floor((now-d)/86400000); const tm=d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'}); if(diff===0) return 'сегодня '+tm; if(diff===1) return 'вчера '+tm; return d.toLocaleDateString('ru',{day:'2-digit',month:'2-digit'})+' '+tm; }
+// Все даты с бэка приходят в UTC (ISO с маркером). Отображаем в МСК (Europe/Moscow).
+function fmtDate(s){
+  if(!s) return '—';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return '—';
+  const str = new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d);
+  return str + ' МСК';
+}
+// Разбор даты на части в МСК (для плиток задач)
+function mskParts(s){
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return null;
+  const p = new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).formatToParts(d);
+  const get = t => (p.find(x=>x.type===t)||{}).value || '';
+  return { day: get('day'), mon: get('month').replace('.','').toUpperCase(), time: get('hour')+':'+get('minute') };
+}
 function relTime(s){ if(!s) return {text:'',soon:false}; const d=new Date(s), now=new Date(), diff=d-now; if(diff<=0) return {text:'сейчас',soon:true}; const min=Math.floor(diff/60000), h=Math.floor(min/60), days=Math.floor(h/24); if(min<60) return {text:`Через ${min} мин`,soon:true}; if(h<24) return {text:`Через ${h} ч ${min%60} мин`,soon:h<2}; return {text:`Через ${days} ${days===1?'день':days<5?'дня':'дней'}`,soon:false}; }
 function esc(s){ if(s===null||s===undefined) return ''; const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
 let toastTimer;
@@ -2287,7 +2602,7 @@ function showToast(msg,type='success'){
   t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; },3500);
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay','import-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
 </script>
 </body>
 </html>

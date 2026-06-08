@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from .base import Base
+from backend.core.timezone_utils import iso_utc
 
 
 class AgentContact(Base):
@@ -79,7 +80,9 @@ class AgentContact(Base):
             "status": self.status,
             "memory": self.memory or {},
             "attempts_count": self.attempts_count or 0,
-            "last_called_at": self.last_called_at.isoformat() if self.last_called_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            # ✅ Колонки naive (UTC по факту) — сериализуем с явным UTC-маркером,
+            #    чтобы фронт корректно конвертировал в МСК.
+            "last_called_at": iso_utc(self.last_called_at),
+            "created_at": iso_utc(self.created_at),
+            "updated_at": iso_utc(self.updated_at),
         }

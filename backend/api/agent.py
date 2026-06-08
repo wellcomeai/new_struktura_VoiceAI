@@ -4,16 +4,21 @@ Voicyfy Agent API v2.0 — CRUD, chat (with tools), contacts, calls, stats.
 
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter, Depends, HTTPException, Query, status,
+    UploadFile, File, Form, BackgroundTasks,
+)
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
 from backend.core.logging import get_logger
-from backend.db.session import get_db
+from backend.db.session import get_db, SessionLocal
+from backend.core.timezone_utils import adjust_to_working_hours, now_utc, iso_utc
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
@@ -91,6 +96,18 @@ class AgentContactCreateRequest(BaseModel):
     company: Optional[str] = None
     position: Optional[str] = None
     notes: Optional[str] = None
+
+
+class AgentContactUpdateRequest(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    company: Optional[str] = Field(None, max_length=255)
+    position: Optional[str] = Field(None, max_length=255)
+    notes: Optional[str] = None
+
+
+class ImportExecuteRequest(BaseModel):
+    preview_token: str = Field(..., min_length=1)
+    agent_id: Optional[str] = None
 
 
 # ============================================================================
@@ -742,7 +759,7 @@ async def list_agent_tasks(
             "id": str(t.id),
             "title": t.title,
             "description": t.description,
-            "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
+            "scheduled_time": iso_utc(t.scheduled_time),
             "status": t.status.value if hasattr(t.status, "value") else t.status,
             "contact_name": (c.name or c.phone) if c else None,
             "contact_phone": c.phone if c else None,
@@ -893,14 +910,22 @@ async def create_agent_contact(
     db.add(contact)
     db.flush()
 
-    # Auto-create first task in 1 hour (route assistant FK by agent type)
+    # Auto-create first task in 1 hour, но прогоняем через ту же проверку
+    # рабочих часов (МСК), что и массовый импорт — для унификации.
+    scheduled_time, _shifted = adjust_to_working_hours(
+        now_utc() + timedelta(hours=1),
+        agent.working_hours_start,
+        agent.working_hours_end,
+    )
+
+    # Auto-create first task (route assistant FK by agent type)
     task = Task(
         is_agent_task=True,
         agent_contact_id=contact.id,
         user_id=current_user.id,
         contact_id=None,
         status=TaskStatus.SCHEDULED,
-        scheduled_time=datetime.utcnow() + timedelta(hours=1),
+        scheduled_time=scheduled_time,
         title=f"Первый звонок: {body.name or body.phone}",
         description=body.notes or "",
         **assistant_task_kwargs(agent),
@@ -910,6 +935,31 @@ async def create_agent_contact(
     db.refresh(contact)
 
     logger.info(f"[AGENT] Created contact {contact.id} with auto-task for user {current_user.id}")
+    return contact.to_dict()
+
+
+@router.put("/contacts/{contact_id}")
+async def update_agent_contact(
+    contact_id: str,
+    body: AgentContactUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Обновление полей контакта (вручную из UI или через тулзу агента)."""
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    update_data = body.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(contact, field, value)
+
+    db.commit()
+    db.refresh(contact)
+    logger.info(f"[AGENT] Updated contact {contact_id} fields: {list(update_data.keys())}")
     return contact.to_dict()
 
 
@@ -994,3 +1044,307 @@ async def get_agent_call(
         d["contact_name"] = call.contact.name
         d["contact_phone"] = call.contact.phone
     return d
+
+
+# ============================================================================
+# ENDPOINTS — CONTACTS BULK IMPORT (xlsx/csv)
+# ============================================================================
+
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+
+@router.get("/contacts/import/template")
+async def import_contacts_template(
+    current_user: User = Depends(get_current_user),
+):
+    """Скачать xlsx-шаблон для импорта контактов (генерируется на лету)."""
+    from backend.services.contact_import_service import generate_template_xlsx
+
+    content = generate_template_xlsx()
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="contacts_template.xlsx"'},
+    )
+
+
+@router.post("/contacts/import/preview")
+async def import_contacts_preview(
+    file: UploadFile = File(...),
+    agent_id: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Загрузка файла, парсинг и валидация БЕЗ записи в БД."""
+    from backend.services.contact_import_service import (
+        parse_file, assign_schedule, save_preview,
+        MAX_IMPORT_ROWS, CREDITS_PER_CONTACT,
+    )
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    content = await file.read()
+    try:
+        parsed = parse_file(file.filename or "", content)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="unsupported_format")
+    except Exception as e:
+        logger.error(f"[AGENT-IMPORT] Parse failed for user {current_user.id}: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail="parse_failed")
+
+    total_rows = parsed["total_rows"]
+    if total_rows > MAX_IMPORT_ROWS:
+        raise HTTPException(status_code=400, detail="exceed_limit")
+
+    rows = parsed["rows"]
+    errors = list(parsed["errors"])
+
+    # Дубликаты: в пределах файла + уже существующие в базе этого агента
+    existing_phones = {
+        row[0] for row in db.query(AgentContact.phone).filter(
+            AgentContact.agent_config_id == agent.id
+        ).all()
+    }
+
+    duplicates: List[dict] = []
+    unique_rows: List[dict] = []
+    seen = set()
+    for r in rows:
+        ph = r["phone"]
+        if ph in existing_phones or ph in seen:
+            duplicates.append({"row": r["row"], "phone": ph})
+            continue
+        seen.add(ph)
+        unique_rows.append(r)
+
+    # Распределение времени + проверка рабочих часов
+    shifted = assign_schedule(
+        unique_rows,
+        agent.working_hours_start,
+        agent.working_hours_end,
+        base_utc=now_utc(),
+    )
+
+    valid_rows = len(unique_rows)
+    credits_required = valid_rows * CREDITS_PER_CONTACT
+    credits_available = current_user.credits_balance or 0
+
+    blocked_reasons: List[str] = []
+    if valid_rows == 0:
+        blocked_reasons.append("no_valid_rows")
+    if credits_required > credits_available:
+        blocked_reasons.append("insufficient_credits")
+    can_proceed = len(blocked_reasons) == 0
+
+    token = save_preview({
+        "agent_id": str(agent.id),
+        "user_id": str(current_user.id),
+        "rows": unique_rows,
+        "errors": errors,
+        "duplicates": duplicates,
+    })
+
+    logger.info(
+        f"[AGENT-IMPORT] Preview for user {current_user.id}: total={total_rows}, "
+        f"valid={valid_rows}, errors={len(errors)}, duplicates={len(duplicates)}, shifted={shifted}"
+    )
+
+    return {
+        "preview_token": token,
+        "total_rows": total_rows,
+        "valid_rows": valid_rows,
+        "errors": errors,
+        "duplicates": duplicates,
+        "shifted_to_working_hours": shifted,
+        "credits_required_estimate": credits_required,
+        "credits_available": credits_available,
+        "can_proceed": can_proceed,
+        "blocked_reasons": blocked_reasons,
+    }
+
+
+async def _run_contacts_import(preview_token: str, agent_id: str, user_id: str):
+    """
+    Фоновый импорт: создаёт AgentContact + Task пачками по 50.
+    Открывает собственную сессию БД — безопасно для BackgroundTasks.
+    """
+    from backend.services.contact_import_service import load_preview, delete_preview
+
+    db = SessionLocal()
+    try:
+        data = load_preview(preview_token)
+        if not data:
+            logger.error(f"[AGENT-IMPORT] Preview {preview_token} expired/not found")
+            return
+        if data.get("user_id") != str(user_id):
+            logger.error(f"[AGENT-IMPORT] Preview ownership mismatch for {preview_token}")
+            return
+
+        agent = db.query(AgentConfig).filter(
+            AgentConfig.id == agent_id,
+            AgentConfig.user_id == user_id,
+        ).first()
+        if not agent:
+            logger.error(f"[AGENT-IMPORT] Agent {agent_id} not found for import")
+            return
+
+        rows = data.get("rows", [])
+        task_kwargs = assistant_task_kwargs(agent)
+
+        # Повторный дедуп против БД (на случай изменений между preview и execute)
+        existing_phones = {
+            row[0] for row in db.query(AgentContact.phone).filter(
+                AgentContact.agent_config_id == agent.id
+            ).all()
+        }
+
+        created_contacts = 0
+        created_tasks = 0
+        batch = 0
+
+        for r in rows:
+            phone = r["phone"]
+            if phone in existing_phones:
+                continue
+            existing_phones.add(phone)
+
+            name = r.get("name")
+            notes = r.get("notes")
+            contact = AgentContact(
+                agent_config_id=agent.id,
+                user_id=user_id,
+                name=name,
+                phone=phone,
+                company=r.get("company"),
+                position=r.get("position"),
+                notes=notes,
+                status="new",
+                memory={},
+            )
+            db.add(contact)
+            db.flush()
+            created_contacts += 1
+
+            # scheduled_time_utc — ISO-строка с UTC-маркером
+            try:
+                scheduled_time = datetime.fromisoformat(r["scheduled_time_utc"])
+            except (ValueError, KeyError, TypeError):
+                scheduled_time = now_utc() + timedelta(hours=1)
+
+            task = Task(
+                is_agent_task=True,
+                agent_contact_id=contact.id,
+                user_id=user_id,
+                contact_id=None,
+                status=TaskStatus.SCHEDULED,
+                scheduled_time=scheduled_time,
+                title=r.get("task_title") or f"Первый звонок: {name or phone}",
+                description=r.get("task_description") or notes or "",
+                **task_kwargs,
+            )
+            db.add(task)
+            created_tasks += 1
+
+            batch += 1
+            if batch >= 50:
+                db.commit()
+                batch = 0
+
+        db.commit()
+        delete_preview(preview_token)
+
+        logger.info(
+            f"[AGENT-IMPORT] ✅ Import done for user {user_id}: "
+            f"{created_contacts} contacts, {created_tasks} tasks"
+        )
+
+        # Telegram-уведомление владельцу (если настроен личный бот)
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and user.telegram_bot_token and user.telegram_chat_id:
+            try:
+                from backend.services.telegram_notification import TelegramNotificationService
+                text = (
+                    f"🤖 <b>Voicyfy Agent</b>\n\n"
+                    f"Импорт контактов завершён.\n"
+                    f"Создано контактов: <b>{created_contacts}</b>\n"
+                    f"Запланировано звонков: <b>{created_tasks}</b>"
+                )
+                await TelegramNotificationService.send_message(
+                    user.telegram_bot_token, user.telegram_chat_id, text
+                )
+            except Exception as te:
+                logger.warning(f"[AGENT-IMPORT] Telegram notify failed: {te}")
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[AGENT-IMPORT] Import failed for user {user_id}: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+@router.post("/contacts/import/execute")
+async def import_contacts_execute(
+    body: ImportExecuteRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Подтверждение импорта — запускает создание контактов в фоне."""
+    from backend.services.contact_import_service import load_preview, CREDITS_PER_CONTACT
+
+    data = load_preview(body.preview_token)
+    if not data:
+        raise HTTPException(status_code=404, detail="preview_expired")
+    if data.get("user_id") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    agent = _resolve_agent(db, current_user, body.agent_id or data.get("agent_id"))
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    rows = data.get("rows", [])
+    if not rows:
+        raise HTTPException(status_code=400, detail="no_valid_rows")
+
+    # Финальная проверка баланса кредитов
+    credits_required = len(rows) * CREDITS_PER_CONTACT
+    if credits_required > (current_user.credits_balance or 0):
+        raise HTTPException(status_code=402, detail={
+            "error": "insufficient_credits",
+            "required": credits_required,
+            "available": current_user.credits_balance or 0,
+        })
+
+    background_tasks.add_task(
+        _run_contacts_import, body.preview_token, str(agent.id), str(current_user.id)
+    )
+
+    estimated = max(5, len(rows) // 10)
+    logger.info(f"[AGENT-IMPORT] Execute started for user {current_user.id}: {len(rows)} rows")
+    return {"status": "started", "estimated_seconds": estimated, "total": len(rows)}
+
+
+@router.get("/contacts/import/errors/{preview_token}")
+async def import_contacts_errors(
+    preview_token: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Скачать xlsx с проблемными строками для исправления."""
+    from backend.services.contact_import_service import load_preview, generate_errors_xlsx
+
+    data = load_preview(preview_token)
+    if not data:
+        raise HTTPException(status_code=404, detail="preview_expired")
+    if data.get("user_id") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    content = generate_errors_xlsx(data.get("errors", []))
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="import_errors.xlsx"'},
+    )

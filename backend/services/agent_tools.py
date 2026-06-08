@@ -18,8 +18,33 @@ from backend.models.agent_config import AgentConfig
 from backend.models.task import Task, TaskStatus
 from backend.models.user import User
 from backend.services.telegram_notification import TelegramNotificationService
+from backend.core.timezone_utils import adjust_to_working_hours
 
 logger = get_logger(__name__)
+
+
+# Тулза доступна и в чате, и в post-call анализе — определяем один раз.
+UPDATE_CONTACT_INFO_TOOL = {
+    "type": "function",
+    "name": "update_contact_info",
+    "description": (
+        "Обновить базовую информацию о контакте (имя, компанию, должность, заметки). "
+        "Используй когда пользователь говорит 'запиши что...', 'обнови данные...', "
+        "'у Иванова новая должность' и т.п. После звонка — когда узнал новый факт "
+        "о клиенте (например должность), который стоит сохранить как заметку."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта"},
+            "name": {"type": "string"},
+            "company": {"type": "string"},
+            "position": {"type": "string"},
+            "notes": {"type": "string", "description": "Свободный текст с информацией о клиенте"},
+        },
+        "required": ["agent_contact_id"],
+    },
+}
 
 
 # ============================================================================
@@ -150,6 +175,7 @@ AGENT_CHAT_TOOLS = [
             "properties": {},
         },
     },
+    UPDATE_CONTACT_INFO_TOOL,
 ]
 
 
@@ -201,6 +227,7 @@ AGENT_POSTCALL_TOOLS = [
             "required": ["message"],
         },
     },
+    UPDATE_CONTACT_INFO_TOOL,
 ]
 
 
@@ -239,6 +266,16 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
 
     # Get assistant from agent_config (type-aware — gemini/openai/cartesia)
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+
+    # Унифицированная проверка рабочих часов агента (МСК) — переносим звонок
+    # на ближайший рабочий день, если время выпадает на нерабочие часы.
+    if agent_config is not None:
+        adjusted, _shifted = adjust_to_working_hours(
+            scheduled_at,
+            agent_config.working_hours_start,
+            agent_config.working_hours_end,
+        )
+        scheduled_at = adjusted
 
     # Cancel existing SCHEDULED tasks for this contact to prevent duplicates
     existing_tasks = db.query(Task).filter(
@@ -309,6 +346,36 @@ async def fn_update_contact_memory(args: dict, db: Session) -> dict:
     db.commit()
     logger.info(f"[AGENT-TOOLS] Updated memory for contact {agent_contact_id}")
     return {"ok": True, "contact_id": agent_contact_id}
+
+
+async def fn_update_contact_info(args: dict, user_id: str, db: Session) -> dict:
+    """
+    Обновить базовую информацию о контакте (name/company/position/notes).
+    notes — то, что пользователь/агент ЯВНО записали как факт (не путать с memory).
+    """
+    agent_contact_id = args.get("agent_contact_id")
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    updated_fields = []
+    for field in ("name", "company", "position", "notes"):
+        if field in args and args[field] is not None:
+            setattr(contact, field, args[field])
+            updated_fields.append(field)
+
+    if not updated_fields:
+        return {"ok": False, "error": "no_fields_to_update"}
+
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Updated contact {agent_contact_id} fields: {updated_fields}")
+    return {"ok": True, "contact_id": str(agent_contact_id), "updated_fields": updated_fields}
 
 
 async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
@@ -483,6 +550,7 @@ _TOOL_MAP = {
     "create_agent_contact": "fn_create_agent_contact",
     "create_agent_task": "fn_create_agent_task",
     "update_contact_memory": "fn_update_contact_memory",
+    "update_contact_info": "fn_update_contact_info",
     "get_agent_contacts": "fn_get_agent_contacts",
     "get_contact_call_history": "fn_get_contact_call_history",
     "get_agent_tasks": "fn_get_agent_tasks",
@@ -509,6 +577,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_create_agent_task(tool_args, user_id, agent_config_id, db)
         elif tool_name == "update_contact_memory":
             result = await fn_update_contact_memory(tool_args, db)
+        elif tool_name == "update_contact_info":
+            result = await fn_update_contact_info(tool_args, user_id, db)
         elif tool_name == "get_agent_contacts":
             result = await fn_get_agent_contacts(tool_args, user_id, db)
         elif tool_name == "get_contact_call_history":
