@@ -1353,6 +1353,213 @@ class ChatOrchestrator:
 
         return {"reply": final_text, "debug_log": debug_log}
 
+    async def run_stream(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db,
+    ):
+        """
+        Streaming version of the v3 chat loop. Async-generator of events
+        (see ТЗ §3): start / tool_call / tool_result / tool_error / token /
+        clear_partial / done / error.
+
+        Mirrors `_run_v3_openrouter` but yields progress live. Only used for
+        v3 (uses_hardcoded_prompt) agents — the endpoint guards that.
+
+        NOTE: `precheck` runs BEFORE the first yield so the endpoint can map
+        subscription/credit errors to HTTP 402 before the stream starts 200.
+        """
+        # Pre-flight проверка подписки/кредитов (раздел 5.1) — ДО первого yield.
+        # Если кинет Subscription*/InsufficientCredits — пробросится наружу,
+        # эндпоинт превратит в 402 до старта StreamingResponse.
+        CreditService.precheck(db, user)
+
+        total_prompt = 0
+        total_completion = 0
+
+        debug_log: List[Dict[str, Any]] = []
+        debug_log.append({"ts": self._now_ts(), "type": "user_message", "data": message})
+
+        system_prompt = build_orchestrator_prompt(agent_config)
+        history = agent_config.chat_history or []
+
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for msg in history[-20:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        debug_log.append({
+            "ts": self._now_ts(),
+            "type": "gpt_thinking",
+            "data": f"model: {agent_config.orchestrator_model}, tools: {len(tools)}, history: {len(messages) - 2} msgs",
+        })
+
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+        gpt_response_logged = False
+
+        yield {"type": "start"}
+
+        try:
+            while iteration < max_iterations:
+                iteration += 1
+
+                content_buf = ""
+                # tool_calls accumulator keyed by delta index
+                tool_calls_acc: Dict[int, Dict[str, Any]] = {}
+                p_tok = 0
+                c_tok = 0
+
+                async for chunk in client.chat_completion_stream(
+                    model=agent_config.orchestrator_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.7,
+                ):
+                    # usage обычно приходит в финальном чанке (usage.include=true).
+                    # Иногда OpenRouter шлёт чанк с пустым choices и только usage.
+                    usage = chunk.get("usage")
+                    if usage:
+                        p_tok = int(usage.get("prompt_tokens", 0) or 0)
+                        c_tok = int(usage.get("completion_tokens", 0) or 0)
+
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+
+                    content_piece = delta.get("content")
+                    if content_piece:
+                        content_buf += content_piece
+                        yield {"type": "token", "text": content_piece}
+
+                    for tc in (delta.get("tool_calls") or []):
+                        idx = tc.get("index", 0)
+                        acc = tool_calls_acc.get(idx)
+                        if acc is None:
+                            acc = {"id": None, "name": "", "arguments": ""}
+                            tool_calls_acc[idx] = acc
+                        if tc.get("id"):
+                            acc["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            acc["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            acc["arguments"] += fn["arguments"]
+
+                total_prompt += p_tok
+                total_completion += c_tok
+
+                # No tool calls → this iteration produced the final answer.
+                if not tool_calls_acc:
+                    final_text = content_buf
+                    debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
+                    gpt_response_logged = True
+                    break
+
+                # Model emitted text before calling a tool (rare). Tell the
+                # front to wipe the partially-streamed text for this turn.
+                if content_buf.strip():
+                    yield {"type": "clear_partial"}
+
+                # Rebuild OpenAI-style tool_calls list (ordered by index).
+                ordered = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                assistant_tool_calls = [
+                    {
+                        "id": acc["id"],
+                        "type": "function",
+                        "function": {"name": acc["name"], "arguments": acc["arguments"]},
+                    }
+                    for acc in ordered
+                ]
+                messages.append({
+                    "role": "assistant",
+                    "content": content_buf or "",
+                    "tool_calls": assistant_tool_calls,
+                })
+
+                for acc in ordered:
+                    tool_name = acc["name"]
+                    try:
+                        tool_args = json.loads(acc["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    debug_log.append({"ts": self._now_ts(), "type": "tool_call", "data": {"tool": tool_name, "args": tool_args}})
+                    yield {"type": "tool_call", "tool": tool_name, "args": tool_args}
+                    logger.info(f"[AGENT-CHAT] (stream) Executing tool: {tool_name}")
+
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                        try:
+                            result_parsed = json.loads(result_str)
+                        except (json.JSONDecodeError, TypeError):
+                            result_parsed = result_str
+                        debug_log.append({"ts": self._now_ts(), "type": "tool_result", "data": {"tool": tool_name, "result": result_parsed}})
+                        yield {"type": "tool_result", "tool": tool_name, "result": result_parsed}
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+                        debug_log.append({"ts": self._now_ts(), "type": "tool_error", "data": {"tool": tool_name, "error": str(e)}})
+                        yield {"type": "tool_error", "tool": tool_name, "error": str(e)}
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": acc["id"],
+                        "content": result_str,
+                    })
+
+            if not final_text:
+                final_text = "Готово."
+            if not gpt_response_logged:
+                debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
+
+            # Списываем кредиты за весь диалоговый цикл (раздел 5.2).
+            # Если usage недоступен (стрим без usage) — total_* останутся 0,
+            # charge пропустится и фича не упадёт.
+            if total_prompt or total_completion:
+                try:
+                    CreditService.charge(
+                        db=db, user_id=user.id,
+                        model_slug=agent_config.orchestrator_model,
+                        prompt_tokens=total_prompt, completion_tokens=total_completion,
+                        ref_type="chat", ref_id=agent_config.id,
+                        notes=f"chat iterations: {iteration}",
+                    )
+                except Exception as ce:
+                    logger.error(f"[AGENT-CHAT] (stream) Charge failed: {ce}", exc_info=True)
+
+            new_history = list(history)
+            new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
+            new_history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+            agent_config.chat_history = new_history[-20:]
+            db.commit()
+
+            yield {
+                "type": "done",
+                "reply": final_text,
+                "debug_log": debug_log,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"[AGENT-CHAT] (stream) error: {e}", exc_info=True)
+            yield {"type": "error", "detail": f"chat_error: {e}"}
+
     async def _run_v2_responses_api(
         self,
         message: str,
