@@ -6,6 +6,8 @@
 <title>Voicyfy Agent</title>
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <style>
 :root {
   --bg: #F5F6F8;
@@ -140,7 +142,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .msg { display:flex; gap:9px; max-width:82%; animation:msgIn 0.2s ease; }
 @keyframes msgIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
 .msg.user { align-self:flex-end; flex-direction:row-reverse; }
-.msg.assistant { align-self:flex-start; }
+.msg.assistant { align-self:flex-start; max-width:94%; }
 .msg-avatar { width:30px; height:30px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:600; }
 .msg.assistant .msg-avatar { background:var(--blue-light); color:var(--blue); }
 .msg.user .msg-avatar { background:var(--blue); color:#fff; }
@@ -148,6 +150,26 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .msg-bubble { padding:11px 15px; border-radius:14px; font-size:13.5px; line-height:1.55; word-break:break-word; }
 .msg.assistant .msg-bubble { background:var(--bg); color:var(--text); border-bottom-left-radius:4px; }
 .msg.user .msg-bubble { background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+/* ── Markdown rendering inside assistant bubbles (variant A+D) ── */
+.msg-bubble.md > *:first-child { margin-top:0; }
+.msg-bubble.md > *:last-child { margin-bottom:0; }
+.msg-bubble.md p { margin:0 0 8px; }
+.msg-bubble.md h1, .msg-bubble.md h2, .msg-bubble.md h3, .msg-bubble.md h4 { margin:10px 0 6px; line-height:1.3; font-weight:600; }
+.msg-bubble.md h1 { font-size:17px; } .msg-bubble.md h2 { font-size:15.5px; } .msg-bubble.md h3 { font-size:14.5px; } .msg-bubble.md h4 { font-size:13.5px; }
+.msg-bubble.md ul, .msg-bubble.md ol { margin:6px 0 8px; padding-left:20px; }
+.msg-bubble.md li { margin:2px 0; }
+.msg-bubble.md li > p { margin:0; }
+.msg-bubble.md a { color:var(--blue-dark); text-decoration:underline; word-break:break-all; }
+.msg-bubble.md code { background:rgba(0,0,0,0.06); padding:1px 5px; border-radius:5px; font-size:0.88em; font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; }
+.msg-bubble.md pre { background:rgba(0,0,0,0.05); border:1px solid var(--border); border-radius:10px; padding:10px 12px; overflow-x:auto; margin:8px 0; }
+.msg-bubble.md pre code { background:none; padding:0; }
+.msg-bubble.md blockquote { margin:8px 0; padding:4px 12px; border-left:3px solid var(--border); color:var(--hint); }
+.msg-bubble.md hr { border:none; border-top:1px solid var(--border); margin:12px 0; }
+.msg-bubble.md .md-table-wrap { overflow-x:auto; margin:8px 0; -webkit-overflow-scrolling:touch; }
+.msg-bubble.md table { border-collapse:collapse; width:100%; font-size:12.5px; }
+.msg-bubble.md th, .msg-bubble.md td { border:1px solid var(--border); padding:6px 10px; text-align:left; vertical-align:top; }
+.msg-bubble.md th { background:var(--blue-light); font-weight:600; color:var(--text); white-space:nowrap; }
+.msg-bubble.md tr:nth-child(even) td { background:rgba(0,0,0,0.02); }
 .msg-time { font-size:10px; color:var(--hint); padding:0 3px; }
 .msg.user .msg-time { text-align:right; }
 .typing-row { display:flex; align-items:center; gap:5px; padding:12px 15px; background:var(--bg); border-radius:14px; border-bottom-left-radius:4px; }
@@ -1454,7 +1476,9 @@ function addBubble(text, role){
   const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
   const div = document.createElement('div');
   div.className = 'msg '+role;
-  div.innerHTML = `<div class="msg-avatar">${role==='user'?'Вы':'ИИ'}</div><div class="msg-body"><div class="msg-bubble">${esc(text).replace(/\n/g,'<br>')}</div><div class="msg-time">${now}</div></div>`;
+  const body = role==='user' ? esc(text).replace(/\n/g,'<br>') : renderMarkdown(text);
+  const bubbleCls = role==='user' ? 'msg-bubble' : 'msg-bubble md';
+  div.innerHTML = `<div class="msg-avatar">${role==='user'?'Вы':'ИИ'}</div><div class="msg-body"><div class="${bubbleCls}">${body}</div><div class="msg-time">${now}</div></div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
 
@@ -1478,7 +1502,7 @@ function addAgentBubble(text, debugLog, elapsed){
   const n = toolCalls.length;
   const tag = n>0 ? `${n} ${n===1?'действие':n<5?'действия':'действий'} · ${elapsed}с` : `${elapsed}с`;
   const div = document.createElement('div'); div.className='msg assistant';
-  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble">${esc(text).replace(/\n/g,'<br>')}</div><div class="msg-time">${now}</div>${logEntries.length?`<div class="debug-tag" id="tag-${logId}" onclick="toggleLog('${logId}')"><span>${tag}</span><span class="chevron">&#8964;</span></div><div class="debug-log" id="${logId}" style="display:none">${entriesHtml}</div>`:''}</div>`;
+  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble md">${renderMarkdown(text)}</div><div class="msg-time">${now}</div>${logEntries.length?`<div class="debug-tag" id="tag-${logId}" onclick="toggleLog('${logId}')"><span>${tag}</span><span class="chevron">&#8964;</span></div><div class="debug-log" id="${logId}" style="display:none">${entriesHtml}</div>`:''}</div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
 function toggleLog(id){ const l=document.getElementById(id), t=document.getElementById('tag-'+id); if(!l||!t)return; const open=l.style.display!=='none'; l.style.display=open?'none':'block'; t.classList.toggle('open',!open); }
@@ -2594,6 +2618,37 @@ function mskParts(s){
 }
 function relTime(s){ if(!s) return {text:'',soon:false}; const d=new Date(s), now=new Date(), diff=d-now; if(diff<=0) return {text:'сейчас',soon:true}; const min=Math.floor(diff/60000), h=Math.floor(min/60), days=Math.floor(h/24); if(min<60) return {text:`Через ${min} мин`,soon:true}; if(h<24) return {text:`Через ${h} ч ${min%60} мин`,soon:h<2}; return {text:`Через ${days} ${days===1?'день':days<5?'дня':'дней'}`,soon:false}; }
 function esc(s){ if(s===null||s===undefined) return ''; const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
+
+// Markdown → безопасный HTML для пузырей чата (variant A+D).
+// marked парсит GitHub-flavored markdown (таблицы, списки, код), DOMPurify вырезает любой XSS.
+let _markedReady = false;
+function _initMarked(){
+  if(_markedReady || typeof marked === 'undefined') return;
+  marked.setOptions({ gfm:true, breaks:true });
+  _markedReady = true;
+}
+function renderMarkdown(text){
+  if(text===null||text===undefined) return '';
+  text = String(text);
+  // Fallback, если CDN не загрузился: экранируем и сохраняем переносы строк.
+  if(typeof marked === 'undefined' || typeof DOMPurify === 'undefined'){
+    return esc(text).replace(/\n/g,'<br>');
+  }
+  _initMarked();
+  let html = DOMPurify.sanitize(marked.parse(text), { ADD_ATTR:['target','rel'] });
+  // Оборачиваем таблицы в скролл-контейнер, чтобы широкие таблицы не ломали вёрстку.
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  tmp.querySelectorAll('table').forEach(t => {
+    const wrap = document.createElement('div');
+    wrap.className = 'md-table-wrap';
+    t.parentNode.insertBefore(wrap, t);
+    wrap.appendChild(t);
+  });
+  // Внешние ссылки открываем в новой вкладке безопасно.
+  tmp.querySelectorAll('a[href]').forEach(a => { a.target='_blank'; a.rel='noopener noreferrer'; });
+  return tmp.innerHTML;
+}
 let toastTimer;
 function showToast(msg,type='success'){
   let t=document.getElementById('toast');
