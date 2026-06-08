@@ -310,8 +310,69 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 #loading-screen .spinner { width:34px; height:34px; border-width:3px; }
 #loading-screen p { font-size:13px; color:var(--hint); }
 
-@media (max-width:1100px){ .col-right{ display:none; } }
-@media (max-width:820px){ .col-left{ display:none; } .main-layout{ padding:8px; } }
+/* ── AGENT SWITCHER (custom dropdown) ── */
+.agent-switch { position:relative; }
+.agent-trigger { background:none; border:none; cursor:pointer; display:flex; flex-direction:column; align-items:center; padding:5px 10px; border-radius:var(--radius-sm); transition:var(--transition); font-family:inherit; color:var(--text); }
+.agent-trigger:hover { background:var(--bg); }
+.agent-switch.no-dropdown .agent-trigger { cursor:default; }
+.agent-switch.no-dropdown .agent-trigger:hover { background:none; }
+.agent-trigger-main { display:flex; align-items:center; gap:7px; }
+.agent-trigger-chevron { font-size:10px; color:var(--muted); transition:transform var(--transition); }
+.agent-switch.no-dropdown .agent-trigger-chevron { display:none; }
+.agent-switch.open .agent-trigger-chevron { transform:rotate(180deg); }
+.agent-dropdown { position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); min-width:320px; max-width:380px; width:max-content; background:var(--white); border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 8px 28px rgba(0,0,0,0.10); z-index:50; overflow:hidden; animation:ddIn .15s ease; }
+@keyframes ddIn { from{opacity:0;transform:translate(-50%,-4px);} to{opacity:1;transform:translate(-50%,0);} }
+.agent-dropdown.hidden { display:none; }
+.agent-dropdown-head { display:flex; align-items:center; justify-content:space-between; padding:12px 14px 8px; }
+.agent-dropdown-title { font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.agent-dropdown-pill { padding:2px 9px; border-radius:8px; font-size:11px; font-weight:600; background:var(--blue-light); color:var(--blue-dark); }
+.agent-dropdown-pill.full { background:var(--amber-light); color:var(--amber); }
+.agent-dd-item { display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; transition:background .15s; border-bottom:1px solid var(--border-soft); }
+.agent-dd-item:last-child { border-bottom:none; }
+.agent-dd-item:hover { background:var(--bg); }
+.agent-dd-item.active { background:var(--blue-light); }
+.agent-dd-avatar { width:32px; height:32px; border-radius:50%; flex-shrink:0; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); color:#fff; font-weight:600; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.agent-dd-name { flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-dd-item .type-badge { margin:0; flex-shrink:0; }
+.agent-dd-check { color:var(--blue); font-size:13px; flex-shrink:0; }
+.agent-dropdown-foot { border-top:1px solid var(--border-soft); }
+.agent-dd-create { display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; color:var(--blue); font-weight:600; font-size:13.5px; transition:background .15s; }
+.agent-dd-create:hover { background:var(--blue-light); }
+.agent-dd-create-ic { width:24px; height:24px; border-radius:50%; background:var(--blue-light); color:var(--blue); display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+.agent-dd-limit { display:flex; align-items:flex-start; gap:10px; padding:12px 14px; font-size:12px; color:var(--muted); line-height:1.5; background:var(--amber-light); }
+.agent-dd-limit i { color:var(--amber); margin-top:2px; flex-shrink:0; }
+
+/* ── BURGER + DRAWER ── */
+.burger-btn { display:none; }
+.drawer-overlay { position:fixed; inset:0; background:rgba(15,15,30,0.45); z-index:90; animation:ov .15s ease; }
+.drawer-overlay.hidden { display:none; }
+.drawer { position:fixed; top:0; left:0; bottom:0; width:min(360px,88vw); background:var(--bg); display:flex; flex-direction:column; box-shadow:4px 0 24px rgba(0,0,0,0.15); z-index:91; animation:drawerIn .25s ease; }
+@keyframes drawerIn { from{transform:translateX(-100%);} to{transform:translateX(0);} }
+.drawer-header { padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; background:var(--white); flex-shrink:0; }
+.drawer-title { font-size:15px; font-weight:600; }
+.drawer-close { width:34px; height:34px; border-radius:9px; background:var(--bg); border:1px solid var(--border); cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:20px; line-height:1; transition:var(--transition); }
+.drawer-close:hover { background:var(--red-light); color:var(--red); }
+.drawer-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+.drawer-body::-webkit-scrollbar { width:5px; }
+.drawer-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+.drawer-top { display:flex; flex-direction:column; gap:10px; }
+.drawer-top:empty { display:none; }
+.drawer-top .toggle-wrap { justify-content:space-between; }
+.drawer-actions { display:flex; gap:10px; }
+.drawer-actions:empty { display:none; }
+
+@media (max-width:1100px){
+  .col-left, .col-right { display:none; }
+  .main-layout { padding:8px; gap:0; }
+  .burger-btn { display:flex; }
+  .nav-right .sub-badge { display:none !important; }
+  .nav-right .toggle-wrap,
+  .nav-right #notif-btn,
+  .nav-right #delete-agent-btn,
+  .nav-right #profile-btn { display:none; }
+  .agent-dropdown { min-width:280px; max-width:92vw; }
+  .drawer-body .col-left, .drawer-body .col-right { display:flex; width:auto; flex-shrink:1; overflow:visible; }
+}
 </style>
 </head>
 <body>
@@ -338,14 +399,26 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <span class="nav-logo-text">Voicyfy</span>
   </a>
   <div class="nav-center">
-    <div class="agent-switcher" id="agent-switcher" style="display:none; align-items:center; gap:8px; margin-bottom:3px;">
-      <select id="agent-selector" title="Выбрать агента" style="font-size:13px; font-weight:600; border:1px solid var(--border); border-radius:8px; padding:4px 26px 4px 10px; background:var(--bg); cursor:pointer; max-width:240px;"></select>
-      <button id="btn-new-agent" type="button" title="Создать нового агента" style="display:none; border:1px solid var(--border); background:var(--bg); border-radius:8px; width:28px; height:28px; cursor:pointer; font-size:16px; line-height:1; color:var(--blue);">+</button>
+    <div class="agent-switch no-dropdown" id="agent-switch">
+      <button class="agent-trigger" id="agent-trigger" type="button">
+        <div class="agent-trigger-main">
+          <span class="nav-agent-name" id="nav-agent-name">Агент</span>
+          <i class="fas fa-chevron-down agent-trigger-chevron"></i>
+        </div>
+        <div class="nav-agent-status" id="nav-agent-status"><i class="fas fa-circle" style="font-size:7px"></i> <span>Агент активен</span></div>
+      </button>
+      <div class="agent-dropdown hidden" id="agent-dropdown">
+        <div class="agent-dropdown-head">
+          <span class="agent-dropdown-title">Ваши агенты</span>
+          <span class="agent-dropdown-pill" id="agent-dropdown-pill">0/3</span>
+        </div>
+        <div class="agent-dropdown-list" id="agent-dropdown-list"></div>
+        <div class="agent-dropdown-foot" id="agent-dropdown-foot"></div>
+      </div>
     </div>
-    <div class="nav-agent-name" id="nav-agent-name">Агент</div>
-    <div class="nav-agent-status" id="nav-agent-status"><i class="fas fa-circle" style="font-size:7px"></i> <span>Агент активен</span></div>
   </div>
   <div class="nav-right">
+    <button class="icon-btn burger-btn" id="burger-btn" type="button" title="Меню"><i class="fas fa-bars"></i></button>
     <!-- ✅ Бейдж статуса подписки + кредиты -->
     <div class="sub-badge" id="sub-badge" style="display:none">
       <span class="sub-status" id="sub-status">—</span>
@@ -358,7 +431,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     </div>
     <a class="icon-btn" id="notif-btn" title="Задачи в очереди"><i class="far fa-bell"></i><span class="notif-badge" id="notif-badge" style="display:none">0</span></a>
     <a class="icon-btn" id="delete-agent-btn" title="Удалить агента" onclick="deleteAgent()" style="cursor:pointer"><i class="far fa-trash-can"></i></a>
-    <a href="/static/profile.html" class="icon-btn" title="Профиль"><i class="far fa-user"></i></a>
+    <a href="/static/profile.html" class="icon-btn" id="profile-btn" title="Профиль"><i class="far fa-user"></i></a>
   </div>
 </nav>
 
@@ -485,6 +558,23 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     </div>
 
   </div>
+</div>
+
+<!-- MOBILE DRAWER -->
+<div class="drawer-overlay hidden" id="drawer-overlay">
+  <aside class="drawer">
+    <header class="drawer-header">
+      <span class="drawer-title">Меню</span>
+      <button class="drawer-close" id="drawer-close" type="button">&times;</button>
+    </header>
+    <div class="drawer-body" id="drawer-body">
+      <div class="drawer-top">
+        <div class="drawer-toggle-slot" id="drawer-toggle-slot"></div>
+        <div class="drawer-badge-slot" id="drawer-badge-slot"></div>
+        <div class="drawer-actions" id="drawer-actions"></div>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <div class="app-footer" id="app-footer" style="display:none"><i class="fas fa-shield-halved" style="color:var(--blue)"></i> Voicyfy © 2026</div>
@@ -885,8 +975,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(!getToken()){ location.href='/static/login.html'; return; }
   await initAgents();
 
-  document.getElementById('agent-selector')?.addEventListener('change', (e)=>{ selectAgent(e.target.value); });
-  document.getElementById('btn-new-agent')?.addEventListener('click', openNewAgentWizard);
+  // ── Кастомный dropdown переключения агентов ──
+  document.getElementById('agent-trigger')?.addEventListener('click', (e)=>{
+    if(document.getElementById('agent-switch').classList.contains('no-dropdown')) return;
+    e.stopPropagation();
+    toggleAgentDropdown();
+  });
+  document.addEventListener('click', (e)=>{
+    const sw = document.getElementById('agent-switch');
+    if(sw && !sw.contains(e.target)) closeAgentDropdown();
+  });
+  document.addEventListener('keydown', (e)=>{
+    if(e.key==='Escape'){ closeAgentDropdown(); closeDrawer(); }
+  });
+
+  // ── Мобильное бургер-меню ──
+  document.getElementById('burger-btn')?.addEventListener('click', openDrawer);
+  document.getElementById('drawer-close')?.addEventListener('click', closeDrawer);
+  document.getElementById('drawer-overlay')?.addEventListener('click', function(e){ if(e.target===this) closeDrawer(); });
+  MOBILE_MQ.addEventListener('change', e => applyLayout(e.matches));
+  applyLayout(MOBILE_MQ.matches);
 
   document.getElementById('chat-send').addEventListener('click', sendMessage);
   const inp = document.getElementById('chat-input');
@@ -922,17 +1030,117 @@ async function initAgents(){
   }catch(e){ showWizard(); }
 }
 
+const AGENT_TYPE_NAMES = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia' };
+
 function renderAgentSwitcher(){
-  const sw = document.getElementById('agent-switcher');
-  const sel = document.getElementById('agent-selector');
-  const btn = document.getElementById('btn-new-agent');
-  if(!sw || !sel) return;
-  sel.innerHTML = agentsList.map(a =>
-    `<option value="${a.id}" ${String(a.id)===String(currentAgentId)?'selected':''}>${esc(a.name||'Агент')}</option>`
-  ).join('');
-  // Переключатель виден, если агентов больше одного или можно создать ещё.
-  sw.style.display = (agentsList.length > 1 || agentsCanCreateMore) ? 'flex' : 'none';
-  if(btn) btn.style.display = (agentsCanCreateMore && agentsList.length < agentsMax) ? 'inline-flex' : 'none';
+  const sw = document.getElementById('agent-switch');
+  const list = document.getElementById('agent-dropdown-list');
+  const foot = document.getElementById('agent-dropdown-foot');
+  const pill = document.getElementById('agent-dropdown-pill');
+  if(!sw || !list) return;
+
+  // Dropdown показываем, только если есть что переключать или можно создать ещё.
+  const canShow = agentsList.length > 1 || agentsCanCreateMore;
+  sw.classList.toggle('no-dropdown', !canShow);
+  if(!canShow) closeAgentDropdown();
+
+  // Pill с лимитом N/MAX
+  const full = agentsList.length >= agentsMax;
+  pill.textContent = `${agentsList.length}/${agentsMax}`;
+  pill.classList.toggle('full', full);
+
+  // Список агентов
+  list.innerHTML = agentsList.map(a => {
+    const active = String(a.id)===String(currentAgentId);
+    const letter = esc((a.name||'А').trim().charAt(0).toUpperCase());
+    const type = AGENT_TYPE_NAMES[a.assistant_type] || 'Voice';
+    return `<div class="agent-dd-item ${active?'active':''}" data-id="${esc(String(a.id))}">
+      <div class="agent-dd-avatar">${letter}</div>
+      <div class="agent-dd-name">${esc(a.name||'Агент')}</div>
+      <span class="type-badge">${esc(type)}</span>
+      ${active?'<i class="fas fa-check agent-dd-check"></i>':''}
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.agent-dd-item').forEach(el => {
+    el.addEventListener('click', () => { closeAgentDropdown(); selectAgent(el.dataset.id); });
+  });
+
+  // Подвал: кнопка создания или уведомление о лимите
+  const canCreate = agentsCanCreateMore && agentsList.length < agentsMax;
+  if(canCreate){
+    foot.innerHTML = `<div class="agent-dd-create" id="agent-dd-create-btn">
+      <div class="agent-dd-create-ic"><i class="fas fa-plus"></i></div>
+      <span>Создать нового агента</span>
+    </div>`;
+    foot.querySelector('#agent-dd-create-btn').addEventListener('click', () => { closeAgentDropdown(); openNewAgentWizard(); });
+  } else {
+    foot.innerHTML = `<div class="agent-dd-limit">
+      <i class="fas fa-circle-info"></i>
+      <span>Лимит агентов исчерпан (${agentsList.length}/${agentsMax}). Удалите одного из существующих агентов, чтобы создать нового.</span>
+    </div>`;
+  }
+}
+
+function openAgentDropdown(){
+  document.getElementById('agent-dropdown')?.classList.remove('hidden');
+  document.getElementById('agent-switch')?.classList.add('open');
+}
+function closeAgentDropdown(){
+  document.getElementById('agent-dropdown')?.classList.add('hidden');
+  document.getElementById('agent-switch')?.classList.remove('open');
+}
+function toggleAgentDropdown(){
+  const dd = document.getElementById('agent-dropdown');
+  if(!dd) return;
+  if(dd.classList.contains('hidden')) openAgentDropdown(); else closeAgentDropdown();
+}
+
+// ── Мобильный drawer + перенос колонок между раскладками ──
+const MOBILE_MQ = window.matchMedia('(max-width: 1100px)');
+let _migrations = null;
+
+function _collectMigrations(){
+  if(_migrations) return _migrations;
+  const make = (el, slot) => {
+    if(!el) return null;
+    const anchor = document.createComment('mig');   // невидимый якорь исходной позиции
+    el.parentNode.insertBefore(anchor, el);
+    return { el, slot, anchor };
+  };
+  _migrations = [
+    make(document.querySelector('.toggle-wrap'), 'drawer-toggle-slot'),
+    make(document.getElementById('sub-badge'), 'drawer-badge-slot'),
+    make(document.getElementById('notif-btn'), 'drawer-actions'),
+    make(document.getElementById('delete-agent-btn'), 'drawer-actions'),
+    make(document.getElementById('profile-btn'), 'drawer-actions'),
+    make(document.querySelector('.col-left'), 'drawer-body'),
+    make(document.querySelector('.col-right'), 'drawer-body'),
+  ].filter(Boolean);
+  return _migrations;
+}
+
+function applyLayout(isMobile){
+  const migs = _collectMigrations();
+  if(isMobile){
+    migs.forEach(m => {
+      const slot = document.getElementById(m.slot);
+      if(slot && m.el.parentNode !== slot) slot.appendChild(m.el);
+    });
+  } else {
+    closeDrawer();
+    migs.forEach(m => {
+      if(m.el.parentNode !== m.anchor.parentNode) m.anchor.parentNode.insertBefore(m.el, m.anchor);
+    });
+  }
+}
+
+function openDrawer(){
+  document.getElementById('drawer-overlay')?.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+function closeDrawer(){
+  document.getElementById('drawer-overlay')?.classList.add('hidden');
+  document.body.style.overflow = '';
 }
 
 async function loadCurrentAgent(){
