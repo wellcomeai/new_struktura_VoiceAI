@@ -207,27 +207,52 @@ class User(Base, BaseModel):
     # ✅ Хелперы подписки `agent` (система кредитов оркестратора)
     # ========================================================================
 
+    # Доступ к агенту-оркестратору (модель v3.1).
+    # Источники доступа:
+    #   • 3-дневный тестовый период — для любого тарифа;
+    #   • тариф `profi`;
+    #   • legacy-тариф `agent` (обратная совместимость);
+    #   • админ.
+    # Тарифы `ai_voice` и `start` после окончания триала доступа НЕ дают.
+    AGENT_TRIAL_DAYS = 3
+
     def is_agent_plan(self) -> bool:
-        """True если текущий тариф пользователя — именно `agent`."""
+        """True если текущий тариф пользователя — legacy-тариф `agent`."""
         try:
             plan = self.subscription_plan_rel
             return bool(plan and plan.code == "agent")
         except Exception:
             return False
 
-    def has_active_agent_subscription(self) -> bool:
-        """
-        True если есть активная подписка именно на тариф `agent` (включая trial).
-        Старые тарифы (ai_voice/start/profi) НЕ дают доступ к оркестратору.
-        Админ — всегда True (освобождён от проверки подписки).
-        """
-        if self.agent_subscription_blocked:
+    def is_profi_plan(self) -> bool:
+        """True если активный (не истёкший) тариф — `profi`."""
+        try:
+            plan = self.subscription_plan_rel
+            if not (plan and plan.code == "profi"):
+                return False
+            if not self.subscription_end_date:
+                return False
+            from datetime import datetime, timezone
+            end = self.subscription_end_date
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            return end > datetime.now(timezone.utc)
+        except Exception:
             return False
-        if self.is_admin:
-            return True
-        if not self.is_agent_plan():
+
+    def agent_trial_active(self) -> bool:
+        """True пока идёт 3-дневный тестовый период агента."""
+        if not self.agent_trial_started_at:
             return False
-        if not self.subscription_end_date:
+        from datetime import datetime, timezone, timedelta
+        started = self.agent_trial_started_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) < started + timedelta(days=self.AGENT_TRIAL_DAYS)
+
+    def _legacy_agent_plan_active(self) -> bool:
+        """Legacy: активная (не истёкшая) подписка на старый тариф `agent`."""
+        if not self.is_agent_plan() or not self.subscription_end_date:
             return False
         from datetime import datetime, timezone
         end = self.subscription_end_date
@@ -235,14 +260,56 @@ class User(Base, BaseModel):
             end = end.replace(tzinfo=timezone.utc)
         return end > datetime.now(timezone.utc)
 
+    def has_agent_access(self) -> bool:
+        """
+        Доступ к агенту-оркестратору: тестовый период ИЛИ profi ИЛИ
+        legacy-тариф agent ИЛИ админ. Ручная блокировка перекрывает всё.
+        """
+        if self.agent_subscription_blocked:
+            return False
+        if self.is_admin:
+            return True
+        if self.agent_trial_active():
+            return True
+        if self.is_profi_plan():
+            return True
+        return self._legacy_agent_plan_active()
+
+    def has_active_agent_subscription(self) -> bool:
+        """Алиас has_agent_access (имя сохранено для обратной совместимости)."""
+        return self.has_agent_access()
+
+    def agent_days_remaining(self) -> int:
+        """Сколько дней осталось доступа к агенту (триал или profi/agent)."""
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        candidates = []
+        if self.agent_trial_active() and self.agent_trial_started_at:
+            started = self.agent_trial_started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            candidates.append(started + timedelta(days=self.AGENT_TRIAL_DAYS))
+        if (self.is_profi_plan() or self._legacy_agent_plan_active()) and self.subscription_end_date:
+            end = self.subscription_end_date
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+            candidates.append(end)
+        if not candidates:
+            return 0
+        return max(0, (max(candidates) - now).days)
+
     def agent_subscription_status(self) -> str:
         """active | trial | expired | none"""
-        # Нет тарифа agent вообще (другой план или его отсутствие)
-        if not self.is_admin and not self.is_agent_plan():
-            return "none"
-        if not self.has_active_agent_subscription():
+        if self.has_agent_access():
+            # «trial» — только если доступ держится исключительно на триале
+            if self.agent_trial_active() and not (
+                self.is_admin or self.is_profi_plan() or self._legacy_agent_plan_active()
+            ):
+                return "trial"
+            return "active"
+        if self.agent_trial_used:
             return "expired"
-        return "trial" if self.is_trial else "active"
+        return "none"
 
     def days_until_subscription_end(self) -> int:
         if not self.subscription_end_date:

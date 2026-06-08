@@ -181,22 +181,7 @@ class TaskScheduler:
         try:
             logger.info(f"[TASK-SCHEDULER] 🤖 Executing AGENT task {task.id}: {task.title}")
 
-            # ✅ v3.0: Skip if the user's agent is inactive (toggle off).
-            # Leave the task SCHEDULED so it runs once the agent is re-activated.
-            agent_config = db.query(AgentConfig).filter(
-                AgentConfig.user_id == task.user_id,
-                AgentConfig.is_active == True
-            ).first()
-            if not agent_config:
-                logger.info(f"[TASK-SCHEDULER] Skipping agent task {task.id}: agent is inactive")
-                return  # не помечаем как failed — просто пропускаем, ждём активации
-
-            # Lock task immediately
-            task.status = TaskStatus.PENDING
-            task.call_started_at = datetime.utcnow()
-            db.commit()
-
-            # Get AgentContact
+            # Get AgentContact first — оно определяет, какому агенту принадлежит звонок.
             agent_contact = None
             if task.agent_contact_id:
                 agent_contact = db.query(AgentContact).filter(
@@ -210,6 +195,31 @@ class TaskScheduler:
                 db.commit()
                 return
 
+            # ✅ v3.1: резолвим КОНКРЕТНОГО агента по контакту (multi-agent).
+            #   Fallback на первого агента юзера — для legacy-контактов без
+            #   agent_config_id.
+            agent_config = None
+            if agent_contact.agent_config_id:
+                agent_config = db.query(AgentConfig).filter(
+                    AgentConfig.id == agent_contact.agent_config_id,
+                    AgentConfig.user_id == task.user_id,
+                ).first()
+            if not agent_config:
+                agent_config = db.query(AgentConfig).filter(
+                    AgentConfig.user_id == task.user_id,
+                ).order_by(AgentConfig.created_at.asc()).first()
+
+            # Skip if the agent is missing or inactive (toggle off).
+            # Leave the task SCHEDULED so it runs once the agent is re-activated.
+            if not agent_config or not agent_config.is_active:
+                logger.info(f"[TASK-SCHEDULER] Skipping agent task {task.id}: agent missing or inactive")
+                return  # не помечаем как failed — просто пропускаем, ждём активации
+
+            # Lock task immediately
+            task.status = TaskStatus.PENDING
+            task.call_started_at = datetime.utcnow()
+            db.commit()
+
             # Get user
             user = db.query(User).filter(User.id == task.user_id).first()
             if not user:
@@ -219,13 +229,13 @@ class TaskScheduler:
                 db.commit()
                 return
 
-            # ✅ Жёсткая блокировка звонков при истёкшей подписке agent (раздел 7.2).
-            # Дублирует scheduler-блокер на случай, если он не успел пометить юзера.
+            # ✅ Блокировка звонков при отсутствии доступа к агенту (триал истёк и
+            #   тариф не profi). Дублирует scheduler-блокер.
             if not user.has_active_agent_subscription():
                 task.status = TaskStatus.CANCELLED
                 task.call_result = json.dumps({"error": "subscription_expired"})
                 db.commit()
-                logger.warning(f"[TASK-SCHEDULER] Skipping agent task {task.id} — subscription expired")
+                logger.warning(f"[TASK-SCHEDULER] Skipping agent task {task.id} — no agent access")
                 return
 
             # Get assistant info
@@ -236,12 +246,6 @@ class TaskScheduler:
                 task.call_result = "Assistant not found"
                 db.commit()
                 return
-
-            # Get agent config
-            agent_config = db.query(AgentConfig).filter(
-                AgentConfig.user_id == user.id,
-                AgentConfig.is_active == True
-            ).first()
 
             # Create AgentCall record
             agent_call = AgentCall(

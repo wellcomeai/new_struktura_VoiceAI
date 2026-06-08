@@ -1,21 +1,24 @@
 """
-Subscription blocker — фоновая задача жёсткой блокировки истёкших подписок
-тарифа `agent` (ТЗ раздел 7).
+Subscription blocker — фоновая задача отмены запланированных звонков агента
+у пользователей, потерявших доступ к агенту (v3.1).
 
-Запускается каждые 5 минут:
-1. Находит юзеров с истёкшей подпиской agent и ставит agent_subscription_blocked=True.
-2. Отменяет все их SCHEDULED agent-задачи (звонки).
+Доступ к агенту в модели v3.1 динамический: тестовый период (3 дня) ИЛИ тариф
+`profi` ИЛИ legacy-тариф `agent` ИЛИ админ. Поэтому блокер НЕ ставит
+постоянный флаг agent_subscription_blocked (иначе апгрейд на profi не разблокирует
+юзера). Вместо этого он просто отменяет SCHEDULED agent-задачи у тех, кто прямо
+сейчас доступа не имеет — чтобы звонки не выполнялись и не копились.
 
-Кредиты при этом НЕ сгорают — только блокируется возможность их тратить.
+Флаг agent_subscription_blocked остаётся ручным kill-switch (админ/саппорт).
+Кредиты при отмене задач НЕ сгорают.
+
+Запускается каждые 5 минут.
 """
 
 import asyncio
-from datetime import datetime, timezone
 
 from backend.core.logging import get_logger
 from backend.db.session import SessionLocal
 from backend.models.user import User
-from backend.models.subscription import SubscriptionPlan
 from backend.models.task import Task, TaskStatus
 
 logger = get_logger(__name__)
@@ -24,29 +27,33 @@ CHECK_INTERVAL_SEC = 5 * 60  # каждые 5 минут
 
 
 async def check_expired_agent_subscriptions():
-    """Один проход: блокировка истёкших agent-подписок и отмена их задач."""
+    """Один проход: отмена SCHEDULED agent-задач у юзеров без доступа к агенту."""
     db = SessionLocal()
     try:
-        now = datetime.now(timezone.utc)
-
-        expired_users = (
-            db.query(User)
-            .join(SubscriptionPlan, User.subscription_plan_id == SubscriptionPlan.id)
-            .filter(
-                SubscriptionPlan.code == "agent",
-                User.subscription_end_date < now,
-                User.agent_subscription_blocked == False,  # noqa: E712
-                User.is_admin == False,  # noqa: E712
+        # Уникальные пользователи, у которых есть запланированные agent-звонки
+        user_ids = [
+            row[0]
+            for row in (
+                db.query(Task.user_id)
+                .filter(
+                    Task.is_agent_task == True,  # noqa: E712
+                    Task.status == TaskStatus.SCHEDULED,
+                )
+                .distinct()
+                .all()
             )
-            .all()
-        )
-
-        if not expired_users:
+            if row[0] is not None
+        ]
+        if not user_ids:
             return
 
-        for user in expired_users:
-            user.agent_subscription_blocked = True
-            logger.warning(f"[BLOCKER] User {user.id} agent subscription expired, blocking")
+        users = db.query(User).filter(User.id.in_(user_ids)).all()
+
+        total_cancelled = 0
+        affected = 0
+        for user in users:
+            if user.has_agent_access():
+                continue
 
             tasks_cancelled = (
                 db.query(Task)
@@ -57,14 +64,24 @@ async def check_expired_agent_subscriptions():
                 )
                 .update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
             )
-            logger.info(f"[BLOCKER] Cancelled {tasks_cancelled} scheduled tasks for user {user.id}")
+            if tasks_cancelled:
+                affected += 1
+                total_cancelled += tasks_cancelled
+                logger.warning(
+                    f"[BLOCKER] User {user.id} lost agent access — cancelled "
+                    f"{tasks_cancelled} scheduled tasks"
+                )
 
-        db.commit()
-        logger.info(f"[BLOCKER] Blocked {len(expired_users)} expired agent subscription(s)")
+        if total_cancelled:
+            db.commit()
+            logger.info(
+                f"[BLOCKER] Cancelled {total_cancelled} scheduled agent task(s) "
+                f"for {affected} user(s) without access"
+            )
 
     except Exception as e:
         db.rollback()
-        logger.error(f"[BLOCKER] Error checking expired agent subscriptions: {e}", exc_info=True)
+        logger.error(f"[BLOCKER] Error cancelling tasks for users without agent access: {e}", exc_info=True)
     finally:
         db.close()
 

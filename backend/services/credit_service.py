@@ -31,24 +31,20 @@ AGENT_SUBSCRIPTION_DAYS = 30
 
 def activate_agent_trial(db: Session, user: User) -> bool:
     """
-    Активировать бесплатный trial тарифа agent (3 дня + 1500 кредитов).
+    Активировать бесплатный тестовый период агента (3 дня + 1500 кредитов).
+
+    ВАЖНО (v3.1): тестовый период больше НЕ переключает базовый тариф
+    пользователя на `agent`. Базовый тариф (free/ai_voice/start/profi)
+    сохраняется — мы только запускаем окно триала через
+    agent_trial_started_at. Доступ во время триала даёт User.agent_trial_active().
+
     Идемпотентно: если agent_trial_used уже True — ничего не делает и
     возвращает False. Возвращает True если trial выдан.
     """
     if user.agent_trial_used:
         return False
 
-    plan = db.query(SubscriptionPlan).filter(
-        SubscriptionPlan.code == AGENT_PLAN_CODE
-    ).first()
-    if not plan:
-        raise ValueError("Agent subscription plan not found in DB")
-
     now = datetime.now(timezone.utc)
-    user.subscription_plan_id = plan.id
-    user.subscription_start_date = now
-    user.subscription_end_date = now + timedelta(days=AGENT_TRIAL_DAYS)
-    user.is_trial = True
     user.agent_trial_started_at = now
     user.agent_subscription_blocked = False
     db.commit()
@@ -101,20 +97,19 @@ class CreditService:
         - SubscriptionExpiredError если подписка истекла или заблокирована.
         - InsufficientCreditsError если кредитов меньше MIN_PRECHECK_BALANCE.
 
-        ⚠️ Доступ к оркестратору даёт ТОЛЬКО тариф `agent` (или admin).
-        Старые тарифы (ai_voice/start/profi) → SubscriptionRequiredError.
+        ⚠️ Доступ к оркестратору даёт тестовый период (3 дня), тариф `profi`,
+        legacy-тариф `agent` или admin. Тарифы ai_voice/start после триала →
+        отказ.
 
-        Админ освобождён только от проверок ПОДПИСКИ (через
-        has_active_agent_subscription → True), но НЕ от проверки кредитов:
-        баланс < MIN_PRECHECK_BALANCE блокирует оркестратор для всех.
+        Админ освобождён только от проверок ДОСТУПА (через has_agent_access →
+        True), но НЕ от проверки кредитов: баланс < MIN_PRECHECK_BALANCE
+        блокирует оркестратор для всех.
         """
-        # Нет тарифа agent вообще (нет плана или план не agent)
-        if not user.is_admin and not user.is_agent_plan():
-            raise SubscriptionRequiredError("No agent subscription")
-
-        # Тариф agent есть, но истёк или заблокирован
-        if not user.has_active_agent_subscription():
-            raise SubscriptionExpiredError("Agent subscription expired or blocked")
+        if not user.has_agent_access():
+            # Никогда не было триала → требуется оформление; иначе доступ истёк.
+            if user.agent_trial_used:
+                raise SubscriptionExpiredError("Agent access expired or blocked")
+            raise SubscriptionRequiredError("No agent access")
 
         if (user.credits_balance or 0) < cls.MIN_PRECHECK_BALANCE:
             raise InsufficientCreditsError(
@@ -254,24 +249,47 @@ class CreditService:
 
     @classmethod
     def grant_subscription(cls, db: Session, user: User,
-                           payment_transaction: PaymentTransaction) -> CreditTransaction:
-        """Выдать 20 000 кредитов при покупке/продлении тарифа agent."""
+                           payment_transaction: PaymentTransaction,
+                           credits: Optional[int] = None,
+                           notes: Optional[str] = None) -> Optional[CreditTransaction]:
+        """
+        Выдать месячные кредиты при покупке/продлении тарифа, дающего доступ
+        к агенту (legacy `agent` или `profi`).
+
+        Идемпотентно по платежу: если для этого payment_transaction уже была
+        выдача SUBSCRIPTION_GRANT — повторно не начисляем (защита от повторных
+        callback-ов Robokassa). Возвращает None если уже было начислено.
+        """
+        amount = credits if credits is not None else cls.SUBSCRIPTION_CREDITS
+
+        if payment_transaction is not None:
+            existing = db.query(CreditTransaction).filter(
+                CreditTransaction.payment_transaction_id == payment_transaction.id,
+                CreditTransaction.type == CreditTransactionType.SUBSCRIPTION_GRANT.value,
+            ).first()
+            if existing:
+                logger.info(
+                    f"[CREDITS] Subscription grant already applied for payment "
+                    f"{payment_transaction.id}, skipping"
+                )
+                return None
+
         locked = db.execute(
             select(User).where(User.id == user.id).with_for_update()
         ).scalar_one_or_none()
         if not locked:
             raise ValueError(f"User {user.id} not found")
 
-        locked.credits_balance = (locked.credits_balance or 0) + cls.SUBSCRIPTION_CREDITS
+        locked.credits_balance = (locked.credits_balance or 0) + amount
 
         tx = CreditTransaction(
             user_id=locked.id,
             type=CreditTransactionType.SUBSCRIPTION_GRANT.value,
-            amount=cls.SUBSCRIPTION_CREDITS,
+            amount=amount,
             balance_after=locked.credits_balance,
             ref_type="grant",
             payment_transaction_id=payment_transaction.id if payment_transaction else None,
-            notes="Agent subscription grant: 20000 credits",
+            notes=notes or f"Subscription grant: {amount} credits",
         )
         db.add(tx)
         db.commit()
@@ -280,7 +298,7 @@ class CreditService:
             user.credits_balance = locked.credits_balance
         except Exception:
             pass
-        logger.info(f"[CREDITS] Subscription credits granted to user {user.id}: +{cls.SUBSCRIPTION_CREDITS}")
+        logger.info(f"[CREDITS] Subscription credits granted to user {user.id}: +{amount}")
         return tx
 
     @classmethod

@@ -47,6 +47,9 @@ router = APIRouter()
 
 VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia")
 
+# Максимум агентов на одного пользователя (v3.1: было «один на юзера»).
+MAX_AGENTS_PER_USER = 3
+
 
 class AgentCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -248,15 +251,47 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
 # ============================================================================
 
 
-@router.get("/")
-async def get_agent(
+def _resolve_agent(db: Session, user: User, agent_id: Optional[str] = None) -> Optional[AgentConfig]:
+    """
+    Вернуть конкретного агента пользователя.
+    Если agent_id задан — ищем именно его (в пределах user_id, чужой → None).
+    Иначе — первого по дате создания (обратная совместимость с одним агентом).
+    """
+    q = db.query(AgentConfig).filter(AgentConfig.user_id == user.id)
+    if agent_id:
+        return q.filter(AgentConfig.id == agent_id).first()
+    return q.order_by(AgentConfig.created_at.asc()).first()
+
+
+@router.get("/list")
+async def list_agents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get the current user's AgentConfig."""
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    """Список всех агентов пользователя (для меню выбора агента)."""
+    agents = (
+        db.query(AgentConfig)
+        .filter(AgentConfig.user_id == current_user.id)
+        .order_by(AgentConfig.created_at.asc())
+        .all()
+    )
+    return {
+        "total": len(agents),
+        "max_agents": MAX_AGENTS_PER_USER,
+        "can_create_more": len(agents) < MAX_AGENTS_PER_USER and current_user.has_agent_access(),
+        "has_agent_access": current_user.has_agent_access(),
+        "agents": [_agent_to_dict(a) for a in agents],
+    }
+
+
+@router.get("/")
+async def get_agent(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get one of the user's AgentConfigs (defaults to the first one)."""
+    agent = _resolve_agent(db, current_user, agent_id)
 
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -286,17 +321,17 @@ async def create_agent(
     # 4. Required API keys for the chosen assistant type
     _check_assistant_keys(body.assistant_type, current_user)
 
-    # 5. One agent per user
-    existing = db.query(AgentConfig).filter(
+    # 5. До MAX_AGENTS_PER_USER агентов на пользователя
+    agents_count = db.query(AgentConfig).filter(
         AgentConfig.user_id == current_user.id
-    ).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="already_exists")
+    ).count()
+    if agents_count >= MAX_AGENTS_PER_USER:
+        raise HTTPException(status_code=400, detail="agent_limit_reached")
 
-    # 5b. Гейтинг подписки `agent`: если trial уже использован — нужна
-    #     активная подписка agent (edge case 4). Проверяем ДО создания,
-    #     чтобы не оставлять «висячий» агент при 402.
-    if current_user.agent_trial_used and not current_user.has_active_agent_subscription():
+    # 5b. Гейтинг доступа к агенту (v3.1): тестовый период / profi / legacy agent.
+    #     Если триал уже использован и доступа нет — требуется тариф profi.
+    #     Проверяем ДО создания, чтобы не оставлять «висячий» агент при 402.
+    if current_user.agent_trial_used and not current_user.has_agent_access():
         raise HTTPException(status_code=402, detail="subscription_required")
 
     # 6. Create the voice assistant with the hardcoded base prompt
@@ -354,13 +389,12 @@ async def create_agent(
 @router.put("/")
 async def update_agent(
     body: AgentUpdateRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update the agent's documents and settings."""
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
@@ -433,37 +467,49 @@ async def update_agent(
 
 @router.delete("/")
 async def delete_agent(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Полное удаление агента и ВСЕХ связанных данных:
-    - tasks (включая SCHEDULED и сирот с agent_contact_id=NULL)
-    - agent_calls и agent_contacts (каскадятся через FK)
+    Полное удаление ОДНОГО агента и связанных с ним данных:
+    - tasks этого агента (по его контактам + его «сироты»)
+    - agent_calls и agent_contacts (каскадятся через FK AgentConfig)
     - AgentConfig
-    - ВСЕ голосовые ассистенты "% Voice" пользователя
-      (включая старые от смены assistant_type)
+    - голосовой ассистент(ы), привязанные именно к этому агенту
     """
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
     summary = {"tasks": 0, "voice_assistants": 0}
 
     try:
-        # 0. Считаем SCHEDULED-задачи ДО удаления — для записи в credit_transactions
-        scheduled_count = db.query(Task).filter(
+        # id контактов этого агента — чтобы удалить только его задачи,
+        # не задев задачи других агентов того же пользователя.
+        contact_ids = [
+            row[0] for row in db.query(AgentContact.id).filter(
+                AgentContact.agent_config_id == agent.id
+            ).all()
+        ]
+
+        # 0. Считаем SCHEDULED-задачи этого агента ДО удаления — для журнала.
+        task_filter = [
             Task.user_id == current_user.id,
             Task.is_agent_task == True,
-            Task.status == TaskStatus.SCHEDULED,
+        ]
+        if contact_ids:
+            task_filter.append(Task.agent_contact_id.in_(contact_ids))
+        else:
+            # У агента нет контактов → нет привязанных задач для удаления.
+            task_filter.append(Task.agent_contact_id.is_(None))
+            task_filter.append(Task.id.is_(None))  # фактически пусто
+
+        scheduled_count = db.query(Task).filter(
+            *task_filter, Task.status == TaskStatus.SCHEDULED,
         ).count()
 
         # Логируем факт удаления агента (баланс кредитов НЕ меняется).
-        # Создаём транзакцию ИНЛАЙН без промежуточного commit — иначе commit
-        # внутри log_system_event «протухает» объект agent до его db.delete().
-        # Критично для саппорта: «куда делись мои кредиты после удаления агента».
         from backend.models.credit_transaction import CreditTransaction, CreditTransactionType
         db.add(CreditTransaction(
             user_id=current_user.id,
@@ -473,28 +519,37 @@ async def delete_agent(
             ref_type="agent_deleted",
             ref_id=agent.id,
             notes=(
-                f"Agent deleted by user. Tasks cancelled: {scheduled_count}. "
+                f"Agent {agent.id} deleted by user. Tasks cancelled: {scheduled_count}. "
                 f"Credits balance preserved: {current_user.credits_balance}."
             ),
         ))
 
-        # 1. tasks ПЕРВЫМИ — иначе ON DELETE SET NULL зануляет FK,
-        #    и задачи остаются сиротами навсегда
-        summary["tasks"] = db.query(Task).filter(
-            Task.user_id == current_user.id,
-            Task.is_agent_task == True,
-        ).delete(synchronize_session=False)
-
-        # 2. AgentConfig — каскадом уносит agent_contacts и agent_calls
-        db.delete(agent)
-
-        # 3. Все "% Voice" ассистенты во всех трёх таблицах
-        va_total = 0
-        for model_cls in (GeminiAssistantConfig, AssistantConfig, CartesiaAssistantConfig):
-            va_total += db.query(model_cls).filter(
-                model_cls.user_id == current_user.id,
-                model_cls.name.like('% Voice'),
+        # 1. tasks этого агента ПЕРВЫМИ (иначе ON DELETE SET NULL осиротит их).
+        if contact_ids:
+            summary["tasks"] = db.query(Task).filter(
+                Task.user_id == current_user.id,
+                Task.is_agent_task == True,
+                Task.agent_contact_id.in_(contact_ids),
             ).delete(synchronize_session=False)
+
+        # 2. Голосовые ассистенты, привязанные именно к этому агенту.
+        va_total = 0
+        va_targets = [
+            (GeminiAssistantConfig, agent.gemini_assistant_id),
+            (AssistantConfig, agent.openai_assistant_id),
+            (CartesiaAssistantConfig, agent.cartesia_assistant_id),
+        ]
+
+        # 3. AgentConfig — каскадом уносит agent_contacts и agent_calls.
+        db.delete(agent)
+        db.flush()
+
+        for model_cls, va_id in va_targets:
+            if va_id:
+                va_total += db.query(model_cls).filter(
+                    model_cls.id == va_id,
+                    model_cls.user_id == current_user.id,
+                ).delete(synchronize_session=False)
         summary["voice_assistants"] = va_total
 
         db.commit()
@@ -518,13 +573,12 @@ async def delete_agent(
 @router.post("/chat")
 async def agent_chat(
     body: AgentChatRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Text chat with the agent. v3 → OpenRouter, v2 (legacy) → OpenAI Responses API."""
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
@@ -572,46 +626,47 @@ async def agent_chat(
 
 @router.get("/stats")
 async def get_agent_stats(
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get agent statistics from AgentContact + AgentCall."""
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    """Get agent statistics from AgentContact + AgentCall (scoped to one agent)."""
+    agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
     total_contacts = db.query(func.count(AgentContact.id)).filter(
-        AgentContact.user_id == current_user.id
+        AgentContact.agent_config_id == agent.id
     ).scalar() or 0
 
     active_contacts = db.query(func.count(AgentContact.id)).filter(
-        AgentContact.user_id == current_user.id,
+        AgentContact.agent_config_id == agent.id,
         AgentContact.status.notin_(["rejected", "do_not_call"]),
     ).scalar() or 0
 
     total_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == current_user.id
+        AgentCall.agent_config_id == agent.id
     ).scalar() or 0
 
     success_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == current_user.id,
+        AgentCall.agent_config_id == agent.id,
         AgentCall.post_call_decision == "SUCCESS",
     ).scalar() or 0
 
     followup_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == current_user.id,
+        AgentCall.agent_config_id == agent.id,
         AgentCall.post_call_decision == "FOLLOWUP",
     ).scalar() or 0
 
     no_answer_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == current_user.id,
+        AgentCall.agent_config_id == agent.id,
         AgentCall.post_call_decision.in_(["NO_ANSWER", "REJECTED"]),
     ).scalar() or 0
 
-    scheduled_tasks = db.query(func.count(Task.id)).filter(
-        Task.user_id == current_user.id,
+    scheduled_tasks = db.query(func.count(Task.id)).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
+        AgentContact.agent_config_id == agent.id,
         Task.is_agent_task == True,
         Task.status == TaskStatus.SCHEDULED,
     ).scalar() or 0
@@ -649,13 +704,21 @@ async def get_orchestrator_models(
 async def list_agent_tasks(
     status: Optional[str] = Query("scheduled"),
     limit: int = Query(10, ge=1, le=50),
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List the agent's upcoming tasks (with contact names) for the dashboard."""
-    q = db.query(Task).filter(
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    q = db.query(Task).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
         Task.user_id == current_user.id,
         Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent.id,
     )
     if status:
         try:
@@ -743,11 +806,16 @@ async def list_agent_contacts(
     search: Optional[str] = Query(None, description="Поиск по name или phone (ILIKE)"),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List agent contacts with optional status and search filter."""
-    q = db.query(AgentContact).filter(AgentContact.user_id == current_user.id)
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    q = db.query(AgentContact).filter(AgentContact.agent_config_id == agent.id)
     if status:
         q = q.filter(AgentContact.status == status)
     if search:
@@ -802,13 +870,12 @@ async def get_agent_contact_details(
 @router.post("/contacts")
 async def create_agent_contact(
     body: AgentContactCreateRequest,
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Manually add a contact and auto-schedule a first call in 1 hour."""
-    agent = db.query(AgentConfig).filter(
-        AgentConfig.user_id == current_user.id
-    ).first()
+    agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent_not_found")
 
@@ -877,11 +944,16 @@ async def list_agent_calls(
     agent_contact_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List agent calls with optional contact filter."""
-    q = db.query(AgentCall).filter(AgentCall.user_id == current_user.id)
+    """List agent calls with optional contact filter (scoped to one agent)."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    q = db.query(AgentCall).filter(AgentCall.agent_config_id == agent.id)
     if agent_contact_id:
         q = q.filter(AgentCall.agent_contact_id == agent_contact_id)
 

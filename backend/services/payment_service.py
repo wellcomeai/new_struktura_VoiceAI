@@ -560,7 +560,21 @@ class RobokassaService:
             
             # 🎯 ВАЖНО: Сначала сохраняем подписку, потом обрабатываем комиссию
             db.commit()
-            
+
+            # 🤖 v3.1: тариф `profi` даёт доступ к агенту-оркестратору и
+            #         ежемесячный пакет кредитов. Начисляем при каждой оплате/
+            #         продлении profi (идемпотентно по payment_transaction).
+            if plan_code == "profi" and transaction is not None:
+                try:
+                    from backend.services.credit_service import CreditService
+                    CreditService.grant_subscription(
+                        db, user, transaction,
+                        notes="Profi plan monthly agent credits",
+                    )
+                    db.refresh(user)
+                except Exception as credit_error:
+                    logger.error(f"❌ Failed to grant profi agent credits: {credit_error}", exc_info=True)
+
             logger.info(f"✅ Subscription activated for user {user_id}")
             logger.info(f"   Period: {duration_months} months")
             logger.info(f"   Days: {subscription_days}")

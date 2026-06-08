@@ -338,6 +338,10 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <span class="nav-logo-text">Voicyfy</span>
   </a>
   <div class="nav-center">
+    <div class="agent-switcher" id="agent-switcher" style="display:none; align-items:center; gap:8px; margin-bottom:3px;">
+      <select id="agent-selector" title="Выбрать агента" style="font-size:13px; font-weight:600; border:1px solid var(--border); border-radius:8px; padding:4px 26px 4px 10px; background:var(--bg); cursor:pointer; max-width:240px;"></select>
+      <button id="btn-new-agent" type="button" title="Создать нового агента" style="display:none; border:1px solid var(--border); background:var(--bg); border-radius:8px; width:28px; height:28px; cursor:pointer; font-size:16px; line-height:1; color:var(--blue);">+</button>
+    </div>
     <div class="nav-agent-name" id="nav-agent-name">Агент</div>
     <div class="nav-agent-status" id="nav-agent-status"><i class="fas fa-circle" style="font-size:7px"></i> <span>Агент активен</span></div>
   </div>
@@ -682,6 +686,21 @@ let orchestratorModels = [];
 let phoneNumbers = [];
 let telegramState = null;
 
+// ── Multi-agent (v3.1): выбранный агент и его список ──
+let currentAgentId = null;
+let agentsList = [];
+let agentsCanCreateMore = false;
+
+// Добавляет ?agent_id=<выбранный> к запросам по конкретному агенту.
+// Не трогает /list и /create (там агент ещё не выбран / создаётся новый).
+function withAgentId(url){
+  if(!currentAgentId) return url;
+  if(typeof url !== 'string' || !url.startsWith('/api/agent')) return url;
+  if(url.includes('/api/agent/list') || url.includes('/api/agent/create')) return url;
+  if(/[?&]agent_id=/.test(url)) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'agent_id=' + encodeURIComponent(currentAgentId);
+}
+
 const CREDITS_API = '/api/credits';
 let creditsState = null;
 let creditsTimer = null;
@@ -690,6 +709,7 @@ function getToken(){ return localStorage.getItem('auth_token'); }
 async function apiFetch(url, options={}){
   const token = getToken();
   if(!token){ location.href='/static/login.html'; return; }
+  url = withAgentId(url);
   const headers = { 'Authorization':'Bearer '+token, 'Content-Type':'application/json', ...options.headers };
   const resp = await fetch(url, { ...options, headers });
   if(resp.status===401){ localStorage.removeItem('auth_token'); location.href='/static/login.html'; return; }
@@ -703,9 +723,13 @@ async function handle402(resp){
   try{ detail = (await resp.clone().json()).detail; }catch(e){}
   if(detail === 'subscription_expired'){
     loadCredits();
-    alert('Подписка истекла. Продлите её, чтобы продолжить.');
+    if(confirm('Доступ к агенту закончился. Агент доступен на тарифе Profi. Перейти к тарифам?')){
+      location.href = '/static/dashboard.html';
+    }
   } else if(detail === 'subscription_required'){
-    subscribeAgent();
+    if(confirm('Тестовый период использован. Агент доступен на тарифе Profi. Перейти к тарифам?')){
+      location.href = '/static/dashboard.html';
+    }
   } else if(detail && detail.error === 'insufficient_credits'){
     openCreditsModal();
     alert(`Недостаточно кредитов: нужно ${detail.required}, доступно ${detail.available}.`);
@@ -859,11 +883,10 @@ window.addEventListener('focus', () => { if(creditsState) loadCredits(); });
 // ── INIT ──
 document.addEventListener('DOMContentLoaded', async () => {
   if(!getToken()){ location.href='/static/login.html'; return; }
-  try{
-    const r = await apiFetch(API + '/');
-    if(r && r.status===200){ agentData = await r.json(); showDashboard(); }
-    else { showWizard(); }
-  }catch(e){ showWizard(); }
+  await initAgents();
+
+  document.getElementById('agent-selector')?.addEventListener('change', (e)=>{ selectAgent(e.target.value); });
+  document.getElementById('btn-new-agent')?.addEventListener('click', openNewAgentWizard);
 
   document.getElementById('chat-send').addEventListener('click', sendMessage);
   const inp = document.getElementById('chat-input');
@@ -878,6 +901,63 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById(id)?.addEventListener('click', function(e){ if(e.target===this) this.classList.add('hidden'); });
   });
 });
+
+// ════════════════ MULTI-AGENT (v3.1) ════════════════
+let agentsMax = 3;
+
+async function initAgents(){
+  try{
+    const r = await apiFetch(API + '/list');
+    if(!r || r.status!==200){ showWizard(); return; }
+    const data = await r.json();
+    agentsList = data.agents || [];
+    agentsMax = data.max_agents || 3;
+    agentsCanCreateMore = !!data.can_create_more;
+    if(agentsList.length === 0){ renderAgentSwitcher(); showWizard(); return; }
+    const saved = localStorage.getItem('agent_current_id');
+    currentAgentId = (saved && agentsList.some(a => String(a.id)===String(saved))) ? saved : agentsList[0].id;
+    localStorage.setItem('agent_current_id', currentAgentId);
+    renderAgentSwitcher();
+    await loadCurrentAgent();
+  }catch(e){ showWizard(); }
+}
+
+function renderAgentSwitcher(){
+  const sw = document.getElementById('agent-switcher');
+  const sel = document.getElementById('agent-selector');
+  const btn = document.getElementById('btn-new-agent');
+  if(!sw || !sel) return;
+  sel.innerHTML = agentsList.map(a =>
+    `<option value="${a.id}" ${String(a.id)===String(currentAgentId)?'selected':''}>${esc(a.name||'Агент')}</option>`
+  ).join('');
+  // Переключатель виден, если агентов больше одного или можно создать ещё.
+  sw.style.display = (agentsList.length > 1 || agentsCanCreateMore) ? 'flex' : 'none';
+  if(btn) btn.style.display = (agentsCanCreateMore && agentsList.length < agentsMax) ? 'inline-flex' : 'none';
+}
+
+async function loadCurrentAgent(){
+  const r = await apiFetch(API + '/');   // withAgentId подставит agent_id
+  if(r && r.status===200){ agentData = await r.json(); showDashboard(); }
+  else { showWizard(); }
+}
+
+async function selectAgent(id){
+  if(!id || String(id)===String(currentAgentId)) return;
+  currentAgentId = id;
+  localStorage.setItem('agent_current_id', id);
+  const msgs = document.getElementById('chat-messages');
+  if(msgs) msgs.innerHTML = '';   // чат привязан к конкретному агенту
+  await loadCurrentAgent();
+}
+
+function openNewAgentWizard(){
+  if(!agentsCanCreateMore || agentsList.length >= agentsMax){
+    showToast(`Достигнут лимит агентов (${agentsMax}).`, 'error');
+    return;
+  }
+  localStorage.removeItem('agent_wizard_v3');  // чистим черновик под нового агента
+  showWizard();
+}
 
 // ════════════════ DASHBOARD ════════════════
 function showDashboard(){
@@ -1936,17 +2016,18 @@ async function renderCreation(c){
     const r = await apiFetch(API + '/create', { method:'POST', body:JSON.stringify(body) });
     if(r && (r.status===200||r.status===201)){
       const created = await r.json().catch(()=>({}));
+      if(created && created.id) localStorage.setItem('agent_current_id', created.id);
       done('cr-docs'); await anim('cr-voice'); done('cr-voice'); await anim('cr-act'); done('cr-act');
       localStorage.removeItem('agent_wizard_v3');
       const succ = document.getElementById('cr-success');
       succ.style.display='block';
-      // ✅ Онбординг: сообщаем про trial или необходимость подписки
+      // ✅ Онбординг: сообщаем про тестовый период или необходимость тарифа
       const note = document.createElement('div');
       note.style.cssText = 'margin-top:12px;font-size:13.5px;color:var(--hint)';
       if(created.trial_activated){
-        note.innerHTML = '🎉 Вам доступен бесплатный <b>trial на 3 дня</b> и <b>1 500 кредитов</b> для тестирования оркестратора. После trial — 4 990 ₽/мес, 20 000 кредитов входит в тариф.';
+        note.innerHTML = '🎉 Вам доступен бесплатный <b>тестовый период на 3 дня</b> и <b>1 500 кредитов</b> для теста оркестратора. После теста агент доступен на тарифе <b>Profi</b> (включает кредиты).';
       } else if(created.agent_trial_used){
-        note.innerHTML = 'Для работы оркестратора нужна активная подписка Voicyfy Agent. <button class="sub-action" onclick="subscribeAgent()">Оформить за 4 990 ₽/мес</button>';
+        note.innerHTML = 'Тестовый период уже использован. Агент доступен на тарифе <b>Profi</b>. <button class="sub-action" onclick="location.href=\'/static/dashboard.html\'">Перейти к тарифам</button>';
       }
       succ.appendChild(note);
     } else {
@@ -1976,6 +2057,7 @@ function errText(detail){
     invalid_assistant_type:'Неверный тип ассистента.',
     invalid_orchestrator_model:'Неверная модель оркестратора.',
     already_exists:'Агент уже существует.',
+    agent_limit_reached:'Достигнут лимит агентов (максимум 3).',
     not_found:'Агент не найден.',
     openai_key_required:'Нужен OpenAI API ключ.',
   };

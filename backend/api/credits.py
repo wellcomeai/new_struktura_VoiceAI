@@ -129,10 +129,12 @@ async def get_balance(
         "credits_balance": user.credits_balance or 0,
         "subscription_status": user.agent_subscription_status(),
         "subscription_end_date": user.subscription_end_date.isoformat() if user.subscription_end_date else None,
-        "is_trial": bool(user.is_trial),
-        "days_remaining": user.days_until_subscription_end(),
+        "is_trial": user.agent_subscription_status() == "trial",
+        "days_remaining": user.agent_days_remaining(),
         "is_blocked": bool(user.agent_subscription_blocked),
         "trial_available": not bool(user.agent_trial_used),
+        "has_agent_access": user.has_agent_access(),
+        "is_profi_plan": user.is_profi_plan(),
     }
 
 
@@ -241,9 +243,13 @@ async def subscribe_agent(
         if activated:
             db.refresh(user)
             logger.info(f"[CREDITS] Trial activated for user {user.id} via /subscribe")
+            from datetime import timedelta
+            trial_until = None
+            if user.agent_trial_started_at:
+                trial_until = (user.agent_trial_started_at + timedelta(days=User.AGENT_TRIAL_DAYS)).isoformat()
             return {
                 "trial_activated": True,
-                "trial_until": user.subscription_end_date.isoformat() if user.subscription_end_date else None,
+                "trial_until": trial_until,
                 "credits_balance": user.credits_balance or 0,
             }
 
