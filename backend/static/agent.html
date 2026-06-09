@@ -225,6 +225,37 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .task-when { font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:6px; background:var(--green-light); color:var(--green); white-space:nowrap; }
 .task-when.soon { background:var(--amber-light); color:var(--amber); }
 
+/* ── TASKS CALENDAR MODAL ── */
+.modal-cal { max-width:880px; }
+.tcal-wrap { display:flex; gap:18px; align-items:flex-start; }
+.tcal-side { width:300px; flex-shrink:0; display:flex; flex-direction:column; }
+.tcal-main { flex:1; min-width:0; }
+.tcal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.tcal-month { font-size:15px; font-weight:600; text-transform:capitalize; }
+.tcal-nav { display:flex; gap:6px; }
+.tcal-nav button { width:32px; height:32px; border-radius:9px; background:var(--bg); border:1px solid var(--border); cursor:pointer; color:var(--muted); display:flex; align-items:center; justify-content:center; transition:var(--transition); }
+.tcal-nav button:hover { background:var(--blue-light); color:var(--blue-dark); border-color:var(--blue-border); }
+.tcal-dow { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:5px; }
+.tcal-dow span { text-align:center; font-size:10.5px; font-weight:600; color:var(--hint); text-transform:uppercase; }
+.tcal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
+.tcal-day { aspect-ratio:1; border-radius:9px; border:1px solid transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; font-size:13px; color:var(--text); background:var(--bg); transition:var(--transition); }
+.tcal-day.empty { background:transparent; }
+.tcal-day.has { cursor:pointer; font-weight:600; }
+.tcal-day.has:hover { background:var(--blue-light); border-color:var(--blue-border); }
+.tcal-day.today { border-color:var(--blue); }
+.tcal-day.sel { background:var(--blue); color:#fff; border-color:var(--blue); }
+.tcal-day.sel .tcal-badge { background:#fff; color:var(--blue-dark); }
+.tcal-badge { position:absolute; top:4px; right:4px; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--blue); color:#fff; font-size:9.5px; font-weight:700; display:flex; align-items:center; justify-content:center; line-height:1; }
+.tcal-badge.over { background:var(--amber); }
+.tcal-side-head { font-size:13px; font-weight:600; margin-bottom:4px; }
+.tcal-side-sub { font-size:11.5px; color:var(--muted); margin-bottom:10px; }
+.tcal-warn { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--amber); background:var(--amber-light); border:1px solid #FCE9C4; border-radius:9px; padding:8px 10px; margin-bottom:10px; }
+.tcal-list { max-height:340px; overflow-y:auto; padding-right:4px; }
+.tcal-more { width:100%; margin-top:8px; padding:8px; border-radius:9px; background:var(--bg); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; color:var(--blue-dark); transition:var(--transition); }
+.tcal-more:hover { background:var(--blue-light); border-color:var(--blue-border); }
+.tcal-empty { text-align:center; color:var(--hint); font-size:12.5px; padding:30px 10px; }
+@media(max-width:720px){ .tcal-wrap{ flex-direction:column; } .tcal-side{ width:100%; } .tcal-list{ max-height:240px; } }
+
 /* agent card */
 .agent-card-body { display:flex; align-items:flex-start; gap:13px; }
 .agent-avatar-lg { width:50px; height:50px; border-radius:13px; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); color:#fff; display:flex; align-items:center; justify-content:center; font-size:21px; font-weight:700; flex-shrink:0; }
@@ -553,7 +584,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <div class="card">
       <div class="card-head">
         <div class="card-head-title"><i class="far fa-calendar-check"></i> Ближайшие задачи</div>
-        <span class="card-link" onclick="quickAction('tasks')">Все задачи →</span>
+        <span class="card-link" onclick="openTasksCalendar()">Посмотреть задачи →</span>
       </div>
       <div id="tasks-list"><div class="empty">Нет задач</div></div>
     </div>
@@ -731,6 +762,41 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
     <div class="modal-header"><div class="modal-title">История звонков</div><button class="modal-close" onclick="closeCallsModal()"><i class="fas fa-times"></i></button></div>
     <div class="modal-body"><div class="empty">Загрузка...</div></div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeCallsModal()">Закрыть</button></div>
+  </div>
+</div>
+
+<!-- MODAL: Tasks calendar -->
+<div class="modal-overlay hidden" id="tasks-cal-modal-overlay">
+  <div class="modal modal-cal">
+    <div class="modal-header">
+      <div class="modal-title"><i class="far fa-calendar-alt"></i> Календарь задач</div>
+      <button class="modal-close" onclick="closeTasksCalendar()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="tcal-wrap">
+        <!-- LEFT: список задач выбранного дня -->
+        <div class="tcal-side">
+          <div class="tcal-side-head" id="tcal-side-head">Выберите день</div>
+          <div class="tcal-side-sub" id="tcal-side-sub">Дни с задачами отмечены в календаре</div>
+          <div id="tcal-side-body">
+            <div class="tcal-empty">Нажмите на день с задачами, чтобы посмотреть список</div>
+          </div>
+        </div>
+        <!-- RIGHT: календарь -->
+        <div class="tcal-main">
+          <div class="tcal-head">
+            <div class="tcal-month" id="tcal-month">—</div>
+            <div class="tcal-nav">
+              <button type="button" onclick="tcalShiftMonth(-1)" title="Предыдущий месяц"><i class="fas fa-chevron-left"></i></button>
+              <button type="button" onclick="tcalShiftMonth(1)" title="Следующий месяц"><i class="fas fa-chevron-right"></i></button>
+            </div>
+          </div>
+          <div class="tcal-dow"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div>
+          <div class="tcal-grid" id="tcal-grid"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeTasksCalendar()">Закрыть</button></div>
   </div>
 </div>
 
@@ -1393,6 +1459,155 @@ async function loadTasks(){
   }catch(e){
     document.getElementById('tasks-list').innerHTML='<div class="empty">Нет задач</div>';
   }
+}
+
+/* ── TASKS CALENDAR ── */
+const TCAL_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const TCAL_DAY_LIMIT = 5;            // порог "много задач" на один день
+let _tcalByDay = {};                 // 'YYYY-MM-DD' -> [task, ...]
+let _tcalYear = 0, _tcalMonth = 0;   // отображаемый месяц (0-based)
+let _tcalSel = null;                 // выбранный день 'YYYY-MM-DD'
+let _tcalExpanded = false;           // развёрнут ли список дня с >5 задачами
+
+function _pad2(n){ return String(n).padStart(2,'0'); }
+// 'YYYY-MM-DD' для даты задачи в МСК
+function mskDateKey(s){
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+}
+function _mskTodayKey(){
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+}
+
+async function openTasksCalendar(){
+  document.getElementById('tasks-cal-modal-overlay').classList.remove('hidden');
+  const grid = document.getElementById('tcal-grid');
+  grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px"><div class="spinner" style="margin:0 auto"></div></div>';
+  _tcalByDay = {}; _tcalSel = null; _tcalExpanded = false;
+  try{
+    const r = await apiFetch(API + '/tasks?status=scheduled&limit=500');
+    const data = (r && r.status===200) ? await r.json() : {tasks:[]};
+    (data.tasks || []).forEach(t => {
+      const k = t.scheduled_time ? mskDateKey(t.scheduled_time) : null;
+      if(!k) return;
+      (_tcalByDay[k] = _tcalByDay[k] || []).push(t);
+    });
+    // сортируем задачи внутри дня по времени
+    Object.values(_tcalByDay).forEach(arr => arr.sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time)));
+  }catch(e){ _tcalByDay = {}; }
+
+  // отображаемый месяц = текущий по МСК
+  const today = _mskTodayKey();
+  _tcalYear = parseInt(today.slice(0,4),10);
+  _tcalMonth = parseInt(today.slice(5,7),10) - 1;
+
+  // выбор по умолчанию: ближайший день с задачами (сегодня или позже), иначе первый
+  const keys = Object.keys(_tcalByDay).sort();
+  if(keys.length){
+    _tcalSel = keys.find(k => k >= today) || keys[0];
+    // показать месяц выбранного дня
+    _tcalYear = parseInt(_tcalSel.slice(0,4),10);
+    _tcalMonth = parseInt(_tcalSel.slice(5,7),10) - 1;
+  }
+  _tcalRenderGrid();
+  _tcalRenderList(_tcalSel);
+}
+function closeTasksCalendar(){ document.getElementById('tasks-cal-modal-overlay').classList.add('hidden'); }
+
+function tcalShiftMonth(delta){
+  _tcalMonth += delta;
+  if(_tcalMonth < 0){ _tcalMonth = 11; _tcalYear--; }
+  else if(_tcalMonth > 11){ _tcalMonth = 0; _tcalYear++; }
+  _tcalRenderGrid();
+}
+
+function _tcalRenderGrid(){
+  document.getElementById('tcal-month').textContent = TCAL_MONTHS[_tcalMonth] + ' ' + _tcalYear;
+  const today = _mskTodayKey();
+  const firstDow = (new Date(Date.UTC(_tcalYear,_tcalMonth,1)).getUTCDay() + 6) % 7; // Пн=0
+  const daysInMonth = new Date(Date.UTC(_tcalYear,_tcalMonth+1,0)).getUTCDate();
+  let html = '';
+  for(let i=0;i<firstDow;i++) html += '<div class="tcal-day empty"></div>';
+  for(let day=1; day<=daysInMonth; day++){
+    const key = `${_tcalYear}-${_pad2(_tcalMonth+1)}-${_pad2(day)}`;
+    const tasks = _tcalByDay[key];
+    const cls = ['tcal-day'];
+    let badge = '';
+    if(tasks && tasks.length){
+      cls.push('has');
+      const over = tasks.length > TCAL_DAY_LIMIT;
+      badge = `<span class="tcal-badge${over?' over':''}">${tasks.length}</span>`;
+    }
+    if(key === today) cls.push('today');
+    if(key === _tcalSel) cls.push('sel');
+    const onclick = (tasks && tasks.length) ? ` onclick="_tcalSelectDay('${key}')"` : '';
+    html += `<div class="${cls.join(' ')}"${onclick}>${badge}<span>${day}</span></div>`;
+  }
+  document.getElementById('tcal-grid').innerHTML = html;
+}
+
+function _tcalSelectDay(key){
+  _tcalSel = key;
+  _tcalExpanded = false;
+  _tcalRenderGrid();
+  _tcalRenderList(key);
+}
+
+function _tcalDateLabel(key){
+  // 'YYYY-MM-DD' -> '5 июня 2026, пятница'
+  const [y,m,d] = key.split('-').map(Number);
+  const dt = new Date(Date.UTC(y,m-1,d,12,0,0));
+  return new Intl.DateTimeFormat('ru-RU',{timeZone:'UTC',day:'numeric',month:'long',year:'numeric',weekday:'long'}).format(dt);
+}
+
+function _tcalTaskRow(t){
+  const tm = t.scheduled_time ? (mskParts(t.scheduled_time)||{}).time || '' : '';
+  const rel = relTime(t.scheduled_time);
+  return `<div class="task-item">
+    <div class="task-date"><div class="t" style="margin-top:0;font-size:13px">${tm}</div><div class="m">МСК</div></div>
+    <div class="task-body">
+      <div class="task-title">${esc(t.title||'Задача')}</div>
+      ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
+      <div class="task-foot">
+        <span class="task-contact">${esc(t.contact_name||'')}</span>
+        <span class="task-when ${rel.soon?'soon':''}">${rel.text}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _tcalRenderList(key){
+  const head = document.getElementById('tcal-side-head');
+  const sub  = document.getElementById('tcal-side-sub');
+  const body = document.getElementById('tcal-side-body');
+  const tasks = key ? _tcalByDay[key] : null;
+  if(!key || !tasks || !tasks.length){
+    head.textContent = key ? _tcalDateLabel(key) : 'Выберите день';
+    sub.textContent  = 'Дни с задачами отмечены в календаре';
+    body.innerHTML   = '<div class="tcal-empty">На этот день задач нет</div>';
+    return;
+  }
+  head.textContent = _tcalDateLabel(key);
+  sub.textContent  = `Задач: ${tasks.length}`;
+
+  let html = '';
+  if(tasks.length > TCAL_DAY_LIMIT){
+    html += `<div class="tcal-warn"><i class="fas fa-circle-exclamation"></i> На этот день больше ${TCAL_DAY_LIMIT} задач (${tasks.length})</div>`;
+    const shown = _tcalExpanded ? tasks : tasks.slice(0, TCAL_DAY_LIMIT);
+    html += `<div class="tcal-list">${shown.map(_tcalTaskRow).join('')}</div>`;
+    html += _tcalExpanded
+      ? `<button class="tcal-more" onclick="_tcalToggleExpand()">Свернуть</button>`
+      : `<button class="tcal-more" onclick="_tcalToggleExpand()">Показать все ${tasks.length}</button>`;
+  } else {
+    html += `<div class="tcal-list">${tasks.map(_tcalTaskRow).join('')}</div>`;
+  }
+  body.innerHTML = html;
+}
+
+function _tcalToggleExpand(){
+  _tcalExpanded = !_tcalExpanded;
+  _tcalRenderList(_tcalSel);
 }
 
 async function loadModels(){
@@ -2838,7 +3053,7 @@ function showToast(msg,type='success'){
   t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; },3500);
 }
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay','import-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','tasks-cal-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay','import-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
 </script>
 </body>
 </html>

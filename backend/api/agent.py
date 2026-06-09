@@ -778,7 +778,7 @@ async def get_orchestrator_models(
 @router.get("/tasks")
 async def list_agent_tasks(
     status: Optional[str] = Query("scheduled"),
-    limit: int = Query(10, ge=1, le=50),
+    limit: int = Query(10, ge=1, le=500),
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
