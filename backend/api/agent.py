@@ -1120,7 +1120,15 @@ async def list_agent_calls(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    q = db.query(AgentCall).filter(AgentCall.agent_config_id == agent.id)
+    # Показываем только ФИНАЛИЗИРОВАННЫЕ звонки — у которых PostCall завершился и
+    # есть достоверный результат. Промежуточные статусы ('calling' — звонок идёт,
+    # 'finalizing' — идёт пост-обработка) скрываем, чтобы в списке не появлялись
+    # звонки без подтверждённой информации.
+    FINALIZED_STATUSES = ["answered", "no_answer", "failed"]
+    q = db.query(AgentCall).filter(
+        AgentCall.agent_config_id == agent.id,
+        AgentCall.status.in_(FINALIZED_STATUSES),
+    )
     if agent_contact_id:
         q = q.filter(AgentCall.agent_contact_id == agent_contact_id)
 

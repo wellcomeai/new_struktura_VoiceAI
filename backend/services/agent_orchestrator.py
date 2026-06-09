@@ -414,11 +414,31 @@ class PostCallOrchestrator:
         return convs
 
     @staticmethod
+    def _claim_for_finalization(db, agent_call_id: str, allowed_statuses: List[str]) -> bool:
+        """
+        Атомарно «забирает» звонок под финализацию: переводит его в статус
+        'finalizing', только если текущий статус входит в allowed_statuses.
+
+        Нужно, чтобы два пути финализации (event-driven из вебхука /log и
+        таймерный резервный поллер poll_and_run) не обработали один звонок
+        дважды — они могут выполняться в разных воркерах Gunicorn, поэтому
+        блокировка делается на уровне БД одним UPDATE ... WHERE.
+
+        Возвращает True, если звонок удалось забрать (можно продолжать анализ).
+        """
+        claimed = db.query(AgentCall).filter(
+            AgentCall.id == agent_call_id,
+            AgentCall.status.in_(allowed_statuses),
+        ).update({"status": "finalizing"}, synchronize_session=False)
+        db.commit()
+        return bool(claimed)
+
+    @staticmethod
     async def poll_and_run(
         agent_call_id: str,
         agent_config_id: str,
         user_openai_key: str,
-        retries: int = 5,
+        retries: int = 20,
         delay: int = 15
     ):
         """
@@ -514,6 +534,14 @@ class PostCallOrchestrator:
                 transcript = "(Транскрипт недоступен)"
                 logger.warning(f"[AGENT-POSTCALL] No transcript found after {retries} attempts")
 
+            # ✅ Идемпотентность: забираем звонок, только если его ещё не
+            #   финализировал event-driven путь (вебхук /log). Если не удалось —
+            #   значит звонок уже обработан, выходим без повторного анализа.
+            if not PostCallOrchestrator._claim_for_finalization(db, agent_call_id, ["calling"]):
+                logger.info(f"[AGENT-POSTCALL] Call {agent_call_id} already finalized elsewhere, skipping reserve poller")
+                return
+            db.refresh(agent_call)
+
             orchestrator = PostCallOrchestrator()
             await orchestrator._analyze(
                 agent_call=agent_call,
@@ -530,6 +558,123 @@ class PostCallOrchestrator:
 
         except Exception as e:
             logger.error(f"[AGENT-POSTCALL] Fatal error: {e}", exc_info=True)
+        finally:
+            db.close()
+
+    @staticmethod
+    async def finalize_from_webhook(agent_call_id: str):
+        """
+        ✅ Event-driven финализация звонка агента.
+
+        Вызывается из вебхука Voximplant POST /log в момент, когда транскрипт
+        звонка реально сохранён в таблице conversations. В отличие от таймерного
+        poll_and_run (который сдаётся через несколько минут и не успевает за
+        длинными звонками — транскрипт пишется только ПОСЛЕ окончания разговора),
+        этот путь срабатывает ровно тогда, когда данные уже есть, независимо от
+        длительности звонка.
+
+        Открывает собственную сессию БД — безопасно для asyncio.create_task().
+        """
+        logger.info(f"[AGENT-POSTCALL] (webhook) Finalizing agent_call {agent_call_id}")
+
+        db = SessionLocal()
+        try:
+            agent_call = db.query(AgentCall).filter(AgentCall.id == agent_call_id).first()
+            if not agent_call:
+                logger.warning(f"[AGENT-POSTCALL] (webhook) AgentCall {agent_call_id} not found")
+                return
+
+            # Уже успешно финализирован — ничего не делаем.
+            if agent_call.status == "answered":
+                logger.info(f"[AGENT-POSTCALL] (webhook) call {agent_call_id} already answered, skip")
+                return
+
+            agent_config = db.query(AgentConfig).filter(
+                AgentConfig.id == agent_call.agent_config_id
+            ).first()
+            agent_contact = db.query(AgentContact).filter(
+                AgentContact.id == agent_call.agent_contact_id
+            ).first()
+            user = db.query(User).filter(User.id == agent_call.user_id).first()
+
+            if not agent_config or not agent_contact:
+                logger.warning(f"[AGENT-POSTCALL] (webhook) config/contact missing for {agent_call_id}")
+                return
+
+            # v3-агенты оркестрируются на системном ключе; v2 — только при наличии
+            # личного OpenAI-ключа юзера.
+            can_orchestrate = getattr(agent_config, "uses_hardcoded_prompt", False) or (
+                user and user.openai_api_key
+            )
+            if not can_orchestrate:
+                logger.info(f"[AGENT-POSTCALL] (webhook) agent can't orchestrate, skip {agent_call_id}")
+                return
+
+            # Собираем транскрипт из уже сохранённых conversations (по номеру + времени).
+            call_time = agent_call.started_at or agent_call.created_at
+            convs = PostCallOrchestrator._find_transcript_by_phone(
+                db=db, phone=agent_contact.phone, call_time=call_time,
+            )
+            if not convs and agent_call.call_session_id:
+                convs = db.query(Conversation).filter(
+                    Conversation.session_id == agent_call.call_session_id
+                ).all()
+
+            transcript_parts = []
+            duration_seconds = 0
+            for conv in convs:
+                if conv.client_info and isinstance(conv.client_info, dict):
+                    for turn in conv.client_info.get("dialog", []):
+                        text = turn.get("text", "")
+                        if text:
+                            label = "Агент" if turn.get("role") == "assistant" else "Клиент"
+                            transcript_parts.append(f"{label}: {text}")
+                if conv.duration_seconds:
+                    duration_seconds = max(duration_seconds, conv.duration_seconds or 0)
+
+            # Диалога ещё нет — оставляем звонок резервному поллеру.
+            if not transcript_parts:
+                logger.info(f"[AGENT-POSTCALL] (webhook) no dialog turns yet for {agent_contact.phone}, leaving to reserve poller")
+                return
+
+            # Атомарно забираем звонок. Разрешаем забрать и 'no_answer' — это даёт
+            # «апгрейд» преждевременного no_answer, если резервный поллер успел
+            # пометить его так до прихода транскрипта.
+            if not PostCallOrchestrator._claim_for_finalization(db, agent_call_id, ["calling", "no_answer"]):
+                logger.info(f"[AGENT-POSTCALL] (webhook) call {agent_call_id} already owned/finalized, skip")
+                return
+            db.refresh(agent_call)
+
+            task = None
+            if agent_call.source_task_id:
+                task = db.query(Task).filter(Task.id == agent_call.source_task_id).first()
+
+            transcript = "\n".join(transcript_parts)
+            orchestrator = PostCallOrchestrator()
+            try:
+                await orchestrator._analyze(
+                    agent_call=agent_call,
+                    agent_contact=agent_contact,
+                    agent_config=agent_config,
+                    user=user,
+                    task=task,
+                    transcript=transcript,
+                    call_status="answered",
+                    duration_seconds=duration_seconds,
+                    openai_key=(user.openai_api_key or "") if user else "",
+                    db=db,
+                )
+                logger.info(f"[AGENT-POSTCALL] (webhook) ✅ Finalized call {agent_call_id}")
+            except Exception as analyze_err:
+                # Возвращаем в 'calling', чтобы резервный поллер мог повторить.
+                logger.error(f"[AGENT-POSTCALL] (webhook) analyze failed: {analyze_err}", exc_info=True)
+                db.query(AgentCall).filter(AgentCall.id == agent_call_id).update(
+                    {"status": "calling"}, synchronize_session=False
+                )
+                db.commit()
+
+        except Exception as e:
+            logger.error(f"[AGENT-POSTCALL] (webhook) Fatal error: {e}", exc_info=True)
         finally:
             db.close()
 

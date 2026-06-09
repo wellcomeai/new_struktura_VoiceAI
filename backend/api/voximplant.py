@@ -1455,6 +1455,47 @@ async def log_conversation_data(
                     logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Не удалось запланировать отложенный пересчёт: {task_error}")
             
             # ================================================================
+            # 🆕 EVENT-DRIVEN ФИНАЛИЗАЦИЯ ЗВОНКА АГЕНТА
+            # ================================================================
+            # Транскрипт только что сохранён в conversations. Находим «висящий»
+            # AgentCall этого юзера по номеру + времени и запускаем его
+            # финализацию сразу — не дожидаясь таймерного поллера, который для
+            # длинных звонков (>~70 сек) не успевает и ошибочно ставит no_answer.
+            if (db_result
+                    and dialog and isinstance(dialog, list) and len(dialog) > 0
+                    and assistant.user_id):
+                try:
+                    from datetime import datetime, timedelta
+                    from backend.models.agent_call import AgentCall
+                    from backend.models.agent_contact import AgentContact
+                    from backend.services.agent_orchestrator import PostCallOrchestrator
+
+                    phone_suffix = (normalized_phone or "")[-10:]
+                    if phone_suffix:
+                        window_start = datetime.utcnow() - timedelta(minutes=30)
+                        pending_call = (
+                            db.query(AgentCall)
+                            .join(AgentContact, AgentContact.id == AgentCall.agent_contact_id)
+                            .filter(
+                                AgentCall.user_id == assistant.user_id,
+                                AgentCall.status.in_(["calling", "no_answer"]),
+                                AgentCall.started_at >= window_start,
+                                AgentContact.phone.like(f"%{phone_suffix}%"),
+                            )
+                            .order_by(AgentCall.started_at.desc())
+                            .first()
+                        )
+                        if pending_call:
+                            logger.info(f"[VOXIMPLANT-AGENT] 🤖 Финализируем AgentCall {pending_call.id} по транскрипту из /log")
+                            asyncio.create_task(
+                                PostCallOrchestrator.finalize_from_webhook(str(pending_call.id))
+                            )
+                        else:
+                            logger.info(f"[VOXIMPLANT-AGENT] ℹ️ Нет висящих AgentCall для номера ...{phone_suffix}")
+                except Exception as agent_fin_error:
+                    logger.warning(f"[VOXIMPLANT-AGENT] ⚠️ Ошибка event-driven финализации AgentCall: {agent_fin_error}")
+
+            # ================================================================
             # СОХРАНЕНИЕ В GOOGLE SHEETS (оригинальная логика)
             # ================================================================
             sheets_result = False
