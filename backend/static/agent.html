@@ -245,8 +245,8 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .tcal-day.has { font-weight:700; background:var(--blue-light); }
 .tcal-day.today { border-color:var(--blue); }
 .tcal-day.sel { background:var(--blue); color:#fff; border-color:var(--blue); }
-.tcal-dot { position:absolute; bottom:5px; left:50%; transform:translateX(-50%); width:5px; height:5px; border-radius:50%; background:var(--blue); }
-.tcal-day.sel .tcal-dot { background:#fff; }
+.tcal-count { position:absolute; top:3px; right:3px; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--blue); color:#fff; font-size:9.5px; font-weight:700; line-height:16px; text-align:center; box-shadow:0 1px 3px rgba(37,99,235,.30); letter-spacing:-.2px; }
+.tcal-day.sel .tcal-count { background:#fff; color:var(--blue); box-shadow:none; }
 .tcal-side-head { font-size:13px; font-weight:600; margin-bottom:4px; }
 .tcal-side-sub { font-size:11.5px; color:var(--muted); margin-bottom:10px; }
 .tcal-warn { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--amber); background:var(--amber-light); border:1px solid #FCE9C4; border-radius:9px; padding:8px 10px; margin-bottom:10px; }
@@ -1463,6 +1463,13 @@ let _tcalSel = null;                 // выбранный день 'YYYY-MM-DD'
 let _tcalExpanded = false;           // развёрнут ли список дня с >5 задачами
 
 function _pad2(n){ return String(n).padStart(2,'0'); }
+// Русский плюрал: pluralRu(2,'задача','задачи','задач') -> 'задачи'
+function pluralRu(n, one, few, many){
+  const m10 = n % 10, m100 = n % 100;
+  if(m10 === 1 && m100 !== 11) return one;
+  if(m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
 // 'YYYY-MM-DD' для даты задачи в МСК
 function mskDateKey(s){
   const d = new Date(s);
@@ -1526,14 +1533,15 @@ function _tcalRenderGrid(){
     const key = `${_tcalYear}-${_pad2(_tcalMonth+1)}-${_pad2(day)}`;
     const tasks = _tcalByDay[key];
     const cls = ['tcal-day'];
-    let dot = '';
+    let badge = '';
     if(tasks && tasks.length){
       cls.push('has');
-      dot = '<span class="tcal-dot"></span>';
+      const cnt = tasks.length > 9 ? '9+' : tasks.length;
+      badge = `<span class="tcal-count" title="${tasks.length} ${pluralRu(tasks.length,'задача','задачи','задач')}">${cnt}</span>`;
     }
     if(key === today) cls.push('today');
     if(key === _tcalSel) cls.push('sel');
-    html += `<div class="${cls.join(' ')}" onclick="_tcalSelectDay('${key}')"><span>${day}</span>${dot}</div>`;
+    html += `<div class="${cls.join(' ')}" onclick="_tcalSelectDay('${key}')"><span>${day}</span>${badge}</div>`;
   }
   document.getElementById('tcal-grid').innerHTML = html;
 }

@@ -292,11 +292,14 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
         )
         scheduled_at = adjusted
 
-    # Cancel existing SCHEDULED tasks for this contact to prevent duplicates
+    # Cancel only exact-time duplicates for this contact (same contact + same
+    # scheduled_time). Tasks scheduled for other dates/times are preserved, so
+    # a contact can have several upcoming calls planned at different moments.
     existing_tasks = db.query(Task).filter(
         Task.agent_contact_id == agent_contact_id,
         Task.status == TaskStatus.SCHEDULED,
         Task.is_agent_task == True,
+        Task.scheduled_time == scheduled_at,
     ).all()
 
     cancelled_count = 0
@@ -305,7 +308,7 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
         cancelled_count += 1
 
     if cancelled_count > 0:
-        logger.info(f"[AGENT-TOOLS] Cancelled {cancelled_count} duplicate SCHEDULED tasks for contact {agent_contact_id}")
+        logger.info(f"[AGENT-TOOLS] Cancelled {cancelled_count} duplicate SCHEDULED tasks for contact {agent_contact_id} at {scheduled_at}")
 
     # Create new task — route assistant to the correct Task FK by type
     task = Task(
