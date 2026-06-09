@@ -175,6 +175,21 @@ AGENT_CHAT_TOOLS = [
             "properties": {},
         },
     },
+    {
+        "type": "function",
+        "name": "delete_agent_task",
+        "description": "Удалить задачу на звонок по её ID. Используй когда пользователь просит удалить, убрать или отменить запланированный звонок/задачу. Сначала вызови get_agent_tasks, чтобы найти нужный task_id. Удаление необратимо — задача исчезает из календаря и не будет выполнена планировщиком.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "UUID задачи, которую нужно удалить",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
     UPDATE_CONTACT_INFO_TOOL,
 ]
 
@@ -500,6 +515,34 @@ async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
+async def fn_delete_agent_task(args: dict, user_id: str, db: Session) -> dict:
+    """Удалить задачу агента по ID.
+
+    Hard-delete (как delete_agent_contact). Скоупится по user_id + is_agent_task,
+    чтобы агент не мог удалить чужую или не-агентскую задачу.
+    """
+    task_id = args.get("task_id")
+    if not task_id:
+        return {"ok": False, "error": "task_id is required"}
+
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.user_id == user_id,
+        Task.is_agent_task == True,
+    ).first()
+
+    if not task:
+        logger.warning(f"[AGENT-TOOLS] delete_agent_task: task {task_id} not found for user {user_id}")
+        return {"ok": False, "error": "Task not found"}
+
+    title = task.title
+    db.delete(task)
+    db.commit()
+
+    logger.info(f"[AGENT-TOOLS] Deleted agent task {task_id} ('{title}') for user {user_id}")
+    return {"ok": True, "deleted": True, "task_id": str(task_id), "title": title}
+
+
 async def fn_get_agent_stats(args: dict, user_id: str, db: Session) -> dict:
     total_contacts = db.query(func.count(AgentContact.id)).filter(
         AgentContact.user_id == user_id
@@ -597,6 +640,7 @@ _TOOL_MAP = {
     "get_agent_contacts": "fn_get_agent_contacts",
     "get_contact_call_history": "fn_get_contact_call_history",
     "get_agent_tasks": "fn_get_agent_tasks",
+    "delete_agent_task": "fn_delete_agent_task",
     "get_agent_stats": "fn_get_agent_stats",
     "send_telegram_notification": "fn_send_telegram_notification",
 }
@@ -628,6 +672,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_contact_call_history(tool_args, db)
         elif tool_name == "get_agent_tasks":
             result = await fn_get_agent_tasks(tool_args, user_id, db)
+        elif tool_name == "delete_agent_task":
+            result = await fn_delete_agent_task(tool_args, user_id, db)
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, db)
         elif tool_name == "send_telegram_notification":
