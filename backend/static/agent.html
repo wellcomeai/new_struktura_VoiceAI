@@ -312,6 +312,18 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .calls-table td { padding:11px; border-bottom:1px solid var(--border-soft); }
 .calls-table tr:last-child td { border-bottom:none; }
 .status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:6px; font-size:11px; font-weight:600; }
+/* ── Канбан воронки ── */
+.modal-pipeline { max-width:96vw; width:96vw; }
+.pl-board { display:flex; gap:12px; overflow-x:auto; padding-bottom:6px; min-height:300px; }
+.pl-col { flex:0 0 230px; background:var(--bg); border-radius:10px; display:flex; flex-direction:column; max-height:68vh; }
+.pl-col.pl-over { outline:2px dashed #3B82F6; outline-offset:-2px; }
+.pl-col-head { padding:10px 12px; display:flex; justify-content:space-between; align-items:center; font-size:13px; border-top-left-radius:10px; border-top-right-radius:10px; }
+.pl-count { background:var(--white); border:1px solid var(--border); border-radius:10px; padding:1px 8px; font-size:11px; color:var(--muted); }
+.pl-col-body { padding:0 8px 8px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; flex:1; }
+.pl-card { background:var(--white); border:1px solid var(--border); border-radius:8px; padding:9px 10px; cursor:grab; transition:box-shadow .12s; }
+.pl-card:hover { box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+.pl-card.dragging { opacity:.45; }
+.pl-empty { font-size:11px; color:var(--hint); text-align:center; padding:12px 0; }
 .badge-no-answer { background:var(--red-light); color:var(--red); }
 .badge-answered, .badge-success { background:var(--green-light); color:var(--green); }
 .badge-followup { background:var(--blue-light); color:var(--blue-dark); }
@@ -515,6 +527,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <div class="stat-num" id="stat-contacts">—</div>
         <div class="stat-label">Контакты</div>
         <div style="display:flex;gap:10px;margin-top:7px;flex-wrap:wrap">
+          <span class="stat-go" onclick="openPipelineModal()">Воронка →</span>
           <span class="stat-go" onclick="openContactsListModal()">Все →</span>
           <span class="stat-go" onclick="openAddContactModal()">Добавить →</span>
           <span class="stat-go" onclick="openImportModal()">Импорт →</span>
@@ -835,6 +848,23 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
   </div>
 </div>
 
+<!-- MODAL: Pipeline (kanban) -->
+<div class="modal-overlay hidden" id="pipeline-modal-overlay">
+  <div class="modal modal-pipeline">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-stream"></i> Воронка контактов <span style="color:var(--hint);font-weight:400;font-size:13px">· перетащите карточку, чтобы сменить стадию</span></div>
+      <button class="modal-close" onclick="closePipelineModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="pl-board" id="pipeline-board"><div class="empty">Загрузка...</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary btn-sm" onclick="loadPipeline()"><i class="fas fa-rotate"></i> Обновить</button>
+      <button class="btn btn-secondary" onclick="closePipelineModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Import contacts (3 steps) -->
 <div class="modal-overlay hidden" id="import-modal-overlay">
   <div class="modal modal-lg">
@@ -931,6 +961,21 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
 <script>
 const API = '/api/agent';
+
+// Стадии воронки — зеркало backend/core/pipeline_stages.py (фиксированный набор).
+const STAGE_META = {
+  new:         { label:'Новый',      color:'#6B7280' },
+  calling:     { label:'Дозвон',     color:'#F59E0B' },
+  active:      { label:'В работе',   color:'#3B82F6' },
+  success:     { label:'Успех',      color:'#10B981' },
+  rejected:    { label:'Отказ',      color:'#EF4444' },
+  do_not_call: { label:'Не звонить', color:'#1F2937' },
+};
+const STAGE_ORDER = ['new','calling','active','success','rejected','do_not_call'];
+function stageBadge(status){
+  const m = STAGE_META[status] || { label: status || '—', color:'#6B7280' };
+  return `<span class="status-badge" style="background:${m.color}22;color:${m.color}">${esc(m.label)}</span>`;
+}
 const TG_API = '/api/agent/telegram';
 let agentData = null;
 let orchestratorModels = [];
@@ -2603,13 +2648,14 @@ async function loadContactsList(search){
     }
     body.innerHTML = `
       <table class="calls-table">
-        <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Попыток</th><th>Последний звонок</th><th></th></tr></thead>
+        <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Стадия</th><th>Попыток</th><th>Последний звонок</th><th></th></tr></thead>
         <tbody>
           ${data.contacts.map(c => `
             <tr style="cursor:pointer" onclick="openContactDetailsModal('${c.id}')">
               <td style="font-weight:600">${esc(c.name || '—')}</td>
               <td style="color:var(--muted)">${esc(c.phone)}</td>
               <td style="color:var(--muted)">${esc(c.company || '—')}</td>
+              <td>${stageBadge(c.status)}</td>
               <td style="color:var(--muted)">${c.attempts_count || 0}</td>
               <td style="color:var(--muted)">${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</td>
               <td style="text-align:right;white-space:nowrap"><span class="btn btn-secondary btn-sm" style="pointer-events:none"><i class="fas fa-eye"></i> Смотреть инфо</span></td>
@@ -2665,7 +2711,11 @@ function renderContactDetails(c){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:12.5px">
       <div><b>Телефон:</b> ${esc(c.phone)}</div>
       <div><b>Попыток:</b> ${c.attempts_count || 0}</div>
-      <div><b>Статус:</b> ${esc(c.status)}</div>
+      <div style="display:flex;align-items:center;gap:8px"><b>Стадия:</b>
+        <select id="cd-stage" onchange="changeContactStage('${c.id}', this.value)" class="form-input" style="display:inline-block;width:auto;padding:2px 8px;font-size:12px">
+          ${STAGE_ORDER.map(s => `<option value="${s}" ${s === c.status ? 'selected' : ''}>${STAGE_META[s].label}</option>`).join('')}
+        </select>
+      </div>
       <div><b>Последний звонок:</b> ${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</div>
     </div>
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px">
@@ -2731,6 +2781,90 @@ async function deleteContactFromModal(contactId, label){
       showToast('Ошибка удаления', 'error');
     }
   }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
+// ── Смена стадии контакта (PATCH /contacts/{id}/status) ──
+async function changeContactStage(contactId, stage){
+  try{
+    const r = await apiFetch(API + '/contacts/' + contactId + '/status', {
+      method:'PATCH', body: JSON.stringify({ status: stage }),
+    });
+    if(r && r.status === 200){
+      showToast('Стадия обновлена', 'success');
+      if(typeof loadStats === 'function') loadStats();
+      return true;
+    }
+    showToast('Не удалось обновить стадию', 'error');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+  return false;
+}
+
+// ── Канбан воронки ──
+async function openPipelineModal(){
+  document.getElementById('pipeline-modal-overlay').classList.remove('hidden');
+  await loadPipeline();
+}
+function closePipelineModal(){
+  document.getElementById('pipeline-modal-overlay').classList.add('hidden');
+}
+
+async function loadPipeline(){
+  const wrap = document.getElementById('pipeline-board');
+  wrap.innerHTML = '<div class="empty">Загрузка...</div>';
+  try{
+    const r = await apiFetch(API + '/contacts?limit=200&offset=0');
+    if(!r || r.status !== 200){ wrap.innerHTML = '<div class="empty">Ошибка</div>'; return; }
+    const data = await r.json();
+    const groups = {};
+    STAGE_ORDER.forEach(s => groups[s] = []);
+    (data.contacts || []).forEach(c => { (groups[c.status] || (groups[c.status] = [])).push(c); });
+    wrap.innerHTML = STAGE_ORDER.map(s => {
+      const m = STAGE_META[s];
+      const cards = groups[s].length
+        ? groups[s].map(pipelineCard).join('')
+        : '<div class="pl-empty">Пусто</div>';
+      return `
+        <div class="pl-col" data-stage="${s}" ondragover="plDragOver(event)" ondragleave="plDragLeave(event)" ondrop="plDrop(event)">
+          <div class="pl-col-head" style="border-top:3px solid ${m.color}">
+            <span style="font-weight:600">${m.label}</span>
+            <span class="pl-count">${groups[s].length}</span>
+          </div>
+          <div class="pl-col-body">${cards}</div>
+        </div>`;
+    }).join('');
+  }catch(e){ wrap.innerHTML = '<div class="empty">Ошибка сети</div>'; }
+}
+
+function pipelineCard(c){
+  return `
+    <div class="pl-card" draggable="true" data-id="${c.id}"
+         ondragstart="plDragStart(event)" ondragend="plDragEnd(event)"
+         onclick="openContactDetailsModal('${c.id}')">
+      <div style="font-weight:600;font-size:12.5px">${esc(c.name || c.phone)}</div>
+      <div style="font-size:11px;color:var(--muted)">${esc(c.phone)}</div>
+      ${c.company ? `<div style="font-size:11px;color:var(--muted)">${esc(c.company)}</div>` : ''}
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Попыток: ${c.attempts_count || 0}${c.last_called_at ? ' · ' + fmtDate(c.last_called_at) : ''}</div>
+    </div>`;
+}
+
+let plDragId = null;
+function plDragStart(e){
+  plDragId = e.currentTarget.dataset.id;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+function plDragEnd(e){ e.currentTarget.classList.remove('dragging'); }
+function plDragOver(e){ e.preventDefault(); e.currentTarget.classList.add('pl-over'); }
+function plDragLeave(e){ e.currentTarget.classList.remove('pl-over'); }
+async function plDrop(e){
+  e.preventDefault();
+  const col = e.currentTarget;
+  col.classList.remove('pl-over');
+  const stage = col.dataset.stage;
+  const id = plDragId; plDragId = null;
+  if(!id) return;
+  const ok = await changeContactStage(id, stage);
+  if(ok) loadPipeline();
 }
 
 async function deleteAgent(){

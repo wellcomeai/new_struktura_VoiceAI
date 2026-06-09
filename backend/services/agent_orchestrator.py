@@ -36,6 +36,7 @@ from backend.services.agent_tools import (
 )
 from backend.services.agent_prompts import build_orchestrator_prompt
 from backend.services.openrouter_client import get_openrouter_client
+from backend.core.pipeline_stages import stage_from_decision
 from backend.services.credit_service import (
     CreditService,
     InsufficientCreditsError,
@@ -570,12 +571,18 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
 Проанализируй звонок и выполни необходимые действия через tools:
 1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
-2. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ случая
+2. ОБЯЗАТЕЛЬНО вызови move_contact_stage — переведи контакт на стадию воронки
+   по итогу звонка:
+   - цель достигнута / клиент согласился → success
+   - явный отказ → rejected
+   - просил больше не звонить → do_not_call
+   - продолжаем работу / договорились о следующем шаге / не дозвонились → active
+3. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ случая
    когда цель звонка уже достигнута (тогда перезвон не нужен).
    - Если клиент ответил и цель НЕ достигнута / попросил перезвонить — перезвони
      через разумное время (1-3 дня).
    - Если не ответил — перезвони через 24 часа.
-3. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification."""
+4. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification."""
 
     async def _analyze(
         self,
@@ -657,6 +664,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             client = get_openrouter_client()
             post_call_decision = None
             created_task = False
+            stage_moved_by_tool = False
             max_iterations = 10
             iteration = 0
 
@@ -715,6 +723,13 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                         except Exception:
                             pass
 
+                    if tool_name == "move_contact_stage":
+                        try:
+                            if json.loads(result_str).get("ok"):
+                                stage_moved_by_tool = True
+                        except Exception:
+                            pass
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.get("id"),
@@ -746,8 +761,11 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
-            if agent_contact.status == "calling":
-                agent_contact.status = "active"
+            # Обязательная стадия воронки: если оркестратор не двинул контакт
+            # тулзой move_contact_stage — применяем детерминированный маппинг
+            # от post_call_decision (стадия проставляется ВСЕГДА).
+            if not stage_moved_by_tool:
+                agent_contact.status = stage_from_decision(post_call_decision, agent_contact.status)
 
             if task:
                 task.post_call_decision = post_call_decision
@@ -755,7 +773,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
             flag_modified(agent_contact, 'memory')
             db.commit()
-            logger.info(f"[AGENT-POSTCALL] (v3) ✅ Call {agent_call.id} completed: {post_call_decision} ({len(tool_calls_log)} tool calls)")
+            logger.info(f"[AGENT-POSTCALL] (v3) ✅ Call {agent_call.id} completed: {post_call_decision} ({len(tool_calls_log)} tool calls), stage={agent_contact.status}")
 
         except Exception as e:
             logger.error(f"[AGENT-POSTCALL] (v3) Analysis error: {e}", exc_info=True)
@@ -773,6 +791,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.duration_seconds = int(duration_seconds)
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
+            # Обязательная стадия воронки даже при ошибке анализа.
+            agent_contact.status = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
             if task:
                 task.post_call_decision = agent_call.post_call_decision
                 task.status = TaskStatus.COMPLETED
@@ -843,6 +863,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             }
 
             post_call_decision = None
+            stage_moved_by_tool = False
             while True:
                 has_tool_calls = False
                 tool_results = []
@@ -884,6 +905,13 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                                 pass
                             if not post_call_decision:
                                 post_call_decision = "FOLLOWUP"
+
+                        if tool_name == "move_contact_stage":
+                            try:
+                                if json.loads(result_str).get("ok"):
+                                    stage_moved_by_tool = True
+                            except Exception:
+                                pass
 
                         tool_results.append({
                             "type": "function_call_output",
@@ -939,8 +967,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             # Update AgentContact
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
-            if agent_contact.status == "calling":
-                agent_contact.status = "active"
+            # Обязательная стадия воронки: если оркестратор не двинул контакт
+            # тулзой move_contact_stage — применяем детерминированный маппинг.
+            if not stage_moved_by_tool:
+                agent_contact.status = stage_from_decision(post_call_decision, agent_contact.status)
 
             if task:
                 task.post_call_decision = post_call_decision
@@ -948,7 +978,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
             flag_modified(agent_contact, 'memory')
             db.commit()
-            logger.info(f"[AGENT-POSTCALL] ✅ Call {agent_call.id} completed: {post_call_decision}")
+            logger.info(f"[AGENT-POSTCALL] ✅ Call {agent_call.id} completed: {post_call_decision}, stage={agent_contact.status}")
             logger.info(f"[AGENT-POSTCALL] postcall_log saved: {len(tool_calls_log)} tool calls")
 
         except Exception as e:
@@ -969,6 +999,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.duration_seconds = int(duration_seconds)
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
+            # Обязательная стадия воронки даже при ошибке анализа.
+            agent_contact.status = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
             if task:
                 task.post_call_decision = agent_call.post_call_decision
                 task.status = TaskStatus.COMPLETED

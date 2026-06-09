@@ -19,8 +19,37 @@ from backend.models.task import Task, TaskStatus
 from backend.models.user import User
 from backend.services.telegram_notification import TelegramNotificationService
 from backend.core.timezone_utils import adjust_to_working_hours
+from backend.core.pipeline_stages import AGENT_CONTACT_STAGE_KEYS, is_valid_stage
 
 logger = get_logger(__name__)
+
+
+# Тулза доступна и в чате, и в post-call анализе — определяем один раз.
+MOVE_CONTACT_STAGE_TOOL = {
+    "type": "function",
+    "name": "move_contact_stage",
+    "description": (
+        "Перевести контакт на стадию воронки продаж. Доступные стадии: "
+        "new (новый), calling (идёт дозвон), active (в работе), "
+        "success (успех — цель звонка достигнута), rejected (явный отказ), "
+        "do_not_call (просил больше не звонить). В post-call анализе ОБЯЗАТЕЛЬНО "
+        "вызови этот tool, чтобы перевести контакт на стадию, соответствующую "
+        "итогу звонка."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта"},
+            "stage": {
+                "type": "string",
+                "enum": AGENT_CONTACT_STAGE_KEYS,
+                "description": "Ключ стадии воронки",
+            },
+            "reason": {"type": "string", "description": "Краткая причина перевода (опционально)"},
+        },
+        "required": ["agent_contact_id", "stage"],
+    },
+}
 
 
 # Тулза доступна и в чате, и в post-call анализе — определяем один раз.
@@ -191,6 +220,7 @@ AGENT_CHAT_TOOLS = [
         },
     },
     UPDATE_CONTACT_INFO_TOOL,
+    MOVE_CONTACT_STAGE_TOOL,
 ]
 
 
@@ -243,6 +273,7 @@ AGENT_POSTCALL_TOOLS = [
         },
     },
     UPDATE_CONTACT_INFO_TOOL,
+    MOVE_CONTACT_STAGE_TOOL,
 ]
 
 
@@ -394,6 +425,36 @@ async def fn_update_contact_info(args: dict, user_id: str, db: Session) -> dict:
     db.commit()
     logger.info(f"[AGENT-TOOLS] Updated contact {agent_contact_id} fields: {updated_fields}")
     return {"ok": True, "contact_id": str(agent_contact_id), "updated_fields": updated_fields}
+
+
+async def fn_move_contact_stage(args: dict, user_id: str, db: Session) -> dict:
+    """
+    Перевести контакт на стадию воронки (status). Скоупится по user_id, чтобы
+    агент/чат не мог тронуть чужой контакт. Валидирует стадию по единому
+    справочнику pipeline_stages.
+    """
+    agent_contact_id = args.get("agent_contact_id")
+    stage = args.get("stage")
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+    if not is_valid_stage(stage):
+        return {"ok": False, "error": f"invalid_stage: {stage}"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    old_stage = contact.status
+    contact.status = stage
+    db.commit()
+    logger.info(
+        f"[AGENT-TOOLS] Moved contact {agent_contact_id} stage {old_stage} -> {stage} "
+        f"(reason: {args.get('reason', '')})"
+    )
+    return {"ok": True, "contact_id": str(agent_contact_id), "old_stage": old_stage, "stage": stage}
 
 
 async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
@@ -640,6 +701,7 @@ _TOOL_MAP = {
     "create_agent_task": "fn_create_agent_task",
     "update_contact_memory": "fn_update_contact_memory",
     "update_contact_info": "fn_update_contact_info",
+    "move_contact_stage": "fn_move_contact_stage",
     "get_agent_contacts": "fn_get_agent_contacts",
     "get_contact_call_history": "fn_get_contact_call_history",
     "get_agent_tasks": "fn_get_agent_tasks",
@@ -669,6 +731,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_update_contact_memory(tool_args, db)
         elif tool_name == "update_contact_info":
             result = await fn_update_contact_info(tool_args, user_id, db)
+        elif tool_name == "move_contact_stage":
+            result = await fn_move_contact_stage(tool_args, user_id, db)
         elif tool_name == "get_agent_contacts":
             result = await fn_get_agent_contacts(tool_args, user_id, db)
         elif tool_name == "get_contact_call_history":

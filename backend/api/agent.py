@@ -30,6 +30,7 @@ from backend.models.contact import Contact
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
 from backend.core.dependencies import get_current_user
+from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt
 from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
 from backend.services.agent_tools import assistant_task_kwargs
@@ -103,6 +104,10 @@ class AgentContactUpdateRequest(BaseModel):
     company: Optional[str] = Field(None, max_length=255)
     position: Optional[str] = Field(None, max_length=255)
     notes: Optional[str] = None
+
+
+class AgentContactStatusRequest(BaseModel):
+    status: str = Field(..., min_length=1, max_length=50)
 
 
 class ImportExecuteRequest(BaseModel):
@@ -1062,6 +1067,38 @@ async def delete_agent_contact(
 
     logger.info(f"[AGENT] Deleted contact {contact_id}")
     return {"detail": "deleted"}
+
+
+@router.get("/pipeline/stages")
+async def get_pipeline_stages(current_user: User = Depends(get_current_user)):
+    """Справочник стадий воронки (фиксированный набор) — для канбана на фронте."""
+    return {"stages": AGENT_CONTACT_STAGES}
+
+
+@router.patch("/contacts/{contact_id}/status")
+async def update_agent_contact_status(
+    contact_id: str,
+    body: AgentContactStatusRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ручной перевод контакта на стадию воронки (drag-drop в канбане / select в карточке)."""
+    if not is_valid_stage(body.status):
+        raise HTTPException(status_code=400, detail="invalid_stage")
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    old_stage = contact.status
+    contact.status = body.status
+    db.commit()
+    db.refresh(contact)
+    logger.info(f"[AGENT] Contact {contact_id} stage {old_stage} -> {body.status} (manual)")
+    return contact.to_dict()
 
 
 # ============================================================================
