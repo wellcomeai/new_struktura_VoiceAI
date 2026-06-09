@@ -826,6 +826,28 @@ async def list_agent_tasks(
     return {"total": len(result), "tasks": result}
 
 
+@router.delete("/tasks/{task_id}")
+async def delete_agent_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a single agent task (manual removal from the calendar)."""
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    db.delete(task)
+    db.commit()
+
+    logger.info(f"[AGENT] Deleted task {task_id} for user {current_user.id}")
+    return {"detail": "deleted"}
+
+
 # ============================================================================
 # ENDPOINTS — PHONE NUMBERS
 # ============================================================================

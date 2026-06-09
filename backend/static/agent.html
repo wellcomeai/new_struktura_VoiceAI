@@ -223,6 +223,8 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .task-contact { font-size:11px; color:var(--muted); }
 .task-when { font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:6px; background:var(--green-light); color:var(--green); white-space:nowrap; }
 .task-when.soon { background:var(--amber-light); color:var(--amber); }
+.task-del { flex-shrink:0; align-self:center; width:30px; height:30px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; transition:var(--transition); }
+.task-del:hover { background:var(--red-light); border-color:#F5C2C2; color:var(--red); }
 
 /* ── TASKS CALENDAR MODAL ── */
 .modal-cal { max-width:880px; }
@@ -237,15 +239,14 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .tcal-dow { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-bottom:5px; }
 .tcal-dow span { text-align:center; font-size:10.5px; font-weight:600; color:var(--hint); text-transform:uppercase; }
 .tcal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
-.tcal-day { aspect-ratio:1; border-radius:9px; border:1px solid transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; font-size:13px; color:var(--text); background:var(--bg); transition:var(--transition); }
-.tcal-day.empty { background:transparent; }
-.tcal-day.has { cursor:pointer; font-weight:600; }
-.tcal-day.has:hover { background:var(--blue-light); border-color:var(--blue-border); }
+.tcal-day { aspect-ratio:1; border-radius:9px; border:1px solid transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; font-size:13px; color:var(--text); background:var(--bg); cursor:pointer; transition:var(--transition); }
+.tcal-day.empty { background:transparent; cursor:default; }
+.tcal-day:not(.empty):hover { background:var(--blue-light); border-color:var(--blue-border); }
+.tcal-day.has { font-weight:700; background:var(--blue-light); }
 .tcal-day.today { border-color:var(--blue); }
 .tcal-day.sel { background:var(--blue); color:#fff; border-color:var(--blue); }
-.tcal-day.sel .tcal-badge { background:#fff; color:var(--blue-dark); }
-.tcal-badge { position:absolute; top:4px; right:4px; min-width:16px; height:16px; padding:0 4px; border-radius:8px; background:var(--blue); color:#fff; font-size:9.5px; font-weight:700; display:flex; align-items:center; justify-content:center; line-height:1; }
-.tcal-badge.over { background:var(--amber); }
+.tcal-dot { position:absolute; bottom:5px; left:50%; transform:translateX(-50%); width:5px; height:5px; border-radius:50%; background:var(--blue); }
+.tcal-day.sel .tcal-dot { background:#fff; }
 .tcal-side-head { font-size:13px; font-weight:600; margin-bottom:4px; }
 .tcal-side-sub { font-size:11.5px; color:var(--muted); margin-bottom:10px; }
 .tcal-warn { display:flex; align-items:center; gap:7px; font-size:11.5px; font-weight:600; color:var(--amber); background:var(--amber-light); border:1px solid #FCE9C4; border-radius:9px; padding:8px 10px; margin-bottom:10px; }
@@ -1525,16 +1526,14 @@ function _tcalRenderGrid(){
     const key = `${_tcalYear}-${_pad2(_tcalMonth+1)}-${_pad2(day)}`;
     const tasks = _tcalByDay[key];
     const cls = ['tcal-day'];
-    let badge = '';
+    let dot = '';
     if(tasks && tasks.length){
       cls.push('has');
-      const over = tasks.length > TCAL_DAY_LIMIT;
-      badge = `<span class="tcal-badge${over?' over':''}">${tasks.length}</span>`;
+      dot = '<span class="tcal-dot"></span>';
     }
     if(key === today) cls.push('today');
     if(key === _tcalSel) cls.push('sel');
-    const onclick = (tasks && tasks.length) ? ` onclick="_tcalSelectDay('${key}')"` : '';
-    html += `<div class="${cls.join(' ')}"${onclick}>${badge}<span>${day}</span></div>`;
+    html += `<div class="${cls.join(' ')}" onclick="_tcalSelectDay('${key}')"><span>${day}</span>${dot}</div>`;
   }
   document.getElementById('tcal-grid').innerHTML = html;
 }
@@ -1553,7 +1552,7 @@ function _tcalDateLabel(key){
   return new Intl.DateTimeFormat('ru-RU',{timeZone:'UTC',day:'numeric',month:'long',year:'numeric',weekday:'long'}).format(dt);
 }
 
-function _tcalTaskRow(t){
+function _tcalTaskRow(t, key){
   const tm = t.scheduled_time ? (mskParts(t.scheduled_time)||{}).time || '' : '';
   const rel = relTime(t.scheduled_time);
   return `<div class="task-item">
@@ -1566,7 +1565,25 @@ function _tcalTaskRow(t){
         <span class="task-when ${rel.soon?'soon':''}">${rel.text}</span>
       </div>
     </div>
+    <button class="task-del" title="Удалить задачу" onclick="_tcalDeleteTask('${t.id}','${key}')"><i class="fas fa-trash-alt"></i></button>
   </div>`;
+}
+
+async function _tcalDeleteTask(id, key){
+  if(!confirm('Удалить эту задачу? Запланированный звонок не будет выполнен.')) return;
+  try{
+    const r = await apiFetch(API + '/tasks/' + id, { method:'DELETE' });
+    if(!r || (r.status!==200 && r.status!==204)){ showToast('Не удалось удалить задачу','error'); return; }
+    // убираем из локального кэша и перерисовываем
+    if(_tcalByDay[key]){
+      _tcalByDay[key] = _tcalByDay[key].filter(t => String(t.id) !== String(id));
+      if(!_tcalByDay[key].length) delete _tcalByDay[key];
+    }
+    _tcalRenderGrid();
+    _tcalRenderList(key);
+    loadTasks();   // обновляем виджет "Ближайшие задачи"
+    showToast('Задача удалена','success');
+  }catch(e){ showToast('Ошибка сети','error'); }
 }
 
 function _tcalRenderList(key){
@@ -1587,12 +1604,12 @@ function _tcalRenderList(key){
   if(tasks.length > TCAL_DAY_LIMIT){
     html += `<div class="tcal-warn"><i class="fas fa-circle-exclamation"></i> На этот день больше ${TCAL_DAY_LIMIT} задач (${tasks.length})</div>`;
     const shown = _tcalExpanded ? tasks : tasks.slice(0, TCAL_DAY_LIMIT);
-    html += `<div class="tcal-list">${shown.map(_tcalTaskRow).join('')}</div>`;
+    html += `<div class="tcal-list">${shown.map(t=>_tcalTaskRow(t,key)).join('')}</div>`;
     html += _tcalExpanded
       ? `<button class="tcal-more" onclick="_tcalToggleExpand()">Свернуть</button>`
       : `<button class="tcal-more" onclick="_tcalToggleExpand()">Показать все ${tasks.length}</button>`;
   } else {
-    html += `<div class="tcal-list">${tasks.map(_tcalTaskRow).join('')}</div>`;
+    html += `<div class="tcal-list">${tasks.map(t=>_tcalTaskRow(t,key)).join('')}</div>`;
   }
   body.innerHTML = html;
 }
