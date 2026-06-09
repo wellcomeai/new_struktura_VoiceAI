@@ -151,7 +151,7 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "get_agent_tasks",
-        "description": "Получить список задач на звонки. Использовать когда пользователь спрашивает о запланированных звонках, расписании, следующих задачах. Также вызывать ПЕРЕД созданием новой задачи чтобы проверить дубли.",
+        "description": "Получить список задач на звонки. Использовать когда пользователь спрашивает о запланированных звонках, расписании, следующих задачах. Также вызывать ПЕРЕД созданием новой задачи чтобы проверить дубли. Для количества задач по статусам опирайся на поля status_counts и scheduled_count из ответа (точные счётчики по всей выборке), а не пересчитывай массив tasks — он ограничен лимитом.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -426,28 +426,71 @@ async def fn_get_contact_call_history(args: dict, db: Session) -> dict:
 
 
 async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
-    """Получить задачи агента с опциональными фильтрами."""
-    q = db.query(Task).filter(
+    """Получить задачи агента с опциональными фильтрами.
+
+    Согласовано с эндпоинтом календаря (GET /api/agent/tasks): INNER JOIN с
+    AgentContact, чтобы не считать «осиротевшие» задачи (agent_contact_id=NULL
+    после ON DELETE SET NULL), которых нет в UI.
+
+    Помимо списка задач возвращает status_counts — агрегированные счётчики по
+    статусам по ВСЕЙ выборке. Это надёжный источник правды о количестве
+    scheduled-задач, который не зависит от лимита выдачи строк (раньше при
+    LIMIT 20 + ORDER BY scheduled_time ASC будущие scheduled-задачи отсекались
+    старыми завершёнными, и агент видел «0 запланированных»).
+    """
+    # Базовый фильтр — общий для счётчиков и для списка строк.
+    base_filters = [
         Task.user_id == user_id,
         Task.is_agent_task == True,
-    )
-
+    ]
     if args.get("agent_contact_id"):
-        q = q.filter(Task.agent_contact_id == args["agent_contact_id"])
+        base_filters.append(Task.agent_contact_id == args["agent_contact_id"])
 
+    # Приводим строковый статус к enum (как в /api/agent/tasks). Невалидный
+    # статус не роняем — просто игнорируем фильтр.
+    status_filter = None
     if args.get("status_filter"):
-        q = q.filter(Task.status == args["status_filter"])
+        try:
+            status_filter = TaskStatus(args["status_filter"])
+        except ValueError:
+            logger.warning(f"[AGENT-TOOLS] Invalid status_filter: {args['status_filter']!r}, ignoring")
 
-    tasks = q.order_by(Task.scheduled_time.asc()).limit(20).all()
+    # Агрегированные счётчики по статусам по всей выборке (без лимита).
+    count_q = db.query(Task.status, func.count(Task.id)).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(*base_filters)
+    if status_filter is not None:
+        count_q = count_q.filter(Task.status == status_filter)
+    status_counts = {
+        (st.value if hasattr(st, "value") else st): cnt
+        for st, cnt in count_q.group_by(Task.status).all()
+    }
+    total = sum(status_counts.values())
+
+    # Список строк: scheduled-задачи первыми, затем по времени — чтобы будущие
+    # запланированные звонки не отсекались лимитом.
+    q = db.query(Task).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(*base_filters)
+    if status_filter is not None:
+        q = q.filter(Task.status == status_filter)
+
+    tasks = q.order_by(
+        (Task.status == TaskStatus.SCHEDULED).desc(),
+        Task.scheduled_time.asc(),
+    ).limit(50).all()
 
     return {
         "ok": True,
         "count": len(tasks),
+        "total": total,
+        "status_counts": status_counts,
+        "scheduled_count": status_counts.get(TaskStatus.SCHEDULED.value, 0),
         "tasks": [
             {
                 "id": str(t.id),
                 "title": t.title,
-                "status": t.status.value,
+                "status": t.status.value if hasattr(t.status, "value") else t.status,
                 "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
                 "description": t.description,
                 "agent_contact_id": str(t.agent_contact_id) if t.agent_contact_id else None,
