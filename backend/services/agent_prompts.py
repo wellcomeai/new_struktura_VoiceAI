@@ -3,6 +3,10 @@
 Используются только для агентов с uses_hardcoded_prompt = TRUE.
 """
 
+from backend.core.timezone_utils import now_msk, now_utc
+
+_WEEKDAYS_RU = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+
 # ============================================================================
 # ПРОМПТ ОРКЕСТРАТОРА (для PreCall, PostCall, Chat)
 # ============================================================================
@@ -68,12 +72,39 @@ VOICE_AGENT_PROMPT_BASE = """Ты — голосовой AI-агент. Пере
 """
 
 
+def build_time_block() -> str:
+    """
+    Динамический блок с текущим временем (МСК + UTC) и правилами работы со
+    временем. Пересобирается при каждом вызове, поэтому время всегда актуально.
+    Сервер хранит время в UTC, а пользователю показываем МСК (UTC+3).
+    """
+    msk = now_msk()
+    utc = now_utc()
+    weekday = _WEEKDAYS_RU[msk.weekday()]
+    return f"""
+
+# ТЕКУЩЕЕ ВРЕМЯ
+- Сейчас по МСК (UTC+3): {msk.strftime('%Y-%m-%d %H:%M')} ({weekday})
+- Сейчас по UTC: {utc.strftime('%Y-%m-%d %H:%M')}
+
+# ПРАВИЛА РАБОТЫ СО ВРЕМЕНЕМ (ОБЯЗАТЕЛЬНО)
+- Пользователю ВСЕГДА показывай дату и время по МСК и помечай «(МСК)».
+- Tools и история звонков возвращают время в UTC. Перед тем как назвать его
+  пользователю — переведи в МСК (прибавь 3 часа) и укажи «(МСК)».
+- Время, которое называет пользователь, — это всегда МСК.
+- При вызове create_agent_task поле scheduled_at передавай в UTC, в формате
+  ISO 8601 с «Z» (например 2026-06-09T12:00:00Z). Чтобы получить UTC из
+  названного пользователем времени по МСК — вычти 3 часа.
+- Никогда не показывай пользователю «сырое» UTC-время."""
+
+
 def build_orchestrator_prompt(agent_config) -> str:
     """
     Собирает финальный промпт оркестратора из шаблона + данных агента.
     Пустые поля заменяются на "(не указано)".
+    К промпту добавляется актуальный блок времени (МСК/UTC).
     """
-    return ORCHESTRATOR_PROMPT_BASE.format(
+    base = ORCHESTRATOR_PROMPT_BASE.format(
         doc_who_am_i=agent_config.doc_who_am_i or "(не указано)",
         doc_who_we_call=agent_config.doc_who_we_call or "(не указано)",
         doc_how_we_talk=agent_config.doc_how_we_talk or "(не указано)",
@@ -81,6 +112,7 @@ def build_orchestrator_prompt(agent_config) -> str:
         doc_rules_and_goals=agent_config.doc_rules_and_goals or "(не указано)",
         additional_instructions=agent_config.additional_instructions or "(нет дополнительных инструкций)"
     )
+    return base + build_time_block()
 
 
 def get_voice_agent_prompt() -> str:
