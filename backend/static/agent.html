@@ -324,6 +324,8 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .pl-card:hover { box-shadow:0 2px 8px rgba(0,0,0,0.08); }
 .pl-card.dragging { opacity:.45; }
 .pl-empty { font-size:11px; color:var(--hint); text-align:center; padding:12px 0; }
+/* Карточка контакта всегда поверх остальных модалок (в т.ч. воронки) */
+#contact-details-modal-overlay { z-index:200; }
 .badge-no-answer { background:var(--red-light); color:var(--red); }
 .badge-answered, .badge-success { background:var(--green-light); color:var(--green); }
 .badge-followup { background:var(--blue-light); color:var(--blue-dark); }
@@ -963,15 +965,17 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 const API = '/api/agent';
 
 // Стадии воронки — зеркало backend/core/pipeline_stages.py (фиксированный набор).
+// 'calling' больше не стадия воронки, но оставлен в META для корректного показа
+// старых записей контактов, у которых статус мог остаться "calling".
 const STAGE_META = {
   new:         { label:'Новый',      color:'#6B7280' },
-  calling:     { label:'Дозвон',     color:'#F59E0B' },
   active:      { label:'В работе',   color:'#3B82F6' },
   success:     { label:'Успех',      color:'#10B981' },
   rejected:    { label:'Отказ',      color:'#EF4444' },
   do_not_call: { label:'Не звонить', color:'#1F2937' },
+  calling:     { label:'Дозвон',     color:'#F59E0B' },
 };
-const STAGE_ORDER = ['new','calling','active','success','rejected','do_not_call'];
+const STAGE_ORDER = ['new','active','success','rejected','do_not_call'];
 function stageBadge(status){
   const m = STAGE_META[status] || { label: status || '—', color:'#6B7280' };
   return `<span class="status-badge" style="background:${m.color}22;color:${m.color}">${esc(m.label)}</span>`;
@@ -2817,7 +2821,12 @@ async function loadPipeline(){
     const data = await r.json();
     const groups = {};
     STAGE_ORDER.forEach(s => groups[s] = []);
-    (data.contacts || []).forEach(c => { (groups[c.status] || (groups[c.status] = [])).push(c); });
+    // Неизвестные/легаси-статусы (напр. "calling") складываем в "В работе",
+    // чтобы ни один контакт не выпал из доски.
+    (data.contacts || []).forEach(c => {
+      const key = STAGE_ORDER.includes(c.status) ? c.status : 'active';
+      groups[key].push(c);
+    });
     wrap.innerHTML = STAGE_ORDER.map(s => {
       const m = STAGE_META[s];
       const cards = groups[s].length

@@ -571,12 +571,14 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
 Проанализируй звонок и выполни необходимые действия через tools:
 1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
-2. ОБЯЗАТЕЛЬНО вызови move_contact_stage — переведи контакт на стадию воронки
-   по итогу звонка:
+2. Смени стадию через move_contact_stage ТОЛЬКО если для этого есть реальное
+   основание. Менять стадию каждый звонок НЕ нужно:
    - цель достигнута / клиент согласился → success
    - явный отказ → rejected
    - просил больше не звонить → do_not_call
-   - продолжаем работу / договорились о следующем шаге / не дозвонились → active
+   - впервые вышли на живой контакт и продолжаем работу → active
+   Если не дозвонились, клиент ещё думает или ничего по сути не изменилось —
+   НЕ вызывай move_contact_stage, оставь контакт в текущей стадии.
 3. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ случая
    когда цель звонка уже достигнута (тогда перезвон не нужен).
    - Если клиент ответил и цель НЕ достигнута / попросил перезвонить — перезвони
@@ -765,7 +767,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             # тулзой move_contact_stage — применяем детерминированный маппинг
             # от post_call_decision (стадия проставляется ВСЕГДА).
             if not stage_moved_by_tool:
-                agent_contact.status = stage_from_decision(post_call_decision, agent_contact.status)
+                _new_stage = stage_from_decision(post_call_decision, agent_contact.status)
+                if _new_stage:
+                    agent_contact.status = _new_stage
 
             if task:
                 task.post_call_decision = post_call_decision
@@ -791,8 +795,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.duration_seconds = int(duration_seconds)
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
-            # Обязательная стадия воронки даже при ошибке анализа.
-            agent_contact.status = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            # Стадия воронки по решению — только если есть основание её менять.
+            _new_stage = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            if _new_stage:
+                agent_contact.status = _new_stage
             if task:
                 task.post_call_decision = agent_call.post_call_decision
                 task.status = TaskStatus.COMPLETED
@@ -970,7 +976,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             # Обязательная стадия воронки: если оркестратор не двинул контакт
             # тулзой move_contact_stage — применяем детерминированный маппинг.
             if not stage_moved_by_tool:
-                agent_contact.status = stage_from_decision(post_call_decision, agent_contact.status)
+                _new_stage = stage_from_decision(post_call_decision, agent_contact.status)
+                if _new_stage:
+                    agent_contact.status = _new_stage
 
             if task:
                 task.post_call_decision = post_call_decision
@@ -999,8 +1007,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.duration_seconds = int(duration_seconds)
             agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
             agent_contact.last_called_at = datetime.utcnow()
-            # Обязательная стадия воронки даже при ошибке анализа.
-            agent_contact.status = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            # Стадия воронки по решению — только если есть основание её менять.
+            _new_stage = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            if _new_stage:
+                agent_contact.status = _new_stage
             if task:
                 task.post_call_decision = agent_call.post_call_decision
                 task.status = TaskStatus.COMPLETED

@@ -263,8 +263,10 @@ class TaskScheduler:
             # Link task to agent_call
             task.agent_call_id = agent_call.id
 
-            # Update contact status
-            agent_contact.status = "calling"
+            # Контакт остаётся в своей стадии воронки во время звонка. Факт
+            # «идёт звонок» фиксируется в AgentCall.status / Task.status, а
+            # стадию контакта меняет только PostCall по итогу — и только если
+            # для этого есть основание (см. stage_from_decision).
             db.commit()
 
             # PreCall with AgentContact.
@@ -306,7 +308,6 @@ class TaskScheduler:
                 task.status = TaskStatus.FAILED
                 task.call_result = "No Voximplant configuration found."
                 agent_call.status = "failed"
-                agent_contact.status = "active"
                 db.commit()
                 return
 
@@ -332,7 +333,6 @@ class TaskScheduler:
                 task.status = TaskStatus.FAILED
                 task.call_result = task.call_result or "Call failed"
                 agent_call.status = "failed"
-                agent_contact.status = "active"
                 db.commit()
 
         except Exception as e:
