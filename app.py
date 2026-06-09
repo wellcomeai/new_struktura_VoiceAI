@@ -876,6 +876,38 @@ def seed_credits_data():
         logger.error(f"❌ seed_credits_data error: {e}")
 
 
+def normalize_agent_contact_stages():
+    """
+    Разовая нормализация стадий воронки агентских контактов.
+
+    Статус "calling" больше не является стадией контакта (факт «идёт звонок»
+    хранится в AgentCall/Task). Старые записи, застрявшие в "calling" из-за
+    прежней логики, переводим в "active" ("В работе"), чтобы они корректно
+    отображались в канбане воронки.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_contacts'):
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                result = conn.execute(text(
+                    "UPDATE agent_contacts SET status = 'active' WHERE status = 'calling'"
+                ))
+                trans.commit()
+                if result.rowcount:
+                    logger.info(f"✅ Normalized {result.rowcount} agent contacts: calling → active")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to normalize agent contact stages: {e}")
+    except Exception as e:
+        logger.error(f"❌ normalize_agent_contact_stages error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -927,6 +959,9 @@ async def startup_event():
 
                 # 🆕 Шаг 11: Сидинг данных системы кредитов (план agent + пакеты)
                 seed_credits_data()
+
+                # 🆕 Шаг 12: Нормализация стадий воронки (calling → active)
+                normalize_agent_contact_stages()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
