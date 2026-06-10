@@ -181,3 +181,18 @@ def build_orchestrator_prompt(agent_config) -> str:
 def get_voice_agent_prompt() -> str:
     """Возвращает базовый промпт голосового агента (без подстановок)."""
     return VOICE_AGENT_PROMPT_BASE
+
+
+def build_voice_agent_prompt(voice_additional_instructions: str = None) -> str:
+    """
+    Собирает system_prompt голосового агента: базовый промпт + (опционально)
+    дополнительные инструкции от владельца по поведению в живом звонке.
+    """
+    prompt = VOICE_AGENT_PROMPT_BASE
+    extra = (voice_additional_instructions or "").strip()
+    if extra:
+        prompt += (
+            "\n\n# ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ ОТ ВЛАДЕЛЬЦА\n"
+            f"{extra}"
+        )
+    return prompt

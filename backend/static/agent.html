@@ -329,6 +329,10 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 #instructions-modal-overlay .modal-footer .btn-primary { box-shadow:0 4px 14px rgba(55,138,221,0.30); }
 #instructions-modal-overlay .modal-footer .btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(55,138,221,0.38); }
 #instructions-modal-overlay input[type=range] { accent-color:var(--blue); }
+#instructions-modal-overlay .instr-section-head { display:flex; gap:11px; align-items:flex-start; margin:22px 0 14px; padding:12px 14px; background:var(--blue-light); border:1px solid var(--blue-border); border-radius:11px; }
+#instructions-modal-overlay .instr-section-head > i { font-size:15px; color:var(--blue-dark); margin-top:2px; flex-shrink:0; }
+#instructions-modal-overlay .instr-section-title { font-size:13.5px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
+#instructions-modal-overlay .instr-section-sub { font-size:12px; line-height:1.5; color:var(--muted); margin-top:3px; }
 .doc-tabs { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:18px; }
 .doc-tab { padding:7px 13px; border-radius:var(--radius-pill); font-size:12px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:var(--transition); }
 .doc-tab.active { background:var(--blue-light); border-color:var(--blue-border); color:var(--blue-dark); }
@@ -743,21 +747,45 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <label class="form-label">Имя агента</label>
         <input type="text" class="form-input" id="i-name">
       </div>
-      <div class="form-group">
-        <label class="form-label">Дополнительные инструкции</label>
-        <textarea class="form-textarea" id="i-additional_instructions" rows="6"
-                  placeholder="Например: «всегда уточняй удобное время перезвона», «не упоминай конкурентов»."></textarea>
-        <div class="form-hint">Любые специфические правила для агента, которые не вписываются в документы компании.</div>
+
+      <!-- ─── СЕКЦИЯ 1: ОРКЕСТРАТОР (текстовый чат-агент) ─── -->
+      <div class="instr-section-head">
+        <i class="fas fa-brain"></i>
+        <div>
+          <div class="instr-section-title">Оркестратор · текстовый чат-агент</div>
+          <div class="instr-section-sub">Мозг-планировщик: ведёт CRM, планирует звонки, готовит стратегию каждого звонка и анализирует результат. В живом телефонном разговоре эти инструкции НЕ используются.</div>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Модель оркестратора</label>
         <select class="form-select" id="i-orchestrator_model"></select>
         <div class="form-hint" id="i-model-desc"></div>
       </div>
+      <div class="form-group">
+        <label class="form-label">Инструкции для оркестратора</label>
+        <textarea class="form-textarea" id="i-additional_instructions" rows="5"
+                  placeholder="Например: «перед обзвоном новых контактов всегда проверяй дубли», «не планируй звонки в выходные»."></textarea>
+        <div class="form-hint">Правила планирования и работы с контактами, которые не вписываются в документы компании.</div>
+      </div>
+
+      <!-- ─── СЕКЦИЯ 2: ГОЛОСОВОЙ АГЕНТ (живой звонок) ─── -->
+      <div class="instr-section-head">
+        <i class="fas fa-microphone-lines"></i>
+        <div>
+          <div class="instr-section-title">Голосовой агент · живой звонок</div>
+          <div class="instr-section-sub">Как агент ведёт себя в телефонном разговоре с клиентом: голос, тон, что говорить и чего избегать.</div>
+        </div>
+      </div>
       <div id="i-voice-group"></div>
       <div class="form-group">
         <label class="form-label">Номер для исходящих (Caller ID)</label>
         <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Инструкции для голосового агента</label>
+        <textarea class="form-textarea" id="i-voice_additional_instructions" rows="5"
+                  placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон», «не упоминай конкурентов»."></textarea>
+        <div class="form-hint">Правила поведения именно в живом разговоре. Добавляются к промпту голосового агента.</div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2224,6 +2252,7 @@ const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-s
 function openInstructionsModal(){
   document.getElementById('i-name').value = agentData.name || '';
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
+  document.getElementById('i-voice_additional_instructions').value = agentData.voice_additional_instructions || '';
   document.getElementById('i-voice-group').innerHTML = voiceControlHtml(
     agentData.assistant_type || 'gemini',
     { voice: agentData.voice, cartesia_voice_id: agentData.cartesia_voice_id, voice_speed: agentData.voice_speed },
@@ -2256,6 +2285,7 @@ async function saveInstructions(){
   const body = {
     name: document.getElementById('i-name').value || agentData.name,
     additional_instructions: document.getElementById('i-additional_instructions').value,
+    voice_additional_instructions: document.getElementById('i-voice_additional_instructions').value,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
     ...readVoiceBody(agentData.assistant_type || 'gemini', I_VOICE_IDS),
@@ -3262,8 +3292,8 @@ function wizardBack(){
 }
 
 function renderInstructionsStep(c){
-  c.innerHTML = `<h2>Дополнительные инструкции</h2><p class="hint">Опционально. Любые специфические правила для агента, которые не вписываются в предыдущие документы.</p>
-    <div class="form-group"><textarea class="form-textarea" id="w-instr" rows="6" placeholder="Например: «всегда уточняй удобное время перезвона», «не упоминай конкурентов», «после успешного звонка отправь СМС с реквизитами».">${esc(wizardData.additional_instructions||'')}</textarea></div>
+  c.innerHTML = `<h2>Инструкции для оркестратора</h2><p class="hint">Опционально. Правила планирования звонков и работы с контактами для текстового мозга-оркестратора. В живом телефонном разговоре НЕ используются — для этого поле инструкций голосового агента на следующем шаге.</p>
+    <div class="form-group"><textarea class="form-textarea" id="w-instr" rows="6" placeholder="Например: «перед обзвоном новых контактов проверяй дубли», «не планируй звонки в выходные».">${esc(wizardData.additional_instructions||'')}</textarea></div>
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="wizardNextInstr()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
 }
 function wizardNextInstr(){ const ta=document.getElementById('w-instr'); wizardData.additional_instructions=ta?ta.value:''; persistWizard(); wizardStep=7; renderWizard(); }
@@ -3274,12 +3304,14 @@ async function renderModelStep(c){
   c.innerHTML = `<h2>Модель и голос</h2><p class="hint">Модель оркестратора управляет агентом: планирует звонки, анализирует результаты, отвечает в чате. Голос — то, чем агент говорит в звонке. Биллинг включён в подписку Voicyfy.</p>
     <div class="form-group"><label class="form-label">Модель</label><select class="form-select" id="w-model">${orchestratorModels.map(m=>`<option value="${m.slug}" ${m.slug===wizardData.orchestrator_model?'selected':''}>${esc(m.name)}</option>`).join('')}</select><div class="form-hint" id="w-model-desc"></div></div>
     ${voiceControlHtml(wizardData.assistant_type || 'gemini', { voice: wizardData.voice, cartesia_voice_id: wizardData.cartesia_voice_id, voice_speed: wizardData.voice_speed }, W_VOICE_IDS)}
+    <div class="form-group"><label class="form-label">Инструкции для голосового агента</label><textarea class="form-textarea" id="w-voice-instr" rows="4" placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон».">${esc(wizardData.voice_additional_instructions||'')}</textarea><div class="form-hint">Правила поведения именно в живом разговоре по телефону. Опционально.</div></div>
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="submitCreate()"><i class="fas fa-rocket"></i> Создать агента</button></div>`;
   const ms=document.getElementById('w-model'); const upd=()=>{ const m=orchestratorModels.find(x=>x.slug===ms.value); document.getElementById('w-model-desc').textContent=m?m.description:''; wizardData.orchestrator_model=ms.value; persistWizard(); }; ms.onchange=upd; upd();
 }
 
 function submitCreate(){
   Object.assign(wizardData, readVoiceBody(wizardData.assistant_type || 'gemini', W_VOICE_IDS));
+  const vi=document.getElementById('w-voice-instr'); if(vi) wizardData.voice_additional_instructions=vi.value;
   persistWizard();
   wizardStep=8; renderWizard();
 }
@@ -3301,6 +3333,7 @@ async function renderCreation(c){
     doc_who_am_i: wizardData.doc_who_am_i||'', doc_who_we_call: wizardData.doc_who_we_call||'',
     doc_how_we_talk: wizardData.doc_how_we_talk||'', doc_what_we_offer: wizardData.doc_what_we_offer||'',
     doc_rules_and_goals: wizardData.doc_rules_and_goals||'', additional_instructions: wizardData.additional_instructions||null,
+    voice_additional_instructions: wizardData.voice_additional_instructions||null,
     orchestrator_model: wizardData.orchestrator_model||null,
     voice: wizardData.voice||null,
     cartesia_voice_id: wizardData.cartesia_voice_id||null,

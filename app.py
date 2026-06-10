@@ -908,6 +908,40 @@ def normalize_agent_contact_stages():
         logger.error(f"❌ normalize_agent_contact_stages error: {e}")
 
 
+def ensure_agent_voice_instructions_column():
+    """
+    Идемпотентно добавляет колонку voice_additional_instructions в agent_configs.
+
+    Дублирует alembic-миграцию add_voice_instructions на случай, если миграции
+    не применились (в продакшене ошибки alembic проглатываются).
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        if 'voice_additional_instructions' in existing:
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_configs "
+                    "ADD COLUMN IF NOT EXISTS voice_additional_instructions TEXT"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_configs.voice_additional_instructions")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add voice_additional_instructions column: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_voice_instructions_column error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -962,6 +996,9 @@ async def startup_event():
 
                 # 🆕 Шаг 12: Нормализация стадий воронки (calling → active)
                 normalize_agent_contact_stages()
+
+                # 🆕 Шаг 13: Колонка voice_additional_instructions в agent_configs
+                ensure_agent_voice_instructions_column()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

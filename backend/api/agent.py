@@ -31,7 +31,7 @@ from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
 from backend.core.dependencies import get_current_user
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
-from backend.services.agent_prompts import get_voice_agent_prompt
+from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
 from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
 from backend.services.agent_tools import assistant_task_kwargs
 from backend.services.credit_service import (
@@ -104,6 +104,7 @@ class AgentCreateRequest(BaseModel):
     doc_what_we_offer: str = Field(..., min_length=1)
     doc_rules_and_goals: str = Field(..., min_length=1)
     additional_instructions: Optional[str] = None
+    voice_additional_instructions: Optional[str] = None
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
     orchestrator_model: Optional[str] = None  # default → get_default_model()
@@ -121,6 +122,7 @@ class AgentUpdateRequest(BaseModel):
     doc_what_we_offer: Optional[str] = None
     doc_rules_and_goals: Optional[str] = None
     additional_instructions: Optional[str] = None
+    voice_additional_instructions: Optional[str] = None
     working_hours_start: Optional[int] = Field(None, ge=0, le=23)
     working_hours_end: Optional[int] = Field(None, ge=0, le=23)
     is_active: Optional[bool] = None
@@ -252,13 +254,16 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
 
 
 def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
-                            voice=None, cartesia_voice_id=None, voice_speed=None):
+                            voice=None, cartesia_voice_id=None, voice_speed=None,
+                            voice_additional_instructions=None):
     """Create a voice assistant of the given type with the hardcoded base prompt.
 
     voice — имя голоса для gemini/openai; для cartesia используются
     cartesia_voice_id и voice_speed. Если не передано — берутся дефолты.
+    voice_additional_instructions — доп.инструкции по поведению в живом звонке,
+    дописываются к базовому промпту голосового агента.
     """
-    prompt = get_voice_agent_prompt()
+    prompt = build_voice_agent_prompt(voice_additional_instructions)
     if assistant_type == "gemini":
         gemini_voice = voice if (voice and _is_valid_voice("gemini", voice)) else DEFAULT_GEMINI_VOICE
         va = GeminiAssistantConfig(
@@ -318,6 +323,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "doc_what_we_offer": agent.doc_what_we_offer,
         "doc_rules_and_goals": agent.doc_rules_and_goals,
         "additional_instructions": agent.additional_instructions,
+        "voice_additional_instructions": agent.voice_additional_instructions,
         "working_hours_start": agent.working_hours_start,
         "working_hours_end": agent.working_hours_end,
         "default_caller_id": agent.default_caller_id,
@@ -420,6 +426,7 @@ async def create_agent(
         voice=body.voice,
         cartesia_voice_id=body.cartesia_voice_id,
         voice_speed=body.voice_speed,
+        voice_additional_instructions=body.voice_additional_instructions,
     )
 
     # 7. Create the AgentConfig (uses_hardcoded_prompt = TRUE, no orchestrator_prompt)
@@ -440,6 +447,7 @@ async def create_agent(
         doc_what_we_offer=body.doc_what_we_offer,
         doc_rules_and_goals=body.doc_rules_and_goals,
         additional_instructions=body.additional_instructions,
+        voice_additional_instructions=body.voice_additional_instructions,
         working_hours_start=body.working_hours_start,
         working_hours_end=body.working_hours_end,
         uses_hardcoded_prompt=True,
@@ -491,7 +499,10 @@ async def update_agent(
         _check_assistant_keys(new_type, current_user)
         # Create new voice assistant; keep old one (numbers/history may reference it),
         # just clear the old FK.
-        new_voice = _create_voice_assistant(new_type, agent.name, current_user.id, db)
+        new_voice = _create_voice_assistant(
+            new_type, agent.name, current_user.id, db,
+            voice_additional_instructions=agent.voice_additional_instructions,
+        )
         agent.gemini_assistant_id = None
         agent.openai_assistant_id = None
         agent.cartesia_assistant_id = None
@@ -519,10 +530,16 @@ async def update_agent(
             setattr(agent, field, update_data[field])
             docs_changed = True
 
-    for field in ['name', 'additional_instructions', 'working_hours_start',
-                  'working_hours_end', 'is_active', 'default_caller_id']:
+    for field in ['name', 'additional_instructions', 'voice_additional_instructions',
+                  'working_hours_start', 'working_hours_end', 'is_active', 'default_caller_id']:
         if field in update_data:
             setattr(agent, field, update_data[field])
+
+    # ── Инструкции голосового агента: пересобираем system_prompt ассистента ──
+    if 'voice_additional_instructions' in update_data:
+        va = _resolve_voice_assistant(db, agent)
+        if va is not None:
+            va.system_prompt = build_voice_agent_prompt(agent.voice_additional_instructions)
 
     # ── Голос: пишем в связанный голосовой конфиг ──
     voice_touched = any(k in update_data for k in ("voice", "cartesia_voice_id", "voice_speed"))

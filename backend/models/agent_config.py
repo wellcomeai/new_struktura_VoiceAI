@@ -61,8 +61,12 @@ class AgentConfig(Base):
     doc_what_we_offer = Column(Text, nullable=True)
     doc_rules_and_goals = Column(Text, nullable=True)
 
-    # Шаг 6 wizard — произвольный текст
+    # Шаг 6 wizard — произвольный текст (инструкции для ОРКЕСТРАТОРА)
     additional_instructions = Column(Text, nullable=True)
+
+    # Инструкции именно для ГОЛОСОВОГО агента (поведение в живом звонке).
+    # Дописываются к system_prompt связанного голосового ассистента.
+    voice_additional_instructions = Column(Text, nullable=True)
 
     # Флаг — TRUE для агентов созданных после v3.0
     uses_hardcoded_prompt = Column(Boolean, default=False, nullable=False)
