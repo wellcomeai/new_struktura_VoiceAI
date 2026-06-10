@@ -725,6 +725,7 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <select class="form-select" id="i-orchestrator_model"></select>
         <div class="form-hint" id="i-model-desc"></div>
       </div>
+      <div id="i-voice-group"></div>
       <div class="form-group">
         <label class="form-label">Номер для исходящих (Caller ID)</label>
         <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
@@ -2102,10 +2103,60 @@ async function saveEdit(){
   btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Сохранить';
 }
 
+// ════════════════ VOICE SELECTION (shared) ════════════════
+const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','coral','sage','verse'];
+const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
+const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy' };
+
+// Рендер контрола выбора голоса по типу ассистента.
+// ids: { voice, vid, spd, spdv } — id элементов (модалка и визард используют разные).
+function voiceControlHtml(type, cur, ids){
+  if(type==='cartesia'){
+    const spd = (cur.voice_speed!=null) ? cur.voice_speed : 1.0;
+    return `<div class="form-group">
+        <label class="form-label">Cartesia Voice ID</label>
+        <input type="text" class="form-input" id="${ids.vid}" value="${esc(cur.cartesia_voice_id||'')}" placeholder="a0e99841-438c-4a64-b679-ae501e7d6091">
+        <div class="form-hint">ID голоса из <a href="https://play.cartesia.ai/" target="_blank">play.cartesia.ai</a></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Скорость голоса: <span id="${ids.spdv}">${spd}</span></label>
+        <input type="range" id="${ids.spd}" min="0.5" max="1.5" step="0.1" value="${spd}" style="width:100%" oninput="document.getElementById('${ids.spdv}').textContent=this.value">
+      </div>`;
+  }
+  const voices = (type==='gemini') ? GEMINI_VOICES : OPENAI_VOICES;
+  const v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
+  return `<div class="form-group">
+      <label class="form-label">Голос</label>
+      <select class="form-select" id="${ids.voice}">${voices.map(x=>`<option value="${x}" ${x===v?'selected':''}>${x}</option>`).join('')}</select>
+    </div>`;
+}
+
+// Считать выбранный голос в объект для тела запроса.
+function readVoiceBody(type, ids){
+  if(type==='cartesia'){
+    const vidEl = document.getElementById(ids.vid);
+    const spdEl = document.getElementById(ids.spd);
+    return {
+      cartesia_voice_id: vidEl ? (vidEl.value.trim() || null) : null,
+      voice_speed: spdEl ? (parseFloat(spdEl.value) || 1.0) : 1.0,
+    };
+  }
+  const vEl = document.getElementById(ids.voice);
+  return { voice: vEl ? vEl.value : null };
+}
+
+const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val' };
+const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val' };
+
 // ════════════════ INSTRUCTIONS MODAL ════════════════
 function openInstructionsModal(){
   document.getElementById('i-name').value = agentData.name || '';
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
+  document.getElementById('i-voice-group').innerHTML = voiceControlHtml(
+    agentData.assistant_type || 'gemini',
+    { voice: agentData.voice, cartesia_voice_id: agentData.cartesia_voice_id, voice_speed: agentData.voice_speed },
+    I_VOICE_IDS
+  );
 
   const ms = document.getElementById('i-orchestrator_model');
   ms.innerHTML = orchestratorModels.map(m => `<option value="${m.slug}">${esc(m.name)}</option>`).join('');
@@ -2135,6 +2186,7 @@ async function saveInstructions(){
     additional_instructions: document.getElementById('i-additional_instructions').value,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
+    ...readVoiceBody(agentData.assistant_type || 'gemini', I_VOICE_IDS),
   };
   try {
     const r = await apiFetch(API + '/', { method: 'PUT', body: JSON.stringify(body) });
@@ -3089,7 +3141,7 @@ function drawStep0(c){
     <div class="wizard-actions"><div></div><button class="btn btn-primary" ${canNext?'':'disabled'} onclick="wizardStep=1;renderWizard()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
 }
 
-function selectType(t){ wizardData.assistant_type=t; persistWizard(); drawStep0(document.getElementById('wizard-content')); }
+function selectType(t){ wizardData.assistant_type=t; wizardData.voice=null; wizardData.cartesia_voice_id=null; wizardData.voice_speed=null; persistWizard(); drawStep0(document.getElementById('wizard-content')); }
 
 async function saveWizardKeys(type){
   const ks = keyState(type);
@@ -3147,13 +3199,18 @@ function wizardNextInstr(){ const ta=document.getElementById('w-instr'); wizardD
 async function renderModelStep(c){
   if(!orchestratorModels.length){ const r=await apiFetch(API+'/orchestrator-models'); if(r&&r.status===200){ const d=await r.json(); orchestratorModels=d.models||[]; if(!wizardData.orchestrator_model) wizardData.orchestrator_model=d.default; } }
   if(!wizardData.orchestrator_model && orchestratorModels.length){ const def=orchestratorModels.find(m=>m.is_default); wizardData.orchestrator_model = def?def.slug:orchestratorModels[0].slug; }
-  c.innerHTML = `<h2>Модель оркестратора</h2><p class="hint">Эта модель управляет агентом: планирует звонки, анализирует результаты, отвечает в чате. Биллинг включён в подписку Voicyfy.</p>
+  c.innerHTML = `<h2>Модель и голос</h2><p class="hint">Модель оркестратора управляет агентом: планирует звонки, анализирует результаты, отвечает в чате. Голос — то, чем агент говорит в звонке. Биллинг включён в подписку Voicyfy.</p>
     <div class="form-group"><label class="form-label">Модель</label><select class="form-select" id="w-model">${orchestratorModels.map(m=>`<option value="${m.slug}" ${m.slug===wizardData.orchestrator_model?'selected':''}>${esc(m.name)}</option>`).join('')}</select><div class="form-hint" id="w-model-desc"></div></div>
+    ${voiceControlHtml(wizardData.assistant_type || 'gemini', { voice: wizardData.voice, cartesia_voice_id: wizardData.cartesia_voice_id, voice_speed: wizardData.voice_speed }, W_VOICE_IDS)}
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="submitCreate()"><i class="fas fa-rocket"></i> Создать агента</button></div>`;
   const ms=document.getElementById('w-model'); const upd=()=>{ const m=orchestratorModels.find(x=>x.slug===ms.value); document.getElementById('w-model-desc').textContent=m?m.description:''; wizardData.orchestrator_model=ms.value; persistWizard(); }; ms.onchange=upd; upd();
 }
 
-function submitCreate(){ wizardStep=8; renderWizard(); }
+function submitCreate(){
+  Object.assign(wizardData, readVoiceBody(wizardData.assistant_type || 'gemini', W_VOICE_IDS));
+  persistWizard();
+  wizardStep=8; renderWizard();
+}
 
 async function renderCreation(c){
   const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia' }[wizardData.assistant_type]||'';
@@ -3173,6 +3230,9 @@ async function renderCreation(c){
     doc_how_we_talk: wizardData.doc_how_we_talk||'', doc_what_we_offer: wizardData.doc_what_we_offer||'',
     doc_rules_and_goals: wizardData.doc_rules_and_goals||'', additional_instructions: wizardData.additional_instructions||null,
     orchestrator_model: wizardData.orchestrator_model||null,
+    voice: wizardData.voice||null,
+    cartesia_voice_id: wizardData.cartesia_voice_id||null,
+    voice_speed: wizardData.voice_speed||null,
   };
   try{
     const r = await apiFetch(API + '/create', { method:'POST', body:JSON.stringify(body) });

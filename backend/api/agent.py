@@ -53,6 +53,44 @@ router = APIRouter()
 
 VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia")
 
+# Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
+OPENAI_VOICES = [
+    "alloy", "echo", "marin", "cedar", "shimmer",
+    "ash", "ballad", "coral", "sage", "verse",
+]
+GEMINI_VOICES = [
+    "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
+    "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba",
+    "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
+    "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
+    "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
+]
+DEFAULT_GEMINI_VOICE = "Kore"
+DEFAULT_OPENAI_VOICE = "alloy"
+
+
+def _is_valid_voice(assistant_type: str, voice: str) -> bool:
+    """Проверка имени голоса для select-провайдеров (gemini/openai)."""
+    if assistant_type == "gemini":
+        return voice in GEMINI_VOICES
+    if assistant_type == "openai":
+        return voice in OPENAI_VOICES
+    return False
+
+
+def _resolve_voice_assistant(db: Session, agent: AgentConfig):
+    """Вернуть связанный голосовой конфиг агента, запрашивая по id (после возможной смены типа)."""
+    va_id = agent.get_voice_assistant_id()
+    if not va_id:
+        return None
+    if agent.assistant_type == "gemini":
+        return db.query(GeminiAssistantConfig).filter(GeminiAssistantConfig.id == va_id).first()
+    if agent.assistant_type == "openai":
+        return db.query(AssistantConfig).filter(AssistantConfig.id == va_id).first()
+    if agent.assistant_type == "cartesia":
+        return db.query(CartesiaAssistantConfig).filter(CartesiaAssistantConfig.id == va_id).first()
+    return None
+
 # Максимум агентов на одного пользователя (v3.1: было «один на юзера»).
 MAX_AGENTS_PER_USER = 3
 
@@ -69,6 +107,10 @@ class AgentCreateRequest(BaseModel):
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
     orchestrator_model: Optional[str] = None  # default → get_default_model()
+    # Голос (gemini/openai). Для cartesia — cartesia_voice_id + voice_speed.
+    voice: Optional[str] = None
+    cartesia_voice_id: Optional[str] = None
+    voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
 
 
 class AgentUpdateRequest(BaseModel):
@@ -85,6 +127,10 @@ class AgentUpdateRequest(BaseModel):
     default_caller_id: Optional[str] = Field(None, max_length=50)
     orchestrator_model: Optional[str] = None
     assistant_type: Optional[str] = None
+    # Голос (gemini/openai). Для cartesia — cartesia_voice_id + voice_speed.
+    voice: Optional[str] = None
+    cartesia_voice_id: Optional[str] = None
+    voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
 
 
 class AgentChatRequest(BaseModel):
@@ -205,20 +251,27 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
             raise HTTPException(status_code=400, detail="api_key_required_cartesia")
 
 
-def _create_voice_assistant(assistant_type: str, name: str, user_id, db):
-    """Create a voice assistant of the given type with the hardcoded base prompt."""
+def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
+                            voice=None, cartesia_voice_id=None, voice_speed=None):
+    """Create a voice assistant of the given type with the hardcoded base prompt.
+
+    voice — имя голоса для gemini/openai; для cartesia используются
+    cartesia_voice_id и voice_speed. Если не передано — берутся дефолты.
+    """
     prompt = get_voice_agent_prompt()
     if assistant_type == "gemini":
+        gemini_voice = voice if (voice and _is_valid_voice("gemini", voice)) else DEFAULT_GEMINI_VOICE
         va = GeminiAssistantConfig(
             id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
-            system_prompt=prompt, voice="Kore", language="ru-RU",
+            system_prompt=prompt, voice=gemini_voice, language="ru-RU",
             greeting_message="", is_active=True, is_public=False,
             temperature=0.7, max_tokens=4000,
         )
     elif assistant_type == "openai":
+        openai_voice = voice if (voice and _is_valid_voice("openai", voice)) else DEFAULT_OPENAI_VOICE
         va = AssistantConfig(
             id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
-            system_prompt=prompt, voice="alloy", language="ru",
+            system_prompt=prompt, voice=openai_voice, language="ru",
             greeting_message="", is_active=True, is_public=False,
             temperature=0.7, max_tokens=4000,
         )
@@ -226,6 +279,8 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db):
         va = CartesiaAssistantConfig(
             id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
             system_prompt=prompt, greeting_message="", is_active=True,
+            cartesia_voice_id=(cartesia_voice_id or None),
+            voice_speed=(voice_speed if voice_speed is not None else 1.0),
         )
     else:
         raise HTTPException(status_code=400, detail="invalid_assistant_type")
@@ -249,6 +304,9 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "cartesia_assistant_id": str(agent.cartesia_assistant_id) if agent.cartesia_assistant_id else None,
         "voice_assistant_name": voice_name,
         "gemini_assistant_name": voice_name,  # backward-compat for older frontend
+        "voice": getattr(voice, "voice", None),
+        "cartesia_voice_id": getattr(voice, "cartesia_voice_id", None),
+        "voice_speed": getattr(voice, "voice_speed", None),
         "name": agent.name,
         "is_active": agent.is_active,
         "orchestrator_model": agent.orchestrator_model,
@@ -358,7 +416,10 @@ async def create_agent(
 
     # 6. Create the voice assistant with the hardcoded base prompt
     voice_assistant = _create_voice_assistant(
-        body.assistant_type, body.name, current_user.id, db
+        body.assistant_type, body.name, current_user.id, db,
+        voice=body.voice,
+        cartesia_voice_id=body.cartesia_voice_id,
+        voice_speed=body.voice_speed,
     )
 
     # 7. Create the AgentConfig (uses_hardcoded_prompt = TRUE, no orchestrator_prompt)
@@ -462,6 +523,23 @@ async def update_agent(
                   'working_hours_end', 'is_active', 'default_caller_id']:
         if field in update_data:
             setattr(agent, field, update_data[field])
+
+    # ── Голос: пишем в связанный голосовой конфиг ──
+    voice_touched = any(k in update_data for k in ("voice", "cartesia_voice_id", "voice_speed"))
+    if voice_touched:
+        va = _resolve_voice_assistant(db, agent)
+        if va is not None:
+            if agent.assistant_type in ("gemini", "openai"):
+                new_voice = update_data.get("voice")
+                if new_voice:
+                    if not _is_valid_voice(agent.assistant_type, new_voice):
+                        raise HTTPException(status_code=400, detail="invalid_voice")
+                    va.voice = new_voice
+            elif agent.assistant_type == "cartesia":
+                if "cartesia_voice_id" in update_data:
+                    va.cartesia_voice_id = update_data["cartesia_voice_id"] or None
+                if update_data.get("voice_speed") is not None:
+                    va.voice_speed = update_data["voice_speed"]
 
     # ── Регенерация промпта через gpt-4o-mini — ТОЛЬКО для старых агентов ──
     if docs_changed and not agent.uses_hardcoded_prompt:
