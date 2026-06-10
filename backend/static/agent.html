@@ -300,6 +300,35 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .form-row { display:flex; gap:12px; }
 .form-row .form-group { flex:1; }
 .form-hint { font-size:11px; color:var(--hint); margin-top:5px; line-height:1.4; }
+
+/* ── VOICE PREVIEW (shared voice control) ── */
+.voice-preview { display:flex; align-items:center; gap:11px; margin-top:9px; padding:10px 12px; background:var(--bg); border:1px solid var(--border-soft); border-radius:var(--radius-sm); }
+.voice-ava { width:36px; height:36px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:15px; box-shadow:inset 0 0 0 1px rgba(255,255,255,0.6); }
+.voice-ava.g-m { background:linear-gradient(135deg,#E3F0FF,#CFE2FF); color:#1F6FB2; }
+.voice-ava.g-f { background:linear-gradient(135deg,#FCE7F3,#FBD0E6); color:#C03A86; }
+.voice-ava.g-n { background:linear-gradient(135deg,#EDEAFE,#DED8FB); color:#6C57C6; }
+.voice-pv-txt { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.voice-pv-txt b { font-size:12.5px; font-weight:600; color:var(--text); }
+.voice-pv-txt span { font-size:11.5px; color:var(--muted); }
+
+/* ── INSTRUCTIONS MODAL — polished design (scoped, structure unchanged) ── */
+#instructions-modal-overlay { background:rgba(15,23,42,0.5); backdrop-filter:blur(3px); }
+#instructions-modal-overlay .modal { border:1px solid var(--border-soft); box-shadow:0 24px 70px rgba(24,95,165,0.18), 0 6px 18px rgba(0,0,0,0.07); overflow:hidden; }
+#instructions-modal-overlay .modal-header { position:relative; padding:22px 24px 16px; background:linear-gradient(180deg,#F7FAFF 0%, var(--white) 100%); border-bottom:1px solid var(--border-soft); }
+#instructions-modal-overlay .modal-header::before { content:""; position:absolute; left:0; top:0; right:0; height:3px; background:linear-gradient(90deg,var(--blue) 0%, #6BA8E8 55%, var(--green) 100%); }
+#instructions-modal-overlay .modal-title { display:flex; align-items:center; gap:11px; font-size:17px; font-weight:700; letter-spacing:-0.01em; color:var(--text); }
+#instructions-modal-overlay .modal-title::before { content:"\f013"; font-family:"Font Awesome 6 Free"; font-weight:900; font-size:14px; width:32px; height:32px; border-radius:10px; display:flex; align-items:center; justify-content:center; background:var(--blue-light); color:var(--blue-dark); flex-shrink:0; box-shadow:inset 0 0 0 1px var(--blue-border); }
+#instructions-modal-overlay .modal-body { padding:22px 24px; }
+#instructions-modal-overlay .form-group { margin-bottom:18px; }
+#instructions-modal-overlay .form-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:7px; }
+#instructions-modal-overlay .form-input, #instructions-modal-overlay .form-textarea, #instructions-modal-overlay .form-select { background:var(--white); border:1.5px solid var(--border); border-radius:11px; padding:12px 14px; }
+#instructions-modal-overlay .form-input:hover, #instructions-modal-overlay .form-textarea:hover, #instructions-modal-overlay .form-select:hover { border-color:var(--blue-border); }
+#instructions-modal-overlay .form-input:focus, #instructions-modal-overlay .form-textarea:focus, #instructions-modal-overlay .form-select:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(55,138,221,0.15); }
+#instructions-modal-overlay .form-select { appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 13px center; padding-right:38px; cursor:pointer; }
+#instructions-modal-overlay .modal-footer { padding:16px 24px; background:linear-gradient(0deg,#FAFBFD 0%, var(--white) 100%); border-top:1px solid var(--border-soft); }
+#instructions-modal-overlay .modal-footer .btn-primary { box-shadow:0 4px 14px rgba(55,138,221,0.30); }
+#instructions-modal-overlay .modal-footer .btn-primary:hover { transform:translateY(-1px); box-shadow:0 6px 18px rgba(55,138,221,0.38); }
+#instructions-modal-overlay input[type=range] { accent-color:var(--blue); }
 .doc-tabs { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:18px; }
 .doc-tab { padding:7px 13px; border-radius:var(--radius-pill); font-size:12px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:var(--transition); }
 .doc-tab.active { background:var(--blue-light); border-color:var(--blue-border); color:var(--blue-dark); }
@@ -2108,8 +2137,46 @@ const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','
 const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
 const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy' };
 
+// Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
+const VOICE_META = {
+  gemini: {
+    Zephyr:['f','Яркий, живой'], Puck:['m','Бодрый, энергичный'], Charon:['m','Информативный, чёткий'],
+    Kore:['f','Уверенный, ровный'], Fenrir:['m','Энергичный, напористый'], Leda:['f','Молодой, лёгкий'],
+    Orus:['m','Деловой, собранный'], Aoede:['f','Воздушный, мягкий'], Callirrhoe:['f','Спокойный, расслабленный'],
+    Autonoe:['f','Светлый, приветливый'], Enceladus:['m','Мягкий, с придыханием'], Iapetus:['m','Чёткий, ясный'],
+    Umbriel:['m','Спокойный, ровный'], Algieba:['m','Ровный, нейтральный'], Despina:['f','Гладкий, плавный'],
+    Erinome:['f','Ясный, чистый'], Algenib:['m','Низкий, с хрипотцой'], Rasalgethi:['m','Информативный, внятный'],
+    Laomedeia:['f','Позитивный, бодрый'], Achernar:['f','Нежный, мягкий'], Alnilam:['m','Твёрдый, уверенный'],
+    Schedar:['m','Ровный, спокойный'], Gacrux:['f','Зрелый, насыщенный'], Pulcherrima:['f','Выразительный, яркий'],
+    Achird:['m','Дружелюбный, тёплый'], Zubenelgenubi:['m','Непринуждённый, лёгкий'], Vindemiatrix:['f','Мягкий, деликатный'],
+    Sadachbia:['m','Живой, оживлённый'], Sadaltager:['m','Уверенный, знающий'], Sulafat:['f','Тёплый, приятный'],
+  },
+  openai: {
+    alloy:['n','Сбалансированный, нейтральный'], echo:['m','Чёткий, ясный'], marin:['f','Тёплый, приятный'],
+    cedar:['m','Глубокий, низкий'], shimmer:['f','Мягкий, светлый'], ash:['m','Спокойный, ровный'],
+    ballad:['m','Выразительный, эмоциональный'], coral:['f','Дружелюбный, тёплый'], sage:['f','Спокойный, мягкий'],
+    verse:['m','Живой, динамичный'],
+  },
+};
+const GENDER_INFO = {
+  m: { label:'Мужской',     icon:'fa-mars',             cls:'g-m' },
+  f: { label:'Женский',     icon:'fa-venus',            cls:'g-f' },
+  n: { label:'Нейтральный', icon:'fa-circle-half-stroke', cls:'g-n' },
+};
+function voiceMeta(type, name){ const m=(VOICE_META[type]||{})[name]; return m ? {gender:m[0], desc:m[1]} : {gender:'n', desc:''}; }
+function voicePreviewHtml(type, name){
+  const {gender, desc} = voiceMeta(type, name);
+  const g = GENDER_INFO[gender] || GENDER_INFO.n;
+  return `<span class="voice-ava ${g.cls}"><i class="fas ${g.icon}"></i></span>
+    <div class="voice-pv-txt"><b>${esc(name)} · ${g.label} голос</b><span>${esc(desc)}</span></div>`;
+}
+function updateVoicePreview(sel, descId, type){
+  const el = document.getElementById(descId);
+  if(el) el.innerHTML = voicePreviewHtml(type, sel.value);
+}
+
 // Рендер контрола выбора голоса по типу ассистента.
-// ids: { voice, vid, spd, spdv } — id элементов (модалка и визард используют разные).
+// ids: { voice, vid, spd, spdv, desc } — id элементов (модалка и визард используют разные).
 function voiceControlHtml(type, cur, ids){
   if(type==='cartesia'){
     const spd = (cur.voice_speed!=null) ? cur.voice_speed : 1.0;
@@ -2125,9 +2192,14 @@ function voiceControlHtml(type, cur, ids){
   }
   const voices = (type==='gemini') ? GEMINI_VOICES : OPENAI_VOICES;
   const v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
+  const opts = voices.map(x=>{
+    const g = GENDER_INFO[voiceMeta(type,x).gender] || GENDER_INFO.n;
+    return `<option value="${x}" ${x===v?'selected':''}>${x} · ${g.label.toLowerCase()}</option>`;
+  }).join('');
   return `<div class="form-group">
       <label class="form-label">Голос</label>
-      <select class="form-select" id="${ids.voice}">${voices.map(x=>`<option value="${x}" ${x===v?'selected':''}>${x}</option>`).join('')}</select>
+      <select class="form-select" id="${ids.voice}" onchange="updateVoicePreview(this,'${ids.desc}','${type}')">${opts}</select>
+      <div class="voice-preview" id="${ids.desc}">${voicePreviewHtml(type, v)}</div>
     </div>`;
 }
 
@@ -2145,8 +2217,8 @@ function readVoiceBody(type, ids){
   return { voice: vEl ? vEl.value : null };
 }
 
-const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val' };
-const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val' };
+const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val', desc:'i-voice-desc' };
+const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val', desc:'w-voice-desc' };
 
 // ════════════════ INSTRUCTIONS MODAL ════════════════
 function openInstructionsModal(){
