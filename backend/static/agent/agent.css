@@ -534,6 +534,10 @@ body::before {
 .msg.assistant .msg-bubble.answer { background:transparent; padding:0; border-radius:0; }
 .msg.assistant .msg-bubble.answer:empty { display:none; }
 
+/* ── Аватар ассистента = лого Voicyfy ── */
+.msg.assistant .msg-avatar { background:var(--white); box-shadow:var(--elev-1); overflow:hidden; padding:0; }
+.msg-avatar img { width:100%; height:100%; object-fit:cover; display:block; }
+
 /* ── Индикатор «Думаю…» (мерцающий текст, без обложки) ── */
 .activity { margin-bottom:8px; }
 .activity-working { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
@@ -573,6 +577,9 @@ body::before {
 .trace-chev { font-size:9px; transition:transform var(--dur) var(--ease-out); }
 .trace-summary.open .trace-chev { transform:rotate(180deg); }
 .trace-steps { margin-top:8px; display:flex; flex-direction:column; gap:5px; max-width:560px; }
+/* Важно: правило .trace-steps{display:flex} перебивает дефолтный [hidden]{display:none},
+   поэтому свёрнутое состояние задаём явно — иначе шаги не скрываются и клик не работает. */
+.trace-steps[hidden] { display:none; }
 
 /* ── CALLS TABLE ── */
 .calls-table { width:100%; border-collapse:collapse; font-size:12.5px; }
