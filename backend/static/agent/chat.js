@@ -107,6 +107,23 @@ const TOOL_LABELS = {
   get_period_report:'Готовлю отчёт за период', get_failed_calls:'Собираю недозвоны',
 };
 
+// Иконки инструментов для процесс-трейса (Фаза 4). Ключи — имена tools оркестратора.
+const TOOL_ICONS = {
+  get_contact_call_history:'fa-clock-rotate-left', get_agent_contacts:'fa-users',
+  get_agent_stats:'fa-chart-pie', get_agent_tasks:'fa-calendar-check',
+  create_agent_contact:'fa-user-plus', create_agent_task:'fa-calendar-plus',
+  update_contact_memory:'fa-brain', send_telegram_notification:'fa-paper-plane',
+  update_contact_info:'fa-user-pen', move_contact_stage:'fa-shuffle',
+  delete_agent_task:'fa-trash-can',
+  search_contacts:'fa-magnifying-glass', get_contact_details:'fa-id-card',
+  get_contacts_by_stage:'fa-filter', bulk_create_contacts:'fa-users-rectangle',
+  delete_agent_contact:'fa-user-minus', append_contact_note:'fa-note-sticky',
+  update_agent_task:'fa-pen-to-square', get_upcoming_schedule:'fa-calendar-days',
+  bulk_schedule_calls:'fa-calendar-plus', trigger_immediate_call:'fa-phone-volume',
+  snooze_contact:'fa-circle-pause', get_call_transcript:'fa-file-lines',
+  get_period_report:'fa-chart-line', get_failed_calls:'fa-phone-slash',
+};
+
 async function sendMessage(){
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
@@ -137,8 +154,9 @@ async function sendMessage(){
   }
 
   const stream = createStreamingBubble();
-  let st = { acc:'', toolEvents:[], bubble:stream.bubble, status:stream.status,
-             think:stream.think, t0, raf:null, dirty:false, done:false };
+  let st = { acc:'', steps:[], t0, raf:null, dirty:false, done:false,
+             wrap:stream.wrap, activity:stream.activity, working:stream.working,
+             stepsEl:stream.stepsEl, answer:stream.answer };
   try{
     const token = getToken();
     if(!token){ location.href='/static/login.html'; return; }
@@ -194,24 +212,88 @@ async function sendMessage(){
 function createStreamingBubble(){
   const msgs = document.getElementById('chat-messages');
   const div = document.createElement('div'); div.className='msg assistant';
-  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body">`+
-    `<div class="msg-bubble md" data-stream-bubble><div class="typing-row" data-think><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`+
-    `<div class="tool-status" data-status style="display:none"></div>`+
+  div.innerHTML =
+    `<div class="msg-avatar">ИИ</div>`+
+    `<div class="msg-body">`+
+      `<div class="activity" data-activity>`+
+        `<div class="activity-working" data-working><span class="aw-dot"></span><span class="aw-text">Думаю…</span></div>`+
+        `<div class="activity-steps" data-steps></div>`+
+      `</div>`+
+      `<div class="msg-bubble md answer" data-answer></div>`+
     `</div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
   return {
     wrap: div,
-    bubble: div.querySelector('[data-stream-bubble]'),
-    status: div.querySelector('[data-status]'),
-    think: div.querySelector('[data-think]'),
+    activity: div.querySelector('[data-activity]'),
+    working: div.querySelector('[data-working]'),
+    stepsEl: div.querySelector('[data-steps]'),
+    answer: div.querySelector('[data-answer]'),
   };
 }
 
 function _streamRender(st){
   st.dirty = false;
-  st.bubble.innerHTML = renderMarkdown(st.acc);
+  st.answer.innerHTML = renderMarkdown(st.acc);
   const msgs = document.getElementById('chat-messages');
   msgs.scrollTop = msgs.scrollHeight;
+}
+
+// Краткий итог результата инструмента для строки трейса (число найденного / ошибка).
+function _stepMeta(res){
+  if(res && typeof res==='object'){
+    if(res.count!==undefined) return String(res.count);
+    if(res.ok===false) return 'ошибка';
+  }
+  return '';
+}
+
+// HTML одной строки процесс-трейса (иконка инструмента + название + статус + итог).
+function stepRowHTML(s){
+  const icon = TOOL_ICONS[s.tool] || 'fa-gear';
+  const label = TOOL_LABELS[s.tool] || s.tool || 'Инструмент';
+  let trail;
+  if(s.status==='running') trail = '<span class="step-spin"></span>';
+  else if(s.status==='error') trail = '<span class="step-state err">✕</span>';
+  else trail = '<span class="step-state ok">✓</span>';
+  const meta = s.meta ? `<span class="step-meta">${esc(s.meta)}</span>` : '';
+  const cls = s.status==='ok' ? 'ok' : (s.status==='error' ? 'error' : 'running');
+  return `<div class="step ${cls}"><span class="step-ic"><i class="fas ${icon}"></i></span><span class="step-label">${esc(label)}</span>${meta}${trail}</div>`;
+}
+
+function _renderSteps(st){
+  if(st.stepsEl) st.stepsEl.innerHTML = st.steps.map(stepRowHTML).join('');
+}
+
+// Свёрнутый трейс после завершения ответа: «N шагов · Xс» + раскрываемый список.
+function buildActivityCollapsed(steps, elapsed){
+  const n = steps.length;
+  const word = pluralRu(n, 'шаг', 'шага', 'шагов');
+  const rows = steps.map(stepRowHTML).join('');
+  return `<button class="trace-summary" type="button" onclick="toggleTrace(this)">`+
+    `<i class="fas fa-bolt"></i><span>${n} ${word} · ${esc(String(elapsed))}с</span>`+
+    `<i class="fas fa-chevron-down trace-chev"></i></button>`+
+    `<div class="trace-steps" hidden>${rows}</div>`;
+}
+function toggleTrace(btn){
+  const steps = btn.nextElementSibling;
+  if(!steps) return;
+  if(steps.hasAttribute('hidden')){ steps.removeAttribute('hidden'); btn.classList.add('open'); }
+  else { steps.setAttribute('hidden',''); btn.classList.remove('open'); }
+}
+
+// Финализация трейса: были вызовы — схлопнуть в сводку, не было — убрать совсем.
+function _finalizeActivity(st, elapsed){
+  if(!st.activity) return;
+  if(!st.steps.length){ st.activity.remove(); st.activity=null; return; }
+  st.activity.classList.add('done');
+  st.activity.innerHTML = buildActivityCollapsed(st.steps, elapsed);
+}
+
+function _appendTime(body){
+  if(!body || body.querySelector('.msg-time')) return;
+  const t = document.createElement('div'); t.className='msg-time';
+  t.textContent = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+  body.appendChild(t);
 }
 
 function handleStreamEvent(ev, st){
@@ -219,131 +301,92 @@ function handleStreamEvent(ev, st){
   if(ev.type==='start') return;
 
   if(ev.type==='tool_call'){
-    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_call', data:{ tool:ev.tool, args:ev.args } });
-    const label = TOOL_LABELS[ev.tool] || ev.tool || 'Инструмент';
-    st.status.style.display = 'flex';
-    st.status.classList.remove('done');
-    st.status.innerHTML = `<span class="ts-spinner"></span><span>${esc(label)}…</span>`;
+    if(st.working) st.working.style.display='inline-flex';
+    st.steps.push({ tool:ev.tool, status:'running', meta:'' });
+    _renderSteps(st);
     msgs.scrollTop = msgs.scrollHeight;
     return;
   }
-  if(ev.type==='tool_result'){
-    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_result', data:{ tool:ev.tool, result:ev.result } });
-    let info = 'готово';
-    const res = ev.result;
-    if(res && typeof res==='object'){
-      const c = res.count!==undefined ? 'найдено: '+res.count : '';
-      const ok = res.ok!==undefined ? (res.ok?'успешно':'ошибка') : '';
-      info = [c, ok].filter(Boolean).join(' · ') || 'готово';
+  if(ev.type==='tool_result' || ev.type==='tool_error'){
+    // Разрешаем последний ещё «бегущий» шаг (вызовы и результаты идут парами по порядку).
+    for(let i=st.steps.length-1; i>=0; i--){
+      if(st.steps[i].status==='running'){
+        st.steps[i].status = ev.type==='tool_error' ? 'error' : 'ok';
+        st.steps[i].meta   = ev.type==='tool_error' ? '' : _stepMeta(ev.result);
+        break;
+      }
     }
-    st.status.classList.add('done');
-    st.status.innerHTML = `<span class="ts-check">✓</span><span>${esc(info)}</span>`;
-    return;
-  }
-  if(ev.type==='tool_error'){
-    st.toolEvents.push({ ts:Date.now()/1000, type:'tool_error', data:{ tool:ev.tool, error:ev.error } });
-    st.status.classList.add('done');
-    st.status.innerHTML = `<span class="ts-check" style="color:var(--danger,#e05)">✕</span><span>ошибка</span>`;
+    _renderSteps(st);
     return;
   }
   if(ev.type==='token'){
-    if(st.think){ st.think.remove(); st.think=null; st.bubble.innerHTML=''; }
-    if(st.status && st.status.style.display!=='none'){ st.status.style.display='none'; }
+    if(st.working) st.working.style.display='none';   // ответ пошёл — гасим индикатор «Думаю…»
     st.acc += ev.text;
-    if(!st.dirty){
-      st.dirty = true;
-      st.raf = requestAnimationFrame(()=>_streamRender(st));
-    }
+    if(!st.dirty){ st.dirty=true; st.raf=requestAnimationFrame(()=>_streamRender(st)); }
     return;
   }
   if(ev.type==='clear_partial'){
-    st.acc = '';
-    if(st.bubble) st.bubble.innerHTML = '';
+    st.acc='';
+    if(st.answer) st.answer.innerHTML='';
     return;
   }
   if(ev.type==='done'){
     st.done = true;
     if(st.raf) cancelAnimationFrame(st.raf);
-    if(st.think){ st.think.remove(); st.think=null; }
-    if(st.status){ st.status.remove(); st.status=null; }
-    st.bubble.innerHTML = renderMarkdown(ev.reply);
+    st.answer.innerHTML = renderMarkdown(ev.reply);
     const el = ((Date.now()-st.t0)/1000).toFixed(1);
-    const debugLog = ev.debug_log || st.toolEvents;
-    const body = st.bubble.parentElement;
-    const dbg = renderDebugBlock(debugLog, el);
-    if(dbg){
-      // Вставить debug-блок после времени (msg-time добавим, если нет).
-      let time = body.querySelector('.msg-time');
-      if(!time){
-        time = document.createElement('div'); time.className='msg-time';
-        time.textContent = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-        body.appendChild(time);
-      }
-      time.insertAdjacentHTML('afterend', dbg);
-    } else {
-      if(!body.querySelector('.msg-time')){
-        const time = document.createElement('div'); time.className='msg-time';
-        time.textContent = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-        body.appendChild(time);
-      }
-    }
+    _finalizeActivity(st, el);
+    _appendTime(st.answer.parentElement);
     msgs.scrollTop = msgs.scrollHeight;
     return;
   }
   if(ev.type==='error'){
     st.done = true;
     if(st.raf) cancelAnimationFrame(st.raf);
-    if(st.think){ st.think.remove(); st.think=null; }
-    if(st.status){ st.status.remove(); st.status=null; }
-    st.bubble.innerHTML = renderMarkdown(st.acc || 'Ошибка обработки запроса.');
+    if(st.working) st.working.style.display='none';
+    st.answer.innerHTML = renderMarkdown(st.acc || 'Ошибка обработки запроса.');
+    _finalizeActivity(st, ((Date.now()-st.t0)/1000).toFixed(1));
+    _appendTime(st.answer.parentElement);
     return;
   }
 }
 
+// Сообщение юзера — деликатный чип справа; простой ответ ассистента (ошибки) — без пузыря.
 function addBubble(text, role){
   const msgs = document.getElementById('chat-messages');
-  const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
   const div = document.createElement('div');
   div.className = 'msg '+role;
-  const body = role==='user' ? esc(text).replace(/\n/g,'<br>') : renderMarkdown(text);
-  const bubbleCls = role==='user' ? 'msg-bubble' : 'msg-bubble md';
-  div.innerHTML = `<div class="msg-avatar">${role==='user'?'Вы':'ИИ'}</div><div class="msg-body"><div class="${bubbleCls}">${body}</div><div class="msg-time">${now}</div></div>`;
+  if(role==='user'){
+    div.innerHTML = `<div class="msg-body"><div class="msg-bubble user-chip">${esc(text).replace(/\n/g,'<br>')}</div></div>`;
+  } else {
+    const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
+    div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble md answer">${renderMarkdown(text)}</div><div class="msg-time">${now}</div></div>`;
+  }
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
 
-// Строит блок debug-лога (тег «N действий · Xс» + сворачиваемый список).
-// Используется и стрим-путём (handleStreamEvent), и fallback-путём (addAgentBubble).
-function renderDebugBlock(debugLog, elapsed){
-  debugLog = debugLog || [];
-  const toolCalls = debugLog.filter(e=>e.type==='tool_call');
-  const logEntries = debugLog.filter(e => ['gpt_thinking','tool_call','tool_result','tool_error','gpt_response'].includes(e.type));
-  if(!logEntries.length) return '';
-  const logId = 'dbg-'+Date.now()+'-'+Math.floor(Math.random()*1e4);
-  const entriesHtml = logEntries.map(e => {
-    const typeMap = { gpt_thinking:{cls:'de-thinking',label:'Думаю'}, tool_call:{cls:'de-tool_call',label:e.data?.tool||'Инструмент'}, tool_result:{cls:'de-tool_result',label:'Результат'}, tool_error:{cls:'de-tool_error',label:'Ошибка'}, gpt_response:{cls:'de-gpt_response',label:'Ответ'} };
-    const t = typeMap[e.type] || {cls:'de-thinking',label:e.type};
-    let main='', detail='';
-    if(e.type==='tool_call'){ main = TOOL_LABELS[e.data?.tool]||e.data?.tool||''; const a=e.data?.args; if(a&&Object.keys(a).length) detail=Object.entries(a).slice(0,3).map(([k,v])=>k+': '+(typeof v==='object'?JSON.stringify(v).slice(0,60):String(v).slice(0,60))).join('\n'); }
-    else if(e.type==='tool_result'){ const res=e.data?.result; if(res&&typeof res==='object'){ const c=res.count!==undefined?'найдено: '+res.count:''; const ok=res.ok!==undefined?(res.ok?'успешно':'ошибка'):''; main=[c,ok].filter(Boolean).join(' · ')||'получен ответ'; } else main='получен ответ'; }
-    else if(e.type==='gpt_thinking'){ main = typeof e.data==='string'?e.data.slice(0,80):'обрабатываю'; }
-    else if(e.type==='gpt_response'){ main = typeof e.data==='string'?e.data.slice(0,80):''; }
-    else if(e.type==='tool_error'){ main = e.data?.error||'ошибка'; }
-    return `<div class="debug-entry"><div class="debug-entry-header"><span class="debug-entry-type ${t.cls}">${t.label}</span>${main?`<span class="debug-entry-text">${esc(main)}</span>`:''}</div>${detail?`<div class="debug-entry-detail">${esc(detail)}</div>`:''}</div>`;
-  }).join('');
-  const n = toolCalls.length;
-  const tag = n>0 ? `${n} ${n===1?'действие':n<5?'действия':'действий'} · ${elapsed}с` : `${elapsed}с`;
-  return `<div class="debug-tag" id="tag-${logId}" onclick="toggleLog('${logId}')"><span>${tag}</span><span class="chevron">&#8964;</span></div><div class="debug-log" id="${logId}" style="display:none">${entriesHtml}</div>`;
+// Собирает шаги трейса из debug_log (fallback-путь /chat без стрима).
+function _stepsFromDebug(debugLog){
+  const steps = [];
+  (debugLog||[]).forEach(e => {
+    if(e.type==='tool_call'){ steps.push({ tool:e.data&&e.data.tool, status:'ok', meta:'' }); }
+    else if(e.type==='tool_result'){ const s=steps[steps.length-1]; if(s){ s.status='ok'; s.meta=_stepMeta(e.data&&e.data.result); } }
+    else if(e.type==='tool_error'){ const s=steps[steps.length-1]; if(s){ s.status='error'; s.meta=''; } }
+  });
+  return steps;
 }
 
 function addAgentBubble(text, debugLog, elapsed){
   const msgs = document.getElementById('chat-messages');
   const now = new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
   const div = document.createElement('div'); div.className='msg assistant';
-  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="msg-bubble md">${renderMarkdown(text)}</div><div class="msg-time">${now}</div>${renderDebugBlock(debugLog, elapsed)}</div>`;
+  const steps = _stepsFromDebug(debugLog);
+  const trace = steps.length ? `<div class="activity done">${buildActivityCollapsed(steps, elapsed)}</div>` : '';
+  div.innerHTML = `<div class="msg-avatar">ИИ</div><div class="msg-body">${trace}<div class="msg-bubble md answer">${renderMarkdown(text)}</div><div class="msg-time">${now}</div></div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
 }
-function toggleLog(id){ const l=document.getElementById(id), t=document.getElementById('tag-'+id); if(!l||!t)return; const open=l.style.display!=='none'; l.style.display=open?'none':'block'; t.classList.toggle('open',!open); }
-function showTyping(){ const msgs=document.getElementById('chat-messages'); const id='typ-'+Date.now(); const div=document.createElement('div'); div.className='msg assistant'; div.id=id; div.innerHTML=`<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="typing-row"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`; msgs.appendChild(div); msgs.scrollTop=msgs.scrollHeight; return id; }
+
+function showTyping(){ const msgs=document.getElementById('chat-messages'); const id='typ-'+Date.now(); const div=document.createElement('div'); div.className='msg assistant'; div.id=id; div.innerHTML=`<div class="msg-avatar">ИИ</div><div class="msg-body"><div class="activity-working"><span class="aw-dot"></span><span class="aw-text">Думаю…</span></div></div>`; msgs.appendChild(div); msgs.scrollTop=msgs.scrollHeight; return id; }
 function removeTyping(id){ document.getElementById(id)?.remove(); }
 
 
