@@ -137,6 +137,9 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .chat-header-icon { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); display:flex; align-items:center; justify-content:center; font-size:15px; color:#fff; }
 .chat-header-title { font-size:15px; font-weight:600; }
 .chat-header-sub { font-size:11.5px; color:var(--hint); margin-top:1px; }
+.chat-new-btn { margin-left:auto; display:flex; align-items:center; gap:6px; padding:7px 12px; border:1px solid var(--border); border-radius:9px; background:var(--bg); color:var(--muted); font-size:12px; font-weight:500; font-family:inherit; cursor:pointer; transition:var(--transition); flex-shrink:0; }
+.chat-new-btn:hover { border-color:var(--blue); color:var(--blue); background:var(--white); }
+.chat-new-btn:disabled { opacity:.55; cursor:not-allowed; }
 .chat-messages { flex:1; overflow-y:auto; padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
 .msg { display:flex; gap:9px; max-width:82%; animation:msgIn 0.2s ease; }
 @keyframes msgIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
@@ -576,6 +579,9 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <div class="chat-header-title">Чат с ИИ-ассистентом</div>
         <div class="chat-header-sub">Ваш помощник для работы с клиентами</div>
       </div>
+      <button class="chat-new-btn" id="chat-new-btn" onclick="newChat()" title="Начать новый диалог (история очистится)">
+        <i class="fas fa-rotate-right"></i><span>Новый чат</span>
+      </button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-quick">
@@ -1354,7 +1360,13 @@ function closeDrawer(){
 
 async function loadCurrentAgent(){
   const r = await apiFetch(API + '/');   // withAgentId подставит agent_id
-  if(r && r.status===200){ agentData = await r.json(); showDashboard(); }
+  if(r && r.status===200){
+    agentData = await r.json();
+    // Каждый вход / перезагрузка страницы = новый диалог: чистим серверную
+    // историю чата, чтобы агент не получал прошлый контекст (последние 20 сообщений).
+    apiFetch(API + '/chat/clear', { method:'POST' }).catch(()=>{});
+    showDashboard();
+  }
   else { showWizard(); }
 }
 
@@ -1397,7 +1409,7 @@ function showDashboard(){
   creditsTimer = setInterval(loadCredits, 30000);
   const msgs = document.getElementById('chat-messages');
   if(!msgs.children.length){
-    addBubble('Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?','assistant');
+    addBubble(CHAT_GREETING,'assistant');
   }
 }
 
@@ -1717,6 +1729,21 @@ async function toggleActive(e){
 }
 
 // ════════════════ CHAT ════════════════
+const CHAT_GREETING = 'Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?';
+
+// Начать новый диалог: чистим серверную историю + сбрасываем окно чата.
+async function newChat(){
+  const btn = document.getElementById('chat-new-btn');
+  if(btn) btn.disabled = true;
+  try{ await apiFetch(API + '/chat/clear', { method:'POST' }); }catch(e){}
+  const msgs = document.getElementById('chat-messages');
+  if(msgs) msgs.innerHTML = '';
+  addBubble(CHAT_GREETING, 'assistant');
+  if(btn) btn.disabled = false;
+  const inp = document.getElementById('chat-input');
+  if(inp) inp.focus();
+}
+
 const TOOL_LABELS = {
   get_contact_call_history:'Изучаю историю звонков', get_agent_contacts:'Загружаю контакты',
   get_agent_stats:'Считаю статистику', get_agent_tasks:'Проверяю задачи',

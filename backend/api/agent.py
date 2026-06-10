@@ -699,6 +699,27 @@ async def agent_chat_stream(
     )
 
 
+@router.post("/chat/clear")
+async def agent_chat_clear(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Очистить историю веб-чата агента — каждый новый диалог начинается с нуля.
+
+    Затрагивает только UI-чат (agent_config.chat_history). Telegram-история
+    хранится отдельно (telegram_history) и не трогается.
+    """
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    agent.chat_history = []
+    db.commit()
+    return {"ok": True}
+
+
 # ============================================================================
 # ENDPOINTS — STATS
 # ============================================================================
