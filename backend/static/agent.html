@@ -714,16 +714,6 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
         <label class="form-label">Имя агента</label>
         <input type="text" class="form-input" id="i-name">
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Рабочие часы с</label>
-          <input type="number" class="form-input" id="i-hours-start" min="0" max="23">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Рабочие часы до</label>
-          <input type="number" class="form-input" id="i-hours-end" min="0" max="23">
-        </div>
-      </div>
       <div class="form-group">
         <label class="form-label">Дополнительные инструкции</label>
         <textarea class="form-textarea" id="i-additional_instructions" rows="6"
@@ -2115,8 +2105,6 @@ async function saveEdit(){
 // ════════════════ INSTRUCTIONS MODAL ════════════════
 function openInstructionsModal(){
   document.getElementById('i-name').value = agentData.name || '';
-  document.getElementById('i-hours-start').value = agentData.working_hours_start ?? 9;
-  document.getElementById('i-hours-end').value = agentData.working_hours_end ?? 21;
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
 
   const ms = document.getElementById('i-orchestrator_model');
@@ -2144,8 +2132,6 @@ async function saveInstructions(){
 
   const body = {
     name: document.getElementById('i-name').value || agentData.name,
-    working_hours_start: parseInt(document.getElementById('i-hours-start').value) || 9,
-    working_hours_end: parseInt(document.getElementById('i-hours-end').value) || 21,
     additional_instructions: document.getElementById('i-additional_instructions').value,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
@@ -3130,15 +3116,12 @@ function renderDocStep(c){
   c.innerHTML = `<h2>Шаг ${wizardStep}: ${s.title}</h2><p class="hint">${s.hint}</p>
     ${s.extra?`<div class="form-group"><label class="form-label">Имя агента *</label><input type="text" class="form-input" id="w-name" value="${esc(wizardData.name||'')}" placeholder="Алина"></div>`:''}
     <div class="form-group"><textarea class="form-textarea" id="w-ta" rows="6" placeholder="${esc(s.ph)}">${esc(wizardData[s.key]||'')}</textarea></div>
-    ${s.extra?`<div class="form-row"><div class="form-group"><label class="form-label">Рабочие часы с</label><input type="number" class="form-input" id="w-hs" min="0" max="23" value="${wizardData.working_hours_start??9}"></div><div class="form-group"><label class="form-label">Рабочие часы до</label><input type="number" class="form-input" id="w-he" min="0" max="23" value="${wizardData.working_hours_end??21}"></div></div>`:''}
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="wizardNextDoc()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
 }
 function saveDocStep(){
   const s = WIZ_DOCS[wizardStep];
   const ta = document.getElementById('w-ta'); if(ta) wizardData[s.key]=ta.value;
   const nm = document.getElementById('w-name'); if(nm) wizardData.name=nm.value;
-  const hs = document.getElementById('w-hs'); if(hs) wizardData.working_hours_start=parseInt(hs.value)||9;
-  const he = document.getElementById('w-he'); if(he) wizardData.working_hours_end=parseInt(he.value)||21;
   persistWizard();
 }
 function wizardNextDoc(){
@@ -3189,7 +3172,6 @@ async function renderCreation(c){
     doc_who_am_i: wizardData.doc_who_am_i||'', doc_who_we_call: wizardData.doc_who_we_call||'',
     doc_how_we_talk: wizardData.doc_how_we_talk||'', doc_what_we_offer: wizardData.doc_what_we_offer||'',
     doc_rules_and_goals: wizardData.doc_rules_and_goals||'', additional_instructions: wizardData.additional_instructions||null,
-    working_hours_start: wizardData.working_hours_start??9, working_hours_end: wizardData.working_hours_end??21,
     orchestrator_model: wizardData.orchestrator_model||null,
   };
   try{

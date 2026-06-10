@@ -69,25 +69,12 @@ def adjust_to_working_hours(
       - после конца рабочего дня → следующий день на wh_start МСК.
 
     Возвращает (utc_dt_aware, shifted: bool).
+
+    Агенты работают круглосуточно: ограничение по рабочим часам отключено,
+    поэтому время звонка никогда не сдвигается.
     """
     if dt_utc.tzinfo is None:
         dt_utc = dt_utc.replace(tzinfo=timezone.utc)
 
-    # Защита от некорректного диапазона — не двигаем.
-    if wh_start is None or wh_end is None or wh_start >= wh_end:
-        return dt_utc.astimezone(timezone.utc), False
-
-    msk = utc_to_msk(dt_utc)
-    hour = msk.hour
-
-    if wh_start <= hour < wh_end:
-        return dt_utc.astimezone(timezone.utc), False
-
-    if hour < wh_start:
-        new_msk = msk.replace(hour=wh_start, minute=0, second=0, microsecond=0)
-    else:
-        new_msk = (msk + timedelta(days=1)).replace(
-            hour=wh_start, minute=0, second=0, microsecond=0
-        )
-
-    return msk_to_utc(new_msk), True
+    # Круглосуточный режим — звонки не переносим.
+    return dt_utc.astimezone(timezone.utc), False
