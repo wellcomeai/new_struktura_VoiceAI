@@ -19,14 +19,54 @@
   --radius: 14px;
   --radius-sm: 10px;
   --radius-pill: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
-  --transition: 0.25s ease;
+
+  /* ── ФАЗА 1: система глубины (elevation) ──
+     Слои поверхностей. В покое карточки на elev-1, на ховере плавно
+     поднимаются до elev-2/elev-3. --shadow оставлен как алиас для
+     обратной совместимости со старыми правилами. */
+  --elev-1: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  --elev-2: 0 4px 12px rgba(16,24,40,.06), 0 2px 6px rgba(16,24,40,.04);
+  --elev-3: 0 12px 32px rgba(24,95,165,.10), 0 4px 12px rgba(16,24,40,.06);
+  --shadow: var(--elev-1);
+  /* Акцентное свечение (focus-кольцо / «живые» состояния) */
+  --glow-accent: 0 0 0 3px rgba(55,138,221,.14);
+  --glow-accent-soft: 0 0 0 4px rgba(55,138,221,.10);
+
+  /* ── ФАЗА 1: материал-стекло ──
+     Полупрозрачные поверхности для навбара и липких шапок. */
+  --glass-bg: rgba(255,255,255,.72);
+  --glass-blur: blur(12px) saturate(140%);
+
+  /* ── ФАЗА 1: пружинная физика движения ──
+     Заменяет единый линейный ease. --ease-spring даёт лёгкий «отскок»
+     (для подъёмов/появлений), --ease-out — мягкое торможение (для всего
+     остального). --transition оставлен алиасом, но теперь на ease-out. */
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);
+  --ease-out:    cubic-bezier(.22,1,.36,1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 340ms;
+  --transition: var(--dur) var(--ease-out);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+/* ── ФАЗА 1: доступные focus-кольца ──
+   Видны только при навигации с клавиатуры (не перебивают hover мышью). */
+:focus-visible { outline:none; box-shadow:var(--glow-accent); border-radius:var(--radius-sm); }
+button:focus-visible, a:focus-visible, .icon-btn:focus-visible, .chat-send:focus-visible { outline:none; box-shadow:var(--glow-accent); }
+body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility; }
+
+/* ── ФАЗА 1: «аврора» — мягкая цветовая подложка за всем приложением ──
+   Едва заметные радиальные пятна акцентного цвета. Дают глубину фону,
+   не мешая контенту (за слоями карточек). */
+body::before {
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(60vw 50vh at 12% -8%, rgba(55,138,221,.07), transparent 60%),
+    radial-gradient(50vw 45vh at 100% 0%, rgba(29,158,117,.05), transparent 55%);
+}
 
 /* ── TOP NAV ── */
-.top-nav { height:60px; background:var(--white); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 22px; flex-shrink:0; z-index:10; }
+.top-nav { height:60px; background:var(--glass-bg); -webkit-backdrop-filter:var(--glass-blur); backdrop-filter:var(--glass-blur); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 22px; flex-shrink:0; z-index:10; }
 .nav-logo { display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--text); }
 .nav-logo-icon { width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); display:flex; align-items:center; justify-content:center; color:#fff; font-size:15px; }
 .nav-logo-img { width:34px; height:34px; object-fit:contain; border-radius:9px; display:block; }
@@ -57,7 +97,8 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .col-left::-webkit-scrollbar-thumb, .col-right::-webkit-scrollbar-thumb, .chat-messages::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 
 /* ── CARD ── */
-.card { background:var(--white); border-radius:var(--radius); border:1px solid var(--border); padding:16px; box-shadow:var(--shadow); }
+.card { background:var(--white); border-radius:var(--radius); border:1px solid var(--border); padding:16px; box-shadow:var(--elev-1); transition:box-shadow var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out); }
+.card:hover { box-shadow:var(--elev-2); border-color:#DCE0E6; }
 .card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
 .card-head-title { display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; color:var(--text); }
 .card-head-title i { color:var(--blue); font-size:13px; }
@@ -66,11 +107,13 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 
 /* stats */
 .stats-row { display:flex; gap:12px; }
-.stat-card { flex:1; background:var(--white); border-radius:var(--radius); border:1px solid var(--border); padding:14px; box-shadow:var(--shadow); }
-.stat-icon { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:14px; margin-bottom:8px; }
+.stat-card { flex:1; background:var(--white); border-radius:var(--radius); border:1px solid var(--border); padding:14px; box-shadow:var(--elev-1); transition:box-shadow var(--dur) var(--ease-out), transform var(--dur-slow) var(--ease-spring), border-color var(--dur) var(--ease-out); }
+.stat-card:hover { box-shadow:var(--elev-2); transform:translateY(-2px); border-color:#DCE0E6; }
+.stat-icon { width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:14px; margin-bottom:8px; transition:transform var(--dur) var(--ease-spring); }
+.stat-card:hover .stat-icon { transform:scale(1.08) rotate(-3deg); }
 .stat-icon.blue { background:var(--blue-light); color:var(--blue); }
 .stat-icon.green { background:var(--green-light); color:var(--green); }
-.stat-num { font-size:26px; font-weight:700; line-height:1; }
+.stat-num { font-family:'Syne',-apple-system,BlinkMacSystemFont,sans-serif; font-size:28px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
 .stat-label { font-size:11.5px; color:var(--muted); margin-top:3px; }
 .stat-go { font-size:11px; color:var(--blue); cursor:pointer; margin-top:7px; display:inline-block; }
 .stat-go:hover { text-decoration:underline; }
@@ -347,15 +390,33 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .doc-pane.active { display:block; }
 
 /* ── BUTTONS ── */
-.btn { padding:11px 20px; border-radius:var(--radius-sm); font-size:14px; font-weight:600; cursor:pointer; border:none; transition:var(--transition); display:inline-flex; align-items:center; gap:7px; }
-.btn-primary { background:var(--blue); color:#fff; }
-.btn-primary:hover { background:var(--blue-dark); }
+.btn { padding:11px 20px; border-radius:var(--radius-sm); font-size:14px; font-weight:600; cursor:pointer; border:none; transition:background var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out); display:inline-flex; align-items:center; gap:7px; }
+.btn:active { transform:scale(.97); }
+.btn-primary { background:var(--blue); color:#fff; box-shadow:0 2px 8px rgba(55,138,221,.22); }
+.btn-primary:hover { background:var(--blue-dark); box-shadow:0 6px 18px rgba(55,138,221,.32); transform:translateY(-1px); }
+.btn-primary:active { transform:scale(.97); }
 .btn-secondary { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
 .btn-secondary:hover { background:var(--border); }
 .btn-danger { background:var(--red); color:#fff; }
 .btn-danger:hover { opacity:.9; }
 .btn:disabled { opacity:.5; cursor:not-allowed; }
 .btn-sm { padding:7px 13px; font-size:12.5px; border-radius:8px; }
+.chat-send:active:not(:disabled) { transform:scale(.92); }
+.icon-btn:active { transform:scale(.92); }
+
+/* ── ФАЗА 1: глобальный prefers-reduced-motion ──
+   Для пользователей с отключённой анимацией все переходы и кейфреймы
+   становятся мгновенными, а декоративные трансформы — нейтральными. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card:hover, .stat-card:hover, .btn-primary:hover, .chat-tile:hover { transform:none !important; }
+  .stat-card:hover .stat-icon { transform:none !important; }
+}
 
 /* ── CALLS TABLE ── */
 .calls-table { width:100%; border-collapse:collapse; font-size:12.5px; }
