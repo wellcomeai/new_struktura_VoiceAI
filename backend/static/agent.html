@@ -140,6 +140,17 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .chat-new-btn { margin-left:auto; display:flex; align-items:center; gap:6px; padding:7px 12px; border:1px solid var(--border); border-radius:9px; background:var(--bg); color:var(--muted); font-size:12px; font-weight:500; font-family:inherit; cursor:pointer; transition:var(--transition); flex-shrink:0; }
 .chat-new-btn:hover { border-color:var(--blue); color:var(--blue); background:var(--white); }
 .chat-new-btn:disabled { opacity:.55; cursor:not-allowed; }
+/* ── WELCOME / EMPTY STATE ── */
+.chat-welcome { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px 18px; gap:8px; animation:welcomeIn .35s ease; }
+@keyframes welcomeIn { from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+.chat-welcome-icon { width:58px; height:58px; border-radius:16px; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); display:flex; align-items:center; justify-content:center; font-size:24px; color:#fff; margin-bottom:6px; box-shadow:var(--shadow); }
+.chat-welcome-title { font-size:19px; font-weight:700; color:var(--text); }
+.chat-welcome-sub { font-size:13px; color:var(--muted); max-width:430px; line-height:1.5; margin-bottom:8px; }
+.chat-tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; width:100%; max-width:560px; }
+.chat-tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:13px 14px; background:var(--bg); border:1px solid var(--border); border-radius:13px; cursor:pointer; text-align:left; transition:var(--transition); }
+.chat-tile:hover { border-color:var(--blue); background:var(--white); transform:translateY(-2px); box-shadow:var(--shadow); }
+.chat-tile-ic { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-size:13.5px; background:rgba(59,130,246,.1); color:var(--blue); flex-shrink:0; }
+.chat-tile-label { font-size:12.5px; font-weight:600; color:var(--text); line-height:1.3; }
 .chat-messages { flex:1; overflow-y:auto; padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
 .msg { display:flex; gap:9px; max-width:82%; animation:msgIn 0.2s ease; }
 @keyframes msgIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
@@ -178,9 +189,6 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .typing-dot { width:6px; height:6px; border-radius:50%; background:var(--blue); animation:tb 1.2s infinite ease-in-out; }
 .typing-dot:nth-child(2){animation-delay:.2s;} .typing-dot:nth-child(3){animation-delay:.4s;}
 @keyframes tb { 0%,80%,100%{transform:scale(.6);opacity:.4;} 40%{transform:scale(1);opacity:1;} }
-.chat-quick { display:flex; gap:8px; flex-wrap:wrap; padding:0 20px 10px; }
-.quick-chip { padding:7px 14px; border-radius:var(--radius-pill); font-size:12.5px; font-weight:500; background:var(--bg); border:1px solid var(--border); color:var(--muted); cursor:pointer; transition:var(--transition); white-space:nowrap; }
-.quick-chip:hover { background:var(--blue-light); border-color:var(--blue-border); color:var(--blue); }
 .chat-input-area { padding:14px 20px; border-top:1px solid var(--border-soft); display:flex; gap:10px; align-items:flex-end; }
 .chat-input { flex:1; border:1px solid var(--border); border-radius:12px; padding:11px 16px; font-size:13.5px; font-family:inherit; resize:none; outline:none; background:var(--bg); color:var(--text); max-height:120px; min-height:44px; line-height:1.4; transition:var(--transition); }
 .chat-input:focus { border-color:var(--blue); background:var(--white); }
@@ -584,12 +592,6 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
       </button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>
-    <div class="chat-quick">
-      <div class="quick-chip" onclick="quickAction('stats')">Покажи статистику</div>
-      <div class="quick-chip" onclick="quickAction('contact')">Добавить контакт →</div>
-      <div class="quick-chip" onclick="quickAction('schedule')">Запланировать звонок</div>
-      <div class="quick-chip" onclick="quickAction('docs')">Показать документацию</div>
-    </div>
     <div class="chat-input-area">
       <textarea class="chat-input" id="chat-input" placeholder="Напишите сообщение..." rows="1"></textarea>
       <button class="chat-send" id="chat-send"><i class="fas fa-paper-plane"></i></button>
@@ -1409,7 +1411,7 @@ function showDashboard(){
   creditsTimer = setInterval(loadCredits, 30000);
   const msgs = document.getElementById('chat-messages');
   if(!msgs.children.length){
-    addBubble(CHAT_GREETING,'assistant');
+    renderWelcome();
   }
 }
 
@@ -1729,16 +1731,85 @@ async function toggleActive(e){
 }
 
 // ════════════════ CHAT ════════════════
-const CHAT_GREETING = 'Привет! Я ваш агент Voicyfy. Могу показать статистику, добавить контакты или запланировать звонки. Чем помочь?';
+// Пул из 25 подсказок. При каждом новом чате показываем случайные 10.
+// icon — FontAwesome, label — текст на плитке, prompt — что уйдёт агенту.
+const CHAT_SUGGESTIONS = [
+  { icon:'fa-chart-pie',        label:'Статистика агента',     prompt:'Покажи мою статистику за всё время' },
+  { icon:'fa-compass',          label:'Воронка контактов',     prompt:'Покажи разбивку контактов по стадиям воронки' },
+  { icon:'fa-person-walking',   label:'Кто в работе',          prompt:'Покажи контакты в стадии «в работе»' },
+  { icon:'fa-circle-check',     label:'Успешные',              prompt:'Покажи контакты со стадией «успех»' },
+  { icon:'fa-ban',              label:'Отказы',                prompt:'Покажи контакты, которые отказались' },
+  { icon:'fa-user-plus',        label:'Последние контакты',    prompt:'Покажи последние добавленные контакты' },
+  { icon:'fa-calendar-day',     label:'Расписание на сегодня', prompt:'Какие звонки запланированы на сегодня?' },
+  { icon:'fa-calendar-week',    label:'Расписание на неделю',  prompt:'Покажи расписание звонков на ближайшую неделю' },
+  { icon:'fa-forward',          label:'Ближайшие звонки',      prompt:'Покажи мои ближайшие запланированные звонки' },
+  { icon:'fa-calendar-plus',    label:'Запланировать звонок',  prompt:'Помоги запланировать звонок контакту' },
+  { icon:'fa-phone-slash',      label:'Недозвоны',             prompt:'Покажи, кому не дозвонились — очередь на перезвон' },
+  { icon:'fa-chart-line',       label:'Отчёт за неделю',       prompt:'Сделай отчёт по звонкам за последнюю неделю' },
+  { icon:'fa-calendar-check',   label:'Отчёт за месяц',        prompt:'Сделай отчёт по звонкам за последний месяц' },
+  { icon:'fa-clock-rotate-left',label:'Последние звонки',      prompt:'Покажи историю последних звонков' },
+  { icon:'fa-bullseye',         label:'Конверсия',             prompt:'Какая у меня конверсия звонков за неделю?' },
+  { icon:'fa-user',             label:'Добавить контакт',      prompt:'Хочу добавить новый контакт в базу обзвона' },
+  { icon:'fa-file-import',      label:'Импорт списка',         prompt:'Помоги загрузить список контактов для обзвона' },
+  { icon:'fa-rocket',           label:'Обзвонить новых',       prompt:'Запланируй обзвон всех новых контактов' },
+  { icon:'fa-phone-volume',     label:'Позвонить сейчас',      prompt:'Позвони контакту прямо сейчас' },
+  { icon:'fa-circle-pause',     label:'Пауза по контакту',     prompt:'Поставь контакт на паузу — не звонить какое-то время' },
+  { icon:'fa-lightbulb',        label:'Что ты умеешь',         prompt:'Что ты умеешь? Расскажи о своих возможностях' },
+  { icon:'fa-mug-hot',          label:'Итоги дня',             prompt:'Подведи итоги звонков за сегодня' },
+  { icon:'fa-clock',            label:'Лучшее время звонка',   prompt:'В какое время лучше звонить моим контактам?' },
+  { icon:'fa-rotate',           label:'Кого перезвонить',      prompt:'Кому стоит перезвонить в первую очередь?' },
+  { icon:'fa-receipt',          label:'Сводка по агенту',      prompt:'Дай краткую сводку: контакты, задачи, звонки' },
+];
 
-// Начать новый диалог: чистим серверную историю + сбрасываем окно чата.
+function pickSuggestions(n){
+  const arr = CHAT_SUGGESTIONS.slice();
+  for(let i=arr.length-1; i>0; i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; }
+  return arr.slice(0, n);
+}
+
+// Рисует приветственный экран с 10 случайными плитками в окно чата.
+function renderWelcome(){
+  const msgs = document.getElementById('chat-messages');
+  if(!msgs) return;
+  msgs.innerHTML = '';
+  const tiles = pickSuggestions(10).map(s =>
+    `<button class="chat-tile" onclick="suggestionClick(this)" data-prompt="${esc(s.prompt)}">
+       <span class="chat-tile-ic"><i class="fas ${s.icon}"></i></span>
+       <span class="chat-tile-label">${esc(s.label)}</span>
+     </button>`
+  ).join('');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-welcome';
+  wrap.id = 'chat-welcome';
+  wrap.innerHTML =
+    `<div class="chat-welcome-icon"><i class="fas fa-wand-magic-sparkles"></i></div>
+     <div class="chat-welcome-title">Привет! Я ваш агент Voicyfy 👋</div>
+     <div class="chat-welcome-sub">Помогаю управлять обзвоном: контакты, задачи, звонки и аналитика. Выберите подсказку или напишите запрос сами.</div>
+     <div class="chat-tiles">${tiles}</div>`;
+  msgs.appendChild(wrap);
+}
+
+// Убирает приветственный экран (когда начинается диалог).
+function hideWelcome(){
+  const w = document.getElementById('chat-welcome');
+  if(w) w.remove();
+}
+
+// Клик по плитке → отправляем её текст как сообщение агенту.
+function suggestionClick(el){
+  const prompt = el.getAttribute('data-prompt') || '';
+  if(!prompt) return;
+  const inp = document.getElementById('chat-input');
+  if(inp) inp.value = prompt;
+  sendMessage();
+}
+
+// Начать новый диалог: чистим серверную историю + показываем welcome заново.
 async function newChat(){
   const btn = document.getElementById('chat-new-btn');
   if(btn) btn.disabled = true;
   try{ await apiFetch(API + '/chat/clear', { method:'POST' }); }catch(e){}
-  const msgs = document.getElementById('chat-messages');
-  if(msgs) msgs.innerHTML = '';
-  addBubble(CHAT_GREETING, 'assistant');
+  renderWelcome();
   if(btn) btn.disabled = false;
   const inp = document.getElementById('chat-input');
   if(inp) inp.focus();
@@ -1760,20 +1831,12 @@ const TOOL_LABELS = {
   get_period_report:'Готовлю отчёт за период', get_failed_calls:'Собираю недозвоны',
 };
 
-function quickAction(kind){
-  if(kind==='contact'){ openAddContactModal(); return; }
-  if(kind==='docs'){ openEditModal('doc_who_am_i'); return; }
-  if(kind==='tasks'){ document.getElementById('chat-input').value='Покажи мои ближайшие задачи'; sendMessage(); return; }
-  const map = { stats:'Покажи статистику', schedule:'Помоги запланировать звонок' };
-  document.getElementById('chat-input').value = map[kind] || '';
-  sendMessage();
-}
-
 async function sendMessage(){
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
   if(!text) return;
   inp.value=''; inp.style.height='auto';
+  hideWelcome();
   addBubble(text,'user');
   document.getElementById('chat-send').disabled = true;
   const t0 = Date.now();
