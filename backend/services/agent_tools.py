@@ -4,12 +4,12 @@ Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call 
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from backend.core.logging import get_logger
 from backend.models.agent_contact import AgentContact
@@ -79,6 +79,23 @@ UPDATE_CONTACT_INFO_TOOL = {
 # ============================================================================
 # HELPERS
 # ============================================================================
+
+def _parse_iso_utc(value) -> Optional[datetime]:
+    """
+    Распарсить ISO 8601 строку времени в aware-datetime (UTC).
+    Принимает суффикс 'Z' и смещения; naive-время трактуется как UTC.
+    Возвращает None, если строку не удалось разобрать.
+    """
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
 
 def assistant_task_kwargs(agent_config) -> dict:
     """
@@ -219,6 +236,261 @@ AGENT_CHAT_TOOLS = [
             "required": ["task_id"],
         },
     },
+    {
+        "type": "function",
+        "name": "search_contacts",
+        "description": (
+            "Найти контакты по подстроке имени/телефона/компании и/или по стадии воронки. "
+            "Используй вместо get_agent_contacts, когда пользователь ищет конкретных людей "
+            "('найди Иванова', 'контакты из компании X', 'покажи отказников'). "
+            "Все аргументы опциональны; без аргументов вернёт последние контакты."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Подстрока для поиска по имени, телефону или компании"},
+                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Фильтр по стадии воронки (опционально)"},
+                "company": {"type": "string", "description": "Фильтр по компании (опционально)"},
+                "limit": {"type": "integer", "description": "Максимум результатов (по умолчанию 30)"},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_contact_details",
+        "description": (
+            "Получить полную карточку одного контакта: базовые поля, стадию воронки, заметки, "
+            "память агента (summary, ключевые факты, лучшее время, история тона), число попыток, "
+            "дату последнего звонка и краткую сводку по последним звонкам. Используй для запросов "
+            "вида 'расскажи всё про Иванова', 'что мы знаем о контакте'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            },
+            "required": ["agent_contact_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_contacts_by_stage",
+        "description": (
+            "Получить разбивку контактов по стадиям воронки: счётчик по каждой стадии "
+            "(new/active/success/rejected/do_not_call) и небольшой пример контактов в каждой. "
+            "Используй для вопросов 'как распределены контакты', 'сколько в работе/успехов/отказов', "
+            "'покажи воронку'."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "type": "function",
+        "name": "bulk_create_contacts",
+        "description": (
+            "Создать сразу несколько контактов одним вызовом. Используй когда пользователь "
+            "присылает список людей для обзвона. У каждого контакта обязателен phone. "
+            "Дубли по номеру телефона (уже есть в базе) пропускаются."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "contacts": {
+                    "type": "array",
+                    "description": "Список контактов для создания",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "phone": {"type": "string", "description": "Номер телефона (обязательно)"},
+                            "company": {"type": "string"},
+                            "position": {"type": "string"},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["phone"],
+                    },
+                },
+            },
+            "required": ["contacts"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "delete_agent_contact",
+        "description": (
+            "Удалить контакт из базы агента по его UUID. Вместе с контактом удаляется его история "
+            "звонков, а запланированные задачи отвязываются. Удаление необратимо — используй только "
+            "по явной просьбе пользователя ('удали контакт', 'убери из базы'). Если нужно просто "
+            "перестать звонить — лучше move_contact_stage в do_not_call."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            },
+            "required": ["agent_contact_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "append_contact_note",
+        "description": (
+            "Дописать заметку к контакту, НЕ стирая существующие заметки (в отличие от update_contact_info, "
+            "который перезаписывает поле notes целиком). Каждая заметка добавляется новой строкой с датой. "
+            "Используй когда узнал новый факт о клиенте и хочешь его сохранить, не теряя прежние записи."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+                "note": {"type": "string", "description": "Текст заметки для добавления"},
+            },
+            "required": ["agent_contact_id", "note"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "update_agent_task",
+        "description": (
+            "Изменить существующую запланированную задачу на звонок: перенести время и/или поменять "
+            "название/описание. Используй для 'перенеси звонок Иванову на завтра 15:00', 'переименуй задачу'. "
+            "Сначала найди task_id через get_agent_tasks или get_upcoming_schedule. Время передавай в UTC. "
+            "Менять можно только задачи в статусе scheduled."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "UUID задачи"},
+                "scheduled_at": {"type": "string", "description": "Новое время звонка ISO 8601 (UTC), опционально"},
+                "title": {"type": "string", "description": "Новое название задачи (опционально)"},
+                "notes": {"type": "string", "description": "Новое описание (опционально)"},
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_upcoming_schedule",
+        "description": (
+            "Получить календарь ближайших запланированных звонков по ВСЕМ контактам (а не по одному). "
+            "Используй для 'что у меня на сегодня/завтра', 'какие звонки впереди', 'покажи расписание'. "
+            "Возвращает задачи в статусе scheduled, отсортированные по времени."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "За сколько ближайших дней показывать (по умолчанию 7)"},
+                "limit": {"type": "integer", "description": "Максимум задач (по умолчанию 50)"},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "name": "bulk_schedule_calls",
+        "description": (
+            "Запланировать обзвон для группы контактов разом, расставив звонки с интервалом, начиная "
+            "с указанного времени. Группу задаёшь либо списком agent_contact_ids, либо стадией воронки stage "
+            "(например все 'new'). Используй для 'обзвони всех новых завтра с 10:00', 'поставь звонки этим контактам'. "
+            "Время начала передавай в UTC. Звонки автоматически сдвигаются в рабочие часы агента."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Список UUID контактов (либо это, либо stage)",
+                },
+                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Запланировать всем контактам этой стадии (либо это, либо agent_contact_ids)"},
+                "start_at": {"type": "string", "description": "Время первого звонка ISO 8601 (UTC)"},
+                "interval_minutes": {"type": "integer", "description": "Интервал между звонками в минутах (по умолчанию 15)"},
+                "title": {"type": "string", "description": "Название задач (по умолчанию 'Звонок агента')"},
+            },
+            "required": ["start_at"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "trigger_immediate_call",
+        "description": (
+            "Позвонить контакту прямо сейчас — создаёт задачу на ближайшее выполнение (планировщик подхватит "
+            "её в течение ~30 секунд). В отличие от create_agent_task, НЕ сдвигает время в рабочие часы — "
+            "звонок уйдёт немедленно. Используй только по явной просьбе 'позвони ему сейчас', 'набери немедленно'. "
+            "Перед звонком убедись, что агент активен."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+                "title": {"type": "string", "description": "Название задачи (опционально)"},
+            },
+            "required": ["agent_contact_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "snooze_contact",
+        "description": (
+            "Приостановить звонки контакту до указанной даты: отменяет все его запланированные задачи и "
+            "запрещает планировать новые звонки раньше этой даты (последующие create_agent_task автоматически "
+            "сдвинутся на дату окончания паузы). Используй для 'не звони Иванову до понедельника', "
+            "'поставь на паузу до 15 числа'. Дату окончания паузы передавай в UTC."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+                "until": {"type": "string", "description": "Дата окончания паузы ISO 8601 (UTC)"},
+            },
+            "required": ["agent_contact_id", "until"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_call_transcript",
+        "description": (
+            "Получить ПОЛНЫЙ транскрипт конкретного звонка по его UUID (get_contact_call_history отдаёт только "
+            "первые 500 символов). Используй когда пользователь просит 'покажи весь разговор', 'что именно сказал клиент'. "
+            "Сначала найди agent_call_id через get_contact_call_history."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_call_id": {"type": "string", "description": "UUID звонка (AgentCall)"},
+            },
+            "required": ["agent_call_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_period_report",
+        "description": (
+            "Сводный отчёт по звонкам за период: всего звонков, дозвонов, успехов, перезвонов, недозвонов, "
+            "суммарная и средняя длительность, конверсия. Используй для 'как прошла неделя', 'отчёт за месяц', "
+            "'статистика с 1 по 7 число'. Даты передавай в UTC; если не указаны — берётся последние 7 дней."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "date_from": {"type": "string", "description": "Начало периода ISO 8601 (UTC), опционально"},
+                "date_to": {"type": "string", "description": "Конец периода ISO 8601 (UTC), опционально"},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_failed_calls",
+        "description": (
+            "Получить список недозвонов и неудачных звонков как очередь на перезвон — по одному (последнему) "
+            "звонку на контакт, с данными контакта. Используй для 'кому не дозвонились', 'покажи недозвоны', "
+            "'кого надо перезвонить'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Максимум контактов (по умолчанию 30)"},
+            },
+        },
+    },
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
 ]
@@ -312,6 +584,18 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
 
     # Get assistant from agent_config (type-aware — gemini/openai/cartesia)
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+
+    # Учитываем паузу контакта (snooze): если контакт на паузе до даты в будущем —
+    # сдвигаем звонок на момент окончания паузы (раньше звонить нельзя).
+    snooze_contact = db.query(AgentContact).filter(AgentContact.id == agent_contact_id).first()
+    if snooze_contact and isinstance(snooze_contact.memory, dict):
+        snooze_until_raw = snooze_contact.memory.get("snooze_until")
+        snooze_until = _parse_iso_utc(snooze_until_raw) if snooze_until_raw else None
+        if snooze_until:
+            sched_aware = scheduled_at if scheduled_at.tzinfo else scheduled_at.replace(tzinfo=timezone.utc)
+            if sched_aware < snooze_until:
+                scheduled_at = snooze_until
+                logger.info(f"[AGENT-TOOLS] Contact {agent_contact_id} snoozed until {snooze_until}, shifting task to it")
 
     # Унифицированная проверка рабочих часов агента (МСК) — переносим звонок
     # на ближайший рабочий день, если время выпадает на нерабочие часы.
@@ -692,6 +976,607 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     }
 
 
+async def fn_search_contacts(args: dict, user_id: str, db: Session) -> dict:
+    """Поиск контактов по подстроке (имя/телефон/компания) и/или стадии воронки."""
+    q = db.query(AgentContact).filter(AgentContact.user_id == user_id)
+
+    stage = args.get("stage")
+    if stage and is_valid_stage(stage):
+        q = q.filter(AgentContact.status == stage)
+
+    company = args.get("company")
+    if company:
+        q = q.filter(AgentContact.company.ilike(f"%{company}%"))
+
+    query = args.get("query")
+    if query:
+        like = f"%{query}%"
+        q = q.filter(or_(
+            AgentContact.name.ilike(like),
+            AgentContact.phone.ilike(like),
+            AgentContact.company.ilike(like),
+        ))
+
+    try:
+        limit = max(1, min(int(args.get("limit") or 30), 100))
+    except (ValueError, TypeError):
+        limit = 30
+
+    contacts = q.order_by(AgentContact.created_at.desc()).limit(limit).all()
+    return {
+        "ok": True,
+        "count": len(contacts),
+        "contacts": [
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "phone": c.phone,
+                "company": c.company,
+                "position": c.position,
+                "stage": c.status,
+                "attempts_count": c.attempts_count or 0,
+                "last_called_at": c.last_called_at.isoformat() if c.last_called_at else None,
+            }
+            for c in contacts
+        ],
+    }
+
+
+async def fn_get_contact_details(args: dict, user_id: str, db: Session) -> dict:
+    """Полная карточка контакта: поля + память + краткая сводка последних звонков."""
+    agent_contact_id = args.get("agent_contact_id")
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    recent_calls = (
+        db.query(AgentCall)
+        .filter(AgentCall.agent_contact_id == contact.id)
+        .order_by(AgentCall.created_at.desc())
+        .limit(5)
+        .all()
+    )
+
+    return {
+        "ok": True,
+        "contact": {
+            "id": str(contact.id),
+            "name": contact.name,
+            "phone": contact.phone,
+            "company": contact.company,
+            "position": contact.position,
+            "notes": contact.notes,
+            "stage": contact.status,
+            "memory": contact.memory or {},
+            "attempts_count": contact.attempts_count or 0,
+            "last_called_at": contact.last_called_at.isoformat() if contact.last_called_at else None,
+            "created_at": contact.created_at.isoformat() if contact.created_at else None,
+        },
+        "recent_calls": [
+            {
+                "id": str(c.id),
+                "status": c.status,
+                "post_call_decision": c.post_call_decision,
+                "duration_seconds": c.duration_seconds,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in recent_calls
+        ],
+    }
+
+
+async def fn_get_contacts_by_stage(args: dict, user_id: str, db: Session) -> dict:
+    """Разбивка контактов по стадиям воронки: счётчики + примеры контактов."""
+    rows = db.query(AgentContact.status, func.count(AgentContact.id)).filter(
+        AgentContact.user_id == user_id
+    ).group_by(AgentContact.status).all()
+    counts = {(st or "new"): cnt for st, cnt in rows}
+
+    stages = []
+    for key in AGENT_CONTACT_STAGE_KEYS:
+        sample = (
+            db.query(AgentContact)
+            .filter(AgentContact.user_id == user_id, AgentContact.status == key)
+            .order_by(AgentContact.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        stages.append({
+            "stage": key,
+            "count": counts.get(key, 0),
+            "sample": [
+                {"id": str(c.id), "name": c.name, "phone": c.phone, "company": c.company}
+                for c in sample
+            ],
+        })
+
+    return {
+        "ok": True,
+        "total": sum(counts.values()),
+        "stages": stages,
+    }
+
+
+async def fn_bulk_create_contacts(args: dict, agent_config_id: str, user_id: str, db: Session) -> dict:
+    """Массовое создание контактов. Дубли по номеру (уже в базе) пропускаются."""
+    items = args.get("contacts") or []
+    if not isinstance(items, list) or not items:
+        return {"ok": False, "error": "contacts_required"}
+
+    created = []
+    skipped = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        phone = item.get("phone")
+        if not phone:
+            skipped.append({"phone": None, "reason": "no_phone"})
+            continue
+
+        exists = db.query(AgentContact.id).filter(
+            AgentContact.user_id == user_id,
+            AgentContact.phone == phone,
+        ).first()
+        if exists:
+            skipped.append({"phone": phone, "reason": "duplicate"})
+            continue
+
+        contact = AgentContact(
+            agent_config_id=agent_config_id,
+            user_id=user_id,
+            name=item.get("name"),
+            phone=phone,
+            company=item.get("company"),
+            position=item.get("position"),
+            notes=item.get("notes"),
+            status="new",
+            memory={},
+        )
+        db.add(contact)
+        db.flush()
+        created.append({"id": str(contact.id), "phone": contact.phone, "name": contact.name})
+
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Bulk created {len(created)} contacts, skipped {len(skipped)}")
+    return {
+        "ok": True,
+        "created_count": len(created),
+        "skipped_count": len(skipped),
+        "created": created,
+        "skipped": skipped,
+    }
+
+
+async def fn_delete_agent_contact(args: dict, user_id: str, db: Session) -> dict:
+    """Удалить контакт агента (hard-delete). История звонков удаляется каскадом."""
+    agent_contact_id = args.get("agent_contact_id")
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    # Отменяем запланированные задачи контакта, чтобы планировщик их не выполнил
+    # после удаления (FK Task.agent_contact_id = ON DELETE SET NULL).
+    db.query(Task).filter(
+        Task.agent_contact_id == agent_contact_id,
+        Task.status == TaskStatus.SCHEDULED,
+        Task.is_agent_task == True,
+    ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
+
+    name = contact.name or contact.phone
+    db.delete(contact)
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Deleted agent contact {agent_contact_id} ('{name}') for user {user_id}")
+    return {"ok": True, "deleted": True, "contact_id": str(agent_contact_id), "name": name}
+
+
+async def fn_append_contact_note(args: dict, user_id: str, db: Session) -> dict:
+    """Дописать заметку к контакту, не стирая существующие (новая строка с датой)."""
+    agent_contact_id = args.get("agent_contact_id")
+    note = (args.get("note") or "").strip()
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+    if not note:
+        return {"ok": False, "error": "note_required"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+    line = f"[{stamp}] {note}"
+    contact.notes = f"{contact.notes}\n{line}" if contact.notes else line
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Appended note to contact {agent_contact_id}")
+    return {"ok": True, "contact_id": str(agent_contact_id), "notes": contact.notes}
+
+
+async def fn_update_agent_task(args: dict, user_id: str, db: Session) -> dict:
+    """Изменить запланированную задачу агента: время и/или название/описание."""
+    task_id = args.get("task_id")
+    if not task_id:
+        return {"ok": False, "error": "task_id_required"}
+
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.user_id == user_id,
+        Task.is_agent_task == True,
+    ).first()
+    if not task:
+        return {"ok": False, "error": "Task not found"}
+    if task.status != TaskStatus.SCHEDULED:
+        return {"ok": False, "error": f"task_not_scheduled (status={task.status.value if hasattr(task.status, 'value') else task.status})"}
+
+    updated = []
+    if args.get("scheduled_at"):
+        new_dt = _parse_iso_utc(args["scheduled_at"])
+        if not new_dt:
+            return {"ok": False, "error": "invalid_scheduled_at"}
+        # Привести к рабочим часам агента (как при создании задачи).
+        agent_config = None
+        if task.agent_contact_id:
+            contact = db.query(AgentContact).filter(AgentContact.id == task.agent_contact_id).first()
+            if contact and contact.agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == contact.agent_config_id).first()
+        if agent_config is not None:
+            new_dt, _shifted = adjust_to_working_hours(
+                new_dt, agent_config.working_hours_start, agent_config.working_hours_end
+            )
+        task.scheduled_time = new_dt
+        updated.append("scheduled_at")
+
+    if args.get("title") is not None:
+        task.title = args["title"]
+        updated.append("title")
+    if args.get("notes") is not None:
+        task.description = args["notes"]
+        updated.append("notes")
+
+    if not updated:
+        return {"ok": False, "error": "no_fields_to_update"}
+
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Updated agent task {task_id} fields: {updated}")
+    return {
+        "ok": True,
+        "task_id": str(task_id),
+        "updated_fields": updated,
+        "scheduled_at": task.scheduled_time.isoformat() if task.scheduled_time else None,
+        "title": task.title,
+    }
+
+
+async def fn_get_upcoming_schedule(args: dict, user_id: str, db: Session) -> dict:
+    """Календарь ближайших запланированных звонков по всем контактам."""
+    try:
+        days = max(1, min(int(args.get("days") or 7), 90))
+    except (ValueError, TypeError):
+        days = 7
+    try:
+        limit = max(1, min(int(args.get("limit") or 50), 100))
+    except (ValueError, TypeError):
+        limit = 50
+
+    now = datetime.utcnow()
+    horizon = now + timedelta(days=days)
+
+    rows = (
+        db.query(Task, AgentContact)
+        .join(AgentContact, Task.agent_contact_id == AgentContact.id)
+        .filter(
+            Task.user_id == user_id,
+            Task.is_agent_task == True,
+            Task.status == TaskStatus.SCHEDULED,
+            Task.scheduled_time >= now,
+            Task.scheduled_time <= horizon,
+        )
+        .order_by(Task.scheduled_time.asc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "ok": True,
+        "count": len(rows),
+        "days": days,
+        "tasks": [
+            {
+                "task_id": str(t.id),
+                "title": t.title,
+                "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
+                "agent_contact_id": str(c.id),
+                "contact_name": c.name,
+                "contact_phone": c.phone,
+            }
+            for t, c in rows
+        ],
+    }
+
+
+async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """Запланировать звонки группе контактов с интервалом, начиная со start_at."""
+    start_dt = _parse_iso_utc(args.get("start_at"))
+    if not start_dt:
+        return {"ok": False, "error": "invalid_or_missing_start_at"}
+
+    try:
+        interval = max(1, min(int(args.get("interval_minutes") or 15), 1440))
+    except (ValueError, TypeError):
+        interval = 15
+
+    title = args.get("title") or "Звонок агента"
+
+    # Резолвим целевые контакты: явный список или по стадии.
+    ids = args.get("agent_contact_ids")
+    stage = args.get("stage")
+    cq = db.query(AgentContact).filter(AgentContact.user_id == user_id)
+    if ids:
+        cq = cq.filter(AgentContact.id.in_(ids))
+    elif stage and is_valid_stage(stage):
+        cq = cq.filter(AgentContact.status == stage)
+    else:
+        return {"ok": False, "error": "provide_agent_contact_ids_or_valid_stage"}
+
+    contacts = cq.order_by(AgentContact.created_at.asc()).all()
+    if not contacts:
+        return {"ok": False, "error": "no_contacts_matched"}
+
+    agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+    task_kwargs = assistant_task_kwargs(agent_config)
+
+    scheduled = []
+    for i, contact in enumerate(contacts):
+        slot = start_dt + timedelta(minutes=interval * i)
+
+        # Уважаем паузу контакта (snooze).
+        if isinstance(contact.memory, dict):
+            snooze_until = _parse_iso_utc(contact.memory.get("snooze_until"))
+            if snooze_until and slot < snooze_until:
+                slot = snooze_until
+
+        # Рабочие часы агента.
+        if agent_config is not None:
+            slot, _shifted = adjust_to_working_hours(
+                slot, agent_config.working_hours_start, agent_config.working_hours_end
+            )
+
+        task = Task(
+            is_agent_task=True,
+            agent_contact_id=contact.id,
+            user_id=user_id,
+            contact_id=None,
+            status=TaskStatus.SCHEDULED,
+            scheduled_time=slot,
+            title=title,
+            description=args.get("notes", ""),
+            **task_kwargs,
+        )
+        db.add(task)
+        db.flush()
+        scheduled.append({
+            "task_id": str(task.id),
+            "agent_contact_id": str(contact.id),
+            "contact_name": contact.name or contact.phone,
+            "scheduled_at": slot.isoformat(),
+        })
+
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Bulk scheduled {len(scheduled)} calls for user {user_id}")
+    return {"ok": True, "scheduled_count": len(scheduled), "tasks": scheduled}
+
+
+async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """Создать задачу на немедленный звонок (без сдвига в рабочие часы)."""
+    agent_contact_id = args.get("agent_contact_id")
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+    if agent_config is not None and not agent_config.is_active:
+        return {"ok": False, "error": "agent_inactive", "hint": "Активируйте агента, иначе планировщик не выполнит звонок."}
+
+    # Немедленно: ставим задачу на текущий момент, рабочие часы НЕ применяем —
+    # пользователь явно просит позвонить сейчас. Планировщик подхватит её за ~30с.
+    task = Task(
+        is_agent_task=True,
+        agent_contact_id=contact.id,
+        user_id=user_id,
+        contact_id=None,
+        status=TaskStatus.SCHEDULED,
+        scheduled_time=datetime.now(timezone.utc),
+        title=args.get("title") or "Немедленный звонок",
+        description="",
+        **assistant_task_kwargs(agent_config),
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    logger.info(f"[AGENT-TOOLS] Triggered immediate call task {task.id} for contact {agent_contact_id}")
+    return {
+        "ok": True,
+        "task_id": str(task.id),
+        "agent_contact_id": str(contact.id),
+        "contact_name": contact.name or contact.phone,
+        "note": "Звонок поставлен в очередь, планировщик выполнит его в течение ~30 секунд.",
+    }
+
+
+async def fn_snooze_contact(args: dict, user_id: str, db: Session) -> dict:
+    """Поставить контакт на паузу до даты: отменить задачи + запретить ранние звонки."""
+    agent_contact_id = args.get("agent_contact_id")
+    until = _parse_iso_utc(args.get("until"))
+    if not agent_contact_id:
+        return {"ok": False, "error": "agent_contact_id_required"}
+    if not until:
+        return {"ok": False, "error": "invalid_or_missing_until"}
+
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    # Отменяем все запланированные задачи контакта.
+    cancelled = db.query(Task).filter(
+        Task.agent_contact_id == agent_contact_id,
+        Task.status == TaskStatus.SCHEDULED,
+        Task.is_agent_task == True,
+    ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
+
+    # Запоминаем паузу в памяти контакта — её уважает create_agent_task / bulk_schedule_calls.
+    memory = dict(contact.memory or {})
+    memory["snooze_until"] = until.isoformat()
+    contact.memory = memory
+    flag_modified(contact, "memory")
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Snoozed contact {agent_contact_id} until {until}, cancelled {cancelled} tasks")
+    return {
+        "ok": True,
+        "contact_id": str(agent_contact_id),
+        "snooze_until": until.isoformat(),
+        "cancelled_tasks": cancelled,
+    }
+
+
+async def fn_get_call_transcript(args: dict, user_id: str, db: Session) -> dict:
+    """Полный транскрипт конкретного звонка."""
+    agent_call_id = args.get("agent_call_id")
+    if not agent_call_id:
+        return {"ok": False, "error": "agent_call_id_required"}
+
+    call = db.query(AgentCall).filter(
+        AgentCall.id == agent_call_id,
+        AgentCall.user_id == user_id,
+    ).first()
+    if not call:
+        return {"ok": False, "error": "Call not found"}
+
+    return {
+        "ok": True,
+        "call": {
+            "id": str(call.id),
+            "agent_contact_id": str(call.agent_contact_id) if call.agent_contact_id else None,
+            "status": call.status,
+            "post_call_decision": call.post_call_decision,
+            "duration_seconds": call.duration_seconds,
+            "started_at": call.started_at.isoformat() if call.started_at else None,
+            "completed_at": call.completed_at.isoformat() if call.completed_at else None,
+            "transcript": call.transcript or "(транскрипт недоступен)",
+        },
+    }
+
+
+async def fn_get_period_report(args: dict, user_id: str, db: Session) -> dict:
+    """Сводный отчёт по звонкам за период (по умолчанию последние 7 дней)."""
+    date_to = _parse_iso_utc(args.get("date_to")) or datetime.now(timezone.utc)
+    date_from = _parse_iso_utc(args.get("date_from")) or (date_to - timedelta(days=7))
+    if date_from > date_to:
+        date_from, date_to = date_to, date_from
+
+    # Колонка created_at — naive UTC, сравниваем с naive границами.
+    df = date_from.replace(tzinfo=None)
+    dt = date_to.replace(tzinfo=None)
+
+    calls = (
+        db.query(AgentCall)
+        .filter(
+            AgentCall.user_id == user_id,
+            AgentCall.created_at >= df,
+            AgentCall.created_at <= dt,
+        )
+        .all()
+    )
+
+    total = len(calls)
+    answered = sum(1 for c in calls if c.status == "answered")
+    success = sum(1 for c in calls if c.post_call_decision == "SUCCESS")
+    followup = sum(1 for c in calls if c.post_call_decision == "FOLLOWUP")
+    no_answer = sum(1 for c in calls if c.post_call_decision == "NO_ANSWER" or c.status in ("no_answer", "failed"))
+    total_duration = sum(int(c.duration_seconds or 0) for c in calls)
+    avg_duration = round(total_duration / answered) if answered else 0
+    conversion = round(success / answered * 100, 1) if answered else 0.0
+
+    return {
+        "ok": True,
+        "period": {"from": date_from.isoformat(), "to": date_to.isoformat()},
+        "total_calls": total,
+        "answered": answered,
+        "success": success,
+        "followup": followup,
+        "no_answer": no_answer,
+        "total_duration_seconds": total_duration,
+        "avg_duration_seconds": avg_duration,
+        "conversion_percent": conversion,
+    }
+
+
+async def fn_get_failed_calls(args: dict, user_id: str, db: Session) -> dict:
+    """Очередь на перезвон: последний неудачный/недозвон по каждому контакту."""
+    try:
+        limit = max(1, min(int(args.get("limit") or 30), 100))
+    except (ValueError, TypeError):
+        limit = 30
+
+    calls = (
+        db.query(AgentCall)
+        .filter(
+            AgentCall.user_id == user_id,
+            or_(
+                AgentCall.status.in_(["no_answer", "failed"]),
+                AgentCall.post_call_decision == "NO_ANSWER",
+            ),
+        )
+        .order_by(AgentCall.created_at.desc())
+        .limit(300)
+        .all()
+    )
+
+    seen = set()
+    result = []
+    for c in calls:
+        cid = c.agent_contact_id
+        if cid in seen:
+            continue
+        seen.add(cid)
+        contact = db.query(AgentContact).filter(AgentContact.id == cid).first() if cid else None
+        result.append({
+            "agent_call_id": str(c.id),
+            "agent_contact_id": str(cid) if cid else None,
+            "contact_name": (contact.name if contact else None),
+            "contact_phone": (contact.phone if contact else None),
+            "status": c.status,
+            "post_call_decision": c.post_call_decision,
+            "last_attempt_at": c.created_at.isoformat() if c.created_at else None,
+            "attempts_count": (contact.attempts_count if contact else None),
+        })
+        if len(result) >= limit:
+            break
+
+    return {"ok": True, "count": len(result), "contacts": result}
+
+
 # ============================================================================
 # DISPATCHER
 # ============================================================================
@@ -708,6 +1593,20 @@ _TOOL_MAP = {
     "delete_agent_task": "fn_delete_agent_task",
     "get_agent_stats": "fn_get_agent_stats",
     "send_telegram_notification": "fn_send_telegram_notification",
+    "search_contacts": "fn_search_contacts",
+    "get_contact_details": "fn_get_contact_details",
+    "get_contacts_by_stage": "fn_get_contacts_by_stage",
+    "bulk_create_contacts": "fn_bulk_create_contacts",
+    "delete_agent_contact": "fn_delete_agent_contact",
+    "append_contact_note": "fn_append_contact_note",
+    "update_agent_task": "fn_update_agent_task",
+    "get_upcoming_schedule": "fn_get_upcoming_schedule",
+    "bulk_schedule_calls": "fn_bulk_schedule_calls",
+    "trigger_immediate_call": "fn_trigger_immediate_call",
+    "snooze_contact": "fn_snooze_contact",
+    "get_call_transcript": "fn_get_call_transcript",
+    "get_period_report": "fn_get_period_report",
+    "get_failed_calls": "fn_get_failed_calls",
 }
 
 
@@ -745,6 +1644,34 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_agent_stats(tool_args, user_id, db)
         elif tool_name == "send_telegram_notification":
             result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
+        elif tool_name == "search_contacts":
+            result = await fn_search_contacts(tool_args, user_id, db)
+        elif tool_name == "get_contact_details":
+            result = await fn_get_contact_details(tool_args, user_id, db)
+        elif tool_name == "get_contacts_by_stage":
+            result = await fn_get_contacts_by_stage(tool_args, user_id, db)
+        elif tool_name == "bulk_create_contacts":
+            result = await fn_bulk_create_contacts(tool_args, agent_config_id, user_id, db)
+        elif tool_name == "delete_agent_contact":
+            result = await fn_delete_agent_contact(tool_args, user_id, db)
+        elif tool_name == "append_contact_note":
+            result = await fn_append_contact_note(tool_args, user_id, db)
+        elif tool_name == "update_agent_task":
+            result = await fn_update_agent_task(tool_args, user_id, db)
+        elif tool_name == "get_upcoming_schedule":
+            result = await fn_get_upcoming_schedule(tool_args, user_id, db)
+        elif tool_name == "bulk_schedule_calls":
+            result = await fn_bulk_schedule_calls(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "trigger_immediate_call":
+            result = await fn_trigger_immediate_call(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "snooze_contact":
+            result = await fn_snooze_contact(tool_args, user_id, db)
+        elif tool_name == "get_call_transcript":
+            result = await fn_get_call_transcript(tool_args, user_id, db)
+        elif tool_name == "get_period_report":
+            result = await fn_get_period_report(tool_args, user_id, db)
+        elif tool_name == "get_failed_calls":
+            result = await fn_get_failed_calls(tool_args, user_id, db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
