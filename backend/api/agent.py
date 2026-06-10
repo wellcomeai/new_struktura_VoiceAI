@@ -158,6 +158,18 @@ class AgentContactStatusRequest(BaseModel):
     status: str = Field(..., min_length=1, max_length=50)
 
 
+class AgentTaskUpdateRequest(BaseModel):
+    """Ручное редактирование задачи из UI (карточка контакта / календарь)."""
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    scheduled_time: Optional[str] = Field(None, description="Новое время звонка (ISO-8601, UTC)")
+
+
+class AgentTaskCreateRequest(BaseModel):
+    """Ручное создание задачи для существующего контакта."""
+    title: str = Field(..., min_length=1, max_length=255)
+    scheduled_time: str = Field(..., description="Время звонка (ISO-8601, UTC)")
+
+
 class ImportExecuteRequest(BaseModel):
     preview_token: str = Field(..., min_length=1)
     agent_id: Optional[str] = None
@@ -896,6 +908,28 @@ async def get_orchestrator_models(
 # ============================================================================
 
 
+def _parse_scheduled_time(value: str) -> datetime:
+    """ISO-8601 строка (UTC) → aware UTC datetime. 400 при невалидном вводе."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid_scheduled_time")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _agent_task_dict(t: Task) -> dict:
+    """Компактная сериализация задачи для UI (карточка контакта / календарь)."""
+    return {
+        "id": str(t.id),
+        "title": t.title,
+        "description": t.description,
+        "scheduled_time": iso_utc(t.scheduled_time),
+        "status": t.status.value if hasattr(t.status, "value") else t.status,
+    }
+
+
 @router.get("/tasks")
 async def list_agent_tasks(
     status: Optional[str] = Query("scheduled"),
@@ -967,6 +1001,47 @@ async def delete_agent_task(
 
     logger.info(f"[AGENT] Deleted task {task_id} for user {current_user.id}")
     return {"detail": "deleted"}
+
+
+@router.put("/tasks/{task_id}")
+async def update_agent_task(
+    task_id: str,
+    body: AgentTaskUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Ручное редактирование задачи (название и/или время) из UI."""
+    task = db.query(Task).filter(
+        Task.id == task_id,
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+    ).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    # Редактировать можно только ещё не выполненные задачи.
+    if task.status != TaskStatus.SCHEDULED:
+        raise HTTPException(status_code=400, detail="task_not_editable")
+
+    updated_fields = []
+
+    if body.title is not None:
+        title = body.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="title_required")
+        task.title = title
+        updated_fields.append("title")
+
+    if body.scheduled_time is not None:
+        task.scheduled_time = _parse_scheduled_time(body.scheduled_time)
+        updated_fields.append("scheduled_time")
+
+    if updated_fields:
+        db.commit()
+        db.refresh(task)
+        logger.info(f"[AGENT] Updated task {task_id} fields: {updated_fields}")
+
+    return _agent_task_dict(task)
 
 
 # ============================================================================
@@ -1080,9 +1155,68 @@ async def get_agent_contact_details(
         .all()
     )
 
+    # Запланированные задачи этого контакта (для блока «Задачи» в карточке).
+    tasks = (
+        db.query(Task)
+        .filter(
+            Task.agent_contact_id == contact_id,
+            Task.is_agent_task == True,
+            Task.status == TaskStatus.SCHEDULED,
+        )
+        .order_by(Task.scheduled_time.asc())
+        .all()
+    )
+
     contact_data = contact.to_dict()
     contact_data["calls"] = [c.to_dict() for c in calls]
+    contact_data["tasks"] = [_agent_task_dict(t) for t in tasks]
     return contact_data
+
+
+@router.post("/contacts/{contact_id}/tasks")
+async def create_agent_contact_task(
+    contact_id: str,
+    body: AgentTaskCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Ручное создание задачи (запланированного звонка) для контакта из UI."""
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    agent = db.query(AgentConfig).filter(
+        AgentConfig.id == contact.agent_config_id,
+        AgentConfig.user_id == current_user.id,
+    ).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title_required")
+    scheduled_time = _parse_scheduled_time(body.scheduled_time)
+
+    task = Task(
+        is_agent_task=True,
+        agent_contact_id=contact.id,
+        user_id=current_user.id,
+        contact_id=None,
+        status=TaskStatus.SCHEDULED,
+        scheduled_time=scheduled_time,
+        title=title,
+        description="",
+        **assistant_task_kwargs(agent),
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    logger.info(f"[AGENT] Created manual task {task.id} for contact {contact_id}")
+    return _agent_task_dict(task)
 
 
 @router.post("/contacts")

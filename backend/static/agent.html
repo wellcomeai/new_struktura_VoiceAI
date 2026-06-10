@@ -242,6 +242,22 @@ body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-seri
 .task-del { flex-shrink:0; align-self:center; width:30px; height:30px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; transition:var(--transition); }
 .task-del:hover { background:var(--red-light); border-color:#F5C2C2; color:var(--red); }
 
+/* ── TASK INLINE EDIT (карточка контакта + календарь) ── */
+.task-ed { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border-soft); display:flex; flex-direction:column; gap:8px; }
+.task-ed .form-input { font-size:12.5px; padding:7px 9px; }
+.task-ed-btns { display:flex; gap:8px; justify-content:flex-end; }
+.task-edit-btn { flex-shrink:0; align-self:center; width:30px; height:30px; border-radius:8px; background:var(--bg); border:1px solid var(--border); color:var(--muted); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; transition:var(--transition); }
+.task-edit-btn:hover { background:var(--blue-light); border-color:var(--blue); color:var(--blue); }
+.cd-task { padding:10px 0; border-bottom:1px solid var(--border-soft); }
+.cd-task:last-child { border-bottom:none; }
+.cd-task-row { display:flex; align-items:center; gap:10px; }
+.cd-task-main { flex:1; min-width:0; }
+.cd-task-title { font-size:12.5px; font-weight:600; }
+.cd-task-time { font-size:11px; color:var(--muted); margin-top:2px; }
+.cd-task-acts { display:flex; gap:6px; flex-shrink:0; }
+.cd-task-new { margin-bottom:10px; padding:10px; border:1px dashed var(--border); border-radius:8px; display:flex; flex-direction:column; gap:8px; background:var(--bg); }
+.cd-task-clickable { cursor:pointer; }
+
 /* ── TASKS CALENDAR MODAL ── */
 .modal-cal { max-width:880px; }
 .tcal-wrap { display:flex; gap:18px; align-items:flex-start; }
@@ -1678,18 +1694,67 @@ function _tcalDateLabel(key){
 function _tcalTaskRow(t, key){
   const tm = t.scheduled_time ? (mskParts(t.scheduled_time)||{}).time || '' : '';
   const rel = relTime(t.scheduled_time);
-  return `<div class="task-item">
+  return `<div class="task-item" data-id="${t.id}">
     <div class="task-date"><div class="t" style="margin-top:0;font-size:13px">${tm}</div><div class="m">МСК</div></div>
     <div class="task-body">
-      <div class="task-title">${esc(t.title||'Задача')}</div>
-      ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
-      <div class="task-foot">
-        <span class="task-contact">${esc(t.contact_name||'')}</span>
-        <span class="task-when ${rel.soon?'soon':''}">${rel.text}</span>
+      <div class="cd-task-clickable" onclick="_tcalToggleTask('${t.id}')">
+        <div class="task-title">${esc(t.title||'Задача')}</div>
+        ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
+        <div class="task-foot">
+          <span class="task-contact">${esc(t.contact_name||'')}</span>
+          <span class="task-when ${rel.soon?'soon':''}">${rel.text}</span>
+        </div>
+      </div>
+      <div class="task-ed" id="tcal-task-ed-${t.id}" style="display:none">
+        <input type="text" class="form-input" id="tcal-title-${t.id}" value="${esc(t.title||'')}" placeholder="Название задачи">
+        <input type="datetime-local" class="form-input" id="tcal-time-${t.id}" value="${utcToMskInput(t.scheduled_time)}">
+        <div class="task-ed-btns">
+          <button class="btn btn-secondary btn-sm" onclick="_tcalToggleTask('${t.id}')">Отмена</button>
+          <button class="btn btn-primary btn-sm" onclick="_tcalSaveTask('${t.id}','${key}')"><i class="fas fa-check"></i> Сохранить</button>
+        </div>
       </div>
     </div>
+    <button class="task-edit-btn" title="Изменить" onclick="_tcalToggleTask('${t.id}')"><i class="fas fa-pen"></i></button>
     <button class="task-del" title="Удалить задачу" onclick="_tcalDeleteTask('${t.id}','${key}')"><i class="fas fa-trash-alt"></i></button>
   </div>`;
+}
+
+function _tcalToggleTask(id){
+  const ed = document.getElementById('tcal-task-ed-' + id);
+  if(ed) ed.style.display = (ed.style.display === 'none' || !ed.style.display) ? 'flex' : 'none';
+}
+
+async function _tcalSaveTask(id, key){
+  const title = (document.getElementById('tcal-title-' + id).value || '').trim();
+  const timeV = document.getElementById('tcal-time-' + id).value;
+  if(!title){ showToast('Введите название задачи', 'error'); return; }
+  if(!timeV){ showToast('Укажите дату и время', 'error'); return; }
+  const iso = mskInputToUtc(timeV);
+  if(!iso){ showToast('Некорректная дата', 'error'); return; }
+  try{
+    const r = await apiFetch(API + '/tasks/' + id, { method:'PUT', body: JSON.stringify({ title, scheduled_time: iso }) });
+    if(!r || r.status !== 200){ showToast('Не удалось сохранить задачу', 'error'); return; }
+    const upd = await r.json();
+    // вытащить задачу из старого дня (сохранив contact_name и пр.)
+    let task = null;
+    if(_tcalByDay[key]){
+      const i = _tcalByDay[key].findIndex(x => String(x.id) === String(id));
+      if(i >= 0){ task = _tcalByDay[key][i]; _tcalByDay[key].splice(i, 1); if(!_tcalByDay[key].length) delete _tcalByDay[key]; }
+    }
+    task = { ...(task || {}), ...upd };
+    const newKey = mskDateKey(upd.scheduled_time) || key;
+    (_tcalByDay[newKey] = _tcalByDay[newKey] || []).push(task);
+    _tcalByDay[newKey].sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
+    // если день сменился — переходим на него
+    _tcalSel = newKey;
+    _tcalExpanded = false;
+    _tcalYear = parseInt(newKey.slice(0,4),10);
+    _tcalMonth = parseInt(newKey.slice(5,7),10) - 1;
+    _tcalRenderGrid();
+    _tcalRenderList(_tcalSel);
+    loadTasks();
+    showToast(newKey !== key ? 'Задача перенесена' : 'Задача обновлена', 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
 }
 
 async function _tcalDeleteTask(id, key){
@@ -2916,6 +2981,7 @@ async function loadContactsList(search){
 }
 
 let currentContactDetailId = null;
+let _cdTasks = [];   // запланированные задачи текущего контакта (для блока «Задачи»)
 async function openContactDetailsModal(contactId){
   currentContactDetailId = contactId;
   document.getElementById('contact-details-modal-overlay').classList.remove('hidden');
@@ -2979,12 +3045,141 @@ function renderContactDetails(c){
       </div>
     </div>`;
 
+  const tasksBlock = `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:600;color:var(--blue-dark)"><i class="far fa-calendar-check"></i> Задачи</div>
+        <button class="btn btn-secondary btn-sm" onclick="cdTaskAddToggle()"><i class="fas fa-plus"></i> Добавить</button>
+      </div>
+      <div class="cd-task-new" id="cd-task-new" style="display:none">
+        <input type="text" class="form-input" id="cdt-new-title" placeholder="Название задачи">
+        <div>
+          <label class="form-label" style="margin-bottom:4px">Дата и время <span style="color:var(--muted);font-weight:400">🕐 МСК</span></label>
+          <input type="datetime-local" class="form-input" id="cdt-new-time">
+        </div>
+        <div class="task-ed-btns">
+          <button class="btn btn-secondary btn-sm" onclick="cdTaskAddToggle()">Отмена</button>
+          <button class="btn btn-primary btn-sm" onclick="cdTaskCreate()"><i class="fas fa-check"></i> Создать</button>
+        </div>
+      </div>
+      <div id="cd-tasks-list"></div>
+    </div>`;
+
   const callsBlock = (c.calls && c.calls.length) ? `
     <div style="font-size:13px;font-weight:600;margin-bottom:8px"><i class="fas fa-phone-volume"></i> История звонков (${c.calls.length})</div>
     ${c.calls.map((call, i) => renderCallExpanded(call, 'cc-' + i)).join('')}
   ` : '<div class="empty">Звонков пока не было</div>';
 
-  document.getElementById('contact-details-body').innerHTML = infoBlock + memBlock + callsBlock;
+  _cdTasks = (c.tasks || []).slice().sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
+  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock;
+  renderContactTasksSection();
+}
+
+// ── Задачи в карточке контакта ──
+function renderContactTasksSection(){
+  const wrap = document.getElementById('cd-tasks-list');
+  if(!wrap) return;
+  if(!_cdTasks.length){
+    wrap.innerHTML = '<div class="empty" style="text-align:left;padding:4px 0">Запланированных задач нет</div>';
+    return;
+  }
+  wrap.innerHTML = _cdTasks.map(t => _cdTaskRow(t)).join('');
+}
+
+function _cdTaskRow(t){
+  const tm = t.scheduled_time ? fmtDate(t.scheduled_time) : '—';
+  return `<div class="cd-task" data-id="${t.id}">
+    <div class="cd-task-row">
+      <div class="cd-task-main cd-task-clickable" onclick="cdTaskEdit('${t.id}')">
+        <div class="cd-task-title">${esc(t.title||'Задача')}</div>
+        <div class="cd-task-time"><i class="far fa-clock"></i> ${tm}</div>
+      </div>
+      <div class="cd-task-acts">
+        <button class="task-edit-btn" title="Изменить" onclick="cdTaskEdit('${t.id}')"><i class="fas fa-pen"></i></button>
+        <button class="task-del" title="Удалить задачу" onclick="cdTaskDelete('${t.id}')"><i class="fas fa-trash-alt"></i></button>
+      </div>
+    </div>
+    <div class="task-ed" id="cd-task-ed-${t.id}" style="display:none">
+      <input type="text" class="form-input" id="cdt-title-${t.id}" value="${esc(t.title||'')}" placeholder="Название задачи">
+      <input type="datetime-local" class="form-input" id="cdt-time-${t.id}" value="${utcToMskInput(t.scheduled_time)}">
+      <div class="task-ed-btns">
+        <button class="btn btn-secondary btn-sm" onclick="cdTaskEditCancel('${t.id}')">Отмена</button>
+        <button class="btn btn-primary btn-sm" onclick="cdTaskSave('${t.id}')"><i class="fas fa-check"></i> Сохранить</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function cdTaskEdit(id){
+  const ed = document.getElementById('cd-task-ed-' + id);
+  if(ed) ed.style.display = 'flex';
+}
+function cdTaskEditCancel(id){
+  const ed = document.getElementById('cd-task-ed-' + id);
+  if(ed) ed.style.display = 'none';
+}
+
+function cdTaskAddToggle(){
+  const f = document.getElementById('cd-task-new');
+  if(!f) return;
+  f.style.display = (f.style.display === 'none' || !f.style.display) ? 'flex' : 'none';
+}
+
+async function cdTaskSave(id){
+  const title = (document.getElementById('cdt-title-' + id).value || '').trim();
+  const timeV = document.getElementById('cdt-time-' + id).value;
+  if(!title){ showToast('Введите название задачи', 'error'); return; }
+  if(!timeV){ showToast('Укажите дату и время', 'error'); return; }
+  const iso = mskInputToUtc(timeV);
+  if(!iso){ showToast('Некорректная дата', 'error'); return; }
+  try{
+    const r = await apiFetch(API + '/tasks/' + id, { method:'PUT', body: JSON.stringify({ title, scheduled_time: iso }) });
+    if(!r || r.status !== 200){ showToast('Не удалось сохранить задачу', 'error'); return; }
+    const upd = await r.json();
+    const i = _cdTasks.findIndex(x => String(x.id) === String(id));
+    if(i >= 0) _cdTasks[i] = { ..._cdTasks[i], ...upd };
+    _cdTasks.sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
+    renderContactTasksSection();
+    loadTasks();
+    showToast('Задача обновлена', 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
+async function cdTaskDelete(id){
+  if(!confirm('Удалить эту задачу? Запланированный звонок не будет выполнен.')) return;
+  try{
+    const r = await apiFetch(API + '/tasks/' + id, { method:'DELETE' });
+    if(!r || (r.status !== 200 && r.status !== 204)){ showToast('Не удалось удалить задачу', 'error'); return; }
+    _cdTasks = _cdTasks.filter(x => String(x.id) !== String(id));
+    renderContactTasksSection();
+    loadTasks();
+    showToast('Задача удалена', 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
+async function cdTaskCreate(){
+  if(!currentContactDetailId) return;
+  const title = (document.getElementById('cdt-new-title').value || '').trim();
+  const timeV = document.getElementById('cdt-new-time').value;
+  if(!title){ showToast('Введите название задачи', 'error'); return; }
+  if(!timeV){ showToast('Укажите дату и время', 'error'); return; }
+  const iso = mskInputToUtc(timeV);
+  if(!iso){ showToast('Некорректная дата', 'error'); return; }
+  try{
+    const r = await apiFetch(API + '/contacts/' + currentContactDetailId + '/tasks', {
+      method:'POST', body: JSON.stringify({ title, scheduled_time: iso }),
+    });
+    if(!r || (r.status !== 200 && r.status !== 201)){ showToast('Не удалось создать задачу', 'error'); return; }
+    const t = await r.json();
+    _cdTasks.push(t);
+    _cdTasks.sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
+    cdTaskAddToggle();
+    document.getElementById('cdt-new-title').value = '';
+    document.getElementById('cdt-new-time').value = '';
+    renderContactTasksSection();
+    loadTasks();
+    showToast('Задача создана', 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
 }
 
 function resetContactEdit(){
@@ -3424,6 +3619,29 @@ function mskParts(s){
 }
 function relTime(s){ if(!s) return {text:'',soon:false}; const d=new Date(s), now=new Date(), diff=d-now; if(diff<=0) return {text:'сейчас',soon:true}; const min=Math.floor(diff/60000), h=Math.floor(min/60), days=Math.floor(h/24); if(min<60) return {text:`Через ${min} мин`,soon:true}; if(h<24) return {text:`Через ${h} ч ${min%60} мин`,soon:h<2}; return {text:`Через ${days} ${days===1?'день':days<5?'дня':'дней'}`,soon:false}; }
 function esc(s){ if(s===null||s===undefined) return ''; const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
+
+// МСК (UTC+3, без перехода на летнее время) для ввода/вывода datetime-local.
+// value инпута трактуется как МСК; на бэк уходит UTC ISO, и обратно.
+const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
+// 'YYYY-MM-DDTHH:mm' (МСК) → UTC ISO-строка для API
+function mskInputToUtc(v){
+  if(!v) return null;
+  const [datePart, timePart] = v.split('T');
+  if(!datePart || !timePart) return null;
+  const [y,m,d] = datePart.split('-').map(Number);
+  const [hh,mm] = timePart.split(':').map(Number);
+  if([y,m,d,hh,mm].some(n => Number.isNaN(n))) return null;
+  return new Date(Date.UTC(y, m-1, d, hh, mm) - MSK_OFFSET_MS).toISOString();
+}
+// UTC ISO-строка → value для datetime-local в МСК ('YYYY-MM-DDTHH:mm')
+function utcToMskInput(s){
+  if(!s) return '';
+  const d = new Date(s);
+  if(isNaN(d.getTime())) return '';
+  const m = new Date(d.getTime() + MSK_OFFSET_MS);
+  const p = n => String(n).padStart(2,'0');
+  return `${m.getUTCFullYear()}-${p(m.getUTCMonth()+1)}-${p(m.getUTCDate())}T${p(m.getUTCHours())}:${p(m.getUTCMinutes())}`;
+}
 
 // Markdown → безопасный HTML для пузырей чата (variant A+D).
 // marked парсит GitHub-flavored markdown (таблицы, списки, код), DOMPurify вырезает любой XSS.
