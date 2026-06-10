@@ -418,6 +418,42 @@ body::before {
   .stat-card:hover .stat-icon { transform:none !important; }
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+ * ФАЗА 2 — МИКРОИНТЕРАКТИВЫ
+ * count-up чисел и логика «пробуждения» — в agent/motion.js.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Скелетоны-шиммеры (до загрузки данных) ── */
+@keyframes sk-shimmer { 0%{ background-position:200% 0; } 100%{ background-position:-200% 0; } }
+.sk-num { color:transparent !important; position:relative; }
+.sk-num::after { content:""; position:absolute; left:0; top:3px; width:48px; height:22px; border-radius:7px; background:linear-gradient(100deg,#eceef1 28%,#f6f7f9 50%,#eceef1 72%); background-size:200% 100%; animation:sk-shimmer 1.3s ease-in-out infinite; }
+.sk-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border-soft); }
+.sk-row:last-child { border-bottom:none; }
+.sk-dot { width:30px; height:30px; border-radius:50%; flex-shrink:0; }
+.sk-lines { flex:1; display:flex; flex-direction:column; gap:6px; }
+.sk-line { height:10px; border-radius:6px; }
+.sk-line.short { width:52%; }
+.sk-dot, .sk-line { background:linear-gradient(100deg,#eceef1 28%,#f6f7f9 50%,#eceef1 72%); background-size:200% 100%; animation:sk-shimmer 1.3s ease-in-out infinite; }
+
+/* ── Плитки приветствия: световой sweep + «игра» иконки на ховере ── */
+.chat-tile { position:relative; overflow:hidden; }
+.chat-tile::after { content:""; position:absolute; top:0; left:-120%; width:55%; height:100%; background:linear-gradient(100deg,transparent,rgba(255,255,255,.6),transparent); transform:skewX(-18deg); pointer-events:none; }
+.chat-tile:hover::after { animation:tile-sweep .7s var(--ease-out); }
+@keyframes tile-sweep { to { left:150%; } }
+.chat-tile-ic { transition:transform var(--dur) var(--ease-spring); }
+.chat-tile:hover .chat-tile-ic { transform:scale(1.12) rotate(-4deg); }
+
+/* ── Документные карточки: лёгкий подъём иконки ── */
+.doc-card-ic { transition:transform var(--dur) var(--ease-spring); }
+.doc-card:hover .doc-card-ic { transform:scale(1.1) rotate(-3deg); }
+
+/* ── «Пробуждение» агента при включении тумблера ── */
+.toggle-wrap { transition:box-shadow var(--dur) var(--ease-out); }
+.toggle-wrap.agent-awaken { animation:awaken-glow 1s var(--ease-out); }
+@keyframes awaken-glow { 0%{ box-shadow:0 0 0 0 rgba(29,158,117,0); } 28%{ box-shadow:0 0 0 4px rgba(29,158,117,.22); } 100%{ box-shadow:0 0 0 0 rgba(29,158,117,0); } }
+.status-pulse { animation:status-pulse-anim 1.4s var(--ease-out); transform-origin:center; }
+@keyframes status-pulse-anim { 0%,100%{ transform:scale(1); filter:none; } 30%{ transform:scale(1.55); filter:drop-shadow(0 0 4px rgba(29,158,117,.7)); } }
+
 /* ── CALLS TABLE ── */
 .calls-table { width:100%; border-collapse:collapse; font-size:12.5px; }
 .calls-table th { padding:9px 11px; text-align:left; font-size:11px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--border); }
