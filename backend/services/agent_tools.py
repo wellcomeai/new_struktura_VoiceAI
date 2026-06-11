@@ -76,6 +76,27 @@ UPDATE_CONTACT_INFO_TOOL = {
 }
 
 
+# Поиск по векторной базе знаний агента. Доступен и в чате, и в post-call.
+SEARCH_KNOWLEDGE_BASE_TOOL = {
+    "type": "function",
+    "name": "search_knowledge_base",
+    "description": (
+        "Найти информацию в базе знаний компании (векторный поиск). Используй, "
+        "когда нужен фактический ответ по продукту, услугам, ценам, условиям или "
+        "другим деталям из материалов владельца. Не выдумывай факты — бери их из "
+        "результатов поиска. Если база пуста или ничего не найдено — скажи прямо."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Поисковый запрос на русском языке"},
+            "top_k": {"type": "integer", "description": "Сколько фрагментов вернуть (по умолчанию 3)"},
+        },
+        "required": ["query"],
+    },
+}
+
+
 # ============================================================================
 # HELPERS
 # ============================================================================
@@ -493,6 +514,7 @@ AGENT_CHAT_TOOLS = [
     },
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
+    SEARCH_KNOWLEDGE_BASE_TOOL,
 ]
 
 
@@ -546,6 +568,7 @@ AGENT_POSTCALL_TOOLS = [
     },
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
+    SEARCH_KNOWLEDGE_BASE_TOOL,
 ]
 
 
@@ -1577,11 +1600,49 @@ async def fn_get_failed_calls(args: dict, user_id: str, db: Session) -> dict:
     return {"ok": True, "count": len(result), "contacts": result}
 
 
+async def fn_search_knowledge_base(args: dict, agent_config, db: Session) -> dict:
+    """
+    Векторный поиск по базе знаний агента.
+
+    Namespace берётся из agent_config.kb_namespace. Эмбеддинги считаются на
+    системном ключе OPENAI_API_KEY (оркестратор v3 работает на кредитах, а не на
+    личном ключе юзера).
+    """
+    import os
+    from backend.services.pinecone_service import PineconeService
+
+    query = (args.get("query") or "").strip()
+    top_k = int(args.get("top_k") or 3)
+
+    if not query:
+        return {"ok": False, "error": "Пустой поисковый запрос"}
+
+    namespace = getattr(agent_config, "kb_namespace", None) if agent_config else None
+    if not namespace:
+        return {"ok": False, "error": "База знаний не создана для этого агента"}
+
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_api_key:
+        return {"ok": False, "error": "OPENAI_API_KEY не настроен на сервере"}
+
+    try:
+        matches = await PineconeService.search(
+            query=query, namespace=namespace, api_key=openai_api_key, top_k=top_k,
+        )
+    except Exception as e:
+        logger.error(f"[AGENT-TOOLS] knowledge base search failed: {e}", exc_info=True)
+        return {"ok": False, "error": f"Ошибка поиска: {e}"}
+
+    results = [{"text": m.get("text", ""), "score": m.get("score")} for m in matches]
+    return {"ok": True, "query": query, "total": len(results), "results": results}
+
+
 # ============================================================================
 # DISPATCHER
 # ============================================================================
 
 _TOOL_MAP = {
+    "search_knowledge_base": "fn_search_knowledge_base",
     "create_agent_contact": "fn_create_agent_contact",
     "create_agent_task": "fn_create_agent_task",
     "update_contact_memory": "fn_update_contact_memory",
@@ -1672,6 +1733,11 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_period_report(tool_args, user_id, db)
         elif tool_name == "get_failed_calls":
             result = await fn_get_failed_calls(tool_args, user_id, db)
+        elif tool_name == "search_knowledge_base":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_search_knowledge_base(tool_args, agent_config, db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 

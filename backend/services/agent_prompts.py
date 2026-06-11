@@ -161,11 +161,30 @@ def build_time_block() -> str:
 - Никогда не показывай пользователю «сырое» UTC-время."""
 
 
+def build_knowledge_base_block(agent_config) -> str:
+    """
+    Блок про векторную базу знаний. Добавляется только если у агента
+    создана база (есть kb_namespace). Подсказывает оркестратору вызывать
+    search_knowledge_base для фактических вопросов.
+    """
+    if not getattr(agent_config, "kb_namespace", None):
+        return ""
+    kb_name = getattr(agent_config, "kb_name", None) or "база знаний компании"
+    return f"""
+
+# БАЗА ЗНАНИЙ
+У владельца загружена векторная база знаний («{kb_name}»). Когда нужен
+фактический ответ по продукту, услугам, ценам, условиям или другим деталям из
+материалов компании — вызывай инструмент search_knowledge_base с поисковым
+запросом. Не выдумывай факты: если ответа нет в результатах поиска — скажи об
+этом прямо."""
+
+
 def build_orchestrator_prompt(agent_config) -> str:
     """
     Собирает финальный промпт оркестратора из шаблона + данных агента.
     Пустые поля заменяются на "(не указано)".
-    К промпту добавляется актуальный блок времени (МСК/UTC).
+    К промпту добавляется блок базы знаний (если есть) и актуальный блок времени.
     """
     base = ORCHESTRATOR_PROMPT_BASE.format(
         doc_who_am_i=agent_config.doc_who_am_i or "(не указано)",
@@ -175,7 +194,7 @@ def build_orchestrator_prompt(agent_config) -> str:
         doc_rules_and_goals=agent_config.doc_rules_and_goals or "(не указано)",
         additional_instructions=agent_config.additional_instructions or "(нет дополнительных инструкций)"
     )
-    return base + build_time_block()
+    return base + build_knowledge_base_block(agent_config) + build_time_block()
 
 
 def get_voice_agent_prompt() -> str:

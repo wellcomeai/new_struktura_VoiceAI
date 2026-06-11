@@ -158,7 +158,38 @@ class PineconeSearchFunction(FunctionBase):
                 if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
                     namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
                     logger.info(f"Извлечен namespace из промпта: {namespace}")
-            
+
+            # Фолбэк: namespace берём из AgentConfig.kb_namespace по id
+            # голосового ассистента (агент обзвона хранит namespace у себя).
+            if not namespace and assistant_config and getattr(assistant_config, "id", None):
+                try:
+                    from backend.db.session import get_db
+                    from backend.models.agent_config import AgentConfig
+                    from sqlalchemy import or_
+
+                    _db = getattr(assistant_config, "db_session", None)
+                    _own = False
+                    if _db is None:
+                        _db = next(get_db())
+                        _own = True
+                    try:
+                        a_id = assistant_config.id
+                        agent = _db.query(AgentConfig).filter(
+                            or_(
+                                AgentConfig.openai_assistant_id == a_id,
+                                AgentConfig.gemini_assistant_id == a_id,
+                                AgentConfig.cartesia_assistant_id == a_id,
+                            )
+                        ).first()
+                        if agent and agent.kb_namespace:
+                            namespace = agent.kb_namespace
+                            logger.info(f"Namespace взят из AgentConfig: {namespace}")
+                    finally:
+                        if _own:
+                            _db.close()
+                except Exception as e:
+                    logger.warning(f"Не удалось получить namespace из AgentConfig: {e}")
+
             # Проверка на наличие namespace
             if not namespace:
                 return {"error": "Namespace is required"}
@@ -204,7 +235,10 @@ class PineconeSearchFunction(FunctionBase):
                 },
                 json={
                     "input": query,
-                    "model": "text-embedding-ada-002"
+                    # Должно совпадать с моделью при создании базы
+                    # (PineconeService.create_or_update_knowledge_base), иначе
+                    # вектора окажутся в разных пространствах и поиск будет нерелевантным.
+                    "model": "text-embedding-3-small"
                 }
             )
             

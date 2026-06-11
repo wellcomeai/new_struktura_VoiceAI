@@ -169,6 +169,49 @@ class PineconeService:
         return chunks
     
     @staticmethod
+    async def search(
+        query: str,
+        namespace: str,
+        api_key: str,
+        top_k: int = 3,
+        model: str = "text-embedding-3-small",
+    ) -> List[Dict]:
+        """
+        Семантический поиск в namespace индекса voicufi.
+
+        Важно: модель эмбеддингов должна совпадать с той, что использовалась при
+        создании базы (create_or_update_knowledge_base → text-embedding-3-small),
+        иначе вектора окажутся в разных пространствах и поиск будет нерелевантным.
+
+        Возвращает список совпадений вида {id, score, text, metadata}.
+        """
+        if not query or not namespace:
+            return []
+
+        pc = await PineconeService.initialize()
+        index = pc.Index("voicufi")
+
+        embedding = await PineconeService.create_embeddings(query, api_key, model=model)
+
+        response = index.query(
+            vector=embedding,
+            namespace=namespace,
+            top_k=top_k,
+            include_metadata=True,
+        )
+
+        matches = []
+        for match in (response.get("matches", []) if isinstance(response, dict) else response.matches):
+            md = match.get("metadata", {}) if isinstance(match, dict) else (match.metadata or {})
+            matches.append({
+                "id": match.get("id") if isinstance(match, dict) else match.id,
+                "score": match.get("score") if isinstance(match, dict) else match.score,
+                "text": md.get("text", ""),
+                "metadata": md,
+            })
+        return matches
+
+    @staticmethod
     async def delete_knowledge_base(namespace: str) -> bool:
         """Delete a namespace from Pinecone"""
         try:

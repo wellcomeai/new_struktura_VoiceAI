@@ -54,6 +54,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | `calls.js` | История звонков (модалка) | `openCallsModal`, `renderCallExpanded`, `toggleCallCard` | `/api/agent/calls`, `/calls/{id}` |
 | `import.js` | Импорт контактов (xlsx/csv, 3 шага) | `openImportModal`, `handleImportFile`, `renderImportPreview`, `executeImport`, `finishImport`; состояние `importState` | `/api/agent/contacts/import/*` |
 | `pipeline.js` | Воронка-канбан (drag&drop) | `openPipelineModal`, `loadPipeline`, `pipelineCard`, `plDragStart/End/Over/Leave`, `plDrop` | `/api/agent/pipeline`, `PATCH /contacts/{id}/status` |
+| `knowledge-base.js` | База данных (векторная БД Pinecone) | `loadKnowledgeBaseStatus`, `renderKnowledgeBaseBlock`, `openKnowledgeBaseModal`, `saveKnowledgeBase`, `deleteKnowledgeBase`; состояние `knowledgeBaseState` | `/api/agent/knowledge-base` (GET/POST/DELETE) |
 | `wizard.js` | Мастер создания агента (9 шагов 0..8) | `showWizard`, `renderWizard`, `renderStep0`, `saveWizardKeys`, `submitCreate`, `renderCreation`, `persistWizard`; состояние `wizardData`, `wizardStep` | `/api/agent/create` |
 | `init.js` | **Точки входа. Грузится последним.** | главный `DOMContentLoaded`, `window 'focus'` (рефреш кредитов), `keydown Esc` (закрыть модалки) | — |
 
@@ -88,6 +89,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 |--------|---------|--------------|
 | Основной API агента | `/api/agent` | `backend/api/agent.py` |
 | Telegram-бот агента | `/api/agent/telegram` | `backend/api/agent_telegram.py` |
+| База данных (Pinecone) | `/api/agent/knowledge-base` | `backend/api/agent.py` |
 | Кредиты оркестратора | `/api/credits` | `backend/api/credits.py` |
 
 Регистрация роутеров — в `app.py` (`include_router`).

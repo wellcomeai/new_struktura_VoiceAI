@@ -70,6 +70,7 @@ function showDashboard(){
   loadTasks();
   loadPhoneNumbers();
   loadTelegramStatus();
+  loadKnowledgeBaseStatus();
   loadCredits();
   if(creditsTimer) clearInterval(creditsTimer);
   creditsTimer = setInterval(loadCredits, 30000);

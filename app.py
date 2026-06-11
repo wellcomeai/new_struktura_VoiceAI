@@ -950,6 +950,46 @@ def ensure_agent_voice_instructions_column():
         logger.error(f"❌ ensure_agent_voice_instructions_column error: {e}")
 
 
+def ensure_agent_knowledge_base_columns():
+    """
+    Идемпотентно добавляет колонки базы знаний (Pinecone) в agent_configs.
+
+    Дублирует alembic-миграцию add_agent_knowledge_base на случай, если миграции
+    не применились (в продакшене ошибки alembic проглатываются).
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        statements = [
+            ("kb_namespace", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS kb_namespace VARCHAR(64)"),
+            ("kb_char_count", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS kb_char_count INTEGER NOT NULL DEFAULT 0"),
+            ("kb_content", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS kb_content TEXT"),
+            ("kb_name", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS kb_name VARCHAR(100)"),
+            ("kb_updated_at", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS kb_updated_at TIMESTAMP"),
+        ]
+        missing = [(col, sql) for col, sql in statements if col not in existing]
+        if not missing:
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for _col, sql in missing:
+                    conn.execute(text(sql))
+                trans.commit()
+                logger.info(f"✅ Added agent_configs knowledge base columns: {[c for c, _ in missing]}")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add knowledge base columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1007,6 +1047,9 @@ async def startup_event():
 
                 # 🆕 Шаг 13: Колонка voice_additional_instructions в agent_configs
                 ensure_agent_voice_instructions_column()
+
+                # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs
+                ensure_agent_knowledge_base_columns()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

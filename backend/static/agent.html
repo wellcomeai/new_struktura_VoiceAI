@@ -191,6 +191,17 @@
       </div>
     </div>
 
+    <!-- 4. База данных (векторная база знаний) -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title"><i class="fas fa-database"></i> База данных</div>
+        <span class="card-link" onclick="openKnowledgeBaseModal()">Управлять →</span>
+      </div>
+      <div id="kb-status-block">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -537,6 +548,42 @@
   </div>
 </div>
 
+<!-- ✅ МОДАЛКА: База данных (векторная база знаний) -->
+<div class="modal-overlay hidden" id="kb-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-database"></i> База данных агента</div>
+      <button class="modal-close" onclick="closeKnowledgeBaseModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="kb-modal-meta" style="font-size:13px;color:#64748b;margin-bottom:12px"></div>
+      <div class="form-group">
+        <label class="form-label">Название базы (опционально)</label>
+        <input type="text" class="form-input" id="kb-name" maxlength="100" placeholder="Например: Описание продукта">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Содержимое базы знаний</label>
+        <textarea class="form-input" id="kb-content" rows="14"
+          placeholder="Вставьте сюда текст: описание продукта, услуги, цены, частые вопросы и ответы, регламенты…&#10;&#10;Агент будет искать по этому тексту во время звонка и в чате с вами."
+          style="resize:vertical;min-height:220px;font-family:inherit"></textarea>
+        <div style="font-size:12px;color:#94a3b8;margin-top:6px">
+          После сохранения текст преобразуется в векторную базу. Поиск по ней
+          подключается к голосовому агенту автоматически.
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="kb-delete-btn" onclick="deleteKnowledgeBase()" style="display:none">
+        <i class="fas fa-trash"></i> Удалить базу
+      </button>
+      <button class="btn btn-secondary" onclick="closeKnowledgeBaseModal()">Отмена</button>
+      <button class="btn btn-primary" id="kb-save-btn" onclick="saveKnowledgeBase()">
+        <i class="fas fa-check"></i> Сохранить
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- Voicyfy Agent — модульные скрипты. Классические (не ES-модули):
      общее глобальное состояние и функции. Порядок: core → фичи → init.
      Документация связок: /static/agent/CLAUDE.md -->
@@ -552,6 +599,7 @@
 <script src="/static/agent/calls.js"></script>
 <script src="/static/agent/import.js"></script>
 <script src="/static/agent/pipeline.js"></script>
+<script src="/static/agent/knowledge-base.js"></script>
 <script src="/static/agent/wizard.js"></script>
 <script src="/static/agent/presence.js"></script>
 <script src="/static/agent/motion.js"></script>

@@ -14,6 +14,7 @@ from fastapi import (
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import func, or_
 
 from backend.core.logging import get_logger
@@ -90,6 +91,37 @@ def _resolve_voice_assistant(db: Session, agent: AgentConfig):
     if agent.assistant_type == "cartesia":
         return db.query(CartesiaAssistantConfig).filter(CartesiaAssistantConfig.id == va_id).first()
     return None
+
+
+def _voice_set_kb_function(va, enabled: bool) -> None:
+    """
+    Включает/выключает функцию поиска в базе знаний (search_pinecone) у
+    голосового ассистента. Namespace функция получает в runtime из
+    AgentConfig.kb_namespace (см. backend/functions/search_pinecone.py), поэтому
+    здесь достаточно управлять списком functions.
+    """
+    if va is None:
+        return
+    funcs = va.functions
+    # Нормализуем к списку [{"name": ..., "description": ...}]
+    if isinstance(funcs, dict) and "enabled_functions" in funcs:
+        names = list(funcs.get("enabled_functions", []))
+        names = [n for n in names if n != "search_pinecone"]
+        if enabled:
+            names.append("search_pinecone")
+        va.functions = {"enabled_functions": names}
+        flag_modified(va, "functions")
+        return
+    items = list(funcs) if isinstance(funcs, list) else []
+    items = [f for f in items if (f.get("name") if isinstance(f, dict) else f) != "search_pinecone"]
+    if enabled:
+        items.append({
+            "name": "search_pinecone",
+            "description": "Ищет информацию в базе знаний компании (векторный поиск).",
+        })
+    va.functions = items
+    flag_modified(va, "functions")
+
 
 # Максимум агентов на одного пользователя (v3.1: было «один на юзера»).
 MAX_AGENTS_PER_USER = 3
@@ -339,6 +371,9 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "working_hours_start": agent.working_hours_start,
         "working_hours_end": agent.working_hours_end,
         "default_caller_id": agent.default_caller_id,
+        "has_knowledge_base": agent.has_knowledge_base(),
+        "kb_char_count": agent.kb_char_count or 0,
+        "kb_name": agent.kb_name,
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "updated_at": agent.updated_at.isoformat() if agent.updated_at else None,
     }
@@ -525,6 +560,10 @@ async def update_agent(
         elif new_type == "cartesia":
             agent.cartesia_assistant_id = new_voice.id
         agent.assistant_type = new_type
+        # Если у агента есть база знаний — переносим функцию поиска на нового
+        # голосового ассистента.
+        if agent.has_knowledge_base():
+            _voice_set_kb_function(new_voice, True)
         logger.info(f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id}")
 
     # ── Смена модели оркестратора ──
@@ -692,6 +731,128 @@ async def delete_agent(
         f"{summary['tasks']} tasks, {summary['voice_assistants']} voice assistants"
     )
     return {"detail": "deleted", "summary": summary}
+
+
+# ============================================================================
+# ENDPOINTS — KNOWLEDGE BASE (Pinecone vector DB)
+# ============================================================================
+
+
+class KnowledgeBaseRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    name: Optional[str] = Field(None, max_length=100)
+
+
+def _kb_status_dict(agent: AgentConfig) -> dict:
+    return {
+        "has_knowledge_base": agent.has_knowledge_base(),
+        "namespace": agent.kb_namespace,
+        "char_count": agent.kb_char_count or 0,
+        "name": agent.kb_name,
+        "content": agent.kb_content or "",
+        "updated_at": agent.kb_updated_at.isoformat() if agent.kb_updated_at else None,
+    }
+
+
+@router.get("/knowledge-base")
+async def get_agent_knowledge_base(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Статус базы знаний агента."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    return _kb_status_dict(agent)
+
+
+@router.post("/knowledge-base")
+async def upsert_agent_knowledge_base(
+    body: KnowledgeBaseRequest,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Создать или обновить базу знаний агента.
+
+    Эмбеддинги считаются на системном ключе OPENAI_API_KEY (оркестратор v3
+    работает на кредитах). Namespace переиспользуется при обновлении.
+    """
+    import os
+    from backend.services.pinecone_service import PineconeService
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="openai_key_not_configured")
+
+    content = body.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty_content")
+
+    try:
+        namespace, char_count = await PineconeService.create_or_update_knowledge_base(
+            content=content,
+            api_key=api_key,
+            namespace=agent.kb_namespace,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[AGENT-KB] create/update failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"knowledge_base_failed: {e}")
+
+    agent.kb_namespace = namespace
+    agent.kb_char_count = char_count
+    agent.kb_content = content
+    agent.kb_name = body.name or agent.kb_name
+    agent.kb_updated_at = datetime.utcnow()
+
+    # Включаем функцию поиска у голосового ассистента (живой звонок).
+    _voice_set_kb_function(_resolve_voice_assistant(db, agent), True)
+
+    db.commit()
+    db.refresh(agent)
+    logger.info(f"[AGENT-KB] Knowledge base saved for agent {agent.id} (ns={namespace}, {char_count} chars)")
+    return {"success": True, **_kb_status_dict(agent)}
+
+
+@router.delete("/knowledge-base")
+async def delete_agent_knowledge_base(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Удалить базу знаний агента (из Pinecone и из БД) и выключить поиск у голоса."""
+    from backend.services.pinecone_service import PineconeService
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    if agent.kb_namespace:
+        try:
+            await PineconeService.delete_knowledge_base(agent.kb_namespace)
+        except Exception as e:
+            logger.warning(f"[AGENT-KB] Pinecone delete failed (continuing): {e}")
+
+    agent.kb_namespace = None
+    agent.kb_char_count = 0
+    agent.kb_content = None
+    agent.kb_name = None
+    agent.kb_updated_at = None
+
+    _voice_set_kb_function(_resolve_voice_assistant(db, agent), False)
+
+    db.commit()
+    db.refresh(agent)
+    logger.info(f"[AGENT-KB] Knowledge base deleted for agent {agent.id}")
+    return {"success": True, **_kb_status_dict(agent)}
 
 
 # ============================================================================

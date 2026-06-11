@@ -68,6 +68,16 @@ class AgentConfig(Base):
     # Дописываются к system_prompt связанного голосового ассистента.
     voice_additional_instructions = Column(Text, nullable=True)
 
+    # ── База знаний (векторная БД Pinecone) ──
+    # Namespace создаётся через PineconeService; пустой namespace = базы нет.
+    # Обслуживает и оркестратор (tool search_knowledge_base), и голосового
+    # ассистента (функция search_pinecone) во всех трёх провайдерах.
+    kb_namespace = Column(String(64), nullable=True)
+    kb_char_count = Column(Integer, default=0, nullable=False)
+    kb_content = Column(Text, nullable=True)        # полный текст для просмотра/редактирования
+    kb_name = Column(String(100), nullable=True)    # опциональное название базы
+    kb_updated_at = Column(DateTime, nullable=True)
+
     # Флаг — TRUE для агентов созданных после v3.0
     uses_hardcoded_prompt = Column(Boolean, default=False, nullable=False)
 
@@ -120,6 +130,10 @@ class AgentConfig(Base):
         if self.assistant_type == "cartesia":
             return self.cartesia_assistant_id
         return None
+
+    def has_knowledge_base(self) -> bool:
+        """True, если у агента создана векторная база (есть namespace)."""
+        return bool(self.kb_namespace)
 
     # ── Telegram-интеграция агента (v2.2) ──
     def has_telegram_bot(self) -> bool:
