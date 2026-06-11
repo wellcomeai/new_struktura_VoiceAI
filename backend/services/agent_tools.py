@@ -97,6 +97,36 @@ SEARCH_KNOWLEDGE_BASE_TOOL = {
 }
 
 
+# Отправка SMS клиенту с номера агента (Voximplant). Доступна в чате и в post-call.
+SEND_SMS_TOOL = {
+    "type": "function",
+    "name": "send_sms",
+    "description": (
+        "Отправить SMS клиенту с номера агента (Voximplant). Используй, когда "
+        "владелец просит отправить контакту SMS, либо когда после звонка нужно "
+        "продублировать клиенту важную информацию (адрес, ссылку, реквизиты, "
+        "код, напоминание о встрече). Получателя укажи через agent_contact_id — "
+        "номер возьмётся из карточки контакта; либо задай phone напрямую. "
+        "Номер отправителя — это номер агента (default_caller_id). Текст до 500 символов."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Текст SMS (до 500 символов)"},
+            "agent_contact_id": {
+                "type": "string",
+                "description": "UUID контакта-получателя (его телефон будет номером назначения). Либо укажи phone.",
+            },
+            "phone": {
+                "type": "string",
+                "description": "Номер получателя напрямую, если не задан agent_contact_id",
+            },
+        },
+        "required": ["text"],
+    },
+}
+
+
 # ============================================================================
 # HELPERS
 # ============================================================================
@@ -515,6 +545,7 @@ AGENT_CHAT_TOOLS = [
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
     SEARCH_KNOWLEDGE_BASE_TOOL,
+    SEND_SMS_TOOL,
 ]
 
 
@@ -569,6 +600,7 @@ AGENT_POSTCALL_TOOLS = [
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
     SEARCH_KNOWLEDGE_BASE_TOOL,
+    SEND_SMS_TOOL,
 ]
 
 
@@ -1036,6 +1068,76 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
         "failed": result["failed"],
         "total": result["total"],
     }
+
+
+async def fn_send_sms(args: dict, user_id: str, agent_config: AgentConfig, db: Session) -> dict:
+    """
+    Отправить SMS клиенту с номера агента через Voximplant Management API.
+
+    Источник — agent_config.default_caller_id (номер, с которого агент звонит).
+    Получатель — телефон контакта (agent_contact_id) или явно переданный phone.
+    Credentials берутся из VoximplantChildAccount по user_id.
+    """
+    import httpx
+    from backend.models.voximplant_child import VoximplantChildAccount
+
+    text = (args.get("text") or "").strip()
+    if not text:
+        return {"ok": False, "error": "Текст SMS не может быть пустым"}
+
+    # Получатель: явный phone имеет приоритет, иначе берём телефон контакта.
+    to_number = (args.get("phone") or "").strip()
+    if not to_number and args.get("agent_contact_id"):
+        contact = db.query(AgentContact).filter(
+            AgentContact.id == args["agent_contact_id"],
+            AgentContact.user_id == user_id,
+            AgentContact.agent_config_id == (agent_config.id if agent_config else None),
+        ).first()
+        if not contact:
+            return {"ok": False, "error": "Contact not found"}
+        to_number = (contact.phone or "").strip()
+    if not to_number:
+        return {"ok": False, "error": "Не указан номер получателя (phone или agent_contact_id)"}
+
+    # Источник — номер агента, с которого он звонит.
+    from_number = (getattr(agent_config, "default_caller_id", None) or "").strip()
+    if not from_number:
+        return {"ok": False, "error": "no_source_number: у агента не задан номер отправителя (default_caller_id)"}
+
+    to_clean = to_number.replace("+", "")
+    from_clean = from_number.replace("+", "")
+
+    child = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.user_id == user_id
+    ).first()
+    if not child or not child.vox_account_id or not child.vox_api_key:
+        return {"ok": False, "error": "Voximplant credentials не настроены"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.voximplant.com/platform_api/SendSmsMessage/",
+                params={
+                    "account_id": child.vox_account_id,
+                    "api_key": child.vox_api_key,
+                    "source": from_clean,
+                    "destination": to_clean,
+                    "sms_body": text,
+                },
+            )
+        data = resp.json()
+    except Exception as e:
+        logger.error(f"[AGENT-TOOLS] send_sms error: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+    if isinstance(data, dict) and data.get("result") == 1:
+        tx = data.get("transaction_id")
+        logger.info(f'[AGENT-TOOLS] SMS {from_clean} → {to_clean}: "{text[:50]}" (tx: {tx})')
+        return {"ok": True, "transaction_id": tx, "to": to_clean}
+
+    error_msg = data.get("error", {}).get("msg", str(data)) if isinstance(data, dict) else str(data)
+    logger.error(f"[AGENT-TOOLS] SMS failed {from_clean} → {to_clean}: {error_msg}")
+    return {"ok": False, "error": f"Ошибка Voximplant: {error_msg}"}
 
 
 async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -1719,6 +1821,7 @@ _TOOL_MAP = {
     "delete_agent_task": "fn_delete_agent_task",
     "get_agent_stats": "fn_get_agent_stats",
     "send_telegram_notification": "fn_send_telegram_notification",
+    "send_sms": "fn_send_sms",
     "search_contacts": "fn_search_contacts",
     "get_contact_details": "fn_get_contact_details",
     "get_contacts_by_stage": "fn_get_contacts_by_stage",
@@ -1770,6 +1873,11 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_agent_stats(tool_args, user_id, agent_config_id, db)
         elif tool_name == "send_telegram_notification":
             result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
+        elif tool_name == "send_sms":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_send_sms(tool_args, user_id, agent_config, db)
         elif tool_name == "search_contacts":
             result = await fn_search_contacts(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contact_details":

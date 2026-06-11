@@ -297,6 +297,18 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
             raise HTTPException(status_code=400, detail="api_key_required_cartesia")
 
 
+# Функции, доступные голосовому агенту во время звонка по умолчанию.
+# Обе уже зарегистрированы в реестре (backend/functions/): отправка SMS клиенту
+# и корректное завершение звонка. Имена резолвятся в определения в runtime
+# (build_functions_for_openai). search_pinecone добавляется отдельно при
+# создании базы знаний — см. _voice_set_kb_function.
+def _default_voice_functions():
+    return [
+        {"name": "send_sms", "description": "Отправить SMS клиенту во время звонка (адрес, ссылка, код, реквизиты)."},
+        {"name": "hangup_call", "description": "Завершить телефонный звонок, когда разговор окончен или по просьбе клиента."},
+    ]
+
+
 def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
                             voice=None, cartesia_voice_id=None, voice_speed=None,
                             voice_additional_instructions=None):
@@ -315,6 +327,7 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             system_prompt=prompt, voice=gemini_voice, language="ru-RU",
             greeting_message="", is_active=True, is_public=False,
             temperature=0.7, max_tokens=4000,
+            functions=_default_voice_functions(),
         )
     elif assistant_type == "openai":
         openai_voice = voice if (voice and _is_valid_voice("openai", voice)) else DEFAULT_OPENAI_VOICE
@@ -323,6 +336,7 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             system_prompt=prompt, voice=openai_voice, language="ru",
             greeting_message="", is_active=True, is_public=False,
             temperature=0.7, max_tokens=4000,
+            functions=_default_voice_functions(),
         )
     elif assistant_type == "cartesia":
         va = CartesiaAssistantConfig(
@@ -330,6 +344,7 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             system_prompt=prompt, greeting_message="", is_active=True,
             cartesia_voice_id=(cartesia_voice_id or None),
             voice_speed=(voice_speed if voice_speed is not None else 1.0),
+            functions=_default_voice_functions(),
         )
     else:
         raise HTTPException(status_code=400, detail="invalid_assistant_type")
