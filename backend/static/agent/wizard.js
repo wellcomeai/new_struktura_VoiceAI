@@ -14,6 +14,15 @@ let wizardUser = {};
 let wizardTele = {};
 
 function showWizard(){
+  // Вариант A: перед мастером — обязательный обучающий модуль (5 слайдов).
+  // Показывается ВСЕГДА при создании; «Пропустить» → сразу к шагам мастера.
+  if(typeof startOnboarding === 'function'){
+    startOnboarding(openWizardSteps);
+  } else {
+    openWizardSteps();
+  }
+}
+function openWizardSteps(){
   document.getElementById('loading-screen').classList.add('hidden');
   document.getElementById('wizard-overlay').classList.remove('hidden');
   try{ wizardData = JSON.parse(localStorage.getItem('agent_wizard_v3')||'{}'); }catch(e){ wizardData={}; }

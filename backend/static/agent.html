@@ -17,6 +17,19 @@
 
 <div id="loading-screen"><div class="spinner"></div><p>Загрузка...</p></div>
 
+<!-- ONBOARDING (обязательная карусель-обучение перед мастером, 5 слайдов) -->
+<div class="ob-overlay hidden" id="onboarding-overlay">
+  <div class="ob-card">
+    <div class="ob-top">
+      <div class="ob-brand"><div class="nav-logo-icon"><i class="fas fa-microphone-lines"></i></div><span>Voicyfy</span></div>
+      <button class="ob-skip" onclick="obSkip()">Пропустить <i class="fas fa-xmark"></i></button>
+    </div>
+    <div id="ob-content"></div>
+    <div class="ob-dots" id="ob-dots"></div>
+    <div class="ob-actions" id="ob-actions"></div>
+  </div>
+</div>
+
 <!-- WIZARD -->
 <div class="wizard-overlay hidden" id="wizard-overlay">
   <div class="wizard-card">
@@ -600,6 +613,7 @@
 <script src="/static/agent/import.js"></script>
 <script src="/static/agent/pipeline.js"></script>
 <script src="/static/agent/knowledge-base.js"></script>
+<script src="/static/agent/onboarding.js"></script>
 <script src="/static/agent/wizard.js"></script>
 <script src="/static/agent/presence.js"></script>
 <script src="/static/agent/motion.js"></script>

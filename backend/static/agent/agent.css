@@ -623,6 +623,58 @@ body::before {
 .wizard-card p.hint { font-size:13.5px; color:var(--muted); margin-bottom:22px; line-height:1.6; }
 .wizard-actions { display:flex; justify-content:space-between; margin-top:26px; gap:12px; }
 
+/* ============ ONBOARDING (5-слайдовая карусель перед мастером) ============ */
+.ob-overlay { position:fixed; inset:0; background:var(--bg); z-index:210; display:flex; align-items:center; justify-content:center; padding:24px; overflow-y:auto; }
+.ob-overlay.hidden { display:none; }
+.ob-card { background:var(--white); border-radius:var(--radius); padding:24px 30px 28px; width:100%; max-width:560px; box-shadow:0 4px 30px rgba(0,0,0,0.08); margin:auto; }
+.ob-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+.ob-brand { display:flex; align-items:center; gap:9px; font-size:16px; font-weight:700; color:var(--text); }
+.ob-brand .nav-logo-icon { width:28px; height:28px; font-size:12px; }
+.ob-skip { background:none; border:none; color:var(--hint); font-size:12.5px; cursor:pointer; display:flex; align-items:center; gap:5px; padding:6px 8px; border-radius:8px; transition:var(--transition); }
+.ob-skip:hover { background:var(--bg); color:var(--text); }
+
+.ob-stage-art { min-height:172px; display:flex; align-items:center; justify-content:center; background:var(--blue-light); border:1px solid var(--blue-border); border-radius:var(--radius); padding:18px; margin-bottom:18px; }
+.ob-badge { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--blue); background:var(--blue-light); border:1px solid var(--blue-border); padding:4px 10px; border-radius:var(--radius-pill); margin-bottom:10px; }
+.ob-title { font-size:21px; font-weight:700; margin-bottom:8px; color:var(--text); }
+.ob-text { font-size:13.5px; color:var(--muted); line-height:1.6; margin:0; }
+
+.ob-dots { display:flex; align-items:center; justify-content:center; gap:7px; margin:22px 0 18px; }
+.ob-dot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:var(--transition); }
+.ob-dot.done { background:var(--blue-border); }
+.ob-dot.on { background:var(--blue); transform:scale(1.35); }
+.ob-actions { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+
+/* — иллюстрации слайдов — */
+.ob-art-intro { display:flex; flex-direction:column; align-items:center; gap:16px; }
+.ob-orb { position:relative; width:74px; height:74px; border-radius:50%; background:linear-gradient(135deg,var(--blue),var(--blue-dark)); display:flex; align-items:center; justify-content:center; color:#fff; font-size:28px; box-shadow:0 8px 22px rgba(55,138,221,.35); }
+.ob-pulse { position:absolute; inset:-6px; border-radius:50%; border:2px solid var(--blue); opacity:.5; animation:ob-pulse 1.8s ease-out infinite; }
+@keyframes ob-pulse { 0%{ transform:scale(.9); opacity:.55; } 100%{ transform:scale(1.35); opacity:0; } }
+.ob-chips { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; }
+.ob-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--blue-dark); background:var(--white); border:1px solid var(--blue-border); border-radius:var(--radius-pill); padding:6px 11px; }
+
+.ob-mock { width:100%; background:var(--white); border:1px solid var(--border); border-radius:var(--radius-sm); padding:12px 13px; box-shadow:var(--elev-2); }
+.ob-mock-head { display:flex; align-items:center; gap:7px; font-size:12px; font-weight:700; color:var(--blue); margin-bottom:9px; }
+.ob-row { display:flex; gap:10px; font-size:12px; padding:4px 0; border-top:1px solid var(--border-soft); }
+.ob-row:first-of-type { border-top:none; }
+.ob-k { flex:0 0 84px; color:var(--hint); font-weight:600; }
+.ob-v { flex:1; color:var(--text); }
+.ob-funnel { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:11px; padding-top:10px; border-top:1px solid var(--border-soft); }
+.ob-funnel i { color:var(--hint); font-size:11px; }
+.ob-stage { font-size:11px; font-weight:600; color:var(--hint); background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:3px 9px; }
+.ob-stage.on { color:#fff; background:var(--blue); border-color:var(--blue); }
+
+.ob-talk { display:flex; flex-direction:column; gap:7px; background:var(--bg); }
+.ob-bubble { max-width:82%; font-size:12.5px; line-height:1.45; padding:8px 11px; border-radius:12px; }
+.ob-bubble.agent { align-self:flex-start; background:var(--white); border:1px solid var(--border); border-bottom-left-radius:4px; color:var(--text); }
+.ob-bubble.client { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+.ob-kb { display:inline-flex; align-items:center; gap:5px; margin-left:6px; font-size:11px; font-weight:600; color:var(--blue-dark); background:var(--blue-light); border:1px solid var(--blue-border); border-radius:6px; padding:2px 7px; }
+
+@media (max-width:560px){
+  .ob-card { padding:18px 18px 22px; }
+  .ob-title { font-size:19px; }
+  .ob-k { flex-basis:72px; }
+}
+
 /* type cards */
 .type-card { border:2px solid var(--border); border-radius:var(--radius); padding:16px; cursor:pointer; margin-bottom:12px; transition:var(--transition); display:flex; gap:14px; align-items:flex-start; }
 .type-card:hover { border-color:var(--blue-border); }
