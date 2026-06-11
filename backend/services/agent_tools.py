@@ -598,6 +598,15 @@ async def fn_create_agent_contact(args: dict, agent_config_id: str, user_id: str
 async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     agent_contact_id = args["agent_contact_id"]
 
+    # Изоляция агентов: задачу можно ставить только своему контакту.
+    owner = db.query(AgentContact.id).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    ).first()
+    if not owner:
+        return {"ok": False, "error": "Contact not found"}
+
     # Parse scheduled_at
     scheduled_at_str = args["scheduled_at"]
     try:
@@ -673,9 +682,13 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     }
 
 
-async def fn_update_contact_memory(args: dict, db: Session) -> dict:
+async def fn_update_contact_memory(args: dict, agent_config_id: str, db: Session) -> dict:
     agent_contact_id = args["agent_contact_id"]
-    contact = db.query(AgentContact).filter(AgentContact.id == agent_contact_id).first()
+    # Изоляция агентов: память можно обновлять только своему контакту.
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.agent_config_id == agent_config_id,
+    ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
 
@@ -704,7 +717,7 @@ async def fn_update_contact_memory(args: dict, db: Session) -> dict:
     return {"ok": True, "contact_id": agent_contact_id}
 
 
-async def fn_update_contact_info(args: dict, user_id: str, db: Session) -> dict:
+async def fn_update_contact_info(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """
     Обновить базовую информацию о контакте (name/company/position/notes).
     notes — то, что пользователь/агент ЯВНО записали как факт (не путать с memory).
@@ -716,6 +729,7 @@ async def fn_update_contact_info(args: dict, user_id: str, db: Session) -> dict:
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -734,11 +748,11 @@ async def fn_update_contact_info(args: dict, user_id: str, db: Session) -> dict:
     return {"ok": True, "contact_id": str(agent_contact_id), "updated_fields": updated_fields}
 
 
-async def fn_move_contact_stage(args: dict, user_id: str, db: Session) -> dict:
+async def fn_move_contact_stage(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """
-    Перевести контакт на стадию воронки (status). Скоупится по user_id, чтобы
-    агент/чат не мог тронуть чужой контакт. Валидирует стадию по единому
-    справочнику pipeline_stages.
+    Перевести контакт на стадию воронки (status). Скоупится по user_id +
+    agent_config_id, чтобы агент/чат не мог тронуть чужой контакт или контакт
+    другого агента. Валидирует стадию по единому справочнику pipeline_stages.
     """
     agent_contact_id = args.get("agent_contact_id")
     stage = args.get("stage")
@@ -750,6 +764,7 @@ async def fn_move_contact_stage(args: dict, user_id: str, db: Session) -> dict:
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -764,8 +779,11 @@ async def fn_move_contact_stage(args: dict, user_id: str, db: Session) -> dict:
     return {"ok": True, "contact_id": str(agent_contact_id), "old_stage": old_stage, "stage": stage}
 
 
-async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
-    q = db.query(AgentContact).filter(AgentContact.user_id == user_id)
+async def fn_get_agent_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    q = db.query(AgentContact).filter(
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    )
     contacts = q.order_by(AgentContact.created_at.desc()).limit(50).all()
     return {
         "ok": True,
@@ -784,8 +802,18 @@ async def fn_get_agent_contacts(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_contact_call_history(args: dict, db: Session) -> dict:
+async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     agent_contact_id = args["agent_contact_id"]
+
+    # Изоляция агентов: историю звонков отдаём только по своему контакту.
+    owner = db.query(AgentContact.id).filter(
+        AgentContact.id == agent_contact_id,
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    ).first()
+    if not owner:
+        return {"ok": False, "error": "Contact not found"}
+
     calls = (
         db.query(AgentCall)
         .filter(AgentCall.agent_contact_id == agent_contact_id)
@@ -811,7 +839,7 @@ async def fn_get_contact_call_history(args: dict, db: Session) -> dict:
     }
 
 
-async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_agent_tasks(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Получить задачи агента с опциональными фильтрами.
 
     Согласовано с эндпоинтом календаря (GET /api/agent/tasks): INNER JOIN с
@@ -825,9 +853,12 @@ async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
     старыми завершёнными, и агент видел «0 запланированных»).
     """
     # Базовый фильтр — общий для счётчиков и для списка строк.
+    # Изоляция агентов: задачи скоупим через INNER JOIN с AgentContact по
+    # agent_config_id (у Task своего agent_config_id нет — как в /api/agent/tasks).
     base_filters = [
         Task.user_id == user_id,
         Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent_config_id,
     ]
     if args.get("agent_contact_id"):
         base_filters.append(Task.agent_contact_id == args["agent_contact_id"])
@@ -886,20 +917,24 @@ async def fn_get_agent_tasks(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_delete_agent_task(args: dict, user_id: str, db: Session) -> dict:
+async def fn_delete_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Удалить задачу агента по ID.
 
-    Hard-delete (как delete_agent_contact). Скоупится по user_id + is_agent_task,
-    чтобы агент не мог удалить чужую или не-агентскую задачу.
+    Hard-delete (как delete_agent_contact). Скоупится по user_id + is_agent_task
+    + agent_config_id (через JOIN с AgentContact), чтобы агент не мог удалить
+    чужую, не-агентскую или принадлежащую другому агенту задачу.
     """
     task_id = args.get("task_id")
     if not task_id:
         return {"ok": False, "error": "task_id is required"}
 
-    task = db.query(Task).filter(
+    task = db.query(Task).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
         Task.id == task_id,
         Task.user_id == user_id,
         Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
 
     if not task:
@@ -914,39 +949,43 @@ async def fn_delete_agent_task(args: dict, user_id: str, db: Session) -> dict:
     return {"ok": True, "deleted": True, "task_id": str(task_id), "title": title}
 
 
-async def fn_get_agent_stats(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_agent_stats(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    # Изоляция агентов: вся статистика считается строго по agent_config_id.
     total_contacts = db.query(func.count(AgentContact.id)).filter(
-        AgentContact.user_id == user_id
+        AgentContact.agent_config_id == agent_config_id
     ).scalar() or 0
 
     active_contacts = db.query(func.count(AgentContact.id)).filter(
-        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
         AgentContact.status.notin_(["rejected", "do_not_call"]),
     ).scalar() or 0
 
     total_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == user_id
+        AgentCall.agent_config_id == agent_config_id
     ).scalar() or 0
 
     success_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == user_id,
+        AgentCall.agent_config_id == agent_config_id,
         AgentCall.post_call_decision == "SUCCESS",
     ).scalar() or 0
 
     followup_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == user_id,
+        AgentCall.agent_config_id == agent_config_id,
         AgentCall.post_call_decision == "FOLLOWUP",
     ).scalar() or 0
 
     no_answer_calls = db.query(func.count(AgentCall.id)).filter(
-        AgentCall.user_id == user_id,
+        AgentCall.agent_config_id == agent_config_id,
         AgentCall.post_call_decision == "NO_ANSWER",
     ).scalar() or 0
 
-    scheduled_tasks = db.query(func.count(Task.id)).filter(
+    scheduled_tasks = db.query(func.count(Task.id)).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
         Task.user_id == user_id,
         Task.is_agent_task == True,
         Task.status == TaskStatus.SCHEDULED,
+        AgentContact.agent_config_id == agent_config_id,
     ).scalar() or 0
 
     return {
@@ -999,9 +1038,12 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     }
 
 
-async def fn_search_contacts(args: dict, user_id: str, db: Session) -> dict:
+async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Поиск контактов по подстроке (имя/телефон/компания) и/или стадии воронки."""
-    q = db.query(AgentContact).filter(AgentContact.user_id == user_id)
+    q = db.query(AgentContact).filter(
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    )
 
     stage = args.get("stage")
     if stage and is_valid_stage(stage):
@@ -1045,7 +1087,7 @@ async def fn_search_contacts(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_contact_details(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_contact_details(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Полная карточка контакта: поля + память + краткая сводка последних звонков."""
     agent_contact_id = args.get("agent_contact_id")
     if not agent_contact_id:
@@ -1054,6 +1096,7 @@ async def fn_get_contact_details(args: dict, user_id: str, db: Session) -> dict:
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -1094,10 +1137,11 @@ async def fn_get_contact_details(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_contacts_by_stage(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_contacts_by_stage(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Разбивка контактов по стадиям воронки: счётчики + примеры контактов."""
     rows = db.query(AgentContact.status, func.count(AgentContact.id)).filter(
-        AgentContact.user_id == user_id
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).group_by(AgentContact.status).all()
     counts = {(st or "new"): cnt for st, cnt in rows}
 
@@ -1105,7 +1149,11 @@ async def fn_get_contacts_by_stage(args: dict, user_id: str, db: Session) -> dic
     for key in AGENT_CONTACT_STAGE_KEYS:
         sample = (
             db.query(AgentContact)
-            .filter(AgentContact.user_id == user_id, AgentContact.status == key)
+            .filter(
+                AgentContact.user_id == user_id,
+                AgentContact.agent_config_id == agent_config_id,
+                AgentContact.status == key,
+            )
             .order_by(AgentContact.created_at.desc())
             .limit(5)
             .all()
@@ -1142,8 +1190,10 @@ async def fn_bulk_create_contacts(args: dict, agent_config_id: str, user_id: str
             skipped.append({"phone": None, "reason": "no_phone"})
             continue
 
+        # Дубль проверяем в пределах ТЕКУЩЕГО агента (а не всего аккаунта) —
+        # один номер может вестись разными агентами одного пользователя.
         exists = db.query(AgentContact.id).filter(
-            AgentContact.user_id == user_id,
+            AgentContact.agent_config_id == agent_config_id,
             AgentContact.phone == phone,
         ).first()
         if exists:
@@ -1176,7 +1226,7 @@ async def fn_bulk_create_contacts(args: dict, agent_config_id: str, user_id: str
     }
 
 
-async def fn_delete_agent_contact(args: dict, user_id: str, db: Session) -> dict:
+async def fn_delete_agent_contact(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Удалить контакт агента (hard-delete). История звонков удаляется каскадом."""
     agent_contact_id = args.get("agent_contact_id")
     if not agent_contact_id:
@@ -1185,6 +1235,7 @@ async def fn_delete_agent_contact(args: dict, user_id: str, db: Session) -> dict
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -1204,7 +1255,7 @@ async def fn_delete_agent_contact(args: dict, user_id: str, db: Session) -> dict
     return {"ok": True, "deleted": True, "contact_id": str(agent_contact_id), "name": name}
 
 
-async def fn_append_contact_note(args: dict, user_id: str, db: Session) -> dict:
+async def fn_append_contact_note(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Дописать заметку к контакту, не стирая существующие (новая строка с датой)."""
     agent_contact_id = args.get("agent_contact_id")
     note = (args.get("note") or "").strip()
@@ -1216,6 +1267,7 @@ async def fn_append_contact_note(args: dict, user_id: str, db: Session) -> dict:
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -1228,16 +1280,20 @@ async def fn_append_contact_note(args: dict, user_id: str, db: Session) -> dict:
     return {"ok": True, "contact_id": str(agent_contact_id), "notes": contact.notes}
 
 
-async def fn_update_agent_task(args: dict, user_id: str, db: Session) -> dict:
+async def fn_update_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Изменить запланированную задачу агента: время и/или название/описание."""
     task_id = args.get("task_id")
     if not task_id:
         return {"ok": False, "error": "task_id_required"}
 
-    task = db.query(Task).filter(
+    # Изоляция агентов: правим только задачи своих контактов (JOIN с AgentContact).
+    task = db.query(Task).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
         Task.id == task_id,
         Task.user_id == user_id,
         Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not task:
         return {"ok": False, "error": "Task not found"}
@@ -1283,7 +1339,7 @@ async def fn_update_agent_task(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_upcoming_schedule(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_upcoming_schedule(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Календарь ближайших запланированных звонков по всем контактам."""
     try:
         days = max(1, min(int(args.get("days") or 7), 90))
@@ -1306,6 +1362,7 @@ async def fn_get_upcoming_schedule(args: dict, user_id: str, db: Session) -> dic
             Task.status == TaskStatus.SCHEDULED,
             Task.scheduled_time >= now,
             Task.scheduled_time <= horizon,
+            AgentContact.agent_config_id == agent_config_id,
         )
         .order_by(Task.scheduled_time.asc())
         .limit(limit)
@@ -1346,7 +1403,10 @@ async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str,
     # Резолвим целевые контакты: явный список или по стадии.
     ids = args.get("agent_contact_ids")
     stage = args.get("stage")
-    cq = db.query(AgentContact).filter(AgentContact.user_id == user_id)
+    cq = db.query(AgentContact).filter(
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    )
     if ids:
         cq = cq.filter(AgentContact.id.in_(ids))
     elif stage and is_valid_stage(stage):
@@ -1411,6 +1471,7 @@ async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: s
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -1445,7 +1506,7 @@ async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: s
     }
 
 
-async def fn_snooze_contact(args: dict, user_id: str, db: Session) -> dict:
+async def fn_snooze_contact(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Поставить контакт на паузу до даты: отменить задачи + запретить ранние звонки."""
     agent_contact_id = args.get("agent_contact_id")
     until = _parse_iso_utc(args.get("until"))
@@ -1457,6 +1518,7 @@ async def fn_snooze_contact(args: dict, user_id: str, db: Session) -> dict:
     contact = db.query(AgentContact).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not contact:
         return {"ok": False, "error": "Contact not found"}
@@ -1483,7 +1545,7 @@ async def fn_snooze_contact(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_call_transcript(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_call_transcript(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Полный транскрипт конкретного звонка."""
     agent_call_id = args.get("agent_call_id")
     if not agent_call_id:
@@ -1492,6 +1554,7 @@ async def fn_get_call_transcript(args: dict, user_id: str, db: Session) -> dict:
     call = db.query(AgentCall).filter(
         AgentCall.id == agent_call_id,
         AgentCall.user_id == user_id,
+        AgentCall.agent_config_id == agent_config_id,
     ).first()
     if not call:
         return {"ok": False, "error": "Call not found"}
@@ -1511,7 +1574,7 @@ async def fn_get_call_transcript(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_period_report(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_period_report(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Сводный отчёт по звонкам за период (по умолчанию последние 7 дней)."""
     date_to = _parse_iso_utc(args.get("date_to")) or datetime.now(timezone.utc)
     date_from = _parse_iso_utc(args.get("date_from")) or (date_to - timedelta(days=7))
@@ -1526,6 +1589,7 @@ async def fn_get_period_report(args: dict, user_id: str, db: Session) -> dict:
         db.query(AgentCall)
         .filter(
             AgentCall.user_id == user_id,
+            AgentCall.agent_config_id == agent_config_id,
             AgentCall.created_at >= df,
             AgentCall.created_at <= dt,
         )
@@ -1555,7 +1619,7 @@ async def fn_get_period_report(args: dict, user_id: str, db: Session) -> dict:
     }
 
 
-async def fn_get_failed_calls(args: dict, user_id: str, db: Session) -> dict:
+async def fn_get_failed_calls(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     """Очередь на перезвон: последний неудачный/недозвон по каждому контакту."""
     try:
         limit = max(1, min(int(args.get("limit") or 30), 100))
@@ -1566,6 +1630,7 @@ async def fn_get_failed_calls(args: dict, user_id: str, db: Session) -> dict:
         db.query(AgentCall)
         .filter(
             AgentCall.user_id == user_id,
+            AgentCall.agent_config_id == agent_config_id,
             or_(
                 AgentCall.status.in_(["no_answer", "failed"]),
                 AgentCall.post_call_decision == "NO_ANSWER",
@@ -1688,51 +1753,51 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "create_agent_task":
             result = await fn_create_agent_task(tool_args, user_id, agent_config_id, db)
         elif tool_name == "update_contact_memory":
-            result = await fn_update_contact_memory(tool_args, db)
+            result = await fn_update_contact_memory(tool_args, agent_config_id, db)
         elif tool_name == "update_contact_info":
-            result = await fn_update_contact_info(tool_args, user_id, db)
+            result = await fn_update_contact_info(tool_args, user_id, agent_config_id, db)
         elif tool_name == "move_contact_stage":
-            result = await fn_move_contact_stage(tool_args, user_id, db)
+            result = await fn_move_contact_stage(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_contacts":
-            result = await fn_get_agent_contacts(tool_args, user_id, db)
+            result = await fn_get_agent_contacts(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contact_call_history":
-            result = await fn_get_contact_call_history(tool_args, db)
+            result = await fn_get_contact_call_history(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_tasks":
-            result = await fn_get_agent_tasks(tool_args, user_id, db)
+            result = await fn_get_agent_tasks(tool_args, user_id, agent_config_id, db)
         elif tool_name == "delete_agent_task":
-            result = await fn_delete_agent_task(tool_args, user_id, db)
+            result = await fn_delete_agent_task(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_stats":
-            result = await fn_get_agent_stats(tool_args, user_id, db)
+            result = await fn_get_agent_stats(tool_args, user_id, agent_config_id, db)
         elif tool_name == "send_telegram_notification":
             result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
         elif tool_name == "search_contacts":
-            result = await fn_search_contacts(tool_args, user_id, db)
+            result = await fn_search_contacts(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contact_details":
-            result = await fn_get_contact_details(tool_args, user_id, db)
+            result = await fn_get_contact_details(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contacts_by_stage":
-            result = await fn_get_contacts_by_stage(tool_args, user_id, db)
+            result = await fn_get_contacts_by_stage(tool_args, user_id, agent_config_id, db)
         elif tool_name == "bulk_create_contacts":
             result = await fn_bulk_create_contacts(tool_args, agent_config_id, user_id, db)
         elif tool_name == "delete_agent_contact":
-            result = await fn_delete_agent_contact(tool_args, user_id, db)
+            result = await fn_delete_agent_contact(tool_args, user_id, agent_config_id, db)
         elif tool_name == "append_contact_note":
-            result = await fn_append_contact_note(tool_args, user_id, db)
+            result = await fn_append_contact_note(tool_args, user_id, agent_config_id, db)
         elif tool_name == "update_agent_task":
-            result = await fn_update_agent_task(tool_args, user_id, db)
+            result = await fn_update_agent_task(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_upcoming_schedule":
-            result = await fn_get_upcoming_schedule(tool_args, user_id, db)
+            result = await fn_get_upcoming_schedule(tool_args, user_id, agent_config_id, db)
         elif tool_name == "bulk_schedule_calls":
             result = await fn_bulk_schedule_calls(tool_args, user_id, agent_config_id, db)
         elif tool_name == "trigger_immediate_call":
             result = await fn_trigger_immediate_call(tool_args, user_id, agent_config_id, db)
         elif tool_name == "snooze_contact":
-            result = await fn_snooze_contact(tool_args, user_id, db)
+            result = await fn_snooze_contact(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_call_transcript":
-            result = await fn_get_call_transcript(tool_args, user_id, db)
+            result = await fn_get_call_transcript(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_period_report":
-            result = await fn_get_period_report(tool_args, user_id, db)
+            result = await fn_get_period_report(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_failed_calls":
-            result = await fn_get_failed_calls(tool_args, user_id, db)
+            result = await fn_get_failed_calls(tool_args, user_id, agent_config_id, db)
         elif tool_name == "search_knowledge_base":
             agent_config = context.get("agent_config")
             if agent_config is None and agent_config_id:
