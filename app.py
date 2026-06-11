@@ -672,6 +672,10 @@ def check_and_fix_all_missing_columns():
             'tasks': {
                 'caller_id': 'VARCHAR(20) NULL',
             },
+            'voximplant_phone_numbers': {
+                # 🆕 Привязка номера к автономному агенту (PostCall для входящих)
+                'agent_config_id': 'UUID NULL',
+            },
             'subscription_plans': {
                 # Добавьте если нужно
             }

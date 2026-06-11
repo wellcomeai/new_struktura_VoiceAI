@@ -291,6 +291,9 @@ class MyNumberInfo(BaseModel):
     assistant_id: Optional[str] = None
     assistant_name: Optional[str] = None
     assistant_model: Optional[str] = None
+    # 🆕 Привязка к автономному агенту (если номер привязан к агенту)
+    agent_config_id: Optional[str] = None
+    agent_name: Optional[str] = None
     first_phrase: Optional[str] = None
     is_active: bool
     phone_next_renewal: Optional[str] = None
@@ -1839,10 +1842,19 @@ async def get_my_numbers(
                     ).first()
                     assistant_name = assistant.name if assistant else None
 
+            # 🆕 Если номер привязан к автономному агенту — берём имя агента
+            agent_name = None
+            if getattr(num, "agent_config_id", None):
+                from backend.models.agent_config import AgentConfig
+                agent_cfg = db.query(AgentConfig).filter(
+                    AgentConfig.id == num.agent_config_id
+                ).first()
+                agent_name = agent_cfg.name if agent_cfg else None
+
             # Получаем данные из Voximplant по нормализованному номеру
             normalized = normalize_phone_number(num.phone_number)
             vox_info = vox_map.get(normalized) or vox_map.get(normalized[-10:] if len(normalized) > 10 else normalized, {})
-            
+
             result.append(MyNumberInfo(
                 id=str(num.id),
                 phone_number=num.phone_number,
@@ -1851,6 +1863,8 @@ async def get_my_numbers(
                 assistant_id=str(num.assistant_id) if num.assistant_id else None,
                 assistant_name=assistant_name,
                 assistant_model=assistant_model,
+                agent_config_id=str(num.agent_config_id) if getattr(num, "agent_config_id", None) else None,
+                agent_name=agent_name,
                 first_phrase=num.first_phrase,
                 is_active=num.is_active,
                 phone_next_renewal=vox_info.get("phone_next_renewal"),
@@ -1865,6 +1879,47 @@ async def get_my_numbers(
         logger.error(f"[TELEPHONY] Error getting my numbers: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=str(e)
+        )
+
+
+@router.get("/bindable-agents")
+async def get_bindable_agents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Список автономных агентов пользователя, доступных для привязки к номеру.
+
+    Возвращает только агентов с настроенным голосовым ассистентом — именно
+    его голос отвечает на входящие, а PostCall запускается автоматически.
+    """
+    try:
+        from backend.models.agent_config import AgentConfig
+
+        agents = db.query(AgentConfig).filter(
+            AgentConfig.user_id == current_user.id,
+            AgentConfig.assistant_type.isnot(None),
+        ).order_by(AgentConfig.created_at.asc()).all()
+
+        result = []
+        for agent in agents:
+            # Пропускаем агентов без реально привязанного голосового ассистента.
+            if not agent.get_voice_assistant_id():
+                continue
+            result.append({
+                "id": str(agent.id),
+                "name": agent.name,
+                "assistant_type": agent.assistant_type,  # голосовой тип (для инфо)
+                "is_active": agent.is_active,
+            })
+
+        return result
+
+    except Exception as e:
+        logger.error(f"[TELEPHONY] Error getting bindable agents: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
         )
 
@@ -1903,7 +1958,14 @@ async def bind_assistant_to_number(
         
         # Проверяем существование ассистента
         assistant_uuid = uuid.UUID(request.assistant_id)
-        
+
+        # effective_type — тип ГОЛОСОВОГО ассистента, по нему выбирается inbound-сценарий
+        # и резолвится /config. Для обычных ассистентов = request.assistant_type.
+        # Для типа "agent" мы подменяем агента на его голосовой ассистент, а сам факт
+        # привязки агента помечаем отдельным полем bound_agent_config_id.
+        effective_type = request.assistant_type
+        bound_agent_config_id = None
+
         if request.assistant_type == "openai":
             from backend.models.assistant import AssistantConfig
             assistant = db.query(AssistantConfig).filter(
@@ -1929,10 +1991,39 @@ async def bind_assistant_to_number(
                 GrokAssistantConfig.assistant_type == "cascade",
                 GrokAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "agent":
+            # Привязка автономного агента: используем его голосовой ассистент.
+            from backend.models.agent_config import AgentConfig
+            agent_cfg = db.query(AgentConfig).filter(
+                AgentConfig.id == assistant_uuid,
+                AgentConfig.user_id == current_user.id
+            ).first()
+            if not agent_cfg:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Агент не найден"
+                )
+            voice_type = agent_cfg.assistant_type
+            voice_id = agent_cfg.get_voice_assistant_id()
+            if not voice_type or not voice_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="У агента не настроен голосовой ассистент"
+                )
+            assistant = agent_cfg.get_voice_assistant()
+            if not assistant:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Голосовой ассистент агента не найден"
+                )
+            # Подменяем на реальный голосовой ассистент агента.
+            effective_type = voice_type           # openai | gemini | cartesia
+            assistant_uuid = voice_id             # UUID голосового ассистента
+            bound_agent_config_id = agent_cfg.id  # метка «номер привязан к агенту»
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia' или 'cascade'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade' или 'agent'"
             )
 
         if not assistant:
@@ -1945,7 +2036,7 @@ async def bind_assistant_to_number(
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
         if phone_record.vox_rule_id and child_account.vox_scenario_ids:
-            scenario_name = get_scenario_key(request.assistant_type, "inbound")
+            scenario_name = get_scenario_key(effective_type, "inbound")
             raw_scenario_id = child_account.get_scenario_id(scenario_name)
 
             if raw_scenario_id:
@@ -1953,7 +2044,7 @@ async def bind_assistant_to_number(
                 # VoxEngine выполняет sequenced-сценарии по порядку:
                 # vox-turn-taking объявляет глобальный VoxTurnTaking,
                 # inbound_cascade его использует
-                if request.assistant_type == "cascade":
+                if effective_type == "cascade":
                     tt_id = child_account.get_scenario_id("vox-turn-taking")
                     if tt_id:
                         scenario_id = [int(tt_id), int(raw_scenario_id)]
@@ -1996,9 +2087,12 @@ async def bind_assistant_to_number(
             else:
                 logger.warning(f"[TELEPHONY] ⚠️ Scenario '{scenario_name}' not found in account")
         
-        # Обновляем привязку в БД
-        phone_record.assistant_type = request.assistant_type
+        # Обновляем привязку в БД. Сохраняем РЕАЛЬНЫЙ голосовой тип/ID (чтобы
+        # /config и сценарий работали как обычно), а привязку к агенту фиксируем
+        # отдельным полем agent_config_id (None — если это обычный ассистент).
+        phone_record.assistant_type = effective_type
         phone_record.assistant_id = assistant_uuid
+        phone_record.agent_config_id = bound_agent_config_id
         phone_record.first_phrase = request.first_phrase
 
         if request.assistant_type == "gemini" and request.gemini_model:
@@ -2006,12 +2100,13 @@ async def bind_assistant_to_number(
             db.add(assistant)
 
         db.commit()
-        
-        logger.info(f"[TELEPHONY] ✅ Assistant {request.assistant_id} bound to {phone_record.phone_number}")
-        
+
+        bound_label = "Агент" if bound_agent_config_id else "Ассистент"
+        logger.info(f"[TELEPHONY] ✅ {bound_label} {request.assistant_id} (voice={effective_type}) bound to {phone_record.phone_number}")
+
         return {
             "success": True,
-            "message": f"Ассистент '{assistant.name}' привязан к номеру {phone_record.phone_number}"
+            "message": f"{bound_label} '{assistant.name}' привязан к номеру {phone_record.phone_number}"
         }
         
     except HTTPException:

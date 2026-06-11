@@ -330,7 +330,17 @@ class VoximplantPhoneNumber(Base, BaseModel):
     
     assistant_type = Column(String(20), nullable=True)  # 'openai', 'gemini', 'yandex'
     assistant_id = Column(UUID(as_uuid=True), nullable=True)  # ID ассистента в нашей БД
-    
+
+    # 🆕 Привязка к автономному агенту. Если номер привязан к агенту, здесь его
+    # AgentConfig.id, а assistant_type/assistant_id указывают на ГОЛОСОВОГО
+    # ассистента агента (чтобы сценарий и /config работали как обычно).
+    # None — обычная привязка к ассистенту.
+    agent_config_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("agent_configs.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
     # =========================================================================
     # ПРАВИЛО МАРШРУТИЗАЦИИ VOXIMPLANT (для входящих звонков)
     # =========================================================================
@@ -401,5 +411,7 @@ class VoximplantPhoneNumber(Base, BaseModel):
             data["child_account_id"] = str(data["child_account_id"])
         if isinstance(data.get("assistant_id"), uuid.UUID):
             data["assistant_id"] = str(data["assistant_id"])
-            
+        if isinstance(data.get("agent_config_id"), uuid.UUID):
+            data["agent_config_id"] = str(data["agent_config_id"])
+
         return data

@@ -581,7 +581,7 @@ class PostCallOrchestrator:
             db.close()
 
     @staticmethod
-    async def finalize_from_webhook(agent_call_id: str):
+    async def finalize_from_webhook(agent_call_id: str, call_direction: str = "outbound"):
         """
         ✅ Event-driven финализация звонка агента.
 
@@ -682,6 +682,7 @@ class PostCallOrchestrator:
                     duration_seconds=duration_seconds,
                     openai_key=(user.openai_api_key or "") if user else "",
                     db=db,
+                    call_direction=call_direction,
                 )
                 logger.info(f"[AGENT-POSTCALL] (webhook) ✅ Finalized call {agent_call_id}")
             except Exception as analyze_err:
@@ -697,7 +698,7 @@ class PostCallOrchestrator:
         finally:
             db.close()
 
-    def _build_postcall_input(self, agent_call, agent_contact, transcript, call_status, duration_seconds, db) -> str:
+    def _build_postcall_input(self, agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction: str = "outbound") -> str:
         previous_calls = (
             db.query(AgentCall)
             .filter(
@@ -718,12 +719,38 @@ class PostCallOrchestrator:
 
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
 
-        return f"""КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
+        # ── Контекст направления звонка ──
+        # Для входящих (клиент позвонил сам) логика перезвона иная, чем для
+        # исходящих: сам факт входящего звонка не повод планировать авто-перезвон.
+        is_inbound = (call_direction or "outbound").lower() == "inbound"
+        if is_inbound:
+            direction_line = (
+                "ТИП ЗВОНКА: ВХОДЯЩИЙ — клиент позвонил сам "
+                "(этот звонок инициировал не агент, а сам контакт)."
+            )
+            callback_rule = (
+                "3. Перезвон через create_agent_task планируй ТОЛЬКО если это реально\n"
+                "   нужно по сути разговора (клиент попросил перезвонить позже или\n"
+                "   договорились о следующем шаге). Сам факт входящего звонка НЕ\n"
+                "   является поводом для авто-перезвона."
+            )
+        else:
+            direction_line = "ТИП ЗВОНКА: ИСХОДЯЩИЙ — звонок инициировал агент."
+            callback_rule = (
+                "3. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ\n"
+                "   случая когда цель звонка уже достигнута (тогда перезвон не нужен).\n"
+                "   - Если клиент ответил и цель НЕ достигнута / попросил перезвонить —\n"
+                "     перезвони через разумное время (1-3 дня).\n"
+                "   - Если не ответил — перезвони через 24 часа."
+            )
+
+        return f"""{direction_line}
+КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
 ПАМЯТЬ О КОНТАКТЕ: {memory_json}
 ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}
 
-ПРЕДЫДУЩИЕ ЗВОНКИ:
+ПРЕДЫДУЩИЕ ЗВОНКИ (до 5 последних диалогов):
 {prev_calls_text or 'Нет предыдущих звонков'}
 
 ТЕКУЩИЙ ТРАНСКРИПТ ЗВОНКА:
@@ -743,11 +770,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
    - впервые вышли на живой контакт и продолжаем работу → active
    Если не дозвонились, клиент ещё думает или ничего по сути не изменилось —
    НЕ вызывай move_contact_stage, оставь контакт в текущей стадии.
-3. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ случая
-   когда цель звонка уже достигнута (тогда перезвон не нужен).
-   - Если клиент ответил и цель НЕ достигнута / попросил перезвонить — перезвони
-     через разумное время (1-3 дня).
-   - Если не ответил — перезвони через 24 часа.
+{callback_rule}
 4. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification."""
 
     async def _analyze(
@@ -761,7 +784,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         call_status: str,
         duration_seconds: float,
         openai_key: str,
-        db
+        db,
+        call_direction: str = "outbound"
     ):
         """
         Run PostCall analysis. Развилка по uses_hardcoded_prompt:
@@ -771,11 +795,11 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         if getattr(agent_config, "uses_hardcoded_prompt", False):
             return await self._analyze_v3_openrouter(
                 agent_call, agent_contact, agent_config, user, task,
-                transcript, call_status, duration_seconds, db
+                transcript, call_status, duration_seconds, db, call_direction
             )
         return await self._analyze_v2_responses_api(
             agent_call, agent_contact, agent_config, user, task,
-            transcript, call_status, duration_seconds, openai_key, db
+            transcript, call_status, duration_seconds, openai_key, db, call_direction
         )
 
     async def _analyze_v3_openrouter(
@@ -788,7 +812,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         transcript: str,
         call_status: str,
         duration_seconds: float,
-        db
+        db,
+        call_direction: str = "outbound"
     ):
         """PostCall v3 — OpenRouter Chat Completions, без previous_response_id."""
         logger.info(f"[AGENT-POSTCALL] (v3/OpenRouter) Analyzing call {agent_call.id}, model {agent_config.orchestrator_model}")
@@ -802,7 +827,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
         system_prompt = build_orchestrator_prompt(agent_config)
         post_call_input = self._build_postcall_input(
-            agent_call, agent_contact, transcript, call_status, duration_seconds, db
+            agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
         # Подставляем стратегию PreCall в текст (симуляция цепочки)
         post_call_input += f"""
@@ -995,7 +1020,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         call_status: str,
         duration_seconds: float,
         openai_key: str,
-        db
+        db,
+        call_direction: str = "outbound"
     ):
         """PostCall v2 (legacy) — OpenAI Responses API with AGENT_POSTCALL_TOOLS."""
         logger.info(f"[AGENT-POSTCALL] (v2/Responses) Analyzing call {agent_call.id}")
@@ -1003,7 +1029,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         client = AsyncOpenAI(api_key=openai_key)
 
         post_call_input = self._build_postcall_input(
-            agent_call, agent_contact, transcript, call_status, duration_seconds, db
+            agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
 
         # ✅ v2.1: Список для сбора всех tool calls

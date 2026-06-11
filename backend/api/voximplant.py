@@ -1455,13 +1455,16 @@ async def log_conversation_data(
                     logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Не удалось запланировать отложенный пересчёт: {task_error}")
             
             # ================================================================
-            # 🆕 EVENT-DRIVEN ФИНАЛИЗАЦИЯ ЗВОНКА АГЕНТА
+            # 🆕 EVENT-DRIVEN ФИНАЛИЗАЦИЯ ИСХОДЯЩЕГО ЗВОНКА АГЕНТА
             # ================================================================
             # Транскрипт только что сохранён в conversations. Находим «висящий»
             # AgentCall этого юзера по номеру + времени и запускаем его
             # финализацию сразу — не дожидаясь таймерного поллера, который для
             # длинных звонков (>~70 сек) не успевает и ошибочно ставит no_answer.
+            # ⚠️ Только для ИСХОДЯЩИХ: висящий AgentCall создаёт TaskScheduler.
+            #    Входящие обрабатываются отдельным блоком ниже.
             if (db_result
+                    and call_direction != "INBOUND"
                     and dialog and isinstance(dialog, list) and len(dialog) > 0
                     and assistant.user_id):
                 try:
@@ -1494,6 +1497,90 @@ async def log_conversation_data(
                             logger.info(f"[VOXIMPLANT-AGENT] ℹ️ Нет висящих AgentCall для номера ...{phone_suffix}")
                 except Exception as agent_fin_error:
                     logger.warning(f"[VOXIMPLANT-AGENT] ⚠️ Ошибка event-driven финализации AgentCall: {agent_fin_error}")
+
+            # ================================================================
+            # 🆕 EVENT-DRIVEN POSTCALL ДЛЯ ВХОДЯЩЕГО ЗВОНКА НА АГЕНТА
+            # ================================================================
+            # Для исходящих AgentCall заранее создаёт TaskScheduler. Для входящих
+            # «родительского» звонка нет: если на номер, привязанный к голосовому
+            # ассистенту автономного агента, позвонил клиент — заводим AgentContact
+            # (если контакт новый) + AgentCall и запускаем тот же PostCall, что и
+            # у исходящих, но с пометкой call_direction="inbound".
+            if (db_result
+                    and call_direction == "INBOUND"
+                    and dialog and isinstance(dialog, list) and len(dialog) > 0
+                    and assistant.user_id):
+                try:
+                    from datetime import datetime
+                    from sqlalchemy import or_
+                    from backend.models.agent_call import AgentCall
+                    from backend.models.agent_contact import AgentContact
+                    from backend.models.agent_config import AgentConfig
+                    from backend.services.agent_orchestrator import PostCallOrchestrator
+
+                    # 1. Принадлежит ли ответивший голосовой ассистент автономному агенту?
+                    agent_config = (
+                        db.query(AgentConfig)
+                        .filter(
+                            AgentConfig.user_id == assistant.user_id,
+                            or_(
+                                AgentConfig.openai_assistant_id == assistant.id,
+                                AgentConfig.gemini_assistant_id == assistant.id,
+                                AgentConfig.cartesia_assistant_id == assistant.id,
+                            ),
+                        )
+                        .first()
+                    )
+
+                    phone_suffix = (normalized_phone or "")[-10:]
+
+                    if agent_config and phone_suffix:
+                        # 2. Находим контакт агента по номеру или создаём новый.
+                        agent_contact = (
+                            db.query(AgentContact)
+                            .filter(
+                                AgentContact.agent_config_id == agent_config.id,
+                                AgentContact.phone.like(f"%{phone_suffix}%"),
+                            )
+                            .order_by(AgentContact.created_at.desc())
+                            .first()
+                        )
+                        if not agent_contact:
+                            agent_contact = AgentContact(
+                                agent_config_id=agent_config.id,
+                                user_id=assistant.user_id,
+                                phone=normalized_phone,
+                                status="new",
+                            )
+                            db.add(agent_contact)
+                            db.flush()  # получить id до создания звонка
+                            logger.info(f"[VOXIMPLANT-AGENT] 🆕 Создан AgentContact {agent_contact.id} для входящего {normalized_phone}")
+
+                        # 3. Создаём запись о входящем звонке. status="calling" —
+                        #    обязательно, иначе finalize_from_webhook не «заберёт» его.
+                        inbound_call = AgentCall(
+                            agent_contact_id=agent_contact.id,
+                            agent_config_id=agent_config.id,
+                            user_id=assistant.user_id,
+                            source_task_id=None,
+                            call_session_id=conversation_id,
+                            status="calling",
+                            started_at=datetime.utcnow(),
+                        )
+                        db.add(inbound_call)
+                        db.commit()
+
+                        # 4. Запускаем PostCall как у исходящих, но с пометкой inbound.
+                        logger.info(f"[VOXIMPLANT-AGENT] 🤖📞 Входящий на агента — финализируем AgentCall {inbound_call.id}")
+                        asyncio.create_task(
+                            PostCallOrchestrator.finalize_from_webhook(
+                                str(inbound_call.id), call_direction="inbound"
+                            )
+                        )
+                    elif not agent_config:
+                        logger.info(f"[VOXIMPLANT-AGENT] ℹ️ Входящий: ассистент {assistant.id} не принадлежит агенту, PostCall не требуется")
+                except Exception as inbound_agent_error:
+                    logger.warning(f"[VOXIMPLANT-AGENT] ⚠️ Ошибка inbound-финализации AgentCall: {inbound_agent_error}")
 
             # ================================================================
             # СОХРАНЕНИЕ В GOOGLE SHEETS (оригинальная логика)
