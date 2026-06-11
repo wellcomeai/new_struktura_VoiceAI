@@ -53,13 +53,12 @@ class PineconeSearchFunction(FunctionBase):
     
     @classmethod
     def get_parameters(cls) -> Dict[str, Any]:
+        # namespace НЕ выносим в параметры: его выбирает сервер
+        # (из AgentConfig.kb_namespace или системного промпта). Иначе модель
+        # галлюцинирует namespace (например имя индекса) и поиск ничего не находит.
         return {
             "type": "object",
             "properties": {
-                "namespace": {
-                    "type": "string",
-                    "description": "Namespace в Pinecone для поиска документов"
-                },
                 "query": {
                     "type": "string",
                     "description": "Поисковый запрос для векторного поиска"
@@ -70,7 +69,7 @@ class PineconeSearchFunction(FunctionBase):
                     "default": 3
                 }
             },
-            "required": ["namespace", "query"]
+            "required": ["query"]
         }
     
     @classmethod
@@ -145,23 +144,24 @@ class PineconeSearchFunction(FunctionBase):
         assistant_config = context.get("assistant_config")
         
         try:
-            namespace = arguments.get("namespace")
             query = arguments.get("query")
             top_k = arguments.get("top_k", 3)
-            
+
             # Проверка обязательных параметров
             if not query:
                 return {"error": "Query is required"}
-            
-            # Если нет namespace, попробуем извлечь из промпта
-            if not namespace and assistant_config:
-                if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
-                    namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
-                    logger.info(f"Извлечен namespace из промпта: {namespace}")
 
-            # Фолбэк: namespace берём из AgentConfig.kb_namespace по id
-            # голосового ассистента (агент обзвона хранит namespace у себя).
-            if not namespace and assistant_config and getattr(assistant_config, "id", None):
+            # ВАЖНО: namespace резолвим на СЕРВЕРЕ, а не из аргументов модели.
+            # Модель часто галлюцинирует namespace (например имя индекса
+            # "voicyfy"), из-за чего поиск идёт в несуществующем namespace и
+            # ничего не находит. Поэтому приоритет:
+            #   1) AgentConfig.kb_namespace (агент обзвона хранит namespace у себя)
+            #   2) namespace из системного промпта (отдельные ассистенты)
+            #   3) аргумент модели — только как legacy-фолбэк
+            namespace = None
+
+            # 1. AgentConfig.kb_namespace по id голосового ассистента
+            if assistant_config and getattr(assistant_config, "id", None):
                 try:
                     from backend.db.session import get_db
                     from backend.models.agent_config import AgentConfig
@@ -189,6 +189,17 @@ class PineconeSearchFunction(FunctionBase):
                             _db.close()
                 except Exception as e:
                     logger.warning(f"Не удалось получить namespace из AgentConfig: {e}")
+
+            # 2. Из системного промпта ассистента
+            if not namespace and assistant_config:
+                if hasattr(assistant_config, "system_prompt") and assistant_config.system_prompt:
+                    namespace = extract_namespace_from_prompt(assistant_config.system_prompt)
+                    if namespace:
+                        logger.info(f"Извлечен namespace из промпта: {namespace}")
+
+            # 3. Legacy-фолбэк — аргумент модели
+            if not namespace:
+                namespace = arguments.get("namespace")
 
             # Проверка на наличие namespace
             if not namespace:
