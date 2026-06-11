@@ -4,12 +4,13 @@ Voicyfy Agent API v2.0 — CRUD, chat (with tools), contacts, calls, stats.
 
 import json
 import uuid
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import (
     APIRouter, Depends, HTTPException, Query, status,
-    UploadFile, File, Form, BackgroundTasks,
+    UploadFile, File, Form, BackgroundTasks, Request,
 )
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -30,6 +31,7 @@ from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
+from backend.core.config import settings
 from backend.core.dependencies import get_current_user
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
@@ -184,6 +186,10 @@ class AgentContactUpdateRequest(BaseModel):
     company: Optional[str] = Field(None, max_length=255)
     position: Optional[str] = Field(None, max_length=255)
     notes: Optional[str] = None
+
+
+class PublicAccessToggleRequest(BaseModel):
+    enabled: bool
 
 
 class AgentContactStatusRequest(BaseModel):
@@ -1001,6 +1007,205 @@ async def agent_chat_clear(
     agent.chat_history = []
     db.commit()
     return {"ok": True}
+
+
+# ============================================================================
+# ENDPOINTS — PUBLIC HTTP CHANNEL (приём заявок «сервер-к-серверу»)
+# ============================================================================
+# Внешний бэкенд (форма сайта, CRM, и т.п.) шлёт запрос с секретным ключом
+# агента — запрос попадает в ChatOrchestrator (stateless), агент сам решает,
+# что делать: создать контакт, поставить звонок, ответить на вопрос.
+#
+# Управление ключом — авторизованные эндпоинты /public-access* (для владельца).
+# Сам приём — публичный POST /public/{agent_id}/message (без JWT, по ключу).
+# ============================================================================
+
+
+def _public_endpoint_url(agent_id) -> str:
+    base = (settings.HOST_URL or settings.PUBLIC_BASE_URL or "").rstrip("/")
+    return f"{base}/api/agent/public/{agent_id}/message"
+
+
+def _public_access_dict(agent: AgentConfig) -> dict:
+    """Статус публичного канала для настроек владельца (ключ показываем полностью)."""
+    return {
+        "enabled": bool(agent.public_enabled),
+        "has_key": bool(agent.public_api_key),
+        "api_key": agent.public_api_key,
+        "endpoint_url": _public_endpoint_url(agent.id),
+        "agent_id": str(agent.id),
+    }
+
+
+def _extract_api_key(request: Request) -> Optional[str]:
+    """Достаём ключ из X-Api-Key, Authorization: Bearer <key> или ?key=."""
+    key = request.headers.get("X-Api-Key") or request.headers.get("x-api-key")
+    if key:
+        return key.strip()
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.query_params.get("key")
+
+
+def _coerce_public_message(payload) -> str:
+    """
+    Свернуть произвольное тело запроса в текстовое сообщение для оркестратора.
+    - строка → как есть;
+    - dict с полем message/text/... → берём его (+ остальные поля контекстом);
+    - dict без текстового поля → перечисляем «ключ: значение»;
+    - иное → JSON.
+    """
+    if payload is None:
+        return ""
+    if isinstance(payload, str):
+        return payload.strip()
+    if isinstance(payload, dict):
+        for key in ("message", "text", "msg", "query", "content", "comment"):
+            v = payload.get(key)
+            if isinstance(v, str) and v.strip():
+                extras = {
+                    k: val for k, val in payload.items()
+                    if k != key and val not in (None, "", [], {})
+                }
+                if extras:
+                    lines = [v.strip(), "", "Дополнительные данные:"]
+                    lines += [f"- {k}: {val}" for k, val in extras.items()]
+                    return "\n".join(lines)
+                return v.strip()
+        lines = [f"- {k}: {val}" for k, val in payload.items() if val not in (None, "", [], {})]
+        return ("Новая заявка:\n" + "\n".join(lines)) if lines else ""
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@router.get("/public-access")
+async def get_public_access(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Статус публичного канала (URL + ключ) для настроек агента."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+    return _public_access_dict(agent)
+
+
+@router.post("/public-access/regenerate")
+async def regenerate_public_key(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Сгенерировать (или перевыпустить) секретный ключ. Старый ключ перестаёт работать."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+    agent.public_api_key = secrets.token_urlsafe(32)
+    if not agent.public_enabled:
+        agent.public_enabled = True
+    db.commit()
+    db.refresh(agent)
+    logger.info(f"[AGENT-PUBLIC] Regenerated key for agent {agent.id}")
+    return _public_access_dict(agent)
+
+
+@router.put("/public-access")
+async def toggle_public_access(
+    body: PublicAccessToggleRequest,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Включить/выключить публичный канал. При первом включении ключ создаётся автоматически."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+    agent.public_enabled = bool(body.enabled)
+    if agent.public_enabled and not agent.public_api_key:
+        agent.public_api_key = secrets.token_urlsafe(32)
+    db.commit()
+    db.refresh(agent)
+    return _public_access_dict(agent)
+
+
+@router.post("/public/{agent_id}/message")
+async def agent_public_message(
+    agent_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Публичный вход в чат-оркестратор агента (сервер-к-серверу, без JWT).
+
+    Аутентификация — секретный ключ агента: заголовок `X-Api-Key`,
+    `Authorization: Bearer <key>` или query-параметр `?key=`.
+
+    Тело — произвольный JSON или text/plain. Оркестратор (stateless) сам решает,
+    что сделать с входящими данными. Ответ: {reply, timestamp}.
+    """
+    # 1. Резолв агента по id (валидируем UUID)
+    try:
+        agent_uuid = uuid.UUID(str(agent_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    agent = db.query(AgentConfig).filter(AgentConfig.id == agent_uuid).first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    # 2. Канал включён?
+    if not agent.public_enabled or not agent.public_api_key:
+        raise HTTPException(status_code=403, detail="public_access_disabled")
+
+    # 3. Проверка ключа (constant-time)
+    provided = _extract_api_key(request)
+    if not provided or not secrets.compare_digest(provided, agent.public_api_key):
+        raise HTTPException(status_code=401, detail="invalid_api_key")
+
+    # 4. Владелец агента (он платит за обработку)
+    owner = db.query(User).filter(User.id == agent.user_id).first()
+    if not owner:
+        raise HTTPException(status_code=404, detail="owner_not_found")
+
+    # 5. Тело запроса → текст
+    raw = await request.body()
+    payload = None
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            payload = raw.decode("utf-8", errors="ignore")
+    message = _coerce_public_message(payload)
+    if not message:
+        raise HTTPException(status_code=400, detail="empty_message")
+
+    # 6. Оркестратор (stateless)
+    from backend.services.agent_orchestrator import ChatOrchestrator
+    try:
+        result = await ChatOrchestrator().run_public(
+            message=message, agent_config=agent, user=owner, db=db,
+        )
+    except ValueError as e:
+        # например, public_channel_requires_v3_agent
+        raise HTTPException(status_code=400, detail=str(e))
+    except SubscriptionExpiredError:
+        raise HTTPException(status_code=402, detail="subscription_expired")
+    except SubscriptionRequiredError:
+        raise HTTPException(status_code=402, detail="subscription_required")
+    except InsufficientCreditsError as e:
+        raise HTTPException(status_code=402, detail={
+            "error": "insufficient_credits",
+            "required": e.required,
+            "available": e.available,
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[AGENT-PUBLIC] processing error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="processing_error")
+
+    return {"reply": result["reply"], "timestamp": datetime.utcnow().isoformat()}
 
 
 # ============================================================================

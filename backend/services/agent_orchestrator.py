@@ -1588,6 +1588,112 @@ class ChatOrchestrator:
 
         return {"reply": final_text, "debug_log": debug_log}
 
+    async def run_public(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db
+    ) -> Dict[str, Any]:
+        """
+        Публичный stateless-канал (HTTP-приём заявок, сервер-к-серверу).
+
+        В отличие от run(): история НЕ читается и НЕ пишется — каждый запрос
+        независим, личный chat_history владельца не засоряется. Использует тот
+        же набор AGENT_CHAT_TOOLS, поэтому оркестратор сам решает, что сделать
+        с входящим текстом (создать контакт, поставить звонок, ответить и т.д.).
+
+        Поддерживаются только v3-агенты (uses_hardcoded_prompt + OpenRouter).
+        """
+        if not getattr(agent_config, "uses_hardcoded_prompt", False):
+            raise ValueError("public_channel_requires_v3_agent")
+
+        # Подписка/кредиты владельца (он же платит за обработку)
+        CreditService.precheck(db, user)
+        total_prompt = 0
+        total_completion = 0
+
+        system_prompt = build_orchestrator_prompt(agent_config)
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": message},
+        ]
+
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
+            response = await client.chat_completion(
+                model=agent_config.orchestrator_model,
+                messages=messages,
+                tools=tools,
+                temperature=0.7,
+            )
+            p_tok, c_tok = _extract_usage(response)
+            total_prompt += p_tok
+            total_completion += c_tok
+            msg = response["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls") or []
+
+            if not tool_calls:
+                final_text = msg.get("content") or ""
+                break
+
+            messages.append({
+                "role": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": tool_calls,
+            })
+
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                tool_name = fn.get("name", "")
+                try:
+                    tool_args = json.loads(fn.get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                logger.info(f"[AGENT-PUBLIC] Executing tool: {tool_name}")
+                try:
+                    result_str = await execute_tool(tool_name, tool_args, context, db)
+                except Exception as e:
+                    result_str = json.dumps({"ok": False, "error": str(e)})
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "content": result_str,
+                })
+
+        if not final_text:
+            final_text = "Готово."
+
+        # Списываем кредиты за весь цикл обработки
+        if total_prompt or total_completion:
+            try:
+                CreditService.charge(
+                    db=db, user_id=user.id,
+                    model_slug=agent_config.orchestrator_model,
+                    prompt_tokens=total_prompt, completion_tokens=total_completion,
+                    ref_type="chat_public", ref_id=agent_config.id,
+                    notes=f"public intake iterations: {iteration}",
+                )
+            except Exception as ce:
+                logger.error(f"[AGENT-PUBLIC] Charge failed: {ce}", exc_info=True)
+
+        return {"reply": final_text}
+
     async def run_stream(
         self,
         message: str,

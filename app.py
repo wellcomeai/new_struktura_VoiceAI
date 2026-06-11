@@ -990,6 +990,48 @@ def ensure_agent_knowledge_base_columns():
         logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
 
 
+def ensure_agent_public_access_columns():
+    """
+    Идемпотентно добавляет колонки публичного HTTP-канала в agent_configs.
+
+    public_api_key — секретный ключ приёма заявок «сервер-к-серверу»,
+    public_enabled — флаг включения канала.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        statements = [
+            ("public_api_key", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS public_api_key VARCHAR(64)"),
+            ("public_enabled", "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS public_enabled BOOLEAN NOT NULL DEFAULT FALSE"),
+        ]
+        missing = [(col, sql) for col, sql in statements if col not in existing]
+        # Уникальный индекс на ключ (после создания колонки)
+        index_sql = (
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_configs_public_api_key "
+            "ON agent_configs (public_api_key)"
+        )
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for _col, sql in missing:
+                    conn.execute(text(sql))
+                conn.execute(text(index_sql))
+                trans.commit()
+                if missing:
+                    logger.info(f"✅ Added agent_configs public access columns: {[c for c, _ in missing]}")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add public access columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_public_access_columns error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1050,6 +1092,9 @@ async def startup_event():
 
                 # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs
                 ensure_agent_knowledge_base_columns()
+
+                # 🆕 Шаг 15: Колонки публичного HTTP-канала в agent_configs
+                ensure_agent_public_access_columns()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

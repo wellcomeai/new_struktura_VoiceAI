@@ -98,6 +98,12 @@ class AgentConfig(Base):
     telegram_webhook_secret = Column(String(64), nullable=True, unique=True)
     telegram_enabled = Column(Boolean, default=False, nullable=False)
 
+    # ── Публичный HTTP-канал (приём заявок «сервер-к-серверу») ──
+    # Внешний бэкенд (например форма сайта) шлёт запрос с секретным ключом,
+    # запрос попадает в ChatOrchestrator (stateless), агент сам решает что делать.
+    public_api_key = Column(String(64), nullable=True, unique=True, index=True)
+    public_enabled = Column(Boolean, default=False, nullable=False)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -144,3 +150,8 @@ class AgentConfig(Base):
         if not self.telegram_chat_ids:
             return []
         return [c.get("chat_id") for c in self.telegram_chat_ids if c.get("chat_id")]
+
+    # ── Публичный HTTP-канал ──
+    def has_public_access(self) -> bool:
+        """True, если публичный канал включён и ключ сгенерирован."""
+        return bool(self.public_enabled and self.public_api_key)
