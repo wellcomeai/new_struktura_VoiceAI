@@ -115,6 +115,7 @@ function renderCallExpanded(call, uid){
       <div onclick="${hasDetails ? `toggleCallCard('${uid}')` : ''}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;${hasDetails ? 'cursor:pointer' : ''}">
         <span style="font-weight:600;font-size:12.5px">${fmtDate(call.started_at || call.created_at)}</span>
         <span style="color:var(--muted);font-size:12px">${dur}</span>
+        ${directionBadge(call.direction)}
         ${statusHtml}
         ${decisionBadgeHtml}
         ${hasDetails ? `<span style="margin-left:auto;font-size:11px;color:var(--blue);font-weight:600"><i class="fas fa-chevron-down" id="${uid}-chevron" style="transition:transform .2s"></i> Размышления</span>` : ''}

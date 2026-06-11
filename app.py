@@ -676,6 +676,10 @@ def check_and_fix_all_missing_columns():
                 # 🆕 Привязка номера к автономному агенту (PostCall для входящих)
                 'agent_config_id': 'UUID NULL',
             },
+            'agent_calls': {
+                # 🆕 Направление звонка: outbound / inbound (для UI агента)
+                'direction': "VARCHAR(20) DEFAULT 'outbound' NOT NULL",
+            },
             'subscription_plans': {
                 # Добавьте если нужно
             }

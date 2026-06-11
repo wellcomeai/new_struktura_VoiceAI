@@ -109,6 +109,14 @@ function errText(detail){
 }
 function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил' })[d] || d || '—'; }
 function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
+// Направление звонка: входящий (клиент позвонил) / исходящий (агент позвонил)
+function directionRu(dir){ return dir === 'inbound' ? 'Входящий' : 'Исходящий'; }
+function directionBadge(dir){
+  const inbound = dir === 'inbound';
+  const icon = inbound ? 'fa-arrow-down' : 'fa-arrow-up';
+  const color = inbound ? '#0891B2' : '#7C3AED';
+  return `<span class="status-badge" style="background:${color}22;color:${color}"><i class="fas ${icon}"></i> ${directionRu(dir)}</span>`;
+}
 // Все даты с бэка приходят в UTC (ISO с маркером). Отображаем в МСК (Europe/Moscow).
 function fmtDate(s){
   if(!s) return '—';

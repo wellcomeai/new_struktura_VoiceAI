@@ -70,6 +70,9 @@ class AgentCall(Base):
     post_call_decision = Column(String(50), nullable=True)
     call_result = Column(Text, nullable=True)
 
+    # Направление звонка: "outbound" (агент позвонил) / "inbound" (позвонили агенту)
+    direction = Column(String(20), default="outbound", nullable=False)
+
     scheduled_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
@@ -112,6 +115,7 @@ class AgentCall(Base):
             "transcript": self.transcript,
             "duration_seconds": self.duration_seconds,
             "status": self.status,
+            "direction": self.direction or "outbound",
             "post_call_decision": self.post_call_decision,
             "call_result": self.call_result,
             "scheduled_at": self.scheduled_at.isoformat() if self.scheduled_at else None,

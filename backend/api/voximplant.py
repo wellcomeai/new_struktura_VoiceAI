@@ -1565,6 +1565,7 @@ async def log_conversation_data(
                             source_task_id=None,
                             call_session_id=conversation_id,
                             status="calling",
+                            direction="inbound",
                             started_at=datetime.utcnow(),
                         )
                         db.add(inbound_call)

@@ -144,9 +144,9 @@ async function loadRecentCalls(){
         <div class="avatar">${esc((c.contact_name||'?').trim().charAt(0).toUpperCase())}</div>
         <div class="call-info">
           <div class="call-name">${esc(c.contact_name||'—')}</div>
-          <div class="call-meta"><span class="call-dot ${c.status==='answered'?'answered':'no_answer'}"></span> ${decisionRu(c.post_call_decision)} · ${fmtDate(c.started_at)}</div>
+          <div class="call-meta"><span class="call-dot ${c.status==='answered'?'answered':'no_answer'}"></span> <i class="fas ${c.direction==='inbound'?'fa-arrow-down':'fa-arrow-up'}" title="${directionRu(c.direction)}" style="color:${c.direction==='inbound'?'#0891B2':'#7C3AED'}"></i> ${decisionRu(c.post_call_decision)} · ${fmtDate(c.started_at)}</div>
         </div>
-        <div class="call-phone-ic"><i class="fas fa-phone"></i></div>
+        <div class="call-phone-ic"><i class="fas ${c.direction==='inbound'?'fa-phone-volume':'fa-phone'}"></i></div>
       </div>`).join('');
   }catch(e){}
 }
