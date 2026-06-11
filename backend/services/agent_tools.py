@@ -107,7 +107,7 @@ SEND_SMS_TOOL = {
         "продублировать клиенту важную информацию (адрес, ссылку, реквизиты, "
         "код, напоминание о встрече). Получателя укажи через agent_contact_id — "
         "номер возьмётся из карточки контакта; либо задай phone напрямую. "
-        "Номер отправителя — это номер агента (default_caller_id). Текст до 500 символов."
+        "Номер отправителя выбирается автоматически (номер агента). Текст до 500 символов."
     ),
     "parameters": {
         "type": "object",
@@ -1099,19 +1099,26 @@ async def fn_send_sms(args: dict, user_id: str, agent_config: AgentConfig, db: S
     if not to_number:
         return {"ok": False, "error": "Не указан номер получателя (phone или agent_contact_id)"}
 
-    # Источник — номер агента, с которого он звонит.
-    from_number = (getattr(agent_config, "default_caller_id", None) or "").strip()
-    if not from_number:
-        return {"ok": False, "error": "no_source_number: у агента не задан номер отправителя (default_caller_id)"}
-
-    to_clean = to_number.replace("+", "")
-    from_clean = from_number.replace("+", "")
-
     child = db.query(VoximplantChildAccount).filter(
         VoximplantChildAccount.user_id == user_id
     ).first()
     if not child or not child.vox_account_id or not child.vox_api_key:
         return {"ok": False, "error": "Voximplant credentials не настроены"}
+
+    # Источник — номер агента. Та же логика, что и у исходящих звонков
+    # (task_scheduler): сначала default_caller_id, иначе первый активный номер
+    # аккаунта. Поэтому SMS работает в тех же случаях, что и звонки — даже если
+    # default_caller_id у агента не задан.
+    active_numbers = [p.phone_number for p in (child.phone_numbers or []) if getattr(p, "is_active", False)]
+    from_number = (getattr(agent_config, "default_caller_id", None) or "").strip()
+    if not from_number or (active_numbers and from_number not in active_numbers):
+        if active_numbers:
+            from_number = active_numbers[0]
+    if not from_number:
+        return {"ok": False, "error": "no_source_number: у агента нет активного номера-отправителя"}
+
+    to_clean = to_number.replace("+", "")
+    from_clean = from_number.replace("+", "")
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
