@@ -383,6 +383,13 @@ body::before {
 #instructions-modal-overlay .instr-section-head > i { font-size:15px; color:var(--blue-dark); margin-top:2px; flex-shrink:0; }
 #instructions-modal-overlay .instr-section-title { font-size:13.5px; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
 #instructions-modal-overlay .instr-section-sub { font-size:12px; line-height:1.5; color:var(--muted); margin-top:3px; }
+/* Публичный API */
+#i-public-access .pub-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+#i-public-access .pub-copy-row { display:flex; gap:7px; align-items:stretch; }
+#i-public-access .pub-copy-row .form-input { flex:1; min-width:0; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; }
+#i-public-access .pub-copy-row .btn { flex-shrink:0; padding:0 12px; }
+#i-public-access .pub-code { margin:0; padding:11px 13px; background:var(--bg); border:1px solid var(--border); border-radius:9px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.55; color:var(--text); white-space:pre-wrap; word-break:break-all; overflow-x:auto; }
+#i-public-access code { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; background:var(--bg); padding:1px 5px; border-radius:5px; }
 .doc-tabs { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:18px; }
 .doc-tab { padding:7px 13px; border-radius:var(--radius-pill); font-size:12px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:var(--bg); color:var(--muted); transition:var(--transition); }
 .doc-tab.active { background:var(--blue-light); border-color:var(--blue-border); color:var(--blue-dark); }

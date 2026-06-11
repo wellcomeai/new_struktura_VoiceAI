@@ -199,6 +199,11 @@ function openInstructionsModal(){
 
   fillCallerIdSelect('i-caller-id');
 
+  // Публичный API — статус подгружаем асинхронно (не блокируем открытие модалки)
+  const pubWrap = document.getElementById('i-public-access');
+  if(pubWrap) pubWrap.innerHTML = '<div class="form-hint">Загрузка…</div>';
+  loadPublicAccess();
+
   document.getElementById('instructions-modal-overlay').classList.remove('hidden');
 }
 
@@ -235,6 +240,126 @@ async function saveInstructions(){
   }
   btn.disabled = false;
   btn.innerHTML = '<i class="fas fa-check"></i> Сохранить';
+}
+
+
+// ════════════════ PUBLIC API ACCESS ════════════════
+// Публичный HTTP-канал приёма заявок «сервер-к-серверу».
+// Backend: GET/PUT /api/agent/public-access, POST /public-access/regenerate.
+let publicAccessState = null;
+
+async function loadPublicAccess(){
+  try{
+    const r = await apiFetch(API + '/public-access');
+    if(!r || r.status !== 200){ renderPublicAccess(); return; }
+    publicAccessState = await r.json();
+  }catch(e){ publicAccessState = null; }
+  renderPublicAccess();
+}
+
+function renderPublicAccess(){
+  const wrap = document.getElementById('i-public-access');
+  if(!wrap) return;
+  const s = publicAccessState || {};
+  const enabled = !!s.enabled;
+
+  const toggleRow = `<div class="pub-row">
+      <label class="form-label" style="margin:0">Приём заявок включён</label>
+      <label class="switch"><input type="checkbox" ${enabled?'checked':''} onchange="togglePublicAccess(this.checked)"><span class="slider"></span></label>
+    </div>`;
+
+  if(!enabled){
+    wrap.innerHTML = toggleRow +
+      '<div class="form-hint">Выключено. Включите тумблер — появятся ссылка, секретный ключ и инструкция.</div>';
+    return;
+  }
+
+  const url = s.endpoint_url || '';
+  const key = s.api_key || '';
+  const curl =
+`curl -X POST "${url}" \\
+  -H "X-Api-Key: ${key}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"Иван","phone":"+79991234567","comment":"хочу демо"}'`;
+
+  wrap.innerHTML = toggleRow + `
+    <div class="form-group">
+      <label class="form-label">Ссылка для обращения</label>
+      <div class="pub-copy-row">
+        <input type="text" class="form-input" id="i-pub-url" value="${esc(url)}" readonly>
+        <button class="btn btn-secondary" type="button" title="Скопировать" onclick="copyPublicField('i-pub-url')"><i class="fas fa-copy"></i></button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Секретный ключ</label>
+      <div class="pub-copy-row">
+        <input type="password" class="form-input" id="i-pub-key" value="${esc(key)}" readonly>
+        <button class="btn btn-secondary" type="button" title="Показать/скрыть" onclick="togglePubKeyVisible()"><i class="fas fa-eye" id="i-pub-key-eye"></i></button>
+        <button class="btn btn-secondary" type="button" title="Скопировать" onclick="copyPublicField('i-pub-key')"><i class="fas fa-copy"></i></button>
+      </div>
+      <div class="form-hint">Держите ключ в секрете — он даёт доступ к вашему агенту. <a href="#" onclick="regeneratePublicKey();return false;">Перевыпустить ключ</a> (старый сразу перестанет работать).</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Как обращаться</label>
+      <div class="form-hint" style="margin-bottom:6px">POST-запрос на ссылку выше. Ключ — в заголовке <code>X-Api-Key</code> (или <code>Authorization: Bearer</code>). Тело — любой JSON или текст: агент сам разберёт, что в нём, и решит, что делать. Пример:</div>
+      <pre class="pub-code">${esc(curl)}</pre>
+    </div>`;
+}
+
+async function togglePublicAccess(want){
+  try{
+    const r = await apiFetch(API + '/public-access', { method:'PUT', body: JSON.stringify({ enabled: !!want }) });
+    if(r && r.status === 200){
+      publicAccessState = await r.json();
+      renderPublicAccess();
+      showToast(want ? 'Публичный приём включён' : 'Публичный приём выключен', 'success');
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(errText(err.detail), 'error');
+      renderPublicAccess(); // откатить тумблер к фактическому состоянию
+    }
+  }catch(e){ showToast('Ошибка сети','error'); renderPublicAccess(); }
+}
+
+async function regeneratePublicKey(){
+  if(!confirm('Перевыпустить секретный ключ? Старый ключ сразу перестанет работать.')) return;
+  try{
+    const r = await apiFetch(API + '/public-access/regenerate', { method:'POST' });
+    if(r && r.status === 200){
+      publicAccessState = await r.json();
+      renderPublicAccess();
+      showToast('Ключ перевыпущен','success');
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(errText(err.detail), 'error');
+    }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+function togglePubKeyVisible(){
+  const inp = document.getElementById('i-pub-key');
+  const eye = document.getElementById('i-pub-key-eye');
+  if(!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  if(eye) eye.className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+}
+
+async function copyPublicField(id){
+  const inp = document.getElementById(id);
+  if(!inp) return;
+  const val = inp.value || '';
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(val);
+    } else {
+      const prevType = inp.type; inp.type = 'text';
+      inp.select(); inp.setSelectionRange(0, 99999);
+      document.execCommand('copy');
+      inp.type = prevType;
+    }
+    showToast('Скопировано','success');
+  }catch(e){ showToast('Не удалось скопировать','error'); }
 }
 
 
