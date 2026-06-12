@@ -127,6 +127,26 @@ TELEGRAM_FORMAT_HINT = """
 - Не используй заголовки решётками (#) и горизонтальные линии."""
 
 
+# Rich-вариант хинта: используется для путей, отправляемых через sendRichMessage
+# (Bot API rich messages). Здесь поддерживается полноценный Markdown — заголовки,
+# таблицы, списки, цитаты, сворачиваемые блоки. Если клиент старый и rich не
+# отрисуется, сервер откатывается на markdown_to_telegram_html, который умеет
+# деградировать все эти конструкции (таблица→<pre>, заголовок→<b> и т.д.).
+TELEGRAM_RICH_FORMAT_HINT = """
+
+# ФОРМАТИРОВАНИЕ ОТВЕТА (Telegram Rich)
+Твой ответ рендерится в Telegram с поддержкой богатого Markdown. Правила:
+- Пиши структурно и наглядно. Можно использовать заголовки (##), списки (- / 1.),
+  **жирный**, *курсив*, `код`, блоки кода ```lang.
+- Для сравнения и наборов данных допустимы markdown-таблицы | ... | ... | — они
+  корректно отрисовываются.
+- Цитаты оформляй через «> ». Разделители «---» допустимы.
+- Длинные фрагменты (полный список, детали, транскрипт) сворачивай в
+  <details><summary>Заголовок</summary> … </details>, чтобы не загромождать экран.
+- Не вставляй медиа по ссылкам, если пользователь об этом не просил.
+- Самое важное помещай в начало ответа."""
+
+
 # ============================================================================
 # PRE-CALL ORCHESTRATOR
 # ============================================================================
@@ -1288,7 +1308,7 @@ class ChatOrchestrator:
         total_prompt = 0
         total_completion = 0
 
-        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_FORMAT_HINT
+        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_RICH_FORMAT_HINT
         history = telegram_history_row.history or []
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -1375,6 +1395,165 @@ class ChatOrchestrator:
 
         self._persist_telegram_history(telegram_history_row, message, final_text, db)
         return {"reply": final_text}
+
+    async def run_telegram_stream(
+        self,
+        message: str,
+        agent_config: AgentConfig,
+        user: User,
+        db,
+        telegram_history_row,
+    ):
+        """
+        Стриминговый Telegram-режим (только v3 / uses_hardcoded_prompt).
+        Async-генератор событий: token / clear_partial / tool / done / error.
+
+        Миррорит `_run_telegram_v3`, но отдаёт токены живьём — для
+        sendRichMessageDraft. Списание кредитов (ref_type="telegram_chat") и
+        запись истории выполняются на финале, как в `_run_telegram_v3`.
+        Каждое событие token несёт накопленный `buffer`, чтобы драйвер слал
+        в draft уже собранный текст.
+        """
+        CreditService.precheck(db, user)
+
+        total_prompt = 0
+        total_completion = 0
+
+        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_RICH_FORMAT_HINT
+        history = telegram_history_row.history or []
+
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+        for msg in history[-20:]:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+
+        try:
+            while iteration < max_iterations:
+                iteration += 1
+                content_buf = ""
+                tool_calls_acc: Dict[int, Dict[str, Any]] = {}
+                p_tok = 0
+                c_tok = 0
+
+                async for chunk in client.chat_completion_stream(
+                    model=agent_config.orchestrator_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.7,
+                ):
+                    usage = chunk.get("usage")
+                    if usage:
+                        p_tok = int(usage.get("prompt_tokens", 0) or 0)
+                        c_tok = int(usage.get("completion_tokens", 0) or 0)
+
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+
+                    content_piece = delta.get("content")
+                    if content_piece:
+                        content_buf += content_piece
+                        yield {"type": "token", "text": content_piece, "buffer": content_buf}
+
+                    for tc in (delta.get("tool_calls") or []):
+                        idx = tc.get("index", 0)
+                        acc = tool_calls_acc.get(idx)
+                        if acc is None:
+                            acc = {"id": None, "name": "", "arguments": ""}
+                            tool_calls_acc[idx] = acc
+                        if tc.get("id"):
+                            acc["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            acc["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            acc["arguments"] += fn["arguments"]
+
+                total_prompt += p_tok
+                total_completion += c_tok
+
+                # Нет тулколлов → это финальный ответ.
+                if not tool_calls_acc:
+                    final_text = content_buf
+                    break
+
+                # Модель написала текст перед тулколлом — попросим стереть его.
+                if content_buf.strip():
+                    yield {"type": "clear_partial"}
+
+                ordered = [tool_calls_acc[i] for i in sorted(tool_calls_acc.keys())]
+                assistant_tool_calls = [
+                    {
+                        "id": acc["id"],
+                        "type": "function",
+                        "function": {"name": acc["name"], "arguments": acc["arguments"]},
+                    }
+                    for acc in ordered
+                ]
+                messages.append({
+                    "role": "assistant",
+                    "content": content_buf or "",
+                    "tool_calls": assistant_tool_calls,
+                })
+
+                for acc in ordered:
+                    tool_name = acc["name"]
+                    try:
+                        tool_args = json.loads(acc["arguments"] or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    yield {"type": "tool", "name": tool_name}
+                    logger.info(f"[AGENT-TG-CHAT] (stream) Executing tool: {tool_name}")
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": acc["id"],
+                        "content": result_str,
+                    })
+
+            if not final_text:
+                final_text = "Готово."
+
+            if total_prompt or total_completion:
+                try:
+                    CreditService.charge(
+                        db=db, user_id=user.id,
+                        model_slug=agent_config.orchestrator_model,
+                        prompt_tokens=total_prompt, completion_tokens=total_completion,
+                        ref_type="telegram_chat", ref_id=agent_config.id,
+                        notes=f"telegram_chat (stream) iterations: {iteration}",
+                    )
+                except Exception as ce:
+                    logger.error(f"[AGENT-TG-CHAT] (stream) Charge failed: {ce}", exc_info=True)
+
+            self._persist_telegram_history(telegram_history_row, message, final_text, db)
+            yield {"type": "done", "reply": final_text}
+
+        except Exception as e:
+            logger.error(f"[AGENT-TG-CHAT] (stream) error: {e}", exc_info=True)
+            yield {"type": "error", "detail": str(e), "reply": final_text}
 
     async def _run_telegram_v2(
         self,

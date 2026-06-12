@@ -65,6 +65,8 @@ def _mark_sub_notice_sent(history_row, db: Session) -> None:
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 REQUEST_TIMEOUT = 20.0
 TELEGRAM_MAX_LEN = 4096
+# Лимит rich-сообщений (sendRichMessage) — 32768 UTF-8 символов.
+TELEGRAM_RICH_MAX_LEN = 32768
 
 
 # ============================================================================
@@ -110,6 +112,10 @@ def _md_inline(text: str) -> str:
     text = re.sub(r"(?<![A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])", r"<i>\1</i>", text)
     # Зачёркнутый ~~x~~
     text = re.sub(r"~~([^~\n]+)~~", r"<s>\1</s>", text)
+    # Спойлер ||x|| → <tg-spoiler> (rich-конструкция, деградируем для старых клиентов)
+    text = re.sub(r"\|\|([^\n]+?)\|\|", r"<tg-spoiler>\1</tg-spoiler>", text)
+    # Маркер ==x== → жирный (прямого аналога в Telegram HTML нет)
+    text = re.sub(r"==([^\n=]+?)==", r"<b>\1</b>", text)
 
     # Восстанавливаем код
     text = re.sub(r"\x00(\d+)\x00", lambda m: f"<code>{codes[int(m.group(1))]}</code>", text)
@@ -163,6 +169,12 @@ def markdown_to_telegram_html(md: str) -> str:
     блоки кода ```...```, таблицы (→ моноширинный выровненный блок), цитаты.
     """
     md = (md or "").replace("\r\n", "\n").replace("\r", "\n")
+    # Сворачиваемые блоки (rich) не понимает старый Telegram-HTML — разворачиваем:
+    # <summary> → жирная строка-заголовок, сами теги <details> убираем.
+    md = re.sub(r"<summary[^>]*>(.*?)</summary>",
+                lambda m: "\n**" + m.group(1).strip() + "**\n", md,
+                flags=re.IGNORECASE | re.DOTALL)
+    md = re.sub(r"</?details[^>]*>", "", md, flags=re.IGNORECASE)
     lines = md.split("\n")
     n = len(lines)
     out: List[str] = []
@@ -395,6 +407,77 @@ class AgentTelegramService:
         return ok_any
 
     @staticmethod
+    async def send_rich_message(
+        token: str,
+        chat_id: str,
+        markdown: Optional[str] = None,
+        html: Optional[str] = None,
+        **kwargs,
+    ) -> Optional[dict]:
+        """
+        sendRichMessage (Bot API rich messages). InputRichMessage принимает РОВНО
+        одно из полей markdown/html — строку (не дерево блоков). Возвращает
+        отправленный Message (dict) или None при ошибке.
+        """
+        if not token or not chat_id:
+            return None
+        rich: dict = {}
+        if markdown is not None:
+            rich["markdown"] = markdown[:TELEGRAM_RICH_MAX_LEN]
+        elif html is not None:
+            rich["html"] = html[:TELEGRAM_RICH_MAX_LEN]
+        else:
+            return None
+        payload = {"chat_id": chat_id, "rich_message": rich, **kwargs}
+        return await AgentTelegramService._call(token, "sendRichMessage", payload)
+
+    @staticmethod
+    async def send_rich_message_draft(
+        token: str,
+        chat_id: str,
+        draft_id: int,
+        markdown: str,
+        **kwargs,
+    ) -> bool:
+        """
+        sendRichMessageDraft — стриминг частичного rich-сообщения (только личные
+        чаты). draft_id ненулевой; правки с тем же id анимируются. Draft эфемерен
+        (~30 сек), финал обязательно слать через sendRichMessage.
+        """
+        if not token or not chat_id or not draft_id:
+            return False
+        try:
+            chat_int = int(chat_id)
+        except (TypeError, ValueError):
+            return False
+        payload = {
+            "chat_id": chat_int,
+            "draft_id": int(draft_id),
+            "rich_message": {"markdown": (markdown or "")[:TELEGRAM_RICH_MAX_LEN]},
+            **kwargs,
+        }
+        result = await AgentTelegramService._call(token, "sendRichMessageDraft", payload)
+        return result is True or bool(result)
+
+    @staticmethod
+    async def send_rich_or_fallback(token: str, chat_id: str, markdown: str) -> bool:
+        """
+        Пробует отправить ответ как rich (sendRichMessage, лимит 32768, сырой
+        Markdown модели). При ошибке (старый клиент / 400) откатывается на
+        legacy-путь: markdown_to_telegram_html + sendMessage (чанк 4096).
+        """
+        if not token or not chat_id:
+            return False
+        if not markdown:
+            markdown = "Готово."
+        result = await AgentTelegramService.send_rich_message(token, chat_id, markdown=markdown)
+        if result is not None:
+            return True
+        # Fallback: безопасный Telegram-HTML обычным sendMessage
+        html = markdown_to_telegram_html(markdown)
+        return await AgentTelegramService.send_message(token, chat_id, html, parse_mode="HTML")
+
+    @staticmethod
     async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
         """
         Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно.
@@ -488,12 +571,24 @@ async def process_telegram_message(
                 logger.info(f"[AGENT-TG] Subscription notice suppressed (anti-spam) for chat {chat_id}")
             return
 
+    orchestrator = ChatOrchestrator()
+
+    # 4. Стриминг через sendRichMessageDraft доступен только в личных чатах
+    #    с v3-агентами (uses_hardcoded_prompt). В группах/каналах и для legacy
+    #    v2-агентов — обычный rich-ответ одним сообщением (с fallback).
+    is_private = (history_row.chat_type or "") == "private"
+    use_stream = is_private and getattr(agent, "uses_hardcoded_prompt", False)
+
+    if use_stream:
+        await _stream_telegram_reply(
+            agent, chat_id, text, user, db, history_row, message, orchestrator,
+        )
+        return
+
     await AgentTelegramService._call(
         agent.telegram_bot_token, "sendChatAction",
         {"chat_id": chat_id, "action": "typing"},
     )
-
-    orchestrator = ChatOrchestrator()
     result = await orchestrator.run_telegram(
         message=text,
         agent_config=agent,
@@ -501,11 +596,85 @@ async def process_telegram_message(
         db=db,
         telegram_history_row=history_row,
     )
-
-    # 4. Ответ в Telegram — конвертируем Markdown модели в безопасный Telegram-HTML
-    reply_html = markdown_to_telegram_html(result.get("reply") or "Готово.")
-    await AgentTelegramService.send_message(
+    # Ответ в Telegram — сырой Markdown модели через rich (fallback на HTML)
+    await AgentTelegramService.send_rich_or_fallback(
         token=agent.telegram_bot_token,
         chat_id=chat_id,
-        text=reply_html,
+        markdown=result.get("reply") or "Готово.",
+    )
+
+
+async def _stream_telegram_reply(
+    agent: AgentConfig,
+    chat_id: str,
+    text: str,
+    user,
+    db: Session,
+    history_row,
+    message: dict,
+    orchestrator,
+) -> None:
+    """
+    Драйвер стриминга для личных чатов: гоняет ChatOrchestrator.run_telegram_stream,
+    по мере токенов шлёт анимированный draft (sendRichMessageDraft), на финале —
+    постоянное rich-сообщение (sendRichMessage с fallback). Списание кредитов и
+    запись истории делает сам генератор.
+    """
+    token = agent.telegram_bot_token
+
+    # draft_id: ненулевой int, стабильный в пределах хода. Берём message_id входящего.
+    draft_id = 0
+    if isinstance(message, dict):
+        try:
+            draft_id = int(message.get("message_id") or 0)
+        except (TypeError, ValueError):
+            draft_id = 0
+    if not draft_id:
+        draft_id = secrets.randbelow(2_000_000_000) + 1
+
+    buffer = ""
+    final_text = ""
+    last_sent = ""
+    last_ts = 0.0
+    MIN_INTERVAL = 0.7   # сек между draft-апдейтами (бережём rate-limit)
+    MIN_DELTA = 24       # минимум новых символов для апдейта
+
+    async def flush(force: bool = False) -> None:
+        nonlocal last_sent, last_ts
+        if not buffer:
+            return
+        now = asyncio.get_event_loop().time()
+        if not force and (now - last_ts < MIN_INTERVAL or len(buffer) - len(last_sent) < MIN_DELTA):
+            return
+        if await AgentTelegramService.send_rich_message_draft(token, chat_id, draft_id, buffer):
+            last_sent = buffer
+            last_ts = now
+
+    try:
+        async for ev in orchestrator.run_telegram_stream(
+            message=text, agent_config=agent, user=user, db=db, telegram_history_row=history_row,
+        ):
+            etype = ev.get("type")
+            if etype == "token":
+                buffer = ev.get("buffer") or (buffer + (ev.get("text") or ""))
+                await flush()
+            elif etype == "clear_partial":
+                buffer = ""
+            elif etype == "tool":
+                # Лёгкий индикатор работы во время вызова инструмента.
+                note = (buffer + "\n\n_⏳ работаю…_") if buffer.strip() else "_⏳ работаю…_"
+                await AgentTelegramService.send_rich_message_draft(token, chat_id, draft_id, note)
+            elif etype == "done":
+                final_text = ev.get("reply") or buffer or "Готово."
+                break
+            elif etype == "error":
+                final_text = ev.get("reply") or buffer
+                break
+    except Exception as e:
+        logger.error(f"[AGENT-TG] stream driver error: {e}", exc_info=True)
+        final_text = final_text or buffer
+
+    # Финал: постоянное сообщение заменяет эфемерный draft.
+    await AgentTelegramService.send_rich_or_fallback(
+        token=token, chat_id=chat_id, markdown=final_text or buffer or "Готово.",
     )
