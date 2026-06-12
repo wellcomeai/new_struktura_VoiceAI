@@ -988,6 +988,35 @@ async def agent_chat_stream(
     )
 
 
+@router.post("/transcribe")
+async def agent_transcribe(
+    file: UploadFile = File(...),
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Распознавание речи (STT) для веб-чата. Принимает аудио-файл (webm/mp4/ogg/…),
+    возвращает {"text": ...}. Отдельно за STT кредиты не списываются — тарифицируется
+    последующий ответ агента в /chat[/stream].
+    """
+    audio = await file.read()
+    if not audio:
+        raise HTTPException(status_code=400, detail="empty_audio")
+    if len(audio) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="audio_too_large")
+
+    from backend.services.transcription_service import TranscriptionService
+    text = await TranscriptionService.transcribe(
+        audio,
+        filename=file.filename or "audio.webm",
+        content_type=file.content_type or "audio/webm",
+    )
+    if text is None:
+        raise HTTPException(status_code=502, detail="transcription_failed")
+    return {"text": text}
+
+
 @router.post("/chat/clear")
 async def agent_chat_clear(
     agent_id: Optional[str] = Query(None),

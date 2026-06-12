@@ -395,15 +395,32 @@ async def telegram_webhook(
             )
             return {"ok": True}
 
-        # 6. Текст
+        # 6. Текст или голосовое (voice → распознаём в текст через STT)
         text = message.get("text")
         if not text:
-            await AgentTelegramService.send_message(
-                token=agent.telegram_bot_token,
-                chat_id=chat_id,
-                text="Я понимаю только текстовые сообщения.",
-            )
-            return {"ok": True}
+            voice = message.get("voice")
+            if voice:
+                await AgentTelegramService._call(
+                    agent.telegram_bot_token, "sendChatAction",
+                    {"chat_id": chat_id, "action": "typing"},
+                )
+                text = await AgentTelegramService.transcribe_voice(
+                    agent.telegram_bot_token, voice,
+                )
+                if not text:
+                    await AgentTelegramService.send_message(
+                        token=agent.telegram_bot_token,
+                        chat_id=chat_id,
+                        text="Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом.",
+                    )
+                    return {"ok": True}
+            else:
+                await AgentTelegramService.send_message(
+                    token=agent.telegram_bot_token,
+                    chat_id=chat_id,
+                    text="Я понимаю только текстовые и голосовые сообщения.",
+                )
+                return {"ok": True}
 
         # 7. Отправитель
         from_user = message.get("from", {}) or {}

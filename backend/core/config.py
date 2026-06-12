@@ -53,6 +53,12 @@ class Settings(BaseSettings):
 
     # ✅ v3.0: OpenRouter — системный ключ для оркестратора Voicyfy Agent
     OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
+
+    # STT (speech-to-text) — распознавание голосовых в веб-чате и Telegram.
+    # Основной провайдер — OpenAI, fallback — OpenRouter (если задан ключ).
+    STT_OPENAI_MODEL: str = os.getenv("STT_OPENAI_MODEL", "gpt-4o-mini-transcribe")
+    STT_OPENROUTER_MODEL: str = os.getenv("STT_OPENROUTER_MODEL", "openai/gpt-4o-mini-transcribe")
+    STT_LANGUAGE: str = os.getenv("STT_LANGUAGE", "ru")
     REALTIME_WS_URL: str = os.getenv(
         "REALTIME_WS_URL", 
         "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"

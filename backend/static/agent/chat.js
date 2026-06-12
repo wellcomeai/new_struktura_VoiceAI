@@ -390,3 +390,75 @@ function showTyping(){ const msgs=document.getElementById('chat-messages'); cons
 function removeTyping(id){ document.getElementById(id)?.remove(); }
 
 
+// ════════════════ ГОЛОСОВОЙ ВВОД (STT) ════════════════
+// Запись с микрофона через MediaRecorder → POST /api/agent/transcribe →
+// распознанный текст вставляем в поле ввода (пользователь правит и сам отправляет).
+let _mediaRecorder = null, _audioChunks = [], _recording = false, _recStream = null;
+
+async function toggleRecording(){
+  if(_recording){ stopRecording(); return; }
+  const btn = document.getElementById('chat-mic');
+  if(!navigator.mediaDevices || !window.MediaRecorder){
+    showToast('Запись не поддерживается этим браузером'); return;
+  }
+  try{
+    _recStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+  }catch(e){ showToast('Нет доступа к микрофону'); return; }
+
+  _audioChunks = [];
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+             : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+  try{
+    _mediaRecorder = mime ? new MediaRecorder(_recStream, { mimeType:mime }) : new MediaRecorder(_recStream);
+  }catch(e){ _mediaRecorder = new MediaRecorder(_recStream); }
+  _mediaRecorder.ondataavailable = e => { if(e.data && e.data.size>0) _audioChunks.push(e.data); };
+  _mediaRecorder.onstop = onRecordingStop;
+  _mediaRecorder.start();
+  _recording = true;
+  if(btn){ btn.classList.add('recording'); btn.title='Остановить запись'; }
+}
+
+function stopRecording(){
+  if(_mediaRecorder && _recording){ try{ _mediaRecorder.stop(); }catch(e){} }
+  _recording = false;
+  const btn = document.getElementById('chat-mic');
+  if(btn){ btn.classList.remove('recording'); btn.title='Записать голосом'; }
+}
+
+async function onRecordingStop(){
+  if(_recStream){ _recStream.getTracks().forEach(t=>t.stop()); _recStream=null; }
+  const type = (_mediaRecorder && _mediaRecorder.mimeType) || 'audio/webm';
+  const blob = new Blob(_audioChunks, { type });
+  _audioChunks = [];
+  if(!blob.size) return;
+
+  const btn = document.getElementById('chat-mic');
+  const inp = document.getElementById('chat-input');
+  if(btn){ btn.classList.add('loading'); btn.disabled=true; }
+  try{
+    const token = getToken();
+    if(!token){ location.href='/static/login.html'; return; }
+    const ext = type.includes('mp4') ? 'mp4' : 'webm';
+    const fd = new FormData();
+    fd.append('file', blob, 'voice.'+ext);
+    const resp = await fetch(withAgentId(API + '/transcribe'), {
+      method:'POST', headers:{ 'Authorization':'Bearer '+token }, body: fd,
+    });
+    if(resp.status===401){ localStorage.removeItem('auth_token'); location.href='/static/login.html'; return; }
+    if(resp.ok){
+      const d = await resp.json();
+      if(d && d.text){
+        if(inp){
+          inp.value = (inp.value ? inp.value.trim()+' ' : '') + d.text;
+          inp.focus();
+          inp.dispatchEvent(new Event('input'));  // авто-resize textarea
+        }
+      } else { showToast('Речь не распознана'); }
+    } else {
+      showToast('Не удалось распознать запись');
+    }
+  }catch(e){ showToast('Ошибка сети при распознавании'); }
+  finally{ if(btn){ btn.classList.remove('loading'); btn.disabled=false; } }
+}
+
+

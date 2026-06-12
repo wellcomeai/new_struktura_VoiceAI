@@ -478,6 +478,41 @@ class AgentTelegramService:
         return await AgentTelegramService.send_message(token, chat_id, html, parse_mode="HTML")
 
     @staticmethod
+    async def transcribe_voice(token: str, voice: dict) -> Optional[str]:
+        """
+        Голосовое сообщение Telegram (message.voice) → текст.
+        getFile → скачиваем OGG/Opus с file-сервера Telegram → STT.
+        Возвращает распознанный текст или None.
+        """
+        if not token or not isinstance(voice, dict):
+            return None
+        file_id = voice.get("file_id")
+        if not file_id:
+            return None
+
+        info = await AgentTelegramService._call(token, "getFile", {"file_id": file_id})
+        file_path = (info or {}).get("file_path")
+        if not file_path:
+            return None
+
+        url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+        try:
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    logger.error(f"[AGENT-TG] voice download failed: {resp.status_code}")
+                    return None
+                audio = resp.content
+        except Exception as e:
+            logger.error(f"[AGENT-TG] voice download error: {e}")
+            return None
+
+        from backend.services.transcription_service import TranscriptionService
+        return await TranscriptionService.transcribe(
+            audio, filename="voice.ogg", content_type="audio/ogg",
+        )
+
+    @staticmethod
     async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
         """
         Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно.
