@@ -19,6 +19,7 @@ import gc
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -122,6 +123,32 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# ----------------------------------------------------------------------------
+# PERFORMANCE: gzip compression + static cache headers (v1 optimization)
+# ----------------------------------------------------------------------------
+# Сжимаем все текстовые ответы (HTML/CSS/JS/JSON). Страницы кабинета весят
+# ~100 КБ из-за inline CSS/JS — gzip уменьшает передачу примерно в 4-5 раз.
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
+
+# Добавляем Cache-Control для статики. StaticFiles уже отдаёт ETag/Last-Modified,
+# но без Cache-Control браузер не кэширует ответы и перекачивает их каждый раз.
+@app.middleware("http")
+async def add_static_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static") or path.startswith("/js"):
+        if "/landing/assets/" in path:
+            # Vite-сборка с хешем в имени файла — можно кэшировать "навсегда"
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.endswith(".html") or path == "/static" or path.endswith("/"):
+            # HTML-страницы могут меняться — кэшируем, но всегда ревалидируем
+            # (быстрый 304 по ETag вместо повторной полной загрузки)
+            response.headers["Cache-Control"] = "no-cache"
+        else:
+            # CSS/JS/шрифты/картинки без хеша — кэш на сутки с ревалидацией
+            response.headers["Cache-Control"] = "public, max-age=86400, must-revalidate"
+    return response
 
 # Resource monitoring middleware (optional, requires psutil)
 if PSUTIL_AVAILABLE:
