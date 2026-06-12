@@ -1580,6 +1580,20 @@ async def get_agent_contact_details(
     contact_data = contact.to_dict()
     contact_data["calls"] = [c.to_dict() for c in calls]
     contact_data["tasks"] = [_agent_task_dict(t) for t in tasks]
+
+    # SMS-переписка с контактом (входящие + исходящие), резолв по номеру.
+    sms = []
+    try:
+        from backend.models.voximplant_child import VoximplantChildAccount
+        from backend.services.sms_history import get_sms_thread, sms_thread_to_dicts
+        child = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == current_user.id
+        ).first()
+        if child:
+            sms = sms_thread_to_dicts(get_sms_thread(db, child.id, contact.phone, limit=20))
+    except Exception as e:
+        logger.warning(f"[AGENT] failed to load sms thread for contact {contact_id}: {e}")
+    contact_data["sms"] = sms
     return contact_data
 
 

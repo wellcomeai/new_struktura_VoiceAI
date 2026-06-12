@@ -1140,6 +1140,10 @@ async def fn_send_sms(args: dict, user_id: str, agent_config: AgentConfig, db: S
     if isinstance(data, dict) and data.get("result") == 1:
         tx = data.get("transaction_id")
         logger.info(f'[AGENT-TOOLS] SMS {from_clean} → {to_clean}: "{text[:50]}" (tx: {tx})')
+        # Сохраняем исходящее SMS в общий тред (sms_messages), чтобы переписка
+        # была полной для контекста агента и карточки контакта.
+        from backend.services.sms_history import store_outbound_sms
+        store_outbound_sms(db, child.id, child.vox_account_id, from_clean, to_clean, text)
         return {"ok": True, "transaction_id": tx, "to": to_clean}
 
     error_msg = data.get("error", {}).get("msg", str(data)) if isinstance(data, dict) else str(data)

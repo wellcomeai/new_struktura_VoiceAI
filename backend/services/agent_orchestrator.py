@@ -28,6 +28,8 @@ from backend.models.agent_call import AgentCall
 from backend.models.task import Task, TaskStatus
 from backend.models.conversation import Conversation
 from backend.models.user import User
+from backend.models.voximplant_child import VoximplantChildAccount
+from backend.services.sms_history import build_sms_thread_text
 from backend.services.agent_tools import (
     AGENT_CHAT_TOOLS,
     AGENT_POSTCALL_TOOLS,
@@ -45,6 +47,31 @@ from backend.services.credit_service import (
 )
 
 logger = get_logger(__name__)
+
+
+def _sms_context_block(db, agent_contact) -> str:
+    """
+    Блок «SMS-переписка» для промпта оркестратора (PreCall/PostCall).
+
+    Тред резолвится по номеру контакта (последние 10 цифр) в пределах
+    Voximplant-аккаунта пользователя. Пустая строка, если переписки нет или
+    телефония не подключена — best-effort, не роняет сборку промпта.
+    """
+    try:
+        if not agent_contact or not agent_contact.user_id:
+            return ""
+        child = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.user_id == agent_contact.user_id
+        ).first()
+        if not child:
+            return ""
+        thread = build_sms_thread_text(db, child.id, agent_contact.phone, limit=20)
+        if not thread:
+            return ""
+        return f"\n\nSMS-ПЕРЕПИСКА С КОНТАКТОМ (последние 20, время МСК):\n{thread}"
+    except Exception as e:
+        logger.warning(f"[AGENT] _sms_context_block failed: {e}")
+        return ""
 
 
 def _extract_usage(response: dict) -> tuple:
@@ -200,7 +227,7 @@ class PreCallOrchestrator:
 ПОПЫТКА: {agent_contact.attempts_count + 1}
 
 ПРЕДЫДУЩИЕ ЗВОНКИ:
-{calls_context or 'Нет предыдущих звонков'}"""
+{calls_context or 'Нет предыдущих звонков'}""" + _sms_context_block(db, agent_contact)
 
     async def _run_v3_openrouter(
         self,
@@ -341,7 +368,7 @@ class PreCallOrchestrator:
 ПОПЫТКА: {agent_contact.attempts_count + 1}
 
 ПРЕДЫДУЩИЕ ЗВОНКИ:
-{calls_context or 'Нет предыдущих звонков'}
+{calls_context or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}
 
 Подготовь звонок. Верни JSON:
 {{
@@ -771,7 +798,7 @@ class PostCallOrchestrator:
 ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}
 
 ПРЕДЫДУЩИЕ ЗВОНКИ (до 5 последних диалогов):
-{prev_calls_text or 'Нет предыдущих звонков'}
+{prev_calls_text or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}
 
 ТЕКУЩИЙ ТРАНСКРИПТ ЗВОНКА:
 {transcript}

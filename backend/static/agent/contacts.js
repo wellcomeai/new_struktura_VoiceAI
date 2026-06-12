@@ -165,9 +165,27 @@ function renderContactDetails(c){
     ${c.calls.map((call, i) => renderCallExpanded(call, 'cc-' + i)).join('')}
   ` : '<div class="empty">Звонков пока не было</div>';
 
+  const smsBlock = (c.sms && c.sms.length) ? `
+    <div style="font-size:13px;font-weight:600;margin:16px 0 8px"><i class="fas fa-comment-sms"></i> SMS-переписка (${c.sms.length})</div>
+    <div class="cd-sms-thread">${c.sms.map(_cdSmsBubble).join('')}</div>
+  ` : '';
+
   _cdTasks = (c.tasks || []).slice().sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
-  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock;
+  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock + smsBlock;
   renderContactTasksSection();
+}
+
+// ── SMS-переписка в карточке контакта ──
+// outbound = от агента (вправо), inbound = от клиента (влево). Тред резолвится
+// сервером по номеру (см. /api/agent/contacts/{id} → поле sms).
+function _cdSmsBubble(m){
+  const out = (m.direction === 'outbound');
+  const who = out ? 'Агент' : 'Клиент';
+  const tm = m.ts ? fmtDate(m.ts) : '';
+  return `<div class="cd-sms ${out ? 'cd-sms-out' : 'cd-sms-in'}">
+    <div class="cd-sms-meta">${who}${tm ? ' · ' + tm : ''}</div>
+    <div class="cd-sms-body">${esc(m.body || '')}</div>
+  </div>`;
 }
 
 // ── Задачи в карточке контакта ──

@@ -181,6 +181,10 @@ class SendSmsFunction(FunctionBase):
             if data.get("result") == 1:
                 transaction_id = data.get("transaction_id")
                 logger.info(f'[SMS] ✅ {from_number} → {to_number}: "{text[:50]}" (tx: {transaction_id})')
+                # Сохраняем исходящее SMS в общий тред (sms_messages) — единый
+                # механизм с агентом: полная переписка для контекста и карточки.
+                from backend.services.sms_history import store_outbound_sms
+                store_outbound_sms(db, child_account.id, child_account.vox_account_id, from_number, to_number, text)
                 return {
                     "success": True,
                     "message": "SMS успешно отправлено",
