@@ -189,10 +189,10 @@
       </div>
     </div>
 
-    <!-- 3. Инструкции агента -->
+    <!-- 3. Настройки агента -->
     <div class="card">
       <div class="card-head">
-        <div class="card-head-title"><i class="fas fa-sliders"></i> Инструкции агента</div>
+        <div class="card-head-title"><i class="fas fa-sliders"></i> Настройки агента</div>
         <span class="card-link" onclick="openInstructionsModal()">Изменить</span>
       </div>
       <div class="agent-card-body">
@@ -292,11 +292,11 @@
   </div>
 </div>
 
-<!-- MODAL: Инструкции агента -->
+<!-- MODAL: Настройки агента -->
 <div class="modal-overlay hidden" id="instructions-modal-overlay">
   <div class="modal">
     <div class="modal-header">
-      <div class="modal-title">Инструкции агента</div>
+      <div class="modal-title">Настройки агента</div>
       <button class="modal-close" onclick="closeInstructionsModal()"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body">
@@ -323,6 +323,12 @@
         <textarea class="form-textarea" id="i-additional_instructions" rows="5"
                   placeholder="Например: «перед обзвоном новых контактов всегда проверяй дубли», «не планируй звонки в выходные»."></textarea>
         <div class="form-hint">Правила планирования и работы с контактами, которые не вписываются в документы компании.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL вебхука</label>
+        <input type="url" class="form-input" id="i-webhook_url"
+               placeholder="https://n8n.example.com/webhook/abc123">
+        <div class="form-hint">Оркестратор сможет отправлять события (заявки, лиды, результаты звонков) в n8n / Make / Zapier или любой HTTP endpoint через функцию send_webhook. Оставьте пустым, чтобы отключить.</div>
       </div>
 
       <!-- ─── СЕКЦИЯ 2: ГОЛОСОВОЙ АГЕНТ (живой звонок) ─── -->

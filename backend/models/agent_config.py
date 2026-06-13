@@ -104,6 +104,12 @@ class AgentConfig(Base):
     public_api_key = Column(String(64), nullable=True, unique=True, index=True)
     public_enabled = Column(Boolean, default=False, nullable=False)
 
+    # ── Вебхук оркестратора (отправка событий во внешнюю систему) ──
+    # URL, на который оркестратор (чат / PostCall) шлёт событие через tool
+    # send_webhook. Пустой URL = вебхук не настроен (tool вернёт ошибку, блок
+    # промпта не показывается). Резолвится сервером — модель URL не передаёт.
+    webhook_url = Column(String(500), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -155,3 +161,8 @@ class AgentConfig(Base):
     def has_public_access(self) -> bool:
         """True, если публичный канал включён и ключ сгенерирован."""
         return bool(self.public_enabled and self.public_api_key)
+
+    # ── Вебхук оркестратора ──
+    def has_webhook(self) -> bool:
+        """True, если у агента задан URL вебхука."""
+        return bool(self.webhook_url)

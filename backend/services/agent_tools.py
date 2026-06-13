@@ -127,6 +127,37 @@ SEND_SMS_TOOL = {
 }
 
 
+# Отправка события на внешний вебхук (n8n/Make/Zapier/любой HTTP endpoint).
+# Доступна и в чате, и в post-call. URL берётся сервером из AgentConfig.webhook_url —
+# модель его НЕ передаёт (нельзя отправить на произвольный адрес).
+SEND_WEBHOOK_TOOL = {
+    "type": "function",
+    "name": "send_webhook",
+    "description": (
+        "Отправить событие на внешний вебхук владельца (n8n, Make.com, Zapier "
+        "или любой HTTP endpoint). URL настроен в конфигурации агента и "
+        "подставляется автоматически — передавать его не нужно. Используй, когда "
+        "по итогу разговора/сообщения нужно передать данные во внешнюю систему: "
+        "оформить заявку, бронирование, лид, зафиксировать событие или результат "
+        "звонка. Если вебхук не настроен — инструмент вернёт ошибку."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "event": {
+                "type": "string",
+                "description": "Код события: 'booking', 'request', 'lead', 'notification' и т.п.",
+            },
+            "payload": {
+                "type": "object",
+                "description": "Произвольные данные для отправки (имя, телефон, детали заявки и т.д.)",
+            },
+        },
+        "required": ["event"],
+    },
+}
+
+
 # ============================================================================
 # HELPERS
 # ============================================================================
@@ -546,6 +577,7 @@ AGENT_CHAT_TOOLS = [
     MOVE_CONTACT_STAGE_TOOL,
     SEARCH_KNOWLEDGE_BASE_TOOL,
     SEND_SMS_TOOL,
+    SEND_WEBHOOK_TOOL,
 ]
 
 
@@ -601,6 +633,7 @@ AGENT_POSTCALL_TOOLS = [
     MOVE_CONTACT_STAGE_TOOL,
     SEARCH_KNOWLEDGE_BASE_TOOL,
     SEND_SMS_TOOL,
+    SEND_WEBHOOK_TOOL,
 ]
 
 
@@ -1815,6 +1848,53 @@ async def fn_search_knowledge_base(args: dict, agent_config, db: Session) -> dic
     return {"ok": True, "query": query, "total": len(results), "results": results}
 
 
+async def fn_send_webhook(args: dict, agent_config, db: Session) -> dict:
+    """
+    Отправить событие на внешний вебхук агента (n8n/Make/Zapier/любой HTTP endpoint).
+
+    URL берётся ТОЛЬКО из agent_config.webhook_url — модель его не передаёт.
+    Тело запроса: {event, data, agent_id, agent_name}. Best-effort: ошибки сети
+    не роняют оркестратор, а возвращаются как {"ok": false, ...}.
+    """
+    import asyncio
+    import aiohttp
+
+    url = (getattr(agent_config, "webhook_url", None) or "").strip() if agent_config else ""
+    if not url:
+        return {"ok": False, "error": "webhook_url_not_configured"}
+
+    event = (args.get("event") or "").strip() or "default_event"
+    payload = args.get("payload")
+    if not isinstance(payload, dict):
+        payload = {} if payload is None else {"value": payload}
+
+    data = {
+        "event": event,
+        "data": payload,
+        "agent_id": str(agent_config.id),
+        "agent_name": agent_config.name,
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(url, json=data) as response:
+                response_text = await response.text()
+                logger.info(f"[AGENT-TOOLS] Webhook sent: event={event} status={response.status} (agent {agent_config.id})")
+                return {
+                    "ok": 200 <= response.status < 300,
+                    "status": response.status,
+                    "event": event,
+                    "response": response_text[:200],
+                }
+    except asyncio.TimeoutError:
+        logger.error(f"[AGENT-TOOLS] Webhook timeout: {url}")
+        return {"ok": False, "error": "webhook_timeout"}
+    except Exception as e:
+        logger.error(f"[AGENT-TOOLS] send_webhook error: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
 # ============================================================================
 # DISPATCHER
 # ============================================================================
@@ -1833,6 +1913,7 @@ _TOOL_MAP = {
     "get_agent_stats": "fn_get_agent_stats",
     "send_telegram_notification": "fn_send_telegram_notification",
     "send_sms": "fn_send_sms",
+    "send_webhook": "fn_send_webhook",
     "search_contacts": "fn_search_contacts",
     "get_contact_details": "fn_get_contact_details",
     "get_contacts_by_stage": "fn_get_contacts_by_stage",
@@ -1922,6 +2003,11 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             if agent_config is None and agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_search_knowledge_base(tool_args, agent_config, db)
+        elif tool_name == "send_webhook":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_send_webhook(tool_args, agent_config, db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 

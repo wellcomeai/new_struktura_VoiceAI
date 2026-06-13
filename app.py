@@ -1032,6 +1032,40 @@ def ensure_agent_public_access_columns():
         logger.error(f"❌ ensure_agent_public_access_columns error: {e}")
 
 
+def ensure_agent_webhook_columns():
+    """
+    Идемпотентно добавляет колонку вебхука оркестратора в agent_configs.
+
+    webhook_url — URL, на который оркестратор (чат / PostCall) шлёт событие
+    через tool send_webhook. Миграции не используем — добавляем при старте.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        if 'webhook_url' in existing:
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_configs "
+                    "ADD COLUMN IF NOT EXISTS webhook_url VARCHAR(500)"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_configs.webhook_url")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add webhook_url column: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_webhook_columns error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1095,6 +1129,9 @@ async def startup_event():
 
                 # 🆕 Шаг 15: Колонки публичного HTTP-канала в agent_configs
                 ensure_agent_public_access_columns()
+
+                # 🆕 Шаг 16: Колонка вебхука оркестратора в agent_configs
+                ensure_agent_webhook_columns()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

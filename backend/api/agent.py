@@ -161,6 +161,7 @@ class AgentUpdateRequest(BaseModel):
     working_hours_end: Optional[int] = Field(None, ge=0, le=23)
     is_active: Optional[bool] = None
     default_caller_id: Optional[str] = Field(None, max_length=50)
+    webhook_url: Optional[str] = Field(None, max_length=500)
     orchestrator_model: Optional[str] = None
     assistant_type: Optional[str] = None
     # Голос (gemini/openai). Для cartesia — cartesia_voice_id + voice_speed.
@@ -392,6 +393,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "working_hours_start": agent.working_hours_start,
         "working_hours_end": agent.working_hours_end,
         "default_caller_id": agent.default_caller_id,
+        "webhook_url": agent.webhook_url,
         "has_knowledge_base": agent.has_knowledge_base(),
         "kb_char_count": agent.kb_char_count or 0,
         "kb_name": agent.kb_name,
@@ -603,7 +605,8 @@ async def update_agent(
             docs_changed = True
 
     for field in ['name', 'additional_instructions', 'voice_additional_instructions',
-                  'working_hours_start', 'working_hours_end', 'is_active', 'default_caller_id']:
+                  'working_hours_start', 'working_hours_end', 'is_active', 'default_caller_id',
+                  'webhook_url']:
         if field in update_data:
             setattr(agent, field, update_data[field])
 

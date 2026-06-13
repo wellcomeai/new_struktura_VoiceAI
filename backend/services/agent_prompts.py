@@ -194,6 +194,26 @@ def build_knowledge_base_block(agent_config) -> str:
 этом прямо."""
 
 
+def build_webhook_block(agent_config) -> str:
+    """
+    Блок про вебхук. Добавляется только если у агента задан webhook_url.
+    Показывает URL и подсказывает оркестратору вызывать send_webhook, когда нужно
+    передать данные/событие во внешнюю систему.
+    """
+    url = (getattr(agent_config, "webhook_url", None) or "").strip()
+    if not url:
+        return ""
+    return f"""
+
+# ВЕБХУК (отправка событий во внешнюю систему)
+У владельца настроен вебхук: {url}
+Когда по итогу разговора или сообщения нужно передать данные во внешнюю систему
+(заявка, бронирование, лид, важное событие или результат звонка) — вызывай
+инструмент send_webhook. URL подставляется автоматически, передавать его не нужно:
+укажи только event (код события) и payload (данные). Не вызывай вебхук без причины
+и не дублируй одно и то же событие."""
+
+
 def build_orchestrator_prompt(agent_config) -> str:
     """
     Собирает финальный промпт оркестратора из шаблона + данных агента.
@@ -208,7 +228,12 @@ def build_orchestrator_prompt(agent_config) -> str:
         doc_rules_and_goals=agent_config.doc_rules_and_goals or "(не указано)",
         additional_instructions=agent_config.additional_instructions or "(нет дополнительных инструкций)"
     )
-    return base + build_knowledge_base_block(agent_config) + build_time_block()
+    return (
+        base
+        + build_knowledge_base_block(agent_config)
+        + build_webhook_block(agent_config)
+        + build_time_block()
+    )
 
 
 def get_voice_agent_prompt() -> str:

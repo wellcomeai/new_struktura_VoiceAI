@@ -181,6 +181,7 @@ const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-s
 function openInstructionsModal(){
   document.getElementById('i-name').value = agentData.name || '';
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
+  document.getElementById('i-webhook_url').value = agentData.webhook_url || '';
   document.getElementById('i-voice_additional_instructions').value = agentData.voice_additional_instructions || '';
   document.getElementById('i-voice-group').innerHTML = voiceControlHtml(
     agentData.assistant_type || 'gemini',
@@ -219,6 +220,7 @@ async function saveInstructions(){
   const body = {
     name: document.getElementById('i-name').value || agentData.name,
     additional_instructions: document.getElementById('i-additional_instructions').value,
+    webhook_url: document.getElementById('i-webhook_url').value.trim() || null,
     voice_additional_instructions: document.getElementById('i-voice_additional_instructions').value,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
