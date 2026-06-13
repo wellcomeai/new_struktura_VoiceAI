@@ -67,6 +67,7 @@ function showDashboard(){
   loadModels();
   loadStats();
   loadRecentCalls();
+  loadAgentHistory();
   loadTasks();
   loadPhoneNumbers();
   loadTelegramStatus();

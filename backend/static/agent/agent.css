@@ -132,6 +132,14 @@ body::before {
 .call-phone-ic { width:30px; height:30px; border-radius:8px; background:var(--green-light); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
 .empty { font-size:12px; color:var(--hint); padding:10px 0; text-align:center; }
 
+/* agent work history (right column feed: calls + sms) */
+.agent-history-list { max-height:520px; overflow-y:auto; margin:-2px -4px 0; padding:0 4px; }
+.hist-item { margin-bottom:12px; }
+.hist-item:last-child { margin-bottom:2px; }
+.hist-item-head { display:flex; align-items:center; gap:9px; margin-bottom:6px; }
+.hist-item-name { font-size:13px; font-weight:600; line-height:1.2; }
+.hist-item-phone { font-size:11px; color:var(--hint); margin-top:1px; }
+
 /* expenses */
 .exp-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; font-size:12.5px; }
 .exp-row .lbl { color:var(--muted); }

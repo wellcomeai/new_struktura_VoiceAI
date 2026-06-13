@@ -1038,6 +1038,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "response_id": None,
                 "model": agent_config.orchestrator_model,
                 "call_status": call_status,
+                "call_direction": call_direction,
                 "duration_seconds": duration_seconds,
                 "tool_calls": tool_calls_log,
                 "final_decision": post_call_decision,
@@ -1069,6 +1070,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "error": str(e),
                 "model": agent_config.orchestrator_model,
                 "call_status": call_status,
+                "call_direction": call_direction,
                 "tool_calls": tool_calls_log,
                 "analyzed_at": datetime.utcnow().isoformat(),
             }
@@ -1248,6 +1250,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "response_id": postcall_response_id,
                 "model": "gpt-5-2025-08-07",
                 "call_status": call_status,
+                "call_direction": call_direction,
                 "duration_seconds": duration_seconds,
                 "tool_calls": tool_calls_log,
                 "final_decision": post_call_decision,
@@ -1281,6 +1284,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.postcall_log = {
                 "error": str(e),
                 "call_status": call_status,
+                "call_direction": call_direction,
                 "tool_calls": tool_calls_log,
                 "analyzed_at": datetime.utcnow().isoformat(),
             }

@@ -42,14 +42,28 @@ const POSTCALL_TOOL_LABELS = {
   update_contact_memory: { label: 'Обновил память о контакте', icon: 'fa-brain', color: '#7C3AED' },
   create_agent_task: { label: 'Запланировал перезвон', icon: 'fa-calendar-plus', color: '#2563EB' },
   send_telegram_notification: { label: 'Отправил уведомление в Telegram', icon: 'fa-paper-plane', color: '#0891B2' },
+  send_sms: { label: 'Отправил SMS клиенту', icon: 'fa-comment-sms', color: '#16A34A' },
+  move_contact_stage: { label: 'Сменил стадию воронки', icon: 'fa-arrows-turn-right', color: '#D97706' },
+  update_contact_info: { label: 'Обновил данные контакта', icon: 'fa-user-pen', color: '#0EA5E9' },
+  search_knowledge_base: { label: 'Искал в базе знаний', icon: 'fa-magnifying-glass', color: '#6366F1' },
 };
 
 function renderCallExpanded(call, uid){
-  const dur = call.duration_seconds ? Math.floor(call.duration_seconds)+'с' : '—';
+  const isSms = call.channel === 'sms';
+  const dur = (!isSms && call.duration_seconds) ? Math.floor(call.duration_seconds)+'с' : '—';
   const decisionBadgeHtml = decisionBadge(call.post_call_decision);
-  const statusHtml = call.status==='answered'
-    ? '<span class="status-badge badge-answered">Ответил</span>'
-    : '<span class="status-badge badge-no-answer">Не ответил</span>';
+  let statusHtml;
+  if(isSms){
+    statusHtml = '<span class="status-badge badge-answered">Обработано</span>';
+  } else {
+    statusHtml = call.status==='answered'
+      ? '<span class="status-badge badge-answered">Ответил</span>'
+      : '<span class="status-badge badge-no-answer">Не ответил</span>';
+  }
+  // Бейдж канала: SMS-обработка vs обычный звонок (входящий/исходящий).
+  const channelBadge = isSms
+    ? '<span class="status-badge" style="background:#DCFCE7;color:#15803D"><i class="fas fa-comment-sms"></i> SMS</span>'
+    : directionBadge(call.direction);
 
   const pre = call.precall_log || {};
   const post = call.postcall_log || {};
@@ -78,6 +92,17 @@ function renderCallExpanded(call, uid){
       detail = `${a.title || ''} на ${a.scheduled_at ? fmtDate(a.scheduled_at) : '?'}`;
     } else if(tc.tool === 'send_telegram_notification'){
       detail = (tc.args || {}).message || '';
+    } else if(tc.tool === 'send_sms'){
+      detail = (tc.args || {}).text || (tc.args || {}).message || '';
+    } else if(tc.tool === 'move_contact_stage'){
+      const a = tc.args || {};
+      detail = STAGE_META[a.stage] ? STAGE_META[a.stage].label : (a.stage || '');
+    } else if(tc.tool === 'update_contact_info'){
+      const a = tc.args || {};
+      detail = ['name','company','position','notes']
+        .filter(k => a[k]).map(k => a[k]).join(' · ');
+    } else if(tc.tool === 'search_knowledge_base'){
+      detail = (tc.args || {}).query || '';
     }
     return `
       <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft)">
@@ -102,7 +127,10 @@ function renderCallExpanded(call, uid){
   ` : '';
 
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
-    <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:10px 0;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
+    <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
+      <i class="fas ${isSms ? 'fa-comment-sms' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : 'Транскрипт звонка'}
+    </div>
+    <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:0 0 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
       ${esc(call.transcript)}
     </div>
   ` : '';
@@ -115,7 +143,7 @@ function renderCallExpanded(call, uid){
       <div onclick="${hasDetails ? `toggleCallCard('${uid}')` : ''}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;${hasDetails ? 'cursor:pointer' : ''}">
         <span style="font-weight:600;font-size:12.5px">${fmtDate(call.started_at || call.created_at)}</span>
         <span style="color:var(--muted);font-size:12px">${dur}</span>
-        ${directionBadge(call.direction)}
+        ${channelBadge}
         ${statusHtml}
         ${decisionBadgeHtml}
         ${hasDetails ? `<span style="margin-left:auto;font-size:11px;color:var(--blue);font-weight:600"><i class="fas fa-chevron-down" id="${uid}-chevron" style="transition:transform .2s"></i> Размышления</span>` : ''}

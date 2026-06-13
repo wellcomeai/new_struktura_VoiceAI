@@ -217,6 +217,17 @@
       </div>
     </div>
 
+    <!-- 5. История работы агента (последние 100 фоновых задач: звонки + SMS) -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title"><i class="fas fa-list-check"></i> История работы агента</div>
+        <span class="card-link" onclick="loadAgentHistory()" title="Обновить"><i class="fas fa-rotate"></i></span>
+      </div>
+      <div id="agent-history-list" class="agent-history-list">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -622,6 +633,7 @@
 <script src="/static/agent/telegram.js"></script>
 <script src="/static/agent/contacts.js"></script>
 <script src="/static/agent/calls.js"></script>
+<script src="/static/agent/history.js"></script>
 <script src="/static/agent/import.js"></script>
 <script src="/static/agent/pipeline.js"></script>
 <script src="/static/agent/knowledge-base.js"></script>
