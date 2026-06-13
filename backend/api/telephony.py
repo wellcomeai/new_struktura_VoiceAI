@@ -5330,6 +5330,16 @@ async def webhook_sms(request: Request, db: Session = Depends(get_db)):
                     f"child_account={child_account.id}"
                 )
 
+                # ✅ Event-driven: запускаем оркестратор агента на анализ входящего
+                # SMS (перезвонить / ответить / завести контакт / сменить стадию).
+                # handler открывает собственную сессию БД — безопасно для create_task.
+                try:
+                    import asyncio
+                    from backend.services.agent_orchestrator import handle_inbound_sms
+                    asyncio.create_task(handle_inbound_sms(str(sms_message.id)))
+                except Exception as trigger_err:
+                    logger.error(f"[TELEPHONY-SMS] failed to schedule agent handler: {trigger_err}")
+
             except Exception as e:
                 logger.error(f"[TELEPHONY-SMS] Error processing callback: {e}", exc_info=True)
                 db.rollback()

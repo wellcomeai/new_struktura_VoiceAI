@@ -174,6 +174,18 @@ TELEGRAM_RICH_FORMAT_HINT = """
 - Самое важное помещай в начало ответа."""
 
 
+# ✅ SMS-INBOUND: режим автономной обработки входящего SMS оркестратором.
+# Человека в чате нет, поэтому любое решение должно быть реализовано ДЕЙСТВИЕМ
+# через tools (ответ клиенту — только через send_sms).
+SMS_INBOUND_SYSTEM_HINT = """
+
+# РЕЖИМ: ОБРАБОТКА ВХОДЯЩЕГО SMS
+Ты обрабатываешь входящее SMS от клиента в автономном режиме (без человека в чате).
+Реши, что делать, и реализуй это ДЕЙСТВИЯМИ через tools — твой текстовый ответ
+клиенту НЕ доходит. Чтобы ответить клиенту текстом — используй send_sms.
+Если по сути сообщения делать ничего не нужно — просто заверши без вызова tools."""
+
+
 # ============================================================================
 # PRE-CALL ORCHESTRATOR
 # ============================================================================
@@ -1670,6 +1682,212 @@ class ChatOrchestrator:
         self._persist_telegram_history(telegram_history_row, message, final_text, db)
         return {"reply": final_text}
 
+    # ========================================================================
+    # ✅ SMS-INBOUND MODE
+    # Запускается событийно при входящем SMS (webhook /api/telephony/webhook/sms).
+    # Не пишет ни chat_history владельца, ни telegram-историю — это автономная
+    # реакция агента: он сам решает (перезвонить/ответить SMS/обновить контакт)
+    # и реализует решение через AGENT_CHAT_TOOLS.
+    # ========================================================================
+
+    async def run_sms_inbound(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
+        """Обработать входящее SMS. Развилка по uses_hardcoded_prompt (v3/v2)."""
+        if getattr(agent_config, "uses_hardcoded_prompt", False):
+            return await self._run_sms_inbound_v3(agent_config, user, db, sms, contact)
+        return await self._run_sms_inbound_v2(agent_config, user, db, sms, contact)
+
+    def _build_sms_inbound_input(self, sms, contact, db) -> str:
+        """Текст события для оркестратора: входящее SMS + карточка контакта + тред."""
+        thread = build_sms_thread_text(db, sms.child_account_id, sms.from_number, limit=20)
+        if contact:
+            mem = json.dumps(contact.memory or {}, ensure_ascii=False)
+            contact_block = (
+                "КОНТАКТ НАЙДЕН В БАЗЕ:\n"
+                f"agent_contact_id: {contact.id}\n"
+                f"Имя: {contact.name or '—'} | Компания: {contact.company or '—'} | Стадия: {contact.status}\n"
+                f"Память: {mem}"
+            )
+        else:
+            contact_block = (
+                "КОНТАКТ С ЭТИМ НОМЕРОМ НЕ НАЙДЕН в базе агента. Если по сути сообщения "
+                "нужно работать с клиентом — заведи контакт через create_agent_contact "
+                "(phone = номер клиента)."
+            )
+        body = (sms.body or "").strip()
+        return f"""СОБЫТИЕ: входящее SMS от клиента (на него нужно среагировать).
+ОТ (клиент): {sms.from_number}
+НА (номер агента): {sms.to_number}
+ТЕКСТ SMS: "{body}"
+
+{contact_block}
+
+SMS-ПЕРЕПИСКА С ЭТИМ НОМЕРОМ (последние 20, время МСК):
+{thread or '(только это сообщение)'}
+
+Проанализируй сообщение и выполни нужные действия через tools:
+- Нет контакта в базе → create_agent_contact по номеру клиента.
+- Клиент просит перезвонить / проявил интерес → поставь звонок:
+  trigger_immediate_call (если просит «сейчас») или create_agent_task (на подходящее
+  время — учтутся рабочие часы агента).
+- Уместен текстовый ответ клиенту → send_sms.
+- Новые факты/договорённости → append_contact_note / update_contact_info.
+- Сменилась стадия (согласие/отказ/«не звоните») → move_contact_stage.
+Действуй строго по смыслу сообщения и истории переписки, не выдумывай."""
+
+    async def _run_sms_inbound_v3(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
+        """SMS-inbound v3 — OpenRouter Chat Completions с AGENT_CHAT_TOOLS."""
+        CreditService.precheck(db, user)
+        total_prompt = 0
+        total_completion = 0
+
+        system_prompt = build_orchestrator_prompt(agent_config) + SMS_INBOUND_SYSTEM_HINT
+        user_input = self._build_sms_inbound_input(sms, contact, db)
+
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_input},
+        ]
+        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        client = get_openrouter_client()
+        final_text = ""
+        max_iterations = 10
+        iteration = 0
+
+        try:
+            while iteration < max_iterations:
+                iteration += 1
+                response = await client.chat_completion(
+                    model=agent_config.orchestrator_model,
+                    messages=messages,
+                    tools=tools,
+                    temperature=0.5,
+                )
+                p_tok, c_tok = _extract_usage(response)
+                total_prompt += p_tok
+                total_completion += c_tok
+                msg = response["choices"][0]["message"]
+                tool_calls = msg.get("tool_calls") or []
+
+                if not tool_calls:
+                    final_text = msg.get("content") or ""
+                    break
+
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": tool_calls,
+                })
+
+                for tc in tool_calls:
+                    fn = tc.get("function", {})
+                    tool_name = fn.get("name", "")
+                    try:
+                        tool_args = json.loads(fn.get("arguments") or "{}")
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"[AGENT-SMS] (v3) Executing tool: {tool_name}")
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "content": result_str,
+                    })
+        finally:
+            if total_prompt or total_completion:
+                try:
+                    CreditService.charge(
+                        db=db, user_id=user.id,
+                        model_slug=agent_config.orchestrator_model,
+                        prompt_tokens=total_prompt, completion_tokens=total_completion,
+                        ref_type="sms_inbound", ref_id=agent_config.id,
+                        notes=f"sms_inbound iterations: {iteration}",
+                    )
+                except Exception as ce:
+                    logger.error(f"[AGENT-SMS] (v3) Charge failed: {ce}", exc_info=True)
+
+        logger.info(f"[AGENT-SMS] (v3) ✅ Inbound SMS handled for agent {agent_config.id} ({iteration} iterations)")
+        return {"reply": final_text}
+
+    async def _run_sms_inbound_v2(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
+        """SMS-inbound v2 (legacy) — OpenAI Responses API с AGENT_CHAT_TOOLS."""
+        if not user or not user.openai_api_key:
+            logger.info(f"[AGENT-SMS] (v2) agent {agent_config.id} without OpenAI key, skip")
+            return {"reply": ""}
+
+        client = AsyncOpenAI(api_key=user.openai_api_key)
+        instructions = (
+            CHAT_META_PROMPT + (agent_config.orchestrator_prompt or "") + CHAT_SUFFIX + SMS_INBOUND_SYSTEM_HINT
+        )
+        user_input = self._build_sms_inbound_input(sms, contact, db)
+        context = {
+            "agent_config_id": str(agent_config.id),
+            "user_id": str(user.id),
+            "user": user,
+            "agent_config": agent_config,
+        }
+
+        response = await client.responses.create(
+            model="gpt-5-2025-08-07",
+            instructions=instructions,
+            input=[{"role": "user", "content": user_input}],
+            tools=AGENT_CHAT_TOOLS,
+            store=True,
+        )
+
+        max_iterations = 10
+        iteration = 0
+        while iteration < max_iterations:
+            iteration += 1
+            has_tool_calls = False
+            tool_results = []
+
+            for item in response.output:
+                if item.type == "function_call":
+                    has_tool_calls = True
+                    tool_name = item.name
+                    try:
+                        tool_args = json.loads(item.arguments)
+                    except json.JSONDecodeError:
+                        tool_args = {}
+
+                    logger.info(f"[AGENT-SMS] (v2) Executing tool: {tool_name}")
+                    try:
+                        result_str = await execute_tool(tool_name, tool_args, context, db)
+                    except Exception as e:
+                        result_str = json.dumps({"ok": False, "error": str(e)})
+
+                    tool_results.append({
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": result_str,
+                    })
+
+            if not has_tool_calls:
+                break
+
+            response = await client.responses.create(
+                model="gpt-5-2025-08-07",
+                input=tool_results,
+                previous_response_id=response.id,
+                tools=AGENT_CHAT_TOOLS,
+                store=True,
+            )
+
+        logger.info(f"[AGENT-SMS] (v2) ✅ Inbound SMS handled for agent {agent_config.id} ({iteration} iterations)")
+        return {"reply": ""}
+
     async def _run_v3_openrouter(
         self,
         message: str,
@@ -2263,3 +2481,88 @@ class ChatOrchestrator:
         db.commit()
 
         return {"reply": final_text, "debug_log": debug_log}
+
+
+# ============================================================================
+# INBOUND SMS EVENT HANDLER
+# ============================================================================
+
+async def handle_inbound_sms(sms_message_id: str):
+    """
+    Event-driven обработка входящего SMS.
+
+    Вызывается из вебхука Voximplant (POST /api/telephony/webhook/sms) сразу
+    после сохранения входящего SMS. Резолвит пользователя → активного агента
+    (по номеру назначения = номеру агента) → контакт (по номеру отправителя),
+    затем запускает ChatOrchestrator.run_sms_inbound, который сам решает, что
+    делать (перезвонить / ответить SMS / завести контакт / сменить стадию).
+
+    Открывает собственную сессию БД — безопасно для asyncio.create_task().
+    """
+    from backend.models.sms_message import SmsMessage
+    from backend.services.sms_history import phone_suffix
+
+    db = SessionLocal()
+    try:
+        sms = db.query(SmsMessage).filter(SmsMessage.id == sms_message_id).first()
+        if not sms or (sms.direction or "inbound") != "inbound":
+            return
+
+        child = db.query(VoximplantChildAccount).filter(
+            VoximplantChildAccount.id == sms.child_account_id
+        ).first()
+        if not child:
+            return
+
+        user = db.query(User).filter(User.id == child.user_id).first()
+        if not user:
+            return
+
+        # Доступ к агенту (триал/подписка) — как в планировщике.
+        try:
+            if not user.has_active_agent_subscription():
+                logger.info(f"[AGENT-SMS] user {user.id} has no agent access, skip inbound sms {sms.id}")
+                return
+        except Exception:
+            pass
+
+        agents = db.query(AgentConfig).filter(
+            AgentConfig.user_id == user.id,
+            AgentConfig.is_active == True,
+        ).all()
+        if not agents:
+            logger.info(f"[AGENT-SMS] no active agent for user {user.id}, skip inbound sms {sms.id}")
+            return
+
+        # Агент по номеру назначения (= номер, на который пришло SMS = номер агента);
+        # fallback — первый активный агент пользователя.
+        to_suf = phone_suffix(sms.to_number)
+        agent = next(
+            (a for a in agents if a.default_caller_id and phone_suffix(a.default_caller_id) == to_suf),
+            None,
+        ) or agents[0]
+
+        # v2-агента без личного OpenAI-ключа обслужить не сможем.
+        if not getattr(agent, "uses_hardcoded_prompt", False) and not user.openai_api_key:
+            logger.info(f"[AGENT-SMS] v2 agent {agent.id} without OpenAI key, skip inbound sms {sms.id}")
+            return
+
+        # Контакт по номеру отправителя в пределах агента (может не найтись).
+        from_suf = phone_suffix(sms.from_number)
+        contact = None
+        if from_suf:
+            contact = db.query(AgentContact).filter(
+                AgentContact.agent_config_id == agent.id,
+                AgentContact.phone.like(f"%{from_suf}"),
+            ).first()
+
+        logger.info(
+            f"[AGENT-SMS] Inbound SMS {sms.id}: from={sms.from_number} -> agent {agent.id}, "
+            f"contact={contact.id if contact else 'NEW'}"
+        )
+        await ChatOrchestrator().run_sms_inbound(agent, user, db, sms, contact)
+
+    except Exception as e:
+        logger.error(f"[AGENT-SMS] handle_inbound_sms error: {e}", exc_info=True)
+    finally:
+        db.close()
