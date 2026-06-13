@@ -174,18 +174,6 @@ TELEGRAM_RICH_FORMAT_HINT = """
 - Самое важное помещай в начало ответа."""
 
 
-# ✅ SMS-INBOUND: режим автономной обработки входящего SMS оркестратором.
-# Человека в чате нет, поэтому любое решение должно быть реализовано ДЕЙСТВИЕМ
-# через tools (ответ клиенту — только через send_sms).
-SMS_INBOUND_SYSTEM_HINT = """
-
-# РЕЖИМ: ОБРАБОТКА ВХОДЯЩЕГО SMS
-Ты обрабатываешь входящее SMS от клиента в автономном режиме (без человека в чате).
-Реши, что делать, и реализуй это ДЕЙСТВИЯМИ через tools — твой текстовый ответ
-клиенту НЕ доходит. Чтобы ответить клиенту текстом — используй send_sms.
-Если по сути сообщения делать ничего не нужно — просто заверши без вызова tools."""
-
-
 # ============================================================================
 # PRE-CALL ORCHESTRATOR
 # ============================================================================
@@ -778,11 +766,32 @@ class PostCallOrchestrator:
 
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
 
-        # ── Контекст направления звонка ──
-        # Для входящих (клиент позвонил сам) логика перезвона иная, чем для
-        # исходящих: сам факт входящего звонка не повод планировать авто-перезвон.
+        # ── Контекст направления/типа события ──
+        # Для входящих (клиент сам вышел на связь) логика перезвона иная, чем для
+        # исходящих. Отдельно — входящее SMS: это не звонок, а сообщение клиента.
+        transcript_label = "ТЕКУЩИЙ ТРАНСКРИПТ ЗВОНКА"
+        status_label = "СТАТУС ЗВОНКА"
+        analyze_line = "Проанализируй звонок и выполни необходимые действия через tools:"
+
+        is_sms = (call_direction or "").lower() == "sms_inbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
-        if is_inbound:
+
+        if is_sms:
+            direction_line = (
+                "СОБЫТИЕ: ВХОДЯЩЕЕ SMS от клиента (это не звонок — клиент прислал "
+                "сообщение, на которое нужно среагировать)."
+            )
+            callback_rule = (
+                "3. Если по сути сообщения нужен звонок (клиент просит перезвонить,\n"
+                "   проявил интерес, договорились о следующем шаге) — ЗАПЛАНИРУЙ его\n"
+                "   через create_agent_task на подходящее время (учтутся рабочие часы).\n"
+                "   Сам факт SMS НЕ требует обязательного звонка.\n"
+                "   Если уместно ответить клиенту текстом — отправь SMS через send_sms."
+            )
+            transcript_label = "ТЕКСТ ВХОДЯЩЕГО SMS"
+            status_label = "СТАТУС"
+            analyze_line = "Проанализируй сообщение клиента и выполни необходимые действия через tools:"
+        elif is_inbound:
             direction_line = (
                 "ТИП ЗВОНКА: ВХОДЯЩИЙ — клиент позвонил сам "
                 "(этот звонок инициировал не агент, а сам контакт)."
@@ -812,25 +821,50 @@ class PostCallOrchestrator:
 ПРЕДЫДУЩИЕ ЗВОНКИ (до 5 последних диалогов):
 {prev_calls_text or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}
 
-ТЕКУЩИЙ ТРАНСКРИПТ ЗВОНКА:
+{transcript_label}:
 {transcript}
 
-СТАТУС ЗВОНКА: {call_status}
+{status_label}: {call_status}
 ДЛИТЕЛЬНОСТЬ: {duration_seconds}s
 AGENT_CONTACT_ID: {str(agent_contact.id)}
 
-Проанализируй звонок и выполни необходимые действия через tools:
+{analyze_line}
 1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
 2. Смени стадию через move_contact_stage ТОЛЬКО если для этого есть реальное
-   основание. Менять стадию каждый звонок НЕ нужно:
+   основание. Менять стадию каждый раз НЕ нужно:
    - цель достигнута / клиент согласился → success
    - явный отказ → rejected
    - просил больше не звонить → do_not_call
    - впервые вышли на живой контакт и продолжаем работу → active
-   Если не дозвонились, клиент ещё думает или ничего по сути не изменилось —
-   НЕ вызывай move_contact_stage, оставь контакт в текущей стадии.
+   Если ничего по сути не изменилось (клиент ещё думает) — НЕ вызывай
+   move_contact_stage, оставь контакт в текущей стадии.
 {callback_rule}
-4. Если нужно уведомить владельца (важный результат) — вызови send_telegram_notification."""
+4. Если нужно уведомить владельца/менеджеров (важный результат) — вызови send_telegram_notification."""
+
+    async def run_for_sms(self, agent_call, agent_contact, agent_config, user, sms_body, db):
+        """
+        Прогнать входящее SMS через ту же PostCall-логику, что и звонки.
+
+        «Транскрипт» — текст SMS (полная переписка подмешивается в промпт через
+        _sms_context_block). Тулзы те же (AGENT_POSTCALL_TOOLS), поэтому агент
+        может уведомить менеджеров в Telegram (send_telegram_notification),
+        запланировать звонок (create_agent_task), ответить (send_sms),
+        обновить память/стадию.
+        """
+        transcript = f'Клиент прислал SMS: "{(sms_body or "").strip()}"'
+        await self._analyze(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=None,
+            transcript=transcript,
+            call_status="answered",
+            duration_seconds=0,
+            openai_key=(user.openai_api_key or "") if user else "",
+            db=db,
+            call_direction="sms_inbound",
+        )
 
     async def _analyze(
         self,
@@ -888,8 +922,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         post_call_input = self._build_postcall_input(
             agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
-        # Подставляем стратегию PreCall в текст (симуляция цепочки)
-        post_call_input += f"""
+        # Подставляем стратегию PreCall в текст (симуляция цепочки). Для входящего
+        # SMS PreCall не было — блок стратегии не добавляем.
+        if (call_direction or "").lower() != "sms_inbound":
+            post_call_input += f"""
 
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
 Первая фраза: {agent_call.custom_greeting or '(не задана)'}
@@ -1682,212 +1718,6 @@ class ChatOrchestrator:
         self._persist_telegram_history(telegram_history_row, message, final_text, db)
         return {"reply": final_text}
 
-    # ========================================================================
-    # ✅ SMS-INBOUND MODE
-    # Запускается событийно при входящем SMS (webhook /api/telephony/webhook/sms).
-    # Не пишет ни chat_history владельца, ни telegram-историю — это автономная
-    # реакция агента: он сам решает (перезвонить/ответить SMS/обновить контакт)
-    # и реализует решение через AGENT_CHAT_TOOLS.
-    # ========================================================================
-
-    async def run_sms_inbound(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
-        """Обработать входящее SMS. Развилка по uses_hardcoded_prompt (v3/v2)."""
-        if getattr(agent_config, "uses_hardcoded_prompt", False):
-            return await self._run_sms_inbound_v3(agent_config, user, db, sms, contact)
-        return await self._run_sms_inbound_v2(agent_config, user, db, sms, contact)
-
-    def _build_sms_inbound_input(self, sms, contact, db) -> str:
-        """Текст события для оркестратора: входящее SMS + карточка контакта + тред."""
-        thread = build_sms_thread_text(db, sms.child_account_id, sms.from_number, limit=20)
-        if contact:
-            mem = json.dumps(contact.memory or {}, ensure_ascii=False)
-            contact_block = (
-                "КОНТАКТ НАЙДЕН В БАЗЕ:\n"
-                f"agent_contact_id: {contact.id}\n"
-                f"Имя: {contact.name or '—'} | Компания: {contact.company or '—'} | Стадия: {contact.status}\n"
-                f"Память: {mem}"
-            )
-        else:
-            contact_block = (
-                "КОНТАКТ С ЭТИМ НОМЕРОМ НЕ НАЙДЕН в базе агента. Если по сути сообщения "
-                "нужно работать с клиентом — заведи контакт через create_agent_contact "
-                "(phone = номер клиента)."
-            )
-        body = (sms.body or "").strip()
-        return f"""СОБЫТИЕ: входящее SMS от клиента (на него нужно среагировать).
-ОТ (клиент): {sms.from_number}
-НА (номер агента): {sms.to_number}
-ТЕКСТ SMS: "{body}"
-
-{contact_block}
-
-SMS-ПЕРЕПИСКА С ЭТИМ НОМЕРОМ (последние 20, время МСК):
-{thread or '(только это сообщение)'}
-
-Проанализируй сообщение и выполни нужные действия через tools:
-- Нет контакта в базе → create_agent_contact по номеру клиента.
-- Клиент просит перезвонить / проявил интерес → поставь звонок:
-  trigger_immediate_call (если просит «сейчас») или create_agent_task (на подходящее
-  время — учтутся рабочие часы агента).
-- Уместен текстовый ответ клиенту → send_sms.
-- Новые факты/договорённости → append_contact_note / update_contact_info.
-- Сменилась стадия (согласие/отказ/«не звоните») → move_contact_stage.
-Действуй строго по смыслу сообщения и истории переписки, не выдумывай."""
-
-    async def _run_sms_inbound_v3(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
-        """SMS-inbound v3 — OpenRouter Chat Completions с AGENT_CHAT_TOOLS."""
-        CreditService.precheck(db, user)
-        total_prompt = 0
-        total_completion = 0
-
-        system_prompt = build_orchestrator_prompt(agent_config) + SMS_INBOUND_SYSTEM_HINT
-        user_input = self._build_sms_inbound_input(sms, contact, db)
-
-        messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_input},
-        ]
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
-        context = {
-            "agent_config_id": str(agent_config.id),
-            "user_id": str(user.id),
-            "user": user,
-            "agent_config": agent_config,
-        }
-
-        client = get_openrouter_client()
-        final_text = ""
-        max_iterations = 10
-        iteration = 0
-
-        try:
-            while iteration < max_iterations:
-                iteration += 1
-                response = await client.chat_completion(
-                    model=agent_config.orchestrator_model,
-                    messages=messages,
-                    tools=tools,
-                    temperature=0.5,
-                )
-                p_tok, c_tok = _extract_usage(response)
-                total_prompt += p_tok
-                total_completion += c_tok
-                msg = response["choices"][0]["message"]
-                tool_calls = msg.get("tool_calls") or []
-
-                if not tool_calls:
-                    final_text = msg.get("content") or ""
-                    break
-
-                messages.append({
-                    "role": "assistant",
-                    "content": msg.get("content") or "",
-                    "tool_calls": tool_calls,
-                })
-
-                for tc in tool_calls:
-                    fn = tc.get("function", {})
-                    tool_name = fn.get("name", "")
-                    try:
-                        tool_args = json.loads(fn.get("arguments") or "{}")
-                    except json.JSONDecodeError:
-                        tool_args = {}
-
-                    logger.info(f"[AGENT-SMS] (v3) Executing tool: {tool_name}")
-                    try:
-                        result_str = await execute_tool(tool_name, tool_args, context, db)
-                    except Exception as e:
-                        result_str = json.dumps({"ok": False, "error": str(e)})
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.get("id"),
-                        "content": result_str,
-                    })
-        finally:
-            if total_prompt or total_completion:
-                try:
-                    CreditService.charge(
-                        db=db, user_id=user.id,
-                        model_slug=agent_config.orchestrator_model,
-                        prompt_tokens=total_prompt, completion_tokens=total_completion,
-                        ref_type="sms_inbound", ref_id=agent_config.id,
-                        notes=f"sms_inbound iterations: {iteration}",
-                    )
-                except Exception as ce:
-                    logger.error(f"[AGENT-SMS] (v3) Charge failed: {ce}", exc_info=True)
-
-        logger.info(f"[AGENT-SMS] (v3) ✅ Inbound SMS handled for agent {agent_config.id} ({iteration} iterations)")
-        return {"reply": final_text}
-
-    async def _run_sms_inbound_v2(self, agent_config: AgentConfig, user: User, db, sms, contact) -> Dict[str, Any]:
-        """SMS-inbound v2 (legacy) — OpenAI Responses API с AGENT_CHAT_TOOLS."""
-        if not user or not user.openai_api_key:
-            logger.info(f"[AGENT-SMS] (v2) agent {agent_config.id} without OpenAI key, skip")
-            return {"reply": ""}
-
-        client = AsyncOpenAI(api_key=user.openai_api_key)
-        instructions = (
-            CHAT_META_PROMPT + (agent_config.orchestrator_prompt or "") + CHAT_SUFFIX + SMS_INBOUND_SYSTEM_HINT
-        )
-        user_input = self._build_sms_inbound_input(sms, contact, db)
-        context = {
-            "agent_config_id": str(agent_config.id),
-            "user_id": str(user.id),
-            "user": user,
-            "agent_config": agent_config,
-        }
-
-        response = await client.responses.create(
-            model="gpt-5-2025-08-07",
-            instructions=instructions,
-            input=[{"role": "user", "content": user_input}],
-            tools=AGENT_CHAT_TOOLS,
-            store=True,
-        )
-
-        max_iterations = 10
-        iteration = 0
-        while iteration < max_iterations:
-            iteration += 1
-            has_tool_calls = False
-            tool_results = []
-
-            for item in response.output:
-                if item.type == "function_call":
-                    has_tool_calls = True
-                    tool_name = item.name
-                    try:
-                        tool_args = json.loads(item.arguments)
-                    except json.JSONDecodeError:
-                        tool_args = {}
-
-                    logger.info(f"[AGENT-SMS] (v2) Executing tool: {tool_name}")
-                    try:
-                        result_str = await execute_tool(tool_name, tool_args, context, db)
-                    except Exception as e:
-                        result_str = json.dumps({"ok": False, "error": str(e)})
-
-                    tool_results.append({
-                        "type": "function_call_output",
-                        "call_id": item.call_id,
-                        "output": result_str,
-                    })
-
-            if not has_tool_calls:
-                break
-
-            response = await client.responses.create(
-                model="gpt-5-2025-08-07",
-                input=tool_results,
-                previous_response_id=response.id,
-                tools=AGENT_CHAT_TOOLS,
-                store=True,
-            )
-
-        logger.info(f"[AGENT-SMS] (v2) ✅ Inbound SMS handled for agent {agent_config.id} ({iteration} iterations)")
-        return {"reply": ""}
-
     async def _run_v3_openrouter(
         self,
         message: str,
@@ -2492,10 +2322,12 @@ async def handle_inbound_sms(sms_message_id: str):
     Event-driven обработка входящего SMS.
 
     Вызывается из вебхука Voximplant (POST /api/telephony/webhook/sms) сразу
-    после сохранения входящего SMS. Резолвит пользователя → активного агента
-    (по номеру назначения = номеру агента) → контакт (по номеру отправителя),
-    затем запускает ChatOrchestrator.run_sms_inbound, который сам решает, что
-    делать (перезвонить / ответить SMS / завести контакт / сменить стадию).
+    после сохранения входящего SMS. Зеркалит логику входящего ЗВОНКА
+    (voximplant.py): резолвит пользователя → активного агента (по номеру
+    назначения = номеру агента) → контакт (по номеру отправителя, при отсутствии
+    создаёт) → AgentCall(direction="inbound") → запускает тот же PostCall, что и у
+    звонков, только «вместо звонка SMS». Агент сам решает: уведомить менеджеров в
+    Telegram, запланировать звонок, ответить SMS, обновить память/стадию.
 
     Открывает собственную сессию БД — безопасно для asyncio.create_task().
     """
@@ -2547,20 +2379,45 @@ async def handle_inbound_sms(sms_message_id: str):
             logger.info(f"[AGENT-SMS] v2 agent {agent.id} without OpenAI key, skip inbound sms {sms.id}")
             return
 
-        # Контакт по номеру отправителя в пределах агента (может не найтись).
+        # Контакт по номеру отправителя в пределах агента; нет — создаём (как у
+        # входящего звонка).
         from_suf = phone_suffix(sms.from_number)
         contact = None
         if from_suf:
             contact = db.query(AgentContact).filter(
                 AgentContact.agent_config_id == agent.id,
                 AgentContact.phone.like(f"%{from_suf}"),
-            ).first()
+            ).order_by(AgentContact.created_at.desc()).first()
+        if not contact:
+            contact = AgentContact(
+                agent_config_id=agent.id,
+                user_id=user.id,
+                phone=sms.from_number,
+                status="new",
+            )
+            db.add(contact)
+            db.flush()
+            logger.info(f"[AGENT-SMS] 🆕 Создан AgentContact {contact.id} для входящего SMS {sms.from_number}")
+
+        # AgentCall(direction="inbound") — на нём держится PostCall-машинерия.
+        inbound_call = AgentCall(
+            agent_contact_id=contact.id,
+            agent_config_id=agent.id,
+            user_id=user.id,
+            source_task_id=None,
+            call_session_id=None,
+            status="calling",
+            direction="inbound",
+            started_at=datetime.utcnow(),
+        )
+        db.add(inbound_call)
+        db.commit()
 
         logger.info(
             f"[AGENT-SMS] Inbound SMS {sms.id}: from={sms.from_number} -> agent {agent.id}, "
-            f"contact={contact.id if contact else 'NEW'}"
+            f"contact={contact.id}, call={inbound_call.id}"
         )
-        await ChatOrchestrator().run_sms_inbound(agent, user, db, sms, contact)
+        await PostCallOrchestrator().run_for_sms(inbound_call, contact, agent, user, sms.body, db)
 
     except Exception as e:
         logger.error(f"[AGENT-SMS] handle_inbound_sms error: {e}", exc_info=True)
