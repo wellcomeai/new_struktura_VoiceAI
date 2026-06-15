@@ -4489,9 +4489,120 @@ async def admin_setup_crm_rules(
 # ПУБЛИЧНЫЙ ENDPOINT ДЛЯ СЦЕНАРИЯ VOXIMPLANT (INBOUND)
 # =============================================================================
 
+# Человекочитаемые ярлыки решений PostCall — для блока истории разговоров.
+_CALLER_DECISION_RU = {
+    "SUCCESS": "Успех",
+    "FOLLOWUP": "Нужен перезвон",
+    "NO_ANSWER": "Не дозвонились",
+    "REJECTED": "Отказ",
+    "DO_NOT_CALL": "Просил не звонить",
+}
+
+
+def _build_caller_context(db: Session, agent_config_id, caller: str) -> str:
+    """
+    🆕 Формирует блок «Карточка звонящего» для system_prompt голосового агента
+    при ВХОДЯЩЕМ звонке.
+
+    Ищет AgentContact в базе агента, привязанного к набранному номеру, по
+    последним 10 цифрам номера звонящего. Если контакт найден — отдаёт его имя,
+    компанию, стадию, заметки, память (резюме/факты) и 2 последних разговора
+    (дата + итог + обрезанный до ~400 символов транскрипт).
+
+    Возвращает '' если caller пуст, контакт не найден или данных нет —
+    в этом случае конфиг отдаётся без изменений.
+    """
+    try:
+        from backend.models.agent_contact import AgentContact
+        from backend.models.agent_call import AgentCall
+
+        digits = normalize_phone_number(caller or "")
+        if len(digits) < 7:
+            return ""
+        suffix = digits[-10:]
+
+        contact = (
+            db.query(AgentContact)
+            .filter(
+                AgentContact.agent_config_id == agent_config_id,
+                AgentContact.phone.contains(suffix),
+            )
+            .order_by(AgentContact.updated_at.desc())
+            .first()
+        )
+        if not contact:
+            logger.info(f"[TELEPHONY]   👤 Caller context: контакт не найден для ...{suffix}")
+            return ""
+
+        lines = [
+            "══════════════════════════════════════",
+            "👤 КАРТОЧКА ЗВОНЯЩЕГО (из вашей базы клиентов)",
+            "══════════════════════════════════════",
+        ]
+        if contact.name:
+            lines.append(f"Имя: {contact.name}")
+        company_pos = " · ".join(x for x in [contact.company, contact.position] if x)
+        if company_pos:
+            lines.append(f"Компания/должность: {company_pos}")
+        if contact.status:
+            lines.append(f"Стадия воронки: {contact.status}")
+        if contact.notes:
+            lines.append(f"Заметки: {contact.notes.strip()}")
+
+        memory = contact.memory if isinstance(contact.memory, dict) else {}
+        if memory.get("summary"):
+            lines.append(f"Краткое резюме: {str(memory['summary']).strip()}")
+        key_facts = memory.get("key_facts")
+        if isinstance(key_facts, list) and key_facts:
+            lines.append("Ключевые факты: " + "; ".join(str(f) for f in key_facts[:8]))
+        if memory.get("best_time"):
+            lines.append(f"Удобное время для звонка: {memory['best_time']}")
+        if contact.last_called_at:
+            lines.append(
+                f"Последний контакт: {contact.last_called_at.strftime('%d.%m.%Y')} "
+                f"(всего попыток: {contact.attempts_count or 0})"
+            )
+
+        calls = (
+            db.query(AgentCall)
+            .filter(AgentCall.agent_contact_id == contact.id)
+            .order_by(AgentCall.created_at.desc())
+            .limit(2)
+            .all()
+        )
+        if calls:
+            lines.append("")
+            lines.append("📞 Последние разговоры:")
+            for idx, c in enumerate(calls, 1):
+                day = c.created_at.strftime("%d.%m.%Y") if c.created_at else "—"
+                decision = _CALLER_DECISION_RU.get(c.post_call_decision, c.post_call_decision or "—")
+                head = f"{idx}. [{day}] Итог: {decision}"
+                if c.call_result:
+                    head += f" — {c.call_result.strip()}"
+                lines.append(head)
+                if c.transcript and c.transcript.strip() != "(Транскрипт недоступен)":
+                    snippet = " ".join(c.transcript.split())
+                    if len(snippet) > 400:
+                        snippet = snippet[:400].rstrip() + "…"
+                    lines.append(f"   Разговор: «{snippet}»")
+
+        lines.append("══════════════════════════════════════")
+        lines.append(
+            "Поздоровайся по имени и веди разговор с учётом прошлых договорённостей. "
+            "Не озвучивай, что читаешь карточку — используй эти данные естественно."
+        )
+        lines.append("══════════════════════════════════════")
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error(f"[TELEPHONY] Caller context error: {e}", exc_info=True)
+        return ""
+
+
 @router.get("/config")
 async def get_scenario_config(
     phone: str = Query(..., description="Номер телефона, на который звонят"),
+    caller: Optional[str] = Query(None, description="Номер звонящего (для подтягивания карточки контакта агента)"),
     db: Session = Depends(get_db),
 ):
     """
@@ -4634,6 +4745,15 @@ async def get_scenario_config(
         first_phrase = phone_record.first_phrase
         if not first_phrase and hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
+
+        # 🆕 Карточка звонящего: если номер привязан к агенту обзвона и передан
+        # caller — подтягиваем контакт из базы агента и дописываем его в промпт,
+        # чтобы голосовой знал клиента ещё ДО приветствия.
+        if caller and getattr(phone_record, "agent_config_id", None):
+            caller_ctx = _build_caller_context(db, phone_record.agent_config_id, caller)
+            if caller_ctx:
+                system_prompt = (system_prompt or "") + "\n\n" + caller_ctx
+                logger.info(f"[TELEPHONY]   👤 Caller context injected ({len(caller_ctx)} chars)")
 
         logger.info(f"[TELEPHONY] Config returned for {phone}")
         logger.info(f"[TELEPHONY]   Assistant: {assistant_name} ({phone_record.assistant_type})")
