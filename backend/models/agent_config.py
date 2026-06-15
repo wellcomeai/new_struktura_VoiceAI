@@ -68,6 +68,12 @@ class AgentConfig(Base):
     # Дописываются к system_prompt связанного голосового ассистента.
     voice_additional_instructions = Column(Text, nullable=True)
 
+    # Первая фраза голосового агента при ВХОДЯЩЕМ звонке.
+    # Поддерживает переменную {name} — сервер подставит имя из карточки
+    # контакта (если звонящий найден в базе агента), иначе вырежет плейсхолдер.
+    # Пустое значение = используется дефолтная первая фраза голосового ассистента.
+    inbound_first_phrase = Column(Text, nullable=True)
+
     # ── База знаний (векторная БД Pinecone) ──
     # Namespace создаётся через PineconeService; пустой namespace = базы нет.
     # Обслуживает и оркестратор (tool search_knowledge_base), и голосового

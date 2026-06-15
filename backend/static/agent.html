@@ -345,6 +345,12 @@
         <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
       </div>
       <div class="form-group">
+        <label class="form-label">Первая фраза для входящих звонков</label>
+        <textarea class="form-textarea" id="i-inbound_first_phrase" rows="2"
+                  placeholder="Например: «Здравствуйте, {name}! Чем могу помочь?»"></textarea>
+        <div class="form-hint">С чего агент начинает разговор, когда звонят ему. Подставьте <code>{name}</code> — вместо неё подставится имя из карточки контакта, если звонящий есть в базе агента (для незнакомых номеров переменная просто убирается). Оставьте пустым — будет использовано приветствие по умолчанию.</div>
+      </div>
+      <div class="form-group">
         <label class="form-label">Инструкции для голосового агента</label>
         <textarea class="form-textarea" id="i-voice_additional_instructions" rows="5"
                   placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон», «не упоминай конкурентов»."></textarea>

@@ -183,6 +183,7 @@ function openInstructionsModal(){
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
   document.getElementById('i-webhook_url').value = agentData.webhook_url || '';
   document.getElementById('i-voice_additional_instructions').value = agentData.voice_additional_instructions || '';
+  document.getElementById('i-inbound_first_phrase').value = agentData.inbound_first_phrase || '';
   document.getElementById('i-voice-group').innerHTML = voiceControlHtml(
     agentData.assistant_type || 'gemini',
     { voice: agentData.voice, cartesia_voice_id: agentData.cartesia_voice_id, voice_speed: agentData.voice_speed },
@@ -222,6 +223,7 @@ async function saveInstructions(){
     additional_instructions: document.getElementById('i-additional_instructions').value,
     webhook_url: document.getElementById('i-webhook_url').value.trim() || null,
     voice_additional_instructions: document.getElementById('i-voice_additional_instructions').value,
+    inbound_first_phrase: document.getElementById('i-inbound_first_phrase').value.trim() || null,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
     ...readVoiceBody(agentData.assistant_type || 'gemini', I_VOICE_IDS),

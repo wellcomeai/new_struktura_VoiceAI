@@ -1066,6 +1066,41 @@ def ensure_agent_webhook_columns():
         logger.error(f"❌ ensure_agent_webhook_columns error: {e}")
 
 
+def ensure_agent_inbound_first_phrase_column():
+    """
+    Идемпотентно добавляет колонку inbound_first_phrase в agent_configs.
+
+    inbound_first_phrase — первая фраза голосового агента при входящем звонке
+    (с опциональной переменной {name}). Миграции не используем — добавляем
+    при старте.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        if 'inbound_first_phrase' in existing:
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_configs "
+                    "ADD COLUMN IF NOT EXISTS inbound_first_phrase TEXT"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_configs.inbound_first_phrase")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add inbound_first_phrase column: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_inbound_first_phrase_column error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1132,6 +1167,9 @@ async def startup_event():
 
                 # 🆕 Шаг 16: Колонка вебхука оркестратора в agent_configs
                 ensure_agent_webhook_columns()
+
+                # 🆕 Шаг 17: Колонка первой фразы для входящих в agent_configs
+                ensure_agent_inbound_first_phrase_column()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

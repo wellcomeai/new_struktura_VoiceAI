@@ -83,6 +83,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 import uuid
 import json
+import re
 import asyncio
 
 from fastapi.responses import StreamingResponse
@@ -4499,26 +4500,18 @@ _CALLER_DECISION_RU = {
 }
 
 
-def _build_caller_context(db: Session, agent_config_id, caller: str) -> str:
+def _find_caller_contact(db: Session, agent_config_id, caller: str):
     """
-    🆕 Формирует блок «Карточка звонящего» для system_prompt голосового агента
-    при ВХОДЯЩЕМ звонке.
-
-    Ищет AgentContact в базе агента, привязанного к набранному номеру, по
-    последним 10 цифрам номера звонящего. Если контакт найден — отдаёт его имя,
-    компанию, стадию, заметки, память (резюме/факты) и 2 последних разговора
-    (дата + итог + обрезанный до ~400 символов транскрипт).
-
-    Возвращает '' если caller пуст, контакт не найден или данных нет —
-    в этом случае конфиг отдаётся без изменений.
+    🆕 Ищет AgentContact в базе агента (привязанного к набранному номеру) по
+    последним 10 цифрам номера звонящего. Возвращает контакт или None.
+    Используется и для карточки звонящего, и для персонализации приветствия.
     """
     try:
         from backend.models.agent_contact import AgentContact
-        from backend.models.agent_call import AgentCall
 
         digits = normalize_phone_number(caller or "")
         if len(digits) < 7:
-            return ""
+            return None
         suffix = digits[-10:]
 
         contact = (
@@ -4531,8 +4524,73 @@ def _build_caller_context(db: Session, agent_config_id, caller: str) -> str:
             .first()
         )
         if not contact:
-            logger.info(f"[TELEPHONY]   👤 Caller context: контакт не найден для ...{suffix}")
+            logger.info(f"[TELEPHONY]   👤 Caller: контакт не найден для ...{suffix}")
+        return contact
+    except Exception as e:
+        logger.error(f"[TELEPHONY] _find_caller_contact error: {e}", exc_info=True)
+        return None
+
+
+def _caller_first_name(contact) -> str:
+    """Первое слово имени контакта с заглавной буквой ('' если имени нет)."""
+    if not contact or not contact.name:
+        return ""
+    parts = contact.name.strip().split()
+    if not parts:
+        return ""
+    name = parts[0]
+    return name[:1].upper() + name[1:]
+
+
+def _personalize_greeting(template: str, contact) -> str:
+    """
+    🆕 Подставляет имя контакта в шаблон первой фразы для входящих.
+
+    - '{name}' → имя звонящего (первое слово), если контакт найден;
+    - если имени нет — плейсхолдер вырезается вместе с прилегающей запятой/
+      пробелом, фраза очищается от артефактов («Здравствуйте, {name}!» →
+      «Здравствуйте!»).
+    Если в шаблоне нет '{name}' — возвращается как есть (статичное приветствие).
+    """
+    text = (template or "").strip()
+    if "{name}" not in text:
+        return text
+
+    name = _caller_first_name(contact)
+    if name:
+        text = text.replace("{name}", name)
+    else:
+        # Вырезаем плейсхолдер с прилегающей запятой/пробелом и чистим артефакты.
+        text = re.sub(r"\s*,?\s*\{name\}\s*,?\s*", " ", text)
+        text = re.sub(r"\s+([!?.,:;])", r"\1", text)
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        # Если имя стояло в начале — первая буква фразы могла оказаться строчной.
+        if text:
+            text = text[:1].upper() + text[1:]
+        return text
+
+    # Чистим артефакты: пробел перед пунктуацией и двойные пробелы.
+    text = re.sub(r"\s+([!?.,:;])", r"\1", text)
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text
+
+
+def _build_caller_context(contact) -> str:
+    """
+    🆕 Формирует блок «Карточка звонящего» для system_prompt голосового агента
+    при ВХОДЯЩЕМ звонке по уже найденному контакту: имя, компания, стадия,
+    заметки, память (резюме/факты) и 2 последних разговора (дата + итог +
+    обрезанный до ~400 символов транскрипт).
+
+    Возвращает '' если контакт не передан — конфиг отдаётся без изменений.
+    """
+    try:
+        if not contact:
             return ""
+
+        from backend.models.agent_call import AgentCall
+
+        db = Session.object_session(contact)
 
         lines = [
             "══════════════════════════════════════",
@@ -4746,14 +4804,31 @@ async def get_scenario_config(
         if not first_phrase and hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
 
-        # 🆕 Карточка звонящего: если номер привязан к агенту обзвона и передан
-        # caller — подтягиваем контакт из базы агента и дописываем его в промпт,
-        # чтобы голосовой знал клиента ещё ДО приветствия.
-        if caller and getattr(phone_record, "agent_config_id", None):
-            caller_ctx = _build_caller_context(db, phone_record.agent_config_id, caller)
+        # 🆕 Агентский входящий: если номер привязан к агенту обзвона —
+        # один раз ищем контакт звонящего и используем его для (1) карточки в
+        # промпте и (2) персонализации первой фразы агента ({name}).
+        agent_config_id = getattr(phone_record, "agent_config_id", None)
+        if agent_config_id:
+            from backend.models.agent_config import AgentConfig
+            agent_cfg = (
+                db.query(AgentConfig)
+                .filter(AgentConfig.id == agent_config_id)
+                .first()
+            )
+
+            caller_contact = _find_caller_contact(db, agent_config_id, caller) if caller else None
+
+            # (1) Карточка звонящего → дописываем в system_prompt (знает клиента
+            #     ещё ДО приветствия).
+            caller_ctx = _build_caller_context(caller_contact)
             if caller_ctx:
                 system_prompt = (system_prompt or "") + "\n\n" + caller_ctx
                 logger.info(f"[TELEPHONY]   👤 Caller context injected ({len(caller_ctx)} chars)")
+
+            # (2) Первая фраза для входящих, заданная у агента, с подстановкой {name}.
+            if agent_cfg and getattr(agent_cfg, "inbound_first_phrase", None):
+                first_phrase = _personalize_greeting(agent_cfg.inbound_first_phrase, caller_contact)
+                logger.info(f"[TELEPHONY]   👋 Inbound first phrase: \"{(first_phrase or '')[:60]}\"")
 
         logger.info(f"[TELEPHONY] Config returned for {phone}")
         logger.info(f"[TELEPHONY]   Assistant: {assistant_name} ({phone_record.assistant_type})")
