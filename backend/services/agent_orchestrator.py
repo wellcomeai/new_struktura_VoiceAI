@@ -480,6 +480,30 @@ class PostCallOrchestrator:
         return convs
 
     @staticmethod
+    def _extract_record_and_cost(convs: List[Conversation]) -> tuple:
+        """
+        Снимает запись и стоимость звонка из связанных Conversation.
+
+        - record_url: первый непустой постоянный URL записи
+          (Conversation.client_info["record_url"], уже залит в R2 в /log).
+        - call_cost: сумма Conversation.call_cost по всем записям сессии
+          (телефония + запись + ресурсы). None, если стоимости нет.
+
+        Возвращает (record_url | None, call_cost | None).
+        """
+        record_url = None
+        total_cost = 0.0
+        has_cost = False
+        for conv in convs or []:
+            ci = conv.client_info if isinstance(conv.client_info, dict) else {}
+            if not record_url and ci.get("record_url"):
+                record_url = ci.get("record_url")
+            if conv.call_cost is not None:
+                total_cost += float(conv.call_cost)
+                has_cost = True
+        return record_url, (round(total_cost, 6) if has_cost else None)
+
+    @staticmethod
     def _claim_for_finalization(db, agent_call_id: str, allowed_statuses: List[str]) -> bool:
         """
         Атомарно «забирает» звонок под финализацию: переводит его в статус
@@ -608,6 +632,13 @@ class PostCallOrchestrator:
                 return
             db.refresh(agent_call)
 
+            # Снимок записи и стоимости звонка из связанных Conversation.
+            rec_url, call_cost = PostCallOrchestrator._extract_record_and_cost(convs)
+            if rec_url:
+                agent_call.record_url = rec_url
+            if call_cost is not None:
+                agent_call.call_cost = call_cost
+
             orchestrator = PostCallOrchestrator()
             await orchestrator._analyze(
                 agent_call=agent_call,
@@ -710,6 +741,13 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] (webhook) call {agent_call_id} already owned/finalized, skip")
                 return
             db.refresh(agent_call)
+
+            # Снимок записи и стоимости звонка из связанных Conversation.
+            rec_url, call_cost = PostCallOrchestrator._extract_record_and_cost(convs)
+            if rec_url:
+                agent_call.record_url = rec_url
+            if call_cost is not None:
+                agent_call.call_cost = call_cost
 
             task = None
             if agent_call.source_task_id:

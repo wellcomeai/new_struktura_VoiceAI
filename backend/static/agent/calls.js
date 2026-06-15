@@ -126,6 +126,23 @@ function renderCallExpanded(call, uid){
     </div>
   ` : '';
 
+  // Бейдж стоимости звонка (₽) — показываем рядом со статусами, если есть.
+  const costBadge = (call.call_cost && call.call_cost > 0)
+    ? `<span class="status-badge" style="background:#F1F5F9;color:#475569"><i class="fas fa-ruble-sign"></i> ${Number(call.call_cost).toFixed(2)}</span>`
+    : '';
+
+  // Плеер записи звонка (только для голосовых звонков с записью).
+  const recordBlock = (!isSms && call.record_url) ? `
+    <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
+      <i class="fas fa-headphones"></i> Запись звонка
+    </div>
+    <audio controls preload="metadata" style="width:100%;margin:0 0 10px">
+      <source src="${call.record_url}" type="audio/mpeg">
+      <source src="${call.record_url}" type="audio/wav">
+      Ваш браузер не поддерживает воспроизведение аудио.
+    </audio>
+  ` : '';
+
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
     <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
       <i class="fas ${isSms ? 'fa-comment-sms' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : 'Транскрипт звонка'}
@@ -135,7 +152,7 @@ function renderCallExpanded(call, uid){
     </div>
   ` : '';
 
-  const details = preBlock + transcriptBlock + postBlock;
+  const details = preBlock + transcriptBlock + recordBlock + postBlock;
   const hasDetails = !!details.trim();
 
   return `
@@ -146,6 +163,7 @@ function renderCallExpanded(call, uid){
         ${channelBadge}
         ${statusHtml}
         ${decisionBadgeHtml}
+        ${costBadge}
         ${hasDetails ? `<span style="margin-left:auto;font-size:11px;color:var(--blue);font-weight:600"><i class="fas fa-chevron-down" id="${uid}-chevron" style="transition:transform .2s"></i> Размышления</span>` : ''}
       </div>
       ${hasDetails ? `<div id="${uid}-details" style="display:none">${details}</div>` : ''}

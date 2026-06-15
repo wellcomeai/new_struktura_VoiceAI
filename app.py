@@ -679,6 +679,9 @@ def check_and_fix_all_missing_columns():
             'agent_calls': {
                 # 🆕 Направление звонка: outbound / inbound (для UI агента)
                 'direction': "VARCHAR(20) DEFAULT 'outbound' NOT NULL",
+                # 🆕 Запись звонка (постоянный R2-URL) и стоимость — для карточки звонка
+                'record_url': 'TEXT NULL',
+                'call_cost': 'DOUBLE PRECISION NULL',
             },
             'subscription_plans': {
                 # Добавьте если нужно

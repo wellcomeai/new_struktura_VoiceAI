@@ -7,7 +7,7 @@ AgentCall — запись о каждом звонке агента.
 
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
@@ -65,6 +65,12 @@ class AgentCall(Base):
 
     transcript = Column(Text, nullable=True)
     duration_seconds = Column(Integer, default=0, nullable=False)
+
+    # 🆕 v3.x: Запись звонка (постоянный R2-URL) и стоимость — снимаются из
+    # связанного Conversation при финализации (PostCall) и обновляются отложенным
+    # пересчётом Voximplant (delayed_cost_recalculation).
+    record_url = Column(Text, nullable=True)
+    call_cost = Column(Float, nullable=True)
 
     status = Column(String(50), default="scheduled", nullable=False)
     post_call_decision = Column(String(50), nullable=True)
@@ -130,6 +136,8 @@ class AgentCall(Base):
             "call_strategy": self.call_strategy,
             "transcript": self.transcript,
             "duration_seconds": self.duration_seconds,
+            "record_url": self.record_url,
+            "call_cost": float(self.call_cost) if self.call_cost is not None else None,
             "status": self.status,
             "direction": self.direction or "outbound",
             "post_call_decision": self.post_call_decision,

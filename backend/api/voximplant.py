@@ -431,6 +431,65 @@ async def get_full_call_cost(
 # 🆕 v3.7: ОТЛОЖЕННЫЙ ПЕРЕСЧЁТ СТОИМОСТИ
 # =============================================================================
 
+def _sync_agent_call_cost(db, conversation) -> None:
+    """
+    🆕 Зеркалит уточнённую стоимость/запись звонка из Conversation в связанный
+    AgentCall (звонок автономного агента), чтобы карточка звонка показывала ту же
+    цифру, что и история разговоров, после отложенного пересчёта Voximplant.
+
+    Связь восстанавливается так же, как в оркестраторе агента
+    (PostCallOrchestrator._find_transcript_by_phone): по последним 10 цифрам
+    номера + временно́му окну. Если связанного AgentCall нет (обычный
+    виджет/телефонный звонок) — тихо выходим.
+    """
+    try:
+        from datetime import datetime, timedelta
+        from backend.models.agent_call import AgentCall
+        from backend.models.agent_contact import AgentContact
+
+        caller = conversation.caller_number or ""
+        digits = "".join(ch for ch in caller if ch.isdigit())
+        if len(digits) < 10:
+            return
+        suffix = digits[-10:]
+
+        conv_time = conversation.created_at or datetime.utcnow()
+        # AgentCall создаётся в начале звонка, Conversation сохраняется в конце —
+        # поэтому окно смещено в прошлое относительно времени разговора.
+        win_from = conv_time - timedelta(minutes=40)
+        win_to = conv_time + timedelta(minutes=10)
+
+        agent_call = (
+            db.query(AgentCall)
+            .join(AgentContact, AgentCall.agent_contact_id == AgentContact.id)
+            .filter(
+                AgentContact.phone.like(f"%{suffix}%"),
+                AgentCall.created_at >= win_from,
+                AgentCall.created_at <= win_to,
+            )
+            .order_by(AgentCall.created_at.desc())
+            .first()
+        )
+        if not agent_call:
+            return
+
+        changed = False
+        if conversation.call_cost is not None:
+            agent_call.call_cost = float(conversation.call_cost)
+            changed = True
+        ci = conversation.client_info if isinstance(conversation.client_info, dict) else {}
+        if ci.get("record_url") and not agent_call.record_url:
+            agent_call.record_url = ci.get("record_url")
+            changed = True
+
+        if changed:
+            db.commit()
+            logger.info(f"[VOXIMPLANT-DELAYED] 🔗 Synced cost/record to AgentCall {agent_call.id}")
+    except Exception as e:
+        logger.warning(f"[VOXIMPLANT-DELAYED] ⚠️ Failed to sync AgentCall cost: {e}")
+        db.rollback()
+
+
 async def delayed_cost_recalculation(
     conversation_id: str,
     call_session_history_id: str,
@@ -510,9 +569,12 @@ async def delayed_cost_recalculation(
             client_info["original_script_duration"] = old_duration
             
             conversation.client_info = client_info
-            
+
             db.commit()
-            
+
+            # Зеркалим уточнённую стоимость/запись в связанный звонок агента.
+            _sync_agent_call_cost(db, conversation)
+
             logger.info(f"[VOXIMPLANT-DELAYED] ✅ Updated cost for {conversation_id}")
             logger.info(f"[VOXIMPLANT-DELAYED]    Cost: {old_cost} → {cost_result['total_cost']}")
             logger.info(f"[VOXIMPLANT-DELAYED]    Duration: {old_duration} → {cost_result['duration']}")
