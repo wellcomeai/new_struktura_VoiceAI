@@ -6,6 +6,9 @@
   <title>Вход — Voicyfy</title>
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png" />
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
       --primary-blue: #2563eb;
@@ -59,15 +62,17 @@
       justify-content: center;
       gap: 0.6rem;
       margin-bottom: 1.75rem;
+      text-decoration: none;
     }
 
-    .brand img { height: 36px; width: auto; }
+    .brand img { width: 36px; height: 36px; border-radius: 10px; object-fit: contain; }
 
     .brand span {
-      font-size: 1.5rem;
+      font-family: 'Syne', sans-serif;
+      font-size: 1.4rem;
       font-weight: 800;
-      letter-spacing: -0.02em;
-      background: var(--gradient-blue);
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
       -webkit-background-clip: text;
       background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -140,20 +145,6 @@
     }
     .password-toggle:hover { color: var(--primary-blue); }
 
-    .form-row {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: -0.5rem;
-      margin-bottom: 1.25rem;
-    }
-    .form-row a {
-      color: var(--primary-blue);
-      text-decoration: none;
-      font-size: 0.9rem;
-      font-weight: 500;
-    }
-    .form-row a:hover { text-decoration: underline; }
-
     .btn-submit {
       width: 100%;
       padding: 0.95rem 1rem;
@@ -208,10 +199,6 @@
           <input type="password" id="password" class="form-control" placeholder="••••••••" autocomplete="current-password" required />
           <button type="button" class="password-toggle" id="toggle-password" aria-label="Показать пароль">Показать</button>
         </div>
-      </div>
-
-      <div class="form-row">
-        <a href="/?reset=1">Забыли пароль?</a>
       </div>
 
       <button type="submit" class="btn-submit" id="submit-btn">Войти</button>
