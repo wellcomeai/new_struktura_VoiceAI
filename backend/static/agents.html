@@ -107,6 +107,18 @@
       border-top: 1px solid var(--border-color);
     }
     
+    .badge-realtime {
+      margin-left: auto;
+      background: #FEF3C7;
+      color: #92400E;
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
     .sidebar-nav-item {
       display: flex;
       align-items: center;
@@ -1505,6 +1517,10 @@
       <div class="sidebar-section">Основное</div>
       <a href="/static/dashboard.html" class="sidebar-nav-item">
         <i class="fas fa-home"></i> Дашборд
+      </a>
+      <a href="/static/agent.html" class="sidebar-nav-item" id="agent-nav-item">
+        <i class="fas fa-headset"></i> Агент обзвона
+        <span class="badge-realtime">new</span>
       </a>
       <a href="/static/agents.html" class="sidebar-nav-item active">
         <i class="fas fa-robot"></i> OpenAI агенты
