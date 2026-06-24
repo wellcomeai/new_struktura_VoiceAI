@@ -1101,6 +1101,28 @@ def ensure_agent_inbound_first_phrase_column():
         logger.error(f"❌ ensure_agent_inbound_first_phrase_column error: {e}")
 
 
+def ensure_agent_connectors_table():
+    """
+    Идемпотентно создаёт таблицу agent_connectors (внешние коннекторы агента
+    через Composio: Google Calendar, Gmail).
+
+    Миграции не трогаем — создаём таблицу через ORM-метаданные при старте, как и
+    остальные agent-таблицы. Если таблица уже есть — no-op.
+    """
+    try:
+        from sqlalchemy import inspect
+        from backend.models.agent_connector import AgentConnector
+
+        inspector = inspect(engine)
+        if inspector.has_table('agent_connectors'):
+            return
+
+        AgentConnector.__table__.create(bind=engine, checkfirst=True)
+        logger.info("✅ Created table agent_connectors")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_connectors_table error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1170,6 +1192,9 @@ async def startup_event():
 
                 # 🆕 Шаг 17: Колонка первой фразы для входящих в agent_configs
                 ensure_agent_inbound_first_phrase_column()
+
+                # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
+                ensure_agent_connectors_table()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

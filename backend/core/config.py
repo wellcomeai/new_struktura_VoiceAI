@@ -129,7 +129,19 @@ class Settings(BaseSettings):
     R2_ENDPOINT: str = os.getenv("R2_ENDPOINT", "")
     R2_BUCKET: str = os.getenv("R2_BUCKET", "voicyfy")
     R2_PUBLIC_URL: str = os.getenv("R2_PUBLIC_URL", "")
-    
+
+    # =========================================================================
+    # ✅ НОВОЕ: Composio — внешние коннекторы агента (Google Calendar, Gmail)
+    # =========================================================================
+    # Серверный API-ключ Composio (dashboard.composio.dev). Без него коннекторы
+    # отключены — пользователь просто не увидит кнопок подключения.
+    COMPOSIO_API_KEY: Optional[str] = os.getenv("COMPOSIO_API_KEY")
+
+    # Auth Config ID на каждый toolkit (создаётся в дашборде Composio).
+    # Нужен для link() — старта OAuth-флоу подключения аккаунта пользователя.
+    COMPOSIO_AUTH_CONFIG_GOOGLECALENDAR: Optional[str] = os.getenv("COMPOSIO_AUTH_CONFIG_GOOGLECALENDAR")
+    COMPOSIO_AUTH_CONFIG_GMAIL: Optional[str] = os.getenv("COMPOSIO_AUTH_CONFIG_GMAIL")
+
     # =========================================================================
     
     # ✅ ИСПРАВЛЕНО: Улучшенные validators с детальными проверками
@@ -345,7 +357,19 @@ try:
             print("   ⚠️ R2_PUBLIC_URL not set - recordings won't be publicly accessible")
     else:
         print("ℹ️  R2 Storage not configured - call recordings will use temporary Voximplant URLs")
-        
+
+    # ✅ Проверяем Composio (коннекторы агента)
+    if settings.COMPOSIO_API_KEY:
+        _cfgd = [
+            name for name, val in (
+                ("GoogleCalendar", settings.COMPOSIO_AUTH_CONFIG_GOOGLECALENDAR),
+                ("Gmail", settings.COMPOSIO_AUTH_CONFIG_GMAIL),
+            ) if val
+        ]
+        print(f"🔌 Composio configured. Auth configs: {', '.join(_cfgd) if _cfgd else 'none (set COMPOSIO_AUTH_CONFIG_*)'}")
+    else:
+        print("ℹ️  Composio not configured - agent connectors (Calendar/Gmail) disabled")
+
 except Exception as e:
     print(f"❌ Configuration error: {str(e)}")
     print("Please check your .env file and fix the configuration issues.")

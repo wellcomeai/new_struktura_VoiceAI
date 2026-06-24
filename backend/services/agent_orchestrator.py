@@ -35,6 +35,8 @@ from backend.services.agent_tools import (
     AGENT_POSTCALL_TOOLS,
     execute_tool,
     to_chat_completions_tools,
+    build_chat_tools,
+    build_postcall_tools,
 )
 from backend.services.agent_prompts import build_orchestrator_prompt
 from backend.services.openrouter_client import get_openrouter_client
@@ -931,7 +933,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 Первая фраза: {agent_call.custom_greeting or '(не задана)'}
 Тактика: {agent_call.call_strategy or '(не задана)'}"""
 
-        tools = to_chat_completions_tools(AGENT_POSTCALL_TOOLS)
+        tools = await build_postcall_tools(agent_config, db)
         tool_calls_log: List[Dict[str, Any]] = []
 
         context = {
@@ -1398,7 +1400,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
 
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        tools = await build_chat_tools(agent_config, db)
 
         context = {
             "agent_config_id": str(agent_config.id),
@@ -1509,7 +1511,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
 
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        tools = await build_chat_tools(agent_config, db)
         context = {
             "agent_config_id": str(agent_config.id),
             "user_id": str(user.id),
@@ -1750,7 +1752,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
 
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        tools = await build_chat_tools(agent_config, db)
         debug_log.append({
             "ts": self._now_ts(),
             "type": "gpt_thinking",
@@ -1877,7 +1879,7 @@ class ChatOrchestrator:
             {"role": "user", "content": message},
         ]
 
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        tools = await build_chat_tools(agent_config, db)
         context = {
             "agent_config_id": str(agent_config.id),
             "user_id": str(user.id),
@@ -1992,7 +1994,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
 
-        tools = to_chat_completions_tools(AGENT_CHAT_TOOLS)
+        tools = await build_chat_tools(agent_config, db)
         debug_log.append({
             "ts": self._now_ts(),
             "type": "gpt_thinking",

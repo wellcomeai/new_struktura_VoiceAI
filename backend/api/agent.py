@@ -12,7 +12,7 @@ from fastapi import (
     APIRouter, Depends, HTTPException, Query, status,
     UploadFile, File, Form, BackgroundTasks, Request,
 )
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -31,6 +31,8 @@ from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
+from backend.models.agent_connector import AgentConnector, CONNECTOR_TOOLKITS
+from backend.services import composio_service
 from backend.core.config import settings
 from backend.core.dependencies import get_current_user
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
@@ -121,6 +123,38 @@ def _voice_set_kb_function(va, enabled: bool) -> None:
             "name": "search_pinecone",
             "description": "Ищет информацию в базе знаний компании (векторный поиск).",
         })
+    va.functions = items
+    flag_modified(va, "functions")
+
+
+def _voice_set_connector_function(va, toolkit: str, enabled: bool) -> None:
+    """
+    Включает/выключает голосовые функции коннектора (например google_calendar →
+    google_calendar_create_event/find_events) у голосового ассистента.
+
+    Зеркалит _voice_set_kb_function: функции резолвятся в определения в runtime
+    (build_functions_for_openai), а composio_user_id функция берёт из владельца
+    ассистента — поэтому здесь достаточно управлять списком functions.
+    """
+    if va is None:
+        return
+    names_to_manage = set(composio_service.voice_function_names(toolkit))
+    if not names_to_manage:
+        return
+
+    funcs = va.functions
+    if isinstance(funcs, dict) and "enabled_functions" in funcs:
+        names = [n for n in list(funcs.get("enabled_functions", [])) if n not in names_to_manage]
+        if enabled:
+            names.extend(sorted(names_to_manage))
+        va.functions = {"enabled_functions": names}
+        flag_modified(va, "functions")
+        return
+
+    items = list(funcs) if isinstance(funcs, list) else []
+    items = [f for f in items if (f.get("name") if isinstance(f, dict) else f) not in names_to_manage]
+    if enabled:
+        items.extend(composio_service.TOOLKIT_VOICE_FUNCTIONS.get(toolkit, []))
     va.functions = items
     flag_modified(va, "functions")
 
@@ -1162,6 +1196,249 @@ async def toggle_public_access(
     db.commit()
     db.refresh(agent)
     return _public_access_dict(agent)
+
+
+# ============================================================================
+# ENDPOINTS — CONNECTORS (Composio: Google Calendar, Gmail)
+# ============================================================================
+
+def _connectors_base_url() -> str:
+    """Публичный базовый URL для callback'а OAuth (без хвостового слэша)."""
+    base = settings.PUBLIC_BASE_URL or settings.HOST_URL or ""
+    return base.rstrip("/")
+
+
+def _toolkit_label(toolkit: str) -> str:
+    return {"google_calendar": "Google Календарь", "gmail": "Gmail"}.get(toolkit, toolkit)
+
+
+def _connectors_status(db: Session, agent: AgentConfig) -> dict:
+    """Сводка по коннекторам агента для UI."""
+    rows = {
+        r.toolkit: r
+        for r in db.query(AgentConnector).filter(
+            AgentConnector.agent_config_id == agent.id
+        ).all()
+    }
+    items = []
+    for toolkit in CONNECTOR_TOOLKITS:
+        row = rows.get(toolkit)
+        items.append({
+            "toolkit": toolkit,
+            "label": _toolkit_label(toolkit),
+            "available": composio_service.toolkit_available(toolkit),
+            "status": row.status if row else "disconnected",
+            "connected": bool(row and row.is_connected()),
+            "connected_email": row.connected_email if row else None,
+        })
+    return {"configured": composio_service.is_configured(), "connectors": items}
+
+
+@router.get("/connectors")
+async def list_connectors(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Статус коннекторов агента (для раздела настроек)."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+    return _connectors_status(db, agent)
+
+
+@router.post("/connectors/{toolkit}/connect")
+async def connect_connector(
+    toolkit: str,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Старт OAuth-подключения toolkit'а. Возвращает {redirect_url} — фронт делает
+    редирект пользователя в Composio/Google. По возврату сработает /connectors/callback.
+    """
+    if toolkit not in CONNECTOR_TOOLKITS:
+        raise HTTPException(status_code=400, detail="unknown_toolkit")
+    if not composio_service.is_configured():
+        raise HTTPException(status_code=400, detail="composio_not_configured")
+    if not composio_service.toolkit_available(toolkit):
+        raise HTTPException(status_code=400, detail="toolkit_auth_config_missing")
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    base = _connectors_base_url()
+    if not base:
+        raise HTTPException(status_code=500, detail="public_base_url_not_set")
+
+    composio_user_id = str(current_user.id)
+    state_token = secrets.token_urlsafe(24)
+    callback_url = f"{base}/api/agent/connectors/callback?state={state_token}"
+
+    # Upsert ряда коннектора (один на agent+toolkit).
+    row = db.query(AgentConnector).filter(
+        AgentConnector.agent_config_id == agent.id,
+        AgentConnector.toolkit == toolkit,
+    ).first()
+    if not row:
+        row = AgentConnector(
+            agent_config_id=agent.id,
+            user_id=current_user.id,
+            toolkit=toolkit,
+        )
+        db.add(row)
+    row.status = "pending"
+    row.composio_user_id = composio_user_id
+    row.state_token = state_token
+    db.flush()
+
+    try:
+        result = await composio_service.initiate_connection(
+            composio_user_id=composio_user_id,
+            toolkit=toolkit,
+            callback_url=callback_url,
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[AGENT-CONNECTORS] initiate failed toolkit={toolkit}: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail="composio_initiate_failed")
+
+    redirect_url = result.get("redirect_url")
+    if not redirect_url:
+        db.rollback()
+        raise HTTPException(status_code=502, detail="no_redirect_url")
+
+    # connection_id (запрос подключения) временно держим в connected_account_id —
+    # на callback'е заменим реальным connected_account_id.
+    if result.get("connection_id"):
+        row.connected_account_id = result["connection_id"]
+    db.commit()
+
+    logger.info(f"[AGENT-CONNECTORS] connect toolkit={toolkit} agent={agent.id} → redirect")
+    return {"redirect_url": redirect_url}
+
+
+def _connector_callback_html(toolkit: str, ok: bool) -> str:
+    """Простая страница возврата: уведомляет фронт (postMessage) и закрывается."""
+    status = "success" if ok else "error"
+    label = _toolkit_label(toolkit or "")
+    title = f"{label}: {'подключено' if ok else 'ошибка подключения'}"
+    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<title>{title}</title>
+<style>body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0f172a;color:#e2e8f0;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}}
+.card{{background:#1e293b;padding:32px 40px;border-radius:16px;max-width:360px}}
+h1{{font-size:18px;margin:0 0 8px}}p{{color:#94a3b8;font-size:14px;margin:0}}</style></head>
+<body><div class="card"><h1>{'✅' if ok else '⚠️'} {title}</h1>
+<p>Можно вернуться в дашборд агента. Это окно закроется автоматически.</p></div>
+<script>
+try{{ if(window.opener){{ window.opener.postMessage({{type:'connector_result',toolkit:'{toolkit}',status:'{status}'}},'*'); }} }}catch(e){{}}
+setTimeout(function(){{ try{{window.close();}}catch(e){{}}
+ if(!window.closed){{ window.location.href='/agent.html?connector={toolkit}&status={status}'; }} }}, 1200);
+</script></body></html>"""
+
+
+@router.get("/connectors/callback")
+async def connector_callback(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Возврат пользователя после OAuth (открывается в браузере пользователя, без JWT).
+
+    Composio редиректит сюда с нашим state и своими параметрами (status,
+    connected_account_id). По state находим ряд, помечаем connected и включаем
+    голосовые функции коннектора.
+    """
+    qp = request.query_params
+    state = qp.get("state")
+    status_param = (qp.get("status") or "").lower()
+    connected_account_id = (
+        qp.get("connectedAccountId")
+        or qp.get("connected_account_id")
+        or qp.get("connectionId")
+    )
+
+    if not state:
+        return HTMLResponse(_connector_callback_html("", False), status_code=400)
+
+    row = db.query(AgentConnector).filter(AgentConnector.state_token == state).first()
+    if not row:
+        logger.warning("[AGENT-CONNECTORS] callback: unknown state token")
+        return HTMLResponse(_connector_callback_html("", False), status_code=404)
+
+    # Успех, если Composio явно не сообщил об ошибке (часть провайдеров не шлёт status).
+    ok = status_param not in ("error", "failed", "denied", "cancelled")
+
+    if ok:
+        row.status = "connected"
+        if connected_account_id:
+            row.connected_account_id = connected_account_id
+        row.state_token = None
+        # Подтягиваем email подключённого аккаунта (best-effort).
+        try:
+            if row.connected_account_id:
+                info = await composio_service.get_connection(row.connected_account_id)
+                if info.get("email"):
+                    row.connected_email = info["email"]
+        except Exception as e:
+            logger.warning(f"[AGENT-CONNECTORS] get_connection failed: {e}")
+
+        # Включаем голосовые функции коннектора у голосового ассистента агента.
+        try:
+            agent = db.query(AgentConfig).filter(AgentConfig.id == row.agent_config_id).first()
+            if agent:
+                va = _resolve_voice_assistant(db, agent)
+                _voice_set_connector_function(va, row.toolkit, True)
+        except Exception as e:
+            logger.error(f"[AGENT-CONNECTORS] voice inject failed: {e}", exc_info=True)
+
+        db.commit()
+        logger.info(f"[AGENT-CONNECTORS] callback OK toolkit={row.toolkit} agent={row.agent_config_id}")
+        return HTMLResponse(_connector_callback_html(row.toolkit, True))
+
+    row.status = "error"
+    row.state_token = None
+    db.commit()
+    logger.warning(f"[AGENT-CONNECTORS] callback ERROR toolkit={row.toolkit} status={status_param}")
+    return HTMLResponse(_connector_callback_html(row.toolkit, False))
+
+
+@router.delete("/connectors/{toolkit}")
+async def disconnect_connector(
+    toolkit: str,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Отключить коннектор: убрать голосовые функции и удалить локальный ряд."""
+    if toolkit not in CONNECTOR_TOOLKITS:
+        raise HTTPException(status_code=400, detail="unknown_toolkit")
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent_not_found")
+
+    row = db.query(AgentConnector).filter(
+        AgentConnector.agent_config_id == agent.id,
+        AgentConnector.toolkit == toolkit,
+    ).first()
+    if not row:
+        return {"ok": True, "toolkit": toolkit, "status": "disconnected"}
+
+    # Убираем голосовые функции коннектора.
+    try:
+        va = _resolve_voice_assistant(db, agent)
+        _voice_set_connector_function(va, toolkit, False)
+    except Exception as e:
+        logger.error(f"[AGENT-CONNECTORS] voice cleanup failed: {e}", exc_info=True)
+
+    db.delete(row)
+    db.commit()
+    logger.info(f"[AGENT-CONNECTORS] disconnected toolkit={toolkit} agent={agent.id}")
+    return {"ok": True, "toolkit": toolkit, "status": "disconnected"}
 
 
 @router.post("/public/{agent_id}/message")

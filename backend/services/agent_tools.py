@@ -17,6 +17,8 @@ from backend.models.agent_call import AgentCall
 from backend.models.agent_config import AgentConfig
 from backend.models.task import Task, TaskStatus
 from backend.models.user import User
+from backend.models.agent_connector import AgentConnector
+from backend.services import composio_service
 from backend.services.telegram_notification import TelegramNotificationService
 from backend.core.timezone_utils import adjust_to_working_hours
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGE_KEYS, is_valid_stage
@@ -217,6 +219,70 @@ def to_chat_completions_tools(tools: list) -> list:
         else:
             converted.append(t)
     return converted
+
+
+# ============================================================================
+# CONNECTOR TOOLS (Composio) — динамическая надстройка над базовыми tools
+# ============================================================================
+
+def _connected_toolkit_slugs(agent_config, db: Session) -> list:
+    """
+    Slug'и toolkit'ов Composio, подключённых к агенту (status='connected').
+    Пустой список, если Composio не настроен, агента нет или нет подключений.
+    """
+    if agent_config is None or not composio_service.is_configured():
+        return []
+    try:
+        rows = db.query(AgentConnector).filter(
+            AgentConnector.agent_config_id == agent_config.id,
+            AgentConnector.status == "connected",
+        ).all()
+    except Exception as e:
+        logger.warning(f"[AGENT-TOOLS] connector lookup failed: {e}")
+        return []
+    slugs = []
+    for r in rows:
+        slug = composio_service.TOOLKIT_SLUGS.get(r.toolkit)
+        if slug:
+            slugs.append(slug)
+    return slugs
+
+
+async def _augment_with_connectors(base_tools: list, agent_config, db: Session) -> list:
+    """Дописать к base_tools определения подключённых коннекторов (если есть)."""
+    slugs = _connected_toolkit_slugs(agent_config, db)
+    if not slugs:
+        return base_tools
+    connector_tools = await composio_service.get_tools(str(agent_config.user_id), slugs)
+    if not connector_tools:
+        return base_tools
+    logger.info(f"[AGENT-TOOLS] +{len(connector_tools)} connector tools for agent {agent_config.id}")
+    return base_tools + connector_tools
+
+
+async def build_chat_tools(agent_config, db: Session) -> list:
+    """
+    Tools для чата/Telegram оркестратора (Chat Completions формат): базовый
+    AGENT_CHAT_TOOLS + инструменты подключённых коннекторов агента.
+    """
+    return await _augment_with_connectors(
+        to_chat_completions_tools(AGENT_CHAT_TOOLS), agent_config, db
+    )
+
+
+async def build_postcall_tools(agent_config, db: Session) -> list:
+    """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы агента."""
+    return await _augment_with_connectors(
+        to_chat_completions_tools(AGENT_POSTCALL_TOOLS), agent_config, db
+    )
+
+
+async def fn_execute_connector(tool_name: str, args: dict, user_id: str, db: Session) -> dict:
+    """
+    Исполнить инструмент коннектора (Composio) для оркестратора.
+    composio_user_id = Voicyfy user.id — то же подключение, что и у голосового агента.
+    """
+    return await composio_service.execute(tool_name, args, str(user_id))
 
 
 # ============================================================================
@@ -2008,6 +2074,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             if agent_config is None and agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_send_webhook(tool_args, agent_config, db)
+        elif composio_service.is_composio_tool(tool_name):
+            result = await fn_execute_connector(tool_name, tool_args, user_id, db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 

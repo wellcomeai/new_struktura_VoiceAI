@@ -217,6 +217,17 @@
       </div>
     </div>
 
+    <!-- 4b. Коннекторы (Google Календарь, Gmail через Composio) -->
+    <div class="card" id="connectors-card">
+      <div class="card-head">
+        <div class="card-head-title"><i class="fas fa-plug"></i> Коннекторы</div>
+        <span class="card-link" onclick="openConnectorsModal()">Управлять →</span>
+      </div>
+      <div id="connectors-block">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+
     <!-- 5. История работы агента (последние 100 фоновых задач: звонки + SMS) -->
     <div class="card">
       <div class="card-head">
@@ -632,6 +643,28 @@
   </div>
 </div>
 
+<!-- МОДАЛКА: Коннекторы (Google Календарь, Gmail) -->
+<div class="modal-overlay hidden" id="connectors-modal-overlay">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-plug"></i> Коннекторы агента</div>
+      <button class="modal-close" onclick="closeConnectorsModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="connectors-modal-meta" style="font-size:13px;color:#64748b;margin-bottom:14px">
+        Подключите внешние сервисы — агент сможет создавать события и отправлять
+        письма во время звонка и в чате с вами.
+      </div>
+      <div id="connectors-list">
+        <div class="empty">Загрузка...</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeConnectorsModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- Voicyfy Agent — модульные скрипты. Классические (не ES-модули):
      общее глобальное состояние и функции. Порядок: core → фичи → init.
      Документация связок: /static/agent/CLAUDE.md -->
@@ -649,6 +682,7 @@
 <script src="/static/agent/import.js"></script>
 <script src="/static/agent/pipeline.js"></script>
 <script src="/static/agent/knowledge-base.js"></script>
+<script src="/static/agent/connectors.js"></script>
 <script src="/static/agent/onboarding.js"></script>
 <script src="/static/agent/wizard.js"></script>
 <script src="/static/agent/presence.js"></script>

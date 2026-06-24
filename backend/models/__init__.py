@@ -55,6 +55,7 @@ from .browser_task import BrowserTask, BrowserTaskStatus
 from .agent_config import AgentConfig
 from .agent_contact import AgentContact
 from .agent_call import AgentCall
+from .agent_connector import AgentConnector
 
 # ✅ НОВОЕ v2.2: Telegram-интеграция агента
 from .agent_telegram_chat_history import AgentTelegramChatHistory
@@ -122,6 +123,7 @@ __all__ = [
     "AgentConfig",
     "AgentContact",
     "AgentCall",
+    "AgentConnector",
     # ✅ НОВОЕ v2.2: Telegram-интеграция агента
     "AgentTelegramChatHistory",
     # ✅ НОВОЕ v3.0: Voximplant Partner модели
