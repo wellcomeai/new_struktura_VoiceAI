@@ -59,11 +59,15 @@ def voice_function_names(toolkit: str) -> list:
 _TOOLS_CACHE: Dict[str, Any] = {}
 _TOOLS_CACHE_TTL = 300  # секунд
 
-# Версия тулкита для tools.execute. С Composio SDK >=0.9 execute требует явную
-# версию, иначе ToolVersionRequiredError. Вывод читает LLM → используем "latest"
-# (рекомендация Composio). Можно переопределить env COMPOSIO_TOOLKIT_VERSION.
+# Версия тулкита для tools.execute. С Composio SDK >=0.9 manual execute требует
+# версию: "latest" НЕ принимается. Варианты:
+#   - пустое значение (по умолчанию) → dangerously_skip_version_check=True:
+#     Composio берёт текущую версию тулза в рантайме (нам подходит — вывод читает
+#     LLM, версии не пиним).
+#   - конкретная дата-версия в env COMPOSIO_TOOLKIT_VERSION (например 20251027_00)
+#     → передаём её как version=... для прод-стабильности.
 import os as _os
-TOOLKIT_VERSION = _os.getenv("COMPOSIO_TOOLKIT_VERSION", "latest")
+TOOLKIT_VERSION = _os.getenv("COMPOSIO_TOOLKIT_VERSION", "").strip()
 
 _client = None  # ленивый singleton Composio
 
@@ -252,12 +256,14 @@ async def execute(slug: str, arguments: Dict[str, Any], composio_user_id: str) -
         client = _get_client()
 
         def _do():
-            return client.tools.execute(
-                slug,
-                arguments=arguments or {},
-                user_id=composio_user_id,
-                version=TOOLKIT_VERSION,
-            )
+            exec_kwargs = {"arguments": arguments or {}, "user_id": composio_user_id}
+            if TOOLKIT_VERSION:
+                # Зафиксированная дата-версия (прод-стабильность).
+                exec_kwargs["version"] = TOOLKIT_VERSION
+            else:
+                # Без пина — пропускаем проверку версии, Composio возьмёт текущую.
+                exec_kwargs["dangerously_skip_version_check"] = True
+            return client.tools.execute(slug, **exec_kwargs)
 
         resp = await _run(_do)
         return _normalize_execution(resp)
