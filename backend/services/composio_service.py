@@ -153,6 +153,7 @@ async def initiate_connection(
             user_id=composio_user_id,
             auth_config_id=auth_config_id,
             callback_url=callback_url,
+            allow_multiple=True,
         )
 
     try:
@@ -173,6 +174,73 @@ async def initiate_connection(
     connection_id = getattr(req, "id", None) or getattr(req, "connection_id", None)
     logger.info(f"[COMPOSIO] link() toolkit={toolkit} user={composio_user_id} conn={connection_id} redirect={'yes' if redirect_url else 'NO'}")
     return {"redirect_url": redirect_url, "connection_id": connection_id}
+
+
+def _extract_list_items(resp) -> list:
+    """Достать список аккаунтов из ответа connected_accounts.list (разные формы)."""
+    if resp is None:
+        return []
+    if isinstance(resp, list):
+        return resp
+    for attr in ("items", "data", "results"):
+        val = getattr(resp, attr, None)
+        if val is None and isinstance(resp, dict):
+            val = resp.get(attr)
+        if isinstance(val, list):
+            return val
+    return []
+
+
+async def find_active_connection(composio_user_id: str, toolkit: str) -> Optional[Dict[str, Any]]:
+    """
+    Найти уже существующее активное подключение пользователя для toolkit.
+
+    composio_user_id общий для всех агентов юзера, поэтому подключение,
+    сделанное на одном агенте, переиспользуется на других — без повторного OAuth.
+    Best-effort: при любой ошибке/неизвестной форме API возвращает None.
+    """
+    auth_config_id = auth_config_for(toolkit)
+    if not auth_config_id or not is_configured():
+        return None
+    try:
+        client = _get_client()
+
+        def _do():
+            accounts = client.connected_accounts
+            # Пробуем наиболее вероятную сигнатуру list(); подстраховка ниже.
+            try:
+                return accounts.list(user_ids=[composio_user_id], auth_config_ids=[auth_config_id])
+            except TypeError:
+                return accounts.list(user_id=composio_user_id)
+
+        resp = await _run(_do)
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] find_active_connection list failed: {e}")
+        return None
+
+    items = _extract_list_items(resp)
+    # Сначала ищем явно активное; затем — любое (фильтруем по auth_config, если поле есть).
+    def _ac_id(it):
+        return (getattr(it, "auth_config_id", None)
+                or (it.get("auth_config_id") if isinstance(it, dict) else None)
+                or (getattr(getattr(it, "auth_config", None), "id", None)))
+
+    def _status(it):
+        s = getattr(it, "status", None) or (it.get("status") if isinstance(it, dict) else None)
+        return str(s or "").upper()
+
+    def _id(it):
+        return getattr(it, "id", None) or (it.get("id") if isinstance(it, dict) else None)
+
+    candidates = [it for it in items if _ac_id(it) in (None, auth_config_id)]
+    active = [it for it in candidates if _status(it) in ("ACTIVE", "CONNECTED", "ENABLED")]
+    pick = (active or candidates or [None])[0]
+    if not pick:
+        return None
+    cid = _id(pick)
+    if not cid:
+        return None
+    return {"connected_account_id": cid, "email": _extract_email(pick), "status": _status(pick)}
 
 
 async def get_connection(connection_id: str) -> Dict[str, Any]:

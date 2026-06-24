@@ -1301,6 +1301,29 @@ async def connect_connector(
     row.state_token = state_token
     db.flush()
 
+    # Переиспользование: composio_user_id общий для всех агентов юзера. Если для
+    # этого toolkit уже есть активное подключение (сделано на другом агенте/ранее)
+    # — не гоняем OAuth заново, сразу привязываем к текущему агенту.
+    try:
+        existing = await composio_service.find_active_connection(composio_user_id, toolkit)
+    except Exception as e:
+        logger.warning(f"[AGENT-CONNECTORS] find_active_connection failed: {e}")
+        existing = None
+
+    if existing and existing.get("connected_account_id"):
+        row.status = "connected"
+        row.connected_account_id = existing["connected_account_id"]
+        row.connected_email = existing.get("email")
+        row.state_token = None
+        try:
+            va = _resolve_voice_assistant(db, agent)
+            _voice_set_connector_function(va, toolkit, True)
+        except Exception as e:
+            logger.error(f"[AGENT-CONNECTORS] voice inject (reuse) failed: {e}", exc_info=True)
+        db.commit()
+        logger.info(f"[AGENT-CONNECTORS] reused existing connection toolkit={toolkit} agent={agent.id}")
+        return {"redirect_url": None, "connected": True, "reused": True}
+
     try:
         result = await composio_service.initiate_connection(
             composio_user_id=composio_user_id,

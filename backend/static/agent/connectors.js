@@ -113,6 +113,12 @@ async function connectConnector(toolkit){
       if(data.redirect_url){
         if(popup && !popup.closed){ popup.location.href = data.redirect_url; }
         else { window.location.href = data.redirect_url; }
+      } else if(data.connected){
+        // Переиспользовано существующее подключение этого пользователя — без OAuth.
+        if(popup) popup.close();
+        const m = CONNECTOR_META[toolkit] || { label: toolkit };
+        showToast(`${m.label} подключён`, 'success');
+        await loadConnectors();
       } else {
         if(popup) popup.close();
         showToast('Не удалось получить ссылку авторизации', 'error');
