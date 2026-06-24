@@ -289,3 +289,95 @@ def _normalize_execution(resp) -> Dict[str, Any]:
         "data": getattr(resp, "data", None),
         "error": getattr(resp, "error", None),
     }
+
+
+# ============================================================================
+# ГОЛОСОВОЙ АГЕНТ — динамический резолв коннекторов по голосовому ассистенту
+# ============================================================================
+# Голос не полагается на разовый снимок функций в конфиге: при старте сессии
+# смотрим, какие коннекторы у владеющего агента в статусе connected, и
+# домешиваем их голосовые функции в список — аналогично тому, как оркестратор
+# берёт инструменты через tools.get на каждый запрос.
+
+def connected_toolkits_for_assistant(db, assistant_config) -> list:
+    """
+    Ключи toolkit'ов (google_calendar/gmail), подключённых к АГЕНТУ, которому
+    принадлежит данный голосовой ассистент (gemini/openai/cartesia).
+    Best-effort: при любой ошибке возвращает [].
+    """
+    if assistant_config is None or not is_configured():
+        return []
+    try:
+        from sqlalchemy import or_ as _or
+        from backend.models.agent_config import AgentConfig
+        from backend.models.agent_connector import AgentConnector
+
+        aid = getattr(assistant_config, "id", None)
+        if not aid:
+            return []
+        agent = db.query(AgentConfig).filter(_or(
+            AgentConfig.gemini_assistant_id == aid,
+            AgentConfig.openai_assistant_id == aid,
+            AgentConfig.cartesia_assistant_id == aid,
+        )).first()
+        if not agent:
+            return []
+        rows = db.query(AgentConnector).filter(
+            AgentConnector.agent_config_id == agent.id,
+            AgentConnector.status == "connected",
+        ).all()
+        return [r.toolkit for r in rows if r.toolkit in TOOLKIT_VOICE_FUNCTIONS]
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] connected_toolkits_for_assistant failed: {e}")
+        return []
+
+
+def merge_voice_connector_functions(db, assistant_config, functions):
+    """
+    Домешать в `functions` голосового ассистента функции подключённых коннекторов.
+
+    Сохраняет форму входа: dict {"enabled_functions":[...]} → dict; list/None → list.
+    Дубли по имени убираются. Если коннекторов нет — возвращает functions как есть.
+    """
+    toolkits = connected_toolkits_for_assistant(db, assistant_config)
+    if not toolkits:
+        return functions
+
+    extra = []
+    for tk in toolkits:
+        extra.extend(TOOLKIT_VOICE_FUNCTIONS.get(tk, []))
+    if not extra:
+        return functions
+    extra_names = {f["name"] for f in extra}
+
+    # dict-форма {"enabled_functions": [...имена...]}
+    if isinstance(functions, dict) and "enabled_functions" in functions:
+        names = [n for n in functions.get("enabled_functions", []) if n not in extra_names]
+        names.extend(sorted(extra_names))
+        return {"enabled_functions": names}
+
+    # list-форма [{"name","description"}, ...] (или None)
+    items = list(functions) if isinstance(functions, list) else []
+    items = [f for f in items if (f.get("name") if isinstance(f, dict) else f) not in extra_names]
+    items.extend(extra)
+    return items
+
+
+def connector_voice_prompt_note(db, assistant_config) -> str:
+    """
+    Короткая подсказка для system-промпта голоса о подключённых сервисах, чтобы
+    модель знала, что может ими пользоваться. Пусто, если коннекторов нет.
+    """
+    toolkits = connected_toolkits_for_assistant(db, assistant_config)
+    if not toolkits:
+        return ""
+    labels = {
+        "google_calendar": "Google Календарь — можешь создавать события/встречи и проверять занятость",
+        "gmail": "Gmail — можешь отправлять письма клиенту",
+    }
+    lines = [f"- {labels.get(tk, tk)}" for tk in toolkits]
+    return (
+        "\n\nПОДКЛЮЧЁННЫЕ СЕРВИСЫ (вызывай соответствующие функции, когда это уместно по ходу разговора):\n"
+        + "\n".join(lines)
+    )
+

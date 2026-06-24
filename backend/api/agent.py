@@ -623,6 +623,13 @@ async def update_agent(
         # голосового ассистента.
         if agent.has_knowledge_base():
             _voice_set_kb_function(new_voice, True)
+        # Переносим голосовые функции подключённых коннекторов (Composio) на
+        # нового голосового ассистента — иначе при смене типа они терялись бы.
+        for _conn in db.query(AgentConnector).filter(
+            AgentConnector.agent_config_id == agent.id,
+            AgentConnector.status == "connected",
+        ).all():
+            _voice_set_connector_function(new_voice, _conn.toolkit, True)
         logger.info(f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id}")
 
     # ── Смена модели оркестратора ──

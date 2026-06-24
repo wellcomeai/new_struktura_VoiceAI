@@ -208,7 +208,21 @@ class GeminiLiveClient:
             voice = self.assistant_config.voice or DEFAULT_VOICE
             system_message = getattr(self.assistant_config, "system_prompt", None) or DEFAULT_SYSTEM_MESSAGE
             functions = getattr(self.assistant_config, "functions", None)
-            
+
+            # Динамически домешиваем функции подключённых коннекторов (Composio):
+            # голос не полагается на разовый снимок в конфиге, читает connected-
+            # коннекторы агента из БД — так же, как оркестратор берёт tools.get.
+            try:
+                from backend.services import composio_service as _composio
+                functions = _composio.merge_voice_connector_functions(
+                    self.db_session, self.assistant_config, functions
+                )
+                _note = _composio.connector_voice_prompt_note(self.db_session, self.assistant_config)
+                if _note:
+                    system_message = (system_message or "") + _note
+            except Exception as _e:
+                logger.warning(f"[GEMINI-CLIENT] connector merge failed: {_e}")
+
             # Update functions
             if functions:
                 if isinstance(functions, list):
