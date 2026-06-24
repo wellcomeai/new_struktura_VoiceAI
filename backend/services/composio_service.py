@@ -59,6 +59,12 @@ def voice_function_names(toolkit: str) -> list:
 _TOOLS_CACHE: Dict[str, Any] = {}
 _TOOLS_CACHE_TTL = 300  # секунд
 
+# Версия тулкита для tools.execute. С Composio SDK >=0.9 execute требует явную
+# версию, иначе ToolVersionRequiredError. Вывод читает LLM → используем "latest"
+# (рекомендация Composio). Можно переопределить env COMPOSIO_TOOLKIT_VERSION.
+import os as _os
+TOOLKIT_VERSION = _os.getenv("COMPOSIO_TOOLKIT_VERSION", "latest")
+
 _client = None  # ленивый singleton Composio
 
 
@@ -250,6 +256,7 @@ async def execute(slug: str, arguments: Dict[str, Any], composio_user_id: str) -
                 slug,
                 arguments=arguments or {},
                 user_id=composio_user_id,
+                version=TOOLKIT_VERSION,
             )
 
         resp = await _run(_do)
