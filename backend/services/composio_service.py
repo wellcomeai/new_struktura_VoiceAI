@@ -381,3 +381,51 @@ def connector_voice_prompt_note(db, assistant_config) -> str:
         + "\n".join(lines)
     )
 
+
+def ensure_connector_functions_persisted(db, assistant_config) -> bool:
+    """
+    Гарантирует, что голосовые функции подключённых коннекторов присутствуют в
+    assistant_config.functions, и ПЕРСИСТИТ изменение (self-heal).
+
+    Нужно для телефонии: функции голосу отдаёт сценарий Voximplant из
+    /api/telephony/config (по индексу function_id), а исполняет другой эндпоинт,
+    читающий тот же assistant.functions. Поэтому список должен жить в самом поле —
+    иначе индексы config↔execute разъедутся. Порядок добавления детерминирован
+    (toolkits отсортированы), существующие функции не трогаем — только дописываем.
+
+    Возвращает True, если поле изменилось (вызывающий должен сделать commit).
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+
+    toolkits = sorted(connected_toolkits_for_assistant(db, assistant_config))
+    extra = []
+    for tk in toolkits:
+        extra.extend(TOOLKIT_VOICE_FUNCTIONS.get(tk, []))
+    if not extra:
+        return False
+
+    funcs = getattr(assistant_config, "functions", None)
+
+    # dict-форма {"enabled_functions": [...имена...]}
+    if isinstance(funcs, dict) and "enabled_functions" in funcs:
+        current = list(funcs.get("enabled_functions", []))
+        missing = [f["name"] for f in extra if f["name"] not in current]
+        if not missing:
+            return False
+        funcs = {"enabled_functions": current + missing}
+        assistant_config.functions = funcs
+        flag_modified(assistant_config, "functions")
+        return True
+
+    # list-форма [{"name","description"}, ...] (или None/прочее → список)
+    items = list(funcs) if isinstance(funcs, list) else []
+    existing_names = {(f.get("name") if isinstance(f, dict) else f) for f in items}
+    missing = [f for f in extra if f["name"] not in existing_names]
+    if not missing:
+        return False
+    items = items + missing
+    assistant_config.functions = items
+    flag_modified(assistant_config, "functions")
+    return True
+
+

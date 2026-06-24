@@ -3189,6 +3189,18 @@ async def get_outbound_config(
         # =====================================================================
         # 3. Формируем функции
         # =====================================================================
+        # 🆕 Self-heal коннекторов (Composio): см. /config — синхронизируем
+        # голосовые функции подключённых коннекторов в assistant.functions,
+        # чтобы индексы function_id совпадали между конфигом и исполнением.
+        try:
+            from backend.services import composio_service
+            if assistant is not None and composio_service.ensure_connector_functions_persisted(db, assistant):
+                db.commit()
+                functions_config = assistant.functions
+                logger.info(f"[TELEPHONY-OUTBOUND] Connector functions synced into assistant {assistant.id}")
+        except Exception as e:
+            logger.warning(f"[TELEPHONY-OUTBOUND] connector self-heal failed: {e}")
+
         functions = []
         if functions_config:
             functions = build_functions_for_openai(functions_config)
@@ -4776,7 +4788,20 @@ async def get_scenario_config(
         if not assistant:
             logger.warning(f"[TELEPHONY] Assistant not found: {phone_record.assistant_id}")
             return ScenarioConfigResponse(success=False)
-        
+
+        # 🆕 Self-heal коннекторов (Composio): гарантируем, что голосовые функции
+        # подключённых коннекторов агента есть в assistant.functions. Персистим,
+        # чтобы индексы function_id совпадали между этим конфигом и эндпоинтом
+        # исполнения (оба читают одно поле assistant.functions).
+        try:
+            from backend.services import composio_service
+            if composio_service.ensure_connector_functions_persisted(db, assistant):
+                db.commit()
+                functions_config = assistant.functions
+                logger.info(f"[TELEPHONY] Connector functions synced into assistant {assistant.id}")
+        except Exception as e:
+            logger.warning(f"[TELEPHONY] connector self-heal failed: {e}")
+
         # Формируем функции
         functions = []
         if functions_config:
