@@ -143,19 +143,35 @@ async def initiate_connection(
     client = _get_client()
 
     def _do():
-        return client.connected_accounts.link(
+        accounts = client.connected_accounts
+        # link() — актуальный путь. На старых SDK его может не быть — тогда
+        # пробуем legacy initiate() (тот же возврат redirect_url).
+        method = getattr(accounts, "link", None) or getattr(accounts, "initiate", None)
+        if method is None:
+            raise RuntimeError("composio SDK has neither connected_accounts.link nor initiate")
+        return method(
             user_id=composio_user_id,
             auth_config_id=auth_config_id,
             callback_url=callback_url,
         )
 
-    req = await _run(_do)
+    try:
+        req = await _run(_do)
+    except Exception as e:
+        # Подробный лог с типом исключения — чтобы видеть реальную причину
+        # (сеть до Composio, неверный auth_config, версия SDK и т.п.).
+        logger.error(
+            f"[COMPOSIO] link() failed toolkit={toolkit} user={composio_user_id} "
+            f"auth_config={auth_config_id}: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise
     redirect_url = (
         getattr(req, "redirect_url", None)
         or getattr(req, "redirectUrl", None)
     )
     connection_id = getattr(req, "id", None) or getattr(req, "connection_id", None)
-    logger.info(f"[COMPOSIO] link() toolkit={toolkit} user={composio_user_id} conn={connection_id}")
+    logger.info(f"[COMPOSIO] link() toolkit={toolkit} user={composio_user_id} conn={connection_id} redirect={'yes' if redirect_url else 'NO'}")
     return {"redirect_url": redirect_url, "connection_id": connection_id}
 
 

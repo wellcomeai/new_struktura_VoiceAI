@@ -1309,8 +1309,9 @@ async def connect_connector(
         )
     except Exception as e:
         db.rollback()
-        logger.error(f"[AGENT-CONNECTORS] initiate failed toolkit={toolkit}: {e}", exc_info=True)
-        raise HTTPException(status_code=502, detail="composio_initiate_failed")
+        logger.error(f"[AGENT-CONNECTORS] initiate failed toolkit={toolkit}: {type(e).__name__}: {e}", exc_info=True)
+        # Пробрасываем реальную причину в ответ — иначе видно только обёртку.
+        raise HTTPException(status_code=502, detail=f"composio_initiate_failed: {type(e).__name__}: {str(e)[:300]}")
 
     redirect_url = result.get("redirect_url")
     if not redirect_url:
