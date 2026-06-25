@@ -193,11 +193,11 @@ def _extract_list_items(resp) -> list:
 
 async def find_active_connection(composio_user_id: str, toolkit: str) -> Optional[Dict[str, Any]]:
     """
-    Найти уже существующее активное подключение пользователя для toolkit.
+    Найти уже существующее активное подключение ДЛЯ ЭТОГО composio_user_id и toolkit.
 
-    composio_user_id общий для всех агентов юзера, поэтому подключение,
-    сделанное на одном агенте, переиспользуется на других — без повторного OAuth.
-    Best-effort: при любой ошибке/неизвестной форме API возвращает None.
+    Вариант A: identity по агенту, поэтому переиспользуем подключение только если
+    оно строго принадлежит запрошенному composio_user_id (иначе новый агент мог бы
+    захватить коннект другого агента). Best-effort: ошибка/неизвестная форма → None.
     """
     auth_config_id = auth_config_for(toolkit)
     if not auth_config_id or not is_configured():
@@ -219,11 +219,17 @@ async def find_active_connection(composio_user_id: str, toolkit: str) -> Optiona
         return None
 
     items = _extract_list_items(resp)
-    # Сначала ищем явно активное; затем — любое (фильтруем по auth_config, если поле есть).
+
     def _ac_id(it):
         return (getattr(it, "auth_config_id", None)
                 or (it.get("auth_config_id") if isinstance(it, dict) else None)
                 or (getattr(getattr(it, "auth_config", None), "id", None)))
+
+    def _uid(it):
+        return (getattr(it, "user_id", None)
+                or (it.get("user_id") if isinstance(it, dict) else None)
+                or getattr(it, "userId", None)
+                or (it.get("userId") if isinstance(it, dict) else None))
 
     def _status(it):
         s = getattr(it, "status", None) or (it.get("status") if isinstance(it, dict) else None)
@@ -232,14 +238,25 @@ async def find_active_connection(composio_user_id: str, toolkit: str) -> Optiona
     def _id(it):
         return getattr(it, "id", None) or (it.get("id") if isinstance(it, dict) else None)
 
-    candidates = [it for it in items if _ac_id(it) in (None, auth_config_id)]
+    # СТРОГО: только аккаунты, явно принадлежащие этому composio_user_id и
+    # auth_config. Если list вернул шире (или поле user_id отсутствует) — не
+    # переиспользуем, лучше пройти OAuth заново, чем привязать чужой коннект.
+    def _matches(it):
+        if _ac_id(it) not in (None, auth_config_id):
+            return False
+        uid = _uid(it)
+        return uid is not None and str(uid) == str(composio_user_id)
+
+    candidates = [it for it in items if _matches(it)]
     active = [it for it in candidates if _status(it) in ("ACTIVE", "CONNECTED", "ENABLED")]
     pick = (active or candidates or [None])[0]
     if not pick:
+        logger.info(f"[COMPOSIO] no reusable connection for user={composio_user_id} toolkit={toolkit} (items seen: {len(items)})")
         return None
     cid = _id(pick)
     if not cid:
         return None
+    logger.info(f"[COMPOSIO] reusing connection {cid} for user={composio_user_id} toolkit={toolkit}")
     return {"connected_account_id": cid, "email": _extract_email(pick), "status": _status(pick)}
 
 
