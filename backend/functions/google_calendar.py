@@ -100,7 +100,7 @@ class GoogleCalendarCreateEventFunction(FunctionBase):
 class GoogleCalendarFindEventsFunction(FunctionBase):
     """Найти события в Google Calendar владельца (проверка занятости/расписания)."""
 
-    SLUG = "GOOGLECALENDAR_FIND_EVENTS"
+    SLUG = "GOOGLECALENDAR_FIND_EVENT"
 
     @classmethod
     def get_name(cls) -> str:
