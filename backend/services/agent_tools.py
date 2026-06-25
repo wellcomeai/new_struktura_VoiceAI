@@ -253,7 +253,8 @@ async def _augment_with_connectors(base_tools: list, agent_config, db: Session) 
     slugs = _connected_toolkit_slugs(agent_config, db)
     if not slugs:
         return base_tools
-    connector_tools = await composio_service.get_tools(str(agent_config.user_id), slugs)
+    composio_user_id = composio_service.composio_user_id_for_agent(agent_config.id)
+    connector_tools = await composio_service.get_tools(composio_user_id, slugs)
     if not connector_tools:
         return base_tools
     logger.info(f"[AGENT-TOOLS] +{len(connector_tools)} connector tools for agent {agent_config.id}")
@@ -277,12 +278,14 @@ async def build_postcall_tools(agent_config, db: Session) -> list:
     )
 
 
-async def fn_execute_connector(tool_name: str, args: dict, user_id: str, db: Session) -> dict:
+async def fn_execute_connector(tool_name: str, args: dict, agent_config_id: str, db: Session) -> dict:
     """
     Исполнить инструмент коннектора (Composio) для оркестратора.
-    composio_user_id = Voicyfy user.id — то же подключение, что и у голосового агента.
+    Identity Composio — по агенту (вариант A): то же подключение, что у голосового
+    агента этого же агента, изолированное от других агентов владельца.
     """
-    return await composio_service.execute(tool_name, args, str(user_id))
+    composio_user_id = composio_service.composio_user_id_for_agent(agent_config_id)
+    return await composio_service.execute(tool_name, args, composio_user_id)
 
 
 # ============================================================================
@@ -2075,7 +2078,7 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_send_webhook(tool_args, agent_config, db)
         elif composio_service.is_composio_tool(tool_name):
-            result = await fn_execute_connector(tool_name, tool_args, user_id, db)
+            result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 

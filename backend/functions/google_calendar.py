@@ -21,14 +21,18 @@ logger = get_logger(__name__)
 
 
 def _resolve_user_id(context: Dict[str, Any]) -> Optional[str]:
-    """composio_user_id из контекста выполнения (владелец голосового ассистента)."""
+    """
+    Агентная identity Composio (вариант A): резолвим AgentConfig по голосовому
+    ассистенту и возвращаем composio_user_id агента. Контекст исполнения уже
+    содержит assistant_config и db_session на всех голосовых путях.
+    """
     if not context:
         return None
-    assistant_config = context.get("assistant_config")
-    uid = getattr(assistant_config, "user_id", None) if assistant_config else None
-    if not uid:
-        uid = context.get("user_id")
-    return str(uid) if uid else None
+    ac = context.get("assistant_config")
+    db = context.get("db_session")
+    if ac is None or db is None:
+        return None
+    return composio_service.composio_user_id_for_assistant(db, ac)
 
 
 @register_function

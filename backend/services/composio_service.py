@@ -261,6 +261,27 @@ async def get_connection(connection_id: str) -> Dict[str, Any]:
         return {"status": "unknown", "connected_account_id": connection_id, "email": None}
 
 
+async def delete_connection(connected_account_id: str) -> bool:
+    """
+    Удалить connected account в Composio (при отключении коннектора). Best-effort:
+    ошибки не роняют отключение — локальная строка всё равно удаляется.
+    """
+    if not connected_account_id or not is_configured():
+        return False
+    try:
+        client = _get_client()
+        method = getattr(client.connected_accounts, "delete", None)
+        if method is None:
+            logger.warning("[COMPOSIO] connected_accounts.delete not available in SDK")
+            return False
+        await _run(method, connected_account_id)
+        logger.info(f"[COMPOSIO] deleted connected account {connected_account_id}")
+        return True
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] delete_connection({connected_account_id}) failed: {e}")
+        return False
+
+
 def _extract_email(acc) -> Optional[str]:
     """Достать email/идентификатор аккаунта из ответа Composio (best-effort)."""
     for attr in ("email", "user_email"):
@@ -383,6 +404,39 @@ def _normalize_execution(resp) -> Dict[str, Any]:
 # домешиваем их голосовые функции в список — аналогично тому, как оркестратор
 # берёт инструменты через tools.get на каждый запрос.
 
+def composio_user_id_for_agent(agent_config_id) -> str:
+    """
+    Идентичность агента в Composio (вариант A). Каждый агент — отдельный
+    «пользователь» Composio, поэтому подключения изолированы между агентами
+    одного владельца. Единая точка правды для connect/get_tools/execute/voice.
+    """
+    return f"agent_{agent_config_id}"
+
+
+def _resolve_owner_agent(db, assistant_config):
+    """AgentConfig, владеющий данным голосовым ассистентом (gemini/openai/cartesia), или None."""
+    aid = getattr(assistant_config, "id", None)
+    if not aid:
+        return None
+    from sqlalchemy import or_ as _or
+    from backend.models.agent_config import AgentConfig
+    return db.query(AgentConfig).filter(_or(
+        AgentConfig.gemini_assistant_id == aid,
+        AgentConfig.openai_assistant_id == aid,
+        AgentConfig.cartesia_assistant_id == aid,
+    )).first()
+
+
+def composio_user_id_for_assistant(db, assistant_config) -> Optional[str]:
+    """Агентная identity Composio по голосовому ассистенту (или None, если агент не найден)."""
+    try:
+        agent = _resolve_owner_agent(db, assistant_config)
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] composio_user_id_for_assistant failed: {e}")
+        return None
+    return composio_user_id_for_agent(agent.id) if agent else None
+
+
 def connected_toolkits_for_assistant(db, assistant_config) -> list:
     """
     Ключи toolkit'ов (google_calendar/gmail), подключённых к АГЕНТУ, которому
@@ -392,18 +446,9 @@ def connected_toolkits_for_assistant(db, assistant_config) -> list:
     if assistant_config is None or not is_configured():
         return []
     try:
-        from sqlalchemy import or_ as _or
-        from backend.models.agent_config import AgentConfig
         from backend.models.agent_connector import AgentConnector
 
-        aid = getattr(assistant_config, "id", None)
-        if not aid:
-            return []
-        agent = db.query(AgentConfig).filter(_or(
-            AgentConfig.gemini_assistant_id == aid,
-            AgentConfig.openai_assistant_id == aid,
-            AgentConfig.cartesia_assistant_id == aid,
-        )).first()
+        agent = _resolve_owner_agent(db, assistant_config)
         if not agent:
             return []
         rows = db.query(AgentConnector).filter(

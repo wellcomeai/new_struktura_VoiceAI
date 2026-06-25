@@ -1280,7 +1280,9 @@ async def connect_connector(
     if not base:
         raise HTTPException(status_code=500, detail="public_base_url_not_set")
 
-    composio_user_id = str(current_user.id)
+    # Identity Composio — по агенту (вариант A): каждый агент имеет своё
+    # изолированное подключение, не общее с другими агентами владельца.
+    composio_user_id = composio_service.composio_user_id_for_agent(agent.id)
     state_token = secrets.token_urlsafe(24)
     callback_url = f"{base}/api/agent/connectors/callback?state={state_token}"
 
@@ -1458,6 +1460,14 @@ async def disconnect_connector(
     ).first()
     if not row:
         return {"ok": True, "toolkit": toolkit, "status": "disconnected"}
+
+    # Удаляем сам connected account в Composio (теперь он принадлежит ровно
+    # этому агенту — вариант A). Best-effort: не блокирует локальное отключение.
+    try:
+        if row.connected_account_id:
+            await composio_service.delete_connection(row.connected_account_id)
+    except Exception as e:
+        logger.warning(f"[AGENT-CONNECTORS] remote delete failed: {e}")
 
     # Убираем голосовые функции коннектора.
     try:

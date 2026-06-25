@@ -1123,6 +1123,41 @@ def ensure_agent_connectors_table():
         logger.error(f"❌ ensure_agent_connectors_table error: {e}")
 
 
+def ensure_connectors_agent_identity_migration():
+    """
+    Однократный сброс старых (пользовательских) подключений коннекторов в pending.
+
+    После перехода на агентную identity Composio (вариант A) подключения,
+    сделанные под общим user.id, больше не действуют — их нужно переподключить
+    на каждом агенте. Идемпотентно: трогает только строки, чей composio_user_id
+    НЕ агентного формата (новые имеют вид 'agent_<id>').
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_connectors'):
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                result = conn.execute(text(
+                    "UPDATE agent_connectors "
+                    "SET status='pending', connected_account_id=NULL, state_token=NULL "
+                    "WHERE status='connected' "
+                    "AND (composio_user_id IS NULL OR composio_user_id NOT LIKE 'agent%')"
+                ))
+                trans.commit()
+                if result.rowcount:
+                    logger.info(f"✅ Reset {result.rowcount} pre-agent-identity connectors to pending (reconnect needed)")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ connectors identity migration failed: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_connectors_agent_identity_migration error: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Application startup event"""
@@ -1195,6 +1230,10 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
                 ensure_agent_connectors_table()
+
+                # 🆕 Шаг 19: Сброс старых (пользовательских) коннекторов в pending
+                #            после перехода на агентную identity Composio (вариант A)
+                ensure_connectors_agent_identity_migration()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
