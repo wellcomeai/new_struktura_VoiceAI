@@ -1247,21 +1247,25 @@ async def _reconcile_connectors(db: Session, agent: AgentConfig) -> None:
     UI не показывал зелёным то, что по факту не работает (главная причина бага
     «в UI подключено, агент говорит не подключён»).
 
-    Для каждой connected-строки:
-      • аккаунт ACTIVE → ничего не делаем;
-      • указатель устарел, но активный аккаунт всё же есть → чиним
-        connected_account_id/email (self-heal);
-      • активного аккаунта нет → помечаем error, убираем голосовые функции и
-        чистим висячие аккаунты в Composio (чтобы reconnect был с нуля).
+    Для каждой строки (по состоянию в Composio через LIST):
+      • есть Active-аккаунт → строка должна быть connected: чиним статус
+        (pending/error→connected, частый кейс «OAuth прошёл, но callback не
+        подтвердил») и/или устаревший connected_account_id, возвращаем голос;
+      • Active-аккаунта нет, а строка была connected → error + снять голос +
+        снести висячие аккаунты в Composio (чтобы reconnect был с нуля);
+      • Composio недоступен (ok=False) → не трогаем ничего.
     Best-effort, под кешем верификации — сеть дёргается не на каждый рендер.
     """
     if not composio_service.is_configured():
         return
-    # Берём connected (могли «протухнуть») и error (могли активироваться поздно —
-    # авто-восстановление). pending НЕ трогаем: там OAuth в процессе.
+    # Берём ВСЕ строки:
+    #   • connected — могли «протухнуть» (downgrade → error);
+    #   • error/pending — в Composio мог появиться Active-аккаунт (часто: OAuth
+    #     завершился, но старый callback не подтвердил строку) → авто-восстановление.
+    # pending НЕ понижаем (там может идти живой OAuth), только восстанавливаем вверх.
     rows = db.query(AgentConnector).filter(
         AgentConnector.agent_config_id == agent.id,
-        AgentConnector.status.in_(("connected", "error")),
+        AgentConnector.status.in_(("connected", "error", "pending")),
     ).all()
     if not rows:
         return
@@ -1280,24 +1284,25 @@ async def _reconcile_connectors(db: Session, agent: AgentConfig) -> None:
             if active_id:
                 # Активный аккаунт есть → должно быть connected. Чиним статус и/или
                 # устаревший указатель, при восстановлении возвращаем голосовые функции.
-                was_connected = row.status == "connected"
-                if row.status != "connected" or row.connected_account_id != active_id:
+                prev_status = row.status
+                if prev_status != "connected" or row.connected_account_id != active_id:
                     row.status = "connected"
                     row.connected_account_id = active_id
                     if state.get("email"):
                         row.connected_email = state["email"]
                     changed = True
-                    if not was_connected:
+                    if prev_status != "connected":
                         try:
                             va = _resolve_voice_assistant(db, agent)
                             _voice_set_connector_function(va, row.toolkit, True)
-                            logger.info(f"[AGENT-CONNECTORS] reconcile: {row.toolkit} agent={agent.id} error→connected (recovered)")
+                            logger.info(f"[AGENT-CONNECTORS] reconcile: {row.toolkit} agent={agent.id} {prev_status}→connected (recovered)")
                         except Exception as e:
                             logger.warning(f"[AGENT-CONNECTORS] reconcile voice restore failed: {e}")
                 continue
 
             # Список получен, активного аккаунта нет. Понижаем/чистим ТОЛЬКО строки,
-            # что числились connected (для error уже всё сделано — не дёргаем сеть зря).
+            # что числились connected. error/pending не трогаем (для error уже всё
+            # сделано, у pending может идти живой OAuth) — и не дёргаем сеть зря.
             if row.status == "connected":
                 row.status = "error"
                 changed = True
