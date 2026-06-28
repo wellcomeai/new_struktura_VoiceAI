@@ -7,9 +7,11 @@ Composio service — внешние коннекторы агента (Google Ca
   2) Вызов инструментов — get_tools() отдаёт определения tools под user_id,
      execute() исполняет вызов под подключённым аккаунтом этого пользователя.
 
-composio_user_id маппится на Voicyfy user.id (str). И оркестратор (OpenRouter),
-и голосовой агент (registry-функции) резолвят этот id из своего контекста, так
-что подключение шарится между агентами одного владельца.
+composio_user_id — per-agent identity (вариант A): f"agent_{agent_config_id}".
+Каждый агент — отдельный «пользователь» Composio, подключения изолированы между
+агентами одного владельца. И оркестратор (OpenRouter), и голосовой агент
+(registry-функции) резолвят этот id из своего контекста (по агенту-владельцу), так
+что внутри одного агента подключение шарится между чатом и голосом.
 
 SDK Composio синхронный — все вызовы уводим в thread executor, чтобы не блокировать
 event loop FastAPI. Клиент создаётся лениво (singleton).
@@ -33,6 +35,15 @@ TOOLKIT_SLUGS: Dict[str, str] = {
 
 # Обратный маппинг slug → ключ коннектора.
 SLUG_TO_TOOLKIT: Dict[str, str] = {v: k for k, v in TOOLKIT_SLUGS.items()}
+
+# Статусы connected account в Composio, которые считаем «рабочими» (tools.execute
+# реально сможет выполниться). Всё остальное (INITIATED/INITIALIZING/EXPIRED/
+# FAILED/INACTIVE/unknown) — НЕ подключено, даже если у нас в БД стоит 'connected'.
+ACTIVE_STATES = {"ACTIVE", "CONNECTED", "ENABLED"}
+
+
+def _is_active_status(status) -> bool:
+    return str(status or "").upper() in ACTIVE_STATES
 
 # Функции, которые включаются у ГОЛОСОВОГО ассистента при подключении toolkit'а.
 # Имена совпадают с registry-функциями в backend/functions/ (google_calendar.py,
@@ -149,11 +160,15 @@ async def initiate_connection(
         method = getattr(accounts, "link", None) or getattr(accounts, "initiate", None)
         if method is None:
             raise RuntimeError("composio SDK has neither connected_accounts.link nor initiate")
+        # allow_multiple=False: identity per-agent, поэтому на пару
+        # (agent_user_id, auth_config) нужен РОВНО ОДИН connected account.
+        # Иначе connect→disconnect→reconnect плодит дубли, а tools.execute
+        # выбирает из них недетерминированно → «аккаунт не подключён».
         return method(
             user_id=composio_user_id,
             auth_config_id=auth_config_id,
             callback_url=callback_url,
-            allow_multiple=True,
+            allow_multiple=False,
         )
 
     try:
@@ -191,13 +206,18 @@ def _extract_list_items(resp) -> list:
     return []
 
 
-async def find_active_connection(composio_user_id: str, toolkit: str) -> Optional[Dict[str, Any]]:
+async def find_active_connection(
+    composio_user_id: str, toolkit: str, require_active: bool = False
+) -> Optional[Dict[str, Any]]:
     """
-    Найти уже существующее активное подключение ДЛЯ ЭТОГО composio_user_id и toolkit.
+    Найти уже существующее подключение ДЛЯ ЭТОГО composio_user_id и toolkit.
 
     Вариант A: identity по агенту, поэтому переиспользуем подключение только если
     оно строго принадлежит запрошенному composio_user_id (иначе новый агент мог бы
     захватить коннект другого агента). Best-effort: ошибка/неизвестная форма → None.
+
+    require_active=True — возвращаем только аккаунт в статусе ACTIVE (для reuse и
+    резолва после OAuth, чтобы не привязать протухший/полу-отозванный аккаунт).
     """
     auth_config_id = auth_config_for(toolkit)
     if not auth_config_id or not is_configured():
@@ -248,10 +268,13 @@ async def find_active_connection(composio_user_id: str, toolkit: str) -> Optiona
         return uid is not None and str(uid) == str(composio_user_id)
 
     candidates = [it for it in items if _matches(it)]
-    active = [it for it in candidates if _status(it) in ("ACTIVE", "CONNECTED", "ENABLED")]
-    pick = (active or candidates or [None])[0]
+    active = [it for it in candidates if _is_active_status(_status(it))]
+    if require_active:
+        pick = (active or [None])[0]
+    else:
+        pick = (active or candidates or [None])[0]
     if not pick:
-        logger.info(f"[COMPOSIO] no reusable connection for user={composio_user_id} toolkit={toolkit} (items seen: {len(items)})")
+        logger.info(f"[COMPOSIO] no reusable connection for user={composio_user_id} toolkit={toolkit} (items seen: {len(items)}, require_active={require_active})")
         return None
     cid = _id(pick)
     if not cid:
@@ -260,22 +283,212 @@ async def find_active_connection(composio_user_id: str, toolkit: str) -> Optiona
     return {"connected_account_id": cid, "email": _extract_email(pick), "status": _status(pick)}
 
 
+async def connection_state(composio_user_id: str, toolkit: str) -> Dict[str, Any]:
+    """
+    Авторитетное состояние подключения по (user_id, toolkit) через LIST — надёжнее
+    get() по id (который на удалённом аккаунте может просто бросить 404).
+
+    Возвращает {ok, active_id, email, status}:
+      • ok=False — Composio недоступен / список не получен. ВАЖНО: при ok=False
+        НЕЛЬЗЯ делать вывод «не подключено» (иначе временный сбой отключит рабочий
+        коннектор). Вызывающий должен в этом случае ничего не трогать.
+      • ok=True, active_id=None — список получен, активного аккаунта нет → реально
+        не подключено.
+      • ok=True, active_id=<id> — есть активный аккаунт.
+    """
+    auth_config_id = auth_config_for(toolkit)
+    if not is_configured():
+        return {"ok": False, "active_id": None, "email": None, "status": None}
+    try:
+        client = _get_client()
+
+        def _do():
+            accounts = client.connected_accounts
+            try:
+                if auth_config_id:
+                    return accounts.list(user_ids=[composio_user_id], auth_config_ids=[auth_config_id])
+                return accounts.list(user_ids=[composio_user_id])
+            except TypeError:
+                return accounts.list(user_id=composio_user_id)
+
+        resp = await _run(_do)
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] connection_state list failed (user={composio_user_id}, {toolkit}): {e}")
+        return {"ok": False, "active_id": None, "email": None, "status": None}
+
+    items = _extract_list_items(resp)
+
+    def _ac_id(it):
+        return (getattr(it, "auth_config_id", None)
+                or (it.get("auth_config_id") if isinstance(it, dict) else None)
+                or getattr(getattr(it, "auth_config", None), "id", None))
+
+    def _uid(it):
+        return (getattr(it, "user_id", None)
+                or (it.get("user_id") if isinstance(it, dict) else None)
+                or getattr(it, "userId", None)
+                or (it.get("userId") if isinstance(it, dict) else None))
+
+    def _status(it):
+        s = getattr(it, "status", None) or (it.get("status") if isinstance(it, dict) else None)
+        return str(s or "").upper()
+
+    def _id(it):
+        return getattr(it, "id", None) or (it.get("id") if isinstance(it, dict) else None)
+
+    def _matches(it):
+        if _ac_id(it) not in (None, auth_config_id):
+            return False
+        uid = _uid(it)
+        return uid is not None and str(uid) == str(composio_user_id)
+
+    candidates = [it for it in items if _matches(it)]
+    active = [it for it in candidates if _is_active_status(_status(it))]
+    pick = (active or [None])[0]
+    if not pick:
+        return {"ok": True, "active_id": None, "email": None, "status": None}
+    return {
+        "ok": True,
+        "active_id": _id(pick),
+        "email": _extract_email(pick),
+        "status": _status(pick),
+    }
+
+
 async def get_connection(connection_id: str) -> Dict[str, Any]:
     """
     Получить состояние подключённого аккаунта по id. Best-effort: ошибки не
-    роняют вызов, возвращаем {status: 'unknown'}.
+    роняют вызов, возвращаем {status: 'unknown', active: False}.
     """
     try:
         client = _get_client()
         acc = await _run(client.connected_accounts.get, connection_id)
+        status = getattr(acc, "status", None)
         return {
-            "status": getattr(acc, "status", None),
+            "status": status,
+            "active": _is_active_status(status),
             "connected_account_id": getattr(acc, "id", None) or connection_id,
             "email": _extract_email(acc),
         }
     except Exception as e:
         logger.warning(f"[COMPOSIO] get_connection({connection_id}) failed: {e}")
-        return {"status": "unknown", "connected_account_id": connection_id, "email": None}
+        return {"status": "unknown", "active": False, "connected_account_id": connection_id, "email": None}
+
+
+# Кэш верификации статуса аккаунта: {connected_account_id: (expires_at, info)}.
+# Нужен, чтобы реконсиляция в GET /connectors не ходила в Composio на каждый рендер.
+_VERIFY_CACHE: Dict[str, Any] = {}
+_VERIFY_CACHE_TTL = 120  # секунд
+
+
+async def verify_connection(connected_account_id: str, use_cache: bool = True) -> Dict[str, Any]:
+    """
+    Проверить, что connected account реально ACTIVE в Composio.
+    Возвращает get_connection() + поле active. Кэшируется на _VERIFY_CACHE_TTL.
+    """
+    if not connected_account_id:
+        return {"status": "unknown", "active": False, "connected_account_id": None, "email": None}
+    if use_cache:
+        cached = _VERIFY_CACHE.get(connected_account_id)
+        if cached and cached[0] > time.time():
+            return cached[1]
+    info = await get_connection(connected_account_id)
+    # Кэшируем только осмысленный результат (не сетевую ошибку 'unknown').
+    if info.get("status") not in (None, "unknown"):
+        _VERIFY_CACHE[connected_account_id] = (time.time() + _VERIFY_CACHE_TTL, info)
+    return info
+
+
+def _invalidate_verify_cache(connected_account_id: Optional[str]) -> None:
+    if connected_account_id:
+        _VERIFY_CACHE.pop(connected_account_id, None)
+
+
+async def wait_for_active(
+    composio_user_id: str,
+    toolkit: str,
+    connected_account_id: Optional[str] = None,
+    attempts: int = 5,
+    delay: float = 0.6,
+) -> Optional[Dict[str, Any]]:
+    """
+    Дождаться, пока подключение станет ACTIVE (учитываем eventual consistency
+    Composio сразу после OAuth-возврата). Возвращает {connected_account_id, email,
+    status} активного аккаунта или None.
+
+    На каждой попытке: если знаем connected_account_id — проверяем его напрямую;
+    иначе (или если он ещё не активен) ищем самый свежий ACTIVE-аккаунт по user_id.
+    """
+    for i in range(attempts):
+        if connected_account_id:
+            info = await verify_connection(connected_account_id, use_cache=False)
+            if info.get("active"):
+                return {
+                    "connected_account_id": connected_account_id,
+                    "email": info.get("email"),
+                    "status": info.get("status"),
+                }
+        found = await find_active_connection(composio_user_id, toolkit, require_active=True)
+        if found and found.get("connected_account_id"):
+            return found
+        if i < attempts - 1:
+            await asyncio.sleep(delay)
+    return None
+
+
+async def delete_all_connections(composio_user_id: str, toolkit: str) -> int:
+    """
+    Удалить ВСЕ connected accounts этого (composio_user_id, toolkit) в Composio.
+    Нужно при disconnect и при чистке дублей/висяков. Возвращает число удалённых.
+    Best-effort: ошибки логируются, не бросаются.
+    """
+    if not is_configured():
+        return 0
+    auth_config_id = auth_config_for(toolkit)
+    try:
+        client = _get_client()
+
+        def _list():
+            accounts = client.connected_accounts
+            try:
+                if auth_config_id:
+                    return accounts.list(user_ids=[composio_user_id], auth_config_ids=[auth_config_id])
+                return accounts.list(user_ids=[composio_user_id])
+            except TypeError:
+                return accounts.list(user_id=composio_user_id)
+
+        resp = await _run(_list)
+    except Exception as e:
+        logger.warning(f"[COMPOSIO] delete_all_connections list failed: {e}")
+        return 0
+
+    items = _extract_list_items(resp)
+
+    def _ac_id(it):
+        return (getattr(it, "auth_config_id", None)
+                or (it.get("auth_config_id") if isinstance(it, dict) else None)
+                or getattr(getattr(it, "auth_config", None), "id", None))
+
+    def _id(it):
+        return getattr(it, "id", None) or (it.get("id") if isinstance(it, dict) else None)
+
+    ids = []
+    for it in items:
+        # Если поле auth_config есть — фильтруем по нему; если его нет, не рискуем
+        # (list уже сужен по user_id, а user_id у нас per-agent).
+        if auth_config_id and _ac_id(it) not in (None, auth_config_id):
+            continue
+        cid = _id(it)
+        if cid:
+            ids.append(cid)
+
+    deleted = 0
+    for cid in ids:
+        if await delete_connection(cid):
+            deleted += 1
+    if ids:
+        logger.info(f"[COMPOSIO] delete_all_connections user={composio_user_id} toolkit={toolkit} removed={deleted}/{len(ids)}")
+    return deleted
 
 
 async def delete_connection(connected_account_id: str) -> bool:
@@ -292,6 +505,7 @@ async def delete_connection(connected_account_id: str) -> bool:
             logger.warning("[COMPOSIO] connected_accounts.delete not available in SDK")
             return False
         await _run(method, connected_account_id)
+        _invalidate_verify_cache(connected_account_id)
         logger.info(f"[COMPOSIO] deleted connected account {connected_account_id}")
         return True
     except Exception as e:
@@ -388,9 +602,17 @@ async def execute(slug: str, arguments: Dict[str, Any], composio_user_id: str) -
             return client.tools.execute(slug, **exec_kwargs)
 
         resp = await _run(_do)
-        return _normalize_execution(resp)
+        norm = _normalize_execution(resp)
+        if not norm.get("ok"):
+            # Частый кейс: «аккаунт не подключён» приходит БЕЗ исключения — Composio
+            # отдаёт successful=false. Логируем тело, чтобы это было видно в проде.
+            logger.warning(
+                f"[COMPOSIO] execute({slug}) user={composio_user_id} not ok: "
+                f"{str(norm.get('error'))[:300]}"
+            )
+        return norm
     except Exception as e:
-        logger.error(f"[COMPOSIO] execute({slug}) failed: {e}", exc_info=True)
+        logger.error(f"[COMPOSIO] execute({slug}) user={composio_user_id} failed: {e}", exc_info=True)
         return {"ok": False, "error": str(e)}
 
 

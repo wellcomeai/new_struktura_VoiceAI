@@ -83,17 +83,23 @@ function renderConnectorsList(){
       right = `${who}<button class="btn btn-secondary btn-sm" onclick="disconnectConnector('${c.toolkit}')">`
         + `<i class="fas fa-link-slash"></i> Отключить</button>`;
     } else {
-      const pending = c.status === 'pending' ? ' (ожидание…)' : '';
+      const hint = c.status === 'pending' ? ' (ожидание…)'
+                 : c.status === 'error' ? ' заново' : '';
+      const label = c.status === 'error' ? 'Переподключить' : 'Подключить';
       right = `<button class="btn btn-primary btn-sm" id="connect-btn-${c.toolkit}" onclick="connectConnector('${c.toolkit}')">`
-        + `<i class="fas fa-link"></i> Подключить${pending}</button>`;
+        + `<i class="fas fa-link"></i> ${label}${hint}</button>`;
     }
+    // Подпись статуса: подключено / требует переподключения (error) / не подключено.
+    const sub = c.connected ? 'Подключено'
+              : c.status === 'error' ? 'Требует переподключения'
+              : 'Не подключено';
+    const subColor = c.connected ? '#166534' : c.status === 'error' ? '#b45309' : '#94a3b8';
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;`
       + `padding:12px 0;border-bottom:1px solid var(--border,#e2e8f0)">`
       + `<div style="display:flex;align-items:center;gap:10px">`
       + `<i class="fas ${m.icon}" style="color:${m.color};font-size:18px;width:22px;text-align:center"></i>`
       + `<div><div style="font-weight:600;font-size:14px">${esc(m.label)}</div>`
-      + `<div style="font-size:12px;color:${c.connected ? '#166534' : '#94a3b8'}">`
-      + `${c.connected ? 'Подключено' : 'Не подключено'}</div></div></div>`
+      + `<div style="font-size:12px;color:${subColor}">${sub}</div></div></div>`
       + `<div style="text-align:right">${right}</div></div>`;
   }).join('');
 }

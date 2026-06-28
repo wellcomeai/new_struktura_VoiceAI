@@ -1241,6 +1241,83 @@ def _connectors_status(db: Session, agent: AgentConfig) -> dict:
     return {"configured": composio_service.is_configured(), "connectors": items}
 
 
+async def _reconcile_connectors(db: Session, agent: AgentConfig) -> None:
+    """
+    Сверить «подключённые» строки агента с реальным состоянием в Composio, чтобы
+    UI не показывал зелёным то, что по факту не работает (главная причина бага
+    «в UI подключено, агент говорит не подключён»).
+
+    Для каждой connected-строки:
+      • аккаунт ACTIVE → ничего не делаем;
+      • указатель устарел, но активный аккаунт всё же есть → чиним
+        connected_account_id/email (self-heal);
+      • активного аккаунта нет → помечаем error, убираем голосовые функции и
+        чистим висячие аккаунты в Composio (чтобы reconnect был с нуля).
+    Best-effort, под кешем верификации — сеть дёргается не на каждый рендер.
+    """
+    if not composio_service.is_configured():
+        return
+    # Берём connected (могли «протухнуть») и error (могли активироваться поздно —
+    # авто-восстановление). pending НЕ трогаем: там OAuth в процессе.
+    rows = db.query(AgentConnector).filter(
+        AgentConnector.agent_config_id == agent.id,
+        AgentConnector.status.in_(("connected", "error")),
+    ).all()
+    if not rows:
+        return
+
+    changed = False
+    for row in rows:
+        composio_user_id = row.composio_user_id or composio_service.composio_user_id_for_agent(agent.id)
+        try:
+            state = await composio_service.connection_state(composio_user_id, row.toolkit)
+            if not state.get("ok"):
+                # Composio недоступен — НЕ трогаем статус (иначе временный сбой
+                # отключил бы рабочий коннектор). Попробуем в следующий раз.
+                continue
+
+            active_id = state.get("active_id")
+            if active_id:
+                # Активный аккаунт есть → должно быть connected. Чиним статус и/или
+                # устаревший указатель, при восстановлении возвращаем голосовые функции.
+                was_connected = row.status == "connected"
+                if row.status != "connected" or row.connected_account_id != active_id:
+                    row.status = "connected"
+                    row.connected_account_id = active_id
+                    if state.get("email"):
+                        row.connected_email = state["email"]
+                    changed = True
+                    if not was_connected:
+                        try:
+                            va = _resolve_voice_assistant(db, agent)
+                            _voice_set_connector_function(va, row.toolkit, True)
+                            logger.info(f"[AGENT-CONNECTORS] reconcile: {row.toolkit} agent={agent.id} error→connected (recovered)")
+                        except Exception as e:
+                            logger.warning(f"[AGENT-CONNECTORS] reconcile voice restore failed: {e}")
+                continue
+
+            # Список получен, активного аккаунта нет. Понижаем/чистим ТОЛЬКО строки,
+            # что числились connected (для error уже всё сделано — не дёргаем сеть зря).
+            if row.status == "connected":
+                row.status = "error"
+                changed = True
+                try:
+                    va = _resolve_voice_assistant(db, agent)
+                    _voice_set_connector_function(va, row.toolkit, False)
+                except Exception as e:
+                    logger.warning(f"[AGENT-CONNECTORS] reconcile voice cleanup failed: {e}")
+                try:
+                    await composio_service.delete_all_connections(composio_user_id, row.toolkit)
+                except Exception as e:
+                    logger.warning(f"[AGENT-CONNECTORS] reconcile remote cleanup failed: {e}")
+                logger.info(f"[AGENT-CONNECTORS] reconcile: {row.toolkit} agent={agent.id} → error (no active account)")
+        except Exception as e:
+            logger.warning(f"[AGENT-CONNECTORS] reconcile failed toolkit={row.toolkit}: {e}")
+
+    if changed:
+        db.commit()
+
+
 @router.get("/connectors")
 async def list_connectors(
     agent_id: Optional[str] = Query(None),
@@ -1251,6 +1328,8 @@ async def list_connectors(
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent_not_found")
+    # Сверяем с Composio, чтобы статус в UI был честным (и self-heal/чистка висяков).
+    await _reconcile_connectors(db, agent)
     return _connectors_status(db, agent)
 
 
@@ -1291,6 +1370,7 @@ async def connect_connector(
         AgentConnector.agent_config_id == agent.id,
         AgentConnector.toolkit == toolkit,
     ).first()
+    prev_status = row.status if row else None
     if not row:
         row = AgentConnector(
             agent_config_id=agent.id,
@@ -1303,11 +1383,25 @@ async def connect_connector(
     row.state_token = state_token
     db.flush()
 
-    # Переиспользование: composio_user_id общий для всех агентов юзера. Если для
-    # этого toolkit уже есть активное подключение (сделано на другом агенте/ранее)
-    # — не гоняем OAuth заново, сразу привязываем к текущему агенту.
+    # Принудительный чистый reconnect: если предыдущее состояние было 'error'
+    # (reconcile/ callback признали аккаунт нерабочим), сносим ВСЕ аккаунты этого
+    # агента+toolkit в Composio и НЕ переиспользуем — гоним свежий OAuth. Иначе
+    # reuse мог бы снова подхватить «полу-мёртвый» аккаунт.
+    force_fresh = prev_status == "error"
+    if force_fresh:
+        try:
+            await composio_service.delete_all_connections(composio_user_id, toolkit)
+        except Exception as e:
+            logger.warning(f"[AGENT-CONNECTORS] force-fresh cleanup failed: {e}")
+
+    # Идемпотентность: identity per-agent, поэтому ищем уже существующее активное
+    # подключение ИМЕННО этого агента (например, повторный клик «Подключить» или
+    # ранее завершённый OAuth). Берём ТОЛЬКО ACTIVE — протухший/полу-отозванный
+    # аккаунт переиспользовать нельзя, иначе снова получим «не подключён».
     try:
-        existing = await composio_service.find_active_connection(composio_user_id, toolkit)
+        existing = None if force_fresh else await composio_service.find_active_connection(
+            composio_user_id, toolkit, require_active=True
+        )
     except Exception as e:
         logger.warning(f"[AGENT-CONNECTORS] find_active_connection failed: {e}")
         existing = None
@@ -1402,38 +1496,46 @@ async def connector_callback(
         logger.warning("[AGENT-CONNECTORS] callback: unknown state token")
         return HTMLResponse(_connector_callback_html("", False), status_code=404)
 
-    # Успех, если Composio явно не сообщил об ошибке (часть провайдеров не шлёт status).
-    ok = status_param not in ("error", "failed", "denied", "cancelled")
-
-    if ok:
-        row.status = "connected"
-        if connected_account_id:
-            row.connected_account_id = connected_account_id
-        row.state_token = None
-        # Подтягиваем email подключённого аккаунта (best-effort).
-        try:
-            if row.connected_account_id:
-                info = await composio_service.get_connection(row.connected_account_id)
-                if info.get("email"):
-                    row.connected_email = info["email"]
-        except Exception as e:
-            logger.warning(f"[AGENT-CONNECTORS] get_connection failed: {e}")
-
-        # Включаем голосовые функции коннектора у голосового ассистента агента.
-        try:
-            agent = db.query(AgentConfig).filter(AgentConfig.id == row.agent_config_id).first()
-            if agent:
-                va = _resolve_voice_assistant(db, agent)
-                _voice_set_connector_function(va, row.toolkit, True)
-        except Exception as e:
-            logger.error(f"[AGENT-CONNECTORS] voice inject failed: {e}", exc_info=True)
-
-        db.commit()
-        logger.info(f"[AGENT-CONNECTORS] callback OK toolkit={row.toolkit} agent={row.agent_config_id}")
-        return HTMLResponse(_connector_callback_html(row.toolkit, True))
-
-    row.status = "error"
+    # Явная ошибка от провайдера — сразу error, без обращения к Composio.
+    explicit_error = status_param in ("error", "failed", "denied", "cancelled")
     row.state_token = None
+
+    if not explicit_error:
+        # НЕ доверяем отсутствию ошибки в редиректе: помечаем connected ТОЛЬКО
+        # после подтверждения, что аккаунт реально ACTIVE в Composio. Резолвим
+        # настоящий connected_account_id (из callback-параметра либо самый свежий
+        # ACTIVE по user_id) и ждём активации (eventual consistency после OAuth).
+        composio_user_id = row.composio_user_id or composio_service.composio_user_id_for_agent(row.agent_config_id)
+        active = None
+        try:
+            active = await composio_service.wait_for_active(
+                composio_user_id, row.toolkit, connected_account_id or row.connected_account_id
+            )
+        except Exception as e:
+            logger.warning(f"[AGENT-CONNECTORS] wait_for_active failed: {e}")
+
+        if active and active.get("connected_account_id"):
+            row.status = "connected"
+            row.connected_account_id = active["connected_account_id"]
+            if active.get("email"):
+                row.connected_email = active["email"]
+            # Включаем голосовые функции коннектора у голосового ассистента агента.
+            try:
+                agent = db.query(AgentConfig).filter(AgentConfig.id == row.agent_config_id).first()
+                if agent:
+                    va = _resolve_voice_assistant(db, agent)
+                    _voice_set_connector_function(va, row.toolkit, True)
+            except Exception as e:
+                logger.error(f"[AGENT-CONNECTORS] voice inject failed: {e}", exc_info=True)
+
+            db.commit()
+            logger.info(f"[AGENT-CONNECTORS] callback OK toolkit={row.toolkit} agent={row.agent_config_id} acc={row.connected_account_id}")
+            return HTMLResponse(_connector_callback_html(row.toolkit, True))
+
+        logger.warning(f"[AGENT-CONNECTORS] callback: no ACTIVE account toolkit={row.toolkit} agent={row.agent_config_id} (status_param={status_param!r})")
+
+    # Сюда попадаем при явной ошибке ИЛИ если активный аккаунт так и не появился.
+    row.status = "error"
     db.commit()
     logger.warning(f"[AGENT-CONNECTORS] callback ERROR toolkit={row.toolkit} status={status_param}")
     return HTMLResponse(_connector_callback_html(row.toolkit, False))
@@ -1461,10 +1563,15 @@ async def disconnect_connector(
     if not row:
         return {"ok": True, "toolkit": toolkit, "status": "disconnected"}
 
-    # Удаляем сам connected account в Composio (теперь он принадлежит ровно
-    # этому агенту — вариант A). Best-effort: не блокирует локальное отключение.
+    # Удаляем В COMPOSIO все connected accounts этого агента+toolkit (а не только
+    # тот, что записан у нас): из-за прошлых багов/дублей их могло накопиться
+    # несколько, и недоудалённый аккаунт ломает следующий reconnect. Best-effort:
+    # не блокирует локальное отключение.
+    composio_user_id = row.composio_user_id or composio_service.composio_user_id_for_agent(agent.id)
     try:
-        if row.connected_account_id:
+        removed = await composio_service.delete_all_connections(composio_user_id, toolkit)
+        # Подстраховка: если list ничего не вернул, но у нас записан id — удалим его.
+        if not removed and row.connected_account_id:
             await composio_service.delete_connection(row.connected_account_id)
     except Exception as e:
         logger.warning(f"[AGENT-CONNECTORS] remote delete failed: {e}")
