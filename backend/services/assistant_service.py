@@ -292,15 +292,37 @@ class AssistantService:
         try:
             # Get assistant and verify ownership
             assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
-            
-            # Delete assistant
+
+            # ✅ FIX: Запрещаем удаление, если ассистент является голосом агента обзвона.
+            # Иначе агент молча остаётся без голоса. Просим сначала отвязать через
+            # карточку агента (сменить голос или удалить агента).
+            from backend.models.agent_config import AgentConfig
+            bound_agent = db.query(AgentConfig).filter(
+                AgentConfig.openai_assistant_id == assistant.id
+            ).first()
+            if bound_agent:
+                logger.warning(
+                    f"Blocked deletion of assistant {assistant_id}: "
+                    f"used by agent {bound_agent.id} ({bound_agent.name})"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Этот ассистент используется агентом «{bound_agent.name}». "
+                        f"Сначала смените голос агента или удалите агента."
+                    )
+                )
+
+            # Delete assistant (related rows: conversations/embeds/files/etc. — ON DELETE
+            # CASCADE; tasks.assistant_id — ON DELETE SET NULL, не блокирует удаление)
             db.delete(assistant)
             db.commit()
-            
+
             logger.info(f"Assistant deleted: {assistant_id}")
             return True
-            
+
         except HTTPException:
+            db.rollback()
             raise
         except Exception as e:
             db.rollback()

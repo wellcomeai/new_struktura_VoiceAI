@@ -407,70 +407,61 @@ async def delete_gemini_assistant(
     """
     try:
         logger.info(f"[GEMINI-API] Deleting assistant {assistant_id} for user {current_user.id}")
-        
+
         assistant = await verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
             require_ownership=True
         )
-        
-        # ✅ FIX v1.2: Явно удаляем связанные conversations перед удалением ассистента
+
+        # ✅ FIX: Запрещаем удаление, если ассистент является голосом агента обзвона.
+        # Иначе пользователь молча ломает агента (или, при старой схеме FK,
+        # каскадом сносит его целиком). Просим сначала отвязать через карточку агента.
+        from backend.models.agent_config import AgentConfig
+        bound_agent = db.query(AgentConfig).filter(
+            AgentConfig.gemini_assistant_id == assistant.id
+        ).first()
+        if bound_agent:
+            logger.warning(
+                f"[GEMINI-API] Blocked deletion of {assistant_id}: "
+                f"used by agent {bound_agent.id} ({bound_agent.name})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Этот ассистент используется агентом «{bound_agent.name}». "
+                    f"Сначала смените голос агента или удалите агента."
+                )
+            )
+
+        # Явно (bulk) удаляем связанные conversations — быстрее, чем ORM-каскад
+        # по одной записи. Остальное (FK gemini_conversations) подстрахует БД.
         deleted_convs = db.query(GeminiConversation).filter(
             GeminiConversation.assistant_id == assistant.id
         ).delete(synchronize_session=False)
         logger.info(f"[GEMINI-API] Deleted {deleted_convs} related conversations")
-        
-        # ✅ FIX v1.2: Обнуляем ссылки в tasks
-        try:
-            from backend.models.task import Task
-            updated_tasks = db.query(Task).filter(
-                Task.gemini_assistant_id == assistant.id
-            ).update(
-                {Task.gemini_assistant_id: None}, 
-                synchronize_session=False
-            )
-            if updated_tasks:
-                logger.info(f"[GEMINI-API] Cleared {updated_tasks} task references")
-        except Exception as task_err:
-            logger.warning(f"[GEMINI-API] Could not clear task references: {task_err}")
-        
-        # ✅ FIX v1.2: Обнуляем ссылки в embed_configs (если есть)
-        try:
-            from backend.models.embed_config import EmbedConfig
-            updated_embeds = db.query(EmbedConfig).filter(
-                EmbedConfig.gemini_assistant_id == assistant.id
-            ).update(
-                {EmbedConfig.gemini_assistant_id: None},
-                synchronize_session=False
-            )
-            if updated_embeds:
-                logger.info(f"[GEMINI-API] Cleared {updated_embeds} embed config references")
-        except Exception as embed_err:
-            logger.warning(f"[GEMINI-API] Could not clear embed config references (may not exist): {embed_err}")
-        
-        # ✅ FIX v1.2: Обнуляем ссылки в function_logs (если есть)
-        try:
-            from backend.models.function_log import FunctionLog
-            if hasattr(FunctionLog, 'gemini_assistant_id'):
-                updated_logs = db.query(FunctionLog).filter(
-                    FunctionLog.gemini_assistant_id == assistant.id
-                ).update(
-                    {FunctionLog.gemini_assistant_id: None},
-                    synchronize_session=False
-                )
-                if updated_logs:
-                    logger.info(f"[GEMINI-API] Cleared {updated_logs} function log references")
-        except Exception as log_err:
-            logger.warning(f"[GEMINI-API] Could not clear function log references: {log_err}")
-        
-        # Теперь удаляем сам ассистент
+
+        # Обнуляем ссылки в tasks (на уровне БД FK тоже стоит ON DELETE SET NULL,
+        # это явное действие для наглядности и совместимости со старой схемой).
+        from backend.models.task import Task
+        updated_tasks = db.query(Task).filter(
+            Task.gemini_assistant_id == assistant.id
+        ).update(
+            {Task.gemini_assistant_id: None},
+            synchronize_session=False
+        )
+        if updated_tasks:
+            logger.info(f"[GEMINI-API] Cleared {updated_tasks} task references")
+
+        # Удаляем сам ассистент
         db.delete(assistant)
         db.commit()
-        
+
         logger.info(f"[GEMINI-API] ✅ Gemini assistant deleted: {assistant_id}")
-        
+
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         db.rollback()

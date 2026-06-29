@@ -1101,6 +1101,87 @@ def ensure_agent_inbound_first_phrase_column():
         logger.error(f"❌ ensure_agent_inbound_first_phrase_column error: {e}")
 
 
+def ensure_voice_assistant_fk_rules():
+    """
+    Идемпотентно приводит правила ON DELETE для FK голосовых ассистентов к SET NULL.
+
+    Прод создаёт схему через create_all, поэтому исторически часть FK получила
+    неверное правило удаления:
+      - agent_configs.gemini_assistant_id было ON DELETE CASCADE → удаление
+        Gemini-ассистента каскадом сносило целого агента;
+      - tasks.assistant_id было NO ACTION → блокировало удаление OpenAI-ассистента,
+        если на него ссылалась задача.
+    Оба случая лечатся переводом правила в SET NULL (как уже сделано у gemini/cartesia
+    в tasks и у openai/cartesia в agent_configs). Без этого фикс удаления ассистентов
+    «откатится» при пересоздании БД.
+    """
+    # (table, column, ref_table, drop_constraint_names, target_constraint_name)
+    targets = [
+        (
+            "agent_configs", "gemini_assistant_id", "gemini_assistant_configs",
+            ["agent_configs_gemini_assistant_id_fkey", "agent_configs_assistant_id_fkey"],
+            "agent_configs_gemini_assistant_id_fkey",
+        ),
+        (
+            "tasks", "assistant_id", "assistant_configs",
+            ["tasks_assistant_id_fkey"],
+            "tasks_assistant_id_fkey",
+        ),
+    ]
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        for table, column, ref_table, drop_names, target_name in targets:
+            if not inspector.has_table(table) or not inspector.has_table(ref_table):
+                continue
+            try:
+                with engine.connect() as conn:
+                    # Текущее правило удаления для FK на этой колонке
+                    rule = conn.execute(text("""
+                        SELECT rc.delete_rule
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                             ON tc.constraint_name = kcu.constraint_name
+                            AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.referential_constraints rc
+                             ON tc.constraint_name = rc.constraint_name
+                            AND tc.table_schema = rc.constraint_schema
+                        WHERE tc.constraint_type = 'FOREIGN KEY'
+                          AND tc.table_name = :table
+                          AND kcu.column_name = :column
+                        LIMIT 1
+                    """), {"table": table, "column": column}).scalar()
+
+                    if rule == "SET NULL":
+                        continue  # уже корректно — ничего не делаем
+
+                    trans = conn.begin()
+                    try:
+                        for name in drop_names:
+                            conn.execute(text(
+                                f'ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}'
+                            ))
+                        conn.execute(text(
+                            f'ALTER TABLE {table} '
+                            f'ADD CONSTRAINT {target_name} '
+                            f'FOREIGN KEY ({column}) '
+                            f'REFERENCES {ref_table}(id) ON DELETE SET NULL'
+                        ))
+                        trans.commit()
+                        logger.info(
+                            f"✅ FK {table}.{column} → {ref_table} "
+                            f"set to ON DELETE SET NULL (was {rule})"
+                        )
+                    except Exception as e:
+                        trans.rollback()
+                        logger.error(f"❌ Failed to fix FK {table}.{column}: {e}")
+            except Exception as e:
+                logger.error(f"❌ ensure_voice_assistant_fk_rules({table}.{column}) error: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_voice_assistant_fk_rules error: {e}")
+
+
 def ensure_agent_connectors_table():
     """
     Идемпотентно создаёт таблицу agent_connectors (внешние коннекторы агента
@@ -1234,6 +1315,10 @@ async def startup_event():
                 # 🆕 Шаг 19: Сброс старых (пользовательских) коннекторов в pending
                 #            после перехода на агентную identity Composio (вариант A)
                 ensure_connectors_agent_identity_migration()
+
+                # 🆕 Шаг 20: Правила ON DELETE для FK голосовых ассистентов → SET NULL
+                #            (чтобы удаление ассистента не сносило/не блокировало агента)
+                ensure_voice_assistant_fk_rules()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
