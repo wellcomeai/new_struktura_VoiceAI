@@ -38,7 +38,7 @@ from backend.services.agent_tools import (
     build_chat_tools,
     build_postcall_tools,
 )
-from backend.services.agent_prompts import build_orchestrator_prompt
+from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block
 from backend.services.openrouter_client import get_openrouter_client
 from backend.core.pipeline_stages import stage_from_decision
 from backend.services.credit_service import (
@@ -247,9 +247,11 @@ class PreCallOrchestrator:
         # Pre-flight проверка подписки/кредитов (раздел 5.1)
         CreditService.precheck(db, user)
 
-        system_prompt = build_orchestrator_prompt(agent_config)
+        # Статичный system + время в user-сообщении: префикс запроса
+        # (tools + system) байт-в-байт одинаков между звонками → кэш провайдера.
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         base_input = self._build_precall_input(task, agent_contact, db)
-        user_input = base_input + """
+        user_input = base_input + build_time_block() + """
 
 Подготовь звонок. Верни ответ строго в JSON формате без markdown:
 {"first_phrase": "точная первая фраза агента", "call_strategy": "краткое описание тактики", "tone": "дружелюбный/деловой/настойчивый", "key_points": ["факт1", "факт2"]}"""
@@ -920,7 +922,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         total_prompt = 0
         total_completion = 0
 
-        system_prompt = build_orchestrator_prompt(agent_config)
+        # Статичный system + время в user-сообщении: префикс запроса
+        # (tools + system) байт-в-байт одинаков между звонками → кэш провайдера.
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         post_call_input = self._build_postcall_input(
             agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
@@ -932,6 +936,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
 Первая фраза: {agent_call.custom_greeting or '(не задана)'}
 Тактика: {agent_call.call_strategy or '(не задана)'}"""
+        post_call_input += build_time_block()
 
         tools = await build_postcall_tools(agent_config, db)
         tool_calls_log: List[Dict[str, Any]] = []

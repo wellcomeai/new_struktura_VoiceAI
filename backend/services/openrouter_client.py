@@ -13,6 +13,69 @@ logger = get_logger(__name__)
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
+def _is_anthropic_model(model: str) -> bool:
+    return (model or "").lower().startswith("anthropic/")
+
+
+def _with_cache_control(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Расставить маркеры prompt-кэширования для Anthropic-моделей.
+
+    OpenAI/DeepSeek/Gemini кэшируют префикс автоматически, Anthropic требует
+    явные breakpoint'ы cache_control (OpenRouter прокидывает их как есть).
+    Ставим два: на system (кэширует tools + system — статичную часть) и на
+    последнее сообщение (кэширует растущую историю внутри цикла tool calls).
+
+    Возвращает копию списка — исходные messages оркестратора не мутируются.
+    """
+    prepared = [dict(m) for m in messages]
+
+    def _mark(msg: Dict[str, Any]) -> bool:
+        content = msg.get("content")
+        if isinstance(content, str):
+            if not content:
+                return False
+            msg["content"] = [{
+                "type": "text",
+                "text": content,
+                "cache_control": {"type": "ephemeral"},
+            }]
+            return True
+        if isinstance(content, list) and content and isinstance(content[-1], dict):
+            new_content = list(content)
+            last = dict(new_content[-1])
+            last["cache_control"] = {"type": "ephemeral"}
+            new_content[-1] = last
+            msg["content"] = new_content
+            return True
+        return False
+
+    for msg in prepared:
+        if msg.get("role") == "system":
+            _mark(msg)
+            break
+
+    for msg in reversed(prepared):
+        if msg.get("role") != "system" and _mark(msg):
+            break
+
+    return prepared
+
+
+def _log_usage(model: str, usage: Optional[Dict[str, Any]]) -> None:
+    """Лог фактического расхода токенов, включая попадание в кэш провайдера."""
+    if not usage:
+        return
+    details = usage.get("prompt_tokens_details") or {}
+    cached = int(details.get("cached_tokens", 0) or 0)
+    prompt = int(usage.get("prompt_tokens", 0) or 0)
+    hit = f"{cached * 100 // prompt}%" if prompt and cached else "0%"
+    logger.info(
+        f"[OPENROUTER] usage {model}: prompt={prompt} (cached={cached}, hit={hit}), "
+        f"completion={int(usage.get('completion_tokens', 0) or 0)}"
+    )
+
+
 class OpenRouterClient:
     def __init__(self):
         self.api_key = settings.OPENROUTER_API_KEY
@@ -43,11 +106,16 @@ class OpenRouterClient:
             "X-Title": "Voicyfy Agent",
         }
 
+        if _is_anthropic_model(model):
+            messages = _with_cache_control(messages)
+
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            # Детальный usage (в т.ч. cached_tokens) для контроля кэша промпта.
+            "usage": {"include": True},
         }
 
         if tools:
@@ -61,7 +129,9 @@ class OpenRouterClient:
                 headers=headers
             )
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            _log_usage(model, data.get("usage"))
+            return data
 
     async def chat_completion_stream(
         self,
@@ -91,6 +161,9 @@ class OpenRouterClient:
             "HTTP-Referer": "https://voicyfy.ru",
             "X-Title": "Voicyfy Agent",
         }
+
+        if _is_anthropic_model(model):
+            messages = _with_cache_control(messages)
 
         payload: Dict[str, Any] = {
             "model": model,
@@ -130,6 +203,8 @@ class OpenRouterClient:
                     except json.JSONDecodeError as e:
                         logger.warning(f"[OPENROUTER] Stream JSON parse error: {e} | line: {data[:200]}")
                         continue
+                    if chunk.get("usage"):
+                        _log_usage(model, chunk.get("usage"))
                     yield chunk
 
 

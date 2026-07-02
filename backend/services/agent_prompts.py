@@ -149,19 +149,28 @@ VOICE_AGENT_PROMPT_BASE = """Ты — голосовой AI-агент. Пере
 """
 
 
-def build_time_block() -> str:
+def build_time_block(round_to_minutes: int = 15) -> str:
     """
     Динамический блок с текущим временем (МСК + UTC) и правилами работы со
     временем. Пересобирается при каждом вызове, поэтому время всегда актуально.
     Сервер хранит время в UTC, а пользователю показываем МСК (UTC+3).
+
+    Время округляется ВНИЗ до round_to_minutes минут: кэширование промпта у
+    провайдеров (OpenRouter → OpenAI/DeepSeek/Anthropic/Gemini) требует
+    побайтового совпадения префикса запроса, и время с точностью до минуты
+    ломало кэш на каждом запросе. Внутри окна округления все запросы получают
+    идентичный блок времени.
     """
     msk = now_msk()
     utc = now_utc()
+    if round_to_minutes and round_to_minutes > 1:
+        msk = msk.replace(minute=msk.minute - msk.minute % round_to_minutes, second=0, microsecond=0)
+        utc = utc.replace(minute=utc.minute - utc.minute % round_to_minutes, second=0, microsecond=0)
     weekday = _WEEKDAYS_RU[msk.weekday()]
     return f"""
 
 # ТЕКУЩЕЕ ВРЕМЯ
-- Сейчас по МСК (UTC+3): {msk.strftime('%Y-%m-%d %H:%M')} ({weekday})
+- Сейчас по МСК (UTC+3): {msk.strftime('%Y-%m-%d %H:%M')} ({weekday}), время округлено вниз с шагом {round_to_minutes} мин
 - Сейчас по UTC: {utc.strftime('%Y-%m-%d %H:%M')}
 
 # ПРАВИЛА РАБОТЫ СО ВРЕМЕНЕМ (ОБЯЗАТЕЛЬНО)
@@ -214,11 +223,15 @@ def build_webhook_block(agent_config) -> str:
 и не дублируй одно и то же событие."""
 
 
-def build_orchestrator_prompt(agent_config) -> str:
+def build_orchestrator_prompt(agent_config, include_time_block: bool = True) -> str:
     """
     Собирает финальный промпт оркестратора из шаблона + данных агента.
     Пустые поля заменяются на "(не указано)".
     К промпту добавляется блок базы знаний (если есть) и актуальный блок времени.
+
+    include_time_block=False — для одноразовых вызовов (PreCall/PostCall):
+    блок времени там переносится в user-сообщение, а системный промпт остаётся
+    полностью статичным и целиком попадает в кэш провайдера.
     """
     base = ORCHESTRATOR_PROMPT_BASE.format(
         doc_who_am_i=agent_config.doc_who_am_i or "(не указано)",
@@ -228,12 +241,14 @@ def build_orchestrator_prompt(agent_config) -> str:
         doc_rules_and_goals=agent_config.doc_rules_and_goals or "(не указано)",
         additional_instructions=agent_config.additional_instructions or "(нет дополнительных инструкций)"
     )
-    return (
+    prompt = (
         base
         + build_knowledge_base_block(agent_config)
         + build_webhook_block(agent_config)
-        + build_time_block()
     )
+    if include_time_block:
+        prompt += build_time_block()
+    return prompt
 
 
 def get_voice_agent_prompt() -> str:
