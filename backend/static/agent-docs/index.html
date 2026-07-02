@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Документация Voicyfy Agent — руководство пользователя</title>
+<meta name="description" content="Руководство пользователя Voicyfy Agent: архитектура, настройка, Precall и Postcall, память агента, база знаний, чат с ИИ-оркестратором, Telegram-бот, коннекторы, Public API и примеры использования.">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Syne:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="/static/agent-docs/docs.css">
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <button class="tb-burger" id="tb-burger" type="button" title="Оглавление"><i class="fas fa-bars"></i></button>
+  <a class="tb-logo" href="/">
+    <span class="tb-logo-ic"><i class="fas fa-microphone-lines"></i></span>
+    <span class="tb-logo-tx">Voicyfy</span>
+  </a>
+  <span class="tb-title">Документация · Voicyfy Agent</span>
+  <div class="tb-actions">
+    <a class="tb-btn ghost" href="https://t.me/voicyfy_support" target="_blank" rel="noopener"><i class="fab fa-telegram"></i> Поддержка</a>
+    <a class="tb-btn primary" href="/static/agent.html"><i class="fas fa-headset"></i> Открыть агента</a>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sb-overlay" id="sb-overlay"></div>
+  <nav class="sidebar" id="sidebar">
+    <div class="sb-group">Основы</div>
+    <a class="sb-link" href="#intro"><i class="fas fa-flag-checkered"></i> Знакомство с агентом</a>
+    <a class="sb-link" href="#architecture"><i class="fas fa-diagram-project"></i> Архитектура</a>
+    <a class="sb-link" href="#main-screen"><i class="fas fa-table-columns"></i> Главный экран</a>
+
+    <div class="sb-group">Настройка</div>
+    <a class="sb-link" href="#setup"><i class="fas fa-sliders"></i> Настройка агента</a>
+    <a class="sb-link" href="#contacts"><i class="fas fa-users"></i> Контакты и задачи</a>
+
+    <div class="sb-group">Как работает звонок</div>
+    <a class="sb-link" href="#outbound"><i class="fas fa-phone-volume"></i> Исходящий звонок</a>
+    <a class="sb-link" href="#postcall"><i class="fas fa-clipboard-check"></i> После звонка: Postcall</a>
+    <a class="sb-link" href="#memory"><i class="fas fa-brain"></i> Память агента</a>
+    <a class="sb-link" href="#inbound"><i class="fas fa-phone-flip"></i> Входящие звонки</a>
+
+    <div class="sb-group">Инструменты</div>
+    <a class="sb-link" href="#knowledge"><i class="fas fa-database"></i> База знаний</a>
+    <a class="sb-link" href="#chat"><i class="fas fa-comments"></i> Чат с оркестратором</a>
+    <a class="sb-link" href="#telegram"><i class="fab fa-telegram"></i> Telegram-бот</a>
+    <a class="sb-link" href="#connectors"><i class="fas fa-plug"></i> Коннекторы</a>
+    <a class="sb-link" href="#api"><i class="fas fa-code"></i> Public API и Webhook</a>
+
+    <div class="sb-group">Практика</div>
+    <a class="sb-link" href="#use-cases"><i class="fas fa-lightbulb"></i> Примеры использования</a>
+  </nav>
+
+  <!-- CONTENT -->
+  <main class="content">
+    <div class="doc">
+
+      <!-- HERO -->
+      <div class="doc-hero">
+        <span class="eyebrow"><i class="fas fa-book-open"></i> Руководство пользователя</span>
+        <h1>Voicyfy Agent — цифровой сотрудник для звонков</h1>
+        <p>Это руководство последовательно объясняет, как устроен агент Voicyfy, как его настроить и как он работает: от первого документа до автоматического анализа каждого разговора. Материал рассчитан на любого пользователя — специальных знаний не требуется.</p>
+      </div>
+
+      <!-- ============================== 1. INTRO ============================== -->
+      <section class="chapter" id="intro">
+        <span class="eyebrow">Раздел 1</span>
+        <h2>Знакомство с Voicyfy Agent</h2>
+        <p class="lead">Voicyfy — платформа для создания и управления цифровыми ИИ-агентами, которые самостоятельно взаимодействуют с клиентами по телефону, анализируют результаты общения и выполняют дальнейшие действия без участия человека.</p>
+        <p>В отличие от классических голосовых ботов, агент Voicyfy не использует заранее подготовленные сценарии разговора и дерево переходов. Вместо этого он принимает решения на основе поставленных целей, доступной информации о клиенте и текущего контекста разговора.</p>
+
+        <h3>Что умеет агент</h3>
+        <div class="demo grid c3">
+          <div class="gcard"><div class="ic" style="background:#E0F2FE;color:#0284C7"><i class="fas fa-phone-flip"></i></div><h4>Принимает входящие</h4><p>Отвечает на звонки клиентов и консультирует по базе знаний компании.</p></div>
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-phone-volume"></i></div><h4>Сам звонит</h4><p>Совершает исходящие звонки по задачам — из интерфейса, чата или API.</p></div>
+          <div class="gcard"><div class="ic" style="background:#D1FAE5;color:#059669"><i class="fas fa-calendar-check"></i></div><h4>Записывает на встречи</h4><p>Работает с Google Календарём: находит время и создаёт события.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FFEDD5;color:#EA580C"><i class="fas fa-envelope"></i></div><h4>Письма и SMS</h4><p>Отправляет электронные письма и SMS-сообщения прямо во время разговора.</p></div>
+          <div class="gcard"><div class="ic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-brain"></i></div><h4>Запоминает клиентов</h4><p>Анализирует завершённые разговоры и накапливает память о каждом контакте.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEE2E2;color:#DC2626"><i class="fas fa-arrows-rotate"></i></div><h4>Планирует сам</h4><p>Создаёт повторные звонки, задачи и уведомляет вас о важных событиях.</p></div>
+        </div>
+
+        <h3>Как устроена работа агента</h3>
+        <p>Работу агента можно условно разделить на четыре этапа:</p>
+        <ol class="steps">
+          <li>Получение задачи — через API, интерфейс, чат или автоматически после предыдущего разговора.</li>
+          <li>Подготовка к взаимодействию — агент изучает всю доступную информацию о клиенте.</li>
+          <li>Телефонный разговор — живой диалог с клиентом в реальном времени.</li>
+          <li>Анализ результатов — обновление информации о клиенте и выполнение последующих действий.</li>
+        </ol>
+        <p>Для входящих звонков последовательность отличается только этапом подготовки: агент получает информацию о клиенте непосредственно перед началом разговора, чтобы ответить максимально быстро.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Voicyfy — единая система управления цифровым сотрудником, а не отдельный голосовой бот.</li>
+            <li><i class="fas fa-check"></i> Агент работает без сценариев: он опирается на цели, документы и контекст.</li>
+            <li><i class="fas fa-check"></i> Каждый звонок проходит полный цикл: задача → подготовка → разговор → анализ.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 2. ARCHITECTURE ============================== -->
+      <section class="chapter" id="architecture">
+        <span class="eyebrow">Раздел 2</span>
+        <h2>Архитектура: голосовой агент и ИИ-оркестратор</h2>
+        <p class="lead">Внутри Voicyfy нет одного универсального искусственного интеллекта, который делает всё одновременно. Система построена вокруг двух компонентов, каждый из которых отвечает за свою область.</p>
+        <p>Аналогия простая: когда сотрудник компании разговаривает по телефону, он не заполняет одновременно CRM и не планирует следующий звонок. Сначала он разговаривает, а после разговора делает записи, обновляет карточку клиента и планирует дальнейшие действия. Voicyfy работает по такому же принципу.</p>
+
+        <div class="demo">
+          <div class="arch-tabs" id="arch-tabs">
+            <button class="arch-tab on" data-arch="before" type="button">До звонка</button>
+            <button class="arch-tab" data-arch="during" type="button">Во время звонка</button>
+            <button class="arch-tab" data-arch="after" type="button">После звонка</button>
+          </div>
+          <div class="arch-stage">
+            <div class="arch-actor orch on" id="arch-orch">
+              <div class="aa-head">
+                <div class="aa-ic"><i class="fas fa-brain"></i></div>
+                <div><h4>ИИ-оркестратор</h4><div class="aa-sub">управляет системой, не разговаривает с клиентами</div></div>
+              </div>
+              <div id="arch-orch-body"></div>
+            </div>
+            <div class="arch-actor voice" id="arch-voice">
+              <div class="aa-head">
+                <div class="aa-ic"><i class="fas fa-microphone-lines"></i></div>
+                <div><h4>Голосовой ИИ-агент</h4><div class="aa-sub">ведёт телефонный разговор в реальном времени</div></div>
+              </div>
+              <div id="arch-voice-body"></div>
+            </div>
+          </div>
+          <div class="demo-cap"><i class="fas fa-hand-pointer"></i> Переключайте этапы, чтобы увидеть, какой компонент активен в каждый момент.</div>
+        </div>
+
+        <h3>Кто какие решения принимает</h3>
+        <table class="tbl">
+          <thead><tr><th>ИИ-оркестратор — стратегия</th><th>Голосовой агент — тактика</th></tr></thead>
+          <tbody>
+            <tr><td>Зачем выполнять звонок и что известно о клиенте</td><td>Как ответить на вопрос клиента и объяснить услугу</td></tr>
+            <tr><td>Какие действия выполнить после разговора</td><td>Как обработать возражение</td></tr>
+            <tr><td>Нужен ли повторный звонок</td><td>Когда воспользоваться календарём или отправить письмо</td></tr>
+            <tr><td>Нужно ли отправить уведомление</td><td>Когда завершить разговор</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Почему архитектура разделена</h3>
+        <ul class="plain">
+          <li><i class="fas fa-circle"></i> Разговор идёт без задержек — голосовой агент не ждёт ответов от оркестратора.</li>
+          <li><i class="fas fa-circle"></i> После разговора оркестратор получает полный транскрипт и принимает более взвешенные решения, чем возможно в живом диалоге.</li>
+          <li><i class="fas fa-circle"></i> Один и тот же оркестратор работает в чате, Telegram, при подготовке и при анализе звонков — вся информация о клиентах в одном месте.</li>
+        </ul>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Голосовой агент отвечает только за общение с клиентом в реальном времени.</li>
+            <li><i class="fas fa-check"></i> Оркестратор работает до и после разговора, а также в чате и Telegram.</li>
+            <li><i class="fas fa-check"></i> Исходящие звонки готовятся заранее (Precall); после каждого разговора запускается анализ (Postcall).</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 3. MAIN SCREEN ============================== -->
+      <section class="chapter" id="main-screen">
+        <span class="eyebrow">Раздел 3</span>
+        <h2>Главный экран</h2>
+        <p class="lead">После создания агента вы попадаете на главный экран — рабочее место, через которое происходит практически вся работа с цифровым сотрудником.</p>
+
+        <div class="demo">
+          <div class="screen-mock" role="img" aria-label="Схема главного экрана Voicyfy Agent">
+            <div class="sm-nav"><span class="sm-logo"><i class="fas fa-microphone-lines"></i></span> Voicyfy <span class="sm-pill">Агент активен</span><span class="sm-right"><span class="sm-pill"><i class="fas fa-coins"></i> кредиты</span><span class="sm-pill"><i class="far fa-circle-question"></i></span></span></div>
+            <div class="sm-cols">
+              <div class="sm-col sm-tag"><span class="tag">Рабочая область</span>
+                <div class="sm-card"><div class="smc-t"><i class="fas fa-phone-volume"></i> Всего звонков</div><div class="sm-line w60"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="fas fa-users"></i> Контакты · Воронка · Импорт</div><div class="sm-line"></div><div class="sm-line w80"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="fas fa-clock-rotate-left"></i> Последние звонки</div><div class="sm-line"></div><div class="sm-line w60"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="far fa-folder-open"></i> Документы агента</div><div class="sm-line w80"></div></div>
+              </div>
+              <div class="sm-col sm-tag"><span class="tag">Чат с оркестратором</span>
+                <div class="sm-chat">
+                  <div class="sm-bubble user">Позвони Ивану завтра в 15:00</div>
+                  <div class="sm-bubble bot">Готово — задача создана на завтра, 15:00 ✅</div>
+                  <div class="sm-bubble user">Сколько сегодня успешных звонков?</div>
+                  <div class="sm-bubble bot">Сегодня 12 звонков, 5 завершились успехом.</div>
+                  <div class="sm-input">Напишите сообщение… <i class="fas fa-paper-plane"></i></div>
+                </div>
+              </div>
+              <div class="sm-col sm-tag"><span class="tag">Панели управления</span>
+                <div class="sm-card"><div class="smc-t"><i class="far fa-calendar-check"></i> Ближайшие задачи</div><div class="sm-line"></div><div class="sm-line w60"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="fab fa-telegram"></i> Telegram-бот</div><div class="sm-line w80"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="fas fa-sliders"></i> Настройки агента</div><div class="sm-line w60"></div></div>
+                <div class="sm-card"><div class="smc-t"><i class="fas fa-database"></i> База знаний · Коннекторы</div><div class="sm-line w80"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="screen-legend">
+            <div class="lg"><i class="fas fa-arrow-left"></i><span><b>Левая часть</b> — рабочая область: статистика, контакты, история звонков, импорт и документы агента.</span></div>
+            <div class="lg"><i class="fas fa-comments"></i><span><b>Центр</b> — чат с ИИ-оркестратором: основной способ управления системой обычным языком.</span></div>
+            <div class="lg"><i class="fas fa-arrow-right"></i><span><b>Правая часть</b> — задачи, Telegram, настройки, база знаний, коннекторы и история работы агента.</span></div>
+          </div>
+        </div>
+
+        <h3>Всё связано в один процесс</h3>
+        <p>Главный экран — не набор независимых разделов. Например: вы импортировали Excel с клиентами → появились контакты → через чат поручили обзвон → оркестратор создал задачи → голосовой агент выполнил звонки → история сохранилась в карточках → память обновилась → в Telegram пришло уведомление о заинтересованных клиентах.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Главный экран — центр управления цифровым сотрудником.</li>
+            <li><i class="fas fa-check"></i> Чат с оркестратором — основной способ взаимодействия с системой.</li>
+            <li><i class="fas fa-check"></i> Все разделы интерфейса работают вместе как единая система.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 4. SETUP ============================== -->
+      <section class="chapter" id="setup">
+        <span class="eyebrow">Раздел 4</span>
+        <h2>Настройка агента</h2>
+        <p class="lead">Настройка агента — это не написание сценариев разговоров. Вы не прописываете реплики заранее, а создаёте для агента контекст, на основе которого он самостоятельно принимает решения.</p>
+
+        <h3>Пять документов агента</h3>
+        <p>Документы — основа личности цифрового сотрудника. Они одновременно используются оркестратором и голосовым агентом: при подготовке звонков, при анализе разговоров, в чате и в Telegram. Изменение любого документа сразу влияет на всю систему.</p>
+        <div class="demo">
+          <div class="fields">
+            <div class="field"><div class="fic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-building"></i></div><h4>Кто мы</h4><p>Компания, услуги, преимущества, принципы работы</p></div>
+            <div class="field"><div class="fic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-bullseye"></i></div><h4>Кому звоним</h4><p>Портрет клиента, его задачи и типичные возражения</p></div>
+            <div class="field"><div class="fic" style="background:#D1FAE5;color:#059669"><i class="fas fa-comments"></i></div><h4>Как говорим</h4><p>Стиль и тон общения, длина ответов</p></div>
+            <div class="field"><div class="fic" style="background:#FFEDD5;color:#EA580C"><i class="fas fa-box-open"></i></div><h4>Что предлагаем</h4><p>Продукты, условия, цены, гарантии</p></div>
+            <div class="field"><div class="fic" style="background:#FEE2E2;color:#DC2626"><i class="fas fa-flag"></i></div><h4>Правила и цели</h4><p>Что считать успехом, что запрещено, какие данные собирать</p></div>
+          </div>
+          <div class="demo-cap"><i class="fas fa-info-circle"></i> «Правила и цели» — самый важный документ: именно он формирует правила принятия решений агентом.</div>
+        </div>
+        <p>Воспринимайте документы как обучение нового сотрудника: какие знания вы дали бы менеджеру в первый рабочий день — те и должны находиться в документах. Короткого описания вида «мы продаём мебель» недостаточно.</p>
+
+        <h3>Инструкции: оркестратору и голосовому агенту</h3>
+        <div class="compare">
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-brain"></i> Инструкции оркестратору</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Когда отправлять уведомления в Telegram</li>
+              <li><i class="fas fa-circle"></i> Когда создавать повторные звонки</li>
+              <li><i class="fas fa-circle"></i> Какие действия выполнять после разговора</li>
+              <li><i class="fas fa-circle"></i> Как обновлять память и работать с задачами</li>
+            </ul>
+          </div>
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-microphone-lines"></i> Инструкции голосовому агенту</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Особенности и ограничения живого диалога</li>
+              <li><i class="fas fa-circle"></i> Обработка возражений</li>
+              <li><i class="fas fa-circle"></i> Специальные сценарии поведения</li>
+              <li><i class="fas fa-circle"></i> Действуют только во время телефонного разговора</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Остальные параметры</h3>
+        <ul class="plain">
+          <li><i class="fas fa-circle"></i> <b>Первая фраза для входящих.</b> Например: «Добрый день! Компания „Авто Япония“. Чем могу помочь?» Поддерживается переменная <code>{name}</code> — если звонящий найден в базе, агент обратится к нему по имени. Для исходящих звонков персональное приветствие формирует оркестратор на этапе Precall.</li>
+          <li><i class="fas fa-circle"></i> <b>Модель оркестратора.</b> Влияет на качество анализа, стоимость и скорость. Модель голосового агента может отличаться.</li>
+          <li><i class="fas fa-circle"></i> <b>Голос.</b> Голос, скорость речи и язык — влияют только на телефонный разговор.</li>
+          <li><i class="fas fa-circle"></i> <b>Номер телефона.</b> Номер для исходящих звонков — его увидит клиент.</li>
+          <li><i class="fas fa-circle"></i> <b>Webhook и Public API.</b> Интеграция с внешними системами — подробно в разделе <a href="#api">Public API и Webhook</a>.</li>
+        </ul>
+        <p>Большинство настроек выполняется один раз при создании агента, и их можно менять в любой момент без пересоздания.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Документы определяют знания и личность агента и используются всеми компонентами.</li>
+            <li><i class="fas fa-check"></i> Инструкции оркестратору и голосовому агенту решают разные задачи и влияют на разные этапы.</li>
+            <li><i class="fas fa-check"></i> После правильной настройки агент выполняет большую часть работы без вмешательства пользователя.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 5. CONTACTS ============================== -->
+      <section class="chapter" id="contacts">
+        <span class="eyebrow">Раздел 5</span>
+        <h2>Контакты и задачи</h2>
+        <p class="lead">Контакт — центральный объект всей системы. Вся история общения, память, результаты звонков и дальнейшие действия всегда привязаны к конкретному человеку или компании.</p>
+
+        <h3>Карточка контакта</h3>
+        <p>На момент создания карточка может содержать всего несколько полей, но после каждого взаимодействия она пополняется: историей звонков, памятью агента, задачами и стадией работы.</p>
+        <div class="demo">
+          <div class="contact-mock">
+            <div class="cm-head">
+              <div class="cm-ava">ИП</div>
+              <div><b>Иван Петров</b><div class="cm-sub">Компания «АвтоИмпорт» · менеджер</div></div>
+              <span class="status-badge" style="background:#3B82F622;color:#3B82F6;margin-left:auto">В работе</span>
+            </div>
+            <div class="cm-rows">
+              <div class="cm-row"><span class="cm-k">Телефон</span><span class="cm-v">+7 999 123-45-67</span></div>
+              <div class="cm-row"><span class="cm-k">Память агента</span><span class="cm-v">Интересуется Toyota Camry 2022. Просил связаться после отпуска.</span></div>
+              <div class="cm-row"><span class="cm-k">История звонков</span><span class="cm-v">2 разговора · последний — 3 дня назад</span></div>
+              <div class="cm-row"><span class="cm-k">Задачи</span><span class="cm-v">Перезвонить в пятницу в 16:00</span></div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Стадии воронки</h3>
+        <p>Контакт всегда находится на одной из стадий. После анализа разговора оркестратор может сам изменить стадию — например, перевести заинтересованного клиента из «Новый» в «Заинтересован», а попросившего больше не звонить — в «Не звонить».</p>
+        <div class="demo pipe">
+          <span class="status-badge" style="background:#6B728022;color:#6B7280">Новый</span><i class="fas fa-arrow-right-long"></i>
+          <span class="status-badge" style="background:#3B82F622;color:#3B82F6">В работе</span><i class="fas fa-arrow-right-long"></i>
+          <span class="status-badge" style="background:#10B98122;color:#10B981">Успех</span>
+          <i class="fas fa-grip-lines-vertical" style="margin:0 4px"></i>
+          <span class="status-badge" style="background:#EF444422;color:#EF4444">Отказ</span>
+          <span class="status-badge" style="background:#1F293722;color:#1F2937">Не звонить</span>
+        </div>
+
+        <h3>Способы добавления контактов</h3>
+        <div class="grid c2">
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-comments"></i></div><h4>Через чат</h4><p>«Добавь контакт Иван Петров, телефон +7…, компания „Альфа“» — оркестратор сам создаст карточку и уточнит недостающее.</p></div>
+          <div class="gcard"><div class="ic" style="background:#D1FAE5;color:#059669"><i class="fas fa-file-excel"></i></div><h4>Импорт Excel / CSV</h4><p>Для массовой загрузки базы: карточки и задачи на звонки создаются автоматически по шаблону системы.</p></div>
+          <div class="gcard"><div class="ic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-code"></i></div><h4>Через Public API</h4><p>Контакты создаются автоматически: заявка на сайте, сделка в CRM, лид из рекламы.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FFEDD5;color:#EA580C"><i class="fas fa-keyboard"></i></div><h4>Вручную</h4><p>Кнопка «Добавить» в разделе контактов главного экрана.</p></div>
+        </div>
+
+        <h3>Контакт ≠ задача</h3>
+        <p><b>Контакт</b> отвечает на вопрос «с кем работать?» и существует постоянно. <b>Задача</b> отвечает на вопрос «что нужно сделать?» и появляется, когда агент должен выполнить действие: позвонить, перезвонить через три дня, подтвердить запись. После выполнения задача завершается, а контакт остаётся — один клиент может накопить десятки выполненных задач.</p>
+        <p>Задача — это цель разговора, а не его сценарий. «Позвонить клиенту и рассказать о новой акции» — лишь цель: как построить диалог, какие вопросы задать и как ответить на возражения, агент решает сам. Задачи создаёт и пользователь, и сам оркестратор — например, когда клиент попросил перезвонить во вторник.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Контакт — основной объект системы; вся история хранится в его карточке.</li>
+            <li><i class="fas fa-check"></i> Задача определяет действие, которое агент должен выполнить по контакту.</li>
+            <li><i class="fas fa-check"></i> Задачи создаются пользователем или автоматически самим оркестратором.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 6. OUTBOUND (TOUR) ============================== -->
+      <section class="chapter" id="outbound">
+        <span class="eyebrow">Раздел 6</span>
+        <h2>Как работает исходящий звонок</h2>
+        <p class="lead">Перед каждым исходящим звонком происходит большая подготовительная работа. Каждый звонок проходит три последовательных этапа.</p>
+
+        <div class="demo flow">
+          <div class="phase p-pre">
+            <span class="badge">Этап 1</span>
+            <div class="pic"><i class="fas fa-brain"></i></div>
+            <h3>Precall · Подготовка</h3>
+            <ul>
+              <li><i class="fas fa-circle"></i> Оркестратор собирает задачу, карточку, память, историю звонков и SMS</li>
+              <li><i class="fas fa-circle"></i> Использует документы агента и базу знаний</li>
+              <li><i class="fas fa-circle"></i> Формирует персональное приветствие и стратегию</li>
+            </ul>
+          </div>
+          <div class="arrow"><i class="fas fa-arrow-right-long"></i></div>
+          <div class="phase p-talk">
+            <span class="badge">Этап 2</span>
+            <div class="pic"><i class="fas fa-microphone-lines"></i></div>
+            <h3>Голосовой разговор</h3>
+            <ul>
+              <li><i class="fas fa-circle"></i> Живой диалог в реальном времени</li>
+              <li><i class="fas fa-circle"></i> Инструменты: календарь, письма, база знаний, SMS</li>
+              <li><i class="fas fa-circle"></i> Агент сам принимает решения и завершает разговор</li>
+            </ul>
+          </div>
+          <div class="arrow"><i class="fas fa-arrow-right-long"></i></div>
+          <div class="phase p-post">
+            <span class="badge">Этап 3</span>
+            <div class="pic"><i class="fas fa-clipboard-check"></i></div>
+            <h3>Postcall · Анализ</h3>
+            <ul>
+              <li><i class="fas fa-circle"></i> Оркестратор читает транскрипт</li>
+              <li><i class="fas fa-circle"></i> Обновляет память и стадию контакта</li>
+              <li><i class="fas fa-circle"></i> Планирует повторный звонок, шлёт уведомления</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Пошаговый разбор: жизненный цикл звонка</h3>
+        <p>Пролистайте слайды — это полный путь одного исходящего звонка от задачи до автоматических действий после разговора.</p>
+        <div class="demo tour" data-tour="call"></div>
+
+        <h3>Откуда появляется задача</h3>
+        <ul class="plain">
+          <li><i class="fas fa-circle"></i> <b>Через Public API</b> — например, CRM создала сделку и передала контакт с целью звонка.</li>
+          <li><i class="fas fa-circle"></i> <b>Через чат</b> — «Позвони Ивану завтра утром и предложи бесплатную консультацию».</li>
+          <li><i class="fas fa-circle"></i> <b>Через интерфейс</b> — вручную в карточке контакта.</li>
+          <li><i class="fas fa-circle"></i> <b>Автоматически</b> — оркестратор сам создал повторный звонок после предыдущего разговора.</li>
+        </ul>
+        <p>Без задачи агент никогда не начинает звонок самостоятельно. Именно описание задачи становится основой подготовки: «Клиент оставил заявку на Toyota Camry 2022 года. Уточнить бюджет и предложить варианты».</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Каждый исходящий звонок начинается с задачи.</li>
+            <li><i class="fas fa-check"></i> Precall выполняет оркестратор: анализирует задачу, память, историю и документы.</li>
+            <li><i class="fas fa-check"></i> Во время разговора управление полностью у голосового агента.</li>
+            <li><i class="fas fa-check"></i> После завершения запускается Postcall — см. следующий раздел.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 7. POSTCALL ============================== -->
+      <section class="chapter" id="postcall">
+        <span class="eyebrow">Раздел 7</span>
+        <h2>Что происходит после звонка: Postcall</h2>
+        <p class="lead">Когда разговор завершается, работа агента не заканчивается — начинается одна из самых важных частей системы. Управление снова получает ИИ-оркестратор.</p>
+        <p>Если представить обычного менеджера, Postcall — это момент, когда после разговора он открывает CRM, записывает итоги, ставит напоминания и меняет статус клиента. В Voicyfy всё это происходит автоматически — независимо от того, ответил клиент или нет, был звонок входящим или исходящим.</p>
+
+        <h3>Главный источник — транскрипт</h3>
+        <p>Оркестратор получает полный транскрипт только что завершившегося разговора, а также память, историю предыдущих звонков и SMS-переписку. Он не «вспоминает» разговор — он анализирует реальные реплики обеих сторон и отвечает на вопросы: удалось ли выполнить цель звонка, был ли клиент заинтересован, какие новые сведения появились, нужны ли дополнительные действия.</p>
+
+        <h3>Что делает Postcall</h3>
+        <div class="grid c3">
+          <div class="gcard"><div class="ic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-brain"></i></div><h4>Обновляет память</h4><p>Сохраняет факты, которые пригодятся в будущих разговорах.</p></div>
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-diagram-project"></i></div><h4>Меняет стадию</h4><p>«Новый» → «Заинтересован», или «Не звонить», если клиент попросил.</p></div>
+          <div class="gcard"><div class="ic" style="background:#D1FAE5;color:#059669"><i class="fas fa-calendar-plus"></i></div><h4>Создаёт задачи</h4><p>«Позвоните в пятницу» → повторный звонок запланирован автоматически.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEF3C7;color:#D97706"><i class="fas fa-comment-sms"></i></div><h4>Отправляет SMS</h4><p>Например, адрес офиса, который просил клиент.</p></div>
+          <div class="gcard"><div class="ic" style="background:#E0F2FE;color:#0284C7"><i class="fab fa-telegram"></i></div><h4>Уведомляет в Telegram</h4><p>Только о событиях, которые вы указали в инструкциях.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEE2E2;color:#DC2626"><i class="fas fa-tower-broadcast"></i></div><h4>Вызывает Webhook</h4><p>Передаёт результаты в CRM, ERP или ваши сервисы.</p></div>
+        </div>
+
+        <h3>Почему Postcall работает отдельно</h3>
+        <p>Во время разговора главная задача голосового агента — естественно общаться. Если бы он одновременно анализировал результаты, обновлял память и создавал задачи, появились бы задержки. Поэтому во время разговора работает голосовой агент, а после — оркестратор: каждый компонент сосредоточен на своей задаче.</p>
+        <p>Пользователь при этом не делает практически ничего: можно открыть карточку клиента и увидеть обновлённую память, новый статус, историю разговора и созданные задачи.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Postcall запускается автоматически после каждого разговора.</li>
+            <li><i class="fas fa-check"></i> Главный источник информации — полный транскрипт разговора.</li>
+            <li><i class="fas fa-check"></i> Память, стадии и задачи обновляются без участия пользователя.</li>
+            <li><i class="fas fa-check"></i> Благодаря Postcall каждый следующий разговор становится более персональным.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 8. MEMORY ============================== -->
+      <section class="chapter" id="memory">
+        <span class="eyebrow">Раздел 8</span>
+        <h2>Память агента</h2>
+        <p class="lead">Агент не начинает каждый разговор с чистого листа. После каждого взаимодействия система запоминает новую информацию о клиенте и использует её при следующих звонках. Память — аналог опыта обычного сотрудника.</p>
+
+        <div class="demo compare">
+          <div class="cp bad">
+            <div class="cp-t"><i class="fas fa-xmark"></i> Без памяти</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Клиент: «Мы уже разговаривали неделю назад»</li>
+              <li><i class="fas fa-circle"></i> Агент не знает об этом и начинает разговор с самого начала</li>
+              <li><i class="fas fa-circle"></i> Общение выглядит неестественно</li>
+            </ul>
+          </div>
+          <div class="cp good">
+            <div class="cp-t"><i class="fas fa-check"></i> С памятью</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Агент знает, когда был предыдущий разговор и о чём договорились</li>
+              <li><i class="fas fa-circle"></i> Не задаёт повторно те же вопросы</li>
+              <li><i class="fas fa-circle"></i> Разговор продолжается с того места, где закончился</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Что хранится в памяти</h3>
+        <ul class="plain">
+          <li><i class="fas fa-circle"></i> <b>Краткое описание клиента</b> — «Интересуется Toyota Camry 2022. Планирует покупку осенью. Просил связаться после отпуска». Обновляется после каждого разговора.</li>
+          <li><i class="fas fa-circle"></i> <b>Ключевые факты</b> — бюджет, предпочтения, удобное время связи. Накапливаются постепенно.</li>
+          <li><i class="fas fa-circle"></i> <b>История общения</b> — каким был тон разговоров: спокойным, заинтересованным, напряжённым.</li>
+          <li><i class="fas fa-circle"></i> <b>Количество попыток связи</b> и информация о последнем разговоре.</li>
+        </ul>
+        <p>Память — не полная история разговоров (для этого есть транскрипты). Из десятиминутного разговора в память попадут только несколько действительно важных выводов. Память хранится отдельно для каждого контакта и никогда не смешивается между клиентами.</p>
+        <p>Память обновляет оркестратор автоматически на этапе Postcall. При этом она — часть карточки контакта: вы всегда можете просмотреть и при необходимости скорректировать её вручную.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Память создаётся отдельно для каждого контакта и обновляется автоматически.</li>
+            <li><i class="fas fa-check"></i> Сохраняются только сведения, полезные для будущих разговоров.</li>
+            <li><i class="fas fa-check"></i> Память используется при подготовке исходящих и при обработке входящих звонков.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 9. INBOUND ============================== -->
+      <section class="chapter" id="inbound">
+        <span class="eyebrow">Раздел 9</span>
+        <h2>Работа с входящими звонками</h2>
+        <p class="lead">При входящем звонке времени на длительную подготовку нет — клиент ждёт ответа уже через несколько секунд. Поэтому входящие обрабатываются иначе, чем исходящие.</p>
+
+        <h3>Схема входящего звонка</h3>
+        <ol class="steps">
+          <li>Клиент звонит в компанию — телефония соединяет его с системой.</li>
+          <li>Система определяет номер телефона и ищет контакт в базе.</li>
+          <li>Мгновенно формируется контекст: имя, компания, стадия, память, прошлые разговоры.</li>
+          <li>Голосовой агент начинает разговор — при известном имени обращается к клиенту по имени в первой фразе.</li>
+          <li>После завершения запускается стандартный Postcall.</li>
+        </ol>
+
+        <div class="demo">
+          <div class="ob-mock ob-talk" style="max-width:460px">
+            <div class="ob-bubble agent">Здравствуйте, Иван! Рад снова вас слышать. Чем могу помочь?</div>
+            <div class="ob-bubble client">Я по поводу подбора автомобиля — мы общались на прошлой неделе.</div>
+            <div class="ob-bubble agent">Да, конечно. Вы рассматривали Toyota Camry 2022 — появились подходящие варианты.</div>
+          </div>
+          <div class="demo-cap"><i class="fas fa-bolt"></i> Контекст клиента передаётся агенту ещё до начала разговора — поэтому он «узнаёт» звонящего мгновенно.</div>
+        </div>
+
+        <h3>Чем входящий отличается от исходящего</h3>
+        <table class="tbl">
+          <thead><tr><th>Исходящий звонок</th><th>Входящий звонок</th></tr></thead>
+          <tbody>
+            <tr><td>Начинается с задачи</td><td>Начинается со звонка клиента</td></tr>
+            <tr><td>Перед разговором выполняется Precall</td><td>Precall не используется</td></tr>
+            <tr><td>Оркестратор заранее готовит стратегию</td><td>Контекст формируется сразу по номеру телефона</td></tr>
+            <tr><td>Есть цель звонка</td><td>Цель определяется в ходе разговора</td></tr>
+            <tr><td>Агент получает персональное приветствие</td><td>Агент сразу получает контекст клиента</td></tr>
+          </tbody>
+        </table>
+        <p>Если номер неизвестен, разговор всё равно состоится — агент пообщается как с новым клиентом, уточнит данные, а после разговора контакт может быть создан автоматически. После завершения оба типа звонков проходят одинаковый этап Postcall.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Для входящих звонков этап Precall не выполняется — используется быстрый контекст по номеру.</li>
+            <li><i class="fas fa-check"></i> Если контакт найден, агент с первых секунд знает, с кем разговаривает.</li>
+            <li><i class="fas fa-check"></i> После разговора запускается стандартный Postcall.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 10. KNOWLEDGE BASE ============================== -->
+      <section class="chapter" id="knowledge">
+        <span class="eyebrow">Раздел 10</span>
+        <h2>База знаний</h2>
+        <p class="lead">База знаний — внутренняя библиотека компании: информация о продуктах, услугах, ценах и регламентах. Агент не запоминает документы целиком — он быстро находит нужный фрагмент именно в тот момент, когда информация понадобилась в разговоре.</p>
+
+        <h3>Чем база знаний отличается от документов агента</h3>
+        <div class="compare">
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="far fa-folder-open"></i> Документы агента: «как работать?»</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Кто мы, кому звоним, как общаемся, цели</li>
+              <li><i class="fas fa-circle"></i> Постоянно находятся в контексте агента</li>
+              <li><i class="fas fa-circle"></i> Определяют поведение</li>
+            </ul>
+          </div>
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-database"></i> База знаний: «где взять информацию?»</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Прайсы, инструкции, FAQ, характеристики, регламенты</li>
+              <li><i class="fas fa-circle"></i> Подключается только при необходимости</li>
+              <li><i class="fas fa-circle"></i> Отвечает на вопросы клиентов фактами</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Векторный поиск: по смыслу, а не по словам</h3>
+        <p>Voicyfy использует векторный поиск — система ищет информацию по смыслу запроса, а не по совпадению слов. Клиенты могут задавать один и тот же вопрос совершенно разными формулировками.</p>
+        <div class="demo">
+          <div class="kb-demo">
+            <div class="kb-q"><i class="fas fa-user"></i><span>Клиент спрашивает: <b>«Можно оформить рассрочку на машину?»</b></span></div>
+            <div class="kb-frag">
+              <div class="kf-t"><i class="fas fa-magnifying-glass"></i> Найдено в базе знаний по смыслу</div>
+              «Автомобиль можно приобрести <b>в кредит</b> сроком до 7 лет.»
+            </div>
+          </div>
+          <div class="demo-cap"><i class="fas fa-wand-magic-sparkles"></i> В вопросе нет слова «кредит», но агент понимает смысл и находит нужный фрагмент.</div>
+        </div>
+
+        <h3>Как это работает</h3>
+        <ol class="steps">
+          <li>Вы загружаете материалы: описания услуг, прайсы, FAQ, условия доставки и гарантии.</li>
+          <li>Система автоматически индексирует текст в векторную базу — настраивать ничего не нужно.</li>
+          <li>Во время разговора агент находит наиболее релевантные фрагменты и отвечает точно, без выдумок.</li>
+        </ol>
+        <p>Агент получает не всю базу, а только небольшие фрагменты, относящиеся к текущему вопросу, — поэтому можно работать с сотнями страниц корпоративной информации. База знаний доступна голосовому агенту во время звонка, оркестратору на этапах Precall и Postcall, а также в чате и Telegram.</p>
+        <div class="note"><i class="fas fa-triangle-exclamation"></i><span>Не храните в базе знаний стиль общения, правила поведения и цели звонков — это настройки агента, им место в документах.</span></div>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> База знаний хранит корпоративную информацию, а не правила поведения агента.</li>
+            <li><i class="fas fa-check"></i> Поиск работает по смыслу — заранее продумывать формулировки вопросов не нужно.</li>
+            <li><i class="fas fa-check"></i> Агент обращается к базе только при необходимости и получает лишь релевантные фрагменты.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 11. CHAT ============================== -->
+      <section class="chapter" id="chat">
+        <span class="eyebrow">Раздел 11</span>
+        <h2>Чат с ИИ-оркестратором</h2>
+        <p class="lead">Чат — не техподдержка и не «просто диалог с ИИ». Это полноценный интерфейс управления цифровым сотрудником: вместо поиска нужных разделов и заполнения форм вы просто пишете, что нужно сделать.</p>
+        <p>В чате работает тот же самый оркестратор, что готовит и анализирует звонки, — с теми же знаниями, документами, памятью и инструкциями.</p>
+
+        <div class="demo">
+          <div class="chat-demo">
+            <div class="bubble user">Добавь клиента Ивана Петрова и запланируй звонок на завтра в 11:00</div>
+            <div class="trace">
+              <div class="tr"><span class="tic"><i class="fas fa-user-plus"></i></span> Создаю карточку контакта <i class="fas fa-check tick"></i></div>
+              <div class="tr"><span class="tic"><i class="fas fa-calendar-plus"></i></span> Планирую звонок на завтра, 11:00 <i class="fas fa-check tick"></i></div>
+            </div>
+            <div class="bubble bot">Готово. Контакт создан, звонок запланирован на завтра в 11:00.</div>
+          </div>
+          <div class="demo-cap"><i class="fas fa-list-check"></i> Оркестратор сам разбивает запрос на действия и показывает по шагам, что делает.</div>
+        </div>
+
+        <h3>Что можно делать через чат</h3>
+        <div class="cmd-list">
+          <div class="cmd"><i class="fas fa-users"></i><span><b>Контакты:</b> «Найди клиента по телефону +7…», «Покажи всех клиентов компании „Ромашка“», «Что агент знает об Иване Петрове?»</span></div>
+          <div class="cmd"><i class="fas fa-calendar-plus"></i><span><b>Задачи:</b> «Позвони Ивану завтра в 11:00», «Через неделю уточни, принял ли клиент решение», «Отмени завтрашний звонок»</span></div>
+          <div class="cmd"><i class="fas fa-phone-volume"></i><span><b>Звонки:</b> «Покажи последние пять разговоров», «Какие клиенты попросили перезвонить?»</span></div>
+          <div class="cmd"><i class="fas fa-chart-line"></i><span><b>Статистика:</b> «Сколько звонков было сегодня?», «Сколько клиентов заинтересовались предложением?»</span></div>
+          <div class="cmd"><i class="fas fa-calendar-days"></i><span><b>Календарь и почта</b> (при подключённых коннекторах): «Запланируй встречу на завтра в 15:00», «Отправь коммерческое предложение Ивану»</span></div>
+          <div class="cmd"><i class="fas fa-database"></i><span><b>База знаний:</b> «Какие условия гарантии мы предоставляем?», «Какой срок доставки?»</span></div>
+        </div>
+
+        <h3>Как формулировать запросы</h3>
+        <p>Специальные команды учить не нужно — оркестратор понимает смысл. «Позвони Ивану завтра», «Запланируй звонок Ивану на завтра» и «Нужно завтра набрать Ивана» приведут к одному результату. Но чем точнее запрос, тем меньше уточнений: вместо «Позвони клиенту» лучше «Позвони Ивану Петрову завтра в 11:00 и уточни решение по коммерческому предложению».</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Чат — полноценный интерфейс управления системой.</li>
+            <li><i class="fas fa-check"></i> В чате работает тот же оркестратор с теми же знаниями и памятью.</li>
+            <li><i class="fas fa-check"></i> Достаточно описать задачу обычным языком — команды не нужны.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 12. TELEGRAM ============================== -->
+      <section class="chapter" id="telegram">
+        <span class="eyebrow">Раздел 12</span>
+        <h2>Telegram-бот</h2>
+        <p class="lead">Telegram в Voicyfy — не просто канал уведомлений. После подключения это второй полноценный интерфейс управления цифровым сотрудником: почти всё, что можно сделать в веб-чате, доступно и с телефона.</p>
+
+        <h3>Умные уведомления по вашим правилам</h3>
+        <p>Решение об отправке уведомления принимает оркестратор на основе ваших инструкций и анализа разговора. Если указать «уведомляй только о заинтересованных клиентах», после обычной консультации сообщение не придёт, а после горячего лида — придёт.</p>
+        <div class="demo">
+          <div class="tg-phone">
+            <div class="tg-bar"><div class="av"><i class="fas fa-robot"></i></div><div><b>Агент Voicyfy</b><br><span>ваш цифровой сотрудник</span></div></div>
+            <div class="tg-msg green"><span class="lbl">✅ Успех · Иван Петров</span>Согласился на встречу в четверг 15:00. Поставил задачу-напоминание.</div>
+            <div class="tg-msg amber"><span class="lbl">↻ Перезвон · ООО «Ромашка»</span>Просили перезвонить после обеда. Задача создана на 14:30.</div>
+            <div class="tg-msg user">Запланируй встречу на пятницу в 15:00</div>
+            <div class="tg-msg"><span class="lbl">Агент</span>Готово: встреча создана в календаре, подтверждение отправлено.</div>
+          </div>
+          <div class="demo-cap"><i class="fab fa-telegram"></i> Уведомления и команды — в одном диалоге. Поддерживаются и голосовые сообщения: речь автоматически распознаётся.</div>
+        </div>
+
+        <h3>Как подключить</h3>
+        <ol class="steps">
+          <li>Создайте Telegram-бота через <code>@BotFather</code> и получите токен доступа.</li>
+          <li>Укажите токен в настройках агента (карточка «Telegram-бот» на главном экране).</li>
+          <li>Добавьте разрешённые Telegram-аккаунты (Chat ID) — только они смогут получать уведомления и отправлять команды.</li>
+        </ol>
+        <div class="note"><i class="fas fa-shield-halved"></i><span>По умолчанию бот не отвечает посторонним: доступ имеют только аккаунты из списка разрешённых Chat ID.</span></div>
+
+        <h3>Веб-интерфейс и Telegram</h3>
+        <p>Веб-интерфейс — для полноценной ежедневной работы: настройка, документы, импорт Excel, аналитика. Telegram — для оперативного управления: быстро получить информацию, создать задачу, отреагировать на событие. Оба интерфейса используют одного оркестратора и полностью синхронизированы: действие в Telegram сразу видно в веб-интерфейсе, и наоборот.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Telegram — полноценный интерфейс управления, а не только уведомления.</li>
+            <li><i class="fas fa-check"></i> Когда слать уведомления — решает оркестратор по вашим инструкциям.</li>
+            <li><i class="fas fa-check"></i> Поддерживаются текстовые и голосовые сообщения.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 13. CONNECTORS ============================== -->
+      <section class="chapter" id="connectors">
+        <span class="eyebrow">Раздел 13</span>
+        <h2>Коннекторы и интеграции</h2>
+        <p class="lead">Коннектор — безопасное соединение Voicyfy с внешним сервисом. После подключения агент может выполнять реальные действия от вашего имени: создавать события в календаре, отправлять и читать письма.</p>
+        <p>Коннекторы не работают постоянно — агент обращается к сервису только тогда, когда это нужно для текущей задачи. Если клиент не спрашивает о записи, календарь не используется.</p>
+
+        <h3>Google Calendar и Gmail: возможности зависят от контекста</h3>
+        <div class="compare">
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-phone-volume"></i> Во время телефонного разговора</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Проверить занятость, найти свободное время, создать встречу</li>
+              <li><i class="fas fa-circle"></i> Отправить письмо, найти переписку с клиентом</li>
+              <li><i class="fas fa-circle"></i> Только самое необходимое — чтобы сохранить естественный темп разговора</li>
+            </ul>
+          </div>
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-comments"></i> Через чат или Telegram</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Полное управление календарём: создать, перенести, удалить, найти встречи</li>
+              <li><i class="fas fa-circle"></i> Полная работа с почтой: искать, читать, отвечать, пересылать</li>
+              <li><i class="fas fa-circle"></i> Чат не ограничен скоростью телефонного разговора</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Пример: запись на консультацию во время звонка</h3>
+        <div class="demo chain">
+          <div class="ch"><i class="fas fa-user"></i><span>Клиент: <b>«Можно записаться на консультацию в четверг?»</b></span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-calendar-days"></i><span>Агент проверяет Google Calendar и находит свободное время</span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-calendar-plus"></i><span>Создаёт встречу и подтверждает запись клиенту — прямо в разговоре</span></div>
+        </div>
+
+        <h3>Безопасность</h3>
+        <p>Подключение выполняется через официальные механизмы авторизации (OAuth). Voicyfy получает только те разрешения, которые нужны для выбранных действий. Любой коннектор можно отключить в любой момент — агент сразу потеряет доступ к сервису.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Коннекторы дают агенту доступ к реальным сервисам компании.</li>
+            <li><i class="fas fa-check"></i> Во время звонка доступен минимум действий, в чате и Telegram — максимум.</li>
+            <li><i class="fas fa-check"></i> Подключение — один раз, отключить можно в любой момент.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 14. API / WEBHOOK ============================== -->
+      <section class="chapter" id="api">
+        <span class="eyebrow">Раздел 14</span>
+        <h2>Public API и Webhook</h2>
+        <p class="lead">Для интеграции с внешними системами Voicyfy предлагает два механизма, работающих в противоположных направлениях.</p>
+
+        <div class="compare">
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-right-to-bracket"></i> Public API — задачи внутрь Voicyfy</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Создавать контакты и задачи</li>
+              <li><i class="fas fa-circle"></i> Запускать исходящие звонки с целью разговора</li>
+              <li><i class="fas fa-circle"></i> Получать информацию о работе агента</li>
+              <li><i class="fas fa-circle"></i> Используют сайты, CRM, ERP, внутренние системы</li>
+            </ul>
+          </div>
+          <div class="cp plain-t">
+            <div class="cp-t"><i class="fas fa-right-from-bracket"></i> Webhook — события наружу</div>
+            <ul>
+              <li><i class="fas fa-circle"></i> Завершение звонка, изменение стадии</li>
+              <li><i class="fas fa-circle"></i> Создание контакта, выполнение задачи</li>
+              <li><i class="fas fa-circle"></i> Приём — CRM, ERP, n8n / Make / Zapier, свои сервисы</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>Сквозной пример: от заявки до обновлённой CRM</h3>
+        <div class="demo chain">
+          <div class="ch"><i class="fas fa-globe"></i><span>Клиент оставляет заявку на сайте — CRM получает нового лида</span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-right-to-bracket"></i><span>CRM через <b>Public API</b> создаёт контакт и задачу: «Позвонить и предложить консультацию»</span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-phone-volume"></i><span>В назначенное время агент выполняет звонок; клиент просит записать его на встречу</span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-calendar-plus"></i><span>Голосовой агент создаёт событие в Google Calendar прямо в разговоре</span></div>
+          <div class="ch-arrow"><i class="fas fa-arrow-down"></i></div>
+          <div class="ch"><i class="fas fa-right-from-bracket"></i><span>После анализа разговора <b>Webhook</b> отправляет результаты обратно в CRM</span></div>
+        </div>
+        <p>Несколько независимых систем работают как единое целое — переносить информацию вручную не нужно. Ключ Public API и адрес Webhook настраиваются в разделе «Настройки агента»; запросы к API выполняются только с вашего сервера (server-to-server).</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Public API передаёт задачи в Voicyfy, Webhook — события из Voicyfy.</li>
+            <li><i class="fas fa-check"></i> Задача — отправная точка всей работы агента при интеграциях.</li>
+            <li><i class="fas fa-check"></i> Вместе они позволяют встроить агента практически в любой бизнес-процесс.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================== 15. USE CASES ============================== -->
+      <section class="chapter" id="use-cases">
+        <span class="eyebrow">Раздел 15</span>
+        <h2>Примеры использования</h2>
+        <p class="lead">Voicyfy — универсальная платформа: задачи агента определяются документами, базой знаний, инструкциями и подключёнными инструментами. Меняется не система, а знания, которыми пользуется цифровой сотрудник.</p>
+
+        <div class="grid c3">
+          <div class="gcard"><div class="ic" style="background:#E0F2FE;color:#0284C7"><i class="fas fa-stethoscope"></i></div><h4>Медицинская клиника</h4><p>Приём входящих, консультации по услугам и врачам, запись и перенос приёмов.</p></div>
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-fire"></i></div><h4>Холодная база</h4><p>Обзвон, представление компании, выявление потребности, фиксация интереса.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FFEDD5;color:#EA580C"><i class="fas fa-bolt"></i></div><h4>Тёплые лиды</h4><p>Мгновенная связь после заявки на сайте, уточнение потребностей, передача менеджеру.</p></div>
+          <div class="gcard"><div class="ic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-car"></i></div><h4>Продажа автомобилей</h4><p>Приём заявок, консультации по процессу покупки и доставке, подбор вариантов.</p></div>
+          <div class="gcard"><div class="ic" style="background:#D1FAE5;color:#059669"><i class="fas fa-calendar-check"></i></div><h4>Подтверждение записи</h4><p>Автозвонок после заявки: подтвердить дату и время, перенести при необходимости.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEF3C7;color:#D97706"><i class="fas fa-bell"></i></div><h4>Напоминание о визите</h4><p>За день до встречи: напомнить, подтвердить присутствие, освободить расписание при отмене.</p></div>
+          <div class="gcard"><div class="ic" style="background:#E0F2FE;color:#0284C7"><i class="fas fa-cart-shopping"></i></div><h4>Интернет-магазин</h4><p>Консультации по товарам, доставке и оплате, помощь с оформлением заказа.</p></div>
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-headset"></i></div><h4>Служба поддержки</h4><p>Ответы по базе знаний: гарантия, статус заказа, инструкции, тарифы, возвраты.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEE2E2;color:#DC2626"><i class="fas fa-briefcase"></i></div><h4>Отдел продаж</h4><p>Выявление потребностей, презентация, работа с возражениями, отправка КП.</p></div>
+          <div class="gcard"><div class="ic" style="background:#D1FAE5;color:#059669"><i class="fas fa-handshake"></i></div><h4>Дилеры и поставщики</h4><p>Уточнение наличия, согласование сроков, подтверждение заказов, поиск новых партнёров.</p></div>
+          <div class="gcard"><div class="ic" style="background:#F3E8FF;color:#7C3AED"><i class="fas fa-star-half-stroke"></i></div><h4>Опросы и NPS</h4><p>Обратная связь после услуги: несколько вопросов, оценка удовлетворённости, аналитика.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FFEDD5;color:#EA580C"><i class="fas fa-file-invoice-dollar"></i></div><h4>Дебиторская задолженность</h4><p>Напоминание об оплате, сумма и сроки, ответы на вопросы, повторный звонок.</p></div>
+          <div class="gcard"><div class="ic" style="background:#E0F2FE;color:#0284C7"><i class="fas fa-user-tie"></i></div><h4>HR и подбор</h4><p>Обзвон кандидатов, первичное интервью, рассказ о вакансии, запись на собеседование.</p></div>
+          <div class="gcard"><div class="ic" style="background:#DBEAFE;color:#2563EB"><i class="fas fa-gift"></i></div><h4>Работа с текущей базой</h4><p>Поздравления, новые услуги, акции, приглашения на мероприятия, допродажи.</p></div>
+          <div class="gcard"><div class="ic" style="background:#FEF3C7;color:#D97706"><i class="fas fa-people-group"></i></div><h4>Мероприятия</h4><p>Приглашение участников, ответы на вопросы, регистрация, напоминание о событии.</p></div>
+        </div>
+
+        <p>Во многих компаниях один агент выполняет сразу несколько ролей: принимает и совершает звонки, консультирует, записывает на встречи, отправляет письма, ведёт CRM-воронку и уведомляет сотрудников. Тогда он воспринимается не как инструмент, а как полноценный цифровой сотрудник, который сопровождает клиента на всех этапах.</p>
+
+        <div class="callout">
+          <div class="co-title"><i class="fas fa-circle-check"></i> Что нужно запомнить</div>
+          <ul>
+            <li><i class="fas fa-check"></i> Одна платформа адаптируется под любой бизнес-процесс с телефонными коммуникациями.</li>
+            <li><i class="fas fa-check"></i> Для смены сценария достаточно изменить документы, базу знаний и инструкции.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- FOOTER -->
+      <footer class="doc-footer">
+        <span><i class="fas fa-shield-halved" style="color:var(--blue)"></i> Voicyfy © 2026 · Документация Voicyfy Agent</span>
+        <span>
+          <a href="/static/agent.html">Открыть агента</a> ·
+          <a href="/static/api-docs.html">API платформы</a> ·
+          <a href="https://t.me/voicyfy_support" target="_blank" rel="noopener">Поддержка</a>
+        </span>
+      </footer>
+
+    </div>
+  </main>
+</div>
+
+<script src="/static/agent-docs/docs.js"></script>
+</body>
+</html>
