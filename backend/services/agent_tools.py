@@ -225,9 +225,9 @@ def to_chat_completions_tools(tools: list) -> list:
 # CONNECTOR TOOLS (Composio) — динамическая надстройка над базовыми tools
 # ============================================================================
 
-def _connected_toolkit_slugs(agent_config, db: Session) -> list:
+def _connected_toolkits(agent_config, db: Session) -> list:
     """
-    Slug'и toolkit'ов Composio, подключённых к агенту (status='connected').
+    Ключи toolkit'ов (google_calendar/gmail), подключённых к агенту (status='connected').
     Пустой список, если Composio не настроен, агента нет или нет подключений.
     """
     if agent_config is None or not composio_service.is_configured():
@@ -240,21 +240,21 @@ def _connected_toolkit_slugs(agent_config, db: Session) -> list:
     except Exception as e:
         logger.warning(f"[AGENT-TOOLS] connector lookup failed: {e}")
         return []
-    slugs = []
-    for r in rows:
-        slug = composio_service.TOOLKIT_SLUGS.get(r.toolkit)
-        if slug:
-            slugs.append(slug)
-    return slugs
+    return [r.toolkit for r in rows if r.toolkit in composio_service.TOOLKIT_SLUGS]
 
 
 async def _augment_with_connectors(base_tools: list, agent_config, db: Session) -> list:
     """Дописать к base_tools определения подключённых коннекторов (если есть)."""
-    slugs = _connected_toolkit_slugs(agent_config, db)
-    if not slugs:
+    toolkits = _connected_toolkits(agent_config, db)
+    if not toolkits:
+        return base_tools
+    tool_slugs = []
+    for tk in toolkits:
+        tool_slugs.extend(composio_service.chat_tool_slugs(tk))
+    if not tool_slugs:
         return base_tools
     composio_user_id = composio_service.composio_user_id_for_agent(agent_config.id)
-    connector_tools = await composio_service.get_tools(composio_user_id, slugs)
+    connector_tools = await composio_service.get_tools(composio_user_id, tool_slugs)
     if not connector_tools:
         return base_tools
     logger.info(f"[AGENT-TOOLS] +{len(connector_tools)} connector tools for agent {agent_config.id}")

@@ -65,6 +65,38 @@ def voice_function_names(toolkit: str) -> list:
     return [f["name"] for f in TOOLKIT_VOICE_FUNCTIONS.get(toolkit, [])]
 
 
+# Явный allowlist slug'ов Composio-тулзов для ЧАТ/Telegram-оркестратора.
+# ВАЖНО: client.tools.get(toolkits=[...]) уходит в постраничный список Composio
+# (tools.list) и без explicit `tools=[...]` тихо возвращает только первую страницу —
+# на toolkit'ах с большим числом тулзов (GOOGLECALENDAR=48, GMAIL=63) это обрезает
+# набор до алфавитно-первых ~20 slug'ов, из-за чего до модели не долетают, например,
+# CREATE_EVENT/FIND_EVENT (GOOGLECALENDAR) без всякой ошибки в логах. Поэтому здесь —
+# заранее выбранный конечный список slug'ов под конкретные бизнес-сценарии, который
+# запрашивается через tools=[...] (не toolkits=[...]) и не подвержен пагинации.
+TOOLKIT_CHAT_TOOLS: Dict[str, list] = {
+    "google_calendar": [
+        "GOOGLECALENDAR_CREATE_EVENT",
+        "GOOGLECALENDAR_FIND_EVENT",
+        "GOOGLECALENDAR_PATCH_EVENT",
+        "GOOGLECALENDAR_DELETE_EVENT",
+        "GOOGLECALENDAR_FIND_FREE_SLOTS",
+        "GOOGLECALENDAR_GET_CURRENT_DATE_TIME",
+    ],
+    "gmail": [
+        "GMAIL_SEND_EMAIL",
+        "GMAIL_FETCH_EMAILS",
+        "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID",
+        "GMAIL_REPLY_TO_THREAD",
+        "GMAIL_FORWARD_MESSAGE",
+    ],
+}
+
+
+def chat_tool_slugs(toolkit: str) -> list:
+    """Явный список slug'ов Composio-тулзов для чат-оркестратора по этому toolkit'у."""
+    return list(TOOLKIT_CHAT_TOOLS.get(toolkit, []))
+
+
 # Кэш определений tools: {(composio_user_id, slug_csv): (expires_at, tools)}.
 # Composio.tools.get ходит по сети — не хотим дёргать его на каждый ход чата.
 _TOOLS_CACHE: Dict[str, Any] = {}
@@ -531,19 +563,25 @@ def _extract_email(acc) -> Optional[str]:
 # ФАЗА 2 — ИНСТРУМЕНТЫ
 # ============================================================================
 
-async def get_tools(composio_user_id: str, toolkit_slugs: List[str]) -> List[Dict[str, Any]]:
+async def get_tools(composio_user_id: str, tool_slugs: List[str]) -> List[Dict[str, Any]]:
     """
-    Определения tools для пользователя по списку toolkit-slug'ов.
+    Определения tools для пользователя по ЯВНОМУ списку slug'ов тулзов (не toolkit'ов).
+
+    Намеренно НЕ принимает toolkit slug (например "GOOGLECALENDAR") — вызов
+    client.tools.get(toolkits=[...]) уходит в постраничный tools.list на стороне
+    Composio и без явного tools=[...] тихо возвращает только первую страницу,
+    обрезая набор на toolkit'ах с большим числом тулзов. Вызывающий должен сам
+    прислать конкретные slug'и (см. TOOLKIT_CHAT_TOOLS / chat_tool_slugs()).
 
     Возвращает формат Chat Completions ([{"type":"function","function":{...}}]),
     который совпадает с тем, что ждёт оркестратор на OpenRouter. Кэшируется на
     _TOOLS_CACHE_TTL секунд. При любой ошибке возвращает [] (best-effort — не
     ломаем чат, если Composio недоступен).
     """
-    if not toolkit_slugs or not is_configured():
+    if not tool_slugs or not is_configured():
         return []
 
-    cache_key = f"{composio_user_id}|{','.join(sorted(toolkit_slugs))}"
+    cache_key = f"{composio_user_id}|{','.join(sorted(tool_slugs))}"
     cached = _TOOLS_CACHE.get(cache_key)
     if cached and cached[0] > time.time():
         return cached[1]
@@ -553,13 +591,13 @@ async def get_tools(composio_user_id: str, toolkit_slugs: List[str]) -> List[Dic
         tools = await _run(
             client.tools.get,
             user_id=composio_user_id,
-            toolkits=list(toolkit_slugs),
+            tools=list(tool_slugs),
         )
         tools = _normalize_tools(tools)
         _TOOLS_CACHE[cache_key] = (time.time() + _TOOLS_CACHE_TTL, tools)
         return tools
     except Exception as e:
-        logger.error(f"[COMPOSIO] get_tools failed (user={composio_user_id}, {toolkit_slugs}): {e}")
+        logger.error(f"[COMPOSIO] get_tools failed (user={composio_user_id}, {tool_slugs}): {e}")
         return []
 
 
