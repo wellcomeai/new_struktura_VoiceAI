@@ -13,6 +13,7 @@ function Footer() {
             <h5>Продукт</h5>
             <a href="#features">Возможности</a>
             <a href="#pricing">Тарифы</a>
+            <a href="/static/agent-docs/">Агент — документация</a>
             <a href="/static/api-docs.html">API</a>
           </div>
           <div className="foot-col">
