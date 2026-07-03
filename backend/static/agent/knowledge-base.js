@@ -10,6 +10,17 @@
 
 let knowledgeBaseState = null;
 
+// Лимит размера базы знаний (символов) — зеркалит MAX_KB_CHARS в backend/api/agent.py.
+const KB_MAX_CHARS = 200000;
+
+function updateKbCharCounter(){
+  const el = document.getElementById('kb-char-counter');
+  if(!el) return;
+  const len = (document.getElementById('kb-content').value || '').length;
+  el.textContent = `${len.toLocaleString('ru-RU')} / ${KB_MAX_CHARS.toLocaleString('ru-RU')}`;
+  el.style.color = len > KB_MAX_CHARS ? 'var(--red,#dc2626)' : '';
+}
+
 async function loadKnowledgeBaseStatus(){
   try{
     const r = await apiFetch(API + '/knowledge-base');
@@ -58,6 +69,7 @@ function openKnowledgeBaseModal(){
     delBtn.style.display = 'none';
     meta.innerHTML = 'Загрузите текст — агент будет искать по нему во время звонка и в чате с вами.';
   }
+  updateKbCharCounter();
 }
 
 function closeKnowledgeBaseModal(){
@@ -70,6 +82,10 @@ async function saveKnowledgeBase(){
   const name = (document.getElementById('kb-name').value || '').trim();
 
   if(!content){ showToast('Добавьте текст для базы знаний', 'error'); return; }
+  if(content.length > KB_MAX_CHARS){
+    showToast(`База знаний слишком большая: ${content.length.toLocaleString('ru-RU')} символов. Максимум 200 000.`, 'error');
+    return;
+  }
 
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:15px;height:15px;border-width:2px"></div> Сохранение…';

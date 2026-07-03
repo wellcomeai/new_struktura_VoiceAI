@@ -206,7 +206,7 @@ class AgentUpdateRequest(BaseModel):
 
 
 class AgentChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=2000)
+    message: str = Field(..., min_length=1, max_length=30000)
 
 
 class AgentContactCreateRequest(BaseModel):
@@ -806,6 +806,10 @@ async def delete_agent(
 # ============================================================================
 
 
+# Максимальный размер базы знаний агента (символов).
+MAX_KB_CHARS = 200_000
+
+
 class KnowledgeBaseRequest(BaseModel):
     content: str = Field(..., min_length=1)
     name: Optional[str] = Field(None, max_length=100)
@@ -862,6 +866,8 @@ async def upsert_agent_knowledge_base(
     content = body.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="empty_content")
+    if len(content) > MAX_KB_CHARS:
+        raise HTTPException(status_code=400, detail="kb_too_large")
 
     try:
         namespace, char_count = await PineconeService.create_or_update_knowledge_base(

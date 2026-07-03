@@ -535,6 +535,15 @@
           <div style="margin-top:8px;color:var(--blue);font-weight:600">
             <i class="far fa-clock"></i> Время указывается по МСК (Москва, UTC+3)
           </div>
+          <div style="margin-top:8px;color:var(--muted)">
+            <i class="fas fa-list-ol"></i> Лимит: до <b>1000 контактов</b> за один импорт.
+          </div>
+          <div style="margin-top:6px;color:var(--muted)">
+            <i class="fas fa-coins"></i> Для импорта на балансе должны быть <b>кредиты оркестратора</b> —
+            ими оплачивается работа AI-оркестратора по каждому контакту: подготовка стратегии
+            перед звонком и анализ результата после (≈30 кредитов на контакт).
+            Точная стоимость будет показана на шаге предпросмотра.
+          </div>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="downloadImportTemplate()" style="margin-bottom:14px">
           <i class="fas fa-download"></i> Скачать шаблон
@@ -622,12 +631,15 @@
       </div>
       <div class="form-group">
         <label class="form-label">Содержимое базы знаний</label>
-        <textarea class="form-input" id="kb-content" rows="14"
+        <textarea class="form-input" id="kb-content" rows="14" oninput="updateKbCharCounter()"
           placeholder="Вставьте сюда текст: описание продукта, услуги, цены, частые вопросы и ответы, регламенты…&#10;&#10;Агент будет искать по этому тексту во время звонка и в чате с вами."
           style="resize:vertical;min-height:220px;font-family:inherit"></textarea>
-        <div style="font-size:12px;color:#94a3b8;margin-top:6px">
-          После сохранения текст преобразуется в векторную базу. Поиск по ней
-          подключается к голосовому агенту автоматически.
+        <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;color:#94a3b8;margin-top:6px">
+          <span>
+            После сохранения текст преобразуется в векторную базу. Поиск по ней
+            подключается к голосовому агенту автоматически. Лимит — <b>200 000 символов</b>.
+          </span>
+          <span id="kb-char-counter" style="white-space:nowrap">0 / 200 000</span>
         </div>
       </div>
     </div>
