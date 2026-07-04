@@ -312,16 +312,34 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "create_agent_task",
-        "description": "Создать задачу на звонок контакту агента в указанное время.",
+        "description": (
+            "Создать задачу на звонок контакту агента в указанное время. "
+            "Время задай ОДНИМ из способов: delay_minutes — для относительного "
+            "(«через N минут/часов»), scheduled_at — для абсолютного («завтра в 14:00»)."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
-                "scheduled_at": {"type": "string", "description": "Дата и время звонка ISO 8601 (UTC)"},
+                "scheduled_at": {
+                    "type": "string",
+                    "description": (
+                        "Абсолютные дата и время звонка ISO 8601 UTC (например 2026-07-09T12:00:00Z). "
+                        "Не используй для «через N минут» — для этого есть delay_minutes"
+                    ),
+                },
+                "delay_minutes": {
+                    "type": "integer",
+                    "description": (
+                        "Через сколько минут позвонить. Сервер сам вычислит точное время от "
+                        "текущего момента — ВСЕГДА используй этот параметр, когда просят "
+                        "перезвонить «через N минут/часов», не вычисляй scheduled_at сам."
+                    ),
+                },
                 "title": {"type": "string", "description": "Название задачи"},
                 "notes": {"type": "string", "description": "Описание / заметки"},
             },
-            "required": ["agent_contact_id", "scheduled_at", "title"],
+            "required": ["agent_contact_id", "title"],
         },
     },
     {
@@ -674,16 +692,35 @@ AGENT_POSTCALL_TOOLS = [
     {
         "type": "function",
         "name": "create_agent_task",
-        "description": "Создать задачу на перезвон. ОБЯЗАТЕЛЬНО вызывай этот tool после каждого звонка, кроме случая когда цель звонка уже достигнута.",
+        "description": (
+            "Создать задачу на перезвон. ОБЯЗАТЕЛЬНО вызывай этот tool после каждого звонка, "
+            "кроме случая когда цель звонка уже достигнута. "
+            "Время задай ОДНИМ из способов: delay_minutes — для относительного "
+            "(«через N минут/часов»), scheduled_at — для абсолютного («завтра в 14:00»)."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
-                "scheduled_at": {"type": "string", "description": "Дата и время звонка ISO 8601 (UTC)"},
+                "scheduled_at": {
+                    "type": "string",
+                    "description": (
+                        "Абсолютные дата и время звонка ISO 8601 UTC (например 2026-07-09T12:00:00Z). "
+                        "Не используй для «через N минут» — для этого есть delay_minutes"
+                    ),
+                },
+                "delay_minutes": {
+                    "type": "integer",
+                    "description": (
+                        "Через сколько минут позвонить. Сервер сам вычислит точное время от "
+                        "текущего момента — ВСЕГДА используй этот параметр, когда просят "
+                        "перезвонить «через N минут/часов», не вычисляй scheduled_at сам."
+                    ),
+                },
                 "title": {"type": "string", "description": "Название задачи"},
                 "notes": {"type": "string", "description": "Описание / заметки"},
             },
-            "required": ["agent_contact_id", "scheduled_at", "title"],
+            "required": ["agent_contact_id", "title"],
         },
     },
     {
@@ -741,12 +778,27 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     if not owner:
         return {"ok": False, "error": "Contact not found"}
 
-    # Parse scheduled_at
-    scheduled_at_str = args["scheduled_at"]
-    try:
-        scheduled_at = datetime.fromisoformat(scheduled_at_str.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        scheduled_at = datetime.utcnow() + timedelta(hours=1)
+    # Время задачи: delay_minutes (относительное, сервер считает сам) имеет
+    # приоритет над scheduled_at (абсолютное, посчитанное моделью).
+    now_utc = datetime.now(timezone.utc)
+    clamped_to_future = False
+    scheduled_at = None
+    if args.get("delay_minutes") is not None:
+        try:
+            scheduled_at = now_utc + timedelta(minutes=max(1, int(args["delay_minutes"])))
+        except (ValueError, TypeError):
+            scheduled_at = None  # битое значение → падаем в ветку scheduled_at
+    if scheduled_at is None:
+        try:
+            scheduled_at = datetime.fromisoformat(str(args["scheduled_at"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError, TypeError):
+            scheduled_at = datetime.utcnow() + timedelta(hours=1)
+        # Клэмп: модель могла посчитать время от устаревшего значения в промпте.
+        sched_aware = scheduled_at if scheduled_at.tzinfo else scheduled_at.replace(tzinfo=timezone.utc)
+        if sched_aware < now_utc + timedelta(minutes=2):
+            scheduled_at = now_utc + timedelta(minutes=3)
+            clamped_to_future = True
+            logger.info(f"[AGENT-TOOLS] scheduled_at in the past, clamped to {scheduled_at.isoformat()}")
 
     # Get assistant from agent_config (type-aware — gemini/openai/cartesia)
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
@@ -808,12 +860,15 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     db.refresh(task)
 
     logger.info(f"[AGENT-TOOLS] Created agent task {task.id} for contact {agent_contact_id} at {scheduled_at}")
-    return {
+    result = {
         "ok": True,
         "task_id": str(task.id),
         "scheduled_at": scheduled_at.isoformat(),
         "cancelled_duplicates": cancelled_count,
     }
+    if clamped_to_future:
+        result["note"] = "scheduled_at был в прошлом — время поднято до ближайшего будущего"
+    return result
 
 
 async def fn_update_contact_memory(args: dict, agent_config_id: str, db: Session) -> dict:
