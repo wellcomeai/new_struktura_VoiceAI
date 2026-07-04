@@ -251,7 +251,7 @@ class PreCallOrchestrator:
         # (tools + system) байт-в-байт одинаков между звонками → кэш провайдера.
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         base_input = self._build_precall_input(task, agent_contact, db)
-        user_input = base_input + build_time_block() + """
+        user_input = base_input + build_time_block(round_to_minutes=0) + """
 
 Подготовь звонок. Верни ответ строго в JSON формате без markdown:
 {"first_phrase": "точная первая фраза агента", "call_strategy": "краткое описание тактики", "tone": "дружелюбный/деловой/настойчивый", "key_points": ["факт1", "факт2"]}"""
@@ -936,7 +936,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
 Первая фраза: {agent_call.custom_greeting or '(не задана)'}
 Тактика: {agent_call.call_strategy or '(не задана)'}"""
-        post_call_input += build_time_block()
+        post_call_input += build_time_block(round_to_minutes=0)
 
         tools = await build_postcall_tools(agent_config, db)
         tool_calls_log: List[Dict[str, Any]] = []
