@@ -1394,7 +1394,7 @@ class ChatOrchestrator:
         total_prompt = 0
         total_completion = 0
 
-        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_RICH_FORMAT_HINT
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False) + TELEGRAM_RICH_FORMAT_HINT
         history = telegram_history_row.history or []
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -1403,7 +1403,9 @@ class ChatOrchestrator:
             content = msg.get("content")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        # Точное время — в текущем user-сообщении (в историю пишется «чистый»
+        # message; system остаётся статичным и целиком кэшируется провайдером).
+        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
 
@@ -1505,7 +1507,7 @@ class ChatOrchestrator:
         total_prompt = 0
         total_completion = 0
 
-        system_prompt = build_orchestrator_prompt(agent_config) + TELEGRAM_RICH_FORMAT_HINT
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False) + TELEGRAM_RICH_FORMAT_HINT
         history = telegram_history_row.history or []
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -1514,7 +1516,9 @@ class ChatOrchestrator:
             content = msg.get("content")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        # Точное время — в текущем user-сообщении (в историю пишется «чистый»
+        # message; system остаётся статичным и целиком кэшируется провайдером).
+        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         context = {
@@ -1745,7 +1749,7 @@ class ChatOrchestrator:
         debug_log: List[Dict[str, Any]] = []
         debug_log.append({"ts": self._now_ts(), "type": "user_message", "data": message})
 
-        system_prompt = build_orchestrator_prompt(agent_config)
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         history = agent_config.chat_history or []
 
         # Build messages from stored chat history (role/content only)
@@ -1755,7 +1759,9 @@ class ChatOrchestrator:
             content = msg.get("content")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        # Точное время — в текущем user-сообщении (в историю пишется «чистый»
+        # message; system остаётся статичным и целиком кэшируется провайдером).
+        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({
@@ -1878,10 +1884,10 @@ class ChatOrchestrator:
         total_prompt = 0
         total_completion = 0
 
-        system_prompt = build_orchestrator_prompt(agent_config)
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message},
+            {"role": "user", "content": message + build_time_block(round_to_minutes=0)},
         ]
 
         tools = await build_chat_tools(agent_config, db)
@@ -1988,7 +1994,7 @@ class ChatOrchestrator:
         debug_log: List[Dict[str, Any]] = []
         debug_log.append({"ts": self._now_ts(), "type": "user_message", "data": message})
 
-        system_prompt = build_orchestrator_prompt(agent_config)
+        system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         history = agent_config.chat_history or []
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -1997,7 +2003,9 @@ class ChatOrchestrator:
             content = msg.get("content")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        # Точное время — в текущем user-сообщении (в историю пишется «чистый»
+        # message; system остаётся статичным и целиком кэшируется провайдером).
+        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({
