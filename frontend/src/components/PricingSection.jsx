@@ -93,8 +93,8 @@ function PricingSection({ onOpenModal }) {
               <li className="pf-item"><i className="fas fa-check"></i> Телефония</li>
               <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
             </ul>
-            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
             <a href="#agent" className="agent-more-link">Как это работает →</a>
+            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
           </div>
         </div>
       </div>

@@ -597,6 +597,7 @@ body::before {
   transition: all .3s; position: relative;
   box-shadow: var(--glass-shadow);
   backdrop-filter: blur(10px);
+  display: flex; flex-direction: column;
 }
 .price-card.hot {
   border-color: rgba(37,99,235,.35);
@@ -638,7 +639,7 @@ body::before {
   background: var(--grad); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .price-amount small { color: var(--s400); font-size: .8rem; font-weight: 400; }
-.pf-list { list-style: none; }
+.pf-list { list-style: none; margin-bottom: 1.3rem; }
 .pf-item {
   display: flex; align-items: center; gap: .5rem;
   color: var(--s600); font-size: .82rem; padding: .32rem 0;
@@ -648,7 +649,7 @@ body::before {
 .pf-item.disabled{opacity:.45;}
 .pf-item .hl{color:var(--s800);font-weight:600;}
 .price-btn {
-  display: block; margin-top: 1.3rem; padding: .76rem;
+  display: block; margin-top: auto; padding: .76rem;
   border-radius: 10px; text-align: center; text-decoration: none;
   font-family: 'DM Sans', sans-serif; font-weight: 600; font-size: .84rem;
   cursor: pointer; border: none; transition: all .25s; width: 100%;
@@ -737,10 +738,12 @@ body::before {
 .agent-cta { display: flex; justify-content: center; flex-wrap: wrap; gap: .75rem; margin-top: 2.4rem; }
 .agent-video-btn svg { flex-shrink: 0; }
 .agent-more-link {
-  display: block; text-align: center; margin-top: .7rem;
+  display: block; text-align: center; margin-top: auto;
   color: var(--b600); font-size: .78rem; font-weight: 600; text-decoration: none;
 }
 .agent-more-link:hover { text-decoration: underline; }
+/* Кнопка после ссылки — фиксированный отступ, чтобы низ совпадал с другими карточками */
+.agent-more-link + .price-btn { margin-top: .7rem; }
 
 /* ── AUTH ── */
 .auth-section { background: transparent; padding: 6rem 2rem 7rem; position: relative; z-index: 1; }
