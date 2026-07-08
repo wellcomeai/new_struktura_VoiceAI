@@ -658,6 +658,90 @@ body::before {
 .pb-solid{background:var(--grad);color:#fff;box-shadow:0 3px 14px var(--glow);}
 .pb-solid:hover{opacity:.88;box-shadow:0 6px 22px var(--glow);}
 
+/* ── AGENT (Voicyfy Agent) ── */
+.agent-section { background: transparent; }
+.agent-brains { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+.agent-brain {
+  background: var(--glass); border-radius: var(--rlg);
+  padding: 1.8rem 1.6rem; border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow); backdrop-filter: blur(10px);
+}
+.agent-brain h3 {
+  font-family: 'Syne', sans-serif; font-size: 1.1rem; font-weight: 700;
+  color: var(--s900); margin: 1rem 0 .3rem; letter-spacing: -.03em;
+}
+.agent-brain-role { color: var(--s400); font-size: .82rem; margin-bottom: .8rem; }
+.agent-note {
+  text-align: center; color: var(--s600); font-weight: 600;
+  font-size: .9rem; margin: 1.4rem 0 0;
+}
+.agent-subhead { text-align: center; margin: 3.2rem 0 1.6rem; }
+.agent-subhead h3 {
+  font-family: 'Syne', sans-serif; font-size: 1.35rem; font-weight: 700;
+  color: var(--s900); letter-spacing: -.03em; margin-bottom: .3rem;
+}
+.agent-subhead p { color: var(--s400); font-size: .86rem; }
+.agent-phases { display: flex; align-items: stretch; gap: .6rem; }
+.agent-phase {
+  flex: 1; background: var(--glass); border-radius: var(--rlg);
+  padding: 1.4rem 1.3rem; border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow); backdrop-filter: blur(10px);
+}
+.agent-phase-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--grad); color: #fff; font-size: .8rem; font-weight: 700;
+  margin-bottom: .6rem;
+}
+.agent-phase h4 {
+  font-size: .95rem; font-weight: 700; color: var(--b600);
+  margin-bottom: .55rem; letter-spacing: -.02em;
+}
+.agent-phase ul { list-style: none; }
+.agent-phase li {
+  color: var(--s600); font-size: .8rem; padding: .22rem 0 .22rem 1rem;
+  position: relative;
+}
+.agent-phase li::before {
+  content: ''; position: absolute; left: 0; top: .62rem;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--b500);
+}
+.agent-phase-arrow {
+  align-self: center; color: var(--b500);
+  font-size: 1.4rem; font-weight: 700; flex-shrink: 0;
+}
+.agent-directions { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 3.2rem; }
+.agent-dir {
+  background: var(--glass); border-radius: var(--rlg);
+  padding: 1.6rem; border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow); backdrop-filter: blur(10px);
+}
+.agent-dir-head { display: flex; align-items: center; gap: .7rem; margin-bottom: .8rem; }
+.agent-dir-head h4 {
+  font-size: .98rem; font-weight: 700; color: var(--s900); letter-spacing: -.02em;
+}
+.agent-dir-arrow {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 9px;
+  font-size: 1rem; font-weight: 700; flex-shrink: 0;
+}
+.agent-dir-arrow.out { background: rgba(59,130,246,.1); color: var(--b600); }
+.agent-dir-arrow.in { background: rgba(34,197,94,.1); color: #16a34a; }
+.agent-chips { display: flex; justify-content: center; flex-wrap: wrap; gap: .7rem; margin-top: 1.8rem; }
+.agent-chip {
+  padding: .5rem 1.1rem; border-radius: 50px;
+  background: rgba(255,255,255,0.75); border: 1px solid var(--b200);
+  color: var(--b600); font-size: .8rem; font-weight: 600;
+  backdrop-filter: blur(8px);
+}
+.agent-cta { display: flex; justify-content: center; flex-wrap: wrap; gap: .75rem; margin-top: 2.4rem; }
+.agent-video-btn svg { flex-shrink: 0; }
+.agent-more-link {
+  display: block; text-align: center; margin-top: .7rem;
+  color: var(--b600); font-size: .78rem; font-weight: 600; text-decoration: none;
+}
+.agent-more-link:hover { text-decoration: underline; }
+
 /* ── AUTH ── */
 .auth-section { background: transparent; padding: 6rem 2rem 7rem; position: relative; z-index: 1; }
 .auth-header { text-align: center; margin-bottom: 2.5rem; }
@@ -1141,6 +1225,8 @@ body::before {
   .prov-grid{grid-template-columns:1fr 1fr;}
   .price-grid{grid-template-columns:1fr 1fr;}
   .foot-top{grid-template-columns:1fr 1fr;}
+  .agent-phases{flex-direction:column;}
+  .agent-phase-arrow{transform:rotate(90deg);align-self:center;}
 }
 @media(max-width:640px){
   .nav{padding:.8rem 1.2rem;}
@@ -1157,4 +1243,5 @@ body::before {
   .showcase-item{gap:2rem;}
   .phone-cta-outer{padding:1rem 1rem 4rem;}
   .phone-num{font-size:1.35rem;padding:.9rem 1.6rem;}
+  .agent-brains,.agent-directions{grid-template-columns:1fr;}
 }

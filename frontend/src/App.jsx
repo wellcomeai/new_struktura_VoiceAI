@@ -6,6 +6,7 @@ import HeroSection from './components/HeroSection';
 import CodeSection from './components/CodeSection';
 import ShowcaseSection from './components/ShowcaseSection';
 import PhoneCTASection from './components/PhoneCTASection';
+import AgentSection from './components/AgentSection';
 import ProvidersSection from './components/ProvidersSection';
 import PricingSection from './components/PricingSection';
 import AuthModal from './components/AuthModal';
@@ -75,6 +76,7 @@ function App() {
       <CodeSection />
       <ShowcaseSection />
       <PhoneCTASection />
+      <AgentSection onOpenModal={openModal} />
       <ProvidersSection />
       <PricingSection onOpenModal={openModal} />
       <AuthModal

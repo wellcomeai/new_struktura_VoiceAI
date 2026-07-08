@@ -24,6 +24,7 @@ function Navbar({ onOpenModal }) {
       <div className="nav-center">
         <a href="#features" className="nav-link">Возможности</a>
         <a href="#telephony" className="nav-link">Телефония</a>
+        <a href="#agent" className="nav-link">Agent</a>
         <a href="#showcase" className="nav-link">Платформа</a>
         <a href="#providers" className="nav-link">Технологии</a>
         <a href="#pricing" className="nav-link">Тарифы</a>
