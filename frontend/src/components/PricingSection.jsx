@@ -78,6 +78,23 @@ function PricingSection({ onOpenModal }) {
             </ul>
             <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
           </div>
+
+          {/* AGENT */}
+          <div className="price-card rev d4">
+            <span className="pbadge pb-agent">Автопилот</span>
+            <h4>Agent</h4>
+            <p className="price-desc">AI-оркестратор автономных звонков</p>
+            <div className="price-amount"><span className="pamt">5 490 ₽</span> <small>/мес</small></div>
+            <ul className="pf-list">
+              <li className="pf-item"><i className="fas fa-check"></i> <span className="hl">до 3 автономных агентов</span></li>
+              <li className="pf-item"><i className="fas fa-check"></i> Сам звонит и ведёт клиентов</li>
+              <li className="pf-item"><i className="fas fa-check"></i> 20 000 кредитов в месяц</li>
+              <li className="pf-item"><i className="fas fa-check"></i> CRM и воронка продаж</li>
+              <li className="pf-item"><i className="fas fa-check"></i> Телефония</li>
+              <li className="pf-item"><i className="fas fa-check"></i> База знаний</li>
+            </ul>
+            <button className="price-btn pb-ghost" onClick={() => onOpenModal('register')}>Выбрать</button>
+          </div>
         </div>
       </div>
     </section>

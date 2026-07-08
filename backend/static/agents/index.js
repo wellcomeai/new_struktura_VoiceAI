@@ -21,9 +21,9 @@ const SPECIAL_ASSISTANT_LIMITS = {
 // Какие планы имеют доступ к каким функциям
 // ВАЖНО: ai_voice НЕ включен → для него эти функции заблокированы
 const FEATURE_ACCESS = {
-  crm: ['free', 'referral_trial', 'start', 'profi'],
-  telephony: ['free', 'referral_trial', 'start', 'profi'],
-  outbound_calls: ['free', 'referral_trial', 'start', 'profi']
+  crm: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+  telephony: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+  outbound_calls: ['free', 'referral_trial', 'start', 'profi', 'agent']
 };
 
 // Названия функций для модалки
@@ -39,7 +39,7 @@ const PLAN_NAMES = {
   'referral_trial': 'Реферальный триал',
   'ai_voice': 'AI Voice',
   'start': 'Тариф Старт',
-  'profi': 'Profi'
+  'profi': 'Profi', 'agent': 'Voicyfy Agent'
 };
 
 // ============================================================================
@@ -343,13 +343,13 @@ function showFeatureBlockedModal(feature) {
   const modal = document.getElementById('feature-blocked-modal');
 
   if (messageEl) {
-    messageEl.textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+    messageEl.textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт, Profi или Agent.`;
   }
   if (currentPlanEl) {
     currentPlanEl.textContent = planName;
   }
   if (requiredPlansEl) {
-    requiredPlansEl.textContent = 'Старт или Profi';
+    requiredPlansEl.textContent = 'Старт, Profi или Agent';
   }
   if (modal) {
     modal.classList.add('show');

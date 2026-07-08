@@ -1885,6 +1885,10 @@
             <span class="tab-name">Profi</span>
             <span class="tab-price">5 990 ₽/мес</span>
           </button>
+          <button class="plan-tab" data-plan="agent">
+            <span class="tab-name">Agent</span>
+            <span class="tab-price">5 490 ₽/мес</span>
+          </button>
         </div>
 
         <!-- ✅ ТАБЫ ВЫБОРА ПЕРИОДА -->
@@ -1987,12 +1991,12 @@
         <h3>Функция недоступна</h3>
       </div>
       <div class="modal-body">
-        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт или Profi.</p>
+        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт, Profi или Agent.</p>
         <div class="current-plan-info">
           Ваш текущий тариф: <span id="current-plan-name-display">AI Voice</span>
         </div>
         <p class="required-plans">
-          Необходим тариф: <strong id="required-plans-text">Старт или Profi</strong>
+          Необходим тариф: <strong id="required-plans-text">Старт, Profi или Agent</strong>
         </p>
       </div>
       <div class="modal-footer">
@@ -2038,6 +2042,10 @@
           <button class="expired-plan-tab" data-plan="profi">
             <span class="tab-name">Profi</span>
             <span class="tab-price">5 990 ₽</span>
+          </button>
+          <button class="expired-plan-tab" data-plan="agent">
+            <span class="tab-name">Agent</span>
+            <span class="tab-price">5 490 ₽</span>
           </button>
         </div>
 
@@ -2145,14 +2153,33 @@
             { icon: 'fa-phone-alt', text: 'Исходящие звонки', available: true },
             { icon: 'fa-address-book', text: 'CRM система', available: true }
           ]
+        },
+        agent: {
+          code: 'agent',
+          name: 'Voicyfy Agent',
+          basePrice: 5490,
+          maxAssistants: 3,
+          description: 'AI-оркестратор автономных звонков',
+          restrictedFeatures: [],
+          singlePeriod: true, // продаётся только на 30 дней, без скидок за период
+          assistantsLabel: 'До 3 автономных агентов',
+          features: [
+            { icon: 'fa-brain', text: 'AI-оркестратор автономных звонков', available: true },
+            { icon: 'fa-user-astronaut', text: 'До 3 автономных агентов', available: true },
+            { icon: 'fa-coins', text: '20 000 кредитов каждый месяц', available: true },
+            { icon: 'fa-phone', text: 'Телефония и исходящие звонки', available: true },
+            { icon: 'fa-address-book', text: 'CRM и воронка продаж', available: true },
+            { icon: 'fa-book', text: 'База знаний', available: true },
+            { icon: 'fa-headset', text: 'Приоритетная поддержка', available: true }
+          ]
         }
       };
 
       // ✅ МАТРИЦА ДОСТУПА К ФУНКЦИЯМ
       const FEATURE_ACCESS = {
-        crm: ['free', 'referral_trial', 'start', 'profi'],
-        telephony: ['free', 'referral_trial', 'start', 'profi'],
-        outbound_calls: ['free', 'referral_trial', 'start', 'profi']
+        crm: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+        telephony: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+        outbound_calls: ['free', 'referral_trial', 'start', 'profi', 'agent']
         // ai_voice НЕ включен → для него эти функции заблокированы
       };
 
@@ -2309,9 +2336,9 @@
         const featureName = FEATURE_NAMES[feature] || feature;
         const planName = getPlanDisplayName(currentUserPlanCode);
 
-        featureBlockedMessage.textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+        featureBlockedMessage.textContent = `Для доступа к разделу "${featureName}" необходим тариф Старт, Profi или Agent.`;
         currentPlanNameDisplay.textContent = planName;
-        requiredPlansText.textContent = 'Старт или Profi';
+        requiredPlansText.textContent = 'Старт, Profi или Agent';
 
         featureBlockedModal.classList.add('show');
       }
@@ -2327,6 +2354,12 @@
       function updatePaymentModalUI() {
         const plan = SUBSCRIPTION_PLANS[selectedPlan];
         if (!plan) return;
+
+        // Тариф agent продаётся только на 30 дней — скидки за период недоступны
+        if (plan.singlePeriod) {
+          selectedPeriod = 1;
+        }
+        document.getElementById('period-tabs').style.display = plan.singlePeriod ? 'none' : '';
 
         const basePrice = plan.basePrice;
         const finalPrice = calculatePrice(basePrice, selectedPeriod);
@@ -2345,7 +2378,7 @@
 
         // Обновляем информацию о плане
         document.getElementById('modal-plan-name').textContent = plan.name;
-        document.getElementById('modal-plan-assistants').textContent = `До ${plan.maxAssistants} ассистентов`;
+        document.getElementById('modal-plan-assistants').textContent = plan.assistantsLabel || `До ${plan.maxAssistants} ассистентов`;
         document.getElementById('modal-price').textContent = formatPrice(finalPrice);
         document.getElementById('modal-duration').textContent = `${days} дней`;
         
@@ -2389,6 +2422,12 @@
         const plan = SUBSCRIPTION_PLANS[expiredSelectedPlan];
         if (!plan) return;
 
+        // Тариф agent продаётся только на 30 дней — скидки за период недоступны
+        if (plan.singlePeriod) {
+          expiredSelectedPeriod = 1;
+        }
+        document.getElementById('expired-period-tabs').style.display = plan.singlePeriod ? 'none' : '';
+
         const basePrice = plan.basePrice;
         const finalPrice = calculatePrice(basePrice, expiredSelectedPeriod);
         const savings = calculateSavings(basePrice, expiredSelectedPeriod);
@@ -2406,7 +2445,7 @@
 
         // Обновляем информацию о плане
         document.getElementById('expired-plan-name').textContent = plan.name;
-        document.getElementById('expired-plan-assistants').textContent = `До ${plan.maxAssistants} ассистентов`;
+        document.getElementById('expired-plan-assistants').textContent = plan.assistantsLabel || `До ${plan.maxAssistants} ассистентов`;
         document.getElementById('expired-price').textContent = formatPrice(finalPrice) + ' ₽';
         document.getElementById('expired-period').textContent = `${days} дней доступа`;
         
@@ -2600,8 +2639,9 @@
             subscriptionTypeText.textContent = 'ваша подписка';
           }
           
-          // Сбрасываем на ai_voice и 1 месяц
-          expiredSelectedPlan = 'ai_voice';
+          // По умолчанию — текущий тариф пользователя (agent продлевается как agent),
+          // для остальных сбрасываем на ai_voice и 1 месяц
+          expiredSelectedPlan = (currentUserPlanCode === 'agent') ? 'agent' : 'ai_voice';
           expiredSelectedPeriod = 1;
           updateExpiredModalUI();
           
@@ -3059,16 +3099,28 @@
           
           const plan = SUBSCRIPTION_PLANS[planCode];
           const finalPrice = calculatePrice(plan.basePrice, durationMonths);
-          
+
           console.log(`🚀 Создаем платеж: ${plan.name}, ${durationMonths} мес, ${finalPrice} ₽`);
-          
-          const response = await api.post('/payments/create-payment', {
-            plan_code: planCode,
-            duration_months: durationMonths
-          });
-          
+
+          // Тариф agent оформляется через кредитный API (30 дней + 20 000 кредитов),
+          // остальные тарифы — через стандартный платёжный эндпоинт
+          const response = planCode === 'agent'
+            ? await api.post('/credits/subscribe', {})
+            : await api.post('/payments/create-payment', {
+                plan_code: planCode,
+                duration_months: durationMonths
+              });
+
           console.log('📦 Ответ API:', response);
-          
+
+          if (response.trial_activated) {
+            hidePaymentModal();
+            ui.hideSubscriptionExpiredModal();
+            ui.showNotification('Тестовый период Voicyfy Agent активирован! Вам доступно 1 500 кредитов на 3 дня.', 'success');
+            await loadSubscriptionInfo();
+            return;
+          }
+
           if (response.payment_url && response.form_params) {
             console.log('✅ Данные платежа получены, создаем форму...');
             

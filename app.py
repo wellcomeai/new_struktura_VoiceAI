@@ -859,8 +859,10 @@ def seed_credits_data():
                 if inspector.has_table('subscription_plans'):
                     conn.execute(text("""
                         INSERT INTO subscription_plans (code, name, price, max_assistants, description, is_active)
-                        VALUES ('agent', 'Voicyfy Agent', 4990, 1, 'AI-оркестратор автономных звонков', TRUE)
-                        ON CONFLICT (code) DO NOTHING
+                        VALUES ('agent', 'Voicyfy Agent', 5490, 3, 'AI-оркестратор автономных звонков', TRUE)
+                        ON CONFLICT (code) DO UPDATE SET
+                            price = EXCLUDED.price,
+                            max_assistants = EXCLUDED.max_assistants
                     """))
 
                 # Пакеты докупки кредитов

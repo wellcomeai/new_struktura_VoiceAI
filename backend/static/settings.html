@@ -1429,12 +1429,12 @@
         <h3>Функция недоступна</h3>
       </div>
       <div class="modal-body">
-        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт или Profi.</p>
+        <p id="feature-blocked-message">Для доступа к этому разделу необходим тариф Старт, Profi или Agent.</p>
         <div class="current-plan-info">
           Ваш текущий тариф: <span id="current-plan-name-display">AI Voice</span>
         </div>
         <p class="required-plans">
-          Необходим тариф: <strong id="required-plans-text">Старт или Profi</strong>
+          Необходим тариф: <strong id="required-plans-text">Старт, Profi или Agent</strong>
         </p>
       </div>
       <div class="modal-footer">
@@ -1485,9 +1485,9 @@
 
       // Матрица доступа к функциям
       const FEATURE_ACCESS = {
-        crm: ['free', 'referral_trial', 'start', 'profi'],
-        telephony: ['free', 'referral_trial', 'start', 'profi'],
-        outbound_calls: ['free', 'referral_trial', 'start', 'profi']
+        crm: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+        telephony: ['free', 'referral_trial', 'start', 'profi', 'agent'],
+        outbound_calls: ['free', 'referral_trial', 'start', 'profi', 'agent']
       };
 
       const FEATURE_NAMES = {
@@ -1501,7 +1501,7 @@
         'referral_trial': 'Реферальный триал',
         'ai_voice': 'AI Voice',
         'start': 'Тариф Старт',
-        'profi': 'Profi'
+        'profi': 'Profi', 'agent': 'Voicyfy Agent'
       };
       
       // API клиент
@@ -2244,9 +2244,9 @@
         const planName = getPlanDisplayName(currentUserPlanCode);
 
         document.getElementById('feature-blocked-message').textContent =
-          `Для доступа к разделу "${featureName}" необходим тариф Старт или Profi.`;
+          `Для доступа к разделу "${featureName}" необходим тариф Старт, Profi или Agent.`;
         document.getElementById('current-plan-name-display').textContent = planName;
-        document.getElementById('required-plans-text').textContent = 'Старт или Profi';
+        document.getElementById('required-plans-text').textContent = 'Старт, Profi или Agent';
         document.getElementById('feature-blocked-modal').classList.add('show');
       }
 

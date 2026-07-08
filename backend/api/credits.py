@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/credits", tags=["Credits"])
 
-AGENT_PLAN_PRICE = 4990.0
+AGENT_PLAN_PRICE = 5490.0
 
 
 # ============================================================================
@@ -232,7 +232,7 @@ async def subscribe_agent(
     db: Session = Depends(get_db),
 ):
     """
-    Оформить/продлить тариф agent (4 990 ₽).
+    Оформить/продлить тариф agent (5 490 ₽).
     Если trial ещё не использован — активирует бесплатный trial без оплаты.
     """
     user = db.query(User).filter(User.id == current_user.id).first()
