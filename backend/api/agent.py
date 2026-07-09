@@ -247,6 +247,10 @@ class AgentTaskCreateRequest(BaseModel):
 class ImportExecuteRequest(BaseModel):
     preview_token: str = Field(..., min_length=1)
     agent_id: Optional[str] = None
+    # True (по умолчанию) — оркестратор проставляет авто-задачу на каждый контакт.
+    # False — контакты сохраняются без авто-задач; задача создаётся только для строк,
+    # где в файле явно заполнены «Задача» и/или «Когда звонить».
+    create_tasks: bool = True
 
 
 # ============================================================================
@@ -2466,10 +2470,30 @@ async def import_contacts_preview(
     }
 
 
-async def _run_contacts_import(preview_token: str, agent_id: str, user_id: str):
+def _row_has_explicit_task(r: dict) -> bool:
+    """
+    Строка несёт явную задачу из файла, если заполнены «Задача» (task_title)
+    и/или «Когда звонить» (scheduled_dt). После json-сериализации превью
+    scheduled_dt приходит строкой (или None, если время не задано).
+    """
+    if r.get("task_title"):
+        return True
+    sd = r.get("scheduled_dt")
+    return bool(sd) and str(sd).strip().lower() not in ("", "none", "null")
+
+
+async def _run_contacts_import(
+    preview_token: str,
+    agent_id: str,
+    user_id: str,
+    create_tasks: bool = True,
+):
     """
     Фоновый импорт: создаёт AgentContact + Task пачками по 50.
     Открывает собственную сессию БД — безопасно для BackgroundTasks.
+
+    create_tasks=False — авто-задачи оркестратора не создаются; задача
+    ставится только для строк с явно заданными «Задача»/«Когда звонить».
     """
     from backend.services.contact_import_service import load_preview, delete_preview
 
@@ -2528,25 +2552,27 @@ async def _run_contacts_import(preview_token: str, agent_id: str, user_id: str):
             db.flush()
             created_contacts += 1
 
-            # scheduled_time_utc — ISO-строка с UTC-маркером
-            try:
-                scheduled_time = datetime.fromisoformat(r["scheduled_time_utc"])
-            except (ValueError, KeyError, TypeError):
-                scheduled_time = now_utc() + timedelta(hours=1)
+            # Авто-задачи выключены → создаём задачу только если она явно задана в файле.
+            if create_tasks or _row_has_explicit_task(r):
+                # scheduled_time_utc — ISO-строка с UTC-маркером
+                try:
+                    scheduled_time = datetime.fromisoformat(r["scheduled_time_utc"])
+                except (ValueError, KeyError, TypeError):
+                    scheduled_time = now_utc() + timedelta(hours=1)
 
-            task = Task(
-                is_agent_task=True,
-                agent_contact_id=contact.id,
-                user_id=user_id,
-                contact_id=None,
-                status=TaskStatus.SCHEDULED,
-                scheduled_time=scheduled_time,
-                title=r.get("task_title") or f"Первый звонок: {name or phone}",
-                description=r.get("task_description") or notes or "",
-                **task_kwargs,
-            )
-            db.add(task)
-            created_tasks += 1
+                task = Task(
+                    is_agent_task=True,
+                    agent_contact_id=contact.id,
+                    user_id=user_id,
+                    contact_id=None,
+                    status=TaskStatus.SCHEDULED,
+                    scheduled_time=scheduled_time,
+                    title=r.get("task_title") or f"Первый звонок: {name or phone}",
+                    description=r.get("task_description") or notes or "",
+                    **task_kwargs,
+                )
+                db.add(task)
+                created_tasks += 1
 
             batch += 1
             if batch >= 50:
@@ -2619,11 +2645,18 @@ async def import_contacts_execute(
         })
 
     background_tasks.add_task(
-        _run_contacts_import, body.preview_token, str(agent.id), str(current_user.id)
+        _run_contacts_import,
+        body.preview_token,
+        str(agent.id),
+        str(current_user.id),
+        body.create_tasks,
     )
 
     estimated = max(5, len(rows) // 10)
-    logger.info(f"[AGENT-IMPORT] Execute started for user {current_user.id}: {len(rows)} rows")
+    logger.info(
+        f"[AGENT-IMPORT] Execute started for user {current_user.id}: "
+        f"{len(rows)} rows, create_tasks={body.create_tasks}"
+    )
     return {"status": "started", "estimated_seconds": estimated, "total": len(rows)}
 
 

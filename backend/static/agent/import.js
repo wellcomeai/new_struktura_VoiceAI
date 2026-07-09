@@ -131,9 +131,29 @@ function renderImportPreview(d){
   // errors download button
   document.getElementById('import-errors-btn').style.display = (d.errors && d.errors.length) ? '' : 'none';
 
+  // auto-tasks toggle (по умолчанию включён — поведение не меняется)
+  const toggle = document.getElementById('import-tasks-toggle');
+  if(d.valid_rows > 0){
+    toggle.style.display = '';
+    document.getElementById('import-tasks-checkbox').checked = true;
+    onImportTasksToggle();
+  } else {
+    toggle.style.display = 'none';
+  }
+
   // proceed button
   document.getElementById('import-proceed-btn').style.display = '';
   updateImportProceedBtn();
+}
+
+// Переключатель авто-задач: меняет только пояснение (превью не пересчитываем).
+function onImportTasksToggle(){
+  const on = document.getElementById('import-tasks-checkbox').checked;
+  const hint = document.getElementById('import-tasks-hint');
+  if(!hint) return;
+  hint.innerHTML = on
+    ? 'Агент запланирует звонок по каждому контакту: возьмёт «Задачу» и «Когда звонить» из файла, а если их нет — назначит время сам (в рабочие часы по МСК).'
+    : 'Контакты просто сохранятся в базу. Задачи создадутся только для строк, где в файле заполнены «Задача» и/или «Когда звонить» — их ставим напрямую, без оркестратора. По остальным звонки не планируются, пока вы не поставите задачи вручную или через чат с оркестратором.';
 }
 
 function updateImportProceedBtn(){
@@ -152,12 +172,13 @@ function updateImportProceedBtn(){
 async function executeImport(){
   if(!importState.token) return;
   const total = (importState.preview && importState.preview.valid_rows) || 0;
+  const createTasks = document.getElementById('import-tasks-checkbox').checked;
   importGotoStep(3);
   document.getElementById('import-progress-block').style.display = '';
   document.getElementById('import-result-block').style.display = 'none';
   document.getElementById('import-progress-text').textContent = `Импортируем ${total} контактов…`;
   try{
-    const r = await apiFetch(API + '/contacts/import/execute', { method:'POST', body:JSON.stringify({ preview_token: importState.token, agent_id: currentAgentId || undefined }) });
+    const r = await apiFetch(API + '/contacts/import/execute', { method:'POST', body:JSON.stringify({ preview_token: importState.token, agent_id: currentAgentId || undefined, create_tasks: createTasks }) });
     if(!r || (r.status !== 200)){
       const err = await r?.json().catch(()=>({}));
       document.getElementById('import-progress-text').textContent = errText(err.detail);
@@ -169,7 +190,9 @@ async function executeImport(){
     setTimeout(() => {
       document.getElementById('import-progress-block').style.display = 'none';
       document.getElementById('import-result-block').style.display = '';
-      document.getElementById('import-result-text').textContent = `Готово! Создаётся ${data.total} контактов и задач.`;
+      document.getElementById('import-result-text').textContent = createTasks
+        ? `Готово! Создаётся ${data.total} контактов и задач.`
+        : `Готово! Создаётся ${data.total} контактов (авто-задачи не проставлялись).`;
       document.getElementById('import-close-btn').style.display = '';
       document.getElementById('import-cancel-btn').style.display = 'none';
       loadStats(); loadTasks();
