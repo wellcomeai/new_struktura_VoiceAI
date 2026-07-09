@@ -68,13 +68,13 @@ TIMELINE_CALL_SNIPPET = 300   # длина сниппета транскрипт
 _CHANNEL_ICON = {"call": "📞", "sms": "✉️", "telegram": "✈️"}
 
 
-def _timeline_call_events(db, agent_contact, exclude_call_id, since) -> list:
+def _timeline_call_events(db, agent_contact, exclude_call_id, since, limit) -> list:
     """События-звонки (только channel='call') для таймлайна. Best-effort."""
     try:
         q = db.query(AgentCall).filter(AgentCall.agent_contact_id == agent_contact.id)
         if since is not None:
             q = q.filter(AgentCall.created_at >= since)
-        rows = q.order_by(AgentCall.created_at.desc()).limit(TIMELINE_MAX_EVENTS).all()
+        rows = q.order_by(AgentCall.created_at.desc()).limit(limit).all()
         events = []
         for c in rows:
             if exclude_call_id and str(c.id) == str(exclude_call_id):
@@ -102,7 +102,7 @@ def _timeline_call_events(db, agent_contact, exclude_call_id, since) -> list:
         return []
 
 
-def _timeline_sms_events(db, agent_contact, since) -> list:
+def _timeline_sms_events(db, agent_contact, since, limit) -> list:
     """События-SMS (обе стороны) для таймлайна. Best-effort."""
     try:
         from backend.services.sms_history import get_sms_thread
@@ -113,7 +113,7 @@ def _timeline_sms_events(db, agent_contact, since) -> list:
         ).first()
         if not child:
             return []
-        rows = get_sms_thread(db, child.id, agent_contact.phone, limit=TIMELINE_MAX_EVENTS)
+        rows = get_sms_thread(db, child.id, agent_contact.phone, limit=limit)
         events = []
         for m in rows:
             ts = m.received_at or m.created_at
@@ -129,11 +129,11 @@ def _timeline_sms_events(db, agent_contact, since) -> list:
         return []
 
 
-def _timeline_telegram_events(db, agent_contact, since) -> list:
+def _timeline_telegram_events(db, agent_contact, since, limit) -> list:
     """События-Telegram (личный аккаунт, обе стороны) для таймлайна. Best-effort."""
     try:
         from backend.services.telegram_user_service import get_thread
-        rows = get_thread(db, agent_contact.id, limit=TIMELINE_MAX_EVENTS)
+        rows = get_thread(db, agent_contact.id, limit=limit)
         events = []
         for m in rows:
             ts = m.created_at
@@ -156,30 +156,35 @@ def _as_naive_utc(dt):
     return dt
 
 
-def build_conversation_timeline(db, agent_contact, exclude_call_id=None) -> str:
+def build_conversation_timeline(
+    db, agent_contact, exclude_call_id=None,
+    max_events=TIMELINE_MAX_EVENTS, days_window=TIMELINE_DAYS_WINDOW,
+) -> str:
     """
     Единая хронология общения с контактом по всем каналам — для промпта.
 
     Сливает звонки (channel='call'), SMS и Telegram в один список, сортирует по
-    времени, берёт последние TIMELINE_MAX_EVENTS в окне TIMELINE_DAYS_WINDOW дней
-    и форматирует с метками МСК. exclude_call_id — исключить конкретный AgentCall
-    (текущее событие в PostCall или показанный отдельно последний звонок в
-    PreCall). Пустая строка, если истории нет. Best-effort — не роняет промпт.
+    времени, берёт последние max_events в окне days_window дней и форматирует с
+    метками МСК. exclude_call_id — исключить конкретный AgentCall (текущее
+    событие в PostCall или показанный отдельно последний звонок в PreCall).
+    max_events/days_window по умолчанию — константы фаз; чат-тулза
+    get_contact_timeline может запросить более широкое окно по требованию
+    владельца. Пустая строка, если истории нет. Best-effort — не роняет промпт.
     """
     from backend.core.timezone_utils import utc_to_msk
     try:
         if not agent_contact:
             return ""
-        since = datetime.utcnow() - timedelta(days=TIMELINE_DAYS_WINDOW)
+        since = datetime.utcnow() - timedelta(days=days_window) if days_window else None
         events = []
-        events += _timeline_call_events(db, agent_contact, exclude_call_id, since)
-        events += _timeline_sms_events(db, agent_contact, since)
-        events += _timeline_telegram_events(db, agent_contact, since)
+        events += _timeline_call_events(db, agent_contact, exclude_call_id, since, max_events)
+        events += _timeline_sms_events(db, agent_contact, since, max_events)
+        events += _timeline_telegram_events(db, agent_contact, since, max_events)
         if not events:
             return ""
         # Сортируем по времени (naive-UTC), берём последние N.
         events.sort(key=lambda e: _as_naive_utc(e[0]))
-        events = events[-TIMELINE_MAX_EVENTS:]
+        events = events[-max_events:]
         lines = []
         for ts, channel, text in events:
             tm = utc_to_msk(_as_naive_utc(ts)).strftime("%d.%m %H:%M")

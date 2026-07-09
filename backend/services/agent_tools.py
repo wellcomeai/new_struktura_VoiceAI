@@ -562,6 +562,27 @@ AGENT_CHAT_TOOLS = [
     },
     {
         "type": "function",
+        "name": "get_contact_timeline",
+        "description": (
+            "Получить ЕДИНУЮ хронологию всего общения с контактом по ВСЕМ каналам "
+            "(звонки + SMS + Telegram) в одном списке с метками времени, старые → "
+            "новые. Используй, когда владелец просит показать всю переписку/историю "
+            "общения с человеком, восстановить контекст или понять, о чём "
+            "договаривались — вместо раздельных get_contact_call_history / "
+            "telegram_get_thread."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+                "days": {"type": "integer", "description": "Окно в днях (по умолчанию 90; 0 — без ограничения)"},
+                "limit": {"type": "integer", "description": "Максимум событий (по умолчанию 100)"},
+            },
+            "required": ["agent_contact_id"],
+        },
+    },
+    {
+        "type": "function",
         "name": "get_agent_tasks",
         "description": "Получить список задач на звонки. Использовать когда пользователь спрашивает о запланированных звонках, расписании, следующих задачах. Также вызывать ПЕРЕД созданием новой задачи чтобы проверить дубли. Для количества задач по статусам опирайся на поля status_counts и scheduled_count из ответа (точные счётчики по всей выборке), а не пересчитывай массив tasks — он ограничен лимитом.",
         "parameters": {
@@ -1223,6 +1244,38 @@ async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id:
             for c in calls
         ],
     }
+
+
+async def fn_get_contact_timeline(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """
+    Единая хронология общения с контактом по всем каналам (звонки + SMS +
+    Telegram) для чат-оркестратора. Переиспользует build_conversation_timeline
+    (ленивый импорт — agent_orchestrator импортирует этот модуль).
+    """
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == args.get("agent_contact_id"),
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Contact not found"}
+
+    try:
+        days = int(args.get("days")) if args.get("days") is not None else 90
+    except (TypeError, ValueError):
+        days = 90
+    try:
+        limit = min(int(args.get("limit")) if args.get("limit") is not None else 100, 200)
+    except (TypeError, ValueError):
+        limit = 100
+
+    from backend.services.agent_orchestrator import build_conversation_timeline
+    timeline = build_conversation_timeline(
+        db, contact, max_events=limit, days_window=(days or 0)
+    )
+    if not timeline:
+        return {"ok": True, "timeline": "", "note": "Истории общения по этому контакту пока нет."}
+    return {"ok": True, "timeline": timeline.strip()}
 
 
 async def fn_get_agent_tasks(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2278,6 +2331,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_agent_contacts(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contact_call_history":
             result = await fn_get_contact_call_history(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "get_contact_timeline":
+            result = await fn_get_contact_timeline(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_tasks":
             result = await fn_get_agent_tasks(tool_args, user_id, agent_config_id, db)
         elif tool_name == "delete_agent_task":
