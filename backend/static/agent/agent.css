@@ -336,6 +336,8 @@ body::before {
 .tcal-list { max-height:340px; overflow-y:auto; padding-right:4px; }
 .tcal-more { width:100%; margin-top:8px; padding:8px; border-radius:9px; background:var(--bg); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; color:var(--blue-dark); transition:var(--transition); }
 .tcal-more:hover { background:var(--blue-light); border-color:var(--blue-border); }
+.tcal-del-day { width:100%; margin-top:8px; padding:8px; border-radius:9px; background:var(--red-light); border:1px solid #F5C2C2; cursor:pointer; font-size:12px; font-weight:600; color:var(--red); transition:var(--transition); display:flex; align-items:center; justify-content:center; gap:7px; }
+.tcal-del-day:hover { background:var(--red); border-color:var(--red); color:#fff; }
 .tcal-empty { text-align:center; color:var(--hint); font-size:12.5px; padding:30px 10px; }
 @media(max-width:720px){ .tcal-wrap{ flex-direction:column; } .tcal-side{ width:100%; } .tcal-list{ max-height:240px; } }
 

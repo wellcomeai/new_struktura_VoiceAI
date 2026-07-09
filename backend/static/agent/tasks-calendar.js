@@ -195,6 +195,51 @@ async function _tcalDeleteTask(id, key){
   }catch(e){ showToast('Ошибка сети','error'); }
 }
 
+// Всего задач в кэше календаря
+function _tcalTotalCount(){
+  return Object.values(_tcalByDay).reduce((s, arr) => s + arr.length, 0);
+}
+
+// Удалить ВСЕ запланированные задачи агента
+async function tcalDeleteAllTasks(){
+  const n = _tcalTotalCount();
+  if(!n){ showToast('Нет запланированных задач', 'error'); return; }
+  const msg = `Удалить все запланированные задачи (${n} ${pluralRu(n,'задача','задачи','задач')})? Запланированные звонки не будут выполнены.`;
+  if(!confirm(msg)) return;
+  try{
+    const r = await apiFetch(API + '/tasks', { method:'DELETE' });
+    if(!r || r.status !== 200){ showToast('Не удалось удалить задачи', 'error'); return; }
+    const data = await r.json();
+    _tcalByDay = {}; _tcalExpanded = false;
+    _tcalRenderGrid();
+    _tcalRenderList(_tcalSel);
+    loadTasks();   // обновляем виджет "Ближайшие задачи"
+    const cnt = data.deleted || 0;
+    showToast(`Удалено ${cnt} ${pluralRu(cnt,'задача','задачи','задач')}`, 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
+// Удалить все задачи одного дня (key = 'YYYY-MM-DD' МСК)
+async function tcalDeleteDayTasks(key){
+  const tasks = _tcalByDay[key] || [];
+  if(!tasks.length){ showToast('На этот день задач нет', 'error'); return; }
+  const n = tasks.length;
+  const msg = `Удалить все задачи на ${_tcalDateLabel(key)} (${n} ${pluralRu(n,'задача','задачи','задач')})? Запланированные звонки не будут выполнены.`;
+  if(!confirm(msg)) return;
+  try{
+    const r = await apiFetch(API + '/tasks?date=' + encodeURIComponent(key), { method:'DELETE' });
+    if(!r || r.status !== 200){ showToast('Не удалось удалить задачи', 'error'); return; }
+    const data = await r.json();
+    delete _tcalByDay[key];
+    _tcalExpanded = false;
+    _tcalRenderGrid();
+    _tcalRenderList(key);
+    loadTasks();   // обновляем виджет "Ближайшие задачи"
+    const cnt = data.deleted || 0;
+    showToast(`Удалено ${cnt} ${pluralRu(cnt,'задача','задачи','задач')}`, 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
 function _tcalRenderList(key){
   const head = document.getElementById('tcal-side-head');
   const sub  = document.getElementById('tcal-side-sub');
@@ -220,6 +265,7 @@ function _tcalRenderList(key){
   } else {
     html += `<div class="tcal-list">${tasks.map(t=>_tcalTaskRow(t,key)).join('')}</div>`;
   }
+  html += `<button class="tcal-del-day" onclick="tcalDeleteDayTasks('${key}')"><i class="fas fa-trash-alt"></i> Удалить задачи дня</button>`;
   body.innerHTML = html;
 }
 

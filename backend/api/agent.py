@@ -1833,6 +1833,55 @@ async def list_agent_tasks(
     return {"total": len(result), "tasks": result}
 
 
+@router.delete("/tasks")
+async def delete_agent_tasks_bulk(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD (МСК) — удалить задачи только этого дня"),
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Массовое удаление запланированных задач агента из календаря.
+    Без `date` — все scheduled-задачи агента, с `date` — только за этот день (МСК).
+    Задачи в других статусах (calling, completed, ...) не затрагиваются.
+    """
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    q = db.query(Task).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent.id,
+        Task.status == TaskStatus.SCHEDULED,
+    )
+
+    if date:
+        try:
+            day_start_msk = datetime.strptime(date, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="invalid_date")
+        # МСК = UTC+3 без сезонных переходов
+        day_start_utc = day_start_msk.replace(tzinfo=timezone.utc) - timedelta(hours=3)
+        q = q.filter(
+            Task.scheduled_time >= day_start_utc,
+            Task.scheduled_time < day_start_utc + timedelta(days=1),
+        )
+
+    tasks = q.all()
+    for t in tasks:
+        db.delete(t)
+    db.commit()
+
+    logger.info(
+        f"[AGENT] Bulk deleted {len(tasks)} scheduled tasks for user {current_user.id}, "
+        f"agent {agent.id}" + (f", day {date} MSK" if date else "")
+    )
+    return {"detail": "deleted", "deleted": len(tasks)}
+
+
 @router.delete("/tasks/{task_id}")
 async def delete_agent_task(
     task_id: str,
