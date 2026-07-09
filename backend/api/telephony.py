@@ -4656,6 +4656,16 @@ def _build_caller_context(contact) -> str:
                         snippet = snippet[:400].rstrip() + "…"
                     lines.append(f"   Разговор: «{snippet}»")
 
+        # Единая хронология общения (звонки + SMS + Telegram) — чтобы у входящего
+        # звонка (без PreCall) был тот же контекст всех каналов с метками времени.
+        try:
+            from backend.services.agent_orchestrator import build_conversation_timeline
+            timeline = build_conversation_timeline(db, contact)
+            if timeline:
+                lines.append(timeline.strip())
+        except Exception as e:
+            logger.warning(f"[TELEPHONY] caller timeline failed: {e}")
+
         lines.append("══════════════════════════════════════")
         lines.append(
             "Поздоровайся по имени и веди разговор с учётом прошлых договорённостей. "

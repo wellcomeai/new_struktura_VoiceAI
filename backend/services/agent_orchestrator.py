@@ -29,7 +29,6 @@ from backend.models.task import Task, TaskStatus
 from backend.models.conversation import Conversation
 from backend.models.user import User
 from backend.models.voximplant_child import VoximplantChildAccount
-from backend.services.sms_history import build_sms_thread_text
 from backend.services.agent_tools import (
     AGENT_CHAT_TOOLS,
     AGENT_POSTCALL_TOOLS,
@@ -51,47 +50,186 @@ from backend.services.credit_service import (
 logger = get_logger(__name__)
 
 
-def _sms_context_block(db, agent_contact) -> str:
-    """
-    Блок «SMS-переписка» для промпта оркестратора (PreCall/PostCall).
+# ============================================================================
+# ЕДИНАЯ ХРОНОЛОГИЯ ОБЩЕНИЯ (звонки + SMS + Telegram)
+# ============================================================================
+# Один хронологический блок для промпта оркестратора во всех фазах (PreCall,
+# PostCall, карточка входящего звонка). Каждый канал берётся из своего чистого
+# источника, чтобы не задваивать входящие SMS/TG (они лежат и в AgentCall, и в
+# своих таблицах):
+#   • звонки  — AgentCall только channel="call" (голосовые), сниппет транскрипта;
+#   • SMS     — sms_messages (обе стороны), целиком;
+#   • Telegram— agent_telegram_messages (обе стороны), целиком.
 
-    Тред резолвится по номеру контакта (последние 10 цифр) в пределах
-    Voximplant-аккаунта пользователя. Пустая строка, если переписки нет или
-    телефония не подключена — best-effort, не роняет сборку промпта.
-    """
+TIMELINE_MAX_EVENTS = 40      # сколько последних событий кладём в ленту
+TIMELINE_DAYS_WINDOW = 30     # окно по времени (дни)
+TIMELINE_CALL_SNIPPET = 300   # длина сниппета транскрипта звонка в ленте
+
+_CHANNEL_ICON = {"call": "📞", "sms": "✉️", "telegram": "✈️"}
+
+
+def _timeline_call_events(db, agent_contact, exclude_call_id, since) -> list:
+    """События-звонки (только channel='call') для таймлайна. Best-effort."""
     try:
-        if not agent_contact or not agent_contact.user_id:
-            return ""
+        q = db.query(AgentCall).filter(AgentCall.agent_contact_id == agent_contact.id)
+        if since is not None:
+            q = q.filter(AgentCall.created_at >= since)
+        rows = q.order_by(AgentCall.created_at.desc()).limit(TIMELINE_MAX_EVENTS).all()
+        events = []
+        for c in rows:
+            if exclude_call_id and str(c.id) == str(exclude_call_id):
+                continue
+            # Пропускаем SMS/TG-события (они придут из своих таблиц целиком).
+            if c._resolve_channel() != "call":
+                continue
+            ts = c.started_at or c.created_at
+            if not ts:
+                continue
+            direction = "исходящий" if (c.direction or "outbound") == "outbound" else "входящий"
+            decision = c.post_call_decision or "—"
+            snippet = ""
+            if c.transcript and c.transcript.strip() != "(Транскрипт недоступен)":
+                snippet = " ".join(c.transcript.split())
+                if len(snippet) > TIMELINE_CALL_SNIPPET:
+                    snippet = snippet[:TIMELINE_CALL_SNIPPET].rstrip() + "…"
+            text = f"Звонок ({direction}), итог: {decision}"
+            if snippet:
+                text += f" — «{snippet}»"
+            events.append((ts, "call", text))
+        return events
+    except Exception as e:
+        logger.warning(f"[AGENT] timeline call events failed: {e}")
+        return []
+
+
+def _timeline_sms_events(db, agent_contact, since) -> list:
+    """События-SMS (обе стороны) для таймлайна. Best-effort."""
+    try:
+        from backend.services.sms_history import get_sms_thread
+        if not agent_contact.user_id:
+            return []
         child = db.query(VoximplantChildAccount).filter(
             VoximplantChildAccount.user_id == agent_contact.user_id
         ).first()
         if not child:
-            return ""
-        thread = build_sms_thread_text(db, child.id, agent_contact.phone, limit=20)
-        if not thread:
-            return ""
-        return f"\n\nSMS-ПЕРЕПИСКА С КОНТАКТОМ (последние 20, время МСК):\n{thread}"
+            return []
+        rows = get_sms_thread(db, child.id, agent_contact.phone, limit=TIMELINE_MAX_EVENTS)
+        events = []
+        for m in rows:
+            ts = m.received_at or m.created_at
+            if not ts:
+                continue
+            if since is not None and _as_naive_utc(ts) < since:
+                continue
+            who = "агент → клиент" if (m.direction or "inbound") == "outbound" else "клиент → агент"
+            events.append((ts, "sms", f"SMS, {who}: {(m.body or '').strip()}"))
+        return events
     except Exception as e:
-        logger.warning(f"[AGENT] _sms_context_block failed: {e}")
-        return ""
+        logger.warning(f"[AGENT] timeline sms events failed: {e}")
+        return []
 
 
-def _telegram_context_block(db, agent_contact) -> str:
+def _timeline_telegram_events(db, agent_contact, since) -> list:
+    """События-Telegram (личный аккаунт, обе стороны) для таймлайна. Best-effort."""
+    try:
+        from backend.services.telegram_user_service import get_thread
+        rows = get_thread(db, agent_contact.id, limit=TIMELINE_MAX_EVENTS)
+        events = []
+        for m in rows:
+            ts = m.created_at
+            if not ts:
+                continue
+            if since is not None and _as_naive_utc(ts) < since:
+                continue
+            who = "агент → клиент" if (m.direction or "inbound") == "outbound" else "клиент → агент"
+            events.append((ts, "telegram", f"Telegram, {who}: {(m.body or '').strip()}"))
+        return events
+    except Exception as e:
+        logger.warning(f"[AGENT] timeline telegram events failed: {e}")
+        return []
+
+
+def _as_naive_utc(dt):
+    """К naive-UTC для единообразного сравнения (часть колонок tz-aware, часть — нет)."""
+    if dt is not None and dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
+def build_conversation_timeline(db, agent_contact, exclude_call_id=None) -> str:
     """
-    Блок «Telegram-переписка» (личный аккаунт владельца) для промпта
-    оркестратора. Пустая строка, если переписки нет — best-effort.
+    Единая хронология общения с контактом по всем каналам — для промпта.
+
+    Сливает звонки (channel='call'), SMS и Telegram в один список, сортирует по
+    времени, берёт последние TIMELINE_MAX_EVENTS в окне TIMELINE_DAYS_WINDOW дней
+    и форматирует с метками МСК. exclude_call_id — исключить конкретный AgentCall
+    (текущее событие в PostCall или показанный отдельно последний звонок в
+    PreCall). Пустая строка, если истории нет. Best-effort — не роняет промпт.
     """
+    from backend.core.timezone_utils import utc_to_msk
     try:
         if not agent_contact:
             return ""
-        from backend.services.telegram_user_service import build_thread_text
-        thread = build_thread_text(db, agent_contact.id, limit=20)
-        if not thread:
+        since = datetime.utcnow() - timedelta(days=TIMELINE_DAYS_WINDOW)
+        events = []
+        events += _timeline_call_events(db, agent_contact, exclude_call_id, since)
+        events += _timeline_sms_events(db, agent_contact, since)
+        events += _timeline_telegram_events(db, agent_contact, since)
+        if not events:
             return ""
-        return f"\n\nTELEGRAM-ПЕРЕПИСКА С КОНТАКТОМ (личный аккаунт владельца, последние 20, время МСК):\n{thread}"
+        # Сортируем по времени (naive-UTC), берём последние N.
+        events.sort(key=lambda e: _as_naive_utc(e[0]))
+        events = events[-TIMELINE_MAX_EVENTS:]
+        lines = []
+        for ts, channel, text in events:
+            tm = utc_to_msk(_as_naive_utc(ts)).strftime("%d.%m %H:%M")
+            icon = _CHANNEL_ICON.get(channel, "•")
+            lines.append(f"[{tm}] {icon} {text}")
+        return (
+            "\n\nХРОНОЛОГИЯ ОБЩЕНИЯ С КОНТАКТОМ (все каналы, время МСК, старые → новые):\n"
+            + "\n".join(lines)
+        )
     except Exception as e:
-        logger.warning(f"[AGENT] _telegram_context_block failed: {e}")
+        logger.warning(f"[AGENT] build_conversation_timeline failed: {e}")
         return ""
+
+
+def last_call_full_block(db, agent_contact, exclude_call_id=None):
+    """
+    Полный транскрипт последнего голосового звонка (channel='call') для PreCall.
+    Без обрезки. Возвращает кортеж (block_text, call_id): block_text — блок для
+    промпта ('' если звонков не было), call_id — id показанного звонка (или None),
+    чтобы исключить его из ленты хронологии. Best-effort.
+    """
+    try:
+        if not agent_contact:
+            return "", None
+        rows = (
+            db.query(AgentCall)
+            .filter(AgentCall.agent_contact_id == agent_contact.id)
+            .order_by(AgentCall.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        for c in rows:
+            if exclude_call_id and str(c.id) == str(exclude_call_id):
+                continue
+            if c._resolve_channel() != "call":
+                continue
+            if not c.transcript or c.transcript.strip() == "(Транскрипт недоступен)":
+                continue
+            day = c.created_at.strftime("%d.%m.%Y %H:%M") if c.created_at else "?"
+            direction = "исходящий" if (c.direction or "outbound") == "outbound" else "входящий"
+            decision = c.post_call_decision or "—"
+            block = (
+                f"\n\nПОСЛЕДНИЙ ЗВОНОК ПОЛНОСТЬЮ [{day}] ({direction}, итог: {decision}):\n"
+                f"{c.transcript.strip()}"
+            )
+            return block, c.id
+        return "", None
+    except Exception as e:
+        logger.warning(f"[AGENT] last_call_full_block failed: {e}")
+        return "", None
 
 
 def _extract_usage(response: dict) -> tuple:
@@ -224,19 +362,12 @@ class PreCallOrchestrator:
 
     def _build_precall_input(self, task, agent_contact, db) -> str:
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
-        previous_calls = (
-            db.query(AgentCall)
-            .filter(AgentCall.agent_contact_id == agent_contact.id)
-            .order_by(AgentCall.created_at.desc())
-            .limit(5)
-            .all()
-        )
-        calls_context = ""
-        for pc in reversed(previous_calls):
-            calls_context += f"\n--- Звонок {pc.created_at.strftime('%Y-%m-%d %H:%M') if pc.created_at else '?'} ---\n"
-            calls_context += f"Статус: {pc.status}, Решение: {pc.post_call_decision or 'N/A'}\n"
-            if pc.transcript:
-                calls_context += f"Транскрипт: {pc.transcript[:500]}\n"
+
+        # Последний звонок — полным транскриптом; вся остальная история
+        # (SMS, Telegram, старые звонки) — единой хронологией. Последний звонок
+        # исключаем из ленты, чтобы не дублировать его же выше.
+        last_call, last_call_id = last_call_full_block(db, agent_contact)
+        timeline = build_conversation_timeline(db, agent_contact, exclude_call_id=last_call_id)
 
         return f"""ЗАДАЧА: {task.title}
 ОПИСАНИЕ: {task.description or 'Нет описания'}
@@ -244,10 +375,7 @@ class PreCallOrchestrator:
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
 ДОЛЖНОСТЬ: {agent_contact.position or 'Не указана'}
 ПАМЯТЬ О КОНТАКТЕ: {memory_json}
-ПОПЫТКА: {agent_contact.attempts_count + 1}
-
-ПРЕДЫДУЩИЕ ЗВОНКИ:
-{calls_context or 'Нет предыдущих звонков'}""" + _sms_context_block(db, agent_contact)
+ПОПЫТКА: {agent_contact.attempts_count + 1}{last_call}{timeline}"""
 
     async def _run_v3_openrouter(
         self,
@@ -366,20 +494,10 @@ class PreCallOrchestrator:
 
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
 
-        previous_calls = (
-            db.query(AgentCall)
-            .filter(AgentCall.agent_contact_id == agent_contact.id)
-            .order_by(AgentCall.created_at.desc())
-            .limit(5)
-            .all()
-        )
-
-        calls_context = ""
-        for pc in reversed(previous_calls):
-            calls_context += f"\n--- Звонок {pc.created_at.strftime('%Y-%m-%d %H:%M') if pc.created_at else '?'} ---\n"
-            calls_context += f"Статус: {pc.status}, Решение: {pc.post_call_decision or 'N/A'}\n"
-            if pc.transcript:
-                calls_context += f"Транскрипт: {pc.transcript[:500]}\n"
+        # Тот же контекст, что и в v3: последний звонок полностью + единая
+        # хронология (звонки + SMS + Telegram), исключая показанный звонок.
+        last_call, last_call_id = last_call_full_block(db, agent_contact)
+        timeline = build_conversation_timeline(db, agent_contact, exclude_call_id=last_call_id)
 
         pre_call_input = f"""ЗАДАЧА: {task.title}
 ОПИСАНИЕ: {task.description or 'Нет описания'}
@@ -387,10 +505,7 @@ class PreCallOrchestrator:
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
 ДОЛЖНОСТЬ: {agent_contact.position or 'Не указана'}
 ПАМЯТЬ О КОНТАКТЕ: {memory_json}
-ПОПЫТКА: {agent_contact.attempts_count + 1}
-
-ПРЕДЫДУЩИЕ ЗВОНКИ:
-{calls_context or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}
+ПОПЫТКА: {agent_contact.attempts_count + 1}{last_call}{timeline}
 
 Подготовь звонок. Верни JSON:
 {{
@@ -768,23 +883,9 @@ class PostCallOrchestrator:
             db.close()
 
     def _build_postcall_input(self, agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction: str = "outbound") -> str:
-        previous_calls = (
-            db.query(AgentCall)
-            .filter(
-                AgentCall.agent_contact_id == agent_contact.id,
-                AgentCall.id != agent_call.id,
-            )
-            .order_by(AgentCall.created_at.desc())
-            .limit(5)
-            .all()
-        )
-
-        prev_calls_text = ""
-        for pc in reversed(previous_calls):
-            prev_calls_text += f"\n--- Звонок {pc.created_at.strftime('%Y-%m-%d %H:%M') if pc.created_at else '?'} ---\n"
-            prev_calls_text += f"Решение: {pc.post_call_decision or 'N/A'}\n"
-            if pc.transcript:
-                prev_calls_text += f"Транскрипт: {pc.transcript[:300]}\n"
+        # Вся предыстория (звонки + SMS + Telegram) — единой хронологией, исключая
+        # текущее событие (оно ниже отдельным блоком «ТЕКУЩИЙ …»).
+        timeline = build_conversation_timeline(db, agent_contact, exclude_call_id=agent_call.id)
 
         memory_json = json.dumps(agent_contact.memory or {}, ensure_ascii=False)
 
@@ -855,10 +956,7 @@ class PostCallOrchestrator:
 КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
 ПАМЯТЬ О КОНТАКТЕ: {memory_json}
-ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}
-
-ПРЕДЫДУЩИЕ ЗВОНКИ (до 5 последних диалогов):
-{prev_calls_text or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}{_telegram_context_block(db, agent_contact)}
+ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}{timeline or ''}
 
 {transcript_label}:
 {transcript}
@@ -885,7 +983,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         Прогнать входящее SMS через ту же PostCall-логику, что и звонки.
 
         «Транскрипт» — текст SMS (полная переписка подмешивается в промпт через
-        _sms_context_block). Тулзы те же (AGENT_POSTCALL_TOOLS), поэтому агент
+        единую хронологию build_conversation_timeline). Тулзы те же (AGENT_POSTCALL_TOOLS), поэтому агент
         может уведомить менеджеров в Telegram (send_telegram_notification),
         запланировать звонок (create_agent_task), ответить (send_sms),
         обновить память/стадию.
@@ -909,9 +1007,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         """
         Прогнать входящее сообщение личного Telegram через ту же PostCall-логику,
         что звонки и SMS. «Транскрипт» — текст сообщения (полная переписка
-        подмешивается через _telegram_context_block). Ответить клиенту агент
-        может тулзой telegram_send_message (домешивается в build_postcall_tools,
-        когда аккаунт подключён).
+        подмешивается через единую хронологию build_conversation_timeline).
+        Ответить клиенту агент может тулзой telegram_send_message (домешивается в
+        build_postcall_tools, когда аккаунт подключён).
         """
         transcript = f'Клиент написал в Telegram: "{(message_body or "").strip()}"'
         await self._analyze(
