@@ -76,6 +76,24 @@ def _sms_context_block(db, agent_contact) -> str:
         return ""
 
 
+def _telegram_context_block(db, agent_contact) -> str:
+    """
+    Блок «Telegram-переписка» (личный аккаунт владельца) для промпта
+    оркестратора. Пустая строка, если переписки нет — best-effort.
+    """
+    try:
+        if not agent_contact:
+            return ""
+        from backend.services.telegram_user_service import build_thread_text
+        thread = build_thread_text(db, agent_contact.id, limit=20)
+        if not thread:
+            return ""
+        return f"\n\nTELEGRAM-ПЕРЕПИСКА С КОНТАКТОМ (личный аккаунт владельца, последние 20, время МСК):\n{thread}"
+    except Exception as e:
+        logger.warning(f"[AGENT] _telegram_context_block failed: {e}")
+        return ""
+
+
 def _extract_usage(response: dict) -> tuple:
     """Достать (prompt_tokens, completion_tokens) из ответа OpenRouter."""
     usage = response.get("usage") or {}
@@ -778,9 +796,26 @@ class PostCallOrchestrator:
         analyze_line = "Проанализируй звонок и выполни необходимые действия через tools:"
 
         is_sms = (call_direction or "").lower() == "sms_inbound"
+        is_tg = (call_direction or "").lower() == "telegram_inbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
 
-        if is_sms:
+        if is_tg:
+            direction_line = (
+                "СОБЫТИЕ: ВХОДЯЩЕЕ СООБЩЕНИЕ В TELEGRAM (личный аккаунт владельца) — "
+                "клиент написал в Telegram, это не звонок."
+            )
+            callback_rule = (
+                "3. Если уместно ответить клиенту — ответь в Telegram через\n"
+                "   telegram_send_message (тем же каналом, которым написал клиент).\n"
+                "   Пиши как живой человек, коротко и по делу, без markdown.\n"
+                "   Если по сути сообщения нужен звонок (клиент просит позвонить,\n"
+                "   договорились о следующем шаге) — запланируй его через\n"
+                "   create_agent_task. Сам факт сообщения НЕ требует звонка."
+            )
+            transcript_label = "ТЕКСТ ВХОДЯЩЕГО СООБЩЕНИЯ TELEGRAM"
+            status_label = "СТАТУС"
+            analyze_line = "Проанализируй сообщение клиента и выполни необходимые действия через tools:"
+        elif is_sms:
             direction_line = (
                 "СОБЫТИЕ: ВХОДЯЩЕЕ SMS от клиента (это не звонок — клиент прислал "
                 "сообщение, на которое нужно среагировать)."
@@ -823,7 +858,7 @@ class PostCallOrchestrator:
 ВСЕГО ПОПЫТОК: {agent_contact.attempts_count or 0}
 
 ПРЕДЫДУЩИЕ ЗВОНКИ (до 5 последних диалогов):
-{prev_calls_text or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}
+{prev_calls_text or 'Нет предыдущих звонков'}{_sms_context_block(db, agent_contact)}{_telegram_context_block(db, agent_contact)}
 
 {transcript_label}:
 {transcript}
@@ -868,6 +903,29 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             openai_key=(user.openai_api_key or "") if user else "",
             db=db,
             call_direction="sms_inbound",
+        )
+
+    async def run_for_telegram(self, agent_call, agent_contact, agent_config, user, message_body, db):
+        """
+        Прогнать входящее сообщение личного Telegram через ту же PostCall-логику,
+        что звонки и SMS. «Транскрипт» — текст сообщения (полная переписка
+        подмешивается через _telegram_context_block). Ответить клиенту агент
+        может тулзой telegram_send_message (домешивается в build_postcall_tools,
+        когда аккаунт подключён).
+        """
+        transcript = f'Клиент написал в Telegram: "{(message_body or "").strip()}"'
+        await self._analyze(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=None,
+            transcript=transcript,
+            call_status="answered",
+            duration_seconds=0,
+            openai_key=(user.openai_api_key or "") if user else "",
+            db=db,
+            call_direction="telegram_inbound",
         )
 
     async def _analyze(
@@ -929,8 +987,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
         # Подставляем стратегию PreCall в текст (симуляция цепочки). Для входящего
-        # SMS PreCall не было — блок стратегии не добавляем.
-        if (call_direction or "").lower() != "sms_inbound":
+        # SMS/Telegram PreCall не было — блок стратегии не добавляем.
+        if (call_direction or "").lower() not in ("sms_inbound", "telegram_inbound"):
             post_call_input += f"""
 
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
@@ -2440,5 +2498,86 @@ async def handle_inbound_sms(sms_message_id: str):
 
     except Exception as e:
         logger.error(f"[AGENT-SMS] handle_inbound_sms error: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+async def handle_inbound_telegram(account_id: str, agent_contact_id: str, message_body: str):
+    """
+    Event-driven обработка входящего сообщения личного Telegram.
+
+    Вызывается поллером (backend/core/telegram_user_poller.py) ПОСЛЕ того, как
+    он сохранил входящие в agent_telegram_messages, связал диалог с контактом и
+    продвинул last_processed_msg_id (поэтому падение здесь не приводит к
+    повторной обработке). Зеркалит handle_inbound_sms: проверка доступа →
+    AgentCall(direction="inbound") → PostCall с call_direction="telegram_inbound"
+    (агент отвечает тулзой telegram_send_message).
+
+    Открывает собственную сессию БД — безопасно для asyncio.create_task().
+    """
+    from backend.models.agent_telegram_account import AgentTelegramAccount
+
+    db = SessionLocal()
+    try:
+        account = db.query(AgentTelegramAccount).filter(
+            AgentTelegramAccount.id == account_id
+        ).first()
+        if not account:
+            return
+
+        agent = db.query(AgentConfig).filter(
+            AgentConfig.id == account.agent_config_id,
+        ).first()
+        if not agent or not agent.is_active:
+            logger.info(f"[AGENT-TG-USER] agent inactive/missing for account {account_id}, skip")
+            return
+
+        user = db.query(User).filter(User.id == account.user_id).first()
+        if not user:
+            return
+
+        # Доступ к агенту (триал/подписка) — как у SMS и планировщика.
+        try:
+            if not user.has_active_agent_subscription():
+                logger.info(f"[AGENT-TG-USER] user {user.id} has no agent access, skip tg message")
+                return
+        except Exception:
+            pass
+
+        # v2-агента без личного OpenAI-ключа обслужить не сможем.
+        if not getattr(agent, "uses_hardcoded_prompt", False) and not user.openai_api_key:
+            logger.info(f"[AGENT-TG-USER] v2 agent {agent.id} without OpenAI key, skip tg message")
+            return
+
+        contact = db.query(AgentContact).filter(
+            AgentContact.id == agent_contact_id,
+            AgentContact.agent_config_id == agent.id,
+        ).first()
+        if not contact:
+            return
+
+        inbound_call = AgentCall(
+            agent_contact_id=contact.id,
+            agent_config_id=agent.id,
+            user_id=user.id,
+            source_task_id=None,
+            call_session_id=None,
+            status="calling",
+            direction="inbound",
+            started_at=datetime.utcnow(),
+        )
+        db.add(inbound_call)
+        db.commit()
+
+        logger.info(
+            f"[AGENT-TG-USER] Inbound TG message -> agent {agent.id}, "
+            f"contact={contact.id}, call={inbound_call.id}"
+        )
+        await PostCallOrchestrator().run_for_telegram(
+            inbound_call, contact, agent, user, message_body, db
+        )
+
+    except Exception as e:
+        logger.error(f"[AGENT-TG-USER] handle_inbound_telegram error: {e}", exc_info=True)
     finally:
         db.close()

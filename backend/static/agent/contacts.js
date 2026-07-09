@@ -170,8 +170,14 @@ function renderContactDetails(c){
     <div class="cd-sms-thread">${c.sms.map(_cdSmsBubble).join('')}</div>
   ` : '';
 
+  // Telegram-переписка (личный аккаунт владельца) — те же пузыри, что SMS.
+  const tgBlock = (c.telegram && c.telegram.length) ? `
+    <div style="font-size:13px;font-weight:600;margin:16px 0 8px"><i class="fas fa-paper-plane" style="color:#229ED9"></i> Telegram-переписка (${c.telegram.length})</div>
+    <div class="cd-sms-thread">${c.telegram.map(_cdSmsBubble).join('')}</div>
+  ` : '';
+
   _cdTasks = (c.tasks || []).slice().sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
-  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock + smsBlock;
+  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock + smsBlock + tgBlock;
   renderContactTasksSection();
 }
 

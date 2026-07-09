@@ -19,6 +19,7 @@ from backend.models.task import Task, TaskStatus
 from backend.models.user import User
 from backend.models.agent_connector import AgentConnector
 from backend.services import composio_service
+from backend.services import telegram_user_service
 from backend.services.telegram_notification import TelegramNotificationService
 from backend.core.timezone_utils import adjust_to_working_hours
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGE_KEYS, is_valid_stage
@@ -264,18 +265,20 @@ async def _augment_with_connectors(base_tools: list, agent_config, db: Session) 
 async def build_chat_tools(agent_config, db: Session) -> list:
     """
     Tools для чата/Telegram оркестратора (Chat Completions формат): базовый
-    AGENT_CHAT_TOOLS + инструменты подключённых коннекторов агента.
+    AGENT_CHAT_TOOLS + коннекторы Composio + личный Telegram (если подключён).
     """
-    return await _augment_with_connectors(
+    tools = await _augment_with_connectors(
         to_chat_completions_tools(AGENT_CHAT_TOOLS), agent_config, db
     )
+    return _augment_with_telegram_account(tools, agent_config, db)
 
 
 async def build_postcall_tools(agent_config, db: Session) -> list:
-    """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы агента."""
-    return await _augment_with_connectors(
+    """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы + личный Telegram."""
+    tools = await _augment_with_connectors(
         to_chat_completions_tools(AGENT_POSTCALL_TOOLS), agent_config, db
     )
+    return _augment_with_telegram_account(tools, agent_config, db)
 
 
 async def fn_execute_connector(tool_name: str, args: dict, agent_config_id: str, db: Session) -> dict:
@@ -286,6 +289,200 @@ async def fn_execute_connector(tool_name: str, args: dict, agent_config_id: str,
     """
     composio_user_id = composio_service.composio_user_id_for_agent(agent_config_id)
     return await composio_service.execute(tool_name, args, composio_user_id)
+
+
+# ============================================================================
+# TELEGRAM USER TOOLS — личный Telegram-аккаунт агента (MTProto, Telethon).
+# Домешиваются в чат и PostCall, ТОЛЬКО когда аккаунт подключён. Голосовому
+# ассистенту эти функции намеренно НЕ отдаются.
+# ============================================================================
+
+TELEGRAM_SEND_MESSAGE_TOOL = {
+    "type": "function",
+    "name": "telegram_send_message",
+    "description": (
+        "Отправить клиенту сообщение в Telegram С ЛИЧНОГО аккаунта владельца. "
+        "Указывай agent_contact_id (предпочтительно) и/или username. Получатель "
+        "резолвится: по уже существующему диалогу → по @username → по номеру "
+        "телефона контакта (только если первых двух нет; лимитировано — Telegram "
+        "банит за спам незнакомым). Пиши как живой человек, без markdown."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            "username": {"type": "string", "description": "Telegram @username получателя (если известен)"},
+            "text": {"type": "string", "description": "Текст сообщения"},
+        },
+        "required": ["text"],
+    },
+}
+
+TELEGRAM_GET_THREAD_TOOL = {
+    "type": "function",
+    "name": "telegram_get_thread",
+    "description": (
+        "Получить последние сообщения Telegram-переписки с контактом "
+        "(личный аккаунт владельца) — для контекста перед ответом."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            "limit": {"type": "integer", "description": "Сколько сообщений (по умолчанию 20)"},
+        },
+        "required": ["agent_contact_id"],
+    },
+}
+
+TELEGRAM_USER_TOOLS = [TELEGRAM_SEND_MESSAGE_TOOL, TELEGRAM_GET_THREAD_TOOL]
+
+
+def _augment_with_telegram_account(base_tools: list, agent_config, db: Session) -> list:
+    """Дописать тулзы личного Telegram, если аккаунт агента подключён."""
+    if agent_config is None:
+        return base_tools
+    try:
+        if not telegram_user_service.account_connected(db, agent_config.id):
+            return base_tools
+    except Exception as e:
+        logger.warning(f"[AGENT-TOOLS] telegram account lookup failed: {e}")
+        return base_tools
+    return base_tools + to_chat_completions_tools(TELEGRAM_USER_TOOLS)
+
+
+async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: Session) -> dict:
+    """
+    Отправка сообщения с личного Telegram владельца. Анти-бан меры:
+    - почасовой лимит исходящих (TG_SEND_HOURLY_LIMIT);
+    - резолв по номеру телефона (ImportContacts) — только когда нет диалога и
+      username, и не чаще TG_PHONE_RESOLVE_HOURLY_LIMIT новых диалогов в час.
+    """
+    from backend.models.agent_telegram_account import (
+        AgentTelegramDialog, AgentTelegramMessage,
+    )
+
+    if not telegram_user_service.is_configured():
+        return {"ok": False, "error": telegram_user_service.error_human("not_configured")}
+    if agent_config is None:
+        return {"ok": False, "error": telegram_user_service.error_human("not_connected")}
+
+    account = telegram_user_service.get_account_for_agent(db, agent_config.id)
+    if account is None:
+        return {"ok": False, "error": telegram_user_service.error_human("not_connected")}
+
+    text = (args.get("text") or "").strip()
+    if not text:
+        return {"ok": False, "error": telegram_user_service.error_human("empty_text")}
+
+    hour_ago = datetime.utcnow() - timedelta(hours=1)
+    sent_last_hour = db.query(AgentTelegramMessage).filter(
+        AgentTelegramMessage.account_id == account.id,
+        AgentTelegramMessage.direction == "outbound",
+        AgentTelegramMessage.created_at >= hour_ago,
+    ).count()
+    if sent_last_hour >= telegram_user_service.TG_SEND_HOURLY_LIMIT:
+        return {"ok": False, "error": telegram_user_service.error_human("send_limit_reached")}
+
+    # Резолв контакта и его диалога
+    contact = None
+    dialog = None
+    if args.get("agent_contact_id"):
+        contact = db.query(AgentContact).filter(
+            AgentContact.id == args["agent_contact_id"],
+            AgentContact.user_id == user_id,
+            AgentContact.agent_config_id == agent_config.id,
+        ).first()
+        if not contact:
+            return {"ok": False, "error": "Контакт не найден"}
+        dialog = db.query(AgentTelegramDialog).filter(
+            AgentTelegramDialog.account_id == account.id,
+            AgentTelegramDialog.agent_contact_id == contact.id,
+        ).first()
+
+    peer_id = dialog.tg_peer_id if dialog else None
+    username = (args.get("username") or "").strip() or (dialog.tg_username if dialog else None)
+    phone = None
+    if contact and contact.phone and not contact.phone.startswith("tg:"):
+        phone = contact.phone
+
+    # Телефонный резолв — только как последний фолбэк и в пределах лимита
+    allow_phone = phone is not None and peer_id is None and not username
+    if allow_phone:
+        phone_resolves = db.query(AgentTelegramDialog).filter(
+            AgentTelegramDialog.account_id == account.id,
+            AgentTelegramDialog.created_via == "send_phone",
+            AgentTelegramDialog.created_at >= hour_ago,
+        ).count()
+        if phone_resolves >= telegram_user_service.TG_PHONE_RESOLVE_HOURLY_LIMIT:
+            return {"ok": False, "error": telegram_user_service.error_human("phone_resolve_limit_reached")}
+
+    session_str = telegram_user_service.decrypt_session(account.session_encrypted)
+    result = await telegram_user_service.send_message(
+        session_str,
+        text,
+        peer_id=peer_id,
+        username=username,
+        phone=phone if allow_phone else None,
+        contact_name=(contact.name if contact else None),
+    )
+    if not result.get("ok"):
+        err = result.get("error") or "telegram_error"
+        if err == "session_revoked":
+            account.status = "error"
+            account.last_error = "session_revoked"
+            db.commit()
+        return {"ok": False, "error": telegram_user_service.error_human(err)}
+
+    # Upsert диалога (peer теперь известен) и сохранение сообщения в тред
+    res_peer = result.get("peer_id")
+    if res_peer:
+        if dialog is None:
+            dialog = db.query(AgentTelegramDialog).filter(
+                AgentTelegramDialog.account_id == account.id,
+                AgentTelegramDialog.tg_peer_id == res_peer,
+            ).first()
+        if dialog is None:
+            dialog = AgentTelegramDialog(
+                account_id=account.id,
+                agent_contact_id=(contact.id if contact else None),
+                tg_peer_id=res_peer,
+                created_via=("send_phone" if result.get("resolved_via") == "phone" else "send_username"),
+                last_processed_msg_id=result.get("tg_message_id") or 0,
+            )
+            db.add(dialog)
+        if contact and dialog.agent_contact_id is None:
+            dialog.agent_contact_id = contact.id
+        if result.get("username"):
+            dialog.tg_username = result["username"]
+        if result.get("name"):
+            dialog.tg_name = result["name"]
+
+    telegram_user_service.store_message(
+        db, account, "outbound", text,
+        agent_contact_id=(contact.id if contact else (dialog.agent_contact_id if dialog else None)),
+        tg_peer_id=res_peer,
+        tg_message_id=result.get("tg_message_id"),
+    )
+    db.commit()
+
+    to_label = result.get("name") or (f"@{result['username']}" if result.get("username") else str(res_peer))
+    logger.info(f"[AGENT-TOOLS] telegram_send_message → {to_label} via {result.get('resolved_via')}")
+    return {"ok": True, "to": to_label, "resolved_via": result.get("resolved_via")}
+
+
+async def fn_telegram_get_thread(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """Последние сообщения личной Telegram-переписки с контактом."""
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == args.get("agent_contact_id"),
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    ).first()
+    if not contact:
+        return {"ok": False, "error": "Контакт не найден"}
+    limit = min(int(args.get("limit") or 20), 50)
+    rows = telegram_user_service.get_thread(db, contact.id, limit=limit)
+    return {"ok": True, "messages": [m.to_dict() for m in rows]}
 
 
 # ============================================================================
@@ -2132,6 +2329,13 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             if agent_config is None and agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_send_webhook(tool_args, agent_config, db)
+        elif tool_name == "telegram_send_message":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_telegram_send_message(tool_args, user_id, agent_config, db)
+        elif tool_name == "telegram_get_thread":
+            result = await fn_telegram_get_thread(tool_args, user_id, agent_config_id, db)
         elif composio_service.is_composio_tool(tool_name):
             result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:

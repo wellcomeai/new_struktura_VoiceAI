@@ -73,6 +73,7 @@ function showDashboard(){
   loadTelegramStatus();
   loadKnowledgeBaseStatus();
   loadConnectors();
+  loadTgAccount();
   loadCredits();
   if(creditsTimer) clearInterval(creditsTimer);
   creditsTimer = setInterval(loadCredits, 30000);

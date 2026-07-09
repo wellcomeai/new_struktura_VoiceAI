@@ -664,8 +664,8 @@
     </div>
     <div class="modal-body">
       <div id="connectors-modal-meta" style="font-size:13px;color:#64748b;margin-bottom:14px">
-        Подключите внешние сервисы — агент сможет создавать события и отправлять
-        письма во время звонка и в чате с вами.
+        Подключите внешние сервисы — агент сможет создавать события, отправлять
+        письма и писать клиентам в Telegram с вашего личного аккаунта.
       </div>
       <div id="connectors-list">
         <div class="empty">Загрузка...</div>
@@ -673,6 +673,22 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeConnectorsModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- МОДАЛКА: Личный Telegram-аккаунт агента (MTProto) -->
+<div class="modal-overlay hidden" id="tg-account-modal-overlay">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-paper-plane" style="color:#229ED9"></i> Личный Telegram</div>
+      <button class="modal-close" onclick="closeTgAccountModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="tg-account-modal-body">
+      <div class="empty">Загрузка...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeTgAccountModal()">Закрыть</button>
     </div>
   </div>
 </div>
@@ -688,6 +704,7 @@
 <script src="/static/agent/chat.js"></script>
 <script src="/static/agent/instructions-voice.js"></script>
 <script src="/static/agent/telegram.js"></script>
+<script src="/static/agent/telegram-account.js"></script>
 <script src="/static/agent/contacts.js"></script>
 <script src="/static/agent/calls.js"></script>
 <script src="/static/agent/history.js"></script>

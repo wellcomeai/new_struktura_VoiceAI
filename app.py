@@ -45,12 +45,14 @@ from backend.api import (
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
     agent,  # ✅ v5.0: Voicyfy Agent API
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
+    agent_telegram_account,  # ✅ Личный Telegram-аккаунт агента (MTProto)
     credits,  # ✅ Система кредитов оркестратора
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
+from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
 from backend.services.subscription_blocker import start_subscription_blocker  # ✅ Agent subscription blocker
 from backend.api.partners import router as partners_router
 
@@ -196,6 +198,7 @@ app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"]
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
 app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
+app.include_router(agent_telegram_account.router, prefix="/api/agent/telegram-account", tags=["Agent Telegram Account"])  # ✅ Личный TG-аккаунт агента
 app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
 
 # ============================================================================
@@ -1206,6 +1209,27 @@ def ensure_agent_connectors_table():
         logger.error(f"❌ ensure_agent_connectors_table error: {e}")
 
 
+def ensure_agent_telegram_account_tables():
+    """
+    Идемпотентно создаёт таблицы личного Telegram-аккаунта агента (MTProto):
+    agent_telegram_accounts, agent_telegram_dialogs, agent_telegram_messages.
+    Как и остальные agent-таблицы — через ORM-метаданные при старте.
+    """
+    try:
+        from sqlalchemy import inspect
+        from backend.models.agent_telegram_account import (
+            AgentTelegramAccount, AgentTelegramDialog, AgentTelegramMessage,
+        )
+
+        inspector = inspect(engine)
+        for model in (AgentTelegramAccount, AgentTelegramDialog, AgentTelegramMessage):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=engine, checkfirst=True)
+                logger.info(f"✅ Created table {model.__tablename__}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_telegram_account_tables error: {e}")
+
+
 def ensure_connectors_agent_identity_migration():
     """
     Однократный сброс старых (пользовательских) подключений коннекторов в pending.
@@ -1322,6 +1346,9 @@ async def startup_event():
                 #            (чтобы удаление ассистента не сносило/не блокировало агента)
                 ensure_voice_assistant_fk_rules()
 
+                # 🆕 Шаг 21: Таблицы личного Telegram-аккаунта агента (MTProto)
+                ensure_agent_telegram_account_tables()
+
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")
                 
@@ -1365,6 +1392,11 @@ async def startup_event():
             # ✅ Запуск блокировщика истёкших подписок agent (каждые 5 мин)
             asyncio.create_task(start_subscription_blocker())
             logger.info("✅ Agent subscription blocker started (check every 5 min)")
+
+            # ✅ Поллер личного Telegram агента (каждые 60 сек; no-op без
+            #    TELEGRAM_API_ID/HASH/SESSION_KEY; мультиворкер — claim по БД)
+            asyncio.create_task(start_telegram_user_poller(check_interval=60))
+            logger.info("✅ Telegram user poller started (check every 60s)")
 
         except Exception as e:
             logger.error(f"❌ Error starting schedulers: {str(e)}")

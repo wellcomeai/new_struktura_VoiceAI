@@ -143,7 +143,19 @@ class Settings(BaseSettings):
     COMPOSIO_AUTH_CONFIG_GMAIL: Optional[str] = os.getenv("COMPOSIO_AUTH_CONFIG_GMAIL")
 
     # =========================================================================
-    
+    # ✅ НОВОЕ: Личный Telegram-аккаунт агента (MTProto через Telethon)
+    # =========================================================================
+    # Креды MTProto-приложения с https://my.telegram.org/apps. Без них коннектор
+    # Telegram отключён — пользователь не увидит кнопку подключения.
+    TELEGRAM_API_ID: Optional[str] = os.getenv("TELEGRAM_API_ID")
+    TELEGRAM_API_HASH: Optional[str] = os.getenv("TELEGRAM_API_HASH")
+    # Ключ Fernet для шифрования StringSession в БД (сессия = полный доступ к
+    # аккаунту, в открытом виде не храним). Генерация:
+    # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    TELEGRAM_SESSION_KEY: Optional[str] = os.getenv("TELEGRAM_SESSION_KEY")
+
+    # =========================================================================
+
     # ✅ ИСПРАВЛЕНО: Улучшенные validators с детальными проверками
     @validator("HOST_URL")
     def validate_host_url(cls, v):

@@ -60,6 +60,13 @@ from .agent_connector import AgentConnector
 # ✅ НОВОЕ v2.2: Telegram-интеграция агента
 from .agent_telegram_chat_history import AgentTelegramChatHistory
 
+# ✅ НОВОЕ: Личный Telegram-аккаунт агента (MTProto, коннектор Telegram)
+from .agent_telegram_account import (
+    AgentTelegramAccount,
+    AgentTelegramDialog,
+    AgentTelegramMessage,
+)
+
 # ✅ НОВОЕ v3.0: Импортируем Voximplant Partner модели
 from .voximplant_child import (
     VoximplantChildAccount,
@@ -126,6 +133,10 @@ __all__ = [
     "AgentConnector",
     # ✅ НОВОЕ v2.2: Telegram-интеграция агента
     "AgentTelegramChatHistory",
+    # ✅ НОВОЕ: Личный Telegram-аккаунт агента
+    "AgentTelegramAccount",
+    "AgentTelegramDialog",
+    "AgentTelegramMessage",
     # ✅ НОВОЕ v3.0: Voximplant Partner модели
     "VoximplantChildAccount",
     "VoximplantPhoneNumber",

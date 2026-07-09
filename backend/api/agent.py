@@ -2036,6 +2036,15 @@ async def get_agent_contact_details(
     except Exception as e:
         logger.warning(f"[AGENT] failed to load sms thread for contact {contact_id}: {e}")
     contact_data["sms"] = sms
+
+    # Telegram-переписка (личный аккаунт владельца) с контактом.
+    telegram = []
+    try:
+        from backend.services.telegram_user_service import get_thread as tg_get_thread
+        telegram = [m.to_dict() for m in tg_get_thread(db, contact.id, limit=30)]
+    except Exception as e:
+        logger.warning(f"[AGENT] failed to load telegram thread for contact {contact_id}: {e}")
+    contact_data["telegram"] = telegram
     return contact_data
 
 

@@ -46,23 +46,29 @@ const POSTCALL_TOOL_LABELS = {
   move_contact_stage: { label: 'Сменил стадию воронки', icon: 'fa-arrows-turn-right', color: '#D97706' },
   update_contact_info: { label: 'Обновил данные контакта', icon: 'fa-user-pen', color: '#0EA5E9' },
   search_knowledge_base: { label: 'Искал в базе знаний', icon: 'fa-magnifying-glass', color: '#6366F1' },
+  telegram_send_message: { label: 'Написал клиенту в Telegram', icon: 'fa-comment-dots', color: '#229ED9' },
+  telegram_get_thread: { label: 'Прочитал Telegram-переписку', icon: 'fa-comments', color: '#0EA5E9' },
 };
 
 function renderCallExpanded(call, uid){
   const isSms = call.channel === 'sms';
-  const dur = (!isSms && call.duration_seconds) ? Math.floor(call.duration_seconds)+'с' : '—';
+  const isTg = call.channel === 'telegram';
+  const isMsg = isSms || isTg; // текстовое событие (не звонок)
+  const dur = (!isMsg && call.duration_seconds) ? Math.floor(call.duration_seconds)+'с' : '—';
   const decisionBadgeHtml = decisionBadge(call.post_call_decision);
   let statusHtml;
-  if(isSms){
+  if(isMsg){
     statusHtml = '<span class="status-badge badge-answered">Обработано</span>';
   } else {
     statusHtml = call.status==='answered'
       ? '<span class="status-badge badge-answered">Ответил</span>'
       : '<span class="status-badge badge-no-answer">Не ответил</span>';
   }
-  // Бейдж канала: SMS-обработка vs обычный звонок (входящий/исходящий).
+  // Бейдж канала: SMS / Telegram-обработка vs обычный звонок (входящий/исходящий).
   const channelBadge = isSms
     ? '<span class="status-badge" style="background:#DCFCE7;color:#15803D"><i class="fas fa-comment-sms"></i> SMS</span>'
+    : isTg
+    ? '<span class="status-badge" style="background:#E0F2FE;color:#0369A1"><i class="fas fa-paper-plane"></i> Telegram</span>'
     : directionBadge(call.direction);
 
   const pre = call.precall_log || {};
@@ -103,6 +109,8 @@ function renderCallExpanded(call, uid){
         .filter(k => a[k]).map(k => a[k]).join(' · ');
     } else if(tc.tool === 'search_knowledge_base'){
       detail = (tc.args || {}).query || '';
+    } else if(tc.tool === 'telegram_send_message'){
+      detail = (tc.args || {}).text || '';
     }
     return `
       <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft)">
@@ -128,7 +136,7 @@ function renderCallExpanded(call, uid){
 
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
     <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
-      <i class="fas ${isSms ? 'fa-comment-sms' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : 'Транскрипт звонка'}
+      <i class="fas ${isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : isTg ? 'Текст входящего сообщения Telegram' : 'Транскрипт звонка'}
     </div>
     <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:0 0 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
       ${esc(call.transcript)}
