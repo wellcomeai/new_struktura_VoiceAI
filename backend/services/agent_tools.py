@@ -161,6 +161,29 @@ SEND_WEBHOOK_TOOL = {
 }
 
 
+# Уведомление владельцу в Telegram-бота агента. Доступно и в чате/входящих
+# сообщениях, и в post-call — чтобы оркестратор мог сигналить о важных событиях
+# (горячий лид, жалоба, вопрос без ответа) сразу, а не только после звонка.
+SEND_TELEGRAM_NOTIFICATION_TOOL = {
+    "type": "function",
+    "name": "send_telegram_notification",
+    "description": (
+        "Отправить уведомление владельцу бизнеса в Telegram (бот уведомлений агента). "
+        "Используй при важных событиях: клиент готов купить / просит счёт, жалуется, "
+        "просит живого человека, задал вопрос без ответа в материалах. "
+        "Укажи в тексте: контакт (имя, телефон), суть события, что уже сделано. "
+        "Не отправляй повторно одно и то же событие."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "Текст уведомления"},
+        },
+        "required": ["message"],
+    },
+}
+
+
 # ============================================================================
 # HELPERS
 # ============================================================================
@@ -960,6 +983,7 @@ AGENT_CHAT_TOOLS = [
     SEARCH_KNOWLEDGE_BASE_TOOL,
     SEND_SMS_TOOL,
     SEND_WEBHOOK_TOOL,
+    SEND_TELEGRAM_NOTIFICATION_TOOL,
 ]
 
 
@@ -1020,18 +1044,7 @@ AGENT_POSTCALL_TOOLS = [
             "required": ["agent_contact_id", "title"],
         },
     },
-    {
-        "type": "function",
-        "name": "send_telegram_notification",
-        "description": "Отправить уведомление владельцу в Telegram.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Текст уведомления"},
-            },
-            "required": ["message"],
-        },
-    },
+    SEND_TELEGRAM_NOTIFICATION_TOOL,
     UPDATE_CONTACT_INFO_TOOL,
     MOVE_CONTACT_STAGE_TOOL,
     SEARCH_KNOWLEDGE_BASE_TOOL,
