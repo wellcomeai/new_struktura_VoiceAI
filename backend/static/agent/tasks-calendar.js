@@ -119,7 +119,7 @@ function _tcalTaskRow(t, key){
     <div class="task-date"><div class="t" style="margin-top:0;font-size:13px">${tm}</div><div class="m">МСК</div></div>
     <div class="task-body">
       <div class="cd-task-clickable" onclick="_tcalToggleTask('${t.id}')">
-        <div class="task-title">${esc(t.title||'Задача')}</div>
+        <div class="task-title">${esc(t.title||'Задача')} ${taskChannelBadge(t.channel)}</div>
         ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
         <div class="task-foot">
           <span class="task-contact">${esc(t.contact_name||'')}</span>

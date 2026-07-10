@@ -210,7 +210,7 @@ function _cdTaskRow(t){
   return `<div class="cd-task" data-id="${t.id}">
     <div class="cd-task-row">
       <div class="cd-task-main cd-task-clickable" onclick="cdTaskEdit('${t.id}')">
-        <div class="cd-task-title">${esc(t.title||'Задача')}</div>
+        <div class="cd-task-title">${esc(t.title||'Задача')} ${taskChannelBadge(t.channel)}</div>
         <div class="cd-task-time"><i class="far fa-clock"></i> ${tm}</div>
       </div>
       <div class="cd-task-acts">

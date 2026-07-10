@@ -903,9 +903,21 @@ class PostCallOrchestrator:
 
         is_sms = (call_direction or "").lower() == "sms_inbound"
         is_tg = (call_direction or "").lower() == "telegram_inbound"
+        is_tg_out = (call_direction or "").lower() == "telegram_outbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
 
-        if is_tg:
+        if is_tg_out:
+            direction_line = (
+                "СОБЫТИЕ: ЗАПЛАНИРОВАННАЯ ОТПРАВКА СООБЩЕНИЯ В TELEGRAM (личный "
+                "аккаунт владельца) — наступило время написать клиенту. Это не "
+                "звонок и не входящее сообщение: инициатива исходит от тебя, по "
+                "задаче, поставленной ранее."
+            )
+            callback_rule = ""  # не используется — свой план действий ниже
+            transcript_label = "ИНСТРУКЦИЯ К СООБЩЕНИЮ (что и зачем написать; это НЕ готовый текст)"
+            status_label = "СТАТУС"
+            analyze_line = ""
+        elif is_tg:
             direction_line = (
                 "СОБЫТИЕ: ВХОДЯЩЕЕ СООБЩЕНИЕ В TELEGRAM (личный аккаунт владельца) — "
                 "клиент написал в Telegram, это не звонок."
@@ -916,7 +928,9 @@ class PostCallOrchestrator:
                 "   Пиши как живой человек, коротко и по делу, без markdown.\n"
                 "   Если по сути сообщения нужен звонок (клиент просит позвонить,\n"
                 "   договорились о следующем шаге) — запланируй его через\n"
-                "   create_agent_task. Сам факт сообщения НЕ требует звонка."
+                "   create_agent_task. Если договорились списаться позже — запланируй\n"
+                "   отложенное сообщение через schedule_telegram_message (инструкция,\n"
+                "   не готовый текст). Сам факт сообщения НЕ требует звонка."
             )
             transcript_label = "ТЕКСТ ВХОДЯЩЕГО СООБЩЕНИЯ TELEGRAM"
             status_label = "СТАТУС"
@@ -950,12 +964,46 @@ class PostCallOrchestrator:
         else:
             direction_line = "ТИП ЗВОНКА: ИСХОДЯЩИЙ — звонок инициировал агент."
             callback_rule = (
-                "3. Задача на перезвон создаётся ВСЕГДА через create_agent_task, КРОМЕ\n"
-                "   случая когда цель звонка уже достигнута (тогда перезвон не нужен).\n"
-                "   - Если клиент ответил и цель НЕ достигнута / попросил перезвонить —\n"
-                "     перезвони через разумное время (1-3 дня).\n"
-                "   - Если не ответил — перезвони через 24 часа."
+                "3. Следующее касание планируется ВСЕГДА, КРОМЕ случая когда цель\n"
+                "   звонка уже достигнута (тогда ничего планировать не нужно).\n"
+                "   Канал выбирай по ситуации:\n"
+                "   - Перезвон → create_agent_task. Если клиент ответил и цель НЕ\n"
+                "     достигнута / попросил перезвонить — через разумное время (1-3 дня).\n"
+                "     Если не ответил — перезвони через 24 часа.\n"
+                "   - Отложенное сообщение в Telegram → schedule_telegram_message\n"
+                "     (если доступен): когда договорились списаться, нужно прислать\n"
+                "     детали/напоминание текстом или звонок явно неуместен. Передавай\n"
+                "     инструкцию «что написать», а не готовый текст."
             )
+
+        if is_tg_out:
+            action_block = """Составь и отправь сообщение клиенту:
+1. Сверься с хронологией и памятью выше: если договорённость из инструкции уже
+   закрыта (клиент сам ответил, состоялся звонок, вопрос решён) и сообщение
+   потеряло смысл — НЕ отправляй его, просто обнови память update_contact_memory
+   с пометкой, почему отправка не потребовалась.
+2. Если сообщение уместно — составь текст сам по инструкции и контексту:
+   как живой человек, коротко и по делу, без markdown, без канцелярита. Учти
+   тон прошлых касаний. Отправь через telegram_send_message.
+3. ОБЯЗАТЕЛЬНО вызови update_contact_memory — зафиксируй, что написал (или
+   почему не стал) и текущее состояние договорённости.
+4. Смени стадию через move_contact_stage ТОЛЬКО если есть реальное основание.
+5. Если нужен следующий шаг — запланируй его: звонок через create_agent_task
+   или ещё одно отложенное сообщение через schedule_telegram_message.
+6. Если владельцу важно узнать результат — send_telegram_notification."""
+        else:
+            action_block = f"""{analyze_line}
+1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
+2. Смени стадию через move_contact_stage ТОЛЬКО если для этого есть реальное
+   основание. Менять стадию каждый раз НЕ нужно:
+   - цель достигнута / клиент согласился → success
+   - явный отказ → rejected
+   - просил больше не звонить → do_not_call
+   - впервые вышли на живой контакт и продолжаем работу → active
+   Если ничего по сути не изменилось (клиент ещё думает) — НЕ вызывай
+   move_contact_stage, оставь контакт в текущей стадии.
+{callback_rule}
+4. Если нужно уведомить владельца/менеджеров (важный результат) — вызови send_telegram_notification."""
 
         return f"""{direction_line}
 КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
@@ -970,18 +1018,7 @@ class PostCallOrchestrator:
 ДЛИТЕЛЬНОСТЬ: {duration_seconds}s
 AGENT_CONTACT_ID: {str(agent_contact.id)}
 
-{analyze_line}
-1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — обнови память о контакте.
-2. Смени стадию через move_contact_stage ТОЛЬКО если для этого есть реальное
-   основание. Менять стадию каждый раз НЕ нужно:
-   - цель достигнута / клиент согласился → success
-   - явный отказ → rejected
-   - просил больше не звонить → do_not_call
-   - впервые вышли на живой контакт и продолжаем работу → active
-   Если ничего по сути не изменилось (клиент ещё думает) — НЕ вызывай
-   move_contact_stage, оставь контакт в текущей стадии.
-{callback_rule}
-4. Если нужно уведомить владельца/менеджеров (важный результат) — вызови send_telegram_notification."""
+{action_block}"""
 
     async def run_for_sms(self, agent_call, agent_contact, agent_config, user, sms_body, db):
         """
@@ -1029,6 +1066,35 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             openai_key=(user.openai_api_key or "") if user else "",
             db=db,
             call_direction="telegram_inbound",
+        )
+
+    async def run_for_scheduled_telegram(self, agent_call, agent_contact, agent_config, user, task, db):
+        """
+        Исполнить запланированную задачу «написать клиенту в Telegram»
+        (Task.channel="telegram", ставится тулзой schedule_telegram_message).
+
+        Один проактивный прогон той же PostCall-логики: оркестратор получает
+        память контакта + единую хронологию + инструкцию из task.description,
+        сам составляет текст с учётом свежего контекста и отправляет через
+        telegram_send_message (или осознанно не отправляет, если договорённость
+        уже закрыта). Ответ клиента потом подхватит telegram_user_poller —
+        отдельный PostCall после отправки не нужен.
+
+        Только v3 (OpenRouter): тул schedule_telegram_message домешивается лишь
+        v3-агентам, а legacy v2-ветка про telegram_outbound не знает.
+        """
+        transcript = (task.description or "").strip() or (task.title or "").strip()
+        await self._analyze_v3_openrouter(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=task,
+            transcript=transcript,
+            call_status="answered",
+            duration_seconds=0,
+            db=db,
+            call_direction="telegram_outbound",
         )
 
     async def _analyze(
@@ -1090,8 +1156,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call, agent_contact, transcript, call_status, duration_seconds, db, call_direction
         )
         # Подставляем стратегию PreCall в текст (симуляция цепочки). Для входящего
-        # SMS/Telegram PreCall не было — блок стратегии не добавляем.
-        if (call_direction or "").lower() not in ("sms_inbound", "telegram_inbound"):
+        # SMS/Telegram и запланированной отправки в Telegram PreCall не было —
+        # блок стратегии не добавляем.
+        if (call_direction or "").lower() not in ("sms_inbound", "telegram_inbound", "telegram_outbound"):
             post_call_input += f"""
 
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
@@ -1114,10 +1181,13 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             {"role": "user", "content": post_call_input},
         ]
 
+        is_tg_out = (call_direction or "").lower() == "telegram_outbound"
+
         try:
             client = get_openrouter_client()
             post_call_decision = None
             created_task = False
+            message_sent = False
             stage_moved_by_tool = False
             max_iterations = 10
             iteration = 0
@@ -1168,12 +1238,20 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                         tool_entry["result"] = result_str
                     tool_calls_log.append(tool_entry)
 
-                    if tool_name == "create_agent_task":
+                    # schedule_telegram_message — тоже follow-up задача (channel=telegram)
+                    if tool_name in ("create_agent_task", "schedule_telegram_message"):
                         try:
                             result_data = json.loads(result_str)
                             if result_data.get("ok") and result_data.get("task_id"):
                                 agent_call.next_task_id = result_data["task_id"]
                                 created_task = True
+                        except Exception:
+                            pass
+
+                    if tool_name == "telegram_send_message":
+                        try:
+                            if json.loads(result_str).get("ok"):
+                                message_sent = True
                         except Exception:
                             pass
 
@@ -1213,16 +1291,24 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "transcript_length": len(transcript),
                 "analyzed_at": datetime.utcnow().isoformat(),
             }
+            if is_tg_out:
+                # Для UI: было ли сообщение реально отправлено (оркестратор мог
+                # осознанно не отправлять, если договорённость уже закрыта).
+                agent_call.postcall_log["message_sent"] = message_sent
 
-            agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
-            agent_contact.last_called_at = datetime.utcnow()
-            # Обязательная стадия воронки: если оркестратор не двинул контакт
-            # тулзой move_contact_stage — применяем детерминированный маппинг
-            # от post_call_decision (стадия проставляется ВСЕГДА).
-            if not stage_moved_by_tool:
-                _new_stage = stage_from_decision(post_call_decision, agent_contact.status)
-                if _new_stage:
-                    agent_contact.status = _new_stage
+            # Запланированная отправка в Telegram — не попытка дозвона: счётчик
+            # попыток и авто-маппинг стадии (SUCCESS → success) к ней не применяем.
+            # Стадию при отправке сообщения меняет только явный move_contact_stage.
+            if not is_tg_out:
+                agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
+                agent_contact.last_called_at = datetime.utcnow()
+                # Обязательная стадия воронки: если оркестратор не двинул контакт
+                # тулзой move_contact_stage — применяем детерминированный маппинг
+                # от post_call_decision (стадия проставляется ВСЕГДА).
+                if not stage_moved_by_tool:
+                    _new_stage = stage_from_decision(post_call_decision, agent_contact.status)
+                    if _new_stage:
+                        agent_contact.status = _new_stage
 
             if task:
                 task.post_call_decision = post_call_decision
@@ -1247,10 +1333,12 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.completed_at = datetime.utcnow()
             agent_call.transcript = transcript
             agent_call.duration_seconds = int(duration_seconds)
-            agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
-            agent_contact.last_called_at = datetime.utcnow()
-            # Стадия воронки по решению — только если есть основание её менять.
-            _new_stage = stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            if not is_tg_out:
+                agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
+                agent_contact.last_called_at = datetime.utcnow()
+            # Стадия воронки по решению — только если есть основание её менять
+            # (для telegram_outbound авто-маппинг не применяем, см. выше).
+            _new_stage = None if is_tg_out else stage_from_decision(agent_call.post_call_decision, agent_contact.status)
             if _new_stage:
                 agent_contact.status = _new_stage
             if task:

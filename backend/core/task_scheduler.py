@@ -238,6 +238,12 @@ class TaskScheduler:
                 logger.warning(f"[TASK-SCHEDULER] Skipping agent task {task.id} — no agent access")
                 return
 
+            # 🆕 Telegram-задача: вместо звонка — отложенное сообщение с личного
+            # Telegram-аккаунта (текст составит оркестратор в момент отправки).
+            if (task.channel or "call") == "telegram":
+                await self.execute_agent_telegram_task(task, agent_contact, agent_config, user, db)
+                return
+
             # Get assistant info
             assistant_id, assistant_name, assistant_type = self._get_assistant_info(task, db)
             if not assistant_id or not assistant_type:
@@ -340,6 +346,99 @@ class TaskScheduler:
             try:
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Internal error: {str(e)}"
+                db.commit()
+            except Exception:
+                pass
+
+    async def execute_agent_telegram_task(self, task: Task, agent_contact, agent_config, user, db: Session):
+        """
+        Исполнить агентскую задачу с channel="telegram": один прогон оркестратора,
+        который по памяти контакта, хронологии и инструкции из task.description
+        составляет сообщение и отправляет его с личного Telegram-аккаунта агента
+        (PostCallOrchestrator.run_for_scheduled_telegram). Звонилка не участвует.
+
+        Вызывается из execute_agent_task ПОСЛЕ общих проверок (контакт найден,
+        агент активен, подписка активна); задача уже залочена (PENDING).
+        """
+        from backend.services import telegram_user_service
+        from backend.services.agent_tools import fn_send_telegram_notification
+
+        agent_call = None
+        try:
+            # Личный TG-аккаунт мог отвалиться между постановкой и исполнением.
+            # Не роняем задачу молча: FAILED + уведомление владельцу через бота.
+            account_ok = (
+                telegram_user_service.is_configured()
+                and telegram_user_service.account_connected(db, agent_config.id)
+            )
+            # Прогон реализован только для v3-агентов (OpenRouter): тул
+            # schedule_telegram_message домешивается только им.
+            if not getattr(agent_config, "uses_hardcoded_prompt", False):
+                account_ok = False
+
+            if not account_ok:
+                task.status = TaskStatus.FAILED
+                task.call_result = json.dumps(
+                    {"error": "telegram_account_unavailable"}, ensure_ascii=False
+                )
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                logger.warning(
+                    f"[TASK-SCHEDULER] ✉️ Telegram task {task.id} failed: personal TG account unavailable"
+                )
+                try:
+                    await fn_send_telegram_notification(
+                        {
+                            "message": (
+                                f"⚠️ Не смог отправить запланированное сообщение в Telegram "
+                                f"контакту {agent_contact.name or agent_contact.phone}: "
+                                f"личный Telegram-аккаунт не подключён. "
+                                f"Задача: «{task.title}». Подключите аккаунт и создайте задачу заново."
+                            )
+                        },
+                        agent_config, db,
+                    )
+                except Exception as ne:
+                    logger.warning(f"[TASK-SCHEDULER] Owner notify failed: {ne}")
+                return
+
+            # Запись в истории агента (лента/модалка на agent.html); канал события
+            # определится по postcall_log.call_direction="telegram_outbound".
+            agent_call = AgentCall(
+                agent_contact_id=agent_contact.id,
+                agent_config_id=agent_config.id,
+                user_id=user.id,
+                source_task_id=task.id,
+                status="calling",
+                direction="outbound",
+                scheduled_at=task.scheduled_time,
+                started_at=datetime.utcnow(),
+            )
+            db.add(agent_call)
+            db.flush()
+            task.agent_call_id = agent_call.id
+            db.commit()
+
+            orchestrator = PostCallOrchestrator()
+            await orchestrator.run_for_scheduled_telegram(
+                agent_call, agent_contact, agent_config, user, task, db
+            )
+            # Статусы task/agent_call проставил прогон (_analyze_v3_openrouter);
+            # фиксируем время завершения задачи.
+            task.call_completed_at = datetime.utcnow()
+            db.commit()
+            logger.info(f"[TASK-SCHEDULER] ✉️ Telegram task {task.id} completed")
+
+        except Exception as e:
+            logger.error(f"[TASK-SCHEDULER] Error in telegram task {task.id}: {e}", exc_info=True)
+            try:
+                task.status = TaskStatus.FAILED
+                task.call_result = f"Internal error: {str(e)}"
+                # Не оставляем событие вечно в 'calling' — иначе оно навсегда
+                # скроется из истории (список показывает только финализированные).
+                if agent_call is not None and agent_call.status == "calling":
+                    agent_call.status = "failed"
+                    agent_call.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:
                 pass

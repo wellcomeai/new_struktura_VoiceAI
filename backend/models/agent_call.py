@@ -104,14 +104,15 @@ class AgentCall(Base):
         Канал события для UI: "sms", "telegram" или "call".
 
         Новые записи помечаются через postcall_log.call_direction ("sms_inbound"
-        / "telegram_inbound", см. PostCallOrchestrator._analyze). Для старых
-        записей без пометки — fallback по префиксу транскрипта.
+        / "telegram_inbound" / "telegram_outbound" — запланированная отправка,
+        см. PostCallOrchestrator._analyze / run_for_scheduled_telegram). Для
+        старых записей без пометки — fallback по префиксу транскрипта.
         """
         post = self.postcall_log or {}
         if isinstance(post, dict):
             if post.get("call_direction") == "sms_inbound":
                 return "sms"
-            if post.get("call_direction") == "telegram_inbound":
+            if post.get("call_direction") in ("telegram_inbound", "telegram_outbound"):
                 return "telegram"
         if self.transcript:
             t = self.transcript.strip()

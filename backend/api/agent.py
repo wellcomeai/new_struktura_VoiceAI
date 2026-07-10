@@ -1781,6 +1781,7 @@ def _agent_task_dict(t: Task) -> dict:
         "id": str(t.id),
         "title": t.title,
         "description": t.description,
+        "channel": t.channel or "call",
         "scheduled_time": iso_utc(t.scheduled_time),
         "status": t.status.value if hasattr(t.status, "value") else t.status,
     }
@@ -1828,6 +1829,7 @@ async def list_agent_tasks(
             "id": str(t.id),
             "title": t.title,
             "description": t.description,
+            "channel": t.channel or "call",
             "scheduled_time": iso_utc(t.scheduled_time),
             "status": t.status.value if hasattr(t.status, "value") else t.status,
             "contact_name": (c.name or c.phone) if c else None,

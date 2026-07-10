@@ -9,7 +9,7 @@
 - `dependencies.py` — зависимости уровня запроса: `get_current_user`, `get_assistant_by_id`, `check_admin_access`, проверки подписки и лимитов ассистентов.
 - `logging.py` — `setup_logging`, `get_logger`, `get_context_logger`. Консоль (текст) + файл (JSON) в `logs/`.
 - `scheduler.py` — фоновая корутина проверки истёкших подписок (раз в час) с PostgreSQL advisory lock против дублей между воркерами.
-- `task_scheduler.py` — класс `TaskScheduler`: каждые 30 сек выбирает SCHEDULED-задачи и инициирует исходящие звонки через Voximplant (партнёрская + legacy интеграции), запускает Pre/PostCall-оркестраторы агента.
+- `task_scheduler.py` — класс `TaskScheduler`: каждые 30 сек выбирает SCHEDULED-задачи и инициирует исходящие звонки через Voximplant (партнёрская + legacy интеграции), запускает Pre/PostCall-оркестраторы агента. Агентские задачи с `channel="telegram"` уходят не в звонилку, а в `execute_agent_telegram_task` → `PostCallOrchestrator.run_for_scheduled_telegram` (составление и отправка сообщения с личного TG-аккаунта).
 
 ## Ключевые сущности / точки входа
 - `settings` — единый объект конфигурации (импортируется почти везде как `from backend.core.config import settings`).

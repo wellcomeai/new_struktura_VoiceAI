@@ -126,6 +126,13 @@ class Task(Base):
     )
     is_agent_task = Column(Boolean, default=False, nullable=False)
 
+    # Канал исполнения агентской задачи:
+    #   "call"     — исходящий звонок (дефолт, весь legacy-поток)
+    #   "telegram" — отложенное сообщение с личного Telegram-аккаунта агента;
+    #                инструкция «что написать» хранится в description, сам текст
+    #                составляет оркестратор в момент отправки
+    channel = Column(String(20), default="call", nullable=False)
+
     # Agent orchestrator fields
     pre_call_response_id = Column(String(255), nullable=True)
     post_call_decision = Column(String(50), nullable=True)
@@ -215,6 +222,7 @@ class Task(Base):
             "agent_contact_id": str(self.agent_contact_id) if self.agent_contact_id else None,
             "agent_call_id": str(self.agent_call_id) if self.agent_call_id else None,
             "is_agent_task": self.is_agent_task or False,
+            "channel": self.channel or "call",
             "call_session_id": self.call_session_id,
             "call_started_at": self.call_started_at.isoformat() if self.call_started_at else None,
             "call_completed_at": self.call_completed_at.isoformat() if self.call_completed_at else None,

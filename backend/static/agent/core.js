@@ -110,6 +110,12 @@ function errText(detail){
 }
 function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил' })[d] || d || '—'; }
 function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
+// Канал агентской задачи: call (звонок, дефолт) / telegram (отложенное сообщение).
+// Для звонков бейдж не рисуем — это основной тип, шум не нужен.
+function taskChannelBadge(channel){
+  if(channel !== 'telegram') return '';
+  return '<span class="status-badge" style="background:#E0F2FE;color:#0369A1;font-size:10px;padding:2px 7px"><i class="fas fa-paper-plane"></i> Telegram</span>';
+}
 // Направление звонка: входящий (клиент позвонил) / исходящий (агент позвонил)
 function directionRu(dir){ return dir === 'inbound' ? 'Входящий' : 'Исходящий'; }
 function directionBadge(dir){

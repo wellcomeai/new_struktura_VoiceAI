@@ -674,6 +674,9 @@ def check_and_fix_all_missing_columns():
             },
             'tasks': {
                 'caller_id': 'VARCHAR(20) NULL',
+                # 🆕 Канал агентской задачи: call (звонок) / telegram (отложенное
+                # сообщение с личного Telegram-аккаунта агента)
+                'channel': "VARCHAR(20) DEFAULT 'call' NOT NULL",
             },
             'voximplant_phone_numbers': {
                 # 🆕 Привязка номера к автономному агенту (PostCall для входящих)

@@ -171,7 +171,7 @@ async function loadTasks(){
       return `<div class="task-item">
         <div class="task-date" title="${tm} МСК"><div class="d">${day}</div><div class="m">${mon}</div><div class="t">${tm}</div></div>
         <div class="task-body">
-          <div class="task-title">${esc(t.title||'Задача')}</div>
+          <div class="task-title">${esc(t.title||'Задача')} ${taskChannelBadge(t.channel)}</div>
           ${t.description?`<div class="task-desc">${esc(t.description)}</div>`:''}
           <div class="task-foot">
             <span class="task-contact">${esc(t.contact_name||'')}</span>

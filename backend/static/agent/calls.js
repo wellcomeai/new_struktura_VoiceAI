@@ -48,16 +48,24 @@ const POSTCALL_TOOL_LABELS = {
   search_knowledge_base: { label: 'Искал в базе знаний', icon: 'fa-magnifying-glass', color: '#6366F1' },
   telegram_send_message: { label: 'Написал клиенту в Telegram', icon: 'fa-comment-dots', color: '#229ED9' },
   telegram_get_thread: { label: 'Прочитал Telegram-переписку', icon: 'fa-comments', color: '#0EA5E9' },
+  schedule_telegram_message: { label: 'Запланировал сообщение в Telegram', icon: 'fa-calendar-plus', color: '#229ED9' },
 };
 
 function renderCallExpanded(call, uid){
   const isSms = call.channel === 'sms';
   const isTg = call.channel === 'telegram';
   const isMsg = isSms || isTg; // текстовое событие (не звонок)
+  // Запланированная отправка сообщения (schedule_telegram_message):
+  // инициатива агента, «транскрипт» — инструкция, а не текст клиента.
+  const isTgOut = isTg && (call.postcall_log || {}).call_direction === 'telegram_outbound';
   const dur = (!isMsg && call.duration_seconds) ? Math.floor(call.duration_seconds)+'с' : '—';
   const decisionBadgeHtml = decisionBadge(call.post_call_decision);
   let statusHtml;
-  if(isMsg){
+  if(isTgOut){
+    statusHtml = (call.postcall_log || {}).message_sent
+      ? '<span class="status-badge badge-answered">Отправлено</span>'
+      : '<span class="status-badge badge-no-answer">Без отправки</span>';
+  } else if(isMsg){
     statusHtml = '<span class="status-badge badge-answered">Обработано</span>';
   } else {
     statusHtml = call.status==='answered'
@@ -111,6 +119,9 @@ function renderCallExpanded(call, uid){
       detail = (tc.args || {}).query || '';
     } else if(tc.tool === 'telegram_send_message'){
       detail = (tc.args || {}).text || '';
+    } else if(tc.tool === 'schedule_telegram_message'){
+      const a = tc.args || {};
+      detail = `${a.instruction || a.title || ''} — на ${a.scheduled_at ? fmtDate(a.scheduled_at) : (a.delay_minutes ? 'через ' + a.delay_minutes + ' мин' : '?')}`;
     }
     return `
       <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft)">
@@ -136,7 +147,7 @@ function renderCallExpanded(call, uid){
 
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
     <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
-      <i class="fas ${isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : isTg ? 'Текст входящего сообщения Telegram' : 'Транскрипт звонка'}
+      <i class="fas ${isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : isTgOut ? 'Инструкция запланированного сообщения' : isTg ? 'Текст входящего сообщения Telegram' : 'Транскрипт звонка'}
     </div>
     <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:0 0 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
       ${esc(call.transcript)}

@@ -335,7 +335,56 @@ TELEGRAM_GET_THREAD_TOOL = {
     },
 }
 
-TELEGRAM_USER_TOOLS = [TELEGRAM_SEND_MESSAGE_TOOL, TELEGRAM_GET_THREAD_TOOL]
+SCHEDULE_TELEGRAM_MESSAGE_TOOL = {
+    "type": "function",
+    "name": "schedule_telegram_message",
+    "description": (
+        "Запланировать ОТЛОЖЕННОЕ сообщение клиенту в Telegram с личного аккаунта "
+        "владельца (для немедленной отправки используй telegram_send_message). "
+        "Передавай ИНСТРУКЦИЮ — что и зачем написать (цель, ключевые тезисы), а НЕ "
+        "готовый текст: текст составится в момент отправки с учётом свежей "
+        "переписки и памяти контакта. Время задай ОДНИМ из способов: delay_minutes "
+        "— для относительного («через N минут/часов»), scheduled_at — для "
+        "абсолютного («завтра в 14:00»). Рабочие часы не применяются — сообщение "
+        "уйдёт ровно в назначенное время."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            "scheduled_at": {
+                "type": "string",
+                "description": (
+                    "Абсолютные дата и время отправки ISO 8601 UTC (например 2026-07-09T12:00:00Z). "
+                    "Не используй для «через N минут» — для этого есть delay_minutes"
+                ),
+            },
+            "delay_minutes": {
+                "type": "integer",
+                "description": (
+                    "Через сколько минут отправить. Сервер сам вычислит точное время от "
+                    "текущего момента — ВСЕГДА используй этот параметр, когда просят "
+                    "написать «через N минут/часов», не вычисляй scheduled_at сам."
+                ),
+            },
+            "title": {"type": "string", "description": "Короткое название задачи (видно владельцу в календаре)"},
+            "instruction": {
+                "type": "string",
+                "description": (
+                    "Инструкция для составления сообщения: цель, что сказать/спросить, "
+                    "о чём договорились. НЕ готовый текст."
+                ),
+            },
+        },
+        "required": ["agent_contact_id", "instruction"],
+    },
+}
+
+TELEGRAM_USER_TOOLS = [
+    TELEGRAM_SEND_MESSAGE_TOOL,
+    TELEGRAM_GET_THREAD_TOOL,
+    SCHEDULE_TELEGRAM_MESSAGE_TOOL,
+]
 
 
 def _augment_with_telegram_account(base_tools: list, agent_config, db: Session) -> list:
@@ -483,6 +532,34 @@ async def fn_telegram_get_thread(args: dict, user_id: str, agent_config_id: str,
     limit = min(int(args.get("limit") or 20), 50)
     rows = telegram_user_service.get_thread(db, contact.id, limit=limit)
     return {"ok": True, "messages": [m.to_dict() for m in rows]}
+
+
+async def fn_schedule_telegram_message(args: dict, user_id: str, agent_config, db: Session) -> dict:
+    """
+    Запланировать отложенное Telegram-сообщение: создаёт Task(channel="telegram").
+    Текст НЕ фиксируется — в description хранится инструкция, а сообщение
+    составит оркестратор в момент срабатывания задачи (см. execute_agent_task →
+    PostCallOrchestrator.run_for_scheduled_telegram).
+    """
+    if not telegram_user_service.is_configured():
+        return {"ok": False, "error": telegram_user_service.error_human("not_configured")}
+    if agent_config is None or not telegram_user_service.account_connected(db, agent_config.id):
+        return {"ok": False, "error": telegram_user_service.error_human("not_connected")}
+
+    instruction = (args.get("instruction") or "").strip()
+    if not instruction:
+        return {"ok": False, "error": "Пустая инструкция — опиши, что нужно написать клиенту"}
+
+    task_args = {
+        "agent_contact_id": args.get("agent_contact_id"),
+        "scheduled_at": args.get("scheduled_at"),
+        "delay_minutes": args.get("delay_minutes"),
+        "title": args.get("title"),
+        "notes": instruction,
+    }
+    return await fn_create_agent_task(
+        task_args, user_id, str(agent_config.id), db, channel="telegram"
+    )
 
 
 # ============================================================================
@@ -911,8 +988,10 @@ AGENT_POSTCALL_TOOLS = [
         "type": "function",
         "name": "create_agent_task",
         "description": (
-            "Создать задачу на перезвон. ОБЯЗАТЕЛЬНО вызывай этот tool после каждого звонка, "
-            "кроме случая когда цель звонка уже достигнута. "
+            "Создать задачу на перезвон. После исходящего звонка следующее касание "
+            "планируется ВСЕГДА, кроме случая когда цель звонка уже достигнута: "
+            "перезвон — этим tool, отложенное сообщение — schedule_telegram_message "
+            "(если доступен). "
             "Время задай ОДНИМ из способов: delay_minutes — для относительного "
             "(«через N минут/часов»), scheduled_at — для абсолютного («завтра в 14:00»)."
         ),
@@ -984,7 +1063,13 @@ async def fn_create_agent_contact(args: dict, agent_config_id: str, user_id: str
     return {"ok": True, "contact_id": str(contact.id), "phone": contact.phone, "name": contact.name}
 
 
-async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session, channel: str = "call") -> dict:
+    """
+    Создать агентскую задачу. channel="call" (дефолт) — задача на звонок,
+    channel="telegram" — отложенное сообщение с личного Telegram-аккаунта
+    (для него не применяются рабочие часы: писать можно в любое время).
+    """
+    is_telegram = channel == "telegram"
     agent_contact_id = args["agent_contact_id"]
 
     # Изоляция агентов: задачу можно ставить только своему контакту.
@@ -1035,7 +1120,8 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
 
     # Унифицированная проверка рабочих часов агента (МСК) — переносим звонок
     # на ближайший рабочий день, если время выпадает на нерабочие часы.
-    if agent_config is not None:
+    # Telegram-сообщения рабочими часами не ограничены.
+    if agent_config is not None and not is_telegram:
         adjusted, _shifted = adjust_to_working_hours(
             scheduled_at,
             agent_config.working_hours_start,
@@ -1044,13 +1130,15 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
         scheduled_at = adjusted
 
     # Cancel only exact-time duplicates for this contact (same contact + same
-    # scheduled_time). Tasks scheduled for other dates/times are preserved, so
-    # a contact can have several upcoming calls planned at different moments.
+    # scheduled_time + same channel). Tasks scheduled for other dates/times are
+    # preserved, so a contact can have several upcoming calls planned at
+    # different moments; звонок и telegram-сообщение на одно время — не дубли.
     existing_tasks = db.query(Task).filter(
         Task.agent_contact_id == agent_contact_id,
         Task.status == TaskStatus.SCHEDULED,
         Task.is_agent_task == True,
         Task.scheduled_time == scheduled_at,
+        Task.channel == channel,
     ).all()
 
     cancelled_count = 0
@@ -1061,15 +1149,18 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     if cancelled_count > 0:
         logger.info(f"[AGENT-TOOLS] Cancelled {cancelled_count} duplicate SCHEDULED tasks for contact {agent_contact_id} at {scheduled_at}")
 
-    # Create new task — route assistant to the correct Task FK by type
+    # Create new task — route assistant to the correct Task FK by type.
+    # Для telegram-задач ассистент не нужен (исполняет оркестратор, не звонилка),
+    # но FK заполняем как обычно — это безвредно и упрощает конверсию в звонок.
     task = Task(
         is_agent_task=True,
+        channel=channel,
         agent_contact_id=agent_contact_id,
         user_id=user_id,
         contact_id=None,
         status=TaskStatus.SCHEDULED,
         scheduled_time=scheduled_at,
-        title=args.get("title", "Звонок агента"),
+        title=args.get("title") or ("Сообщение в Telegram" if is_telegram else "Звонок агента"),
         description=args.get("notes", ""),
         **assistant_task_kwargs(agent_config),
     )
@@ -1077,10 +1168,11 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     db.commit()
     db.refresh(task)
 
-    logger.info(f"[AGENT-TOOLS] Created agent task {task.id} for contact {agent_contact_id} at {scheduled_at}")
+    logger.info(f"[AGENT-TOOLS] Created agent task {task.id} (channel={channel}) for contact {agent_contact_id} at {scheduled_at}")
     result = {
         "ok": True,
         "task_id": str(task.id),
+        "channel": channel,
         "scheduled_at": scheduled_at.isoformat(),
         "cancelled_duplicates": cancelled_count,
     }
@@ -1347,6 +1439,7 @@ async def fn_get_agent_tasks(args: dict, user_id: str, agent_config_id: str, db:
                 "id": str(t.id),
                 "title": t.title,
                 "status": t.status.value if hasattr(t.status, "value") else t.status,
+                "channel": t.channel or "call",
                 "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
                 "description": t.description,
                 "agent_contact_id": str(t.agent_contact_id) if t.agent_contact_id else None,
@@ -1826,12 +1919,13 @@ async def fn_update_agent_task(args: dict, user_id: str, agent_config_id: str, d
         if not new_dt:
             return {"ok": False, "error": "invalid_scheduled_at"}
         # Привести к рабочим часам агента (как при создании задачи).
+        # Telegram-задачи рабочими часами не ограничены.
         agent_config = None
         if task.agent_contact_id:
             contact = db.query(AgentContact).filter(AgentContact.id == task.agent_contact_id).first()
             if contact and contact.agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == contact.agent_config_id).first()
-        if agent_config is not None:
+        if agent_config is not None and (task.channel or "call") != "telegram":
             new_dt, _shifted = adjust_to_working_hours(
                 new_dt, agent_config.working_hours_start, agent_config.working_hours_end
             )
@@ -1897,6 +1991,7 @@ async def fn_get_upcoming_schedule(args: dict, user_id: str, agent_config_id: st
             {
                 "task_id": str(t.id),
                 "title": t.title,
+                "channel": t.channel or "call",
                 "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
                 "agent_contact_id": str(c.id),
                 "contact_name": c.name,
@@ -2391,6 +2486,11 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_telegram_send_message(tool_args, user_id, agent_config, db)
         elif tool_name == "telegram_get_thread":
             result = await fn_telegram_get_thread(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "schedule_telegram_message":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_schedule_telegram_message(tool_args, user_id, agent_config, db)
         elif composio_service.is_composio_tool(tool_name):
             result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:
