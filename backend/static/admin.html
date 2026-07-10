@@ -874,29 +874,125 @@
       to { transform: rotate(360deg); }
     }
     
+    /* ===== Аналитика оркестратора (Voicyfy Agent) ===== */
+    .credits-value {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
+
+    .credits-zero {
+      color: var(--text-gray, #9ca3af);
+      font-weight: 400;
+    }
+
+    .status-none {
+      background-color: #e5e7eb;
+      color: #6b7280;
+    }
+
+    .status-blocked {
+      background-color: var(--red-light);
+      color: var(--red-dark);
+    }
+
+    .agent-usage-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 140px;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #e5e7eb;
+      margin-bottom: 0.5rem;
+    }
+
+    .agent-usage-chart .chart-bar {
+      flex: 1;
+      min-width: 6px;
+      background-color: var(--primary-blue, #3b82f6);
+      border-radius: 3px 3px 0 0;
+      opacity: 0.85;
+      transition: opacity 0.15s;
+      position: relative;
+    }
+
+    .agent-usage-chart .chart-bar:hover {
+      opacity: 1;
+    }
+
+    .agent-usage-chart .chart-bar.empty {
+      background-color: #e5e7eb;
+    }
+
+    .chart-axis {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+    }
+
+    .usage-summary-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin: 1rem 0;
+    }
+
+    .usage-chip {
+      background-color: var(--bg-blue-light, #eff6ff);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      min-width: 120px;
+    }
+
+    .usage-chip .chip-value {
+      font-size: 1.15rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .usage-chip .chip-label {
+      font-size: 0.72rem;
+      color: #6b7280;
+      margin-top: 0.15rem;
+    }
+
+    .usage-tables-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+
+    @media (max-width: 900px) {
+      .usage-tables-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
     /* Адаптивность */
     @media (max-width: 768px) {
       .main-content {
         margin-left: 0;
       }
-      
+
       .sidebar {
         transform: translateX(-100%);
         transition: transform 0.3s;
       }
-      
+
       .sidebar.open {
         transform: translateX(0);
       }
-      
+
       .user-profile {
         grid-template-columns: 1fr;
       }
-      
+
       .filters {
         flex-direction: column;
       }
-      
+
       .stats-grid {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -992,6 +1088,7 @@
       <!-- Табы -->
       <div class="tabs">
         <div class="tab active" data-tab="users">Пользователи</div>
+        <div class="tab" data-tab="agents">Агенты</div>
         <div class="tab" data-tab="stats">Статистика</div>
         <div class="tab" data-tab="user-details" style="display: none;">Детали пользователя</div>
       </div>
@@ -1037,7 +1134,97 @@
           <!-- Пагинация будет добавлена динамически -->
         </div>
       </div>
-      
+
+      <!-- Таб с использованием агентов (Voicyfy Agent) -->
+      <div class="tab-content" id="agents-tab">
+        <!-- Сводка по платформе -->
+        <div class="stats-section">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-coins"></i>
+              </div>
+              <div class="stat-value" id="au-spend-today">0</div>
+              <div class="stat-label">Кредитов сегодня (МСК)</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-coins"></i>
+              </div>
+              <div class="stat-value" id="au-spend-7d">0</div>
+              <div class="stat-label">Кредитов за 7 дней</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-coins"></i>
+              </div>
+              <div class="stat-value" id="au-spend-30d">0</div>
+              <div class="stat-label">Кредитов за 30 дней</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <i class="fas fa-user-clock"></i>
+              </div>
+              <div class="stat-value" id="au-active-7d">0</div>
+              <div class="stat-label">Активных за 7 дней</div>
+              <div class="stat-subtext" id="au-active-30d">За 30 дней: 0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="search-box">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" id="au-search" class="search-input" placeholder="Поиск по имени, email, компании...">
+          </div>
+
+          <select id="au-filter" class="filter-select">
+            <option value="">Все пользователи</option>
+            <option value="active_7d">Активные за 7 дней</option>
+            <option value="inactive_7d">Без активности 7 дней</option>
+            <option value="trial">На триале</option>
+            <option value="low_balance">Баланс &lt; 100</option>
+          </select>
+
+          <select id="au-sort" class="filter-select">
+            <option value="spend_7d">Сортировка: расход за 7 дней</option>
+            <option value="spend_today">Сортировка: расход сегодня</option>
+            <option value="spend_30d">Сортировка: расход за 30 дней</option>
+            <option value="spend_total">Сортировка: расход за всё время</option>
+            <option value="last_activity">Сортировка: последняя активность</option>
+            <option value="balance">Сортировка: баланс</option>
+          </select>
+        </div>
+
+        <div class="card">
+          <div class="table-container">
+            <table class="table" id="agent-usage-table">
+              <thead>
+                <tr>
+                  <th>Пользователь</th>
+                  <th>Баланс</th>
+                  <th>Сегодня</th>
+                  <th>7 дней</th>
+                  <th>30 дней</th>
+                  <th>Агенты</th>
+                  <th>Контакты</th>
+                  <th>Звонки 30д</th>
+                  <th>Активность</th>
+                  <th>Статус</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="agent-usage-list">
+                <!-- Данные будут загружены динамически -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- Таб со статистикой -->
       <div class="tab-content" id="stats-tab">
         <!-- Пользователи -->
@@ -1201,7 +1388,123 @@
             </div>
           </div>
         </div>
-        
+
+        <!-- Оркестратор (Voicyfy Agent) -->
+        <div class="stats-section" id="orchestrator-section" style="display: none;">
+          <h3 class="stats-section-title"><i class="fas fa-microchip"></i> Оркестратор (Voicyfy Agent)</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">
+                <i class="fas fa-coins"></i>
+              </div>
+              <div class="stat-value" id="orch-spend-today">0</div>
+              <div class="stat-label">Кредитов сегодня</div>
+              <div class="stat-subtext" id="orch-spend-7d">За 7 дней: 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-fire"></i>
+              </div>
+              <div class="stat-value" id="orch-spend-30d">0</div>
+              <div class="stat-label">Кредитов за 30 дней</div>
+              <div class="stat-subtext" id="orch-spend-all">Всего: 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon purple">
+                <i class="fas fa-user-clock"></i>
+              </div>
+              <div class="stat-value" id="orch-dau">0</div>
+              <div class="stat-label">Активных сегодня (DAU)</div>
+              <div class="stat-subtext" id="orch-wau-mau">7д: 0 · 30д: 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange">
+                <i class="fas fa-robot"></i>
+              </div>
+              <div class="stat-value" id="orch-agents">0</div>
+              <div class="stat-label">Агентов создано</div>
+              <div class="stat-subtext" id="orch-agents-active">Активных: 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon cyan">
+                <i class="fas fa-phone"></i>
+              </div>
+              <div class="stat-value" id="orch-calls-30d">0</div>
+              <div class="stat-label">Событий агентов за 30 дней</div>
+              <div class="stat-subtext" id="orch-avg-call">Ср. кредитов/событие: 0</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon green">
+                <i class="fas fa-funnel-dollar"></i>
+              </div>
+              <div class="stat-value" id="orch-paying">0</div>
+              <div class="stat-label">Платящих (кредиты)</div>
+              <div class="stat-subtext" id="orch-funnel">Триал: 0 → Тратили: 0</div>
+            </div>
+          </div>
+
+          <div class="usage-tables-grid">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">Расход по типам операций (30 дней)</h2>
+              </div>
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Тип</th>
+                      <th>Кредиты</th>
+                      <th>Операций</th>
+                    </tr>
+                  </thead>
+                  <tbody id="orch-ref-types"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">Расход по моделям (30 дней)</h2>
+              </div>
+              <div class="table-container">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Модель</th>
+                      <th>Кредиты</th>
+                      <th>Вызовов</th>
+                    </tr>
+                  </thead>
+                  <tbody id="orch-models"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 1.5rem;">
+            <div class="card-header">
+              <h2 class="card-title">Топ-10 пользователей по расходу (30 дней)</h2>
+            </div>
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Email</th>
+                    <th>Кредиты</th>
+                  </tr>
+                </thead>
+                <tbody id="orch-top-users"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- Недавние пользователи -->
         <div class="card">
           <div class="card-header">
@@ -1295,6 +1598,90 @@
                 <!-- Данные будут загружены динамически -->
               </tbody>
             </table>
+          </div>
+
+          <!-- Voicyfy Agent: использование кредитов -->
+          <div id="user-agent-usage" style="display: none;">
+            <div class="card-header" style="margin-top: 2rem;">
+              <h2 class="card-title"><i class="fas fa-microchip"></i> Voicyfy Agent — использование</h2>
+            </div>
+
+            <div class="usage-summary-chips" id="uau-chips"></div>
+
+            <h3 class="section-title" style="margin-top: 1rem;"><i class="fas fa-chart-column"></i> Расход кредитов по дням (30 дней, МСК)</h3>
+            <div class="agent-usage-chart" id="uau-chart"></div>
+            <div class="chart-axis" id="uau-chart-axis"></div>
+
+            <div class="usage-tables-grid">
+              <div>
+                <h3 class="section-title"><i class="fas fa-list"></i> По типам операций (30 дней)</h3>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr><th>Тип</th><th>Кредиты</th><th>Операций</th></tr>
+                    </thead>
+                    <tbody id="uau-ref-types"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="section-title"><i class="fas fa-brain"></i> По моделям (30 дней)</h3>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr><th>Модель</th><th>Кредиты</th><th>Вызовов</th></tr>
+                    </thead>
+                    <tbody id="uau-models"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <h3 class="section-title" style="margin-top: 1.5rem;"><i class="fas fa-robot"></i> Агенты пользователя</h3>
+            <div class="table-container">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Название</th>
+                    <th>Модель</th>
+                    <th>Статус</th>
+                    <th>Контакты</th>
+                    <th>Звонки</th>
+                    <th>Успешных</th>
+                    <th>Минуты</th>
+                    <th>Последний звонок</th>
+                  </tr>
+                </thead>
+                <tbody id="uau-agents"></tbody>
+              </table>
+            </div>
+
+            <div class="usage-tables-grid">
+              <div>
+                <h3 class="section-title" style="margin-top: 1.5rem;"><i class="fas fa-filter"></i> Воронка контактов</h3>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr><th>Стадия</th><th>Контактов</th></tr>
+                    </thead>
+                    <tbody id="uau-funnel"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="section-title" style="margin-top: 1.5rem;"><i class="fas fa-receipt"></i> Последние транзакции кредитов</h3>
+                <div class="table-container">
+                  <table class="table">
+                    <thead>
+                      <tr><th>Дата</th><th>Тип</th><th>Кредиты</th><th>Баланс после</th></tr>
+                    </thead>
+                    <tbody id="uau-transactions"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1587,7 +1974,18 @@
         getAdminStatistics() {
           return this.get('/admin/stats');
         },
-        
+
+        getAgentUsage({ search = '', filter = '', sort = 'spend_7d', skip = 0, limit = 100 } = {}) {
+          let endpoint = `/admin/agent-usage?skip=${skip}&limit=${limit}&sort=${sort}`;
+          if (search) endpoint += `&search=${encodeURIComponent(search)}`;
+          if (filter) endpoint += `&activity_filter=${filter}`;
+          return this.get(endpoint);
+        },
+
+        getUserAgentUsage(userId) {
+          return this.get(`/admin/users/${userId}/agent-usage`);
+        },
+
         checkExpiredSubscriptions() {
           return this.post('/subscriptions/check-expired');
         }
@@ -2097,6 +2495,302 @@
               </tr>
             `;
           }
+
+          // Оркестратор (Voicyfy Agent)
+          if (stats.orchestrator) {
+            this.renderOrchestratorStats(stats.orchestrator);
+          }
+        },
+
+        // ===== Аналитика оркестратора (Voicyfy Agent) =====
+
+        esc(value) {
+          return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        },
+
+        formatCredits(value) {
+          return new Intl.NumberFormat('ru-RU').format(Math.round(value || 0));
+        },
+
+        creditsCell(value) {
+          const v = Math.round(value || 0);
+          if (!v) return '<span class="credits-value credits-zero">0</span>';
+          return `<span class="credits-value">${this.formatCredits(v)}</span>`;
+        },
+
+        formatDateTime(dateString) {
+          if (!dateString) return '—';
+          const date = new Date(dateString);
+          return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
+            + ' ' + date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        },
+
+        refTypeLabel(refType) {
+          const labels = {
+            'precall': 'Звонки — подготовка (PreCall)',
+            'postcall': 'Звонки — анализ (PostCall)',
+            'chat': 'Чат с оркестратором',
+            'chat_public': 'Публичный чат (виджет)',
+            'telegram_chat': 'Telegram',
+            'agent_deleted': 'Удаление агента',
+            'grant': 'Начисление',
+            'purchase': 'Покупка пакета',
+            'other': 'Прочее'
+          };
+          return labels[refType] || refType || 'Прочее';
+        },
+
+        txTypeLabel(type) {
+          const labels = {
+            'spend': 'Списание',
+            'refund': 'Возврат',
+            'trial_grant': 'Триал-бонус',
+            'subscription_grant': 'Кредиты тарифа',
+            'purchase': 'Покупка пакета',
+            'manual_adjust': 'Ручная корректировка'
+          };
+          return labels[type] || type;
+        },
+
+        agentStatusBadge(status) {
+          const map = {
+            'active': ['status-active', 'Активен'],
+            'trial': ['status-trial', 'Триал'],
+            'expired': ['status-expired', 'Истёк'],
+            'none': ['status-none', 'Нет доступа']
+          };
+          const [cls, text] = map[status] || ['status-none', status || '—'];
+          return `<span class="status-badge ${cls}">${text}</span>`;
+        },
+
+        modelShortName(slug) {
+          if (!slug) return '—';
+          const parts = String(slug).split('/');
+          return parts[parts.length - 1];
+        },
+
+        renderAgentUsage(data) {
+          // Сводка
+          document.getElementById('au-spend-today').textContent = this.formatCredits(data.summary.spend_today);
+          document.getElementById('au-spend-7d').textContent = this.formatCredits(data.summary.spend_7d);
+          document.getElementById('au-spend-30d').textContent = this.formatCredits(data.summary.spend_30d);
+          document.getElementById('au-active-7d').textContent = data.summary.active_7d;
+          document.getElementById('au-active-30d').textContent = `За 30 дней: ${data.summary.active_30d}`;
+
+          const tbody = document.getElementById('agent-usage-list');
+          tbody.innerHTML = '';
+
+          if (!data.users || data.users.length === 0) {
+            tbody.innerHTML = `
+              <tr>
+                <td colspan="11" style="text-align: center; padding: 2rem;">
+                  Нет пользователей с агентами или транзакциями кредитов
+                </td>
+              </tr>
+            `;
+            return;
+          }
+
+          data.users.forEach(u => {
+            const balanceStyle = u.credits_balance < 100 ? 'color: var(--red-dark, #b91c1c);' : '';
+            const successPart = u.calls_30d > 0 ? ` <span style="color:#6b7280;">(✓${u.success_calls_30d})</span>` : '';
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>
+                <div>${this.esc(u.name) || '—'}</div>
+                <div style="font-size: 0.75rem; color: #6b7280;">${this.esc(u.email)}</div>
+              </td>
+              <td><span class="credits-value" style="${balanceStyle}">${this.formatCredits(u.credits_balance)}</span></td>
+              <td>${this.creditsCell(u.spend_today)}</td>
+              <td>${this.creditsCell(u.spend_7d)}</td>
+              <td>${this.creditsCell(u.spend_30d)}</td>
+              <td>${u.agents_count}${u.agents_active ? ` <span style="color:#16a34a;">(${u.agents_active} акт.)</span>` : ''}</td>
+              <td>${u.contacts_count}</td>
+              <td>${u.calls_30d}${successPart}</td>
+              <td style="white-space: nowrap;">${this.formatDateTime(u.last_activity)}</td>
+              <td>${this.agentStatusBadge(u.agent_status)}</td>
+              <td>
+                <button class="table-action au-view-user" data-id="${u.user_id}" title="Детали">
+                  <i class="fas fa-eye"></i>
+                </button>
+              </td>
+            `;
+            tbody.appendChild(row);
+          });
+
+          tbody.querySelectorAll('.au-view-user').forEach(button => {
+            button.addEventListener('click', function() {
+              viewUserDetails(this.getAttribute('data-id'));
+            });
+          });
+        },
+
+        renderOrchestratorStats(orch) {
+          document.getElementById('orchestrator-section').style.display = '';
+          document.getElementById('orch-spend-today').textContent = this.formatCredits(orch.spend.today);
+          document.getElementById('orch-spend-7d').textContent = `За 7 дней: ${this.formatCredits(orch.spend.d7)}`;
+          document.getElementById('orch-spend-30d').textContent = this.formatCredits(orch.spend.d30);
+          document.getElementById('orch-spend-all').textContent = `Всего: ${this.formatCredits(orch.spend.all_time)}`;
+          document.getElementById('orch-dau').textContent = orch.active_users.today;
+          document.getElementById('orch-wau-mau').textContent = `7д: ${orch.active_users.d7} · 30д: ${orch.active_users.d30}`;
+          document.getElementById('orch-agents').textContent = orch.agents.total;
+          document.getElementById('orch-agents-active').textContent = `Активных: ${orch.agents.active}`;
+          document.getElementById('orch-calls-30d').textContent = orch.agent_calls.d30;
+          document.getElementById('orch-avg-call').textContent = `Ср. кредитов/событие: ${orch.agent_calls.avg_credits_per_call_30d}`;
+          document.getElementById('orch-paying').textContent = orch.trial_funnel.paying_users;
+          document.getElementById('orch-funnel').textContent =
+            `Триал: ${orch.trial_funnel.trial_users} → Тратили: ${orch.trial_funnel.spent_users}`;
+
+          const refTypes = document.getElementById('orch-ref-types');
+          refTypes.innerHTML = (orch.by_ref_type_30d || []).map(r => `
+            <tr>
+              <td>${this.refTypeLabel(r.ref_type)}</td>
+              <td>${this.creditsCell(r.credits)}</td>
+              <td>${r.count}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center; padding:1rem;">Нет расхода за 30 дней</td></tr>';
+
+          const models = document.getElementById('orch-models');
+          models.innerHTML = (orch.by_model_30d || []).map(r => `
+            <tr>
+              <td title="${this.esc(r.model_slug)}">${this.esc(this.modelShortName(r.model_slug))}</td>
+              <td>${this.creditsCell(r.credits)}</td>
+              <td>${r.count}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center; padding:1rem;">Нет расхода за 30 дней</td></tr>';
+
+          const topUsers = document.getElementById('orch-top-users');
+          topUsers.innerHTML = (orch.top_users_30d || []).map((r, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${this.esc(r.email)}</td>
+              <td>${this.creditsCell(r.credits)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center; padding:1rem;">Нет данных</td></tr>';
+        },
+
+        renderUserAgentUsage(data) {
+          const section = document.getElementById('user-agent-usage');
+          section.style.display = '';
+
+          // Сводные плашки
+          const s = data.summary;
+          document.getElementById('uau-chips').innerHTML = `
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(data.user.credits_balance)}</div>
+              <div class="chip-label">Баланс кредитов</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(s.spend_today)}</div>
+              <div class="chip-label">Сегодня (МСК)</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(s.spend_7d)}</div>
+              <div class="chip-label">За 7 дней</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(s.spend_30d)}</div>
+              <div class="chip-label">За 30 дней</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(s.spend_total)}</div>
+              <div class="chip-label">Всего потрачено</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.formatCredits(s.granted_total)} / ${this.formatCredits(s.purchased_total)}</div>
+              <div class="chip-label">Начислено / куплено</div>
+            </div>
+            <div class="usage-chip">
+              <div class="chip-value">${this.agentStatusBadge(data.user.agent_status)}</div>
+              <div class="chip-label">Доступ к агенту</div>
+            </div>
+          `;
+
+          // График по дням
+          const daily = data.daily || [];
+          const maxCredits = Math.max(1, ...daily.map(d => d.credits));
+          const chart = document.getElementById('uau-chart');
+          chart.innerHTML = daily.map(d => {
+            const heightPct = Math.round((d.credits / maxCredits) * 100);
+            const dateLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            const title = `${dateLabel}: ${this.formatCredits(d.credits)} кр., событий: ${d.calls}`;
+            return `<div class="chart-bar ${d.credits ? '' : 'empty'}" style="height: ${Math.max(heightPct, 2)}%;" title="${title}"></div>`;
+          }).join('');
+
+          const axis = document.getElementById('uau-chart-axis');
+          if (daily.length) {
+            const first = new Date(daily[0].date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            const last = new Date(daily[daily.length - 1].date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            axis.innerHTML = `<span>${first}</span><span>макс: ${this.formatCredits(maxCredits)} кр./день</span><span>${last}</span>`;
+          } else {
+            axis.innerHTML = '';
+          }
+
+          // По типам операций
+          document.getElementById('uau-ref-types').innerHTML = (data.by_ref_type || []).map(r => `
+            <tr>
+              <td>${this.refTypeLabel(r.ref_type)}</td>
+              <td>${this.creditsCell(r.credits)}</td>
+              <td>${r.count}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center; padding:1rem;">Нет расхода за 30 дней</td></tr>';
+
+          // По моделям
+          document.getElementById('uau-models').innerHTML = (data.by_model || []).map(r => `
+            <tr>
+              <td title="${this.esc(r.model_slug)}">${this.esc(this.modelShortName(r.model_slug))}</td>
+              <td>${this.creditsCell(r.credits)}</td>
+              <td>${r.count}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="3" style="text-align:center; padding:1rem;">Нет расхода за 30 дней</td></tr>';
+
+          // Агенты пользователя
+          document.getElementById('uau-agents').innerHTML = (data.agents || []).map(a => `
+            <tr>
+              <td>${this.esc(a.name)}</td>
+              <td title="${this.esc(a.orchestrator_model)}">${this.esc(this.modelShortName(a.orchestrator_model))}</td>
+              <td>
+                <span class="status-badge ${a.is_active ? 'status-active' : 'status-none'}">
+                  ${a.is_active ? 'Активен' : 'Выключен'}
+                </span>
+                ${a.telegram_enabled ? ' <i class="fab fa-telegram" style="color:#229ED9;" title="Telegram подключён"></i>' : ''}
+              </td>
+              <td>${a.contacts_count}</td>
+              <td>${a.calls_total}</td>
+              <td>${a.success_calls}</td>
+              <td>${Math.round((a.duration_seconds || 0) / 60)}</td>
+              <td style="white-space: nowrap;">${this.formatDateTime(a.last_call_at)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="8" style="text-align:center; padding:1rem;">У пользователя нет агентов</td></tr>';
+
+          // Воронка контактов
+          document.getElementById('uau-funnel').innerHTML = (data.funnel || []).map(f => `
+            <tr>
+              <td>${this.esc(f.status)}</td>
+              <td>${f.count}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="2" style="text-align:center; padding:1rem;">Контактов нет</td></tr>';
+
+          // Последние транзакции
+          document.getElementById('uau-transactions').innerHTML = (data.transactions || []).map(tx => {
+            const amount = tx.amount || 0;
+            const color = amount > 0 ? '#16a34a' : (amount < 0 ? '#b91c1c' : '#6b7280');
+            const sign = amount > 0 ? '+' : '';
+            return `
+              <tr>
+                <td style="white-space: nowrap;">${this.formatDateTime(tx.created_at)}</td>
+                <td title="${this.esc(tx.notes || '')}">${this.txTypeLabel(tx.type)}${tx.ref_type && tx.type === 'spend' ? ` <span style="color:#6b7280; font-size:0.75rem;">(${this.refTypeLabel(tx.ref_type)})</span>` : ''}</td>
+                <td><span class="credits-value" style="color:${color};">${sign}${this.formatCredits(amount)}</span></td>
+                <td>${this.formatCredits(tx.balance_after)}</td>
+              </tr>
+            `;
+          }).join('') || '<tr><td colspan="4" style="text-align:center; padding:1rem;">Транзакций нет</td></tr>';
+        },
+
+        hideUserAgentUsage() {
+          document.getElementById('user-agent-usage').style.display = 'none';
         }
       };
       
@@ -2173,15 +2867,42 @@
       async function viewUserDetails(userId) {
         try {
           ui.setLoading(true);
-          
+
           const userData = await api.getUserDetails(userId);
-          
+
           document.querySelector('.tab[data-tab="user-details"]').style.display = '';
           ui.switchTab('user-details');
-          
+
           ui.renderUserDetails(userData);
+
+          // Аналитика Voicyfy Agent (не ломаем страницу, если эндпоинт недоступен)
+          ui.hideUserAgentUsage();
+          try {
+            const usageData = await api.getUserAgentUsage(userId);
+            ui.renderUserAgentUsage(usageData);
+          } catch (usageError) {
+            console.error('Ошибка загрузки аналитики агента:', usageError);
+          }
         } catch (error) {
           ui.showNotification(error.message || 'Ошибка при загрузке данных пользователя', 'error');
+        } finally {
+          ui.setLoading(false);
+        }
+      }
+
+      async function loadAgentUsage() {
+        try {
+          ui.setLoading(true);
+
+          const data = await api.getAgentUsage({
+            search: document.getElementById('au-search').value,
+            filter: document.getElementById('au-filter').value,
+            sort: document.getElementById('au-sort').value
+          });
+
+          ui.renderAgentUsage(data);
+        } catch (error) {
+          ui.showNotification(error.message || 'Ошибка при загрузке статистики агентов', 'error');
         } finally {
           ui.setLoading(false);
         }
@@ -2278,20 +2999,33 @@
             loadUsers();
           } else if (this.getAttribute('data-tab') === 'stats') {
             loadStats();
+          } else if (this.getAttribute('data-tab') === 'agents') {
+            loadAgentUsage();
           }
         });
       });
-      
+
       searchInput.addEventListener('input', function() {
         clearTimeout(this.searchTimeout);
         this.searchTimeout = setTimeout(() => {
           loadUsers(1);
         }, 300);
       });
-      
+
       subscriptionFilter.addEventListener('change', function() {
         loadUsers(1);
       });
+
+      // Фильтры таба «Агенты»
+      document.getElementById('au-search').addEventListener('input', function() {
+        clearTimeout(this.searchTimeout);
+        this.searchTimeout = setTimeout(() => {
+          loadAgentUsage();
+        }, 300);
+      });
+
+      document.getElementById('au-filter').addEventListener('change', loadAgentUsage);
+      document.getElementById('au-sort').addEventListener('change', loadAgentUsage);
       
       backToUsersBtn.addEventListener('click', function() {
         document.querySelector('.tab[data-tab="user-details"]').style.display = 'none';
