@@ -36,6 +36,7 @@ from backend.api import (
     grok_ws,  # 🆕 v3.0: Grok WebSocket API
     grok_assistants,  # 🆕 v3.0: Grok Assistants CRUD API
     cartesia_assistants,  # 🆕 v4.0: Cartesia Assistants CRUD API
+    yandex_assistants,  # 🆕 Yandex Assistants CRUD API (SpeechKit Realtime)
     translate_assistants,  # 🆕 v1.0: Translate Assistants CRUD API
     translate_ws,  # 🆕 v1.0: Translate WebSocket API
     contacts,  # ✅ CRM API
@@ -173,6 +174,7 @@ app.include_router(assistants.router, prefix="/api/assistants", tags=["Assistant
 app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", tags=["Gemini Assistants"])
 app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 app.include_router(cartesia_assistants.router, prefix="/api/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
+app.include_router(yandex_assistants.router, prefix="/api/yandex-assistants", tags=["Yandex Assistants"])  # 🆕 Yandex SpeechKit Realtime
 app.include_router(translate_assistants.router, prefix="/api/translate-assistants", tags=["Translate Assistants"])  # 🆕 v1.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # BEFORE websocket.router — /ws/llm-stream must match before /ws/{assistant_id}
@@ -550,6 +552,78 @@ def create_cartesia_tables():
             raise
 
 
+def create_yandex_tables():
+    """
+    Create Yandex assistant tables and check missing columns
+    """
+    try:
+        from backend.models.yandex_assistant import YandexAssistantConfig, YandexConversation
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+
+        logger.info("🟡 Creating Yandex tables and checking missing columns...")
+
+        # Создаем таблицы Yandex
+        Base.metadata.create_all(engine)
+
+        inspector = inspect(engine)
+
+        # Проверяем таблицу users для yandex_api_key и yandex_folder_id
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+
+                for column_name, column_definition in (
+                    ('yandex_api_key', 'VARCHAR NULL'),
+                    ('yandex_folder_id', 'VARCHAR(100) NULL'),
+                ):
+                    if column_name not in existing_columns:
+                        logger.info(f"➕ Adding {column_name} column to users table...")
+
+                        try:
+                            with engine.connect() as conn:
+                                trans = conn.begin()
+                                try:
+                                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {column_definition}"))
+                                    trans.commit()
+                                    logger.info(f"✅ Successfully added {column_name} column")
+                                except Exception as e:
+                                    trans.rollback()
+                                    if "already exists" not in str(e).lower():
+                                        logger.error(f"❌ Failed to add {column_name}: {str(e)}")
+                        except Exception as conn_error:
+                            logger.error(f"❌ Connection error: {str(conn_error)}")
+                    else:
+                        logger.info(f"✅ Column {column_name} already exists")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+
+        # Проверяем таблицы Yandex
+        required_tables = {
+            'yandex_assistant_configs': YandexAssistantConfig,
+            'yandex_conversations': YandexConversation,
+        }
+
+        for table_name, model_class in required_tables.items():
+            if not inspector.has_table(table_name):
+                logger.info(f"➕ Creating missing table: {table_name}")
+                try:
+                    model_class.__table__.create(engine)
+                    logger.info(f"✅ Successfully created table: {table_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to create table {table_name}: {str(e)}")
+            else:
+                logger.info(f"✅ Table {table_name} already exists")
+
+        logger.info("✅ Yandex tables and columns setup completed")
+
+    except Exception as e:
+        logger.error(f"❌ Error creating Yandex tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
+
 def create_crm_tables():
     """
     Create CRM (Contacts) tables and check missing columns
@@ -650,6 +724,8 @@ def check_and_fix_all_missing_columns():
                 'grok_api_key': 'VARCHAR NULL',  # 🆕 v3.0
                 'cartesia_api_key': 'VARCHAR NULL',  # 🆕 v4.0
                 'openrouter_api_key': 'VARCHAR(255) NULL',  # 🆕 Cascade
+                'yandex_api_key': 'VARCHAR NULL',  # 🆕 Yandex Cloud API key
+                'yandex_folder_id': 'VARCHAR(100) NULL',  # 🆕 Yandex Cloud folder ID
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 # 🆕 Система кредитов оркестратора Voicyfy Agent
                 'credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
@@ -1316,6 +1392,9 @@ async def startup_event():
 
                 # 🆕 Шаг 10: Создаем таблицы Cartesia
                 create_cartesia_tables()
+
+                # 🆕 Шаг 10.1: Создаем таблицы Yandex (SpeechKit Realtime)
+                create_yandex_tables()
 
                 # 🆕 Шаг 11: Сидинг данных системы кредитов (план agent + пакеты)
                 seed_credits_data()

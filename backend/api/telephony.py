@@ -199,6 +199,15 @@ def find_assistant_by_id(db: Session, assistant_id: uuid.UUID) -> tuple[Any, str
     if assistant:
         return assistant, "cartesia", assistant.user_id
 
+    # Если не нашли - ищем в Yandex
+    from backend.models.yandex_assistant import YandexAssistantConfig
+    assistant = db.query(YandexAssistantConfig).filter(
+        YandexAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, "yandex", assistant.user_id
+
     # Cascade (OpenRouter LLM + Voximplant ASR/TTS)
     from backend.models.grok_assistant import GrokAssistantConfig
     assistant = db.query(GrokAssistantConfig).filter(
@@ -318,7 +327,7 @@ class SipConnectRequest(BaseModel):
     sip_password: str
     phone_number: str       # номер клиента у SIP провайдера (для входящих)
     assistant_id: str
-    assistant_type: str     # "gemini" | "openai" | "cartesia" | "cascade"
+    assistant_type: str     # "gemini" | "openai" | "cartesia" | "cascade" | "yandex"
     first_phrase: Optional[str] = None
     custom_proxy: Optional[str] = None  # только для provider="other"
 
@@ -358,6 +367,9 @@ class ScenarioConfigResponse(BaseModel):
     tts_voice:         Optional[str] = None
     tts_lang:          Optional[str] = None
     asr_lang:          Optional[str] = None
+    # Yandex-specific
+    folder_id:         Optional[str] = None
+    voice_role:        Optional[str] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -407,6 +419,9 @@ class OutboundConfigResponse(BaseModel):
     tts_voice:         Optional[str] = None
     tts_lang:          Optional[str] = None
     asr_lang:          Optional[str] = None
+    # Yandex-specific
+    folder_id:         Optional[str] = None
+    voice_role:        Optional[str] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -1842,6 +1857,13 @@ async def get_my_numbers(
                         GrokAssistantConfig.assistant_type == "cascade"
                     ).first()
                     assistant_name = assistant.name if assistant else None
+                elif num.assistant_type == "yandex":
+                    from backend.models.yandex_assistant import YandexAssistantConfig
+                    assistant = db.query(YandexAssistantConfig).filter(
+                        YandexAssistantConfig.id == num.assistant_id
+                    ).first()
+                    assistant_name = assistant.name if assistant else None
+                    assistant_model = assistant.model if assistant else None
 
             # 🆕 Если номер привязан к автономному агенту — берём имя агента
             agent_name = None
@@ -1992,6 +2014,12 @@ async def bind_assistant_to_number(
                 GrokAssistantConfig.assistant_type == "cascade",
                 GrokAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "yandex":
+            from backend.models.yandex_assistant import YandexAssistantConfig
+            assistant = db.query(YandexAssistantConfig).filter(
+                YandexAssistantConfig.id == assistant_uuid,
+                YandexAssistantConfig.user_id == current_user.id
+            ).first()
         elif request.assistant_type == "agent":
             # Привязка автономного агента: используем его голосовой ассистент.
             from backend.models.agent_config import AgentConfig
@@ -2024,7 +2052,7 @@ async def bind_assistant_to_number(
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade' или 'agent'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade', 'yandex' или 'agent'"
             )
 
         if not assistant:
@@ -2729,10 +2757,16 @@ async def start_outbound_call(
                 GrokAssistantConfig.assistant_type == "cascade",
                 GrokAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "yandex":
+            from backend.models.yandex_assistant import YandexAssistantConfig
+            assistant = db.query(YandexAssistantConfig).filter(
+                YandexAssistantConfig.id == assistant_uuid,
+                YandexAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia' или 'cascade'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade' или 'yandex'"
             )
 
         if not assistant:
@@ -3160,6 +3194,10 @@ async def get_outbound_config(
             pass  # cartesia-specific fields handled below
         elif assistant_type == "cascade":
             functions_config = assistant.functions
+        elif assistant_type == "yandex":
+            voice = assistant.voice or "marina"
+            language = assistant.language or "ru"
+            google_sheet_id = assistant.google_sheet_id
 
         # =====================================================================
         # 2. Получаем пользователя и API ключ
@@ -3174,6 +3212,7 @@ async def get_outbound_config(
         cartesia_api_key = None
         cartesia_voice_id = None
         voice_speed = None
+        folder_id = None
         if assistant_type == "openai":
             api_key = user.openai_api_key
         elif assistant_type == "gemini":
@@ -3185,6 +3224,9 @@ async def get_outbound_config(
             voice_speed = assistant.voice_speed
         elif assistant_type == "cascade":
             api_key = user.openrouter_api_key
+        elif assistant_type == "yandex":
+            api_key = user.yandex_api_key
+            folder_id = user.yandex_folder_id
 
         # =====================================================================
         # 3. Формируем функции
@@ -3231,7 +3273,7 @@ async def get_outbound_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if assistant_type == "openai"
-                else (assistant.model if assistant_type == "gemini" else None)
+                else (assistant.model if assistant_type in ("gemini", "yandex") else None)
             ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
@@ -3243,6 +3285,8 @@ async def get_outbound_config(
             tts_voice=assistant.tts_voice if assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if assistant_type == "cascade" else None,
+            folder_id=folder_id,
+            voice_role=assistant.voice_role if assistant_type == "yandex" else None,
         )
 
     except Exception as e:
@@ -4359,6 +4403,227 @@ async def admin_setup_cascade_scenarios(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/admin/setup-yandex-scenarios")
+async def admin_setup_yandex_scenarios(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    ADMIN ONLY: Скопировать inbound_yandex и outbound_yandex
+    на ВСЕ дочерние аккаунты + создать outbound_yandex rule.
+    Логика идентична /admin/setup-cascade-scenarios.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        service = get_voximplant_partner_service()
+
+        logger.info("[TELEPHONY-ADMIN] Fetching yandex scenarios from parent...")
+
+        yandex_scripts = {}
+        yandex_scenario_names = ["inbound_yandex", "outbound_yandex"]
+
+        parent_list = await service.get_parent_scenarios(with_script=False)
+        if not parent_list.get("success"):
+            raise HTTPException(status_code=500, detail="Failed to get parent scenarios")
+
+        for scenario in parent_list.get("scenarios", []):
+            scenario_name = scenario.get("scenario_name")
+            scenario_id = scenario.get("scenario_id")
+
+            if scenario_name not in yandex_scenario_names:
+                continue
+
+            script_result = await service.get_scenarios(
+                account_id=service.parent_account_id,
+                api_key=service.parent_api_key,
+                with_script=True,
+                scenario_id=scenario_id
+            )
+
+            if script_result.get("success") and script_result.get("scenarios"):
+                script = script_result["scenarios"][0].get("scenario_script")
+                if script:
+                    yandex_scripts[scenario_name] = script
+                    logger.info(f"[TELEPHONY-ADMIN] Loaded: {scenario_name} ({len(script)} chars)")
+
+        if not yandex_scripts:
+            raise HTTPException(
+                status_code=404,
+                detail="inbound_yandex / outbound_yandex not found on parent account."
+            )
+
+        logger.info(f"[TELEPHONY-ADMIN] Loaded yandex scripts: {list(yandex_scripts.keys())}")
+
+        child_accounts = db.query(VoximplantChildAccount).all()
+        logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
+
+        results = {
+            "total_accounts":   len(child_accounts),
+            "scripts_added":    0,
+            "scripts_updated":  0,
+            "rules_created":    0,
+            "skipped":          0,
+            "failed":           0,
+            "details":          []
+        }
+
+        for child in child_accounts:
+            account_result = {
+                "account_id":      child.vox_account_id,
+                "user_id":         str(child.user_id),
+                "scripts_added":   [],
+                "scripts_updated": [],
+                "rules_created":   [],
+                "errors":          []
+            }
+
+            if not child.vox_application_id:
+                results["skipped"] += 1
+                account_result["status"] = "skipped_no_app"
+                results["details"].append(account_result)
+                continue
+
+            scenario_ids = child.vox_scenario_ids or {}
+            rule_ids     = child.vox_rule_ids     or {}
+            changed      = False
+
+            for scenario_name, script in yandex_scripts.items():
+                if scenario_name in scenario_ids:
+                    update_result = await service.update_scenario(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        scenario_id=int(scenario_ids[scenario_name]),
+                        scenario_script=script
+                    )
+                    if update_result.get("success"):
+                        account_result["scripts_updated"].append(scenario_name)
+                    else:
+                        account_result["errors"].append(
+                            f"update {scenario_name}: {update_result.get('error')}"
+                        )
+                else:
+                    add_result = await service.add_scenario(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        scenario_name=scenario_name,
+                        scenario_script=script
+                    )
+                    if add_result.get("success"):
+                        scenario_ids[scenario_name] = str(add_result.get("scenario_id"))
+                        changed = True
+                        account_result["scripts_added"].append(scenario_name)
+                    elif "not unique" in (add_result.get("error") or "").lower():
+                        existing = await service.get_scenarios(
+                            account_id=child.vox_account_id,
+                            api_key=child.vox_api_key,
+                            with_script=False
+                        )
+                        found_id = None
+                        if existing.get("success"):
+                            for s in existing.get("scenarios", []):
+                                if s.get("scenario_name") == scenario_name:
+                                    found_id = s.get("scenario_id")
+                                    break
+                        if found_id:
+                            scenario_ids[scenario_name] = str(found_id)
+                            changed = True
+                            update_result = await service.update_scenario(
+                                child_account_id=child.vox_account_id,
+                                child_api_key=child.vox_api_key,
+                                scenario_id=int(found_id),
+                                scenario_script=script
+                            )
+                            if update_result.get("success"):
+                                account_result["scripts_updated"].append(scenario_name)
+                            else:
+                                account_result["errors"].append(
+                                    f"update_recovered {scenario_name}: {update_result.get('error')}"
+                                )
+                        else:
+                            account_result["errors"].append(
+                                f"add {scenario_name}: not unique, but could not find existing scenario"
+                            )
+                    else:
+                        account_result["errors"].append(
+                            f"add {scenario_name}: {add_result.get('error')}"
+                        )
+
+            if "outbound_yandex" not in rule_ids and "outbound_yandex" in scenario_ids:
+                rule_result = await service.add_rule(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    application_id=child.vox_application_id,
+                    rule_name="outbound_yandex",
+                    rule_pattern="outbound_yandex_.*",
+                    scenario_id=int(scenario_ids["outbound_yandex"])
+                )
+                if rule_result.get("success"):
+                    rule_ids["outbound_yandex"] = str(rule_result.get("rule_id"))
+                    changed = True
+                    account_result["rules_created"].append("outbound_yandex")
+                elif "not unique" in (rule_result.get("error") or "").lower():
+                    existing_rules = await service.get_rules(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        application_id=child.vox_application_id
+                    )
+                    found_rule = False
+                    for r in (existing_rules.get("rules") or []):
+                        if r.get("rule_name") == "outbound_yandex":
+                            rule_ids["outbound_yandex"] = str(r.get("rule_id"))
+                            changed = True
+                            found_rule = True
+                            break
+                    if not found_rule:
+                        account_result["errors"].append(
+                            "rule outbound_yandex: not unique, but could not find existing rule"
+                        )
+                else:
+                    account_result["errors"].append(
+                        f"rule outbound_yandex: {rule_result.get('error')}"
+                    )
+
+            if changed:
+                child.vox_scenario_ids = scenario_ids
+                child.vox_rule_ids     = rule_ids
+                flag_modified(child, "vox_scenario_ids")
+                flag_modified(child, "vox_rule_ids")
+                db.commit()
+
+            account_result["status"] = "partial" if account_result["errors"] else "ok"
+            results["scripts_added"]   += len(account_result["scripts_added"])
+            results["scripts_updated"] += len(account_result["scripts_updated"])
+            results["rules_created"]   += len(account_result["rules_created"])
+            if account_result["errors"]:
+                results["failed"] += 1
+            results["details"].append(account_result)
+
+        logger.info(
+            f"[TELEPHONY-ADMIN] Yandex setup complete: "
+            f"added={results['scripts_added']} updated={results['scripts_updated']} "
+            f"rules={results['rules_created']} failed={results['failed']}"
+        )
+
+        return {
+            "success": True,
+            "message": (
+                f"Scripts added: {results['scripts_added']}, "
+                f"updated: {results['scripts_updated']}, "
+                f"rules created: {results['rules_created']}"
+            ),
+            "results": results
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Yandex error: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/admin/setup-crm-rules")
 async def admin_setup_crm_rules(
     db: Session = Depends(get_db),
@@ -4795,6 +5060,20 @@ async def get_scenario_config(
                 system_prompt = assistant.system_prompt
                 functions_config = assistant.functions
 
+        elif phone_record.assistant_type == "yandex":
+            from backend.models.yandex_assistant import YandexAssistantConfig
+            assistant = db.query(YandexAssistantConfig).filter(
+                YandexAssistantConfig.id == phone_record.assistant_id
+            ).first()
+
+            if assistant:
+                assistant_name = assistant.name
+                system_prompt = assistant.system_prompt
+                voice = assistant.voice or "marina"
+                language = assistant.language or "ru"
+                functions_config = assistant.functions
+                google_sheet_id = assistant.google_sheet_id
+
         if not assistant:
             logger.warning(f"[TELEPHONY] Assistant not found: {phone_record.assistant_id}")
             return ScenarioConfigResponse(success=False)
@@ -4822,6 +5101,7 @@ async def get_scenario_config(
         cartesia_api_key = None
         cartesia_voice_id = None
         voice_speed = None
+        folder_id = None
         if phone_record.assistant_type == "openai":
             api_key = user.openai_api_key
         elif phone_record.assistant_type == "gemini":
@@ -4833,6 +5113,9 @@ async def get_scenario_config(
             voice_speed = assistant.voice_speed
         elif phone_record.assistant_type == "cascade":
             api_key = user.openrouter_api_key
+        elif phone_record.assistant_type == "yandex":
+            api_key = user.yandex_api_key
+            folder_id = user.yandex_folder_id
 
         # First phrase
         first_phrase = phone_record.first_phrase
@@ -4884,7 +5167,7 @@ async def get_scenario_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if phone_record.assistant_type == "openai"
-                else (assistant.model if phone_record.assistant_type == "gemini" else None)
+                else (assistant.model if phone_record.assistant_type in ("gemini", "yandex") else None)
             ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
@@ -4896,6 +5179,8 @@ async def get_scenario_config(
             tts_voice=assistant.tts_voice if phone_record.assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if phone_record.assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if phone_record.assistant_type == "cascade" else None,
+            folder_id=folder_id,
+            voice_role=assistant.voice_role if phone_record.assistant_type == "yandex" else None,
         )
 
     except Exception as e:

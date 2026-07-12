@@ -38,6 +38,8 @@ class UserUpdate(BaseModel):
     grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
     cartesia_api_key: Optional[str] = Field(None, description="Cartesia TTS API key")  # 🆕 v4.0
     openrouter_api_key: Optional[str] = Field(None, description="OpenRouter API key")  # 🆕 Cascade
+    yandex_api_key: Optional[str] = Field(None, description="Yandex Cloud API key")  # 🆕 Yandex
+    yandex_folder_id: Optional[str] = Field(None, description="Yandex Cloud folder ID")  # 🆕 Yandex
 
     class Config:
         json_schema_extra = {
@@ -50,7 +52,9 @@ class UserUpdate(BaseModel):
                 "gemini_api_key": "AIza...",
                 "grok_api_key": "xai-...",
                 "cartesia_api_key": "sk_car_...",
-                "openrouter_api_key": "sk-or-..."
+                "openrouter_api_key": "sk-or-...",
+                "yandex_api_key": "AQVN...",
+                "yandex_folder_id": "b1g..."
             }
         }
 
@@ -81,6 +85,8 @@ class UserResponse(UserBase):
     grok_api_key: Optional[str] = Field(None, description="xAI Grok API key")  # 🆕 v3.0
     cartesia_api_key: Optional[str] = Field(None, description="Cartesia TTS API key")  # 🆕 v4.0
     openrouter_api_key: Optional[str] = Field(None, description="OpenRouter API key")  # 🆕 Cascade
+    yandex_api_key: Optional[str] = Field(None, description="Yandex Cloud API key")  # 🆕 Yandex
+    yandex_folder_id: Optional[str] = Field(None, description="Yandex Cloud folder ID")  # 🆕 Yandex
 
     # ✅ Статусы наличия API ключей
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
@@ -89,6 +95,7 @@ class UserResponse(UserBase):
     has_grok_api_key: bool = Field(False, description="Whether user has Grok API key set")  # 🆕 v3.0
     has_cartesia_api_key: bool = Field(False, description="Whether user has Cartesia API key set")  # 🆕 v4.0
     has_openrouter_api_key: bool = Field(False, description="Whether user has OpenRouter API key set")  # 🆕 Cascade
+    has_yandex_api_key: bool = Field(False, description="Whether user has Yandex Cloud API key set")  # 🆕 Yandex
     
     # ✅ Поля тарификации
     is_trial: bool = Field(False, description="Whether user is in trial period")

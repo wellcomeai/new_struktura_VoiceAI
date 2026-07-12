@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Яндекс Ассистенты — Voicyfy (dev)</title>
+  <style>
+    :root {
+      --primary: #fc3f1d;
+      --primary-dark: #d93517;
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+      --success: #10b981;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 24px;
+    }
+    .page-header h1 { font-size: 1.6rem; display: flex; align-items: center; gap: 10px; }
+    .dev-badge {
+      background: #fef3c7; color: #92400e; font-size: 0.7rem; font-weight: 700;
+      padding: 3px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .header-actions { display: flex; gap: 10px; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; margin-bottom: 20px;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 14px; }
+
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .form-group { flex: 1; min-width: 220px; }
+    .form-group label {
+      display: block; font-size: 0.82rem; font-weight: 600;
+      color: var(--text-muted); margin-bottom: 5px;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; padding: 9px 12px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 0.92rem; font-family: inherit;
+      background: #fff; color: var(--text);
+    }
+    .form-group textarea { resize: vertical; min-height: 90px; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: none; border-color: var(--primary);
+    }
+    .hint { font-size: 0.76rem; color: var(--text-muted); margin-top: 4px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 16px; border: none; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-secondary { background: #eef0f3; color: var(--text); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-sm { padding: 6px 12px; font-size: 0.82rem; }
+
+    .keys-status { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+    .key-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.84rem; padding: 6px 12px; border-radius: 999px;
+      background: #eef0f3; color: var(--text-muted);
+    }
+    .key-chip.ok { background: #ecfdf5; color: #047857; }
+
+    .assistants-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+    .assistant-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .assistant-card .a-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .assistant-card h3 { font-size: 1.02rem; word-break: break-word; }
+    .assistant-card .a-meta { font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; }
+    .assistant-card .a-meta code {
+      background: #f3f4f6; padding: 1px 6px; border-radius: 5px; font-size: 0.76rem;
+      word-break: break-all;
+    }
+    .assistant-card .a-actions { display: flex; gap: 8px; margin-top: auto; flex-wrap: wrap; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex-shrink: 0; margin-top: 5px; }
+    .status-dot.on { background: var(--success); }
+    .status-dot.off { background: #9ca3af; }
+
+    .empty-state {
+      text-align: center; padding: 48px 16px; color: var(--text-muted);
+      background: var(--card); border: 1px dashed var(--border); border-radius: var(--radius);
+    }
+
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(17, 24, 39, 0.55);
+      z-index: 100; align-items: flex-start; justify-content: center;
+      padding: 32px 16px; overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--card); border-radius: var(--radius);
+      width: 100%; max-width: 720px; padding: 24px;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+    .modal-head h2 { font-size: 1.15rem; }
+    .modal-close { background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--text-muted); }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: #111827; color: #fff; padding: 12px 20px; border-radius: 10px;
+      font-size: 0.9rem; opacity: 0; pointer-events: none; transition: opacity 0.25s;
+      z-index: 200; max-width: 90vw;
+    }
+    #toast.show { opacity: 1; }
+    #toast.error { background: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="page-header">
+      <h1>🟡 Яндекс Ассистенты <span class="dev-badge">dev</span></h1>
+      <div class="header-actions">
+        <a href="/static/dashboard.html" class="btn btn-secondary btn-sm">← Дашборд</a>
+        <button class="btn btn-primary" onclick="openCreateModal()">+ Создать ассистента</button>
+      </div>
+    </div>
+
+    <!-- Yandex Cloud credentials -->
+    <div class="card">
+      <h2>Креды Yandex Cloud</h2>
+      <div class="keys-status">
+        <span class="key-chip" id="chip-key">API-ключ: не задан</span>
+        <span class="key-chip" id="chip-folder">Folder ID: не задан</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="input-api-key">API-ключ Yandex Cloud</label>
+          <input type="password" id="input-api-key" placeholder="AQVN..." autocomplete="off">
+          <div class="hint">Оставьте пустым, чтобы не менять. Отправьте пустую строку через «Очистить», чтобы удалить.</div>
+        </div>
+        <div class="form-group">
+          <label for="input-folder-id">Folder ID (каталог)</label>
+          <input type="text" id="input-folder-id" placeholder="b1g..." autocomplete="off">
+          <div class="hint">Каталог Yandex Cloud, с которого списываются токены.</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="saveKeys()">Сохранить креды</button>
+        <button class="btn btn-secondary btn-sm" onclick="clearKeys()">Очистить креды</button>
+      </div>
+    </div>
+
+    <!-- Assistants -->
+    <div id="assistants-container">
+      <div class="empty-state">Загрузка…</div>
+    </div>
+  </div>
+
+  <!-- Create/Edit modal -->
+  <div class="modal-overlay" id="assistant-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="modal-title">Создать ассистента</h2>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-name">Название *</label>
+          <input type="text" id="f-name" placeholder="Мой Яндекс ассистент">
+        </div>
+        <div class="form-group">
+          <label for="f-description">Описание</label>
+          <input type="text" id="f-description" placeholder="Для чего этот ассистент">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-model">Модель</label>
+          <select id="f-model"></select>
+          <div class="hint">Дефолт: speech-realtime-260528</div>
+        </div>
+        <div class="form-group">
+          <label for="f-voice">Голос</label>
+          <select id="f-voice"></select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-voice-role">Амплуа голоса (role)</label>
+          <input type="text" id="f-voice-role" placeholder="например: friendly (опционально)">
+        </div>
+        <div class="form-group">
+          <label for="f-language">Язык</label>
+          <input type="text" id="f-language" value="ru">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-temperature">Temperature (0–2)</label>
+          <input type="number" id="f-temperature" min="0" max="2" step="0.1" value="0.7">
+        </div>
+        <div class="form-group">
+          <label for="f-max-tokens">Max tokens</label>
+          <input type="number" id="f-max-tokens" min="1" max="32768" step="1" value="4096">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-greeting">Первая фраза (приветствие)</label>
+          <input type="text" id="f-greeting" maxlength="500" value="Здравствуйте! Чем я могу вам помочь?">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-system-prompt">Системный промпт</label>
+          <textarea id="f-system-prompt" rows="6" placeholder="Инструкции для ассистента…"></textarea>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-functions">Функции (JSON)</label>
+          <textarea id="f-functions" rows="4" placeholder='{"enabled_functions": ["send_webhook"]}'></textarea>
+          <div class="hint">Формат как у Gemini/OpenAI ассистентов. Оставьте пустым, если функции не нужны.</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-google-sheet">Google Sheet ID (логирование)</label>
+          <input type="text" id="f-google-sheet" placeholder="опционально">
+        </div>
+        <div class="form-group" id="f-active-wrap" style="display:none;">
+          <label for="f-active">Статус</label>
+          <select id="f-active">
+            <option value="true">Активен</option>
+            <option value="false">Выключен</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Отмена</button>
+        <button class="btn btn-primary" id="modal-save-btn" onclick="saveAssistant()">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const API_BASE_URL = '';
+    const DEFAULT_MODELS = ['speech-realtime-260528', 'speech-realtime-250923'];
+    const DEFAULT_VOICES = ['marina', 'dasha', 'alexander', 'julia', 'lera', 'masha', 'anton', 'kirill', 'filipp', 'ermil', 'jane', 'omazh', 'zahar'];
+
+    let assistants = [];
+    let editingId = null;
+    let options = { models: DEFAULT_MODELS, default_model: 'speech-realtime-260528', voices: DEFAULT_VOICES };
+
+    // ==================== AUTH / API ====================
+
+    function getToken() {
+      return localStorage.getItem('auth_token');
+    }
+
+    function checkAuth() {
+      if (!getToken()) {
+        window.location.href = '/static/login.html';
+        return false;
+      }
+      return true;
+    }
+
+    async function apiRequest(endpoint, opts = {}) {
+      const token = getToken();
+      if (!opts.headers) opts.headers = {};
+      opts.headers['Authorization'] = `Bearer ${token}`;
+
+      if (opts.body && typeof opts.body !== 'string') {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(opts.body);
+      }
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, opts);
+
+      if (response.status === 401) {
+        localStorage.removeItem('auth_token');
+        window.location.href = '/static/login.html';
+        throw new Error('Требуется авторизация');
+      }
+
+      if (response.status === 204) return null;
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.detail || data.message || 'Ошибка запроса');
+      }
+      return data;
+    }
+
+    // ==================== TOAST ====================
+
+    let toastTimer = null;
+    function toast(msg, isError = false) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = isError ? 'show error' : 'show';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+    }
+
+    // ==================== KEYS ====================
+
+    function renderKeysStatus(status) {
+      const chipKey = document.getElementById('chip-key');
+      const chipFolder = document.getElementById('chip-folder');
+
+      if (status.has_yandex_key) {
+        chipKey.textContent = `API-ключ: ${status.yandex_key_preview || 'задан'}`;
+        chipKey.className = 'key-chip ok';
+      } else {
+        chipKey.textContent = 'API-ключ: не задан';
+        chipKey.className = 'key-chip';
+      }
+
+      if (status.has_folder_id) {
+        chipFolder.textContent = `Folder ID: ${status.yandex_folder_id}`;
+        chipFolder.className = 'key-chip ok';
+      } else {
+        chipFolder.textContent = 'Folder ID: не задан';
+        chipFolder.className = 'key-chip';
+      }
+    }
+
+    async function loadKeys() {
+      try {
+        const status = await apiRequest('/api/yandex-assistants/api-keys');
+        renderKeysStatus(status);
+      } catch (e) {
+        toast('Не удалось загрузить статус кредов: ' + e.message, true);
+      }
+    }
+
+    async function saveKeys() {
+      const apiKey = document.getElementById('input-api-key').value.trim();
+      const folderId = document.getElementById('input-folder-id').value.trim();
+
+      if (!apiKey && !folderId) {
+        toast('Введите API-ключ и/или Folder ID', true);
+        return;
+      }
+
+      const body = {};
+      if (apiKey) body.yandex_api_key = apiKey;
+      if (folderId) body.yandex_folder_id = folderId;
+
+      try {
+        const status = await apiRequest('/api/yandex-assistants/api-keys', { method: 'PUT', body });
+        renderKeysStatus(status);
+        document.getElementById('input-api-key').value = '';
+        document.getElementById('input-folder-id').value = '';
+        toast('Креды сохранены');
+      } catch (e) {
+        toast('Ошибка сохранения кредов: ' + e.message, true);
+      }
+    }
+
+    async function clearKeys() {
+      if (!confirm('Удалить API-ключ и Folder ID?')) return;
+      try {
+        const status = await apiRequest('/api/yandex-assistants/api-keys', {
+          method: 'PUT',
+          body: { yandex_api_key: '', yandex_folder_id: '' }
+        });
+        renderKeysStatus(status);
+        toast('Креды удалены');
+      } catch (e) {
+        toast('Ошибка: ' + e.message, true);
+      }
+    }
+
+    // ==================== OPTIONS (модели/голоса) ====================
+
+    async function loadOptions() {
+      try {
+        const data = await apiRequest('/api/yandex-assistants/options');
+        if (data && data.models && data.models.length) options = data;
+      } catch (e) {
+        // используем дефолты
+      }
+      fillSelect('f-model', options.models, options.default_model);
+      fillSelect('f-voice', options.voices, 'marina');
+    }
+
+    function fillSelect(id, items, selected) {
+      const sel = document.getElementById(id);
+      sel.innerHTML = '';
+      items.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        if (v === selected) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    // ==================== ASSISTANTS ====================
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    async function loadAssistants() {
+      const container = document.getElementById('assistants-container');
+      try {
+        const data = await apiRequest('/api/yandex-assistants');
+        assistants = data.assistants || [];
+
+        if (!assistants.length) {
+          container.innerHTML = '<div class="empty-state">Пока нет Яндекс-ассистентов.<br>Создайте первого кнопкой «+ Создать ассистента».</div>';
+          return;
+        }
+
+        container.innerHTML = '<div class="assistants-grid">' + assistants.map(a => `
+          <div class="assistant-card">
+            <div class="a-head">
+              <h3>${esc(a.name)}</h3>
+              <span class="status-dot ${a.is_active ? 'on' : 'off'}" title="${a.is_active ? 'Активен' : 'Выключен'}"></span>
+            </div>
+            <div class="a-meta">
+              ${a.description ? esc(a.description) + '<br>' : ''}
+              Модель: <b>${esc(a.model)}</b><br>
+              Голос: <b>${esc(a.voice)}</b>${a.voice_role ? ' / ' + esc(a.voice_role) : ''} · ${esc(a.language)}<br>
+              temp: ${a.temperature} · max_tokens: ${a.max_tokens}<br>
+              ID: <code>${a.id}</code>
+            </div>
+            <div class="a-actions">
+              <button class="btn btn-secondary btn-sm" onclick="openEditModal('${a.id}')">Редактировать</button>
+              <button class="btn btn-secondary btn-sm" onclick="copyId('${a.id}')">Копировать ID</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteAssistant('${a.id}')">Удалить</button>
+            </div>
+          </div>
+        `).join('') + '</div>';
+      } catch (e) {
+        container.innerHTML = `<div class="empty-state">Ошибка загрузки: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function copyId(id) {
+      navigator.clipboard.writeText(id).then(() => toast('ID скопирован'));
+    }
+
+    // ==================== MODAL ====================
+
+    function openCreateModal() {
+      editingId = null;
+      document.getElementById('modal-title').textContent = 'Создать ассистента';
+      document.getElementById('f-active-wrap').style.display = 'none';
+      document.getElementById('f-name').value = '';
+      document.getElementById('f-description').value = '';
+      document.getElementById('f-system-prompt').value = '';
+      document.getElementById('f-voice-role').value = '';
+      document.getElementById('f-language').value = 'ru';
+      document.getElementById('f-temperature').value = '0.7';
+      document.getElementById('f-max-tokens').value = '4096';
+      document.getElementById('f-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
+      document.getElementById('f-functions').value = '';
+      document.getElementById('f-google-sheet').value = '';
+      fillSelect('f-model', options.models, options.default_model);
+      fillSelect('f-voice', options.voices, 'marina');
+      document.getElementById('assistant-modal').classList.add('open');
+    }
+
+    function openEditModal(id) {
+      const a = assistants.find(x => x.id === id);
+      if (!a) return;
+      editingId = id;
+      document.getElementById('modal-title').textContent = 'Редактировать ассистента';
+      document.getElementById('f-active-wrap').style.display = '';
+      document.getElementById('f-name').value = a.name || '';
+      document.getElementById('f-description').value = a.description || '';
+      document.getElementById('f-system-prompt').value = a.system_prompt || '';
+      document.getElementById('f-voice-role').value = a.voice_role || '';
+      document.getElementById('f-language').value = a.language || 'ru';
+      document.getElementById('f-temperature').value = a.temperature ?? 0.7;
+      document.getElementById('f-max-tokens').value = a.max_tokens ?? 4096;
+      document.getElementById('f-greeting').value = a.greeting_message || '';
+      document.getElementById('f-functions').value = a.functions ? JSON.stringify(a.functions, null, 2) : '';
+      document.getElementById('f-google-sheet').value = a.google_sheet_id || '';
+      document.getElementById('f-active').value = String(!!a.is_active);
+
+      const models = options.models.includes(a.model) ? options.models : [a.model, ...options.models];
+      fillSelect('f-model', models, a.model);
+      const voices = options.voices.includes(a.voice) ? options.voices : [a.voice, ...options.voices];
+      fillSelect('f-voice', voices, a.voice);
+
+      document.getElementById('assistant-modal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('assistant-modal').classList.remove('open');
+    }
+
+    async function saveAssistant() {
+      const name = document.getElementById('f-name').value.trim();
+      if (!name) {
+        toast('Введите название ассистента', true);
+        return;
+      }
+
+      let functions = null;
+      const functionsRaw = document.getElementById('f-functions').value.trim();
+      if (functionsRaw) {
+        try {
+          functions = JSON.parse(functionsRaw);
+        } catch (e) {
+          toast('Функции: невалидный JSON', true);
+          return;
+        }
+      }
+
+      const body = {
+        name,
+        description: document.getElementById('f-description').value.trim() || null,
+        system_prompt: document.getElementById('f-system-prompt').value || null,
+        model: document.getElementById('f-model').value,
+        voice: document.getElementById('f-voice').value,
+        voice_role: document.getElementById('f-voice-role').value.trim() || null,
+        language: document.getElementById('f-language').value.trim() || 'ru',
+        greeting_message: document.getElementById('f-greeting').value || null,
+        temperature: parseFloat(document.getElementById('f-temperature').value) || 0.7,
+        max_tokens: parseInt(document.getElementById('f-max-tokens').value, 10) || 4096,
+        functions,
+        google_sheet_id: document.getElementById('f-google-sheet').value.trim() || null,
+      };
+
+      const btn = document.getElementById('modal-save-btn');
+      btn.disabled = true;
+
+      try {
+        if (editingId) {
+          body.is_active = document.getElementById('f-active').value === 'true';
+          await apiRequest(`/api/yandex-assistants/${editingId}`, { method: 'PUT', body });
+          toast('Ассистент обновлён');
+        } else {
+          await apiRequest('/api/yandex-assistants', { method: 'POST', body });
+          toast('Ассистент создан');
+        }
+        closeModal();
+        await loadAssistants();
+      } catch (e) {
+        toast('Ошибка сохранения: ' + e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteAssistant(id) {
+      const a = assistants.find(x => x.id === id);
+      if (!confirm(`Удалить ассистента «${a ? a.name : id}»? Это действие необратимо.`)) return;
+      try {
+        await apiRequest(`/api/yandex-assistants/${id}`, { method: 'DELETE' });
+        toast('Ассистент удалён');
+        await loadAssistants();
+      } catch (e) {
+        toast('Ошибка удаления: ' + e.message, true);
+      }
+    }
+
+    // ==================== INIT ====================
+
+    document.getElementById('assistant-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
+    (async function init() {
+      if (!checkAuth()) return;
+      await loadOptions();
+      await Promise.all([loadKeys(), loadAssistants()]);
+    })();
+  </script>
+</body>
+</html>

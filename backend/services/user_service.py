@@ -76,6 +76,8 @@ class UserService:
             grok_api_key=user.grok_api_key,  # 🆕 v3.0
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
             openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
+            yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+            yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
@@ -84,6 +86,7 @@ class UserService:
             has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
             has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+            has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
 
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -134,6 +137,8 @@ class UserService:
             grok_api_key=user.grok_api_key,  # 🆕 v3.0
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
             openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
+            yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+            yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
             # ✅ Статусы наличия ключей
             has_api_key=bool(user.openai_api_key),
@@ -142,6 +147,7 @@ class UserService:
             has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
             has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+            has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
 
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -208,6 +214,13 @@ class UserService:
             if 'openrouter_api_key' in update_data:
                 user.openrouter_api_key = update_data.pop('openrouter_api_key')
 
+            # 🆕 Yandex: Обработка кредов Yandex Cloud
+            if 'yandex_api_key' in update_data:
+                user.yandex_api_key = update_data.pop('yandex_api_key')
+
+            if 'yandex_folder_id' in update_data:
+                user.yandex_folder_id = update_data.pop('yandex_folder_id')
+
             # Обновляем остальные поля
             for key, value in update_data.items():
                 setattr(user, key, value)
@@ -232,6 +245,8 @@ class UserService:
                 grok_api_key=user.grok_api_key,  # 🆕 v3.0
                 cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
                 openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
+                yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+                yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
                 # ✅ Статусы наличия ключей
                 has_api_key=bool(user.openai_api_key),
@@ -240,6 +255,7 @@ class UserService:
                 has_grok_api_key=bool(user.grok_api_key),  # 🆕 v3.0
                 has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
                 has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
+                has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
 
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,

@@ -43,6 +43,9 @@ from .cartesia_assistant import CartesiaAssistantConfig
 # ✅ НОВОЕ v1.0: Импортируем Translate модели (OpenAI Realtime Translation API)
 from .translate_assistant import TranslateAssistantConfig, TranslateConversation
 
+# ✅ НОВОЕ: Импортируем Yandex модели (Yandex SpeechKit Realtime API)
+from .yandex_assistant import YandexAssistantConfig, YandexConversation
+
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
 
@@ -115,6 +118,9 @@ __all__ = [
     # ✅ НОВОЕ v1.0: Translate модели (OpenAI Realtime Translation)
     "TranslateAssistantConfig",
     "TranslateConversation",
+    # ✅ НОВОЕ: Yandex модели (Yandex SpeechKit Realtime API)
+    "YandexAssistantConfig",
+    "YandexConversation",
     # ✅ НОВОЕ: CRM модели
     "Contact",
     "ContactNote",
