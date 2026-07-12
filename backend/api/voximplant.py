@@ -31,6 +31,7 @@ from backend.db.session import get_db, SessionLocal
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig, YandexConversation
 from backend.models.user import User
 from backend.models.conversation import Conversation
 from backend.models.voximplant_child import VoximplantChildAccount
@@ -52,10 +53,10 @@ router = APIRouter()
 
 def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
     """
-    Ищет ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+    Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia и Yandex.
 
     Returns:
-        tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | None
+        tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | None
     """
     assistant = None
     assistant_type = None
@@ -77,6 +78,11 @@ def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
                 assistant = db.query(CartesiaAssistantConfig).get(assistant_uuid)
                 if assistant:
                     assistant_type = "cartesia"
+                else:
+                    # Если не найден - проверяем Yandex
+                    assistant = db.query(YandexAssistantConfig).get(assistant_uuid)
+                    if assistant:
+                        assistant_type = "yandex"
 
     except ValueError:
         # Пробуем как строку
@@ -97,6 +103,12 @@ def find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
                 ).first()
                 if assistant:
                     assistant_type = "cartesia"
+                else:
+                    assistant = db.query(YandexAssistantConfig).filter(
+                        YandexAssistantConfig.id.cast(str) == assistant_id
+                    ).first()
+                    if assistant:
+                        assistant_type = "yandex"
 
     return assistant, assistant_type
 
@@ -1351,7 +1363,31 @@ async def log_conversation_data(
             except Exception as db_error:
                 logger.error(f"[VOXIMPLANT-v3.9] ❌ Ошибка сохранения в БД: {db_error}")
                 logger.error(f"[VOXIMPLANT-v3.9] Traceback: {traceback.format_exc()}")
-            
+
+            # ================================================================
+            # 🆕 Yandex: дублируем лог в yandex_conversations —
+            # эту таблицу читает GET /api/yandex-assistants/{id}/conversations
+            # (история диалогов на странице Яндекс-агентов)
+            # ================================================================
+            if assistant_type == "yandex":
+                try:
+                    yandex_conv = YandexConversation(
+                        assistant_id=assistant.id,
+                        session_id=conversation_id or str(uuid.uuid4()),
+                        user_message=user_message or "",
+                        assistant_message=assistant_message or "",
+                        function_result=function_result if function_result else None,
+                        caller_number=normalized_phone,
+                        call_direction=(call_direction or "").lower() or None,
+                        audio_duration_ms=int(float(call_duration) * 1000) if call_duration else 0,
+                    )
+                    db.add(yandex_conv)
+                    db.commit()
+                    logger.info(f"[VOXIMPLANT-v3.9] ✅ Лог продублирован в yandex_conversations: {yandex_conv.id}")
+                except Exception as yc_error:
+                    db.rollback()
+                    logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Не удалось записать в yandex_conversations: {yc_error}")
+
             # ================================================================
             # 🆕 v3.9: TELEGRAM УВЕДОМЛЕНИЕ
             # ================================================================

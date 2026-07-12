@@ -22,6 +22,7 @@ from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.function_log import FunctionLog
 from backend.schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
 
@@ -38,14 +39,14 @@ class ConversationService:
     @staticmethod
     def _find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
         """
-        Ищет ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+        Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia и Yandex.
 
         Args:
             db: Database session
             assistant_id: UUID ассистента как строка
 
         Returns:
-            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | None
+            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | None
         """
         assistant = None
         assistant_type = None
@@ -67,6 +68,11 @@ class ConversationService:
                     assistant = db.query(CartesiaAssistantConfig).get(assistant_uuid)
                     if assistant:
                         assistant_type = "cartesia"
+                    else:
+                        # Если не найден - проверяем Yandex
+                        assistant = db.query(YandexAssistantConfig).get(assistant_uuid)
+                        if assistant:
+                            assistant_type = "yandex"
 
         except ValueError:
             # Пробуем как строку
@@ -87,6 +93,12 @@ class ConversationService:
                     ).first()
                     if assistant:
                         assistant_type = "cartesia"
+                    else:
+                        assistant = db.query(YandexAssistantConfig).filter(
+                            YandexAssistantConfig.id.cast(str) == assistant_id
+                        ).first()
+                        if assistant:
+                            assistant_type = "yandex"
 
         return assistant, assistant_type
     
