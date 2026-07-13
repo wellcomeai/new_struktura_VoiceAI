@@ -327,6 +327,7 @@
         .assistant-type-tab.active.openai i { color: var(--success-green); }
         .assistant-type-tab.active.gemini i { color: var(--primary-blue); }
         .assistant-type-tab.active.cartesia i { color: #8b5cf6; }
+        .assistant-type-tab.active.yandex i { color: #fc3f1d; }
         
         /* Phones Counter */
         .phones-counter {
@@ -646,6 +647,10 @@
                             <i class="fas fa-headset"></i>
                             Cartesia
                         </div>
+                        <div class="assistant-type-tab yandex" data-type="yandex">
+                            <i class="fab fa-yandex"></i>
+                            Яндекс
+                        </div>
                     </div>
                     
                     <div id="assistantLoading" class="loading-state">
@@ -663,7 +668,7 @@
                         <div class="empty-state">
                             <i class="fas fa-robot"></i>
                             <p>Нет доступных ассистентов</p>
-                            <a href="/static/agents.html">Создать ассистента →</a>
+                            <a href="/static/agents.html" id="createAssistantLink">Создать ассистента →</a>
                         </div>
                     </div>
                 </div>
@@ -773,7 +778,8 @@
             assistants: {
                 openai: [],
                 gemini: [],
-                cartesia: []
+                cartesia: [],
+                yandex: []
             },
             numbers: [],
             isLoading: false,
@@ -891,6 +897,8 @@
                     endpoint = '/api/gemini-assistants/';
                 } else if (type === 'cartesia') {
                     endpoint = '/api/cartesia-assistants/';
+                } else if (type === 'yandex') {
+                    endpoint = '/api/yandex-assistants';
                 }
                 
                 const response = await fetchWithAuth(endpoint);
@@ -1025,6 +1033,17 @@
             elements.assistantLoading.classList.add('d-none');
             elements.assistantContent.classList.add('d-none');
             elements.noAssistants.classList.remove('d-none');
+
+            const createLinks = {
+                openai: '/static/agents.html',
+                gemini: '/static/gemini-agents.html',
+                cartesia: '/static/cartesia-agents.html',
+                yandex: '/static/yandex-agents.html'
+            };
+            const link = document.getElementById('createAssistantLink');
+            if (link) {
+                link.href = createLinks[state.assistantType] || '/static/agents.html';
+            }
         }
         
         function updateUI() {
