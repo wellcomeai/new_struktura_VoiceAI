@@ -1276,6 +1276,7 @@
     let currentAgentId = null;
     let agents = [];
     let availableFunctions = [];
+    let currentAgentFunctions = null; // функции агента как пришли с сервера (страховка от затирания)
     let isLoading = false;
     let currentUserPlanCode = 'free';
     let yandexOptions = { models: DEFAULT_MODELS, default_model: 'speech-realtime-260528', voices: DEFAULT_VOICES };
@@ -1772,6 +1773,9 @@
     async function loadAgentData(id) {
       setLoading(true);
       try {
+        // Чекбоксы функций должны существовать ДО fillAgentForm → loadFunctions,
+        // иначе состояние галочек молча теряется (и затирается при сохранении)
+        if (availableFunctions.length === 0) await loadAvailableFunctions();
         const agent = await apiRequest(`/yandex-assistants/${id}`);
         fillAgentForm(agent);
         currentAgentId = id;
@@ -1808,6 +1812,7 @@
       const voices = yandexOptions.voices.includes(agent.voice) ? yandexOptions.voices : [agent.voice, ...yandexOptions.voices];
       fillSelect('agent-voice', voices, agent.voice);
 
+      currentAgentFunctions = agent.functions || null;
       loadFunctions(agent.functions);
     }
 
@@ -1820,6 +1825,12 @@
         }
       });
 
+      // Если список функций не загрузился (чекбоксов нет) — не затираем
+      // сохранённые функции агента, отправляем их как есть
+      const functionsValue = (availableFunctions.length === 0)
+        ? currentAgentFunctions
+        : (enabledFunctions.length > 0 ? enabledFunctions : null);
+
       return {
         name: document.getElementById('agent-name').value.trim(),
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
@@ -1831,7 +1842,7 @@
         language: document.getElementById('agent-language').value.trim() || 'ru',
         temperature: parseFloat(document.getElementById('agent-temperature').value) || 0.7,
         max_tokens: parseInt(document.getElementById('agent-max-tokens').value, 10) || 4096,
-        functions: enabledFunctions.length > 0 ? enabledFunctions : null,
+        functions: functionsValue,
       };
     }
 
@@ -2001,18 +2012,30 @@
     // ============================================================================
     // NAVIGATION
     // ============================================================================
+    // Состояние страницы живёт в URL (?id= / ?mode=create) — initPage()
+    // восстанавливает его после перезагрузки
+    function setUrlState(params) {
+      const url = new URL(window.location);
+      url.searchParams.delete('id');
+      url.searchParams.delete('mode');
+      Object.entries(params || {}).forEach(([k, v]) => url.searchParams.set(k, v));
+      history.replaceState(null, '', url);
+    }
+
     function navigateToCreateAgent() {
       if (!canCreateAssistant()) {
         showLimitReachedNotification();
         return;
       }
       currentAgentId = null;
+      setUrlState({ mode: 'create' });
       initCreateMode();
       switchToEditMode();
     }
 
     function editAgent(id) {
       currentAgentId = id;
+      setUrlState({ id: id });
       switchToEditMode();
       loadAgentData(id);
     }
@@ -2039,6 +2062,8 @@
       document.getElementById('create-agent-btn').style.display = 'inline-flex';
       updateCreateButtonState();
       currentAgentId = null;
+      currentAgentFunctions = null;
+      setUrlState({});
     }
 
     function initCreateMode() {
@@ -2063,6 +2088,7 @@
       fillSelect('agent-voice', yandexOptions.voices, 'marina');
 
       // Сбрасываем функции
+      currentAgentFunctions = null;
       document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
         cb.checked = false;
         const info = document.getElementById(`${cb.dataset.functionName}-info`);
