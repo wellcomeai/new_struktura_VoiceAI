@@ -1266,6 +1266,56 @@ def ensure_voice_assistant_fk_rules():
         logger.error(f"❌ ensure_voice_assistant_fk_rules error: {e}")
 
 
+def ensure_yandex_agent_columns():
+    """
+    Идемпотентно добавляет FK-колонки yandex_assistant_id для поддержки
+    Яндекс-ассистентов в качестве голосовых у автономного агента:
+      - agent_configs.yandex_assistant_id → yandex_assistant_configs (SET NULL)
+      - tasks.yandex_assistant_id → yandex_assistant_configs (SET NULL)
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('yandex_assistant_configs'):
+            return
+
+        targets = [
+            ("agent_configs", "agent_configs_yandex_assistant_id_fkey"),
+            ("tasks", "tasks_yandex_assistant_id_fkey"),
+        ]
+        for table, fk_name in targets:
+            if not inspector.has_table(table):
+                continue
+            existing = {c['name'] for c in inspector.get_columns(table)}
+            if 'yandex_assistant_id' in existing:
+                continue
+            with engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} "
+                        f"ADD COLUMN IF NOT EXISTS yandex_assistant_id UUID"
+                    ))
+                    conn.execute(text(
+                        f"ALTER TABLE {table} "
+                        f"ADD CONSTRAINT {fk_name} "
+                        f"FOREIGN KEY (yandex_assistant_id) "
+                        f"REFERENCES yandex_assistant_configs(id) ON DELETE SET NULL"
+                    ))
+                    conn.execute(text(
+                        f"CREATE INDEX IF NOT EXISTS ix_{table}_yandex_assistant_id "
+                        f"ON {table} (yandex_assistant_id)"
+                    ))
+                    trans.commit()
+                    logger.info(f"✅ Added column {table}.yandex_assistant_id")
+                except Exception as e:
+                    trans.rollback()
+                    logger.error(f"❌ Failed to add {table}.yandex_assistant_id: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_yandex_agent_columns error: {e}")
+
+
 def ensure_agent_connectors_table():
     """
     Идемпотентно создаёт таблицу agent_connectors (внешние коннекторы агента
@@ -1430,6 +1480,9 @@ async def startup_event():
 
                 # 🆕 Шаг 21: Таблицы личного Telegram-аккаунта агента (MTProto)
                 ensure_agent_telegram_account_tables()
+
+                # 🆕 Шаг 22: FK-колонки yandex_assistant_id (агент + задачи)
+                ensure_yandex_agent_columns()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

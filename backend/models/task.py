@@ -76,6 +76,14 @@ class Task(Base):
         nullable=True,
         index=True
     )
+
+    # Yandex ассистент - КТО будет звонить (nullable)
+    yandex_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("yandex_assistant_configs.id"),
+        nullable=True,
+        index=True
+    )
     
     # Пользователь - владелец задачи (обязательно)
     user_id = Column(
@@ -165,6 +173,7 @@ class Task(Base):
     assistant = relationship("AssistantConfig", foreign_keys=[assistant_id])
     gemini_assistant = relationship("GeminiAssistantConfig", foreign_keys=[gemini_assistant_id])
     cartesia_assistant = relationship("CartesiaAssistantConfig", foreign_keys=[cartesia_assistant_id])
+    yandex_assistant = relationship("YandexAssistantConfig", foreign_keys=[yandex_assistant_id])
     user = relationship("User")
     
     # ==================== Constraints & Indexes ====================
@@ -181,16 +190,18 @@ class Task(Base):
     )
     
     def __repr__(self):
-        assistant_type = "OpenAI" if self.assistant_id else ("Gemini" if self.gemini_assistant_id else "Cartesia")
+        assistant_type = self.get_assistant_type().capitalize()
         greeting_info = " (custom greeting)" if self.custom_greeting else ""
         return f"<Task {self.title} at {self.scheduled_time} ({assistant_type}, status={self.status.value}){greeting_info}>"
-    
+
     def get_assistant_type(self) -> str:
         """Определить тип ассистента"""
         if self.assistant_id:
             return "openai"
         elif self.gemini_assistant_id:
             return "gemini"
+        elif self.yandex_assistant_id:
+            return "yandex"
         else:
             return "cartesia"
 
@@ -200,6 +211,8 @@ class Task(Base):
             return str(self.assistant_id)
         elif self.gemini_assistant_id:
             return str(self.gemini_assistant_id)
+        elif self.yandex_assistant_id:
+            return str(self.yandex_assistant_id)
         else:
             return str(self.cartesia_assistant_id)
     
@@ -211,6 +224,7 @@ class Task(Base):
             "assistant_id": str(self.assistant_id) if self.assistant_id else None,
             "gemini_assistant_id": str(self.gemini_assistant_id) if self.gemini_assistant_id else None,
             "cartesia_assistant_id": str(self.cartesia_assistant_id) if self.cartesia_assistant_id else None,
+            "yandex_assistant_id": str(self.yandex_assistant_id) if self.yandex_assistant_id else None,
             "assistant_type": self.get_assistant_type(),  # ✅ Новое поле
             "user_id": str(self.user_id),
             "status": self.status.value,

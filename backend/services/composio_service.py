@@ -701,6 +701,7 @@ def _resolve_owner_agent(db, assistant_config):
         AgentConfig.gemini_assistant_id == aid,
         AgentConfig.openai_assistant_id == aid,
         AgentConfig.cartesia_assistant_id == aid,
+        AgentConfig.yandex_assistant_id == aid,
     )).first()
 
 

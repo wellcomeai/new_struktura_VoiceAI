@@ -60,6 +60,7 @@ function keyState(type){
   if(type==='gemini'){ const ok=!!u.has_gemini_api_key; return { ok, missing: ok?[]:[{field:'gemini_api_key',label:'Google Gemini API Key',ph:'AIza...'}] }; }
   if(type==='openai'){ const ok=!!u.has_api_key; return { ok, missing: ok?[]:[{field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}] }; }
   if(type==='cartesia'){ const m=[]; if(!u.has_api_key) m.push({field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}); if(!u.has_cartesia_api_key) m.push({field:'cartesia_api_key',label:'Cartesia API Key',ph:'sk_car_...'}); return { ok:m.length===0, missing:m }; }
+  if(type==='yandex'){ const m=[]; if(!u.has_yandex_api_key) m.push({field:'yandex_api_key',label:'Yandex Cloud API Key',ph:'AQVN...'}); if(!u.yandex_folder_id) m.push({field:'yandex_folder_id',label:'Yandex Cloud Folder ID',ph:'b1g...',t:'text'}); return { ok:m.length===0, missing:m }; }
   return { ok:false, missing:[] };
 }
 
@@ -67,6 +68,7 @@ const TYPE_DEFS = [
   { type:'gemini', name:'Gemini Voice', desc:'Google Gemini Live — лучше всего для русского языка.' },
   { type:'openai', name:'OpenAI Realtime', desc:'gpt-realtime — премиум-качество голоса.' },
   { type:'cartesia', name:'Cartesia', desc:'Cartesia TTS + OpenAI LLM в каскаде, гибкая настройка.' },
+  { type:'yandex', name:'Yandex SpeechKit', desc:'Yandex Realtime — российская инфраструктура, оплата в Yandex Cloud.' },
 ];
 
 function drawStep0(c){
@@ -78,13 +80,17 @@ function drawStep0(c){
     let keyHtml='';
     if(selected){
       if(t.type==='cartesia' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Cartesia работает в каскаде: OpenAI отвечает за понимание речи и текст, Cartesia — за озвучку. Нужны оба ключа.</div>`;
+      if(t.type==='yandex' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Нужны API-ключ сервисного аккаунта и Folder ID каталога Yandex Cloud — оплата токенов идёт с вашего биллинга Yandex Cloud.</div>`;
       const pills = (t.type==='cartesia') ? [
         {l:'OpenAI', ok:!!wizardUser.has_api_key},
         {l:'Cartesia', ok:!!wizardUser.has_cartesia_api_key},
-      ] : (t.type==='gemini' ? [{l:'Gemini',ok:!!wizardUser.has_gemini_api_key}] : [{l:'OpenAI',ok:!!wizardUser.has_api_key}]);
+      ] : (t.type==='yandex' ? [
+        {l:'Yandex API', ok:!!wizardUser.has_yandex_api_key},
+        {l:'Folder ID', ok:!!wizardUser.yandex_folder_id},
+      ] : (t.type==='gemini' ? [{l:'Gemini',ok:!!wizardUser.has_gemini_api_key}] : [{l:'OpenAI',ok:!!wizardUser.has_api_key}]));
       keyHtml += `<div class="type-key-status">` + pills.map(p => `<span class="key-pill ${p.ok?'ok':'miss'}"><i class="fas ${p.ok?'fa-check':'fa-triangle-exclamation'}"></i> ${p.l} ${p.ok?'настроен':'не настроен'}</span>`).join('') + `</div>`;
       if(ks.missing.length){
-        keyHtml += `<div class="key-input-block">` + ks.missing.map(m => `<div class="form-group" style="margin-bottom:10px"><label class="form-label">${m.label}</label><input type="password" class="form-input" id="wk-${m.field}" placeholder="${m.ph}"></div>`).join('') + `<button class="btn btn-primary btn-sm" onclick="saveWizardKeys('${t.type}')"><i class="fas fa-save"></i> Сохранить и продолжить</button></div>`;
+        keyHtml += `<div class="key-input-block">` + ks.missing.map(m => `<div class="form-group" style="margin-bottom:10px"><label class="form-label">${m.label}</label><input type="${m.t||'password'}" class="form-input" id="wk-${m.field}" placeholder="${m.ph}"></div>`).join('') + `<button class="btn btn-primary btn-sm" onclick="saveWizardKeys('${t.type}')"><i class="fas fa-save"></i> Сохранить и продолжить</button></div>`;
       }
     }
     return `<div class="type-card ${selected?'selected':''}" onclick="selectType('${t.type}')">
@@ -180,7 +186,7 @@ function submitCreate(){
 }
 
 async function renderCreation(c){
-  const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia' }[wizardData.assistant_type]||'';
+  const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex' }[wizardData.assistant_type]||'';
   c.innerHTML = `<h2>Создание агента</h2><p class="hint">Настройка вашего агента...</p>
     <ul class="creation-list">
       <li class="creation-item pending" id="cr-docs"><div class="creation-icon"></div>Сохранение документов</li>

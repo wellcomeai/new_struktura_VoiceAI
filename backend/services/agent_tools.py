@@ -208,7 +208,7 @@ def _parse_iso_utc(value) -> Optional[datetime]:
 def assistant_task_kwargs(agent_config) -> dict:
     """
     Возвращает kwargs для Task с правильным FK голосового ассистента
-    в зависимости от assistant_type агента (gemini / openai / cartesia).
+    в зависимости от assistant_type агента (gemini / openai / cartesia / yandex).
     Для старых агентов без assistant_type — fallback на gemini_assistant_id.
     """
     if not agent_config:
@@ -219,6 +219,8 @@ def assistant_task_kwargs(agent_config) -> dict:
         return {"assistant_id": vid}
     if a_type == "cartesia":
         return {"cartesia_assistant_id": vid}
+    if a_type == "yandex":
+        return {"yandex_assistant_id": vid}
     # gemini (and legacy default)
     return {"gemini_assistant_id": vid}
 
@@ -1116,7 +1118,7 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
             clamped_to_future = True
             logger.info(f"[AGENT-TOOLS] scheduled_at in the past, clamped to {scheduled_at.isoformat()}")
 
-    # Get assistant from agent_config (type-aware — gemini/openai/cartesia)
+    # Get assistant from agent_config (type-aware — gemini/openai/cartesia/yandex)
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
 
     # Учитываем паузу контакта (snooze): если контакт на паузе до даты в будущем —

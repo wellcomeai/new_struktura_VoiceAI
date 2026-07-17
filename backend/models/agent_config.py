@@ -2,7 +2,7 @@
 Agent Config model for Voicyfy Agent — autonomous calling AI agent.
 Stores orchestrator config, onboarding documents, and chat history per user.
 
-✅ v3.0: multi-provider voice assistant (gemini / openai / cartesia),
+✅ v3.0: multi-provider voice assistant (gemini / openai / cartesia / yandex),
          hardcoded orchestrator prompts (uses_hardcoded_prompt), OpenRouter model.
 """
 import uuid
@@ -22,9 +22,9 @@ class AgentConfig(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # ── Тип голосового ассистента — выбирается при создании, можно менять ──
-    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia
+    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia | yandex
 
-    # ── FK на голосового ассистента (заполняется ровно один из трёх) ──
+    # ── FK на голосового ассистента (заполняется ровно один из четырёх) ──
     gemini_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("gemini_assistant_configs.id", ondelete="SET NULL"),
@@ -38,6 +38,11 @@ class AgentConfig(Base):
     cartesia_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("cartesia_assistant_configs.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    yandex_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("yandex_assistant_configs.id", ondelete="SET NULL"),
         nullable=True
     )
 
@@ -129,6 +134,9 @@ class AgentConfig(Base):
     cartesia_assistant = relationship(
         "CartesiaAssistantConfig", foreign_keys=[cartesia_assistant_id]
     )
+    yandex_assistant = relationship(
+        "YandexAssistantConfig", foreign_keys=[yandex_assistant_id]
+    )
 
     def get_voice_assistant(self):
         """Универсальный геттер — вернёт активного голосового ассистента."""
@@ -138,6 +146,8 @@ class AgentConfig(Base):
             return self.openai_assistant
         if self.assistant_type == "cartesia":
             return self.cartesia_assistant
+        if self.assistant_type == "yandex":
+            return self.yandex_assistant
         return None
 
     def get_voice_assistant_id(self):
@@ -147,6 +157,8 @@ class AgentConfig(Base):
             return self.openai_assistant_id
         if self.assistant_type == "cartesia":
             return self.cartesia_assistant_id
+        if self.assistant_type == "yandex":
+            return self.yandex_assistant_id
         return None
 
     def has_knowledge_base(self) -> bool:

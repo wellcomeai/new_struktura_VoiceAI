@@ -179,6 +179,7 @@ class PineconeSearchFunction(FunctionBase):
                                 AgentConfig.openai_assistant_id == a_id,
                                 AgentConfig.gemini_assistant_id == a_id,
                                 AgentConfig.cartesia_assistant_id == a_id,
+                                AgentConfig.yandex_assistant_id == a_id,
                             )
                         ).first()
                         if agent and agent.kb_namespace:

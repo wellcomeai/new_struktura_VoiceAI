@@ -228,6 +228,13 @@ class SearchContactByPhoneFunction(FunctionBase):
                     ).first()
                     if asst:
                         assistant_name = asst.name
+                elif task.yandex_assistant_id:
+                    from backend.models.yandex_assistant import YandexAssistantConfig
+                    asst = db.query(YandexAssistantConfig).filter(
+                        YandexAssistantConfig.id == task.yandex_assistant_id
+                    ).first()
+                    if asst:
+                        assistant_name = asst.name
 
                 active_tasks.append({
                     "id": str(task.id),

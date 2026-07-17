@@ -2046,7 +2046,7 @@ async def bind_assistant_to_number(
                     detail="Голосовой ассистент агента не найден"
                 )
             # Подменяем на реальный голосовой ассистент агента.
-            effective_type = voice_type           # openai | gemini | cartesia
+            effective_type = voice_type           # openai | gemini | cartesia | yandex
             assistant_uuid = voice_id             # UUID голосового ассистента
             bound_agent_config_id = agent_cfg.id  # метка «номер привязан к агенту»
         else:

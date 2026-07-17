@@ -3,6 +3,9 @@
 Дашборд **автономного агента для обзвонов** (не путать с `agents.html` — страницей
 управления OpenAI-ассистентами, у которой своя папка `agents/`).
 
+Голосовой ассистент агента — один из четырёх провайдеров:
+`gemini | openai | cartesia | yandex` (`AgentConfig.assistant_type`).
+
 Эта папка (`backend/static/agent/`) содержит результат разбиения исходного
 монолитного `agent.html` (~3700 строк) на стили + доменные скрипты.
 
@@ -102,7 +105,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 ### Зеркала, которые надо держать синхронными
 - **`STAGE_META` / `STAGE_ORDER`** (`core.js`) ↔ `backend/core/pipeline_stages.py`
   — фиксированный набор стадий воронки. Меняешь стадии на бэке — поправь и здесь.
-- **`VOICE_META` / `OPENAI_VOICES` / `GEMINI_VOICES`** (`instructions-voice.js`)
+- **`VOICE_META` / `OPENAI_VOICES` / `GEMINI_VOICES` / `YANDEX_VOICES`** (`instructions-voice.js`)
   ↔ списки голосов в `backend/api/agent.py` (см. комментарий в нём:
   «Доступные голоса по провайдерам (должны совпадать со списками в agent.html)»).
 

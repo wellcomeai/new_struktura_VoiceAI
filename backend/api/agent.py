@@ -26,6 +26,7 @@ from backend.models.agent_config import AgentConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.assistant import AssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig, DEFAULT_YANDEX_MODEL
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
@@ -56,12 +57,18 @@ router = APIRouter()
 # ============================================================================
 
 
-VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia")
+VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex")
 
 # Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
 OPENAI_VOICES = [
     "alloy", "echo", "marin", "cedar", "shimmer",
     "ash", "ballad", "coral", "sage", "verse",
+]
+# Голоса Yandex SpeechKit (должны совпадать с YANDEX_VOICES в yandex_assistants.py).
+YANDEX_VOICES = [
+    "marina", "dasha", "alexander", "julia", "lera",
+    "masha", "anton", "kirill", "filipp", "ermil",
+    "jane", "omazh", "zahar", "madi_ru", "saule_ru",
 ]
 GEMINI_VOICES = [
     "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
@@ -72,14 +79,17 @@ GEMINI_VOICES = [
 ]
 DEFAULT_GEMINI_VOICE = "Kore"
 DEFAULT_OPENAI_VOICE = "alloy"
+DEFAULT_YANDEX_VOICE = "marina"
 
 
 def _is_valid_voice(assistant_type: str, voice: str) -> bool:
-    """Проверка имени голоса для select-провайдеров (gemini/openai)."""
+    """Проверка имени голоса для select-провайдеров (gemini/openai/yandex)."""
     if assistant_type == "gemini":
         return voice in GEMINI_VOICES
     if assistant_type == "openai":
         return voice in OPENAI_VOICES
+    if assistant_type == "yandex":
+        return voice in YANDEX_VOICES
     return False
 
 
@@ -94,6 +104,8 @@ def _resolve_voice_assistant(db: Session, agent: AgentConfig):
         return db.query(AssistantConfig).filter(AssistantConfig.id == va_id).first()
     if agent.assistant_type == "cartesia":
         return db.query(CartesiaAssistantConfig).filter(CartesiaAssistantConfig.id == va_id).first()
+    if agent.assistant_type == "yandex":
+        return db.query(YandexAssistantConfig).filter(YandexAssistantConfig.id == va_id).first()
     return None
 
 
@@ -165,7 +177,7 @@ MAX_AGENTS_PER_USER = 3
 
 class AgentCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    assistant_type: str = Field(...)  # "gemini" | "openai" | "cartesia"
+    assistant_type: str = Field(...)  # "gemini" | "openai" | "cartesia" | "yandex"
     doc_who_am_i: str = Field(..., min_length=1)
     doc_who_we_call: str = Field(..., min_length=1)
     doc_how_we_talk: str = Field(..., min_length=1)
@@ -176,7 +188,7 @@ class AgentCreateRequest(BaseModel):
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
     orchestrator_model: Optional[str] = None  # default → get_default_model()
-    # Голос (gemini/openai). Для cartesia — cartesia_voice_id + voice_speed.
+    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed.
     voice: Optional[str] = None
     cartesia_voice_id: Optional[str] = None
     voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
@@ -199,7 +211,7 @@ class AgentUpdateRequest(BaseModel):
     webhook_url: Optional[str] = Field(None, max_length=500)
     orchestrator_model: Optional[str] = None
     assistant_type: Optional[str] = None
-    # Голос (gemini/openai). Для cartesia — cartesia_voice_id + voice_speed.
+    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed.
     voice: Optional[str] = None
     cartesia_voice_id: Optional[str] = None
     voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
@@ -341,6 +353,9 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
             raise HTTPException(status_code=400, detail="api_key_required_openai")
         if not current_user.cartesia_api_key:
             raise HTTPException(status_code=400, detail="api_key_required_cartesia")
+    elif assistant_type == "yandex":
+        if not current_user.yandex_api_key or not current_user.yandex_folder_id:
+            raise HTTPException(status_code=400, detail="api_key_required_yandex")
 
 
 # Функции, доступные голосовому агенту во время звонка по умолчанию.
@@ -360,7 +375,7 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
                             voice_additional_instructions=None):
     """Create a voice assistant of the given type with the hardcoded base prompt.
 
-    voice — имя голоса для gemini/openai; для cartesia используются
+    voice — имя голоса для gemini/openai/yandex; для cartesia используются
     cartesia_voice_id и voice_speed. Если не передано — берутся дефолты.
     voice_additional_instructions — доп.инструкции по поведению в живом звонке,
     дописываются к базовому промпту голосового агента.
@@ -392,6 +407,16 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             voice_speed=(voice_speed if voice_speed is not None else 1.0),
             functions=_default_voice_functions(),
         )
+    elif assistant_type == "yandex":
+        yandex_voice = voice if (voice and _is_valid_voice("yandex", voice)) else DEFAULT_YANDEX_VOICE
+        va = YandexAssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
+            system_prompt=prompt, model=DEFAULT_YANDEX_MODEL,
+            voice=yandex_voice, language="ru",
+            greeting_message="", is_active=True, is_public=False,
+            temperature=0.7, max_tokens=4000,
+            functions=_default_voice_functions(),
+        )
     else:
         raise HTTPException(status_code=400, detail="invalid_assistant_type")
     db.add(va)
@@ -412,6 +437,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "gemini_assistant_id": str(agent.gemini_assistant_id) if agent.gemini_assistant_id else None,
         "openai_assistant_id": str(agent.openai_assistant_id) if agent.openai_assistant_id else None,
         "cartesia_assistant_id": str(agent.cartesia_assistant_id) if agent.cartesia_assistant_id else None,
+        "yandex_assistant_id": str(agent.yandex_assistant_id) if agent.yandex_assistant_id else None,
         "voice_assistant_name": voice_name,
         "gemini_assistant_name": voice_name,  # backward-compat for older frontend
         "voice": getattr(voice, "voice", None),
@@ -548,6 +574,7 @@ async def create_agent(
         gemini_assistant_id=voice_assistant.id if body.assistant_type == "gemini" else None,
         openai_assistant_id=voice_assistant.id if body.assistant_type == "openai" else None,
         cartesia_assistant_id=voice_assistant.id if body.assistant_type == "cartesia" else None,
+        yandex_assistant_id=voice_assistant.id if body.assistant_type == "yandex" else None,
         is_active=True,
         orchestrator_model=orchestrator_model,
         orchestrator_prompt=None,  # собирается на лету из захардкоженного шаблона
@@ -616,12 +643,15 @@ async def update_agent(
         agent.gemini_assistant_id = None
         agent.openai_assistant_id = None
         agent.cartesia_assistant_id = None
+        agent.yandex_assistant_id = None
         if new_type == "gemini":
             agent.gemini_assistant_id = new_voice.id
         elif new_type == "openai":
             agent.openai_assistant_id = new_voice.id
         elif new_type == "cartesia":
             agent.cartesia_assistant_id = new_voice.id
+        elif new_type == "yandex":
+            agent.yandex_assistant_id = new_voice.id
         agent.assistant_type = new_type
         # Если у агента есть база знаний — переносим функцию поиска на нового
         # голосового ассистента.
@@ -669,7 +699,7 @@ async def update_agent(
     if voice_touched:
         va = _resolve_voice_assistant(db, agent)
         if va is not None:
-            if agent.assistant_type in ("gemini", "openai"):
+            if agent.assistant_type in ("gemini", "openai", "yandex"):
                 new_voice = update_data.get("voice")
                 if new_voice:
                     if not _is_valid_voice(agent.assistant_type, new_voice):
@@ -778,6 +808,7 @@ async def delete_agent(
             (GeminiAssistantConfig, agent.gemini_assistant_id),
             (AssistantConfig, agent.openai_assistant_id),
             (CartesiaAssistantConfig, agent.cartesia_assistant_id),
+            (YandexAssistantConfig, agent.yandex_assistant_id),
         ]
 
         # 3. AgentConfig — каскадом уносит agent_contacts и agent_calls.

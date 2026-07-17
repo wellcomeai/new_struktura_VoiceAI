@@ -27,6 +27,7 @@ from backend.models.user import User
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
@@ -170,6 +171,16 @@ class TaskScheduler:
                 assistant_name = cartesia_assistant.name
                 assistant_type = "cartesia"
                 logger.info(f"   Assistant: {cartesia_assistant.name} (Cartesia)")
+        elif task.yandex_assistant_id:
+            # Yandex Assistant
+            yandex_assistant = db.query(YandexAssistantConfig).filter(
+                YandexAssistantConfig.id == task.yandex_assistant_id
+            ).first()
+            if yandex_assistant:
+                assistant_id = str(task.yandex_assistant_id)
+                assistant_name = yandex_assistant.name
+                assistant_type = "yandex"
+                logger.info(f"   Assistant: {yandex_assistant.name} (Yandex)")
 
         return assistant_id, assistant_name, assistant_type
     

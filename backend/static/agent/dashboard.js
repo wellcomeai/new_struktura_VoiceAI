@@ -100,7 +100,7 @@ function renderAgentHeader(){
   const cs = document.getElementById('agent-card-status');
   cs.classList.toggle('off', !active);
   cs.querySelector('span').textContent = active ? 'Активен' : 'Неактивен';
-  const typeNames = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia' };
+  const typeNames = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex' };
   document.getElementById('agent-type-badge').textContent = typeNames[agentData.assistant_type] || 'Voice';
   const id = agentData.id || '';
   document.getElementById('agent-id').textContent = 'ID агента: ' + (id.length>16 ? id.slice(-16) : id);
