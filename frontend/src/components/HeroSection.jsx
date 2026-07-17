@@ -40,15 +40,15 @@ function HeroSection({ onOpenModal }) {
 
           <p className="hero-sub">
             Создавайте голосовых ИИ-агентов на базе OpenAI,
-            Gemini и Cartesia. Принимают звонки, общаются
-            с клиентами и закрывают задачи — без участия человека.
+            Gemini, Cartesia и Яндекс SpeechKit. Принимают звонки,
+            общаются с клиентами и закрывают задачи — без участия человека.
           </p>
 
           <div className="stats-strip">
             {[
               { num: "300мс", label: "Время ответа" },
               { num: "24/7",  label: "Без выходных" },
-              { num: "3",     label: "AI‑провайдера" },
+              { num: "4",     label: "AI‑провайдера" },
               { num: "98%",   label: "Точность речи" },
             ].map((s, i) => (
               <div className="stat-item" key={i}>

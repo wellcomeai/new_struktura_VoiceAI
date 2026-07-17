@@ -7,7 +7,7 @@ function Footer() {
         <div className="foot-top">
           <div className="foot-brand">
             <span className="foot-logo">Voicyfy</span>
-            <p>Платформа голосовых ИИ-ассистентов для бизнеса. OpenAI, Google Gemini, Cartesia.</p>
+            <p>Платформа голосовых ИИ-ассистентов для бизнеса. OpenAI, Google Gemini, Cartesia, Яндекс SpeechKit.</p>
           </div>
           <div className="foot-col">
             <h5>Продукт</h5>

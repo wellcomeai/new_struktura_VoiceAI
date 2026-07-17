@@ -15,7 +15,7 @@ function ProvidersSection() {
       <div className="section-inner">
         <div className="s-head rev">
           <span className="s-label">Технологии</span>
-          <h2 className="s-title">Три движка — <span className="gt">один интерфейс</span></h2>
+          <h2 className="s-title">Четыре движка — <span className="gt">один интерфейс</span></h2>
           <p className="s-desc">Выбирайте провайдера под задачу или комбинируйте для максимального результата</p>
         </div>
 
@@ -56,6 +56,19 @@ function ProvidersSection() {
               <li><CheckIcon /> Стриминг в реальном времени</li>
               <li><CheckIcon /> ChatGPT для интеллекта</li>
               <li><CheckIcon /> Идеально для обслуживания</li>
+            </ul>
+          </div>
+
+          <div className="prov-card rev d3">
+            <div className="prov-icon pi-y"><i className="fab fa-yandex"></i></div>
+            <h4>Яндекс SpeechKit Realtime</h4>
+            <p>Realtime API от Яндекса с лучшим распознаванием и синтезом русской речи. Идеален для телефонии на российском рынке.</p>
+            <ul className="prov-feats">
+              <li><CheckIcon /> Лучшее качество русской речи</li>
+              <li><CheckIcon /> Реалтайм распознавание и синтез</li>
+              <li><CheckIcon /> 15+ фирменных голосов</li>
+              <li><CheckIcon /> Function calling</li>
+              <li><CheckIcon /> Оплата в рублях (Yandex Cloud)</li>
             </ul>
           </div>
         </div>
