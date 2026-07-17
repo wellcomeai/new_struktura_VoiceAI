@@ -496,6 +496,10 @@
       background: linear-gradient(135deg, #06b6d4, #0891b2);
     }
 
+    .assistant-avatar.yandex {
+      background: linear-gradient(135deg, #fc3f1d, #c93413);
+    }
+
     .card-info {
       flex: 1;
       min-width: 0;
@@ -534,6 +538,11 @@
     .assistant-type-badge.cartesia {
       background-color: rgba(6, 182, 212, 0.1);
       color: var(--cartesia-teal);
+    }
+
+    .assistant-type-badge.yandex {
+      background-color: rgba(252, 63, 29, 0.1);
+      color: #fc3f1d;
     }
 
     .conversation-date {
@@ -641,9 +650,36 @@
     .meta-item.recording {
       color: var(--success-green);
     }
-    
+
     .meta-item.recording i {
       color: var(--success-green);
+    }
+
+    /* Ссылки на запись и лог звонка в карточке (телефония) */
+    .card-links {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .card-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      background-color: var(--white);
+      color: var(--text-gray);
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .card-link:hover {
+      border-color: var(--primary-blue);
+      color: var(--primary-blue);
     }
     
     /* Пустое состояние */
@@ -866,6 +902,10 @@
 
     .message.assistant.cartesia .message-avatar {
       background: linear-gradient(135deg, #06b6d4, #0891b2);
+    }
+
+    .message.assistant.yandex .message-avatar {
+      background: linear-gradient(135deg, #fc3f1d, #c93413);
     }
 
     .message-bubble {
@@ -1808,7 +1848,17 @@
             <option value="asc">Старые первые</option>
           </select>
         </div>
-        
+
+        <div class="filter-group">
+          <label for="date-filter">Дата</label>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="date" id="date-filter" class="filter-select" style="flex: 1;">
+            <button class="btn btn-secondary" id="date-clear-btn" title="Сбросить дату" style="display: none; padding: 0.5rem 0.75rem;">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+
         <div class="filter-actions">
           <button class="btn btn-primary" id="refresh-btn">
             <i class="fas fa-sync-alt"></i> Обновить
@@ -2055,7 +2105,7 @@
   <script>
     /**
      * Conversations Page для Voicyfy
-     * Version: 3.6 - Production Ready
+     * Version: 3.7 - Yandex + фильтр по дате + ссылки на запись/лог в карточках
      * ✅ Поддержка обоих типов ассистентов (OpenAI + Gemini)
      * ✅ Отображение стоимости звонка (call_cost)
      * ✅ Отображение записи звонка (record_url) с HTML5 аудиоплеером
@@ -2070,6 +2120,8 @@
       const conversationsGrid = document.getElementById('conversations-grid');
       const assistantFilter = document.getElementById('assistant-filter');
       const sortFilter = document.getElementById('sort-filter');
+      const dateFilter = document.getElementById('date-filter');
+      const dateClearBtn = document.getElementById('date-clear-btn');
       const refreshBtn = document.getElementById('refresh-btn');
       const prevBtn = document.getElementById('prev-btn');
       const nextBtn = document.getElementById('next-btn');
@@ -2816,11 +2868,14 @@
         const preview = previewText.length > 100 ? previewText.substring(0, 100) + '...' : previewText;
         
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini'
-          : assistantType === 'cartesia' ? 'assistant-avatar cartesia' : 'assistant-avatar';
+          : assistantType === 'cartesia' ? 'assistant-avatar cartesia'
+          : assistantType === 'yandex' ? 'assistant-avatar yandex' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini'
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : assistantType === 'cartesia'
           ? '<span class="assistant-type-badge cartesia">Cartesia</span>'
+          : assistantType === 'yandex'
+          ? '<span class="assistant-type-badge yandex">Яндекс</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
         
         let metaItems = '';
@@ -2850,7 +2905,24 @@
             </div>
           `;
         }
-        
+
+        // Ссылки на запись и лог звонка (только у телефонии)
+        let cardLinks = '';
+        if (conversation.record_url) {
+          cardLinks += `
+            <a href="${conversation.record_url}" target="_blank" rel="noopener" class="card-link" onclick="event.stopPropagation()" title="Запись звонка">
+              <i class="fas fa-headphones"></i> Запись
+            </a>
+          `;
+        }
+        if (conversation.log_url) {
+          cardLinks += `
+            <a href="${conversation.log_url}" target="_blank" rel="noopener" class="card-link" onclick="event.stopPropagation()" title="Лог звонка">
+              <i class="fas fa-file-alt"></i> Лог звонка
+            </a>
+          `;
+        }
+
         card.innerHTML = `
           <div class="card-header">
             <div class="${avatarClass}">${assistantInitial}</div>
@@ -2874,6 +2946,7 @@
             <div class="card-meta">
               ${metaItems}
             </div>
+            ${cardLinks ? `<div class="card-links">${cardLinks}</div>` : ''}
           </div>
         `;
         
@@ -2935,6 +3008,19 @@
             console.warn('[ASSISTANTS] ⚠️ Error loading Cartesia assistants:', e.message);
           }
 
+          try {
+            const yandexData = await api.get('/yandex-assistants');
+            const yandexList = Array.isArray(yandexData)
+              ? yandexData
+              : (yandexData.assistants || []);
+            yandexList.forEach(a => {
+              assistants.push({ id: a.id, name: a.name, type: 'yandex' });
+            });
+            console.log(`[ASSISTANTS] ✅ Loaded ${yandexList.length} Yandex assistants`);
+          } catch (e) {
+            console.warn('[ASSISTANTS] ⚠️ Error loading Yandex assistants:', e.message);
+          }
+
           console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
           renderAssistantFilter();
           
@@ -2956,6 +3042,7 @@
         const openaiAssistants = assistants.filter(a => a.type === 'openai');
         const geminiAssistants = assistants.filter(a => a.type === 'gemini');
         const cartesiaAssistants = assistants.filter(a => a.type === 'cartesia');
+        const yandexAssistants = assistants.filter(a => a.type === 'yandex');
 
         if (openaiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
@@ -2993,7 +3080,19 @@
           assistantFilter.appendChild(optgroup);
         }
 
-        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini, and', cartesiaAssistants.length, 'Cartesia');
+        if (yandexAssistants.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = '🔴 Яндекс';
+          yandexAssistants.forEach(assistant => {
+            const option = document.createElement('option');
+            option.value = assistant.id;
+            option.textContent = assistant.name;
+            optgroup.appendChild(option);
+          });
+          assistantFilter.appendChild(optgroup);
+        }
+
+        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini,', cartesiaAssistants.length, 'Cartesia, and', yandexAssistants.length, 'Yandex');
       }
       
       // ============================================================================
@@ -3006,10 +3105,19 @@
           
           const assistantId = assistantFilter.value;
           const offset = currentPage * perPage;
-          
+
           let url = `/conversations/sessions?limit=${perPage}&offset=${offset}`;
           if (assistantId) {
             url += `&assistant_id=${assistantId}`;
+          }
+
+          // Фильтр по дате: выбранный день целиком (в локальном часовом поясе пользователя)
+          const dateValue = dateFilter.value;
+          if (dateValue) {
+            const dayStart = new Date(dateValue + 'T00:00:00');
+            const dayEnd = new Date(dateValue + 'T23:59:59.999');
+            url += `&date_from=${encodeURIComponent(dayStart.toISOString())}`;
+            url += `&date_to=${encodeURIComponent(dayEnd.toISOString())}`;
           }
           
           const response = await api.get(url);
@@ -3074,6 +3182,8 @@
             ? '<span class="assistant-type-badge gemini" style="margin-left: 0.5rem;">Gemini</span>'
             : type === 'cartesia'
             ? '<span class="assistant-type-badge cartesia" style="margin-left: 0.5rem;">Cartesia</span>'
+            : type === 'yandex'
+            ? '<span class="assistant-type-badge yandex" style="margin-left: 0.5rem;">Яндекс</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
@@ -3116,10 +3226,11 @@
             filteredMessages.forEach(msg => {
               const messageDiv = document.createElement('div');
               const assistantClass = type === 'gemini' ? 'message assistant gemini'
-                : type === 'cartesia' ? 'message assistant cartesia' : 'message assistant';
+                : type === 'cartesia' ? 'message assistant cartesia'
+                : type === 'yandex' ? 'message assistant yandex' : 'message assistant';
               messageDiv.className = msg.type === 'user' ? 'message user' : assistantClass;
-              
-              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : '🤖');
+
+              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : type === 'yandex' ? '🔴' : '🤖');
               
               // Function calls под сообщениями
               let functionCallsHtml = '';
@@ -3202,13 +3313,20 @@
                 <span>${dialog.total_tokens || 0} токенов использовано</span>
               </div>
               <div class="footer-item">
-                <i class="${type === 'gemini' ? 'fas fa-gem' : type === 'cartesia' ? 'fas fa-microphone-alt' : 'fas fa-robot'}"></i>
-                <span>${type === 'gemini' ? 'Gemini AI' : type === 'cartesia' ? 'Cartesia' : 'OpenAI'}</span>
+                <i class="${type === 'gemini' ? 'fas fa-gem' : type === 'cartesia' ? 'fas fa-microphone-alt' : type === 'yandex' ? 'fas fa-microphone' : 'fas fa-robot'}"></i>
+                <span>${type === 'gemini' ? 'Gemini AI' : type === 'cartesia' ? 'Cartesia' : type === 'yandex' ? 'Яндекс SpeechKit' : 'OpenAI'}</span>
               </div>
               ${costFormatted ? `
                 <div class="footer-item cost">
                   <i class="fas fa-ruble-sign"></i>
                   <span>${costFormatted}</span>
+                </div>
+              ` : ''}
+              ${dialog.log_url ? `
+                <div class="footer-item">
+                  <a href="${dialog.log_url}" target="_blank" rel="noopener" class="card-link" title="Лог звонка">
+                    <i class="fas fa-file-alt"></i> Лог звонка
+                  </a>
                 </div>
               ` : ''}
             </div>
@@ -3312,6 +3430,19 @@
       });
       
       sortFilter.addEventListener('change', () => {
+        loadConversations();
+      });
+
+      dateFilter.addEventListener('change', () => {
+        dateClearBtn.style.display = dateFilter.value ? 'flex' : 'none';
+        currentPage = 0;
+        loadConversations();
+      });
+
+      dateClearBtn.addEventListener('click', () => {
+        dateFilter.value = '';
+        dateClearBtn.style.display = 'none';
+        currentPage = 0;
         loadConversations();
       });
       

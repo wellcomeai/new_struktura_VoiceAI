@@ -403,6 +403,9 @@ async def get_full_call_cost(
             "records_cost": round(records_cost, 6),
             "other_cost": round(other_cost, 6),
             "duration": total_duration,
+            # Лог сессии на медиасервере Voximplant — показывается ссылкой
+            # в истории звонков и в карточках раздела «Диалоги»
+            "log_file_url": call_data.get("log_file_url"),
             "details": {
                 "rule_name": call_data.get("rule_name"),
                 "application_name": call_data.get("application_name"),
@@ -507,7 +510,10 @@ async def delayed_cost_recalculation(
             conversation.duration_seconds = cost_result["duration"]
             
             # Обновляем client_info с breakdown
-            client_info = conversation.client_info or {}
+            # dict() — новый объект, иначе SQLAlchemy может не заметить изменение JSON-поля
+            client_info = dict(conversation.client_info or {})
+            if cost_result.get("log_file_url") and not client_info.get("log_url"):
+                client_info["log_url"] = cost_result["log_file_url"]
             client_info["cost_breakdown"] = {
                 "calls_cost": cost_result["calls_cost"],
                 "records_cost": cost_result["records_cost"],
@@ -1167,13 +1173,14 @@ async def log_conversation_data(
             call_duration = None
             cost_breakdown = None
             api_credentials = None
-            
+            call_log_url = None
+
             if call_session_history_id and assistant.user_id:
                 logger.info(f"[VOXIMPLANT-v3.9] 💰 Запрашиваем полную стоимость через GetCallHistory...")
-                
+
                 # Получаем API credentials
                 api_credentials = get_voximplant_api_credentials(db, assistant.user_id)
-                
+
                 if api_credentials:
                     # Запрашиваем полную стоимость
                     cost_result = await get_full_call_cost(
@@ -1181,7 +1188,12 @@ async def log_conversation_data(
                         account_id=api_credentials["account_id"],
                         api_key=api_credentials["api_key"]
                     )
-                    
+
+                    # Лог сессии доступен даже если стоимость ещё не посчитана
+                    if cost_result.get("log_file_url"):
+                        call_log_url = cost_result["log_file_url"]
+                        logger.info(f"[VOXIMPLANT-v3.9] 📄 Получен log_file_url сессии")
+
                     if cost_result["success"] and cost_result["total_cost"] > 0:
                         call_cost = cost_result["total_cost"]
                         call_duration = cost_result["duration"]
@@ -1293,6 +1305,10 @@ async def log_conversation_data(
                 # 🆕 v3.6: Добавляем call_session_history_id и breakdown
                 if call_session_history_id:
                     client_info["call_session_history_id"] = call_session_history_id
+
+                # Ссылка на лог сессии Voximplant (для карточек в «Диалогах»)
+                if call_log_url:
+                    client_info["log_url"] = call_log_url
                 
                 if cost_breakdown:
                     client_info["cost_breakdown"] = cost_breakdown

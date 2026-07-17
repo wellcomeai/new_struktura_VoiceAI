@@ -3,7 +3,7 @@
 Conversations API endpoints для WellcomeAI application.
 Управление диалогами и историей разговоров.
 
-Version: 3.5 - Fix preview display & caller_number normalization
+Version: 3.6 - Yandex assistants + call log/record links in session cards
 🆕 v2.0: Added OpenAI + Gemini support
 🆕 v3.0: Added call_cost (стоимость звонка) и record_url (ссылка на запись) в ответы API
 🆕 v3.1: STRUCTURED DIALOG - каждая реплика отдельным пузырьком в UI (backward compatible)
@@ -13,6 +13,9 @@ Version: 3.5 - Fix preview display & caller_number normalization
 🆕 v3.5: FIX - Правильный preview (первое сообщение по времени, а не MIN())
          FIX - Нормализация caller_number ("unknown" → None)
          FIX - Фильтрация системных сообщений из preview
+🆕 v3.6: Диалоги Яндекс-ассистентов в /sessions и детальном просмотре
+         record_url и log_url (лог звонка Voximplant) в карточках сессий
+         Fallback: log_url для старых звонков дотягивается из GetCallHistory
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -33,6 +36,7 @@ from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
@@ -60,7 +64,7 @@ SYSTEM_MESSAGE_PATTERNS = [
 
 def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
     """
-    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia).
+    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia + Yandex).
 
     Returns:
         List[UUID]: Список всех assistant_id
@@ -80,17 +84,27 @@ def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
         CartesiaAssistantConfig.user_id == user_id
     ).all()
 
-    all_ids = [a.id for a in openai_ids] + [a.id for a in gemini_ids] + [a.id for a in cartesia_ids]
+    # Yandex assistants (их телефонные диалоги тоже пишутся в conversations)
+    yandex_ids = db.query(YandexAssistantConfig.id).filter(
+        YandexAssistantConfig.user_id == user_id
+    ).all()
+
+    all_ids = (
+        [a.id for a in openai_ids]
+        + [a.id for a in gemini_ids]
+        + [a.id for a in cartesia_ids]
+        + [a.id for a in yandex_ids]
+    )
 
     return all_ids
 
 
 def find_assistant_by_id(db: Session, assistant_id: UUID):
     """
-    Найти ассистента по ID в таблицах OpenAI, Gemini и Cartesia.
+    Найти ассистента по ID в таблицах OpenAI, Gemini, Cartesia и Yandex.
 
     Returns:
-        tuple: (assistant, assistant_type) где type = 'openai' | 'gemini' | 'cartesia' | None
+        tuple: (assistant, assistant_type) где type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | None
     """
     # Try OpenAI first
     assistant = db.query(AssistantConfig).filter(
@@ -115,6 +129,14 @@ def find_assistant_by_id(db: Session, assistant_id: UUID):
 
     if assistant:
         return assistant, 'cartesia'
+
+    # Try Yandex
+    assistant = db.query(YandexAssistantConfig).filter(
+        YandexAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, 'yandex'
 
     return None, None
 
@@ -330,7 +352,12 @@ async def get_conversation_sessions(
             CartesiaAssistantConfig.user_id == current_user.id
         ).all()
         cartesia_id_set = {str(c.id) for c in cartesia_ids}
-        
+
+        yandex_ids = db.query(YandexAssistantConfig.id).filter(
+            YandexAssistantConfig.user_id == current_user.id
+        ).all()
+        yandex_id_set = {str(y.id) for y in yandex_ids}
+
         # =============================================================================
         # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
         # =============================================================================
@@ -345,6 +372,9 @@ async def get_conversation_sessions(
                 func.sum(Conversation.tokens_used).label('total_tokens'),
                 func.sum(Conversation.duration_seconds).label('total_duration'),
                 func.sum(Conversation.call_cost).label('total_cost'),
+                # Ссылки на запись и лог звонка из client_info (есть только у телефонии)
+                func.max(Conversation.client_info.op('->>')('record_url')).label('record_url'),
+                func.max(Conversation.client_info.op('->>')('log_url')).label('log_url'),
             )
             .group_by(
                 Conversation.session_id,
@@ -499,6 +529,8 @@ async def get_conversation_sessions(
                 assistant_type = 'gemini'
             elif str(s.assistant_id) in cartesia_id_set:
                 assistant_type = 'cartesia'
+            elif str(s.assistant_id) in yandex_id_set:
+                assistant_type = 'yandex'
             else:
                 assistant_type = 'openai'
             
@@ -526,7 +558,8 @@ async def get_conversation_sessions(
                 "tokens_used": s.total_tokens or 0,
                 "duration_seconds": s.total_duration or 0,
                 "call_cost": call_cost,
-                "record_url": None,  # Доступно только в детальном просмотре
+                "record_url": s.record_url,
+                "log_url": s.log_url,
                 "client_info": {"assistant_type": assistant_type},
                 "function_calls": logs_by_session.get(s.session_id, [])
             })
@@ -737,6 +770,9 @@ async def get_conversation_detail(
         total_duration = 0
         total_cost = 0.0
         record_url = None
+        log_url = None
+        call_session_history_id = None
+        session_history_record = None  # запись, в которую допишем log_url при fallback
         has_structured_dialog = False
         
         # 🆕 v3.5: Собираем caller_number из всех записей (берём первый непустой)
@@ -816,9 +852,48 @@ async def get_conversation_detail(
             
             if client_info.get('record_url'):
                 record_url = client_info.get('record_url')
+
+            if client_info.get('log_url'):
+                log_url = client_info.get('log_url')
+
+            if client_info.get('call_session_history_id'):
+                call_session_history_id = client_info.get('call_session_history_id')
+                session_history_record = msg
         
         logger.info(f"   Total messages after processing: {len(messages)}")
         logger.info(f"   Has structured dialog: {has_structured_dialog}")
+
+        # =============================================================================
+        # Fallback для старых звонков: log_url не сохранён, но есть
+        # call_session_history_id — дотягиваем лог из Voximplant GetCallHistory
+        # и кэшируем в client_info, чтобы не ходить в API повторно.
+        # =============================================================================
+        if not log_url and call_session_history_id:
+            try:
+                from backend.api.voximplant import (
+                    get_full_call_cost,
+                    get_voximplant_api_credentials,
+                )
+
+                credentials = get_voximplant_api_credentials(db, assistant.user_id)
+                if credentials:
+                    cost_result = await get_full_call_cost(
+                        call_session_history_id=call_session_history_id,
+                        account_id=credentials["account_id"],
+                        api_key=credentials["api_key"],
+                    )
+                    fetched_log_url = cost_result.get("log_file_url")
+                    if fetched_log_url:
+                        log_url = fetched_log_url
+                        if session_history_record is not None:
+                            updated_info = dict(session_history_record.client_info or {})
+                            updated_info["log_url"] = fetched_log_url
+                            session_history_record.client_info = updated_info
+                            db.commit()
+                        logger.info(f"   📄 log_url fetched from Voximplant and cached")
+            except Exception as log_fetch_error:
+                # Лог — вспомогательная информация, не ломаем детальный просмотр
+                logger.warning(f"   ⚠️ Failed to fetch log_url from Voximplant: {log_fetch_error}")
         
         # Загружаем function calls
         function_calls = []
@@ -882,6 +957,7 @@ async def get_conversation_detail(
             "total_duration": total_duration,
             "call_cost": call_cost,
             "record_url": record_url,
+            "log_url": log_url,
             "has_structured_dialog": has_structured_dialog,
             "function_calls": function_calls if include_functions else [],
             "client_info": main_client_info
