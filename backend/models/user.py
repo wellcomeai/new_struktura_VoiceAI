@@ -71,6 +71,12 @@ class User(Base, BaseModel):
     is_admin = Column(Boolean, default=False)
     payment_status = Column(String(50), nullable=True)
 
+    # ✅ Персональный API-ключ Voicyfy (внешние интеграции: Claude Code и т.п.).
+    # Сам ключ (vfy_...) НЕ хранится — только SHA-256-хэш; префикс показываем в UI.
+    api_key_hash = Column(String(64), nullable=True, unique=True, index=True)
+    api_key_prefix = Column(String(20), nullable=True)
+    api_key_created_at = Column(DateTime(timezone=True), nullable=True)
+
     # ✅ Система кредитов оркестратора Voicyfy Agent (тариф `agent`)
     # Поля добавлены в БД вручную через SQL (см. ТЗ раздел 2.1).
     credits_balance = Column(Integer, default=0, nullable=False)
@@ -119,7 +125,8 @@ class User(Base, BaseModel):
         data.pop("telegram_bot_token", None)     # ✅ v3.9: Скрываем Telegram токен
         data.pop("webhook_url", None)            # ✅ v4.0: Скрываем webhook URL из публичных ответов
         data.pop("google_sheets_token", None)
-        
+        data.pop("api_key_hash", None)           # ✅ Персональный API-ключ: скрываем хэш
+
         # Преобразуем UUID в строку для сериализации JSON
         if isinstance(data.get("id"), uuid.UUID):
             data["id"] = str(data["id"])

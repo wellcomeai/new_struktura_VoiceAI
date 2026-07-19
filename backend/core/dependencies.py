@@ -5,13 +5,14 @@ Contains reusable dependency functions that can be used across API endpoints.
 ✅ UPDATED: Added special assistant limits for specific users
 """
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+import hashlib
 import uuid
 from typing import Optional
 from datetime import datetime, timezone
 
-from backend.core.security import get_current_user_id
+from backend.core.security import get_current_user_id, decode_jwt_token
 from backend.core.logging import get_logger
 from backend.models.user import User
 from backend.models.assistant import AssistantConfig
@@ -75,6 +76,56 @@ async def get_current_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve user information"
         )
+
+
+def hash_api_key(api_key: str) -> str:
+    """SHA-256-хэш персонального API-ключа (в БД храним только хэш)."""
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+async def get_current_user_flexible(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Авторизация для эндпоинтов, открытых во внешний API (Claude Code и т.п.):
+    принимает ЛИБО персональный API-ключ (заголовок X-Api-Key: vfy_...),
+    ЛИБО обычный JWT (Authorization: Bearer <jwt>) — как в кабинете.
+
+    Используется ТОЛЬКО на выбранных эндпоинтах агента (create/update/get/list
+    и справочнике моделей). Остальной API остаётся строго JWT-only.
+    """
+    # 1) Персональный API-ключ
+    api_key = request.headers.get("X-Api-Key")
+    if api_key:
+        api_key = api_key.strip()
+        user = db.query(User).filter(
+            User.api_key_hash == hash_api_key(api_key)
+        ).first()
+        if not user:
+            logger.warning("❌ Invalid API key presented to flexible auth endpoint")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid_api_key"
+            )
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="user_inactive"
+            )
+        return user
+
+    # 2) JWT из кабинета
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+        token_data = decode_jwt_token(token)  # кидает 401 на невалидном токене
+        return await get_current_user(user_id=token_data["sub"], db=db)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No authentication credentials provided"
+    )
 
 
 async def get_assistant_by_id(

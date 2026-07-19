@@ -1285,7 +1285,65 @@
           </div>
         </form>
       </div>
-      
+
+      <!-- 🆕 API-КЛЮЧ ДЛЯ ИНТЕГРАЦИЙ (Claude Code и др.) -->
+      <div class="settings-section" id="api-key-section">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-key"></i> API-ключ для интеграций
+          </h2>
+        </div>
+
+        <p class="section-description">
+          Персональный ключ для управления автономными агентами по API — например,
+          через Claude Code. Даёт доступ к созданию и редактированию агентов
+          (передаётся в заголовке <code>X-Api-Key</code>).
+          <a href="/static/agent-api-docs.html" target="_blank">Документация API →</a>
+        </p>
+
+        <div class="current-password-section">
+          <label class="current-password-label">Статус ключа:</label>
+          <div class="password-display">
+            <div class="password-value" id="api-key-status-text">
+              <i class="fas fa-circle-notch fa-spin" style="margin-right: 0.5rem;"></i> Загрузка…
+            </div>
+          </div>
+        </div>
+
+        <!-- Блок с новым сгенерированным ключом (показывается один раз) -->
+        <div id="api-key-new-block" style="display: none; margin-bottom: 1rem;">
+          <div class="info-box" style="margin-bottom: 0.75rem;">
+            <i class="fas fa-exclamation-triangle info-icon" style="color: #f97316;"></i>
+            <div class="info-content">
+              <div class="info-title">Сохраните ключ сейчас</div>
+              <div class="info-description">
+                Полный ключ показывается только один раз. Восстановить его нельзя —
+                только перевыпустить (старый перестанет работать).
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="api-key-value" class="form-input" readonly
+                   style="font-family: monospace; font-size: 0.85rem;">
+            <button type="button" class="btn btn-secondary" id="api-key-copy" style="white-space: nowrap;">
+              <i class="fas fa-copy"></i> Скопировать
+            </button>
+          </div>
+        </div>
+
+        <div class="form-actions" style="justify-content: flex-start;">
+          <button type="button" class="btn btn-primary" id="api-key-generate" style="display: none;">
+            <i class="fas fa-plus"></i> Сгенерировать ключ
+          </button>
+          <button type="button" class="btn btn-secondary" id="api-key-regenerate" style="display: none;">
+            <i class="fas fa-sync-alt"></i> Перевыпустить
+          </button>
+          <button type="button" class="btn btn-secondary" id="api-key-revoke" style="display: none; color: #ef4444;">
+            <i class="fas fa-trash"></i> Отозвать
+          </button>
+        </div>
+      </div>
+
       <!-- 🆕 ПАРТНЕРСКАЯ ПРОГРАММА -->
       <div class="partner-section" id="partner-section">
         <div class="section-header">
@@ -2269,11 +2327,101 @@
         }
       }
 
+      // === 🆕 API-ключ для интеграций (Claude Code и др.) ===
+
+      function renderApiKeyStatus(st) {
+        const text = document.getElementById('api-key-status-text');
+        const genBtn = document.getElementById('api-key-generate');
+        const regenBtn = document.getElementById('api-key-regenerate');
+        const revokeBtn = document.getElementById('api-key-revoke');
+
+        if (st.has_key) {
+          const created = st.created_at
+            ? new Date(st.created_at).toLocaleDateString('ru-RU')
+            : '';
+          text.innerHTML =
+            '<i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;"></i>' +
+            'Ключ активен: <code>' + (st.key_prefix || '') + '</code>' +
+            (created ? ' · создан ' + created : '');
+          genBtn.style.display = 'none';
+          regenBtn.style.display = 'inline-flex';
+          revokeBtn.style.display = 'inline-flex';
+        } else {
+          text.innerHTML =
+            '<i class="fas fa-minus-circle" style="color: #94a3b8; margin-right: 0.5rem;"></i>' +
+            'Ключ не создан';
+          genBtn.style.display = 'inline-flex';
+          regenBtn.style.display = 'none';
+          revokeBtn.style.display = 'none';
+        }
+      }
+
+      async function loadApiKeyStatus() {
+        try {
+          const st = await api.get('/users/api-key');
+          renderApiKeyStatus(st);
+        } catch (error) {
+          console.error('Ошибка загрузки статуса API-ключа:', error);
+          document.getElementById('api-key-status-text').textContent =
+            'Не удалось загрузить статус ключа';
+        }
+      }
+
+      async function generateApiKey(isRegenerate) {
+        if (isRegenerate && !confirm('Перевыпустить ключ? Старый ключ сразу перестанет работать во всех интеграциях.')) {
+          return;
+        }
+        try {
+          const st = await api.post('/users/api-key/regenerate', {});
+          renderApiKeyStatus(st);
+          // Показываем полный ключ — единственный раз
+          document.getElementById('api-key-value').value = st.api_key;
+          document.getElementById('api-key-new-block').style.display = 'block';
+          ui.showNotification('Ключ сгенерирован. Сохраните его — он показывается только один раз.', 'info');
+        } catch (error) {
+          ui.showNotification(error.message || 'Не удалось сгенерировать ключ', 'error');
+        }
+      }
+
+      async function revokeApiKey() {
+        if (!confirm('Отозвать ключ? Все интеграции, использующие его, перестанут работать.')) {
+          return;
+        }
+        try {
+          const st = await api.delete('/users/api-key');
+          renderApiKeyStatus(st);
+          document.getElementById('api-key-new-block').style.display = 'none';
+          document.getElementById('api-key-value').value = '';
+          ui.showNotification('Ключ отозван');
+        } catch (error) {
+          ui.showNotification(error.message || 'Не удалось отозвать ключ', 'error');
+        }
+      }
+
+      document.getElementById('api-key-generate').addEventListener('click', () => generateApiKey(false));
+      document.getElementById('api-key-regenerate').addEventListener('click', () => generateApiKey(true));
+      document.getElementById('api-key-revoke').addEventListener('click', revokeApiKey);
+      document.getElementById('api-key-copy').addEventListener('click', async function() {
+        const input = document.getElementById('api-key-value');
+        try {
+          await navigator.clipboard.writeText(input.value);
+          ui.showNotification('Ключ скопирован в буфер обмена');
+        } catch (e) {
+          input.select();
+          document.execCommand('copy');
+          ui.showNotification('Ключ скопирован в буфер обмена');
+        }
+      });
+      document.getElementById('api-key-value').addEventListener('click', function() {
+        this.select();
+      });
+
       // Инициализация страницы
       async function initializePage() {
         if (!checkAuth()) return;
         await loadUserData();
         await loadSubscriptionForAccess();
+        await loadApiKeyStatus();
       }
 
       // Запускаем инициализацию

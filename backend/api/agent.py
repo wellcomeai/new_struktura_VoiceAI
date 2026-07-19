@@ -35,7 +35,7 @@ from backend.models.agent_call import AgentCall
 from backend.models.agent_connector import AgentConnector, CONNECTOR_TOOLKITS
 from backend.services import composio_service
 from backend.core.config import settings
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, get_current_user_flexible
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
 from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
@@ -185,6 +185,7 @@ class AgentCreateRequest(BaseModel):
     doc_rules_and_goals: str = Field(..., min_length=1)
     additional_instructions: Optional[str] = None
     voice_additional_instructions: Optional[str] = None
+    inbound_first_phrase: Optional[str] = Field(None, max_length=500)
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
     orchestrator_model: Optional[str] = None  # default → get_default_model()
@@ -487,10 +488,10 @@ def _resolve_agent(db: Session, user: User, agent_id: Optional[str] = None) -> O
 
 @router.get("/list")
 async def list_agents(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
 ):
-    """Список всех агентов пользователя (для меню выбора агента)."""
+    """Список всех агентов пользователя (для меню выбора агента). JWT или X-Api-Key."""
     agents = (
         db.query(AgentConfig)
         .filter(AgentConfig.user_id == current_user.id)
@@ -509,7 +510,7 @@ async def list_agents(
 @router.get("/")
 async def get_agent(
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
 ):
     """Get one of the user's AgentConfigs (defaults to the first one)."""
@@ -524,7 +525,7 @@ async def get_agent(
 @router.post("/create")
 async def create_agent(
     body: AgentCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
 ):
     """Create a new Voicyfy Agent v3.0 (one per user). No gpt-4o-mini generation."""
@@ -585,6 +586,7 @@ async def create_agent(
         doc_rules_and_goals=body.doc_rules_and_goals,
         additional_instructions=body.additional_instructions,
         voice_additional_instructions=body.voice_additional_instructions,
+        inbound_first_phrase=body.inbound_first_phrase,
         working_hours_start=body.working_hours_start,
         working_hours_end=body.working_hours_end,
         uses_hardcoded_prompt=True,
@@ -618,7 +620,7 @@ async def create_agent(
 async def update_agent(
     body: AgentUpdateRequest,
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
 ):
     """Update the agent's documents and settings."""
@@ -1784,9 +1786,9 @@ async def get_agent_stats(
 
 @router.get("/orchestrator-models")
 async def get_orchestrator_models(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
 ):
-    """Return the list of available orchestrator models for the wizard select."""
+    """Return the list of available orchestrator models for the wizard select. JWT или X-Api-Key."""
     return {"models": ORCHESTRATOR_MODELS, "default": get_default_model()}
 
 

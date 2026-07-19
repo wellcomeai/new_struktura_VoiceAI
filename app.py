@@ -732,6 +732,10 @@ def check_and_fix_all_missing_columns():
                 'agent_trial_used': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 'agent_trial_started_at': 'TIMESTAMP WITH TIME ZONE NULL',
                 'agent_subscription_blocked': 'BOOLEAN DEFAULT FALSE NOT NULL',
+                # 🆕 Персональный API-ключ Voicyfy (внешние интеграции, Claude Code)
+                'api_key_hash': 'VARCHAR(64) NULL',
+                'api_key_prefix': 'VARCHAR(20) NULL',
+                'api_key_created_at': 'TIMESTAMP WITH TIME ZONE NULL',
             },
             'conversations': {
                 'caller_number': 'VARCHAR(50) NULL',
