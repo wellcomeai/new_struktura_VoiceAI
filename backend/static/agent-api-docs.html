@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- /static/agent-api-docs.html -->
-<!-- ✅ ВЕРСИЯ 1.0: Документация Voicyfy Agent API — создание и настройка автономных агентов по персональному API-ключу -->
+<!-- ✅ ВЕРСИЯ 2.0: Документация Voicyfy Agent API — эндпоинты + полный справочник возможностей агента (инструменты оркестратора, функции голосового агента, каналы, тарифы) -->
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -205,6 +205,203 @@
       </div>
     </div>
 
+    <!-- Жизненный цикл звонка -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-arrows-spin"></i> Жизненный цикл звонка (PreCall → звонок → PostCall)</h2>
+      </div>
+      <div class="section-body">
+        <p>Каждый исходящий звонок проходит три фазы — понимание цикла — ключ к правильным промптам:</p>
+        <ol>
+          <li><b>PreCall (оркестратор, без инструментов).</b> Перед набором номера оркестратор получает задачу, карточку контакта, память о нём, полный транскрипт последнего звонка и хронологию всего общения (звонки + SMS + Telegram). На выходе — стратегия: первая фраза, тактика, тон, ключевые факты. Она передаётся голосовому агенту.</li>
+          <li><b>Живой разговор (голосовой агент).</b> Говорит по стратегии PreCall. Документов <code>doc_*</code> и CRM-доступа у него нет — фактура приходит только через стратегию и базу знаний.</li>
+          <li><b>PostCall (оркестратор, с инструментами).</b> Получает транскрипт и выполняет действия: <b>всегда</b> обновляет память о контакте; меняет стадию воронки только при реальном основании; для исходящих <b>всегда планирует следующее касание</b>, кроме случая достигнутой цели (недозвон → перезвон через 24 ч; ответил, но цель не достигнута → 1–3 дня, либо отложенное сообщение в Telegram); при важных событиях шлёт уведомление владельцу.</li>
+        </ol>
+        <p>Итог звонка: <code>SUCCESS</code> / <code>NO_ANSWER</code> / <code>FOLLOWUP</code>; стадия контакта проставляется автоматически.</p>
+        <p><b>Стадии воронки:</b> <code>new</code> → <code>active</code> → <code>success</code> / <code>rejected</code> / <code>do_not_call</code>.</p>
+        <p><b>Память о контакте:</b> сводка, ключевые факты, лучшее время звонка, история тона — накапливается и автоматически попадает в контекст каждого следующего PreCall, PostCall и чата.</p>
+      </div>
+    </div>
+
+    <!-- Инструменты оркестратора -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-toolbox"></i> Инструменты оркестратора (чат с владельцем)</h2>
+      </div>
+      <div class="section-body">
+        <p>Владелец общается с оркестратором в чате на странице агента и (если подключён бот) в Telegram. Пустое условие = инструмент доступен всегда.</p>
+        <p><b>CRM: контакты</b></p>
+        <div class="table-scroll">
+          <table class="params-table">
+            <thead><tr><th>Инструмент</th><th>Что делает</th><th>Условие</th></tr></thead>
+            <tbody>
+              <tr><td><span class="param-name">create_agent_contact</span></td><td>Создать контакт (телефон обязателен)</td><td></td></tr>
+              <tr><td><span class="param-name">bulk_create_contacts</span></td><td>Создать несколько контактов разом, дубли по номеру пропускаются</td><td></td></tr>
+              <tr><td><span class="param-name">search_contacts</span></td><td>Поиск по имени/телефону/компании и/или стадии</td><td></td></tr>
+              <tr><td><span class="param-name">get_agent_contacts</span></td><td>Общий список контактов</td><td></td></tr>
+              <tr><td><span class="param-name">get_contact_details</span></td><td>Полная карточка: поля, стадия, заметки, память, попытки</td><td></td></tr>
+              <tr><td><span class="param-name">get_contacts_by_stage</span></td><td>Разбивка контактов по стадиям воронки</td><td></td></tr>
+              <tr><td><span class="param-name">update_contact_info</span></td><td>Перезаписать имя/компанию/должность/заметки</td><td></td></tr>
+              <tr><td><span class="param-name">append_contact_note</span></td><td>Дописать заметку с датой, не стирая старые</td><td></td></tr>
+              <tr><td><span class="param-name">move_contact_stage</span></td><td>Перевести контакт на стадию воронки</td><td></td></tr>
+              <tr><td><span class="param-name">snooze_contact</span></td><td>Пауза до даты: отменяет запланированные звонки</td><td></td></tr>
+              <tr><td><span class="param-name">delete_agent_contact</span></td><td>Удалить контакт (необратимо, по явной просьбе)</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:0.75rem;"><b>Планирование звонков</b></p>
+        <div class="table-scroll">
+          <table class="params-table">
+            <thead><tr><th>Инструмент</th><th>Что делает</th><th>Условие</th></tr></thead>
+            <tbody>
+              <tr><td><span class="param-name">create_agent_task</span></td><td>Запланировать звонок; сдвигается в рабочие часы</td><td></td></tr>
+              <tr><td><span class="param-name">update_agent_task</span></td><td>Перенести/переименовать запланированный звонок</td><td></td></tr>
+              <tr><td><span class="param-name">delete_agent_task</span></td><td>Отменить запланированный звонок (необратимо)</td><td></td></tr>
+              <tr><td><span class="param-name">bulk_schedule_calls</span></td><td>Обзвон группы (по списку или стадии) с интервалом</td><td></td></tr>
+              <tr><td><span class="param-name">trigger_immediate_call</span></td><td>Позвонить прямо сейчас, без сдвига в рабочие часы</td><td></td></tr>
+              <tr><td><span class="param-name">get_agent_tasks</span></td><td>Список задач с фильтрами, проверка дублей</td><td></td></tr>
+              <tr><td><span class="param-name">get_upcoming_schedule</span></td><td>Календарь ближайших звонков по всем контактам</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:0.75rem;"><b>Аналитика и история</b></p>
+        <div class="table-scroll">
+          <table class="params-table">
+            <thead><tr><th>Инструмент</th><th>Что делает</th><th>Условие</th></tr></thead>
+            <tbody>
+              <tr><td><span class="param-name">get_agent_stats</span></td><td>Сводная статистика: контакты, звонки, задачи</td><td></td></tr>
+              <tr><td><span class="param-name">get_period_report</span></td><td>Отчёт за период: дозвоны, успехи, конверсия</td><td></td></tr>
+              <tr><td><span class="param-name">get_failed_calls</span></td><td>Очередь недозвонов на перезвон</td><td></td></tr>
+              <tr><td><span class="param-name">get_contact_call_history</span></td><td>История звонков контакта (кратко)</td><td></td></tr>
+              <tr><td><span class="param-name">get_contact_timeline</span></td><td>Единая хронология: звонки + SMS + Telegram</td><td></td></tr>
+              <tr><td><span class="param-name">get_call_transcript</span></td><td>Полный транскрипт конкретного звонка</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:0.75rem;"><b>Каналы и внешние системы</b></p>
+        <div class="table-scroll">
+          <table class="params-table">
+            <thead><tr><th>Инструмент</th><th>Что делает</th><th>Условие</th></tr></thead>
+            <tbody>
+              <tr><td><span class="param-name">send_sms</span></td><td>SMS клиенту с номера агента (до 500 символов)</td><td></td></tr>
+              <tr><td><span class="param-name">send_telegram_notification</span></td><td>Уведомление ВЛАДЕЛЬЦУ в Telegram-бот агента</td><td>подключён бот</td></tr>
+              <tr><td><span class="param-name">send_webhook</span></td><td>Событие (event + payload) на вебхук владельца</td><td>задан webhook_url</td></tr>
+              <tr><td><span class="param-name">search_knowledge_base</span></td><td>Векторный поиск по базе знаний компании</td><td>создана база</td></tr>
+              <tr><td><span class="param-name">telegram_send_message</span></td><td>Сообщение КЛИЕНТУ с личного Telegram владельца</td><td>личный аккаунт</td></tr>
+              <tr><td><span class="param-name">telegram_get_thread</span></td><td>Прочитать переписку с клиентом в Telegram</td><td>личный аккаунт</td></tr>
+              <tr><td><span class="param-name">schedule_telegram_message</span></td><td>Отложенное сообщение клиенту (передаётся инструкция, текст составится при отправке)</td><td>личный аккаунт</td></tr>
+              <tr><td><span class="param-name">Google Calendar</span></td><td>Создать/найти/изменить/удалить событие, свободные слоты</td><td>коннектор</td></tr>
+              <tr><td><span class="param-name">Gmail</span></td><td>Отправить/прочитать/ответить/переслать письмо</td><td>коннектор</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="info-box">
+          <i class="fas fa-info-circle"></i>
+          <div>
+            <div class="title">Инструменты PostCall-анализа</div>
+            <div class="desc">После звонка оркестратору доступен сокращённый набор: <code>update_contact_memory</code> (всегда вызывается), <code>create_agent_task</code>, <code>move_contact_stage</code>, <code>update_contact_info</code>, <code>send_telegram_notification</code>, <code>search_knowledge_base</code>, <code>send_sms</code>, <code>send_webhook</code> + условные инструменты Telegram и коннекторов.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Функции голосового агента -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-phone-volume"></i> Функции голосового агента (в живом звонке)</h2>
+      </div>
+      <div class="section-body">
+        <p>Набор голосового агента намеренно маленький — он говорит, а не ведёт CRM:</p>
+        <div class="table-scroll">
+          <table class="params-table">
+            <thead><tr><th>Функция</th><th>Что делает</th><th>Условие</th></tr></thead>
+            <tbody>
+              <tr><td><span class="param-name">hangup_call</span></td><td>Завершить звонок с прощальной фразой</td><td></td></tr>
+              <tr><td><span class="param-name">send_sms</span></td><td>SMS клиенту прямо во время звонка (адрес, ссылка, код)</td><td></td></tr>
+              <tr><td><span class="param-name">search_pinecone</span></td><td>Поиск по базе знаний во время разговора</td><td>создана база</td></tr>
+              <tr><td><span class="param-name">google_calendar_create_event / find_events</span></td><td>Записать на встречу / посмотреть календарь</td><td>коннектор</td></tr>
+              <tr><td><span class="param-name">gmail_send_email / fetch_emails</span></td><td>Отправить/прочитать письмо с Gmail владельца</td><td>коннектор</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="info-box warn">
+          <i class="fas fa-exclamation-triangle"></i>
+          <div>
+            <div class="title">Чего у голосового агента НЕТ (важно для промптов)</div>
+            <div class="desc">Нет CRM-инструментов, планирования задач, личного Telegram, вебхуков и документов <code>doc_*</code>. Если клиент просит перезвонить — агент уточняет время, а задачу ставит PostCall. Поэтому в <code>voice_additional_instructions</code> не нужно писать «запиши в CRM» или «поставь задачу» — это произойдёт автоматически. Пишите только про поведение в разговоре.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Каналы и автоматика -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-tower-broadcast"></i> Каналы и автоматика вне звонков</h2>
+      </div>
+      <div class="section-body">
+        <ul>
+          <li><b>Входящие звонки:</b> голосовой агент отвечает (<code>inbound_first_phrase</code>), после разговора — тот же PostCall-анализ (перезвон планируется только при необходимости).</li>
+          <li><b>Входящие SMS:</b> обрабатывает оркестратор — может ответить SMS, запланировать звонок, обновить память/стадию, уведомить владельца.</li>
+          <li><b>Входящие Telegram</b> (личный аккаунт + автоответ): оркестратор отвечает клиенту как живой человек; охват — только контакты из базы или все входящие.</li>
+          <li><b>Отложенные Telegram-сообщения:</b> живут в общем списке задач; перед отправкой оркестратор сверяется с контекстом — если договорённость уже закрыта, сообщение не отправляется.</li>
+          <li><b>Рабочие часы</b> (МСК): запланированные звонки сдвигаются в рабочее окно; НЕ сдвигаются <code>trigger_immediate_call</code> и Telegram-сообщения.</li>
+          <li><b>Вебхук:</b> события (заявка, лид, результат звонка) POST-запросом на URL владельца — для n8n / Make / Zapier / CRM.</li>
+          <li><b>Планировщик</b> проверяет задачи каждые ~30 секунд — «позвони сейчас» стартует в пределах полуминуты.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Гайд по промптам -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-pen-ruler"></i> Гайд: как писать промпты</h2>
+      </div>
+      <div class="section-body">
+        <p><b><code>additional_instructions</code> (оркестратор)</b> — правила планирования и работы с базой в терминах реальных инструментов и стадий:</p>
+        <ul>
+          <li>«Не звонить одному контакту чаще 1 раза в 3 дня»</li>
+          <li>«После двух недозвонов подряд отправляй SMS с предложением перезвонить»</li>
+          <li>«Отказников (rejected) не трогать 3 месяца»</li>
+          <li>«Горячих клиентов (просят счёт) — сразу уведомление владельцу»</li>
+        </ul>
+        <p><b><code>voice_additional_instructions</code> (голосовой агент)</b> — только поведение в живом разговоре:</p>
+        <ul>
+          <li>«Твоё имя — Алёна. Говори коротко, тепло, без канцелярита»</li>
+          <li>«Не называй цены на монтаж — предлагай замер»</li>
+          <li>«На возражение „дорого" — расскажи про рассрочку»</li>
+          <li>«Если просят человека — скажи, что менеджер перезвонит, и завершай звонок»</li>
+        </ul>
+        <div class="info-box">
+          <i class="fas fa-info-circle"></i>
+          <div>
+            <div class="title">Не дублируйте базовый промпт</div>
+            <div class="desc">Уже встроено: русский язык, проверка дублей задач, время по МСК, «сначала читай данные — потом действуй», запрет выдумывать данные, автозавершение звонка (hangup_call), обновление CRM после звонка. Объёмную фактуру (каталог, прайс) кладите в базу знаний — её ищут и оркестратор, и голосовой агент.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Тарифы и кредиты -->
+    <div class="content-section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-coins"></i> Тарифы, кредиты и подключения</h2>
+      </div>
+      <div class="section-body">
+        <p>Через API не настраивается — всё делается в кабинете, но полезно для ответов пользователям:</p>
+        <ul>
+          <li><b>Доступ к агенту:</b> тестовый период 3 дня (единожды, +1500 кредитов) или тариф profi (+10 000 кредитов). Без доступа — <code>402 subscription_required</code>.</li>
+          <li><b>Кредиты</b> — валюта работы оркестратора: списываются за токены каждого вызова (PreCall, PostCall, чат, входящие) по ставкам выбранной модели. Баланс ниже 100 — оркестратор не запускается (<code>402 insufficient_credits</code>). Пакеты пополнения — на странице агента.</li>
+          <li><b>Голосовая часть оплачивается отдельно:</b> собственные API-ключи провайдеров (OpenAI / Gemini / Cartesia / Yandex) + телефония Voximplant (номера, минуты, SMS).</li>
+          <li><b>Telegram-бот агента:</b> уведомления владельцу + чат с оркестратором в Telegram.</li>
+          <li><b>Личный Telegram-аккаунт:</b> агент пишет клиентам от имени владельца и отвечает на входящие; встроены анти-бан лимиты.</li>
+          <li><b>Коннекторы</b> (Google Calendar, Gmail): OAuth-подключение на странице агента.</li>
+          <li><b>База знаний:</b> создаётся на странице агента; наличие видно по <code>has_knowledge_base</code>.</li>
+          <li><b>Лимит:</b> до 3 агентов; у каждого свои контакты, задачи, память и подключения.</li>
+        </ul>
+      </div>
+    </div>
+
     <!-- GET /list -->
     <div class="content-section endpoint-anchor" id="list">
       <div class="section-header">
@@ -382,9 +579,10 @@
         <ol>
           <li><code>GET /api/agent/list</code> → проверить <code>can_create_more</code></li>
           <li><code>GET /api/agent/orchestrator-models</code> → выбрать модель (или пропустить)</li>
-          <li>Составить 5 документов <code>doc_*</code> и инструкции</li>
+          <li>Составить 5 документов <code>doc_*</code> и инструкции (см. «Гайд: как писать промпты»)</li>
           <li><code>POST /api/agent/create</code>, обработать возможные 400/402</li>
         </ol>
+        <p>При настройке промптов сверяйтесь с разделами «Жизненный цикл звонка», «Инструменты оркестратора» и «Функции голосового агента»: инструкции в терминах реальных инструментов и стадий работают заметно лучше абстрактных пожеланий.</p>
       </div>
     </div>
 
