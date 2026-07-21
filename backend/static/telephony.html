@@ -1935,6 +1935,7 @@
             <option value="gemini">Gemini</option>
             <option value="cartesia">Cartesia</option>
             <option value="yandex">Яндекс</option>
+            <option value="cascade">Каскад (VoxTTS)</option>
             <option value="agent">🤖 Агенты</option>
           </select>
         </div>
@@ -2314,6 +2315,8 @@
               } else if (num.assistant_type === 'yandex') {
                 const shortModel = num.assistant_model ? num.assistant_model.replace('speech-realtime-', '') : '';
                 modelLabel = `<div style="font-size:0.7rem; color:var(--text-light); margin-top:0.2rem;">Яндекс${shortModel ? ' ' + shortModel : ''}</div>`;
+              } else if (num.assistant_type === 'cascade') {
+                modelLabel = `<div style="font-size:0.7rem; color:var(--text-light); margin-top:0.2rem;">Каскад</div>`;
               }
               const icon = num.assistant_type === 'cascade' ? 'fa-route' : 'fa-robot';
               assistantBadge = `<span class="assistant-badge"><i class="fas ${icon}"></i> ${num.assistant_name}</span>${modelLabel}`;
@@ -3116,6 +3119,7 @@
             gemini: '/gemini-assistants',
             cartesia: '/cartesia-assistants',
             yandex: '/yandex-assistants',
+            cascade: '/grok-assistants/cascade',
             agent: '/telephony/bindable-agents'
           };
           const endpoint = endpoints[type] || '/assistants';

@@ -1074,6 +1074,7 @@
               <div class="form-group">
                 <label for="agent-tts-provider">TTS провайдер</label>
                 <select class="form-control" id="agent-tts-provider">
+                  <option value="voxtts">VoxTTS (Voximplant)</option>
                   <option value="yandex">Яндекс SpeechKit</option>
                   <option value="tinkoff">Т-Банк VoiceKit</option>
                   <option value="sber">Сбер Салют</option>
@@ -1218,6 +1219,10 @@
     };
 
     const TTS_PROVIDERS = {
+      voxtts: [
+        { id: 'Anna', name: 'Анна' },
+        { id: 'Sergey', name: 'Сергей' }
+      ],
       yandex: [
         { id: 'alena', name: 'Алёна' },
         { id: 'filipp', name: 'Филипп' },
@@ -1687,7 +1692,7 @@
       listEl.className = 'agent-items';
 
       agents.forEach(agent => {
-        const providerName = { yandex: 'Яндекс', tinkoff: 'Т-Банк', sber: 'Сбер' }[agent.tts_provider] || agent.tts_provider || '-';
+        const providerName = { voxtts: 'VoxTTS', yandex: 'Яндекс', tinkoff: 'Т-Банк', sber: 'Сбер' }[agent.tts_provider] || agent.tts_provider || '-';
         const voiceName = getVoiceName(agent.tts_provider, agent.tts_voice);
         const modelShort = (agent.openrouter_model || '-').split('/').pop();
 
