@@ -232,21 +232,38 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
     Logger.write("✅ OpenAI connected");
 
-    // Приветствие запускаем, только когда И сессия сконфигурирована, И VoxTTS-плеер
-    // подключён к звонку — иначе первые дельты приветствия улетят в никуда.
+    // Очистка текста перед VoxTTS: убираем markdown-переносы строк (модель
+    // иногда пишет ответ в несколько строк — "  \n" ломает синтез).
+    function cleanForTTS(text) {
+        return text.replace(/\s*\n+\s*/g, " ");
+    }
+
+    // Приветствие.
+    //  - Есть first_phrase: озвучиваем НАПРЯМУЮ через VoxTTS, не гоняя раунд
+    //    к модели (мгновенно, без паузы на setup сессии). Модель узнаёт об этом
+    //    из инструкций ("ты уже поздоровался"), первый её ответ — на реплику юзера.
+    //  - Нет first_phrase: просим поздороваться саму модель (нужна готовая сессия).
     function maybeStartGreeting() {
-        if (!sessionConfigured || !playerReady || greetingStarted) return;
+        if (greetingStarted || !playerReady) return;
+
+        if (CONFIG.first_phrase) {
+            greetingStarted = true;
+            Logger.write("🤖 AGENT (greeting): \"" + CONFIG.first_phrase + "\"");
+            dialogLog.push({ role: 'assistant', text: CONFIG.first_phrase.trim(), ts: Date.now() });
+            if (assistantMessageBuffer) assistantMessageBuffer += " ";
+            assistantMessageBuffer += CONFIG.first_phrase.trim();
+            ttsPlayer.send({ send_text: { text: cleanForTTS(CONFIG.first_phrase), flush_context: {} } });
+            return;
+        }
+
+        if (!sessionConfigured) return;
         greetingStarted = true;
-
-        var greetInput = CONFIG.first_phrase
-            ? 'Скажи так: "' + CONFIG.first_phrase + '"'
-            : "Поприветствуй звонящего одной короткой фразой и спроси, чем можешь помочь.";
-
         realtimeAPIClient.conversationItemCreate({
-            item: { type: "message", role: "user", content: [{ type: "input_text", text: greetInput }] }
+            item: { type: "message", role: "user", content: [{ type: "input_text",
+                text: "Поприветствуй звонящего одной короткой фразой и спроси, чем можешь помочь." }] }
         });
         realtimeAPIClient.responseCreate({});
-        Logger.write("[OpenAI] Greeting requested");
+        Logger.write("[OpenAI] Greeting requested from model");
     }
 
     // =========================================================================
@@ -259,11 +276,19 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             sessionConfigured = true;
             Logger.write("[OpenAI] Session created — configuring");
 
+            var instructions = CONFIG.system_prompt || "";
+            if (CONFIG.first_phrase) {
+                // Приветствие озвучивается напрямую через VoxTTS — модель об этом
+                // должна знать, чтобы не здороваться повторно.
+                instructions += "\n\nТы уже поприветствовал абонента фразой: «" +
+                    CONFIG.first_phrase + "». Не здоровайся повторно.";
+            }
+
             realtimeAPIClient.sessionUpdate({
                 session: {
                     type: "realtime",
                     output_modalities: ["text"],
-                    instructions: CONFIG.system_prompt,
+                    instructions: instructions,
                     reasoning: { effort: REASONING_EFFORT },
                     audio: {
                         input: {
@@ -279,7 +304,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                         type: "server_vad",
                         threshold: 0.5,
                         prefix_padding_ms: 300,
-                        silence_duration_ms: 500,
+                        silence_duration_ms: 300,
                         create_response: true,
                         interrupt_response: true
                     }
@@ -301,7 +326,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 (event && event.data && event.data.delta) ||
                 (event && event.data && event.data.payload && event.data.payload.delta) || "";
             if (!delta) return;
-            ttsPlayer.send({ send_text: { text: delta } });
+            ttsPlayer.send({ send_text: { text: cleanForTTS(delta) } });
         }
     );
 
@@ -377,7 +402,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 if (functionName === "hangup_call") {
                     lastFunctionResult = { action: "call_terminated", reason: args.reason || "user request" };
                     if (args.farewell_message) {
-                        var farewell = args.farewell_message.trim();
+                        var farewell = cleanForTTS(args.farewell_message.trim());
                         if (ttsPlayer) ttsPlayer.send({ send_text: { text: farewell, flush_context: {} } });
                         var waitMs = Math.max(3000, farewell.length * MS_PER_CHAR + 1500);
                         setTimeout(function() { call.hangup(); }, waitMs);
