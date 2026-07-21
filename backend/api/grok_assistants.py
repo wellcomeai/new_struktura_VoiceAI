@@ -224,6 +224,13 @@ class CascadeApiKeysStatus(BaseModel):
 # ============================================================================
 
 TTS_PROVIDERS = {
+    "voxtts": {
+        "name": "VoxTTS (Voximplant)",
+        "voices": [
+            {"id": "Anna",   "name": "Анна",   "gender": "female"},
+            {"id": "Sergey", "name": "Сергей", "gender": "male"},
+        ]
+    },
     "yandex": {
         "name": "Яндекс",
         "voices": [

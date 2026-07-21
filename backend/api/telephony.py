@@ -5112,7 +5112,9 @@ async def get_scenario_config(
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
         elif phone_record.assistant_type == "cascade":
-            api_key = user.openrouter_api_key
+            # Каскад ходит в OpenAI напрямую с платформенным ключом (ENV),
+            # user.openrouter_api_key — fallback для старого сценария
+            api_key = settings.OPENAI_API_KEY or user.openrouter_api_key
         elif phone_record.assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id
