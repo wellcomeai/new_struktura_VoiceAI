@@ -19,7 +19,9 @@ require(Modules.OpenAI);
 require(Modules.VoxTTS);
 
 const BACKEND_URL = "https://voicyfy.ru";
-const LLM_MODEL = "gpt-4o-mini";
+const LLM_MODEL = "gpt-5.4-nano";
+// Для GPT-5.x reasoning обязателен к отключению: с ним TTFT растёт с ~0.6с до 5-8с
+const LLM_REASONING = { effort: "minimal" };
 
 // Правила телефонного стиля добавляются к промпту ассистента из конфига
 const TELEPHONY_STYLE_RULES = `
@@ -166,7 +168,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 // Финалы YandexV3 опаздывают на ~2с, ждать их бессмысленно —
                 // interim к моменту endOfTurn уже полный, окно можно короткое
                 transcriptSettleMs: 300,
-                userSpeechTimeoutMs: 1000,
+                userSpeechTimeoutMs: 800,
                 shortUtteranceExtensionMs: 1800,
                 fastShortUtteranceTimeoutMs: 700,
                 shortUtteranceMaxChars: 14,
@@ -179,9 +181,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             },
             enableLogging: true,
             onUserTurn: (input) => {
+                // Страховка: реальный ход всегда важнее незавершённого прогрева
+                warmupActive = false;
                 sendTranscript(assistantId, callId, "user", input);
                 responsesClient.createResponses({
                     model: LLM_MODEL,
+                    reasoning: LLM_REASONING,
                     instructions: systemPrompt,
                     input,
                 });
@@ -247,13 +252,15 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             warmupActive = true;
             responsesClient.createResponses({
                 model: LLM_MODEL,
+                reasoning: LLM_REASONING,
                 instructions: "Техническая проверка связи.",
                 input: "Ответь одним словом: ок",
-                max_output_tokens: 16,
+                max_output_tokens: 32,
             });
         } else {
             responsesClient.createResponses({
                 model: LLM_MODEL,
+                reasoning: LLM_REASONING,
                 instructions: systemPrompt,
                 input: "Поприветствуй звонящего одной короткой фразой и спроси, чем можешь помочь.",
             });
