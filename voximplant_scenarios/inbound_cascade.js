@@ -89,6 +89,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let responsesClient;
     let ttsPlayer;
     let turnTaking;
+    // true, пока идёт прогревочный запрос к OpenAI — его вывод не озвучиваем
+    let warmupActive = false;
 
     const terminate = () => {
         stt?.stop();
@@ -154,14 +156,16 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             stt,
             vadOptions: {
                 threshold: 0.5,
-                minSilenceDurationMs: 350,
+                minSilenceDurationMs: 250,
                 speechPadMs: 10,
             },
             turnDetectorOptions: {
                 threshold: 0.5,
             },
             policy: {
-                transcriptSettleMs: 500,
+                // Финалы YandexV3 опаздывают на ~2с, ждать их бессмысленно —
+                // interim к моменту endOfTurn уже полный, окно можно короткое
+                transcriptSettleMs: 300,
                 userSpeechTimeoutMs: 1000,
                 shortUtteranceExtensionMs: 1800,
                 fastShortUtteranceTimeoutMs: 700,
@@ -191,6 +195,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         responsesClient.addEventListener(
             OpenAI.ResponsesAPIEvents.ResponseTextDelta,
             (event) => {
+                if (warmupActive) return;
                 const text = event?.data?.payload?.delta;
                 if (!text || !turnTaking.canPlayAgentAudio()) return;
                 ttsPlayer.send({ send_text: { text } });
@@ -200,6 +205,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         responsesClient.addEventListener(
             OpenAI.ResponsesAPIEvents.ResponseTextDone,
             (event) => {
+                if (warmupActive) {
+                    warmupActive = false;
+                    Logger.write("[CASCADE] OpenAI warmup done");
+                    return;
+                }
                 const text = event?.data?.payload?.text;
                 Logger.write(`[CASCADE] ===AGENT=== ${text}`);
                 sendTranscript(assistantId, callId, "assistant", text);
@@ -231,6 +241,16 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             systemPrompt += `\n\nТы уже поприветствовал абонента фразой: «${config.first_phrase}». Не здоровайся повторно.`;
             sendTranscript(assistantId, callId, "assistant", config.first_phrase);
             ttsPlayer.send({ send_text: { text: config.first_phrase, flush_context: {} } });
+            // Приветствие идёт мимо LLM, поэтому прогреваем соединение с OpenAI
+            // заранее — иначе первый ход абонента платит ~0.5-1с за установку
+            // канала. Ответ прогрева отбрасывается по флагу warmupActive.
+            warmupActive = true;
+            responsesClient.createResponses({
+                model: LLM_MODEL,
+                instructions: "Техническая проверка связи.",
+                input: "Ответь одним словом: ок",
+                max_output_tokens: 16,
+            });
         } else {
             responsesClient.createResponses({
                 model: LLM_MODEL,
