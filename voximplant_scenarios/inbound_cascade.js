@@ -20,8 +20,9 @@ require(Modules.VoxTTS);
 
 const BACKEND_URL = "https://voicyfy.ru";
 const LLM_MODEL = "gpt-5.4-nano";
-// Для GPT-5.x reasoning обязателен к отключению: с ним TTFT растёт с ~0.6с до 5-8с
-const LLM_REASONING = { effort: "minimal" };
+// Для GPT-5.x reasoning обязателен к отключению: с ним TTFT растёт с ~0.6с до 5-8с.
+// У gpt-5.4-nano значение "none" (у более старых моделей оно называлось "minimal").
+const LLM_REASONING = { effort: "none" };
 
 // Правила телефонного стиля добавляются к промпту ассистента из конфига
 const TELEPHONY_STYLE_RULES = `
