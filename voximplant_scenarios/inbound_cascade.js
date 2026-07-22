@@ -28,16 +28,22 @@
  *
  * WARMUP (прячет холодный первый токен ~1.5с под приветствие):
  *  WS к OpenAI открыт с начала звонка, но первая инференс-задержка холодная.
- *  Пока клиент слушает приветствие, шлём фиктивный запрос — его вывод гасится
- *  (клиент не «ждёт», completion-id уходит в stale). К первому реальному ходу
- *  соединение/модель уже тёплые.
+ *  Пока клиент слушает приветствие, шлём фиктивный запрос — его вывод гасится.
  *
  * СПЕКУЛЯЦИЯ:
  *  Runtime эмитит onSpeculativeTurn(input, version), когда interim выглядит
- *  завершённым, но EOU ещё не подтверждён -> запускаем LLM на llmSpec заранее,
- *  копим дельты, НЕ озвучиваем. Приходит onUserTurn: текст совпал (HIT) ->
- *  промоутим спекуляцию (флашим буфер + озвучиваем остаток live); текст изменился
- *  (MISS) -> буфер выбрасываем, генерим заново на llmMain.
+ *  завершённым, но EOU ещё не подтверждён -> запускаем LLM на llmSpec заранее.
+ *
+ * ЗАПИСЬ / СТОИМОСТЬ / ЛОГИРОВАНИЕ (перенесено из Gemini-сценария v7.9):
+ *  - Запись звонка: call.record() на CallEvents.Connected, url ловим из
+ *    CallEvents.RecordStarted.
+ *  - call_session_history_id: из AppEvents.Started (sessionId) — сервер по нему
+ *    берёт ПОЛНУЮ стоимость через GetCallHistory.
+ *  - Стоимость/длительность: из события Disconnected/Failed (cost/duration).
+ *  - Структурированный диалог (dialog) + user/assistant буферы копятся по ходу.
+ *  - В конце звонка (terminateCall) один POST /api/voximplant/log со всем набором
+ *    (запись, session id, стоимость, диалог). Per-turn /webhook/transcript УБРАН —
+ *    сервер сам создаёт запись разговора, R2-запись, стоимость и Telegram по /log.
  *
  * ТРЕБОВАНИЯ:
  * 1. В правиле роутинга `vox-turn-taking` — ПЕРВЫМ, этот сценарий — ВТОРЫМ.
@@ -47,8 +53,10 @@
 require(Modules.ASR);
 require(Modules.OpenAI);
 require(Modules.VoxTTS);
+require(Modules.Recorder);
 
 const BACKEND_URL = "https://voicyfy.ru";
+const LOG_URL = BACKEND_URL + "/api/voximplant/log";
 const LLM_MODEL = "gpt-5.4-nano";
 // Для GPT-5.x reasoning обязателен к отключению: с ним TTFT растёт с ~0.6с до
 // 5-8с. У gpt-5.4-nano значение "none" (у более старых моделей — "minimal").
@@ -136,20 +144,12 @@ async function fetchConfig(phone, caller) {
     }
 }
 
-function sendTranscript(assistantId, callId, role, transcript) {
-    if (!assistantId || !transcript) return;
-    Net.httpRequestAsync(`${BACKEND_URL}/api/voximplant/webhook/transcript`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        postData: JSON.stringify({
-            assistant_id: assistantId,
-            call_id: callId,
-            role: role,
-            transcript: transcript,
-            timestamp: new Date().toISOString(),
-        }),
-    }).catch((e) => Logger.write(`[CASCADE] Transcript send error: ${e}`));
-}
+// --- Session ID для расчёта полной стоимости на сервере (GetCallHistory) ---
+let call_session_history_id = null;
+VoxEngine.addEventListener(AppEvents.Started, (e) => {
+    call_session_history_id = e.sessionId;
+    Logger.write(`[CASCADE] Session History ID: ${call_session_history_id}`);
+});
 
 VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let stt;
@@ -166,7 +166,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     const mainStaleIds = new Set();
 
     // Состояние спекуляции (null, когда её нет).
-    // { version, inputNorm, userText, id, text, done, promoted }
     let spec = null;
     const specStaleIds = new Set();
 
@@ -174,20 +173,126 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let firstDeltaLoggedForTurn = false;
     let turnStartedAt = 0;
 
-    // Разовый лог формы события — чтобы по звонку сверить payload.
+    // Разовый лог формы события.
     const loggedShapes = new Set();
 
     let systemPrompt;
     let assistantId;
     let callId;
 
-    const terminate = () => {
-        try { stt?.stop(); } catch (e) { /* noop */ }
-        turnTaking?.close();
-        VoxEngine.terminate();
+    // --- Данные для /log (запись, стоимость, диалог) ---
+    const chat_id = "vox_" + Math.random().toString(36).substring(2, 15);
+    const caller_number = call.callerid() || "unknown";
+    const called_number = call.number() || "unknown";
+    let record_url = null;
+    let call_cost = 0;
+    let call_duration = 0;
+    const dialogLog = []; // [{ role, text, ts }]
+    let userMessageBuffer = "";
+    let assistantMessageBuffer = "";
+    let terminating = false;
+
+    const logDialog = (role, text) => {
+        if (!text) return;
+        dialogLog.push({ role, text, ts: Date.now() });
+        if (role === "user") {
+            userMessageBuffer += (userMessageBuffer ? "\n" : "") + text;
+        } else {
+            assistantMessageBuffer += (assistantMessageBuffer ? "\n" : "") + text;
+        }
     };
-    call.addEventListener(CallEvents.Disconnected, terminate);
-    call.addEventListener(CallEvents.Failed, terminate);
+
+    const sendConversationLog = async () => {
+        if (!assistantId) return;
+        if (!userMessageBuffer && !assistantMessageBuffer && dialogLog.length === 0) return;
+        const payload = {
+            assistant_id: assistantId,
+            chat_id: chat_id,
+            call_id: callId,
+            caller_number: "INBOUND:" + caller_number,
+            type: "conversation",
+            call_cost: call_cost,
+            call_duration: call_duration,
+            data: {
+                user_message: userMessageBuffer,
+                assistant_message: assistantMessageBuffer,
+                dialog: dialogLog,
+            },
+        };
+        if (record_url) payload.record_url = record_url;
+        if (call_session_history_id) payload.call_session_history_id = String(call_session_history_id);
+        try {
+            const resp = await Net.httpRequestAsync(LOG_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                postData: JSON.stringify(payload),
+            });
+            Logger.write(`[CASCADE] /log HTTP ${resp.code} (turns=${dialogLog.length})`);
+        } catch (e) {
+            Logger.write(`[CASCADE] /log error: ${e}`);
+        }
+    };
+
+    // Завершение звонка: финализация -> пауза (запись/событие оседают) ->
+    // POST /log -> hangup -> VoxEngine.terminate. Guard от двойного вызова.
+    let terminatePromise = null;
+    const terminateCall = () => {
+        if (terminatePromise) return terminatePromise;
+        terminating = true;
+        terminatePromise = (async () => {
+            try { stt?.stop(); } catch (e) { /* noop */ }
+            try { turnTaking?.close(); } catch (e) { /* noop */ }
+
+            // Дописать незавершённый ответ ассистента (звонок мог оборваться
+            // посреди генерации).
+            if (main.accepting && main.text) {
+                logDialog("assistant", main.text);
+            } else if (spec && spec.promoted && spec.text && !spec.done) {
+                logDialog("assistant", spec.text);
+            }
+
+            // Дать записи/финальным событиям осесть.
+            await new Promise((r) => setTimeout(r, 400));
+
+            Logger.write(
+                `[CASCADE] ===BILLING=== cost=${call_cost} dur=${call_duration}s ` +
+                `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} session=${call_session_history_id || "none"}`
+            );
+            await sendConversationLog();
+
+            try { call.hangup(); } catch (e) { /* noop */ }
+            setTimeout(() => VoxEngine.terminate(), 400);
+        })();
+        return terminatePromise;
+    };
+
+    // --- События записи и жизненного цикла звонка ---
+    call.addEventListener(CallEvents.RecordStarted, (event) => {
+        record_url = event.url;
+        Logger.write(`[CASCADE] Recording started: ${event.url}`);
+    });
+    call.addEventListener(CallEvents.RecordStopped, (event) => {
+        if (event && event.url) record_url = event.url;
+    });
+    call.addEventListener(CallEvents.Connected, () => {
+        try {
+            call.record({ stereo: false, lossless: false, hd_audio: true });
+        } catch (e) {
+            Logger.write(`[CASCADE] record() error: ${e}`);
+        }
+    });
+    call.addEventListener(CallEvents.Disconnected, (event) => {
+        if (event && event.cost !== undefined) call_cost = event.cost;
+        if (event && event.duration !== undefined) call_duration = event.duration;
+        Logger.write(`[CASCADE] ===DISCONNECTED=== cost=${call_cost} dur=${call_duration}s`);
+        terminateCall();
+    });
+    call.addEventListener(CallEvents.Failed, (event) => {
+        if (event && event.cost !== undefined) call_cost = event.cost;
+        if (event && event.duration !== undefined) call_duration = event.duration;
+        Logger.write(`[CASCADE] ===CALL_FAILED=== code=${event?.code} ${event?.reason || ""}`);
+        terminateCall();
+    });
 
     const logShapeOnce = (tag, event) => {
         if (loggedShapes.has(tag)) return;
@@ -211,7 +316,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         ttsPlayer.send({ send_text: { text } });
     };
     const ttsFlush = () => {
-        // Форсируем синтез остатка буфера.
         ttsPlayer.send({ send_text: { text: " ", flush_context: {} } });
     };
 
@@ -224,13 +328,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         });
     };
 
-    // Фиктивный прогрев: соединение/модель тёплые к первому реальному ходу.
-    // Вывод гасится idle-guard'ом обработчика (клиент ничего не «ждёт»).
     const warmup = (client) => {
         sendCompletion(client, [{ role: "user", content: "привет" }]);
     };
 
-    // Запуск подтверждённой генерации на главном клиенте.
     const startMain = (msgs, version) => {
         if (main.id) mainStaleIds.add(main.id);
         main.accepting = true;
@@ -240,7 +341,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         sendCompletion(llmMain, msgs);
     };
 
-    // Запуск спекулятивной генерации на спек-клиенте.
     const startSpec = (input, version) => {
         spec = {
             version,
@@ -265,7 +365,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         if (text) {
             messages.push({ role: "assistant", content: text });
             Logger.write(`[CASCADE] ===AGENT=== ${text}`);
-            sendTranscript(assistantId, callId, "assistant", text);
+            logDialog("assistant", text);
         }
         if (turnTaking.canPlayAgentAudio()) ttsFlush();
         main.accepting = false;
@@ -279,7 +379,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         if (text) {
             messages.push({ role: "assistant", content: text });
             Logger.write(`[CASCADE] ===AGENT=== ${text}`);
-            sendTranscript(assistantId, callId, "assistant", text);
+            logDialog("assistant", text);
         }
         if (turnTaking.canPlayAgentAudio()) ttsFlush();
         if (spec.id) specStaleIds.add(spec.id);
@@ -299,10 +399,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         assistantId = config.assistant_id;
         callId = call.id();
         systemPrompt = (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
-        // Анти-повтор приветствия. ВАЖНО: без дословной фразы в инструкции —
-        // если вписать сюда текст first_phrase, модель начинает echo'ить его в
-        // КАЖДОМ ответе (эффект «не думай о розовом слоне»). Даём только нейтральный
-        // запрет повторного приветствия.
+        // Анти-повтор приветствия. БЕЗ дословной фразы в инструкции — иначе модель
+        // echo'ит её в каждом ответе (эффект «не думай о розовом слоне»).
         if (config.first_phrase) {
             systemPrompt +=
                 `\n\nРазговор уже начат: приветствие собеседнику уже произнесено. ` +
@@ -311,6 +409,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         messages.push({ role: "system", content: systemPrompt });
 
         Logger.write(`[CASCADE] Assistant: ${config.assistant_name} (${assistantId})`);
+        Logger.write(`[CASCADE] Call: ${caller_number} -> ${called_number} | id=${callId}`);
         Logger.write(`[CASCADE] LLM: ${LLM_MODEL} via ChatCompletions (Chunk-gated + speculation + warmup)`);
 
         stt = VoxEngine.createASR({
@@ -319,7 +418,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             interimResults: true,
         });
 
-        // Два независимых клиента: WS открываются заранее.
         [llmMain, llmSpec] = await Promise.all([
             OpenAI.createChatCompletionsAPIClient({ apiKey: config.api_key }),
             OpenAI.createChatCompletionsAPIClient({ apiKey: config.api_key }),
@@ -339,6 +437,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
 
         // --- Главный клиент: один обработчик `Chunk` (дельта + финал по id) ---
         llmMain.addEventListener(CC.Chunk, (event) => {
+            if (terminating) return;
             logShapeOnce("main.Chunk", event);
             const id = extractCompletionId(event);
             if (id && mainStaleIds.has(id)) return;
@@ -351,7 +450,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             if (main.id === null) {
                 main.id = id || "";
             } else if (id && id !== main.id) {
-                return; // другой/устаревший стрим на этом клиенте
+                return;
             }
             const text = extractDelta(event);
             if (text) {
@@ -366,6 +465,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
 
         // --- Спек-клиент: один обработчик `Chunk` ---
         llmSpec.addEventListener(CC.Chunk, (event) => {
+            if (terminating) return;
             logShapeOnce("spec.Chunk", event);
             const id = extractCompletionId(event);
             if (id && specStaleIds.has(id)) return;
@@ -381,8 +481,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             const text = extractDelta(event);
             if (text) {
                 spec.text += text;
-                // До подтверждения хода не озвучиваем — только копим. После HIT
-                // (promoted) остаток идёт в озвучку live.
                 if (spec.promoted && turnTaking.canPlayAgentAudio()) {
                     logFirstDelta("(SPEC_LIVE)");
                     ttsSendText(text);
@@ -398,7 +496,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             }
         });
 
-        // Ошибки на обоих клиентах.
         [llmMain, llmSpec].forEach((client) => {
             client.addEventListener(CC.ChatCompletionsAPIError, (event) => {
                 Logger.write("[CASCADE] ===LLM_ERROR===");
@@ -410,11 +507,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             call,
             stt,
             vadOptions: { threshold: 0.5, minSilenceDurationMs: 200, speechPadMs: 10 },
-            // 0.85 держал ход слишком долго: p≈0.83 не подтверждался и мы падали
-            // в 700-мс страховочный фолбэк. 0.7 подтверждает такие фразы сразу.
             turnDetectorOptions: { threshold: 0.7 },
             policy: {
-                // Порог «уверенного конца» -> быстрый settle (120мс вместо 350).
                 confidentEouProbability: 0.8,
                 transcriptSettleFastMs: 120,
                 transcriptSettleMs: 350,
@@ -437,13 +531,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                     "стоп", "верно", "точно", "конечно", "давай", "давайте",
                     "спасибо", "понятно", "нет спасибо", "да давайте",
                 ],
-                // Ниже turnDetector.threshold (0.7): спекуляция стартует в полосе
-                // [0.6, 0.7), пока endOfTurn ещё false.
                 speculativeEouProbability: 0.6,
             },
             enableLogging: true,
 
             onSpeculativeTurn: (input, version) => {
+                if (terminating) return;
                 if (!input) return;
                 if (spec && spec.version === version) return;
                 if (spec) abandonSpec();
@@ -452,10 +545,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             },
 
             onUserTurn: (input, version) => {
+                if (terminating) return;
                 firstDeltaLoggedForTurn = false;
                 turnStartedAt = Date.now();
                 Logger.write(`[CASCADE] ===USER=== ${input}`);
-                sendTranscript(assistantId, callId, "user", input);
+                logDialog("user", input);
                 messages.push({ role: "user", content: input });
 
                 const inputNorm = normalizeForMatch(input);
@@ -463,11 +557,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 // HIT: спекуляция угадала ход — промоутим её как активную.
                 if (spec && spec.inputNorm === inputNorm) {
                     Logger.write(`[CASCADE] ===SPEC_HIT=== v${version}`);
-                    main.accepting = false; // ход обслуживает спек-клиент
+                    main.accepting = false;
                     spec.promoted = true;
                     if (spec.text && turnTaking.canPlayAgentAudio()) {
                         logFirstDelta("(SPEC_HIT)");
-                        ttsSendText(spec.text); // флашим накопленное
+                        ttsSendText(spec.text);
                     }
                     if (spec.done) finalizeSpec();
                     return;
@@ -482,6 +576,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             },
 
             onInterrupt: () => {
+                if (terminating) return;
                 ttsPlayer?.clearBuffer();
                 abandonSpec();
                 main.accepting = false;
@@ -497,14 +592,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         // --- Приветствие ---
         if (config.first_phrase) {
             messages.push({ role: "assistant", content: config.first_phrase });
-            sendTranscript(assistantId, callId, "assistant", config.first_phrase);
+            logDialog("assistant", config.first_phrase);
             ttsPlayer.send({ send_text: { text: config.first_phrase, flush_context: {} } });
-            // Приветствие идёт мимо LLM -> греем ОБА клиента, пока абонент слушает.
             warmup(llmMain);
             warmup(llmSpec);
         } else {
-            // Приветствие генерирует LLM -> llmMain и так «греется» этим запросом,
-            // отдельно греем только спек-клиент.
             warmup(llmSpec);
             startMain(
                 messages.concat({
@@ -517,6 +609,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     } catch (error) {
         Logger.write("[CASCADE] ===UNHANDLED_ERROR===");
         Logger.write(String(error));
-        terminate();
+        terminateCall();
     }
 });
