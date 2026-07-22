@@ -9,37 +9,35 @@
  * ПОЧЕМУ Chat Completions, а не Responses:
  *  - Responses + storeContext хранит диалог на сервере и цепляет ходы через
  *    previous_response_id. Это ломало спекуляцию (промах отравлял контекст) и не
- *    наследовал instructions (Анна теряла личность). Chat Completions stateless:
- *    мы сами держим массив messages и шлём его целиком каждый ход. Промах
- *    спекуляции = просто не дописали ответ в историю. Контекст всегда чист.
- *  - system-промпт — первый элемент messages, уходит всегда явно.
+ *    наследовал instructions. Chat Completions stateless: мы сами держим массив
+ *    messages и шлём его целиком каждый ход. system-промпт — первый элемент.
  *
- * ПРАВИЛЬНЫЙ API (сверено с voxengine.d.ts, VoxEngine 7.53):
- *  - OpenAI.createChatCompletionsAPIClient({ apiKey }) -> Promise<client>
- *  - client.createChatCompletions({ model, messages, stream, reasoning_effort })
- *  - события: OpenAI.ChatCompletionsAPIEvents.ContentDelta / .ContentDone /
- *    .ChatCompletionsAPIError; payload лежит в event.data.payload (сырой OpenAI
- *    объект), event.client — сам клиент.
- *  - Ни события, ни колбэка закрытия WS у клиента НЕТ. Падение ловим через
- *    ChatCompletionsAPIError + события звонка (Disconnected/Failed).
+ * КАКОЕ СОБЫТИЕ СЛУШАЕМ (сверено по реальным логам):
+ *  Коннектор на каждый токен эмитит три события — Chunk, Content, ContentDelta.
+ *  Слушаем ТОЛЬКО `Chunk`, потому что лишь у него в payload есть completion-`id`
+ *  (у ContentDelta/ContentDone его нет). Форма Chunk = сырой OpenAI-чанк:
+ *    payload.id, payload.choices[0].delta.content, payload.choices[0].finish_reason
+ *  Конец ответа = непустой finish_reason ("stop"/"length"/...).
  *
- * СПЕКУЛЯТИВНАЯ ГЕНЕРАЦИЯ (прячет TTFT под паузу) — БЕЗ опоры на metadata:
- *  Chat Completions НЕ возвращает наш metadata обратно в стрим, поэтому
- *  поколения нельзя гейтить по нашему id в ответе. Вместо этого:
- *   - ДВА клиента: llmMain (подтверждённые ходы) и llmSpec (спекуляция). Их
- *     потоки физически разделены — событие спекуляции всегда приходит от llmSpec.
- *   - Внутри клиента лишние/устаревшие/оборванные стримы отсекаются по
- *     completion-id (поле id в каждом OpenAI-чанке, уникально на completion).
- *   - Пока клиент ничего не «ждёт», любой пришедший id помечается устаревшим —
- *     так хвост прошлого ответа не протекает в следующий ход.
+ * ГЕЙТИНГ ПОКОЛЕНИЙ (без опоры на metadata — его OpenAI не возвращает):
+ *  - ДВА клиента: llmMain (подтверждённые ходы) и llmSpec (спекуляция). Потоки
+ *    физически разделены — спекулятивное событие всегда приходит от llmSpec.
+ *  - Внутри клиента лишние/устаревшие/оборванные стримы отсекаются по completion-
+ *    `id`. Пока клиент ничего не «ждёт», любой пришедший id помечается устаревшим
+ *    (stale) — так хвост прошлого ответа и вывод warmup не протекают дальше.
  *
+ * WARMUP (прячет холодный первый токен ~1.5с под приветствие):
+ *  WS к OpenAI открыт с начала звонка, но первая инференс-задержка холодная.
+ *  Пока клиент слушает приветствие, шлём фиктивный запрос — его вывод гасится
+ *  (клиент не «ждёт», completion-id уходит в stale). К первому реальному ходу
+ *  соединение/модель уже тёплые.
+ *
+ * СПЕКУЛЯЦИЯ:
  *  Runtime эмитит onSpeculativeTurn(input, version), когда interim выглядит
  *  завершённым, но EOU ещё не подтверждён -> запускаем LLM на llmSpec заранее,
- *  копим дельты в буфер, НЕ озвучиваем. Приходит реальный onUserTurn:
- *   - текст совпал (HIT) -> «промоутим» спекуляцию: флашим буфер и озвучиваем
- *     остаток live;
- *   - текст изменился (MISS) -> буфер спекуляции выбрасываем, генерим заново на
- *     llmMain по настоящему тексту.
+ *  копим дельты, НЕ озвучиваем. Приходит onUserTurn: текст совпал (HIT) ->
+ *  промоутим спекуляцию (флашим буфер + озвучиваем остаток live); текст изменился
+ *  (MISS) -> буфер выбрасываем, генерим заново на llmMain.
  *
  * ТРЕБОВАНИЯ:
  * 1. В правиле роутинга `vox-turn-taking` — ПЕРВЫМ, этот сценарий — ВТОРЫМ.
@@ -58,8 +56,7 @@ const LLM_REASONING_EFFORT = "none";
 
 const CC = OpenAI.ChatCompletionsAPIEvents;
 
-// --- Извлечение данных из события Chat Completions клиента ---
-// event.data.payload — сырой OpenAI-объект (chat_completion_chunk и т.п.).
+// --- Извлечение данных из события `Chunk` (сырой OpenAI-чанк в data.payload) ---
 function ccPayload(event) {
     return event?.data?.payload ?? event?.data ?? {};
 }
@@ -73,20 +70,16 @@ function extractDelta(event) {
         ""
     );
 }
-function extractFullText(event) {
-    const p = ccPayload(event);
-    return (
-        p?.choices?.[0]?.message?.content ??
-        p?.message?.content ??
-        p?.content ??
-        p?.text ??
-        ""
-    );
-}
 // Уникальный id completion — присутствует в каждом чанке одного ответа OpenAI.
 function extractCompletionId(event) {
     const p = ccPayload(event);
     return p?.id ?? p?.choices?.[0]?.id ?? "";
+}
+// Непустой finish_reason => ответ завершён.
+function extractFinishReason(event) {
+    const p = ccPayload(event);
+    const fr = p?.choices?.[0]?.finish_reason;
+    return typeof fr === "string" && fr.length > 0 ? fr : "";
 }
 
 const TELEPHONY_STYLE_RULES = `
@@ -181,7 +174,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let firstDeltaLoggedForTurn = false;
     let turnStartedAt = 0;
 
-    // Разовый лог формы события — чтобы по первому же звонку сверить payload.
+    // Разовый лог формы события — чтобы по звонку сверить payload.
     const loggedShapes = new Set();
 
     let systemPrompt;
@@ -229,6 +222,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             stream: true,
             messages: msgs,
         });
+    };
+
+    // Фиктивный прогрев: соединение/модель тёплые к первому реальному ходу.
+    // Вывод гасится idle-guard'ом обработчика (клиент ничего не «ждёт»).
+    const warmup = (client) => {
+        sendCompletion(client, [{ role: "user", content: "привет" }]);
     };
 
     // Запуск подтверждённой генерации на главном клиенте.
@@ -299,12 +298,17 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
 
         assistantId = config.assistant_id;
         callId = call.id();
-        systemPrompt =
-            (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
+        systemPrompt = (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
+        // Анти-повтор приветствия: иначе LLM здоровается второй раз поверх first_phrase.
+        if (config.first_phrase) {
+            systemPrompt +=
+                `\n\nТы уже поприветствовал собеседника фразой: «${config.first_phrase}». ` +
+                `Не здоровайся и не представляйся повторно — сразу переходи к сути ответа.`;
+        }
         messages.push({ role: "system", content: systemPrompt });
 
         Logger.write(`[CASCADE] Assistant: ${config.assistant_name} (${assistantId})`);
-        Logger.write(`[CASCADE] LLM: ${LLM_MODEL} via ChatCompletions (manual history + speculation)`);
+        Logger.write(`[CASCADE] LLM: ${LLM_MODEL} via ChatCompletions (Chunk-gated + speculation + warmup)`);
 
         stt = VoxEngine.createASR({
             profile: asrProfileForLang(config.asr_lang),
@@ -312,7 +316,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             interimResults: true,
         });
 
-        // Два независимых клиента: WS открываются заранее (прогрев не нужен).
+        // Два независимых клиента: WS открываются заранее.
         [llmMain, llmSpec] = await Promise.all([
             OpenAI.createChatCompletionsAPIClient({ apiKey: config.api_key }),
             OpenAI.createChatCompletionsAPIClient({ apiKey: config.api_key }),
@@ -330,14 +334,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             },
         });
 
-        // --- Обработчики главного клиента ---
-        llmMain.addEventListener(CC.ContentDelta, (event) => {
-            logShapeOnce("main.ContentDelta", event);
+        // --- Главный клиент: один обработчик `Chunk` (дельта + финал по id) ---
+        llmMain.addEventListener(CC.Chunk, (event) => {
+            logShapeOnce("main.Chunk", event);
             const id = extractCompletionId(event);
             if (id && mainStaleIds.has(id)) return;
             if (!main.accepting) {
-                // Клиент сейчас ничего не ждёт (хвост прошлого ответа) — гасим,
-                // чтобы не протёк в следующий ход.
+                // Клиент ничего не ждёт (warmup / хвост прошлого ответа) — гасим
+                // весь этот стрим по его id, чтобы он не протёк в следующий ход.
                 if (id) mainStaleIds.add(id);
                 return;
             }
@@ -347,35 +351,19 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 return; // другой/устаревший стрим на этом клиенте
             }
             const text = extractDelta(event);
-            if (!text) return;
-            main.text += text;
-            if (!turnTaking.canPlayAgentAudio()) return;
-            logFirstDelta("");
-            ttsSendText(text);
-        });
-
-        llmMain.addEventListener(CC.ContentDone, (event) => {
-            logShapeOnce("main.ContentDone", event);
-            const id = extractCompletionId(event);
-            if (id && mainStaleIds.has(id)) return;
-            if (!main.accepting) return;
-            if (main.id !== null && id && id !== main.id) return;
-            // Фолбэк: если по каким-то причинам дельты не накопились — берём
-            // полный текст из done и озвучиваем одним куском.
-            if (!main.text) {
-                const full = extractFullText(event);
-                if (full && turnTaking.canPlayAgentAudio()) {
-                    logFirstDelta("(DONE_FULL)");
-                    main.text = full;
-                    ttsSendText(full);
+            if (text) {
+                main.text += text;
+                if (turnTaking.canPlayAgentAudio()) {
+                    logFirstDelta("");
+                    ttsSendText(text);
                 }
             }
-            finalizeMain();
+            if (extractFinishReason(event)) finalizeMain();
         });
 
-        // --- Обработчики спек-клиента ---
-        llmSpec.addEventListener(CC.ContentDelta, (event) => {
-            logShapeOnce("spec.ContentDelta", event);
+        // --- Спек-клиент: один обработчик `Chunk` ---
+        llmSpec.addEventListener(CC.Chunk, (event) => {
+            logShapeOnce("spec.Chunk", event);
             const id = extractCompletionId(event);
             if (id && specStaleIds.has(id)) return;
             if (!spec) {
@@ -388,31 +376,22 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 return;
             }
             const text = extractDelta(event);
-            if (!text) return;
-            spec.text += text;
-            // До подтверждения хода не озвучиваем — только копим. После HIT
-            // (promoted) остаток идёт в озвучку live.
-            if (spec.promoted && turnTaking.canPlayAgentAudio()) {
-                logFirstDelta("(SPEC_LIVE)");
-                ttsSendText(text);
+            if (text) {
+                spec.text += text;
+                // До подтверждения хода не озвучиваем — только копим. После HIT
+                // (promoted) остаток идёт в озвучку live.
+                if (spec.promoted && turnTaking.canPlayAgentAudio()) {
+                    logFirstDelta("(SPEC_LIVE)");
+                    ttsSendText(text);
+                }
             }
-        });
-
-        llmSpec.addEventListener(CC.ContentDone, (event) => {
-            logShapeOnce("spec.ContentDone", event);
-            const id = extractCompletionId(event);
-            if (id && specStaleIds.has(id)) return;
-            if (!spec) return;
-            if (spec.id !== null && id && id !== spec.id) return;
-            if (!spec.text) {
-                const full = extractFullText(event);
-                if (full) spec.text = full;
-            }
-            spec.done = true;
-            if (spec.promoted) {
-                finalizeSpec();
-            } else {
-                Logger.write("[CASCADE] ===SPEC_DONE=== буфер готов, ждём подтверждения хода");
+            if (extractFinishReason(event)) {
+                spec.done = true;
+                if (spec.promoted) {
+                    finalizeSpec();
+                } else {
+                    Logger.write("[CASCADE] ===SPEC_DONE=== буфер готов, ждём подтверждения хода");
+                }
             }
         });
 
@@ -427,10 +406,13 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         turnTaking = await VoxTurnTaking.create({
             call,
             stt,
-            vadOptions: { threshold: 0.5, minSilenceDurationMs: 250, speechPadMs: 10 },
-            turnDetectorOptions: { threshold: 0.85 },
+            vadOptions: { threshold: 0.5, minSilenceDurationMs: 200, speechPadMs: 10 },
+            // 0.85 держал ход слишком долго: p≈0.83 не подтверждался и мы падали
+            // в 700-мс страховочный фолбэк. 0.7 подтверждает такие фразы сразу.
+            turnDetectorOptions: { threshold: 0.7 },
             policy: {
-                confidentEouProbability: 0.95,
+                // Порог «уверенного конца» -> быстрый settle (120мс вместо 350).
+                confidentEouProbability: 0.8,
                 transcriptSettleFastMs: 120,
                 transcriptSettleMs: 350,
                 userSpeechTimeoutMs: 700,
@@ -452,7 +434,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                     "стоп", "верно", "точно", "конечно", "давай", "давайте",
                     "спасибо", "понятно", "нет спасибо", "да давайте",
                 ],
-                speculativeEouProbability: 0.85,
+                // Ниже turnDetector.threshold (0.7): спекуляция стартует в полосе
+                // [0.6, 0.7), пока endOfTurn ещё false.
+                speculativeEouProbability: 0.6,
             },
             enableLogging: true,
 
@@ -512,7 +496,13 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             messages.push({ role: "assistant", content: config.first_phrase });
             sendTranscript(assistantId, callId, "assistant", config.first_phrase);
             ttsPlayer.send({ send_text: { text: config.first_phrase, flush_context: {} } });
+            // Приветствие идёт мимо LLM -> греем ОБА клиента, пока абонент слушает.
+            warmup(llmMain);
+            warmup(llmSpec);
         } else {
+            // Приветствие генерирует LLM -> llmMain и так «греется» этим запросом,
+            // отдельно греем только спек-клиент.
+            warmup(llmSpec);
             startMain(
                 messages.concat({
                     role: "user",
