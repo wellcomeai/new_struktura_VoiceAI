@@ -1,8 +1,9 @@
 # Сценарии Voximplant (cascade + VoxTTS)
 
 Код VoxEngine-сценариев для каскадного голосового ассистента:
-встроенный ASR (YandexV3) → VoxTurnTaking (Silero VAD + Pipecat Smart Turn) →
-OpenAI gpt-4o-mini (Responses API, стриминг) → VoxTTS (Anna/Sergey).
+встроенный ASR (Yandex v2, streaming + interim) → VoxTurnTaking (Silero VAD +
+Pipecat Smart Turn) → OpenAI gpt-5.4-nano (Chat Completions, stateless, ручная
+история + спекулятивная генерация) → VoxTTS (Anna/Sergey).
 
 Сценарии живут на **родительском аккаунте Voximplant** и копируются на дочерние
 аккаунты штатными админ-эндпоинтами. Этот каталог — источник правды для их кода.
@@ -11,8 +12,8 @@ OpenAI gpt-4o-mini (Responses API, стриминг) → VoxTTS (Anna/Sergey).
 
 | Файл | Имя сценария на Voximplant | Назначение |
 |---|---|---|
-| `vox-turn-taking.js` | `vox-turn-taking` | Хелпер turn-taking (эталонный код из документации Voximplant). Объявляет глобальный `VoxTurnTaking`, сам ничего не запускает. Должен стоять ПЕРВЫМ в цепочке правила. |
-| `inbound_cascade.js` | `inbound_cascade` | Входящий каскад: конфиг с `/api/telephony/config`, ASR YandexV3, LLM gpt-5.4-nano (ключ приходит из конфига = ENV `OPENAI_API_KEY` сервера), TTS VoxTTS/Anna, транскрипты в CRM. Отклик ~1.4–1.6 с. |
+| `vox-turn-taking.js` | `vox-turn-taking` | Хелпер turn-taking. Объявляет глобальный `VoxTurnTaking` (Silero VAD + Pipecat Smart Turn + двухскоростной endpointing), сам ничего не запускает. Отдаёт сценарию `onUserTurn`, `onSpeculativeTurn`, `onInterrupt`, `canPlayAgentAudio()`, `currentVersion()`. Должен стоять ПЕРВЫМ в цепочке правила. Рассчитан на Yandex v2 с `interimResults`. |
+| `inbound_cascade.js` | `inbound_cascade` | Входящий каскад: конфиг с `/api/telephony/config`, ASR Yandex v2 (interim), LLM gpt-5.4-nano через **Chat Completions** (stateless, ручной массив `messages`, ключ = ENV `OPENAI_API_KEY` сервера), TTS VoxTTS/Anna, транскрипты в CRM. Спекулятивная генерация на **втором** OpenAI-клиенте прячет TTFT под паузу; поколения гейтятся по completion-`id` (не по metadata). |
 | `cartesia_inbound.js` | `cartesia_inbound` | Входящий half-cascade на **OpenAI Realtime** (`gpt-realtime-2.1-mini`, output text): STT + turn detection + reasoning на стороне OpenAI (Silero/Pipecat не нужны), TTS — VoxTTS/Anna. Ключ — пользовательский (`CONFIG.api_key`). Одиночный сценарий (без цепочки vox-turn-taking). Несмотря на имя, TTS не Cartesia. |
 
 ## Раскатка (вручную)

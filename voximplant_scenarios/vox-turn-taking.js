@@ -7,6 +7,20 @@
  * This runtime hides the current Silero + Pipecat + timer-based turn policy
  * behind a small API so scenarios stay simple today and can transition more
  * easily if Voximplant later exposes a more Pipecat-native Smart Turn model.
+ *
+ * ВАЖНО ПРО ASR: этот runtime рассчитан на потоковый ASR, отдающий interim
+ * (ASREvents.InterimResult). YandexV3 interim НЕ отдаёт, поэтому с ним половина
+ * логики (interimTranscript, спекулятивные сигналы) простаивала. Начиная с этой
+ * версии стек рассчитан на Yandex v2 (ASRProfileList.Yandex.ru_RU) с
+ * interimResults: true — тогда interim реально течёт и endpointing честно
+ * опирается на свежий текст, а не на опоздавший на ~2с финал.
+ *
+ * НОВОЕ В ЭТОЙ ВЕРСИИ:
+ *  - onSpeculativeTurn(input, version): ранний сигнал, когда interim выглядит
+ *    завершённым (p >= speculativeEouProbability), но EOU ещё НЕ подтверждён.
+ *    Сценарий может по нему заранее запустить LLM (спекулятивная генерация).
+ *  - currentVersion(): номер текущего сигнала (для гейтинга ходов в сценарии).
+ *  - Двухскоростной endpointing (confidentEouProbability + settleFast/settle).
  */
 
 require(Modules.ASR);
@@ -25,95 +39,46 @@ const VoxTurnTaking = {
             threshold: 0.5,
         },
         policy: {
-            transcriptSettleMs: 500,
-            userSpeechTimeoutMs: 1000,
-            shortUtteranceExtensionMs: 1800,
-            fastShortUtteranceTimeoutMs: 700,
+            // Раньше окно ожидания финала после endOfTurn держали большим, т.к.
+            // финал YandexV3 опаздывал на ~2с. С interim v2 к моменту endOfTurn
+            // текст уже полный, поэтому грейс режем агрессивно.
+            // Двухскоростной endpointing. Pipecat даёт вероятность конца хода:
+            //  - p >= confidentEouProbability: фраза уверенно закончена -> быстрый
+            //    путь, settle = transcriptSettleFastMs, trailing/hold НЕ применяем.
+            //  - confidentEou > p >= (порог threshold): серая зона -> осторожный
+            //    путь, settle = transcriptSettleMs + trailing-проверка.
+            confidentEouProbability: 0.95,
+            transcriptSettleFastMs: 120,
+            transcriptSettleMs: 350,
+            userSpeechTimeoutMs: 700,
+            shortUtteranceExtensionMs: 900,
+            fastShortUtteranceTimeoutMs: 500,
             shortUtteranceMaxChars: 12,
             shortUtteranceMaxWords: 2,
             lowConfidenceShortUtteranceThreshold: 0.75,
             continuationTokens: ["and", "but", "so", "well", "then", "uh", "um"],
+            // Оборванный хвост. Держим только явно-обрывочные слова; частые
+            // короткие («а","и","о","у","к","с","в») УБРАНЫ — давали ложные
+            // удержания на нормальных фразах.
+            trailingContinuationTokens: [],
+            // Короткие законченные ответы, которые НЕ держим никогда, даже если
+            // сработал бы trailing/short-путь. Задаётся сценарием под язык.
+            completeShortAnswers: [],
+            // Порог вероятности EOU от Pipecat, при котором мы считаем ход
+            // ГОТОВЫМ к ранней (спекулятивной) подаче через onSpeculativeTurn.
+            speculativeEouProbability: 0.7,
         },
     },
 
-    /**
-     * Creates a turn-taking controller around a call, STT engine, Silero VAD,
-     * and Pipecat turn detector.
-     *
-     * A user turn stays open until this runtime calls `onUserTurn()`. Silero,
-     * Pipecat, and the timeout policy only provide evidence that the current
-     * turn may be ready to submit.
-     *
-     * @param {object} options
-     * @param {Call} options.call
-     *   Active VoxEngine call whose inbound media should be analyzed.
-     * @param {ASR} options.stt
-     *   Speech-to-text engine already configured by the consuming scenario.
-     * @param {(input: string, reason: string) => void} options.onUserTurn
-     *   Callback invoked when the accumulated user turn should be submitted to
-     *   the LLM.
-     * @param {() => void} [options.onInterrupt]
-     *   Callback invoked on barge-in so the consuming scenario can stop agent
-     *   playback and flush TTS state.
-     * @param {boolean} [options.enableLogging=false]
-     *   When true, emits debug logs for turn-taking decisions. Disabled by
-     *   default so scenarios can keep logs quiet unless they are debugging.
-     * @param {(line: string) => void} [options.logger]
-     *   Optional logger used when `enableLogging` is true.
-     * @param {object} [options.vadOptions]
-     *   Silero VAD options merged over `VoxTurnTaking.DEFAULTS.vadOptions`.
-     * @param {number} [options.vadOptions.threshold]
-     *   Voice activity threshold passed to `Silero.createVAD()`.
-     * @param {number} [options.vadOptions.minSilenceDurationMs]
-     *   Silence required before Silero emits `speechEndAt`.
-     * @param {number} [options.vadOptions.speechPadMs]
-     *   Padding used around detected speech segments.
-     * @param {object} [options.turnDetectorOptions]
-     *   Pipecat options merged over
-     *   `VoxTurnTaking.DEFAULTS.turnDetectorOptions`.
-     * @param {number} [options.turnDetectorOptions.threshold]
-     *   End-of-turn probability threshold passed to
-     *   `Pipecat.createTurnDetector()`.
-     * @param {object} [options.policy]
-     *   Local policy layered on top of Silero and Pipecat to bridge gaps in
-     *   the current API.
-     * @param {number} [options.policy.transcriptSettleMs]
-     *   Extra ASR grace period after Pipecat signals end-of-turn but a final
-     *   transcript chunk has not arrived yet.
-     * @param {number} [options.policy.userSpeechTimeoutMs]
-     *   Default fallback timeout started after `speechEndAt`.
-     * @param {number} [options.policy.shortUtteranceExtensionMs]
-     *   Longer hold time used for short fragments that may be followed by a
-     *   continuation.
-     * @param {number} [options.policy.fastShortUtteranceTimeoutMs]
-     *   Shorter fallback used for brief, high-confidence utterances that are
-     *   likely complete, such as a standalone greeting.
-     * @param {number} [options.policy.shortUtteranceMaxChars]
-     *   Maximum character count considered a short fragment.
-     * @param {number} [options.policy.shortUtteranceMaxWords]
-     *   Maximum word count considered a short fragment.
-     * @param {number} [options.policy.lowConfidenceShortUtteranceThreshold]
-     *   Confidence threshold below which a short final transcript stays
-     *   replaceable instead of being committed immediately.
-     * @param {string[]} [options.policy.continuationTokens]
-     *   Short leading words that usually indicate the caller is continuing a
-     *   thought rather than finishing a turn.
-     * @returns {Promise<object>}
-     * @returns {object} return.vad
-     *   Silero VAD instance created by the runtime.
-     * @returns {object} return.turnDetector
-     *   Pipecat turn detector instance created by the runtime.
-     * @returns {() => boolean} return.canPlayAgentAudio
-     *   Indicates whether agent audio should still be forwarded to TTS.
-     * @returns {() => void} return.close
-     *   Cleans up timers and closes the VAD and turn detector.
-     */
     async create(options) {
         const {
             call,
             stt,
             onUserTurn,
             onInterrupt,
+            // Ранний сигнал для спекулятивной генерации. Вызывается, когда interim
+            // выглядит завершённым, но EOU ещё НЕ подтверждён. Опционален.
+            onSpeculativeTurn,
             enableLogging = false,
             logger = (line) => Logger.write(line),
         } = options;
@@ -151,6 +116,7 @@ const VoxTurnTaking = {
         let lastFinalConfidence = 1;
         let replaceableShortFinal = false;
         let shortExtensionApplied = false;
+        let speculativeFiredForVersion = -1;
 
         const clearTimers = () => {
             if (fallbackTimer) clearTimeout(fallbackTimer);
@@ -179,6 +145,28 @@ const VoxTurnTaking = {
             return policy.continuationTokens.includes(firstWord);
         };
 
+        // Завершённый короткий ответ из вайтлиста («да», «нет», «ок»...).
+        // Такие никогда не держим, даже если сработал бы trailing/short-путь.
+        const isCompleteShortAnswer = (text) => {
+            const list = policy.completeShortAnswers || [];
+            if (!list.length || !text) return false;
+            const norm = text.trim().toLowerCase().replace(/[.,!?;:…]+$/u, "");
+            return list.includes(norm);
+        };
+
+        // Фраза выглядит оборванной, если её последнее слово — предлог/союз/
+        // вопросительное слово, после которого обычно следует продолжение.
+        const endsWithContinuationToken = (text) => {
+            if (!text) return false;
+            const tokens = policy.trailingContinuationTokens || [];
+            if (!tokens.length) return false;
+            const words = text.trim().split(/\s+/);
+            const lastWord = words[words.length - 1]
+                ?.toLowerCase()
+                .replace(/[.,!?;:…]+$/u, "");
+            return tokens.includes(lastWord);
+        };
+
         const buildInput = () => {
             let input = finalTranscript;
             if (interimTranscript) {
@@ -192,10 +180,26 @@ const VoxTurnTaking = {
             const input = buildInput();
             if (!input) return false;
 
-            // Hold short replaceable fragments open for one extra window so
-            // resumed speech can overwrite them. After that extension, submit
-            // the turn instead of looping forever.
-            if (replaceableShortFinal && !shortExtensionApplied) {
+            // Вайтлист завершённых коротких ответов — сабмитим немедленно,
+            // никаких удержаний.
+            const isWhitelisted = isCompleteShortAnswer(input);
+
+            // Оборванный хвост («...а что это за») — не отдаём в LLM недоговорку.
+            // Придерживаем на одно окно ожидания продолжения. FALLBACK_END_OF_TURN
+            // не придерживаем: это уже страховочный таймаут, дальше тянуть нельзя.
+            if (
+                !isWhitelisted &&
+                reason !== "FALLBACK_END_OF_TURN" &&
+                endsWithContinuationToken(input) &&
+                !shortExtensionApplied
+            ) {
+                shortExtensionApplied = true;
+                log(`===HOLD_TRAILING=== ${input}`);
+                startHardTimeout(signalVersion, policy.shortUtteranceExtensionMs);
+                return false;
+            }
+
+            if (!isWhitelisted && replaceableShortFinal && !shortExtensionApplied) {
                 shortExtensionApplied = true;
                 startHardTimeout(signalVersion, policy.shortUtteranceExtensionMs);
                 return false;
@@ -204,7 +208,7 @@ const VoxTurnTaking = {
             log(`===${reason}===`);
             log(`===USER=== ${input}`);
             allowAgentAudio = true;
-            onUserTurn(input, reason);
+            onUserTurn(input, signalVersion, reason);
             finalTranscript = "";
             interimTranscript = "";
             transcriptSeparator = "";
@@ -222,17 +226,12 @@ const VoxTurnTaking = {
             clearTimers();
             fallbackTimer = setTimeout(() => {
                 if (version !== signalVersion) return;
-
                 const input = buildInput();
                 if (!input) return;
-
                 submitCurrentTurn("FALLBACK_END_OF_TURN");
             }, delay);
         };
 
-        // Connector information and error events are part of the module's core
-        // contract, so log them here instead of making every consuming scenario
-        // re-register the same listeners.
         [
             Silero.VADEvents.ConnectorInformation,
             Silero.VADEvents.Error,
@@ -253,7 +252,6 @@ const VoxTurnTaking = {
             if (!acceptingTranscript) return;
             const text = event?.text?.trim();
             if (!text) return;
-
             if (!transcriptSeparator && finalTranscript) transcriptSeparator = " ";
             interimTranscript = text;
         });
@@ -265,12 +263,6 @@ const VoxTurnTaking = {
             const confidence = normalizeConfidence(event?.confidence);
             const hadCommittedPrefix = !!finalTranscript;
 
-            // A short low-confidence fragment like "they" or "so" is often an
-            // early clipped piece of a longer utterance. Keep it replaceable so
-            // the next final STT chunk can overwrite it. Also keep short
-            // trailing chunks replaceable when they arrive after an existing
-            // transcript prefix, which helps prevent submits like
-            // "do they support open" before the final "AI" lands.
             if (replaceableShortFinal) {
                 finalTranscript = text;
             } else {
@@ -322,14 +314,53 @@ const VoxTurnTaking = {
         });
 
         turnDetector.addEventListener(Pipecat.TurnEvents.Result, (event) => {
-            log(
-                `===Pipecat.TurnEvents.Result=== ${JSON.stringify(event.probability)}`
-            );
+            const probability = event?.probability;
+            log(`===Pipecat.TurnEvents.Result=== ${JSON.stringify(probability)}`);
+
+            // Ранний сигнал для спекуляции: высокая вероятность EOU, но ещё не
+            // подтверждён, и уже есть текст. Один раз на версию сигнала.
+            if (
+                !event.endOfTurn &&
+                typeof probability === "number" &&
+                probability >= policy.speculativeEouProbability &&
+                speculativeFiredForVersion !== signalVersion
+            ) {
+                const speculativeInput = buildInput();
+                if (speculativeInput) {
+                    speculativeFiredForVersion = signalVersion;
+                    log(`===SPECULATIVE_READY=== p=${probability} :: ${speculativeInput}`);
+                    if (onSpeculativeTurn) onSpeculativeTurn(speculativeInput, signalVersion);
+                }
+            }
+
             if (!event.endOfTurn) return;
 
             smartTurnComplete = true;
+
+            // Двухскоростной выбор окна ожидания:
+            //  - уверенный конец (p >= confidentEouProbability) -> быстрый settle;
+            //  - серая зона -> осторожный settle (даём interim домолчать).
+            const confident =
+                (typeof probability === "number" &&
+                    probability >= policy.confidentEouProbability) ||
+                isCompleteShortAnswer(buildInput());
+            const settleMs = confident
+                ? policy.transcriptSettleFastMs
+                : policy.transcriptSettleMs;
+
             if (finalTranscript) {
-                submitCurrentTurn("TURN_DETECT: END_OF_TURN");
+                // Финал уже есть. На уверенном конце сабмитим сразу; в серой зоне
+                // даём короткий settle, чтобы возможное продолжение interim дошло.
+                if (confident) {
+                    submitCurrentTurn("TURN_DETECT: END_OF_TURN");
+                    return;
+                }
+                if (settleTimer) clearTimeout(settleTimer);
+                const v = signalVersion;
+                settleTimer = setTimeout(() => {
+                    if (v !== signalVersion) return;
+                    submitCurrentTurn("TURN_DETECT: END_OF_TURN_SETTLED");
+                }, settleMs);
                 return;
             }
 
@@ -338,7 +369,7 @@ const VoxTurnTaking = {
             settleTimer = setTimeout(() => {
                 if (version !== signalVersion) return;
                 submitCurrentTurn("TURN_DETECT: ASR_GRACE");
-            }, policy.transcriptSettleMs);
+            }, settleMs);
         });
 
         return {
@@ -346,6 +377,9 @@ const VoxTurnTaking = {
             turnDetector,
             canPlayAgentAudio() {
                 return allowAgentAudio;
+            },
+            currentVersion() {
+                return signalVersion;
             },
             close() {
                 clearTimers();
@@ -355,4 +389,3 @@ const VoxTurnTaking = {
         };
     },
 };
-
