@@ -608,6 +608,19 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
     try {
         Logger.write(`[OUT-CASCADE] Outbound -> ${PHONE_NUMBER} (caller_id=${CALLER_ID}) type=${callType}`);
 
+        // Правило должно быть цепочкой [vox-turn-taking, outbound_cascade] — иначе
+        // глобальный VoxTurnTaking не объявлен. Проверяем ДО дозвона: при неверной
+        // раскатке аварийно выходим без PSTN-звонка (0₽), а не падаем после соединения.
+        if (typeof VoxTurnTaking === "undefined") {
+            Logger.write(
+                "[OUT-CASCADE] ===UNHANDLED_ERROR=== VoxTurnTaking is not defined. " +
+                "Правило outbound_cascade должно быть цепочкой [vox-turn-taking, outbound_cascade]. " +
+                "Прогоните deploy-turn-taking. Abort (no dial)."
+            );
+            VoxEngine.terminate();
+            return;
+        }
+
         const config = await fetchOutboundConfig(ASSISTANT_ID);
         if (!config || !config.api_key) {
             Logger.write("[OUT-CASCADE] No outbound config / api_key — abort (no dial)");
