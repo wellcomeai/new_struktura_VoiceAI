@@ -3687,6 +3687,25 @@ async def admin_deploy_turn_taking_sse(
                                 f"rule {phone.vox_rule_id}: {rule_upd.get('error')}"
                             )
 
+                # ШАГ 2b: Пересоздать outbound_cascade rule той же цепочкой
+                # [vox-turn-taking, outbound_cascade] — иначе VoxTurnTaking
+                # не определён в исходящем сценарии.
+                cascade_outbound_id = scenario_ids.get("outbound_cascade")
+                outbound_rule_id = (child.vox_rule_ids or {}).get("outbound_cascade")
+                if cascade_outbound_id and outbound_rule_id:
+                    ob_upd = await service.set_rule_info(
+                        child_account_id=child.vox_account_id,
+                        child_api_key=child.vox_api_key,
+                        rule_id=outbound_rule_id,
+                        scenario_id=[int(tt_scenario_id), int(cascade_outbound_id)]
+                    )
+                    if ob_upd.get("success"):
+                        rules_patched += 1
+                    else:
+                        account_errors.append(
+                            f"outbound rule {outbound_rule_id}: {ob_upd.get('error')}"
+                        )
+
             # ШАГ 3: Сохранить в БД
             if changed:
                 child.vox_scenario_ids = scenario_ids
@@ -4330,13 +4349,20 @@ async def admin_setup_cascade_scenarios(
                         )
 
             if "outbound_cascade" not in rule_ids and "outbound_cascade" in scenario_ids:
+                # outbound_cascade использует VoxTurnTaking -> правило должно быть
+                # цепочкой [vox-turn-taking, outbound_cascade] (как inbound_cascade).
+                tt_id = scenario_ids.get("vox-turn-taking")
+                outbound_scenario_id = (
+                    [int(tt_id), int(scenario_ids["outbound_cascade"])]
+                    if tt_id else int(scenario_ids["outbound_cascade"])
+                )
                 rule_result = await service.add_rule(
                     child_account_id=child.vox_account_id,
                     child_api_key=child.vox_api_key,
                     application_id=child.vox_application_id,
                     rule_name="outbound_cascade",
                     rule_pattern="outbound_cascade_.*",
-                    scenario_id=int(scenario_ids["outbound_cascade"])
+                    scenario_id=outbound_scenario_id
                 )
                 if rule_result.get("success"):
                     rule_ids["outbound_cascade"] = str(rule_result.get("rule_id"))
