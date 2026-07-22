@@ -299,11 +299,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         assistantId = config.assistant_id;
         callId = call.id();
         systemPrompt = (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
-        // Анти-повтор приветствия: иначе LLM здоровается второй раз поверх first_phrase.
+        // Анти-повтор приветствия. ВАЖНО: без дословной фразы в инструкции —
+        // если вписать сюда текст first_phrase, модель начинает echo'ить его в
+        // КАЖДОМ ответе (эффект «не думай о розовом слоне»). Даём только нейтральный
+        // запрет повторного приветствия.
         if (config.first_phrase) {
             systemPrompt +=
-                `\n\nТы уже поприветствовал собеседника фразой: «${config.first_phrase}». ` +
-                `Не здоровайся и не представляйся повторно — сразу переходи к сути ответа.`;
+                `\n\nРазговор уже начат: приветствие собеседнику уже произнесено. ` +
+                `Не здоровайся и не представляйся заново — сразу отвечай по сути вопроса.`;
         }
         messages.push({ role: "system", content: systemPrompt });
 
