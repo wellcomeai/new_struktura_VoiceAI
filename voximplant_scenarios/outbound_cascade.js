@@ -35,6 +35,295 @@ require(Modules.ASR);
 require(Modules.OpenAI);
 require(Modules.VoxTTS);
 require(Modules.Recorder);
+require(Modules.Silero);
+require(Modules.Pipecat);
+
+// ────────────────────────────────────────────────────────────────────────────
+// ВСТРОЕННЫЙ VoxTurnTaking (самодостаточность).
+// Идемпотентно: если правило — цепочка [vox-turn-taking, outbound_cascade], то
+// vox-turn-taking.js уже объявил глобальный VoxTurnTaking (const) → typeof !==
+// "undefined" → это определение ПРОПУСКАЕТСЯ (никакого переобъявления). Если же
+// правило одиночное — объявляем VoxTurnTaking здесь. Так сценарий работает при
+// любой конфигурации правила. Присваивание без const/var — чтобы не конфликтовать
+// с const-объявлением в цепочечном режиме.
+// ВАЖНО: держать в синхроне с voximplant_scenarios/vox-turn-taking.js.
+// ────────────────────────────────────────────────────────────────────────────
+if (typeof VoxTurnTaking === "undefined") {
+    // eslint-disable-next-line no-global-assign, no-undef
+    VoxTurnTaking = {
+        DEFAULTS: {
+            vadOptions: { threshold: 0.5, minSilenceDurationMs: 300, speechPadMs: 10 },
+            turnDetectorOptions: { threshold: 0.5 },
+            policy: {
+                confidentEouProbability: 0.95,
+                transcriptSettleFastMs: 120,
+                transcriptSettleMs: 350,
+                userSpeechTimeoutMs: 700,
+                shortUtteranceExtensionMs: 900,
+                fastShortUtteranceTimeoutMs: 500,
+                shortUtteranceMaxChars: 12,
+                shortUtteranceMaxWords: 2,
+                lowConfidenceShortUtteranceThreshold: 0.75,
+                continuationTokens: ["and", "but", "so", "well", "then", "uh", "um"],
+                trailingContinuationTokens: [],
+                completeShortAnswers: [],
+                speculativeEouProbability: 0.7,
+            },
+        },
+
+        async create(options) {
+            const {
+                call,
+                stt,
+                onUserTurn,
+                onInterrupt,
+                onSpeculativeTurn,
+                enableLogging = false,
+                logger = (line) => Logger.write(line),
+            } = options;
+            const vadOptions = Object.assign({}, this.DEFAULTS.vadOptions, options.vadOptions);
+            const turnDetectorOptions = Object.assign(
+                {},
+                this.DEFAULTS.turnDetectorOptions,
+                options.turnDetectorOptions
+            );
+            const policy = Object.assign({}, this.DEFAULTS.policy, options.policy);
+
+            const vad = await Silero.createVAD(vadOptions);
+            const turnDetector = await Pipecat.createTurnDetector(turnDetectorOptions);
+
+            call.sendMediaTo(vad);
+            call.sendMediaTo(turnDetector);
+
+            const log = (line) => { if (enableLogging) logger(line); };
+            const emitModuleEvent = (eventName, event) => {
+                logger(`===${eventName}===`);
+                if (event) logger(JSON.stringify(event));
+            };
+
+            let fallbackTimer;
+            let settleTimer;
+            let finalTranscript = "";
+            let interimTranscript = "";
+            let transcriptSeparator = "";
+            let smartTurnComplete = false;
+            let acceptingTranscript = false;
+            let signalVersion = 0;
+            let allowAgentAudio = true;
+            let lastFinalConfidence = 1;
+            let replaceableShortFinal = false;
+            let shortExtensionApplied = false;
+            let speculativeFiredForVersion = -1;
+
+            const clearTimers = () => {
+                if (fallbackTimer) clearTimeout(fallbackTimer);
+                if (settleTimer) clearTimeout(settleTimer);
+                fallbackTimer = null;
+                settleTimer = null;
+            };
+            const normalizeConfidence = (value) => {
+                if (typeof value !== "number" || Number.isNaN(value)) return null;
+                return value > 1 ? value / 100 : value;
+            };
+            const isShortUtterance = (text) => {
+                if (!text) return false;
+                const words = text.trim().split(/\s+/).filter(Boolean);
+                return (
+                    text.length <= policy.shortUtteranceMaxChars &&
+                    words.length <= policy.shortUtteranceMaxWords
+                );
+            };
+            const startsWithContinuationToken = (text) => {
+                if (!text) return false;
+                const firstWord = text.trim().split(/\s+/)[0]?.toLowerCase();
+                return policy.continuationTokens.includes(firstWord);
+            };
+            const isCompleteShortAnswer = (text) => {
+                const list = policy.completeShortAnswers || [];
+                if (!list.length || !text) return false;
+                const norm = text.trim().toLowerCase().replace(/[.,!?;:…]+$/u, "");
+                return list.includes(norm);
+            };
+            const endsWithContinuationToken = (text) => {
+                if (!text) return false;
+                const tokens = policy.trailingContinuationTokens || [];
+                if (!tokens.length) return false;
+                const words = text.trim().split(/\s+/);
+                const lastWord = words[words.length - 1]?.toLowerCase().replace(/[.,!?;:…]+$/u, "");
+                return tokens.includes(lastWord);
+            };
+            const buildInput = () => {
+                let input = finalTranscript;
+                if (interimTranscript) {
+                    if (input) input += transcriptSeparator;
+                    input += interimTranscript;
+                }
+                return input.trim();
+            };
+
+            const submitCurrentTurn = (reason) => {
+                const input = buildInput();
+                if (!input) return false;
+                const isWhitelisted = isCompleteShortAnswer(input);
+                if (
+                    !isWhitelisted &&
+                    reason !== "FALLBACK_END_OF_TURN" &&
+                    endsWithContinuationToken(input) &&
+                    !shortExtensionApplied
+                ) {
+                    shortExtensionApplied = true;
+                    log(`===HOLD_TRAILING=== ${input}`);
+                    startHardTimeout(signalVersion, policy.shortUtteranceExtensionMs);
+                    return false;
+                }
+                if (!isWhitelisted && replaceableShortFinal && !shortExtensionApplied) {
+                    shortExtensionApplied = true;
+                    startHardTimeout(signalVersion, policy.shortUtteranceExtensionMs);
+                    return false;
+                }
+                log(`===${reason}===`);
+                log(`===USER=== ${input}`);
+                allowAgentAudio = true;
+                onUserTurn(input, signalVersion, reason);
+                finalTranscript = "";
+                interimTranscript = "";
+                transcriptSeparator = "";
+                smartTurnComplete = false;
+                acceptingTranscript = false;
+                lastFinalConfidence = 1;
+                replaceableShortFinal = false;
+                shortExtensionApplied = false;
+                signalVersion += 1;
+                clearTimers();
+                return true;
+            };
+
+            const startHardTimeout = (version, delay = policy.userSpeechTimeoutMs) => {
+                clearTimers();
+                fallbackTimer = setTimeout(() => {
+                    if (version !== signalVersion) return;
+                    const input = buildInput();
+                    if (!input) return;
+                    submitCurrentTurn("FALLBACK_END_OF_TURN");
+                }, delay);
+            };
+
+            [Silero.VADEvents.ConnectorInformation, Silero.VADEvents.Error].forEach((eventName) => {
+                vad.addEventListener(eventName, (event) => emitModuleEvent(eventName, event));
+            });
+            [Pipecat.TurnEvents.ConnectorInformation, Pipecat.TurnEvents.Error].forEach((eventName) => {
+                turnDetector.addEventListener(eventName, (event) => emitModuleEvent(eventName, event));
+            });
+
+            stt.addEventListener(ASREvents.InterimResult, (event) => {
+                if (!acceptingTranscript) return;
+                const text = event?.text?.trim();
+                if (!text) return;
+                if (!transcriptSeparator && finalTranscript) transcriptSeparator = " ";
+                interimTranscript = text;
+            });
+
+            stt.addEventListener(ASREvents.Result, (event) => {
+                if (!acceptingTranscript) return;
+                const text = event?.text?.trim();
+                if (!text) return;
+                const confidence = normalizeConfidence(event?.confidence);
+                const hadCommittedPrefix = !!finalTranscript;
+                if (replaceableShortFinal) {
+                    finalTranscript = text;
+                } else {
+                    if (finalTranscript) finalTranscript += transcriptSeparator || " ";
+                    finalTranscript += text;
+                }
+                interimTranscript = "";
+                transcriptSeparator = " ";
+                lastFinalConfidence = confidence === null ? 1 : confidence;
+                replaceableShortFinal =
+                    isShortUtterance(text) &&
+                    (hadCommittedPrefix ||
+                        lastFinalConfidence < policy.lowConfidenceShortUtteranceThreshold ||
+                        startsWithContinuationToken(text));
+                shortExtensionApplied = false;
+                log(`===STT Final: ${event.text}`);
+                if (isShortUtterance(text) && !replaceableShortFinal && !smartTurnComplete) {
+                    startHardTimeout(
+                        signalVersion,
+                        Math.min(policy.userSpeechTimeoutMs, policy.fastShortUtteranceTimeoutMs)
+                    );
+                }
+                if (smartTurnComplete) submitCurrentTurn("TURN_DETECT: FINAL_TRANSCRIPT");
+            });
+
+            vad.addEventListener(Silero.VADEvents.Result, (event) => {
+                if (event.speechStartAt) {
+                    signalVersion += 1;
+                    clearTimers();
+                    smartTurnComplete = false;
+                    acceptingTranscript = true;
+                    allowAgentAudio = false;
+                    if (finalTranscript || interimTranscript) transcriptSeparator = " ... ";
+                    log("===BARGE-IN===");
+                    if (onInterrupt) onInterrupt();
+                }
+                if (event.speechEndAt) {
+                    startHardTimeout(signalVersion);
+                    turnDetector.predict();
+                }
+            });
+
+            turnDetector.addEventListener(Pipecat.TurnEvents.Result, (event) => {
+                const probability = event?.probability;
+                log(`===Pipecat.TurnEvents.Result=== ${JSON.stringify(probability)}`);
+                if (
+                    !event.endOfTurn &&
+                    typeof probability === "number" &&
+                    probability >= policy.speculativeEouProbability &&
+                    speculativeFiredForVersion !== signalVersion
+                ) {
+                    const speculativeInput = buildInput();
+                    if (speculativeInput) {
+                        speculativeFiredForVersion = signalVersion;
+                        log(`===SPECULATIVE_READY=== p=${probability} :: ${speculativeInput}`);
+                        if (onSpeculativeTurn) onSpeculativeTurn(speculativeInput, signalVersion);
+                    }
+                }
+                if (!event.endOfTurn) return;
+                smartTurnComplete = true;
+                const confident =
+                    (typeof probability === "number" && probability >= policy.confidentEouProbability) ||
+                    isCompleteShortAnswer(buildInput());
+                const settleMs = confident ? policy.transcriptSettleFastMs : policy.transcriptSettleMs;
+                if (finalTranscript) {
+                    if (confident) {
+                        submitCurrentTurn("TURN_DETECT: END_OF_TURN");
+                        return;
+                    }
+                    if (settleTimer) clearTimeout(settleTimer);
+                    const v = signalVersion;
+                    settleTimer = setTimeout(() => {
+                        if (v !== signalVersion) return;
+                        submitCurrentTurn("TURN_DETECT: END_OF_TURN_SETTLED");
+                    }, settleMs);
+                    return;
+                }
+                if (settleTimer) clearTimeout(settleTimer);
+                const version = signalVersion;
+                settleTimer = setTimeout(() => {
+                    if (version !== signalVersion) return;
+                    submitCurrentTurn("TURN_DETECT: ASR_GRACE");
+                }, settleMs);
+            });
+
+            return {
+                vad,
+                turnDetector,
+                canPlayAgentAudio() { return allowAgentAudio; },
+                currentVersion() { return signalVersion; },
+                close() { clearTimers(); vad?.close(); turnDetector?.close(); },
+            };
+        },
+    };
+}
 
 const BACKEND_URL = "https://voicyfy.ru";
 const LOG_URL = BACKEND_URL + "/api/voximplant/log";
@@ -607,19 +896,6 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
 
     try {
         Logger.write(`[OUT-CASCADE] Outbound -> ${PHONE_NUMBER} (caller_id=${CALLER_ID}) type=${callType}`);
-
-        // Правило должно быть цепочкой [vox-turn-taking, outbound_cascade] — иначе
-        // глобальный VoxTurnTaking не объявлен. Проверяем ДО дозвона: при неверной
-        // раскатке аварийно выходим без PSTN-звонка (0₽), а не падаем после соединения.
-        if (typeof VoxTurnTaking === "undefined") {
-            Logger.write(
-                "[OUT-CASCADE] ===UNHANDLED_ERROR=== VoxTurnTaking is not defined. " +
-                "Правило outbound_cascade должно быть цепочкой [vox-turn-taking, outbound_cascade]. " +
-                "Прогоните deploy-turn-taking. Abort (no dial)."
-            );
-            VoxEngine.terminate();
-            return;
-        }
 
         const config = await fetchOutboundConfig(ASSISTANT_ID);
         if (!config || !config.api_key) {
