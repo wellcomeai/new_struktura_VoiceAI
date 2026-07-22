@@ -328,6 +328,7 @@
         .assistant-type-tab.active.gemini i { color: var(--primary-blue); }
         .assistant-type-tab.active.cartesia i { color: #8b5cf6; }
         .assistant-type-tab.active.yandex i { color: #fc3f1d; }
+        .assistant-type-tab.active.cascade i { color: #f59e0b; }
         
         /* Phones Counter */
         .phones-counter {
@@ -651,6 +652,10 @@
                             <i class="fab fa-yandex"></i>
                             Яндекс
                         </div>
+                        <div class="assistant-type-tab cascade" data-type="cascade">
+                            <i class="fas fa-layer-group"></i>
+                            Cascade
+                        </div>
                     </div>
                     
                     <div id="assistantLoading" class="loading-state">
@@ -779,7 +784,8 @@
                 openai: [],
                 gemini: [],
                 cartesia: [],
-                yandex: []
+                yandex: [],
+                cascade: []
             },
             numbers: [],
             isLoading: false,
@@ -899,6 +905,8 @@
                     endpoint = '/api/cartesia-assistants/';
                 } else if (type === 'yandex') {
                     endpoint = '/api/yandex-assistants';
+                } else if (type === 'cascade') {
+                    endpoint = '/api/grok-assistants/cascade';
                 }
                 
                 const response = await fetchWithAuth(endpoint);
@@ -1038,7 +1046,8 @@
                 openai: '/static/agents.html',
                 gemini: '/static/gemini-agents.html',
                 cartesia: '/static/cartesia-agents.html',
-                yandex: '/static/yandex-agents.html'
+                yandex: '/static/yandex-agents.html',
+                cascade: '/static/cascade-test.html'
             };
             const link = document.getElementById('createAssistantLink');
             if (link) {
