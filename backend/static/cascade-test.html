@@ -949,11 +949,11 @@
 
       <!-- API Key Card -->
       <div class="api-keys-card" id="api-keys-card">
-        <h3><i class="fas fa-key" style="color: var(--cascade-accent);"></i> OpenRouter API ключ</h3>
+        <h3><i class="fas fa-key" style="color: var(--cascade-accent);"></i> OpenAI API ключ</h3>
 
         <div class="api-key-row">
-          <label>OpenRouter API Key</label>
-          <input type="password" id="openrouter-key-input" placeholder="sk-or-..." autocomplete="off">
+          <label>OpenAI API Key</label>
+          <input type="password" id="openrouter-key-input" placeholder="sk-..." autocomplete="off">
           <div class="api-key-actions">
             <button class="btn-icon" id="toggle-openrouter-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
           </div>
@@ -966,7 +966,7 @@
 
         <div class="api-key-warning" id="keys-warning" style="display: none;">
           <i class="fas fa-exclamation-triangle"></i>
-          <span>Добавьте OpenRouter API ключ для работы Cascade агентов</span>
+          <span>Добавьте OpenAI API ключ для работы Cascade агентов</span>
         </div>
       </div>
 
@@ -975,13 +975,13 @@
         <div class="api-key-setup-icon"><i class="fas fa-water"></i></div>
         <h2 class="api-key-setup-title">Настройте API ключ</h2>
         <p class="api-key-setup-description">
-          Для работы Cascade агентов необходим OpenRouter API Key. Через OpenRouter вы получаете доступ к сотням LLM моделей для обработки диалогов.
+          Для работы Cascade агентов необходим OpenAI API Key. Он используется для обработки диалогов в исходящих и входящих звонках.
         </p>
         <div class="api-key-setup-steps">
           <h3>Как начать:</h3>
           <ol>
-            <li>Зарегистрируйтесь на <a href="https://openrouter.ai/" target="_blank">openrouter.ai</a></li>
-            <li>Создайте API Key в <a href="https://openrouter.ai/keys" target="_blank">разделе ключей</a></li>
+            <li>Зарегистрируйтесь на <a href="https://platform.openai.com/" target="_blank">platform.openai.com</a></li>
+            <li>Создайте API Key в <a href="https://platform.openai.com/api-keys" target="_blank">разделе ключей</a></li>
             <li>Вставьте ключ в поле выше и нажмите «Сохранить ключ»</li>
           </ol>
         </div>
@@ -1045,29 +1045,6 @@
               <label for="agent-system-prompt">Системный промпт</label>
               <textarea class="form-control" id="agent-system-prompt" placeholder="Вы — голосовой ассистент. Отвечайте кратко и по существу." rows="6"></textarea>
               <p class="hint">Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.</p>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="agent-model">LLM модель (OpenRouter)</label>
-                <select class="form-control" id="agent-model">
-                  <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
-                  <option value="meta-llama/llama-4-maverick">Llama 4 Maverick</option>
-                  <option value="google/gemini-2.5-flash-preview">Gemini 2.5 Flash Preview</option>
-                  <option value="google/gemini-2.5-pro-preview">Gemini 2.5 Pro Preview</option>
-                  <option value="anthropic/claude-sonnet-4">Claude Sonnet 4</option>
-                  <option value="openai/gpt-4o">GPT-4o</option>
-                  <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="mistralai/mistral-large-2411">Mistral Large</option>
-                  <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
-                </select>
-                <p class="hint">Модель для обработки диалогов через OpenRouter</p>
-              </div>
-              <div class="form-group">
-                <label for="agent-model-custom">Или введите ID модели вручную</label>
-                <input type="text" class="form-control" id="agent-model-custom" placeholder="provider/model-name">
-                <p class="hint">Если нужной модели нет в списке — впишите ID с <a href="https://openrouter.ai/models" target="_blank" style="color: var(--cascade-accent);">openrouter.ai/models</a></p>
-              </div>
             </div>
 
             <div class="form-row">
@@ -1551,7 +1528,7 @@
         });
 
         document.getElementById('openrouter-key-input').value = '';
-        showNotification('OpenRouter API ключ сохранён', 'success');
+        showNotification('OpenAI API ключ сохранён', 'success');
 
         const hasKey = await loadApiKeyStatus();
         checkApiKeyAndShowContent(hasKey);
@@ -1570,7 +1547,7 @@
     }
 
     async function clearApiKey() {
-      if (!confirm('Вы уверены, что хотите удалить OpenRouter API ключ?')) return;
+      if (!confirm('Вы уверены, что хотите удалить OpenAI API ключ?')) return;
 
       setLoading(true);
       try {
@@ -1660,7 +1637,7 @@
             <div class="empty-icon"><i class="fas fa-water"></i></div>
             <h3 class="empty-title">У вас ещё нет Cascade агентов</h3>
             <p class="empty-description">
-              Создайте первого голосового ассистента Cascade с LLM через OpenRouter и русскоязычным TTS
+              Создайте первого голосового ассистента Cascade с LLM через OpenAI и русскоязычным TTS
               ${limitText}
             </p>
             <button class="btn btn-primary" id="empty-create-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
@@ -1694,7 +1671,6 @@
       agents.forEach(agent => {
         const providerName = { voxtts: 'VoxTTS', yandex: 'Яндекс', tinkoff: 'Т-Банк', sber: 'Сбер' }[agent.tts_provider] || agent.tts_provider || '-';
         const voiceName = getVoiceName(agent.tts_provider, agent.tts_voice);
-        const modelShort = (agent.openrouter_model || '-').split('/').pop();
 
         const agentEl = document.createElement('div');
         agentEl.className = 'agent-item';
@@ -1705,7 +1681,6 @@
             <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
-              <span><i class="fas fa-brain"></i> ${escapeHtml(modelShort)}</span>
               <span><i class="fas fa-volume-up"></i> ${escapeHtml(providerName)}: ${escapeHtml(voiceName)}</span>
               <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
@@ -1760,20 +1735,6 @@
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
 
-      // Model
-      const modelSelect = document.getElementById('agent-model');
-      const modelCustom = document.getElementById('agent-model-custom');
-      const model = agent.openrouter_model || '';
-
-      const modelExists = Array.from(modelSelect.options).some(o => o.value === model);
-      if (modelExists) {
-        modelSelect.value = model;
-        modelCustom.value = '';
-      } else {
-        modelSelect.value = modelSelect.options[0].value;
-        modelCustom.value = model;
-      }
-
       // TTS
       if (agent.tts_provider) {
         document.getElementById('agent-tts-provider').value = agent.tts_provider;
@@ -1787,11 +1748,6 @@
     }
 
     function getFormData() {
-      // Determine model
-      const modelCustom = document.getElementById('agent-model-custom').value.trim();
-      const modelSelect = document.getElementById('agent-model').value;
-      const model = modelCustom || modelSelect;
-
       const enabledFunctions = [];
       document.querySelectorAll('input[type="checkbox"][data-function-name]:checked').forEach(cb => {
         const funcData = availableFunctions.find(f => f.name === cb.dataset.functionName);
@@ -1805,7 +1761,6 @@
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         description: document.getElementById('agent-description').value.trim() || null,
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
-        openrouter_model: model || null,
         tts_provider: document.getElementById('agent-tts-provider').value,
         tts_voice: document.getElementById('agent-tts-voice').value,
         is_telephony_enabled: true,
@@ -2055,8 +2010,6 @@
       document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
-      document.getElementById('agent-model').selectedIndex = 0;
-      document.getElementById('agent-model-custom').value = '';
       document.getElementById('agent-tts-provider').value = 'yandex';
       updateVoiceOptions();
 
@@ -2172,15 +2125,6 @@
 
     // TTS provider change
     document.getElementById('agent-tts-provider').addEventListener('change', updateVoiceOptions);
-
-    // Custom model clears select highlight
-    document.getElementById('agent-model-custom').addEventListener('input', function() {
-      if (this.value.trim()) {
-        document.getElementById('agent-model').style.opacity = '0.5';
-      } else {
-        document.getElementById('agent-model').style.opacity = '1';
-      }
-    });
 
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {

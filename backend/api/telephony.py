@@ -3223,10 +3223,11 @@ async def get_outbound_config(
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
         elif assistant_type == "cascade":
-            # Каскад ходит в OpenAI через коннектор Voximplant (openai.voximplant.com),
-            # поэтому нужен серверный OPENAI_API_KEY, а не openrouter-ключ.
-            # Совпадает с inbound /config (см. get_telephony_config).
-            api_key = settings.OPENAI_API_KEY or user.openrouter_api_key
+            # Каскад ходит в OpenAI через коннектор Voximplant (openai.voximplant.com)
+            # с ПОЛЬЗОВАТЕЛЬСКИМ ключом OpenAI, который юзер сохраняет на странице
+            # каскад-агентов (переиспользуем колонку openrouter_api_key). Серверный
+            # OPENAI_API_KEY здесь НЕ используется. Совпадает с inbound /config.
+            api_key = user.openrouter_api_key
         elif assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id
@@ -5141,9 +5142,10 @@ async def get_scenario_config(
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
         elif phone_record.assistant_type == "cascade":
-            # Каскад ходит в OpenAI напрямую с платформенным ключом (ENV),
-            # user.openrouter_api_key — fallback для старого сценария
-            api_key = settings.OPENAI_API_KEY or user.openrouter_api_key
+            # Каскад ходит в OpenAI с ПОЛЬЗОВАТЕЛЬСКИМ ключом OpenAI, который юзер
+            # сохраняет на странице каскад-агентов (переиспользуем колонку
+            # openrouter_api_key). Серверный OPENAI_API_KEY здесь НЕ используется.
+            api_key = user.openrouter_api_key
         elif phone_record.assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id

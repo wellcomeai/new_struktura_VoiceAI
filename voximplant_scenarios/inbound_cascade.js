@@ -57,6 +57,7 @@ require(Modules.Recorder);
 
 const BACKEND_URL = "https://voicyfy.ru";
 const LOG_URL = BACKEND_URL + "/api/voximplant/log";
+const FUNCTIONS_URL = BACKEND_URL + "/api/voximplant/functions/execute";
 const LLM_MODEL = "gpt-5.4-nano";
 // Для GPT-5.x reasoning обязателен к отключению: с ним TTFT растёт с ~0.6с до
 // 5-8с. У gpt-5.4-nano значение "none" (у более старых моделей — "minimal").
@@ -88,6 +89,12 @@ function extractFinishReason(event) {
     const p = ccPayload(event);
     const fr = p?.choices?.[0]?.finish_reason;
     return typeof fr === "string" && fr.length > 0 ? fr : "";
+}
+// Дельты tool_calls из сырого OpenAI-чанка (Chat Completions tool-calling).
+function extractToolCallDeltas(event) {
+    const p = ccPayload(event);
+    const tc = p?.choices?.[0]?.delta?.tool_calls;
+    return Array.isArray(tc) ? tc : null;
 }
 
 const TELEPHONY_STYLE_RULES = `
@@ -162,12 +169,18 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     const messages = []; // [0]=system, далее user/assistant
 
     // Состояние главного (подтверждённого) потока.
-    const main = { accepting: false, id: null, text: "", version: -1 };
+    const main = { accepting: false, id: null, text: "", toolCalls: {}, version: -1 };
     const mainStaleIds = new Set();
 
     // Состояние спекуляции (null, когда её нет).
     let spec = null;
     const specStaleIds = new Set();
+
+    // Tool-calling (функции ассистента). Спекуляция несовместима с tool-calling,
+    // поэтому при наличии функций она отключается (см. onSpeculativeTurn).
+    let tools = [];
+    let toolsEnabled = false;
+    const functionNameToIdMap = {};
 
     // Замер TTFB голоса.
     let firstDeltaLoggedForTurn = false;
@@ -319,13 +332,18 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         ttsPlayer.send({ send_text: { text: " ", flush_context: {} } });
     };
 
-    const sendCompletion = (client, msgs) => {
-        client.createChatCompletions({
+    const sendCompletion = (client, msgs, useTools) => {
+        const req = {
             model: LLM_MODEL,
             reasoning_effort: LLM_REASONING_EFFORT,
             stream: true,
             messages: msgs,
-        });
+        };
+        if (useTools && tools.length) {
+            req.tools = tools;
+            req.tool_choice = "auto";
+        }
+        client.createChatCompletions(req);
     };
 
     const warmup = (client) => {
@@ -337,8 +355,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         main.accepting = true;
         main.id = null;
         main.text = "";
+        main.toolCalls = {};
         main.version = version;
-        sendCompletion(llmMain, msgs);
+        sendCompletion(llmMain, msgs, toolsEnabled);
     };
 
     const startSpec = (input, version) => {
@@ -372,6 +391,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         if (main.id) mainStaleIds.add(main.id);
         main.id = null;
         main.text = "";
+        main.toolCalls = {};
     };
 
     const finalizeSpec = () => {
@@ -384,6 +404,88 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         if (turnTaking.canPlayAgentAudio()) ttsFlush();
         if (spec.id) specStaleIds.add(spec.id);
         spec = null;
+    };
+
+    // --- Tool-calling: выполнение функций ассистента через бекенд ---
+    const executeFunction = async (name, args) => {
+        const function_id = args.function_id || functionNameToIdMap[name];
+        const clean = Object.assign({}, args);
+        delete clean.function_id;
+        if (!function_id) return `Error: function_id not found for ${name}`;
+        try {
+            const resp = await Net.httpRequestAsync(FUNCTIONS_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                postData: JSON.stringify({
+                    function_id: function_id,
+                    arguments: Object.assign({}, clean, { assistant_id: assistantId }),
+                    call_data: {
+                        call_id: callId || "unknown",
+                        chat_id: chat_id,
+                        assistant_id: assistantId,
+                        caller_number: caller_number,
+                    },
+                }),
+            });
+            if (resp.code === 200) return resp.text || "{}";
+            return `Error: HTTP ${resp.code}`;
+        } catch (e) {
+            return `Error: ${e}`;
+        }
+    };
+
+    // Разбор и выполнение tool_calls (Chat Completions manual tool loop).
+    const handleToolCalls = async (version) => {
+        const calls = Object.keys(main.toolCalls)
+            .map((k) => main.toolCalls[k])
+            .filter((c) => c && c.name);
+
+        // Останавливаем гейтинг текущей генерации.
+        main.accepting = false;
+        if (main.id) mainStaleIds.add(main.id);
+        main.id = null;
+        const pendingText = main.text;
+        main.text = "";
+        main.toolCalls = {};
+
+        // Ассистентское сообщение с tool_calls в историю.
+        messages.push({
+            role: "assistant",
+            content: pendingText || null,
+            tool_calls: calls.map((c) => ({
+                id: c.id,
+                type: "function",
+                function: { name: c.name, arguments: c.args || "{}" },
+            })),
+        });
+
+        // hangup_call — ассистент сам завершает звонок.
+        const hangup = calls.find((c) => c.name === "hangup_call");
+        if (hangup) {
+            let farewell = "";
+            try {
+                farewell = (JSON.parse(hangup.args || "{}").farewell_message) || "";
+            } catch (e) { /* noop */ }
+            Logger.write(`[CASCADE] ===HANGUP=== ${farewell}`);
+            if (farewell) {
+                logDialog("assistant", farewell);
+                if (turnTaking.canPlayAgentAudio()) { ttsSendText(farewell); ttsFlush(); }
+            }
+            setTimeout(() => terminateCall(), farewell ? 3500 : 300);
+            return;
+        }
+
+        // Остальные функции: выполнить, вернуть результат в историю.
+        for (const c of calls) {
+            let args = {};
+            try { args = JSON.parse(c.args || "{}"); } catch (e) { /* noop */ }
+            Logger.write(`[CASCADE] ===FUNCTION=== ${c.name} ${c.args || ""}`);
+            const result = await executeFunction(c.name, args);
+            messages.push({ role: "tool", tool_call_id: c.id, content: String(result) });
+        }
+        if (terminating) return;
+        // Повторный запрос — модель озвучит ответ по результатам функций.
+        startMain(messages.slice(), version);
     };
 
     try {
@@ -407,6 +509,32 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 `Не здоровайся и не представляйся заново — сразу отвечай по сути вопроса.`;
         }
         messages.push({ role: "system", content: systemPrompt });
+
+        // Функции ассистента -> tools для Chat Completions. При наличии функций
+        // спекуляция отключается (несовместима с tool-calling), работаем одним
+        // клиентом llmMain как в исходящем сценарии.
+        if (config.functions && config.functions.length > 0) {
+            const decls = [];
+            for (let i = 0; i < config.functions.length; i++) {
+                const t = config.functions[i];
+                const fn = (t.type === "function" && t.function) ? t.function : (t.name ? t : null);
+                if (!fn) continue;
+                functionNameToIdMap[fn.name] = String(i + 1);
+                let desc = fn.description;
+                if (fn.name === "hangup_call") {
+                    desc = "КРИТИЧЕСКИ ВАЖНО: вызови эту функцию НЕМЕДЛЕННО, когда задача звонка выполнена или собеседник хочет завершить разговор («пока», «до свидания», «всё, спасибо»). Не прощайся просто словами — вызови функцию.";
+                }
+                decls.push({
+                    type: "function",
+                    function: { name: fn.name, description: desc, parameters: fn.parameters },
+                });
+            }
+            if (decls.length > 0) {
+                tools = decls;
+                toolsEnabled = true;
+                Logger.write(`[CASCADE] Functions: ${JSON.stringify(functionNameToIdMap)} (speculation OFF)`);
+            }
+        }
 
         Logger.write(`[CASCADE] Assistant: ${config.assistant_name} (${assistantId})`);
         Logger.write(`[CASCADE] Call: ${caller_number} -> ${called_number} | id=${callId}`);
@@ -460,7 +588,29 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                     ttsSendText(text);
                 }
             }
-            if (extractFinishReason(event)) finalizeMain();
+
+            // Сбор дельт tool_calls (только когда включены функции).
+            if (toolsEnabled) {
+                const toolDeltas = extractToolCallDeltas(event);
+                if (toolDeltas) {
+                    logShapeOnce("main.Chunk.tool_calls", event);
+                    for (const tc of toolDeltas) {
+                        const idx = tc.index != null ? tc.index : 0;
+                        if (!main.toolCalls[idx]) main.toolCalls[idx] = { id: "", name: "", args: "" };
+                        const slot = main.toolCalls[idx];
+                        if (tc.id) slot.id = tc.id;
+                        if (tc.function?.name) slot.name = tc.function.name;
+                        if (tc.function?.arguments) slot.args += tc.function.arguments;
+                    }
+                }
+            }
+
+            const fr = extractFinishReason(event);
+            if (fr === "tool_calls") {
+                handleToolCalls(main.version);
+            } else if (fr) {
+                finalizeMain();
+            }
         });
 
         // --- Спек-клиент: один обработчик `Chunk` ---
@@ -537,6 +687,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
 
             onSpeculativeTurn: (input, version) => {
                 if (terminating) return;
+                if (toolsEnabled) return; // спекуляция несовместима с tool-calling
                 if (!input) return;
                 if (spec && spec.version === version) return;
                 if (spec) abandonSpec();
@@ -583,6 +734,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 if (main.id) mainStaleIds.add(main.id);
                 main.id = null;
                 main.text = "";
+                main.toolCalls = {};
             },
         });
 
@@ -595,9 +747,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             logDialog("assistant", config.first_phrase);
             ttsPlayer.send({ send_text: { text: config.first_phrase, flush_context: {} } });
             warmup(llmMain);
-            warmup(llmSpec);
+            if (!toolsEnabled) warmup(llmSpec);
         } else {
-            warmup(llmSpec);
+            if (!toolsEnabled) warmup(llmSpec);
             startMain(
                 messages.concat({
                     role: "user",
