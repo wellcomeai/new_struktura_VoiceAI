@@ -655,36 +655,6 @@
     .functions-loading i { font-size: 2rem; margin-bottom: 1rem; animation: spin 1s linear infinite; }
 
     /* ============================================================================
-       DEBUG SECTION
-       ============================================================================ */
-    .debug-section {
-      background: #f1f5f9;
-      border: 1px dashed var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 1.5rem;
-      margin-top: 1rem;
-    }
-    .debug-section h4 {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 1rem;
-      color: var(--text-gray);
-    }
-    .debug-output {
-      background-color: #1e293b;
-      color: #e2e8f0;
-      padding: 1rem;
-      border-radius: var(--radius-md);
-      overflow-x: auto;
-      font-family: monospace;
-      font-size: 0.8125rem;
-      max-height: 400px;
-      white-space: pre-wrap;
-      margin-top: 1rem;
-    }
-
-    /* ============================================================================
        NOTIFICATIONS
        ============================================================================ */
     .notification {
@@ -1012,7 +982,6 @@
         <div class="tabs">
           <button class="tab active" data-tab="settings">Настройки</button>
           <button class="tab" data-tab="functions">Функции</button>
-          <button class="tab" data-tab="debug" id="tab-debug-btn" style="display: none;">Отладка</button>
         </div>
 
         <!-- Settings Tab -->
@@ -1083,33 +1052,6 @@
                 <i class="fas fa-spinner"></i>
                 <p>Загрузка доступных функций...</p>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Debug Tab (admin only) -->
-        <div class="tab-content" id="tab-debug">
-          <div class="form-section">
-            <div class="debug-section">
-              <h4><i class="fas fa-bug"></i> Отладка конфигурации (только для администраторов)</h4>
-
-              <div class="form-row">
-                <div class="form-group">
-                  <label for="debug-phone">Номер телефона</label>
-                  <input type="text" class="form-control" id="debug-phone" placeholder="74951234567">
-                </div>
-                <div class="form-group">
-                  <label for="debug-assistant-id">Assistant ID (для outbound)</label>
-                  <input type="text" class="form-control" id="debug-assistant-id" placeholder="uuid">
-                </div>
-              </div>
-
-              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                <button class="btn btn-outline btn-sm" onclick="getInboundConfig()"><i class="fas fa-phone-alt"></i> Inbound Config</button>
-                <button class="btn btn-outline btn-sm" onclick="getOutboundConfig()"><i class="fas fa-phone-volume"></i> Outbound Config</button>
-              </div>
-
-              <div id="debug-output" class="debug-output" style="display: none;"></div>
             </div>
           </div>
         </div>
@@ -1324,11 +1266,6 @@
       }
 
       document.getElementById('user-email').textContent = currentUser.email;
-
-      // Show debug tab for privileged users
-      if (isPrivilegedUser()) {
-        document.getElementById('tab-debug-btn').style.display = '';
-      }
     }
 
     // ============================================================================
@@ -1723,9 +1660,6 @@
         document.getElementById('delete-agent-btn').style.display = 'inline-flex';
         document.getElementById('agent-id-display').textContent = id;
         document.getElementById('agent-id-info').style.display = 'flex';
-
-        // Populate debug assistant ID
-        document.getElementById('debug-assistant-id').value = id;
       } catch (e) {
         showNotification('Ошибка загрузки агента: ' + e.message, 'error');
         switchToListMode();
@@ -1932,43 +1866,6 @@
     }
 
     // ============================================================================
-    // DEBUG (admin only)
-    // ============================================================================
-    async function getInboundConfig() {
-      const phone = document.getElementById('debug-phone').value.trim();
-      if (!phone) {
-        showNotification('Введите номер телефона', 'error');
-        return;
-      }
-      try {
-        const data = await apiRequest(`/telephony/config?phone=${encodeURIComponent(phone)}`);
-        const output = document.getElementById('debug-output');
-        output.style.display = 'block';
-        output.textContent = JSON.stringify(data, null, 2);
-        showNotification('Inbound config загружен', 'success');
-      } catch (e) {
-        showNotification('Ошибка: ' + e.message, 'error');
-      }
-    }
-
-    async function getOutboundConfig() {
-      const id = document.getElementById('debug-assistant-id').value.trim();
-      if (!id) {
-        showNotification('Введите Assistant ID', 'error');
-        return;
-      }
-      try {
-        const data = await apiRequest(`/telephony/outbound-config?assistant_id=${encodeURIComponent(id)}`);
-        const output = document.getElementById('debug-output');
-        output.style.display = 'block';
-        output.textContent = JSON.stringify(data, null, 2);
-        showNotification('Outbound config загружен', 'success');
-      } catch (e) {
-        showNotification('Ошибка: ' + e.message, 'error');
-      }
-    }
-
-    // ============================================================================
     // NAVIGATION
     // ============================================================================
     function navigateToCreateAgent() {
@@ -2022,10 +1919,6 @@
       document.getElementById('agent-system-prompt').value = '';
       document.getElementById('agent-tts-provider').value = 'yandex';
       updateVoiceOptions();
-
-      document.getElementById('debug-phone').value = '';
-      document.getElementById('debug-assistant-id').value = '';
-      document.getElementById('debug-output').style.display = 'none';
 
       // Reset functions
       selectedFunctionNames = [];
