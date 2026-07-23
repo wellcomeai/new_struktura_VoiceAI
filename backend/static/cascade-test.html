@@ -1016,22 +1016,10 @@
               <p class="hint">Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.</p>
             </div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="agent-tts-provider">TTS провайдер</label>
-                <select class="form-control" id="agent-tts-provider">
-                  <option value="voxtts">VoxTTS (Voximplant)</option>
-                  <option value="yandex">Яндекс SpeechKit</option>
-                  <option value="tinkoff">Т-Банк VoiceKit</option>
-                  <option value="sber">Сбер Салют</option>
-                </select>
-                <p class="hint">Сервис синтеза речи для голоса ассистента</p>
-              </div>
-              <div class="form-group">
-                <label for="agent-tts-voice">Голос</label>
-                <select class="form-control" id="agent-tts-voice"></select>
-                <p class="hint">Голос выбранного TTS провайдера</p>
-              </div>
+            <div class="form-group">
+              <label for="agent-tts-voice">Голос</label>
+              <select class="form-control" id="agent-tts-voice"></select>
+              <p class="hint">Голос синтеза речи ассистента</p>
             </div>
 
             <div class="form-footer">
@@ -1531,12 +1519,12 @@
     // TTS VOICES
     // ============================================================================
     function updateVoiceOptions() {
-      const provider = document.getElementById('agent-tts-provider').value;
+      // Каскад-сценарий поддерживает только VoxTTS, поэтому голоса всегда VoxTTS.
       const voiceSelect = document.getElementById('agent-tts-voice');
       const currentVoice = voiceSelect.value;
 
       voiceSelect.innerHTML = '';
-      (TTS_PROVIDERS[provider] || []).forEach(v => {
+      (TTS_PROVIDERS.voxtts || []).forEach(v => {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.textContent = v.name;
@@ -1611,7 +1599,6 @@
       listEl.className = 'agent-items';
 
       agents.forEach(agent => {
-        const providerName = { voxtts: 'VoxTTS', yandex: 'Яндекс', tinkoff: 'Т-Банк', sber: 'Сбер' }[agent.tts_provider] || agent.tts_provider || '-';
         const voiceName = getVoiceName(agent.tts_provider, agent.tts_voice);
 
         const agentEl = document.createElement('div');
@@ -1623,7 +1610,7 @@
             <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
-              <span><i class="fas fa-volume-up"></i> ${escapeHtml(providerName)}: ${escapeHtml(voiceName)}</span>
+              <span><i class="fas fa-volume-up"></i> ${escapeHtml(voiceName)}</span>
               <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
           </div>
@@ -1674,10 +1661,7 @@
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
 
-      // TTS
-      if (agent.tts_provider) {
-        document.getElementById('agent-tts-provider').value = agent.tts_provider;
-      }
+      // TTS (только VoxTTS)
       updateVoiceOptions();
       if (agent.tts_voice) {
         document.getElementById('agent-tts-voice').value = agent.tts_voice;
@@ -1700,7 +1684,7 @@
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         description: document.getElementById('agent-description').value.trim() || null,
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
-        tts_provider: document.getElementById('agent-tts-provider').value,
+        tts_provider: 'voxtts',
         tts_voice: document.getElementById('agent-tts-voice').value,
         is_telephony_enabled: true,
         functions: enabledFunctions.length > 0 ? enabledFunctions : null,
@@ -1917,7 +1901,6 @@
       document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
-      document.getElementById('agent-tts-provider').value = 'yandex';
       updateVoiceOptions();
 
       // Reset functions
@@ -2022,9 +2005,6 @@
       const input = document.getElementById('openrouter-key-input');
       input.type = input.type === 'password' ? 'text' : 'password';
     });
-
-    // TTS provider change
-    document.getElementById('agent-tts-provider').addEventListener('change', updateVoiceOptions);
 
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
