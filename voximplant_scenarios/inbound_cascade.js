@@ -424,6 +424,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                         chat_id: chat_id,
                         assistant_id: assistantId,
                         caller_number: caller_number,
+                        called_number: called_number,
                     },
                 }),
             });
@@ -508,6 +509,16 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 `\n\nРазговор уже начат: приветствие собеседнику уже произнесено. ` +
                 `Не здоровайся и не представляйся заново — сразу отвечай по сути вопроса.`;
         }
+        // Информация о звонке в промпт: реальные номера и текущее время, чтобы
+        // модель могла корректно вызывать функции (например, send_sms) и
+        // ориентироваться во времени. caller_number — номер клиента (звонящего),
+        // called_number — наш номер (на который позвонили). Время в МСК (UTC+3).
+        const mskTime = new Date(Date.now() + 3 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
+        systemPrompt +=
+            `\n\nИнформация о звонке:\n` +
+            `- Номер клиента (caller_number): ${caller_number}\n` +
+            `- Наш номер (called_number): ${called_number}\n` +
+            `- Текущее время: ${mskTime} (МСК)`;
         messages.push({ role: "system", content: systemPrompt });
 
         // Функции ассистента -> tools для Chat Completions. При наличии функций

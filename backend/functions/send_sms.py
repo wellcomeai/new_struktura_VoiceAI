@@ -118,8 +118,19 @@ class SendSmsFunction(FunctionBase):
         from backend.api.telephony import find_assistant_by_id
 
         text = arguments.get("text", "").strip()
-        to_number = arguments.get("to", "").replace("+", "").strip()
-        from_number = arguments.get("from_number", "").replace("+", "").strip()
+
+        # Номера берём в первую очередь из call_data (их проставляет сам сценарий
+        # по данным звонка), а не из аргументов модели — модель нередко
+        # галлюцинирует и подставляет строки вроде "caller_number"/"called_number".
+        # Аргументы модели — только фолбэк для обратной совместимости.
+        context = context or {}
+        call_data = context.get("call_data", {}) or {}
+
+        def _clean(num):
+            return str(num or "").replace("+", "").strip()
+
+        to_number = _clean(call_data.get("caller_number")) or _clean(arguments.get("to"))
+        from_number = _clean(call_data.get("called_number")) or _clean(arguments.get("from_number"))
 
         # Валидация
         if not text:
@@ -132,8 +143,6 @@ class SendSmsFunction(FunctionBase):
             return {"success": False, "error": "Не указан номер отправителя (from_number)"}
 
         # Получаем assistant_id из context или arguments
-        context = context or {}
-        call_data = context.get("call_data", {})
         assistant_id_str = call_data.get("assistant_id") or arguments.get("assistant_id")
 
         if not assistant_id_str:
