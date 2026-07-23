@@ -1231,6 +1231,11 @@
     let currentAgentId = null;
     let agents = [];
     let availableFunctions = [];
+    // Имена включённых у агента функций. Держим отдельно от DOM, чтобы состояние
+    // не терялось из-за гонки между рендером чекбоксов (loadAvailableFunctions)
+    // и загрузкой данных агента (loadAgentData) — какой бы порядок ни сложился,
+    // applyFunctionSelection() приводит чекбоксы к этому состоянию.
+    let selectedFunctionNames = [];
     let isLoading = false;
     let currentUserPlanCode = 'free';
 
@@ -1900,25 +1905,30 @@
           infoDiv.style.display = this.checked ? 'block' : 'none';
         });
       });
+
+      // Чекбоксы только что отрисованы — приводим их к сохранённому выбору
+      // агента (важно, если данные агента загрузились раньше рендера).
+      applyFunctionSelection();
+    }
+
+    // Приводит чекбоксы функций в соответствие с selectedFunctionNames.
+    function applyFunctionSelection() {
+      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
+        const name = cb.dataset.functionName;
+        const on = selectedFunctionNames.includes(name);
+        cb.checked = on;
+        const info = document.getElementById(`${name}-info`);
+        if (info) info.style.display = on ? 'block' : 'none';
+      });
     }
 
     function loadFunctions(agentFunctions) {
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
-
-      if (!agentFunctions) return;
-      agentFunctions.forEach(fn => {
-        const name = fn.name || fn;
-        const cb = document.querySelector(`input[data-function-name="${name}"]`);
-        if (cb) {
-          cb.checked = true;
-          const info = document.getElementById(`${name}-info`);
-          if (info) info.style.display = 'block';
-        }
-      });
+      selectedFunctionNames = (agentFunctions || [])
+        .map(fn => (fn && fn.name) ? fn.name : fn)
+        .filter(Boolean);
+      // Применяем к уже отрисованным чекбоксам; если рендер ещё не случился,
+      // его финальный applyFunctionSelection() подхватит этот же выбор.
+      applyFunctionSelection();
     }
 
     // ============================================================================
@@ -2018,11 +2028,8 @@
       document.getElementById('debug-output').style.display = 'none';
 
       // Reset functions
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
+      selectedFunctionNames = [];
+      applyFunctionSelection();
     }
 
     // ============================================================================
