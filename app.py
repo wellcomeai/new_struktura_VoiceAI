@@ -1031,26 +1031,80 @@ def backfill_cascade_trial_credits():
                 conn.execute(text("""
                     INSERT INTO credit_transactions
                         (id, user_id, product, type, amount, balance_after, ref_type, notes, created_at)
-                    SELECT gen_random_uuid(), id, 'cascade', 'trial_grant', 1500,
-                           COALESCE(cascade_credits_balance, 0) + 1500, 'cascade_trial',
-                           'Cascade trial grant: 1500 credits (mass backfill)', now()
+                    SELECT gen_random_uuid(), id, 'cascade', 'trial_grant', 300,
+                           COALESCE(cascade_credits_balance, 0) + 300, 'cascade_trial',
+                           'Cascade trial grant: 300 credits (mass backfill)', now()
                     FROM users
                     WHERE cascade_trial_granted = FALSE
                 """))
                 # 2) Начисляем баланс и ставим флаг.
                 conn.execute(text("""
                     UPDATE users
-                    SET cascade_credits_balance = COALESCE(cascade_credits_balance, 0) + 1500,
+                    SET cascade_credits_balance = COALESCE(cascade_credits_balance, 0) + 300,
                         cascade_trial_granted = TRUE
                     WHERE cascade_trial_granted = FALSE
                 """))
                 trans.commit()
-                logger.info(f"✅ Cascade trial backfill: granted 1500 credits to {pending} users")
+                logger.info(f"✅ Cascade trial backfill: granted 300 credits to {pending} users")
             except Exception as e:
                 trans.rollback()
                 logger.error(f"❌ Cascade trial backfill failed: {e}")
     except Exception as e:
         logger.error(f"❌ backfill_cascade_trial_credits error: {e}")
+
+
+def ensure_cascade_credit_packages():
+    """
+    Гарантированно засеять пакеты докупки кредитов каскада (product='cascade').
+
+    Вынесено из seed_credits_data в ОТДЕЛЬНУЮ транзакцию, чтобы вставка cascade-
+    пакетов не откатывалась из-за ошибки в неродственных statements общего сидинга.
+    Идемпотентно (ON CONFLICT DO NOTHING). Логирует итоговое число cascade-пакетов.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        if not inspector.has_table('credit_packages'):
+            logger.warning("⚠️ credit_packages table missing, skip cascade packages seed")
+            return
+
+        # Защитно гарантируем колонку product (на случай если schema-fix не отработал).
+        cols = {c['name'] for c in inspector.get_columns('credit_packages')}
+        with engine.connect() as conn:
+            if 'product' not in cols:
+                trans = conn.begin()
+                try:
+                    conn.execute(text(
+                        "ALTER TABLE credit_packages ADD COLUMN product VARCHAR(20) "
+                        "DEFAULT 'orchestrator' NOT NULL"
+                    ))
+                    trans.commit()
+                    logger.info("➕ Added credit_packages.product column")
+                except Exception as e:
+                    trans.rollback()
+                    logger.info(f"ℹ️ credit_packages.product add skipped: {e}")
+
+            trans = conn.begin()
+            try:
+                conn.execute(text("""
+                    INSERT INTO credit_packages (code, product, name, credits, price_rub, sort_order, is_active) VALUES
+                        ('cascade_mini', 'cascade', 'Mini', 5000, 490, 1, TRUE),
+                        ('cascade_standard', 'cascade', 'Standard', 15000, 1290, 2, TRUE),
+                        ('cascade_pro', 'cascade', 'Pro', 50000, 3990, 3, TRUE),
+                        ('cascade_business', 'cascade', 'Business', 150000, 9990, 4, TRUE),
+                        ('cascade_enterprise', 'cascade', 'Enterprise', 500000, 29990, 5, TRUE)
+                    ON CONFLICT (code) DO NOTHING
+                """))
+                trans.commit()
+                cnt = conn.execute(text(
+                    "SELECT COUNT(*) FROM credit_packages WHERE product = 'cascade' AND is_active = TRUE"
+                )).scalar() or 0
+                logger.info(f"✅ Cascade packages ensured (active cascade packages: {cnt})")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to ensure cascade packages: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_cascade_credit_packages error: {e}")
 
 
 def normalize_agent_contact_stages():
@@ -1536,6 +1590,9 @@ async def startup_event():
 
                 # 🆕 Шаг 11.1: Разовый грант тестовых кредитов каскада всем юзерам
                 backfill_cascade_trial_credits()
+
+                # 🆕 Шаг 11.2: Гарантированный сид пакетов докупки каскада
+                ensure_cascade_credit_packages()
 
                 # 🆕 Шаг 12: Нормализация стадий воронки (calling → active)
                 normalize_agent_contact_stages()

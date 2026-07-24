@@ -44,7 +44,7 @@ OUTPUT_CREDITS_PER_1K = 25
 
 class CascadeCreditService:
     # Разовый тестовый грант всем пользователям (одноразово за всю жизнь юзера).
-    TRIAL_CREDITS = 1500
+    TRIAL_CREDITS = 300
 
     # ------------------------------------------------------------------
     # COST CALCULATION
