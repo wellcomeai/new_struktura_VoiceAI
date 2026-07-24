@@ -84,6 +84,13 @@ class User(Base, BaseModel):
     agent_trial_started_at = Column(DateTime(timezone=True), nullable=True)
     agent_subscription_blocked = Column(Boolean, default=False, nullable=False, index=True)
 
+    # ✅ Кредиты каскад-ассистентов (LLM gpt-5.4-nano на серверном ключе).
+    # Отдельный кошелёк, независимый от кредитов оркестратора (credits_balance)
+    # и от подписки agent. Доступен на всех тарифах (включая free).
+    # Колонки добавляются в БД startup-ALTER (см. app.py fix_missing_columns).
+    cascade_credits_balance = Column(Integer, default=0, nullable=False)
+    cascade_trial_granted = Column(Boolean, default=False, nullable=False)
+
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
@@ -335,6 +342,14 @@ class User(Base, BaseModel):
             end = end.replace(tzinfo=timezone.utc)
         delta = end - datetime.now(timezone.utc)
         return max(0, delta.days)
+
+    # ========================================================================
+    # ✅ Хелперы кредитов каскад-ассистентов (независимы от подписки agent)
+    # ========================================================================
+
+    def has_cascade_credits(self) -> bool:
+        """True если на балансе каскада есть кредиты (>0)."""
+        return (self.cascade_credits_balance or 0) > 0
 
     def is_email_verified(self):
         """Проверить, подтверждён ли email пользователя"""

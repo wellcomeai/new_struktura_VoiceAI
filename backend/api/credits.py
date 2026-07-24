@@ -146,7 +146,8 @@ async def get_packages(
     """Список активных пакетов докупки, отсортированных по sort_order."""
     packages = (
         db.query(CreditPackage)
-        .filter(CreditPackage.is_active == True)
+        .filter(CreditPackage.is_active == True,
+                CreditPackage.product == "orchestrator")
         .order_by(CreditPackage.sort_order.asc())
         .all()
     )
@@ -185,6 +186,7 @@ async def purchase_package(
     package = db.query(CreditPackage).filter(
         CreditPackage.code == body.package_code,
         CreditPackage.is_active == True,
+        CreditPackage.product == "orchestrator",
     ).first()
     if not package:
         raise HTTPException(status_code=404, detail="package_not_found")

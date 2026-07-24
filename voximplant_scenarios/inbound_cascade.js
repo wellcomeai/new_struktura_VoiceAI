@@ -96,6 +96,11 @@ function extractToolCallDeltas(event) {
     const tc = p?.choices?.[0]?.delta?.tool_calls;
     return Array.isArray(tc) ? tc : null;
 }
+// Usage (prompt/completion tokens) из финального чанка при include_usage.
+function extractUsage(event) {
+    const p = ccPayload(event);
+    return p && p.usage ? p.usage : null;
+}
 
 const TELEPHONY_STYLE_RULES = `
 
@@ -200,6 +205,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let record_url = null;
     let call_cost = 0;
     let call_duration = 0;
+    // Учёт токенов LLM для списания кредитов каскада (все completion'ы: main,
+    // spec-спекуляция, warmup, tool-раунды — весь расход на серверном ключе).
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
     const dialogLog = []; // [{ role, text, ts }]
     let userMessageBuffer = "";
     let assistantMessageBuffer = "";
@@ -226,6 +235,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             type: "conversation",
             call_cost: call_cost,
             call_duration: call_duration,
+            cascade_usage: {
+                prompt_tokens: totalPromptTokens,
+                completion_tokens: totalCompletionTokens,
+            },
             data: {
                 user_message: userMessageBuffer,
                 assistant_message: assistantMessageBuffer,
@@ -337,6 +350,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             model: LLM_MODEL,
             reasoning_effort: LLM_REASONING_EFFORT,
             stream: true,
+            stream_options: { include_usage: true },
             messages: msgs,
         };
         if (useTools && tools.length) {
@@ -498,6 +512,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             call.hangup();
             return;
         }
+        if (!config.api_key) {
+            // Гейт по кредитам каскада: сервер не отдал ключ (баланс исчерпан).
+            Logger.write("[CASCADE] No api_key (cascade credits depleted), hanging up");
+            call.hangup();
+            return;
+        }
 
         assistantId = config.assistant_id;
         callId = call.id();
@@ -578,6 +598,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         llmMain.addEventListener(CC.Chunk, (event) => {
             if (terminating) return;
             logShapeOnce("main.Chunk", event);
+            const usage = extractUsage(event);
+            if (usage) {
+                if (typeof usage.prompt_tokens === "number") totalPromptTokens += usage.prompt_tokens;
+                if (typeof usage.completion_tokens === "number") totalCompletionTokens += usage.completion_tokens;
+            }
             const id = extractCompletionId(event);
             if (id && mainStaleIds.has(id)) return;
             if (!main.accepting) {
@@ -628,6 +653,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         llmSpec.addEventListener(CC.Chunk, (event) => {
             if (terminating) return;
             logShapeOnce("spec.Chunk", event);
+            const usage = extractUsage(event);
+            if (usage) {
+                if (typeof usage.prompt_tokens === "number") totalPromptTokens += usage.prompt_tokens;
+                if (typeof usage.completion_tokens === "number") totalCompletionTokens += usage.completion_tokens;
+            }
             const id = extractCompletionId(event);
             if (id && specStaleIds.has(id)) return;
             if (!spec) {

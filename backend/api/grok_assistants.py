@@ -420,6 +420,135 @@ async def get_cascade_tts_providers():
 
 
 # ============================================================================
+# 3.1 CASCADE - CREDITS (fixed paths /cascade/credits/*)
+# ============================================================================
+# Отдельный кошелёк кредитов каскада (LLM gpt-5.4-nano на серверном ключе).
+# Независим от кредитов оркестратора и подписки agent — доступен на всех тарифах.
+
+class CascadePurchaseRequest(BaseModel):
+    package_code: str
+
+
+@router.get("/cascade/credits/balance")
+async def get_cascade_credits_balance(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Баланс кредитов каскада. Лениво выдаёт разовый тестовый грант (1500),
+    если пользователь его ещё не получал (для новых юзеров)."""
+    from backend.services.cascade_credit_service import (
+        CascadeCreditService, INPUT_CREDITS_PER_1K, OUTPUT_CREDITS_PER_1K,
+    )
+    # Ленивая идемпотентная выдача тестового гранта.
+    if not current_user.cascade_trial_granted:
+        try:
+            CascadeCreditService.grant_trial(db, current_user)
+        except Exception as e:
+            logger.warning(f"[CASCADE-CREDITS] lazy trial grant failed for {current_user.id}: {e}")
+
+    balance = CascadeCreditService.get_balance(db, current_user.id)
+    return {
+        "cascade_credits_balance": balance,
+        "trial_granted": bool(current_user.cascade_trial_granted),
+        "input_credits_per_1k": INPUT_CREDITS_PER_1K,
+        "output_credits_per_1k": OUTPUT_CREDITS_PER_1K,
+    }
+
+
+@router.get("/cascade/credits/packages")
+async def get_cascade_credits_packages(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Активные пакеты докупки кредитов каскада (product='cascade')."""
+    from backend.models.credit_package import CreditPackage
+    packages = (
+        db.query(CreditPackage)
+        .filter(CreditPackage.is_active == True,
+                CreditPackage.product == "cascade")
+        .order_by(CreditPackage.sort_order.asc())
+        .all()
+    )
+    return {"packages": [p.to_dict() for p in packages]}
+
+
+@router.get("/cascade/credits/transactions")
+async def get_cascade_credits_transactions(
+    limit: int = 50,
+    offset: int = 0,
+    type_filter: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """История транзакций кредитов каскада."""
+    from backend.services.cascade_credit_service import CascadeCreditService
+    limit = max(1, min(200, limit))
+    offset = max(0, offset)
+    rows, total = CascadeCreditService.get_transactions(
+        db, current_user.id, limit=limit, offset=offset, type_filter=type_filter
+    )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "transactions": [t.to_dict() for t in rows],
+    }
+
+
+@router.post("/cascade/credits/purchase")
+async def purchase_cascade_credits(
+    body: CascadePurchaseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Создать Robokassa-платёж для покупки пакета кредитов каскада.
+    Доступно на всех тарифах — подписка не требуется."""
+    from backend.models.credit_package import CreditPackage
+    from backend.models.subscription import PaymentTransaction
+    from backend.api.credits import _build_robokassa_payment
+
+    package = db.query(CreditPackage).filter(
+        CreditPackage.code == body.package_code,
+        CreditPackage.is_active == True,
+        CreditPackage.product == "cascade",
+    ).first()
+    if not package:
+        raise HTTPException(status_code=404, detail="package_not_found")
+
+    payment = _build_robokassa_payment(
+        user=current_user,
+        amount=float(package.price_rub),
+        description=f"Пакет кредитов Cascade {package.name} ({package.credits} кредитов)",
+        extra_shp={"Shp_cascade_package": package.code},
+    )
+
+    transaction = PaymentTransaction(
+        user_id=current_user.id,
+        plan_id=None,
+        external_payment_id=payment["inv_id"],
+        payment_system="robokassa",
+        amount=float(package.price_rub),
+        currency="RUB",
+        status="pending",
+        payment_details=f"Shp_cascade_package={package.code}; credits={package.credits}",
+    )
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+
+    logger.info(
+        f"[CASCADE-CREDITS] Purchase payment created for user {current_user.id}, "
+        f"package {package.code}, inv {payment['inv_id']}"
+    )
+
+    return {
+        **payment,
+        "transaction_id": str(transaction.id),
+        "package": package.to_dict(),
+    }
+
+
+# ============================================================================
 # 4. CASCADE - LIST & CREATE (fixed path /cascade)
 # ============================================================================
 
@@ -441,8 +570,9 @@ async def create_cascade_assistant(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not current_user.openrouter_api_key:
-        raise HTTPException(status_code=400, detail="OpenRouter API key required. Add it in settings.")
+    # ✅ Каскад работает на СЕРВЕРНОМ ключе OpenAI (settings.OPENAI_API_KEY),
+    # пользовательский ключ больше не требуется. Расход LLM оплачивается
+    # кредитами каскада (cascade_credits_balance).
     if data.tts_provider not in TTS_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}")
 

@@ -439,8 +439,14 @@ class CreditService:
         limit: int = 50, offset: int = 0,
         type_filter: Optional[str] = None,
     ) -> Tuple[List[CreditTransaction], int]:
-        """История транзакций для UI. Возвращает (список, total)."""
-        q = db.query(CreditTransaction).filter(CreditTransaction.user_id == user_id)
+        """История транзакций для UI. Возвращает (список, total).
+
+        Только транзакции оркестратора (product='orchestrator'). Кредиты каскада
+        учитываются отдельно (CascadeCreditService.get_transactions)."""
+        q = db.query(CreditTransaction).filter(
+            CreditTransaction.user_id == user_id,
+            CreditTransaction.product == "orchestrator",
+        )
         if type_filter:
             q = q.filter(CreditTransaction.type == type_filter)
 

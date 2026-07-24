@@ -280,6 +280,7 @@ class RobokassaService:
         package = db.query(CreditPackage).filter(
             CreditPackage.code == package_code,
             CreditPackage.is_active == True,
+            CreditPackage.product == "orchestrator",
         ).first()
         if not package:
             logger.error(f"❌ Credits package {package_code} not found for payment {inv_id}")
@@ -317,6 +318,62 @@ class RobokassaService:
             db.commit()
 
         logger.info(f"✅ Credits package {package.code} (+{package.credits}) granted to user {user.id}")
+        return f"OK{inv_id}"
+
+    @classmethod
+    async def _process_cascade_package_payment(
+        cls,
+        db: Session,
+        user: User,
+        inv_id: str,
+        out_sum: str,
+        package_code: str,
+    ) -> str:
+        """
+        ✅ Обработка оплаты пакета кредитов каскада (product='cascade').
+        Идемпотентно через transaction.is_processed. Сверяет сумму с price_rub.
+        """
+        from backend.services.cascade_credit_service import CascadeCreditService
+
+        package = db.query(CreditPackage).filter(
+            CreditPackage.code == package_code,
+            CreditPackage.is_active == True,
+            CreditPackage.product == "cascade",
+        ).first()
+        if not package:
+            logger.error(f"❌ Cascade package {package_code} not found for payment {inv_id}")
+            return "FAIL"
+
+        try:
+            if abs(float(out_sum) - float(package.price_rub)) > 0.01:
+                logger.error(
+                    f"❌ Amount mismatch for cascade package {package.code}: "
+                    f"paid {out_sum}, expected {package.price_rub}"
+                )
+                return "FAIL"
+        except (ValueError, TypeError):
+            logger.error(f"❌ Invalid out_sum '{out_sum}' for cascade package payment {inv_id}")
+            return "FAIL"
+
+        transaction = db.query(PaymentTransaction).filter(
+            PaymentTransaction.external_payment_id == inv_id
+        ).first()
+
+        if transaction and transaction.is_processed:
+            logger.info(f"ℹ️ Cascade package payment {inv_id} already processed, skipping")
+            return f"OK{inv_id}"
+
+        CascadeCreditService.grant_purchase(db, user, package, transaction)
+
+        if transaction:
+            now = datetime.now(timezone.utc)
+            transaction.status = "success"
+            transaction.is_processed = True
+            transaction.paid_at = now
+            transaction.processed_at = now
+            db.commit()
+
+        logger.info(f"✅ Cascade package {package.code} (+{package.credits}) granted to user {user.id}")
         return f"OK{inv_id}"
 
     @classmethod
@@ -493,7 +550,13 @@ class RobokassaService:
             # ✅ ВЕТВЛЕНИЕ: пакеты кредитов и тариф `agent` (система кредитов)
             # =================================================================
             shp_credits_package = custom_params.get("Shp_credits_package")
+            shp_cascade_package = custom_params.get("Shp_cascade_package")
             shp_plan_code = custom_params.get("Shp_plan_code")
+
+            if shp_cascade_package:
+                return await cls._process_cascade_package_payment(
+                    db, user, inv_id, out_sum, shp_cascade_package
+                )
 
             if shp_credits_package:
                 return await cls._process_credits_package_payment(

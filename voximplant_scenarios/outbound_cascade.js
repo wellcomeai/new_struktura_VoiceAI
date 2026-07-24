@@ -355,6 +355,12 @@ function extractToolCallDeltas(event) {
     const tc = p?.choices?.[0]?.delta?.tool_calls;
     return Array.isArray(tc) ? tc : null;
 }
+function extractUsage(event) {
+    // При stream_options.include_usage финальный чанк несёт usage с
+    // prompt_tokens / completion_tokens (choices при этом пустой).
+    const p = ccPayload(event);
+    return p && p.usage ? p.usage : null;
+}
 
 const TELEPHONY_STYLE_RULES = `
 
@@ -467,6 +473,10 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
     let record_url = null;
     let call_cost = 0;
     let call_duration = 0;
+    // Учёт токенов LLM для списания кредитов каскада (все completion'ы звонка,
+    // включая warmup и tool-раунды — всё это реальный расход на серверном ключе).
+    let totalPromptTokens = 0;
+    let totalCompletionTokens = 0;
     const dialogLog = [];
     let userMessageBuffer = "";
     let assistantMessageBuffer = "";
@@ -520,6 +530,7 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             model: LLM_MODEL,
             reasoning_effort: LLM_REASONING_EFFORT,
             stream: true,
+            stream_options: { include_usage: true },
             messages: msgs,
         };
         if (tools.length) {
@@ -534,6 +545,7 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             model: LLM_MODEL,
             reasoning_effort: LLM_REASONING_EFFORT,
             stream: true,
+            stream_options: { include_usage: true },
             messages: [{ role: "user", content: "привет" }],
         });
     };
@@ -660,6 +672,10 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             call_type: callType,
             call_cost: call_cost,
             call_duration: call_duration,
+            cascade_usage: {
+                prompt_tokens: totalPromptTokens,
+                completion_tokens: totalCompletionTokens,
+            },
             context: {
                 contact_name: CONTACT_NAME,
                 task_title: TASK_TITLE,
@@ -747,6 +763,13 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
         llm.addEventListener(CC.Chunk, (event) => {
             if (terminating) return;
             logShapeOnce("Chunk", event);
+            // Учёт токенов — ДО гейтинга: usage приходит в финальном чанке любого
+            // completion'а (в т.ч. stale/прерванного), и это реальный расход.
+            const usage = extractUsage(event);
+            if (usage) {
+                if (typeof usage.prompt_tokens === "number") totalPromptTokens += usage.prompt_tokens;
+                if (typeof usage.completion_tokens === "number") totalCompletionTokens += usage.completion_tokens;
+            }
             const id = extractCompletionId(event);
             if (id && mainStaleIds.has(id)) return;
             if (!main.accepting) {

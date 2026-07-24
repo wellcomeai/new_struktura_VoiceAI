@@ -17,6 +17,9 @@ class CreditPackage(Base, BaseModel):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code = Column(String(50), unique=True, nullable=False, index=True)
+    # Продукт, к которому относится пакет: 'orchestrator' | 'cascade'.
+    # Колонка добавляется startup-ALTER (см. app.py).
+    product = Column(String(20), default="orchestrator", nullable=False)
     name = Column(String(100), nullable=False)
     credits = Column(Integer, nullable=False)
     price_rub = Column(Numeric(10, 2), nullable=False)
@@ -31,6 +34,7 @@ class CreditPackage(Base, BaseModel):
     def to_dict(self):
         return {
             "code": self.code,
+            "product": self.product or "orchestrator",
             "name": self.name,
             "credits": self.credits,
             "price_rub": float(self.price_rub),

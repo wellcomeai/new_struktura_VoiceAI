@@ -732,6 +732,9 @@ def check_and_fix_all_missing_columns():
                 'agent_trial_used': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 'agent_trial_started_at': 'TIMESTAMP WITH TIME ZONE NULL',
                 'agent_subscription_blocked': 'BOOLEAN DEFAULT FALSE NOT NULL',
+                # 🆕 Кредиты каскад-ассистентов (LLM gpt-5.4-nano на серверном ключе)
+                'cascade_credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
+                'cascade_trial_granted': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 # 🆕 Персональный API-ключ Voicyfy (внешние интеграции, Claude Code)
                 'api_key_hash': 'VARCHAR(64) NULL',
                 'api_key_prefix': 'VARCHAR(20) NULL',
@@ -768,7 +771,15 @@ def check_and_fix_all_missing_columns():
             },
             'subscription_plans': {
                 # Добавьте если нужно
-            }
+            },
+            # 🆕 Дискриминатор продукта для раздельного учёта кредитов
+            # оркестратора ('orchestrator') и каскада ('cascade').
+            'credit_transactions': {
+                'product': "VARCHAR(20) DEFAULT 'orchestrator' NOT NULL",
+            },
+            'credit_packages': {
+                'product': "VARCHAR(20) DEFAULT 'orchestrator' NOT NULL",
+            },
         }
         
         for table_name, required_columns in schema_fixes.items():
@@ -951,15 +962,27 @@ def seed_credits_data():
                             max_assistants = EXCLUDED.max_assistants
                     """))
 
-                # Пакеты докупки кредитов
+                # Пакеты докупки кредитов оркестратора
                 if inspector.has_table('credit_packages'):
                     conn.execute(text("""
-                        INSERT INTO credit_packages (code, name, credits, price_rub, sort_order, is_active) VALUES
-                            ('credits_mini', 'Mini', 5000, 490, 1, TRUE),
-                            ('credits_standard', 'Standard', 15000, 1290, 2, TRUE),
-                            ('credits_pro', 'Pro', 50000, 3990, 3, TRUE),
-                            ('credits_business', 'Business', 150000, 9990, 4, TRUE),
-                            ('credits_enterprise', 'Enterprise', 500000, 29990, 5, TRUE)
+                        INSERT INTO credit_packages (code, product, name, credits, price_rub, sort_order, is_active) VALUES
+                            ('credits_mini', 'orchestrator', 'Mini', 5000, 490, 1, TRUE),
+                            ('credits_standard', 'orchestrator', 'Standard', 15000, 1290, 2, TRUE),
+                            ('credits_pro', 'orchestrator', 'Pro', 50000, 3990, 3, TRUE),
+                            ('credits_business', 'orchestrator', 'Business', 150000, 9990, 4, TRUE),
+                            ('credits_enterprise', 'orchestrator', 'Enterprise', 500000, 29990, 5, TRUE)
+                        ON CONFLICT (code) DO NOTHING
+                    """))
+
+                    # 🆕 Пакеты докупки кредитов каскад-ассистентов (product='cascade').
+                    # Та же единица кредита (1 кредит = $0.0001 ×2), те же цены.
+                    conn.execute(text("""
+                        INSERT INTO credit_packages (code, product, name, credits, price_rub, sort_order, is_active) VALUES
+                            ('cascade_mini', 'cascade', 'Mini', 5000, 490, 1, TRUE),
+                            ('cascade_standard', 'cascade', 'Standard', 15000, 1290, 2, TRUE),
+                            ('cascade_pro', 'cascade', 'Pro', 50000, 3990, 3, TRUE),
+                            ('cascade_business', 'cascade', 'Business', 150000, 9990, 4, TRUE),
+                            ('cascade_enterprise', 'cascade', 'Enterprise', 500000, 29990, 5, TRUE)
                         ON CONFLICT (code) DO NOTHING
                     """))
 
@@ -970,6 +993,64 @@ def seed_credits_data():
                 logger.error(f"❌ Failed to seed credits data: {e}")
     except Exception as e:
         logger.error(f"❌ seed_credits_data error: {e}")
+
+
+def backfill_cascade_trial_credits():
+    """
+    Разовый массовый грант тестовых кредитов каскада (1500) ВСЕМ существующим
+    пользователям. Идемпотентно по флагу users.cascade_trial_granted — уже
+    начисленным повторно не выдаём. Каждое начисление фиксируется в
+    credit_transactions (product='cascade', type='trial_grant').
+
+    Новые пользователи получают грант лениво при первом обращении к балансу
+    каскада (CascadeCreditService.grant_trial в /cascade/credits/balance).
+    """
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        if not inspector.has_table('users') or not inspector.has_table('credit_transactions'):
+            return
+
+        user_cols = {c['name'] for c in inspector.get_columns('users')}
+        if 'cascade_trial_granted' not in user_cols or 'cascade_credits_balance' not in user_cols:
+            logger.warning("⚠️ cascade credit columns not present yet, skip trial backfill")
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                pending = conn.execute(text(
+                    "SELECT COUNT(*) FROM users WHERE cascade_trial_granted = FALSE"
+                )).scalar() or 0
+                if pending == 0:
+                    trans.commit()
+                    logger.info("✅ Cascade trial backfill: nothing to grant")
+                    return
+
+                # 1) Транзакции начисления (balance_after = баланс ПОСЛЕ гранта).
+                conn.execute(text("""
+                    INSERT INTO credit_transactions
+                        (id, user_id, product, type, amount, balance_after, ref_type, notes, created_at)
+                    SELECT gen_random_uuid(), id, 'cascade', 'trial_grant', 1500,
+                           COALESCE(cascade_credits_balance, 0) + 1500, 'cascade_trial',
+                           'Cascade trial grant: 1500 credits (mass backfill)', now()
+                    FROM users
+                    WHERE cascade_trial_granted = FALSE
+                """))
+                # 2) Начисляем баланс и ставим флаг.
+                conn.execute(text("""
+                    UPDATE users
+                    SET cascade_credits_balance = COALESCE(cascade_credits_balance, 0) + 1500,
+                        cascade_trial_granted = TRUE
+                    WHERE cascade_trial_granted = FALSE
+                """))
+                trans.commit()
+                logger.info(f"✅ Cascade trial backfill: granted 1500 credits to {pending} users")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Cascade trial backfill failed: {e}")
+    except Exception as e:
+        logger.error(f"❌ backfill_cascade_trial_credits error: {e}")
 
 
 def normalize_agent_contact_stages():
@@ -1452,6 +1533,9 @@ async def startup_event():
 
                 # 🆕 Шаг 11: Сидинг данных системы кредитов (план agent + пакеты)
                 seed_credits_data()
+
+                # 🆕 Шаг 11.1: Разовый грант тестовых кредитов каскада всем юзерам
+                backfill_cascade_trial_credits()
 
                 # 🆕 Шаг 12: Нормализация стадий воронки (calling → active)
                 normalize_agent_contact_stages()

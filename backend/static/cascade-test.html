@@ -917,47 +917,25 @@
     <!-- Content Area -->
     <div class="content-container">
 
-      <!-- API Key Card -->
-      <div class="api-keys-card" id="api-keys-card">
-        <h3><i class="fas fa-key" style="color: var(--cascade-accent);"></i> OpenAI API ключ</h3>
-
-        <div class="api-key-row">
-          <label>OpenAI API Key</label>
-          <input type="password" id="openrouter-key-input" placeholder="sk-..." autocomplete="off">
+      <!-- Cascade Credits Card -->
+      <div class="api-keys-card" id="cascade-credits-card">
+        <h3><i class="fas fa-coins" style="color: var(--cascade-accent);"></i> Кредиты Cascade</h3>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 2rem; font-weight: 700; line-height: 1.1;" id="cascade-balance">—</div>
+            <div style="font-size: 0.8125rem; color: var(--text-gray); margin-top: 0.25rem;">
+              Списываются за работу LLM (gpt-5.4-nano) в звонках Cascade
+            </div>
+          </div>
           <div class="api-key-actions">
-            <button class="btn-icon" id="toggle-openrouter-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+            <button class="btn btn-outline btn-sm" id="cascade-history-btn"><i class="fas fa-clock-rotate-left"></i> История</button>
+            <button class="btn btn-primary btn-sm" id="cascade-topup-btn"><i class="fas fa-plus"></i> Докупить кредиты</button>
           </div>
         </div>
-
-        <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-          <button class="btn btn-primary btn-sm" id="save-keys-btn"><i class="fas fa-save"></i> Сохранить ключ</button>
-          <button class="btn btn-secondary btn-sm" id="clear-keys-btn"><i class="fas fa-trash"></i> Очистить</button>
-        </div>
-
-        <div class="api-key-warning" id="keys-warning" style="display: none;">
+        <div class="api-key-warning" id="cascade-lowbalance-warning" style="display: none;">
           <i class="fas fa-exclamation-triangle"></i>
-          <span>Добавьте OpenAI API ключ для работы Cascade агентов</span>
+          <span>Кредиты Cascade закончились — звонки не будут работать. Докупите кредиты.</span>
         </div>
-      </div>
-
-      <!-- Setup Screen (no key) -->
-      <div class="api-key-setup" id="setup-screen">
-        <div class="api-key-setup-icon"><i class="fas fa-water"></i></div>
-        <h2 class="api-key-setup-title">Настройте API ключ</h2>
-        <p class="api-key-setup-description">
-          Для работы Cascade агентов необходим OpenAI API Key. Он используется для обработки диалогов в исходящих и входящих звонках.
-        </p>
-        <div class="api-key-setup-steps">
-          <h3>Как начать:</h3>
-          <ol>
-            <li>Зарегистрируйтесь на <a href="https://platform.openai.com/" target="_blank">platform.openai.com</a></li>
-            <li>Создайте API Key в <a href="https://platform.openai.com/api-keys" target="_blank">разделе ключей</a></li>
-            <li>Вставьте ключ в поле выше и нажмите «Сохранить ключ»</li>
-          </ol>
-        </div>
-        <p style="color: var(--text-light); font-size: 0.875rem; text-align: center;">
-          После добавления ключа вы сможете создавать и управлять Cascade агентами
-        </p>
       </div>
 
       <!-- Agents List Container -->
@@ -1068,6 +1046,21 @@
         <button class="btn btn-secondary" id="confirm-cancel">Отмена</button>
         <button class="btn btn-danger" id="confirm-ok">Удалить</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Cascade Credits Modal (packages + history) -->
+  <div class="modal-overlay" id="cascade-credits-modal">
+    <div class="modal-box" style="max-width: 560px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+        <h3 id="cascade-credits-modal-title" style="margin: 0;">Докупить кредиты Cascade</h3>
+        <button class="btn-icon" id="cascade-credits-modal-close"><i class="fas fa-times"></i></button>
+      </div>
+      <p style="color: var(--text-gray); font-size: 0.875rem; margin-bottom: 1rem;">
+        Баланс: <b id="cascade-modal-balance">—</b> кредитов
+      </p>
+      <div id="cascade-packages-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem;"></div>
+      <div id="cascade-history-list" style="display: none; margin-top: 0.5rem; max-height: 320px; overflow-y: auto;"></div>
     </div>
   </div>
 
@@ -1423,74 +1416,60 @@
     }
 
     // ============================================================================
-    // API KEY
+    // CASCADE CREDITS
     // ============================================================================
-    async function loadApiKeyStatus() {
+    let cascadeCredits = { balance: 0, input_credits_per_1k: 4, output_credits_per_1k: 25 };
+
+    function renderCascadeBalance() {
+      const el = document.getElementById('cascade-balance');
+      const warn = document.getElementById('cascade-lowbalance-warning');
+      const bal = cascadeCredits.balance || 0;
+      if (el) el.textContent = bal.toLocaleString('ru') + ' кр.';
+      const mbal = document.getElementById('cascade-modal-balance');
+      if (mbal) mbal.textContent = bal.toLocaleString('ru');
+      if (warn) warn.style.display = bal > 0 ? 'none' : 'flex';
+    }
+
+    async function loadCascadeCredits() {
       try {
-        const status = await apiRequest('/grok-assistants/cascade/api-keys');
-        const warning = document.getElementById('keys-warning');
-
-        if (status.openrouter_key_preview) {
-          document.getElementById('openrouter-key-input').placeholder = status.openrouter_key_preview;
-        }
-
-        const hasKey = status.has_openrouter_key;
-        warning.style.display = hasKey ? 'none' : 'flex';
-        return hasKey;
+        const status = await apiRequest('/grok-assistants/cascade/credits/balance');
+        cascadeCredits = {
+          balance: status.cascade_credits_balance || 0,
+          input_credits_per_1k: status.input_credits_per_1k || 4,
+          output_credits_per_1k: status.output_credits_per_1k || 25,
+        };
+        renderCascadeBalance();
       } catch (e) {
-        console.error('Error loading API key status:', e);
-        return true;
+        console.error('Error loading cascade credits:', e);
       }
     }
 
-    async function saveApiKey() {
-      const key = document.getElementById('openrouter-key-input').value.trim();
-      if (!key) {
-        showNotification('Введите API ключ', 'error');
+    // Сабмит формы Robokassa (редирект на оплату)
+    function submitRobokassaForm(data) {
+      if (!data || !data.payment_url || !data.form_params) {
+        showNotification('Некорректный ответ платёжной системы', 'error');
         return;
       }
-
-      setLoading(true);
-      try {
-        await apiRequest('/grok-assistants/cascade/api-keys', {
-          method: 'PUT',
-          body: { openrouter_api_key: key }
-        });
-
-        document.getElementById('openrouter-key-input').value = '';
-        showNotification('OpenAI API ключ сохранён', 'success');
-
-        const hasKey = await loadApiKeyStatus();
-        checkApiKeyAndShowContent(hasKey);
-
-        if (hasKey) {
-          await loadAgentsList();
-          await loadAssistantsLimitInfo();
-          applyFeatureAccessToSidebar();
-          updateCreateButtonState();
-        }
-      } catch (e) {
-        showNotification('Ошибка сохранения: ' + e.message, 'error');
-      } finally {
-        setLoading(false);
-      }
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = data.payment_url;
+      Object.entries(data.form_params).forEach(([k, v]) => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = k; inp.value = v;
+        form.appendChild(inp);
+      });
+      document.body.appendChild(form);
+      form.submit();
     }
 
-    async function clearApiKey() {
-      if (!confirm('Вы уверены, что хотите удалить OpenAI API ключ?')) return;
-
+    async function purchaseCascadePackage(code) {
       setLoading(true);
       try {
-        await apiRequest('/grok-assistants/cascade/api-keys', {
-          method: 'PUT',
-          body: { openrouter_api_key: '' }
+        const data = await apiRequest('/grok-assistants/cascade/credits/purchase', {
+          method: 'POST',
+          body: { package_code: code }
         });
-
-        document.getElementById('openrouter-key-input').value = '';
-        showNotification('API ключ удалён', 'success');
-
-        const hasKey = await loadApiKeyStatus();
-        checkApiKeyAndShowContent(hasKey);
+        submitRobokassaForm(data);
       } catch (e) {
         showNotification('Ошибка: ' + e.message, 'error');
       } finally {
@@ -1498,21 +1477,89 @@
       }
     }
 
-    function checkApiKeyAndShowContent(hasKey) {
-      const setupScreen = document.getElementById('setup-screen');
+    async function openCascadeCreditsModal() {
+      const modal = document.getElementById('cascade-credits-modal');
+      const list = document.getElementById('cascade-packages-list');
+      const history = document.getElementById('cascade-history-list');
+      document.getElementById('cascade-credits-modal-title').textContent = 'Докупить кредиты Cascade';
+      history.style.display = 'none';
+      list.style.display = 'grid';
+      renderCascadeBalance();
+      modal.classList.add('show');
+      list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-gray);">Загрузка…</div>';
+      try {
+        const data = await apiRequest('/grok-assistants/cascade/credits/packages');
+        const pkgs = (data && data.packages) || [];
+        if (!pkgs.length) {
+          list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-gray);">Нет доступных пакетов</div>';
+          return;
+        }
+        list.innerHTML = pkgs.map(p => `
+          <div style="border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; text-align:center;">
+            <div style="font-weight:600; margin-bottom:0.25rem;">${escapeHtml(p.name)}</div>
+            <div style="font-size:1.25rem; font-weight:700; color:var(--cascade-accent);">${(p.credits).toLocaleString('ru')}</div>
+            <div style="font-size:0.75rem; color:var(--text-light); margin-bottom:0.5rem;">кредитов</div>
+            <div style="font-weight:600; margin-bottom:0.75rem;">${p.price_formatted}</div>
+            <button class="btn btn-primary btn-sm" style="width:100%; justify-content:center;" onclick="purchaseCascadePackage('${p.code}')">Купить</button>
+          </div>`).join('');
+      } catch (e) {
+        list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-light);">Ошибка загрузки</div>';
+      }
+    }
+
+    async function openCascadeHistory() {
+      const modal = document.getElementById('cascade-credits-modal');
+      const list = document.getElementById('cascade-packages-list');
+      const history = document.getElementById('cascade-history-list');
+      document.getElementById('cascade-credits-modal-title').textContent = 'История кредитов Cascade';
+      list.style.display = 'none';
+      history.style.display = 'block';
+      renderCascadeBalance();
+      modal.classList.add('show');
+      history.innerHTML = '<div style="color:var(--text-gray);">Загрузка…</div>';
+      try {
+        const data = await apiRequest('/grok-assistants/cascade/credits/transactions?limit=50');
+        const txs = (data && data.transactions) || [];
+        if (!txs.length) {
+          history.innerHTML = '<div style="color:var(--text-gray);">Пока нет операций</div>';
+          return;
+        }
+        const typeLabels = {
+          trial_grant: 'Тестовый грант', purchase: 'Покупка пакета',
+          spend: 'Списание (звонок)', refund: 'Возврат', manual_adjust: 'Корректировка'
+        };
+        history.innerHTML = txs.map(t => {
+          const amount = t.amount > 0 ? `+${t.amount.toLocaleString('ru')}` : t.amount.toLocaleString('ru');
+          const color = t.amount >= 0 ? '#10b981' : '#ef4444';
+          const dt = t.created_at ? new Date(t.created_at).toLocaleString('ru') : '';
+          const tok = (t.prompt_tokens || t.completion_tokens)
+            ? `<span style="color:var(--text-light); font-size:0.75rem;"> · ${t.prompt_tokens || 0}→${t.completion_tokens || 0} ток.</span>` : '';
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--border-color);">
+              <div>
+                <div style="font-size:0.875rem;">${typeLabels[t.type] || t.type}${tok}</div>
+                <div style="font-size:0.75rem; color:var(--text-light);">${dt}</div>
+              </div>
+              <div style="font-weight:600; color:${color};">${amount}</div>
+            </div>`;
+        }).join('');
+      } catch (e) {
+        history.innerHTML = '<div style="color:var(--text-light);">Ошибка загрузки</div>';
+      }
+    }
+
+    function closeCascadeCreditsModal() {
+      document.getElementById('cascade-credits-modal').classList.remove('show');
+    }
+
+    function showAgentsContent() {
+      // Ключ больше не нужен: каскад работает на серверном ключе + кредитах.
+      // Список ассистентов доступен всегда.
       const agentsContainer = document.getElementById('agents-list-container');
       const createBtn = document.getElementById('create-agent-btn');
-
-      if (hasKey) {
-        setupScreen.classList.remove('show');
-        agentsContainer.classList.add('show');
-        createBtn.style.display = 'inline-flex';
-        updateCreateButtonState();
-      } else {
-        setupScreen.classList.add('show');
-        agentsContainer.classList.remove('show');
-        createBtn.style.display = 'none';
-      }
+      agentsContainer.classList.add('show');
+      createBtn.style.display = 'inline-flex';
+      updateCreateButtonState();
     }
 
     // ============================================================================
@@ -1870,7 +1917,6 @@
 
     function switchToEditMode() {
       document.getElementById('agents-list-container').classList.remove('show');
-      document.getElementById('setup-screen').classList.remove('show');
       document.getElementById('edit-container').classList.add('show');
       document.getElementById('create-agent-btn').style.display = 'none';
 
@@ -1921,32 +1967,28 @@
       // Initialize TTS voice options
       updateVoiceOptions();
 
-      const hasKey = await loadApiKeyStatus();
+      // Баланс кредитов каскада (лениво выдаёт разовый тестовый грант новым юзерам)
+      await loadCascadeCredits();
 
-      if (!hasKey) {
-        checkApiKeyAndShowContent(false);
-      } else {
-        const params = new URLSearchParams(window.location.search);
-        const agentId = params.get('id');
-        const mode = params.get('mode');
+      showAgentsContent();
 
-        if (agentId) {
-          checkApiKeyAndShowContent(true);
-          await loadAvailableFunctions();
-          editAgent(agentId);
-        } else if (mode === 'create') {
-          if (!canCreateAssistant()) {
-            showLimitReachedNotification();
-            window.location.href = '/static/cascade-test.html';
-            return;
-          }
-          checkApiKeyAndShowContent(true);
-          await loadAvailableFunctions();
-          navigateToCreateAgent();
-        } else {
-          checkApiKeyAndShowContent(true);
-          await loadAgentsList();
+      const params = new URLSearchParams(window.location.search);
+      const agentId = params.get('id');
+      const mode = params.get('mode');
+
+      if (agentId) {
+        await loadAvailableFunctions();
+        editAgent(agentId);
+      } else if (mode === 'create') {
+        if (!canCreateAssistant()) {
+          showLimitReachedNotification();
+          window.location.href = '/static/cascade-test.html';
+          return;
         }
+        await loadAvailableFunctions();
+        navigateToCreateAgent();
+      } else {
+        await loadAgentsList();
       }
     }
 
@@ -1996,14 +2038,12 @@
       }
     });
 
-    // API key
-    document.getElementById('save-keys-btn').addEventListener('click', saveApiKey);
-    document.getElementById('clear-keys-btn').addEventListener('click', clearApiKey);
-
-    // Toggle key visibility
-    document.getElementById('toggle-openrouter-key').addEventListener('click', () => {
-      const input = document.getElementById('openrouter-key-input');
-      input.type = input.type === 'password' ? 'text' : 'password';
+    // Cascade credits
+    document.getElementById('cascade-topup-btn').addEventListener('click', openCascadeCreditsModal);
+    document.getElementById('cascade-history-btn').addEventListener('click', openCascadeHistory);
+    document.getElementById('cascade-credits-modal-close').addEventListener('click', closeCascadeCreditsModal);
+    document.getElementById('cascade-credits-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'cascade-credits-modal') closeCascadeCreditsModal();
     });
 
     // Tabs

@@ -3223,11 +3223,17 @@ async def get_outbound_config(
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
         elif assistant_type == "cascade":
-            # Каскад ходит в OpenAI через коннектор Voximplant (openai.voximplant.com)
-            # с ПОЛЬЗОВАТЕЛЬСКИМ ключом OpenAI, который юзер сохраняет на странице
-            # каскад-агентов (переиспользуем колонку openrouter_api_key). Серверный
-            # OPENAI_API_KEY здесь НЕ используется. Совпадает с inbound /config.
-            api_key = user.openrouter_api_key
+            # Каскад ходит в OpenAI (gpt-5.4-nano) через коннектор Voximplant на
+            # СЕРВЕРНОМ ключе Voicyfy (settings.OPENAI_API_KEY). Расход LLM
+            # оплачивается кредитами каскада (cascade_credits_balance).
+            # Гейт: если баланс кредитов исчерпан и юзер не админ — ключ НЕ
+            # отдаём, звонок не стартует (0₽ телефонии). Совпадает с inbound /config.
+            if not (user.is_admin or user.has_cascade_credits()):
+                logger.warning(
+                    f"[TELEPHONY-OUTBOUND] Cascade blocked: no credits for user {user.id}"
+                )
+                return OutboundConfigResponse(success=False)
+            api_key = settings.OPENAI_API_KEY
         elif assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id
@@ -5142,10 +5148,17 @@ async def get_scenario_config(
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
         elif phone_record.assistant_type == "cascade":
-            # Каскад ходит в OpenAI с ПОЛЬЗОВАТЕЛЬСКИМ ключом OpenAI, который юзер
-            # сохраняет на странице каскад-агентов (переиспользуем колонку
-            # openrouter_api_key). Серверный OPENAI_API_KEY здесь НЕ используется.
-            api_key = user.openrouter_api_key
+            # Каскад ходит в OpenAI (gpt-5.4-nano) на СЕРВЕРНОМ ключе Voicyfy
+            # (settings.OPENAI_API_KEY). Расход LLM оплачивается кредитами каскада.
+            # Гейт: если кредиты исчерпаны и юзер не админ — ключ не отдаём
+            # (api_key=None), входящий сценарий каскада прервётся без LLM.
+            if user.is_admin or user.has_cascade_credits():
+                api_key = settings.OPENAI_API_KEY
+            else:
+                logger.warning(
+                    f"[TELEPHONY] Cascade inbound blocked: no credits for user {user.id}"
+                )
+                api_key = None
         elif phone_record.assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id

@@ -1166,6 +1166,29 @@ async def log_conversation_data(
                     "message": "Empty messages and dialog, logging skipped"
                 }
             
+            # 🆕 Списание кредитов каскада по фактическим токенам LLM.
+            # Каскад крутит gpt-5.4-nano на серверном ключе Voicyfy, поэтому расход
+            # LLM оплачивается кредитами каскада (cascade_credits_balance).
+            if assistant_type == "cascade":
+                try:
+                    usage = request_data.get("cascade_usage") or {}
+                    prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                    completion_tokens = int(usage.get("completion_tokens") or 0)
+                    if prompt_tokens > 0 or completion_tokens > 0:
+                        from backend.services.cascade_credit_service import CascadeCreditService
+                        CascadeCreditService.charge(
+                            db=db,
+                            user_id=assistant.user_id,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            ref_type="cascade_call",
+                            notes=f"call {call_id or chat_id}",
+                        )
+                    else:
+                        logger.info("[VOXIMPLANT-v3.9] ⚠️ Cascade call without token usage, no charge")
+                except Exception as e:
+                    logger.error(f"[VOXIMPLANT-v3.9] ❌ Cascade credit charge failed: {e}")
+
             # Определяем conversation_id (приоритет - call_id, fallback - chat_id)
             conversation_id = call_id or chat_id
             

@@ -31,6 +31,10 @@ class CreditTransaction(Base, BaseModel):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
                      nullable=False, index=True)
+    # Дискриминатор продукта: 'orchestrator' (кредиты агента) | 'cascade'
+    # (кредиты каскад-ассистентов). Разделяет два независимых кошелька в одной
+    # таблице транзакций. Колонка добавляется startup-ALTER (см. app.py).
+    product = Column(String(20), default="orchestrator", nullable=False)
     type = Column(String(30), nullable=False)
     amount = Column(Integer, nullable=False)
     balance_after = Column(Integer, nullable=False)
@@ -58,6 +62,7 @@ class CreditTransaction(Base, BaseModel):
     def to_dict(self):
         return {
             "id": str(self.id),
+            "product": self.product or "orchestrator",
             "type": self.type,
             "amount": self.amount,
             "balance_after": self.balance_after,
