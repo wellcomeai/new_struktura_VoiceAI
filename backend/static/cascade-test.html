@@ -1532,12 +1532,17 @@
           const amount = t.amount > 0 ? `+${t.amount.toLocaleString('ru')}` : t.amount.toLocaleString('ru');
           const color = t.amount >= 0 ? '#10b981' : '#ef4444';
           const dt = t.created_at ? new Date(t.created_at).toLocaleString('ru') : '';
-          const tok = (t.prompt_tokens || t.completion_tokens)
-            ? `<span style="color:var(--text-light); font-size:0.75rem;"> · ${t.prompt_tokens || 0}→${t.completion_tokens || 0} ток.</span>` : '';
+          // Для списаний (звонков) показываем номер собеседника (хранится в notes),
+          // если он похож на телефон. Токены не показываем.
+          let phone = '';
+          if (t.type === 'spend' && t.notes) {
+            const m = String(t.notes).match(/\+?\d[\d\s()-]{5,}/);
+            if (m) phone = ` · ${escapeHtml(m[0].trim())}`;
+          }
           return `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--border-color);">
               <div>
-                <div style="font-size:0.875rem;">${typeLabels[t.type] || t.type}${tok}</div>
+                <div style="font-size:0.875rem;">${typeLabels[t.type] || t.type}<span style="color:var(--text-light); font-size:0.75rem;">${phone}</span></div>
                 <div style="font-size:0.75rem; color:var(--text-light);">${dt}</div>
               </div>
               <div style="font-weight:600; color:${color};">${amount}</div>

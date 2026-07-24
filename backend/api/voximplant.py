@@ -1176,13 +1176,18 @@ async def log_conversation_data(
                     completion_tokens = int(usage.get("completion_tokens") or 0)
                     if prompt_tokens > 0 or completion_tokens > 0:
                         from backend.services.cascade_credit_service import CascadeCreditService
+                        # Номер собеседника для истории (нормализованный, без префикса).
+                        phone_for_notes = (
+                            ConversationService._normalize_phone(caller_number)
+                            if caller_number else None
+                        )
                         CascadeCreditService.charge(
                             db=db,
                             user_id=assistant.user_id,
                             prompt_tokens=prompt_tokens,
                             completion_tokens=completion_tokens,
                             ref_type="cascade_call",
-                            notes=f"call {call_id or chat_id}",
+                            notes=phone_for_notes or f"call {call_id or chat_id}",
                         )
                     else:
                         logger.info("[VOXIMPLANT-v3.9] ⚠️ Cascade call without token usage, no charge")
