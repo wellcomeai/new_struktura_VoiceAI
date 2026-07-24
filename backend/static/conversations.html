@@ -527,6 +527,8 @@
       border-radius: 0.25rem;
       font-weight: 600;
       text-transform: uppercase;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     
     .assistant-type-badge.openai {
@@ -2857,7 +2859,9 @@
       
       function createConversationCard(conversation) {
         const assistant = getAssistantById(conversation.assistant_id);
-        const assistantName = assistant ? assistant.name : 'Неизвестный ассистент';
+        // Имя приходит из бэкенда (assistant_name); клиентский поиск — фолбэк.
+        const assistantName = conversation.assistant_name
+          || (assistant ? assistant.name : 'Неизвестный ассистент');
         const assistantInitial = assistantName.charAt(0).toUpperCase();
         const assistantType = getAssistantType(conversation);
         

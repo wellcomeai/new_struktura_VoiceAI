@@ -540,7 +540,28 @@ async def get_conversation_sessions(
                 })
         
         logger.info(f"   Loaded {len(function_logs)} function logs for {len(logs_by_session)} sessions")
-        
+
+        # =============================================================================
+        # Резолвим имена ассистентов по assistant_id (все типы, включая cascade).
+        # Возвращаем имя прямо из бэкенда, чтобы фронт не зависел от клиентского
+        # поиска (у cascade он не срабатывал → "Неизвестный ассистент").
+        # =============================================================================
+        unique_assistant_ids = list({s.assistant_id for s in sessions})
+        name_map = {}
+        if unique_assistant_ids:
+            for model in (
+                AssistantConfig,
+                GeminiAssistantConfig,
+                CartesiaAssistantConfig,
+                YandexAssistantConfig,
+                GrokAssistantConfig,
+            ):
+                rows = db.query(model.id, model.name).filter(
+                    model.id.in_(unique_assistant_ids)
+                ).all()
+                for row in rows:
+                    name_map[str(row.id)] = row.name
+
         # =============================================================================
         # Форматируем результат
         # 🆕 v3.5: Используем preview_map и нормализуем caller_number
@@ -574,6 +595,7 @@ async def get_conversation_sessions(
                 "id": s.session_id,
                 "session_id": s.session_id,
                 "assistant_id": str(s.assistant_id),
+                "assistant_name": name_map.get(str(s.assistant_id)),
                 "caller_number": normalized_caller,  # 🆕 v3.5: Нормализованный
                 "messages_count": s.messages_count,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
