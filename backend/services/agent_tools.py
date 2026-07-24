@@ -221,6 +221,8 @@ def assistant_task_kwargs(agent_config) -> dict:
         return {"cartesia_assistant_id": vid}
     if a_type == "yandex":
         return {"yandex_assistant_id": vid}
+    if a_type == "cascade":
+        return {"cascade_assistant_id": vid}
     # gemini (and legacy default)
     return {"gemini_assistant_id": vid}
 

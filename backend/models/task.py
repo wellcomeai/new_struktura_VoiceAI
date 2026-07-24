@@ -84,7 +84,15 @@ class Task(Base):
         nullable=True,
         index=True
     )
-    
+
+    # Cascade ассистент (grok_assistant_configs, assistant_type='cascade') - nullable
+    cascade_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("grok_assistant_configs.id"),
+        nullable=True,
+        index=True
+    )
+
     # Пользователь - владелец задачи (обязательно)
     user_id = Column(
         UUID(as_uuid=True), 
@@ -174,6 +182,7 @@ class Task(Base):
     gemini_assistant = relationship("GeminiAssistantConfig", foreign_keys=[gemini_assistant_id])
     cartesia_assistant = relationship("CartesiaAssistantConfig", foreign_keys=[cartesia_assistant_id])
     yandex_assistant = relationship("YandexAssistantConfig", foreign_keys=[yandex_assistant_id])
+    cascade_assistant = relationship("GrokAssistantConfig", foreign_keys=[cascade_assistant_id])
     user = relationship("User")
     
     # ==================== Constraints & Indexes ====================
@@ -202,6 +211,8 @@ class Task(Base):
             return "gemini"
         elif self.yandex_assistant_id:
             return "yandex"
+        elif self.cascade_assistant_id:
+            return "cascade"
         else:
             return "cartesia"
 
@@ -213,6 +224,8 @@ class Task(Base):
             return str(self.gemini_assistant_id)
         elif self.yandex_assistant_id:
             return str(self.yandex_assistant_id)
+        elif self.cascade_assistant_id:
+            return str(self.cascade_assistant_id)
         else:
             return str(self.cartesia_assistant_id)
     

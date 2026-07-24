@@ -22,9 +22,9 @@ class AgentConfig(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # ── Тип голосового ассистента — выбирается при создании, можно менять ──
-    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia | yandex
+    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia | yandex | cascade
 
-    # ── FK на голосового ассистента (заполняется ровно один из четырёх) ──
+    # ── FK на голосового ассистента (заполняется ровно один из пяти) ──
     gemini_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("gemini_assistant_configs.id", ondelete="SET NULL"),
@@ -43,6 +43,12 @@ class AgentConfig(Base):
     yandex_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("yandex_assistant_configs.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    # Каскад живёт в grok_assistant_configs (assistant_type='cascade').
+    cascade_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("grok_assistant_configs.id", ondelete="SET NULL"),
         nullable=True
     )
 
@@ -137,6 +143,9 @@ class AgentConfig(Base):
     yandex_assistant = relationship(
         "YandexAssistantConfig", foreign_keys=[yandex_assistant_id]
     )
+    cascade_assistant = relationship(
+        "GrokAssistantConfig", foreign_keys=[cascade_assistant_id]
+    )
 
     def get_voice_assistant(self):
         """Универсальный геттер — вернёт активного голосового ассистента."""
@@ -148,6 +157,8 @@ class AgentConfig(Base):
             return self.cartesia_assistant
         if self.assistant_type == "yandex":
             return self.yandex_assistant
+        if self.assistant_type == "cascade":
+            return self.cascade_assistant
         return None
 
     def get_voice_assistant_id(self):
@@ -159,6 +170,8 @@ class AgentConfig(Base):
             return self.cartesia_assistant_id
         if self.assistant_type == "yandex":
             return self.yandex_assistant_id
+        if self.assistant_type == "cascade":
+            return self.cascade_assistant_id
         return None
 
     def has_knowledge_base(self) -> bool:

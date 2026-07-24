@@ -88,7 +88,7 @@ class VoximplantPartnerService:
     WEBHOOK_URL = "https://voicyfy.ru/api/telephony/webhook/verification-status"
     
     # ✅ v3.0: Типы сценариев для outbound
-    OUTBOUND_SCENARIO_TYPES = ["outbound_openai", "outbound_gemini", "outbound_cartesia", "outbound_yandex", "outbound_crm"]
+    OUTBOUND_SCENARIO_TYPES = ["outbound_openai", "outbound_gemini", "outbound_cartesia", "outbound_yandex", "outbound_crm", "outbound_cascade"]
     
     def __init__(
         self,
@@ -1490,17 +1490,26 @@ class VoximplantPartnerService:
         
         for scenario_type in self.OUTBOUND_SCENARIO_TYPES:
             scenario_id = scenario_ids.get(scenario_type)
-            
+
             if not scenario_id:
                 continue
-            
+
+            # Каскад требует цепочку [vox-turn-taking, outbound_cascade]:
+            # vox-turn-taking объявляет глобальный VoxTurnTaking, который
+            # использует outbound_cascade (как в inbound-привязке).
+            effective_scenario_id = scenario_id
+            if scenario_type == "outbound_cascade":
+                tt_id = scenario_ids.get("vox-turn-taking")
+                if tt_id:
+                    effective_scenario_id = [int(tt_id), int(scenario_id)]
+
             rule_result = await self.add_rule(
                 child_account_id=child_account_id,
                 child_api_key=child_api_key,
                 application_id=application_id,
                 rule_name=scenario_type,
                 rule_pattern=scenario_type,
-                scenario_id=scenario_id
+                scenario_id=effective_scenario_id
             )
             
             if rule_result.get("success"):

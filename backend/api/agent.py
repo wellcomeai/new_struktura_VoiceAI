@@ -27,6 +27,7 @@ from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.assistant import AssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig, DEFAULT_YANDEX_MODEL
+from backend.models.grok_assistant import GrokAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
@@ -57,7 +58,7 @@ router = APIRouter()
 # ============================================================================
 
 
-VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex")
+VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex", "cascade")
 
 # Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
 OPENAI_VOICES = [
@@ -77,19 +78,24 @@ GEMINI_VOICES = [
     "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
+# Голоса каскада — только VoxTTS realtime (сценарий каскада поддерживает VoxTTS).
+CASCADE_VOICES = ["Anna", "Sergey"]
 DEFAULT_GEMINI_VOICE = "Kore"
 DEFAULT_OPENAI_VOICE = "alloy"
 DEFAULT_YANDEX_VOICE = "marina"
+DEFAULT_CASCADE_VOICE = "Anna"
 
 
 def _is_valid_voice(assistant_type: str, voice: str) -> bool:
-    """Проверка имени голоса для select-провайдеров (gemini/openai/yandex)."""
+    """Проверка имени голоса для select-провайдеров (gemini/openai/yandex/cascade)."""
     if assistant_type == "gemini":
         return voice in GEMINI_VOICES
     if assistant_type == "openai":
         return voice in OPENAI_VOICES
     if assistant_type == "yandex":
         return voice in YANDEX_VOICES
+    if assistant_type == "cascade":
+        return voice in CASCADE_VOICES
     return False
 
 
@@ -106,6 +112,8 @@ def _resolve_voice_assistant(db: Session, agent: AgentConfig):
         return db.query(CartesiaAssistantConfig).filter(CartesiaAssistantConfig.id == va_id).first()
     if agent.assistant_type == "yandex":
         return db.query(YandexAssistantConfig).filter(YandexAssistantConfig.id == va_id).first()
+    if agent.assistant_type == "cascade":
+        return db.query(GrokAssistantConfig).filter(GrokAssistantConfig.id == va_id).first()
     return None
 
 
@@ -357,6 +365,11 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
     elif assistant_type == "yandex":
         if not current_user.yandex_api_key or not current_user.yandex_folder_id:
             raise HTTPException(status_code=400, detail="api_key_required_yandex")
+    elif assistant_type == "cascade":
+        # Каскад работает на серверном ключе OpenAI + кредитах каскада —
+        # пользовательский ключ не нужен. Проверять баланс здесь не нужно:
+        # гейт по кредитам стоит на старте звонка (outbound-config / config).
+        pass
 
 
 # Функции, доступные голосовому агенту во время звонка по умолчанию.
@@ -418,6 +431,20 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             temperature=0.7, max_tokens=4000,
             functions=_default_voice_functions(),
         )
+    elif assistant_type == "cascade":
+        # Каскад: GrokAssistantConfig(assistant_type='cascade'), VoxTTS realtime.
+        # LLM (gpt-5.4-nano) на серверном ключе, оплата — кредитами каскада.
+        cascade_voice = voice if (voice and _is_valid_voice("cascade", voice)) else DEFAULT_CASCADE_VOICE
+        va = GrokAssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, assistant_type="cascade",
+            name=f"{name} Voice", system_prompt=prompt, greeting_message="",
+            openrouter_model="openai/gpt-5.4-nano",
+            temperature=0.7, max_tokens=1024,
+            tts_provider="voxtts", tts_voice=cascade_voice,
+            tts_lang="ru", asr_lang="ru",
+            is_active=True, is_public=False, is_telephony_enabled=True,
+            functions=_default_voice_functions(),
+        )
     else:
         raise HTTPException(status_code=400, detail="invalid_assistant_type")
     db.add(va)
@@ -439,9 +466,11 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "openai_assistant_id": str(agent.openai_assistant_id) if agent.openai_assistant_id else None,
         "cartesia_assistant_id": str(agent.cartesia_assistant_id) if agent.cartesia_assistant_id else None,
         "yandex_assistant_id": str(agent.yandex_assistant_id) if agent.yandex_assistant_id else None,
+        "cascade_assistant_id": str(agent.cascade_assistant_id) if agent.cascade_assistant_id else None,
         "voice_assistant_name": voice_name,
         "gemini_assistant_name": voice_name,  # backward-compat for older frontend
-        "voice": getattr(voice, "voice", None),
+        # Каскад хранит голос в tts_voice; остальные — в voice.
+        "voice": getattr(voice, "tts_voice", None) if agent.assistant_type == "cascade" else getattr(voice, "voice", None),
         "cartesia_voice_id": getattr(voice, "cartesia_voice_id", None),
         "voice_speed": getattr(voice, "voice_speed", None),
         "name": agent.name,
@@ -576,6 +605,7 @@ async def create_agent(
         openai_assistant_id=voice_assistant.id if body.assistant_type == "openai" else None,
         cartesia_assistant_id=voice_assistant.id if body.assistant_type == "cartesia" else None,
         yandex_assistant_id=voice_assistant.id if body.assistant_type == "yandex" else None,
+        cascade_assistant_id=voice_assistant.id if body.assistant_type == "cascade" else None,
         is_active=True,
         orchestrator_model=orchestrator_model,
         orchestrator_prompt=None,  # собирается на лету из захардкоженного шаблона
@@ -646,6 +676,7 @@ async def update_agent(
         agent.openai_assistant_id = None
         agent.cartesia_assistant_id = None
         agent.yandex_assistant_id = None
+        agent.cascade_assistant_id = None
         if new_type == "gemini":
             agent.gemini_assistant_id = new_voice.id
         elif new_type == "openai":
@@ -654,6 +685,8 @@ async def update_agent(
             agent.cartesia_assistant_id = new_voice.id
         elif new_type == "yandex":
             agent.yandex_assistant_id = new_voice.id
+        elif new_type == "cascade":
+            agent.cascade_assistant_id = new_voice.id
         agent.assistant_type = new_type
         # Если у агента есть база знаний — переносим функцию поиска на нового
         # голосового ассистента.
@@ -707,6 +740,13 @@ async def update_agent(
                     if not _is_valid_voice(agent.assistant_type, new_voice):
                         raise HTTPException(status_code=400, detail="invalid_voice")
                     va.voice = new_voice
+            elif agent.assistant_type == "cascade":
+                # Каскад хранит голос в tts_voice (VoxTTS), не в .voice.
+                new_voice = update_data.get("voice")
+                if new_voice:
+                    if not _is_valid_voice("cascade", new_voice):
+                        raise HTTPException(status_code=400, detail="invalid_voice")
+                    va.tts_voice = new_voice
             elif agent.assistant_type == "cartesia":
                 if "cartesia_voice_id" in update_data:
                     va.cartesia_voice_id = update_data["cartesia_voice_id"] or None
@@ -811,6 +851,7 @@ async def delete_agent(
             (AssistantConfig, agent.openai_assistant_id),
             (CartesiaAssistantConfig, agent.cartesia_assistant_id),
             (YandexAssistantConfig, agent.yandex_assistant_id),
+            (GrokAssistantConfig, agent.cascade_assistant_id),
         ]
 
         # 3. AgentConfig — каскадом уносит agent_contacts и agent_calls.

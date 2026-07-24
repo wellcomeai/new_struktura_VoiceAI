@@ -26,7 +26,7 @@ async function initAgents(){
   }catch(e){ showWizard(); }
 }
 
-const AGENT_TYPE_NAMES = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex' };
+const AGENT_TYPE_NAMES = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex', cascade:'Cascade' };
 
 function renderAgentSwitcher(){
   const sw = document.getElementById('agent-switch');

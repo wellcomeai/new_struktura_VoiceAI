@@ -1173,6 +1173,47 @@ def ensure_agent_voice_instructions_column():
         logger.error(f"❌ ensure_agent_voice_instructions_column error: {e}")
 
 
+def ensure_agent_cascade_voice_columns():
+    """
+    Идемпотентно добавляет FK-колонки каскад-голоса:
+      • agent_configs.cascade_assistant_id  → grok_assistant_configs
+      • tasks.cascade_assistant_id          → grok_assistant_configs
+    Позволяет автономному агенту использовать каскад как голосовой провайдер.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        stmts = []
+        if inspector.has_table('agent_configs'):
+            cols = {c['name'] for c in inspector.get_columns('agent_configs')}
+            if 'cascade_assistant_id' not in cols:
+                stmts.append(
+                    "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "
+                    "cascade_assistant_id UUID REFERENCES grok_assistant_configs(id) ON DELETE SET NULL"
+                )
+        if inspector.has_table('tasks'):
+            cols = {c['name'] for c in inspector.get_columns('tasks')}
+            if 'cascade_assistant_id' not in cols:
+                stmts.append(
+                    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "
+                    "cascade_assistant_id UUID REFERENCES grok_assistant_configs(id)"
+                )
+        if not stmts:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for s in stmts:
+                    conn.execute(text(s))
+                trans.commit()
+                logger.info(f"✅ Added cascade voice FK columns ({len(stmts)})")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add cascade voice FK columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_cascade_voice_columns error: {e}")
+
+
 def ensure_agent_knowledge_base_columns():
     """
     Идемпотентно добавляет колонки базы знаний (Pinecone) в agent_configs.
@@ -1599,6 +1640,9 @@ async def startup_event():
 
                 # 🆕 Шаг 13: Колонка voice_additional_instructions в agent_configs
                 ensure_agent_voice_instructions_column()
+
+                # 🆕 Шаг 13.1: FK-колонки каскад-голоса (agent_configs + tasks)
+                ensure_agent_cascade_voice_columns()
 
                 # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs
                 ensure_agent_knowledge_base_columns()

@@ -94,7 +94,9 @@ const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','
 const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
 // Должен совпадать с YANDEX_VOICES в backend/api/agent.py.
 const YANDEX_VOICES = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
-const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'marina' };
+const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'marina', cascade:'Anna' };
+// Голоса каскада — VoxTTS realtime (должны совпадать с CASCADE_VOICES в backend/api/agent.py).
+const CASCADE_VOICES = ['Anna','Sergey'];
 
 // Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
 const VOICE_META = {
@@ -122,6 +124,9 @@ const VOICE_META = {
     anton:['m','Энергичный, бодрый'], kirill:['m','Ровный, нейтральный'], filipp:['m','Классический, чёткий'],
     ermil:['m','Спокойный, размеренный'], jane:['f','Выразительный, яркий'], omazh:['f','Зрелый, насыщенный'],
     zahar:['m','Низкий, основательный'], madi_ru:['m','Дружелюбный, тёплый'], saule_ru:['f','Мягкий, деликатный'],
+  },
+  cascade: {
+    Anna:['f','Тёплый, дружелюбный'], Sergey:['m','Уверенный, деловой'],
   },
 };
 const GENDER_INFO = {
@@ -156,7 +161,7 @@ function voiceControlHtml(type, cur, ids){
         <input type="range" id="${ids.spd}" min="0.5" max="1.5" step="0.1" value="${spd}" style="width:100%" oninput="document.getElementById('${ids.spdv}').textContent=this.value">
       </div>`;
   }
-  const voices = (type==='gemini') ? GEMINI_VOICES : (type==='yandex') ? YANDEX_VOICES : OPENAI_VOICES;
+  const voices = (type==='gemini') ? GEMINI_VOICES : (type==='yandex') ? YANDEX_VOICES : (type==='cascade') ? CASCADE_VOICES : OPENAI_VOICES;
   const v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
   const opts = voices.map(x=>{
     const g = GENDER_INFO[voiceMeta(type,x).gender] || GENDER_INFO.n;

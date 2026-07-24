@@ -28,6 +28,7 @@ from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
+from backend.models.grok_assistant import GrokAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
@@ -181,6 +182,16 @@ class TaskScheduler:
                 assistant_name = yandex_assistant.name
                 assistant_type = "yandex"
                 logger.info(f"   Assistant: {yandex_assistant.name} (Yandex)")
+        elif task.cascade_assistant_id:
+            # Cascade Assistant (grok_assistant_configs, assistant_type='cascade')
+            cascade_assistant = db.query(GrokAssistantConfig).filter(
+                GrokAssistantConfig.id == task.cascade_assistant_id
+            ).first()
+            if cascade_assistant:
+                assistant_id = str(task.cascade_assistant_id)
+                assistant_name = cascade_assistant.name
+                assistant_type = "cascade"
+                logger.info(f"   Assistant: {cascade_assistant.name} (Cascade)")
 
         return assistant_id, assistant_name, assistant_type
     
@@ -459,9 +470,12 @@ class TaskScheduler:
     ) -> Tuple[Optional[str], bool]:
         """Initiate agent call via partner API. Returns (session_id, success)."""
         try:
-            rule_id = child_account.get_rule_id("outbound_crm")
+            # Каскад-голос требует отдельный сценарий (цепочка vox-turn-taking +
+            # outbound_cascade). Остальные провайдеры идут через общий outbound_crm.
+            outbound_rule_name = "outbound_cascade" if assistant_type == "cascade" else "outbound_crm"
+            rule_id = child_account.get_rule_id(outbound_rule_name)
             if not rule_id:
-                task.call_result = "Outbound rule not configured"
+                task.call_result = f"Outbound rule '{outbound_rule_name}' not configured"
                 return None, False
 
             caller_id = None

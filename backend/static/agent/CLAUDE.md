@@ -3,8 +3,12 @@
 Дашборд **автономного агента для обзвонов** (не путать с `agents.html` — страницей
 управления OpenAI-ассистентами, у которой своя папка `agents/`).
 
-Голосовой ассистент агента — один из четырёх провайдеров:
-`gemini | openai | cartesia | yandex` (`AgentConfig.assistant_type`).
+Голосовой ассистент агента — один из пяти провайдеров:
+`gemini | openai | cartesia | yandex | cascade` (`AgentConfig.assistant_type`).
+Каскад работает на серверном ключе OpenAI (gpt-5.4-nano) + VoxTTS, оплата —
+кредитами каскада (`users.cascade_credits_balance`); хранится в
+`grok_assistant_configs (assistant_type='cascade')`, исходящие идут через отдельный
+rule `outbound_cascade` (цепочка с `vox-turn-taking`).
 
 Эта папка (`backend/static/agent/`) содержит результат разбиения исходного
 монолитного `agent.html` (~3700 строк) на стили + доменные скрипты.

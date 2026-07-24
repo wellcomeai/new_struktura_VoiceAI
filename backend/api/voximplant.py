@@ -1620,6 +1620,7 @@ async def log_conversation_data(
                                 AgentConfig.gemini_assistant_id == assistant.id,
                                 AgentConfig.cartesia_assistant_id == assistant.id,
                                 AgentConfig.yandex_assistant_id == assistant.id,
+                                AgentConfig.cascade_assistant_id == assistant.id,
                             ),
                         )
                         .first()

@@ -61,6 +61,7 @@ function keyState(type){
   if(type==='openai'){ const ok=!!u.has_api_key; return { ok, missing: ok?[]:[{field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}] }; }
   if(type==='cartesia'){ const m=[]; if(!u.has_api_key) m.push({field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}); if(!u.has_cartesia_api_key) m.push({field:'cartesia_api_key',label:'Cartesia API Key',ph:'sk_car_...'}); return { ok:m.length===0, missing:m }; }
   if(type==='yandex'){ const m=[]; if(!u.has_yandex_api_key) m.push({field:'yandex_api_key',label:'Yandex Cloud API Key',ph:'AQVN...'}); if(!u.yandex_folder_id) m.push({field:'yandex_folder_id',label:'Yandex Cloud Folder ID',ph:'b1g...',t:'text'}); return { ok:m.length===0, missing:m }; }
+  if(type==='cascade'){ return { ok:true, missing:[] }; }  // наш ключ + кредиты каскада
   return { ok:false, missing:[] };
 }
 
@@ -69,6 +70,7 @@ const TYPE_DEFS = [
   { type:'openai', name:'OpenAI Realtime', desc:'gpt-realtime — премиум-качество голоса.' },
   { type:'cartesia', name:'Cartesia', desc:'Cartesia TTS + OpenAI LLM в каскаде, гибкая настройка.' },
   { type:'yandex', name:'Yandex SpeechKit', desc:'Yandex Realtime — российская инфраструктура, оплата в Yandex Cloud.' },
+  { type:'cascade', name:'Cascade', desc:'LLM на нашем ключе (gpt-5.4-nano) + VoxTTS. Без своих ключей — оплата кредитами каскада.' },
 ];
 
 function drawStep0(c){
@@ -78,7 +80,9 @@ function drawStep0(c){
     const ks = keyState(t.type);
     const selected = sel===t.type;
     let keyHtml='';
-    if(selected){
+    if(selected && t.type==='cascade'){
+      keyHtml += `<div class="form-hint" style="margin-top:8px">Свои ключи не нужны: LLM работает на нашем ключе, оплата — <b>кредитами каскада</b> (списываются за токены звонка). Управление кредитами — на странице «Cascade агенты».</div>`;
+    } else if(selected){
       if(t.type==='cartesia' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Cartesia работает в каскаде: OpenAI отвечает за понимание речи и текст, Cartesia — за озвучку. Нужны оба ключа.</div>`;
       if(t.type==='yandex' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Нужны API-ключ сервисного аккаунта и Folder ID каталога Yandex Cloud — оплата токенов идёт с вашего биллинга Yandex Cloud.</div>`;
       const pills = (t.type==='cartesia') ? [
@@ -186,7 +190,7 @@ function submitCreate(){
 }
 
 async function renderCreation(c){
-  const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex' }[wizardData.assistant_type]||'';
+  const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex', cascade:'Cascade' }[wizardData.assistant_type]||'';
   c.innerHTML = `<h2>Создание агента</h2><p class="hint">Настройка вашего агента...</p>
     <ul class="creation-list">
       <li class="creation-item pending" id="cr-docs"><div class="creation-icon"></div>Сохранение документов</li>
