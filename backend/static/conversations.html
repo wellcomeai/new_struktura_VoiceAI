@@ -500,6 +500,10 @@
       background: linear-gradient(135deg, #fc3f1d, #c93413);
     }
 
+    .assistant-avatar.cascade {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    }
+
     .card-info {
       flex: 1;
       min-width: 0;
@@ -543,6 +547,11 @@
     .assistant-type-badge.yandex {
       background-color: rgba(252, 63, 29, 0.1);
       color: #fc3f1d;
+    }
+
+    .assistant-type-badge.cascade {
+      background-color: rgba(37, 99, 235, 0.1);
+      color: #2563eb;
     }
 
     .conversation-date {
@@ -906,6 +915,10 @@
 
     .message.assistant.yandex .message-avatar {
       background: linear-gradient(135deg, #fc3f1d, #c93413);
+    }
+
+    .message.assistant.cascade .message-avatar {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
     }
 
     .message-bubble {
@@ -2869,13 +2882,16 @@
         
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini'
           : assistantType === 'cartesia' ? 'assistant-avatar cartesia'
-          : assistantType === 'yandex' ? 'assistant-avatar yandex' : 'assistant-avatar';
+          : assistantType === 'yandex' ? 'assistant-avatar yandex'
+          : assistantType === 'cascade' ? 'assistant-avatar cascade' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini'
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : assistantType === 'cartesia'
           ? '<span class="assistant-type-badge cartesia">Cartesia</span>'
           : assistantType === 'yandex'
           ? '<span class="assistant-type-badge yandex">Яндекс</span>'
+          : assistantType === 'cascade'
+          ? '<span class="assistant-type-badge cascade">Cascade</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
         
         let metaItems = '';
@@ -3021,6 +3037,23 @@
             console.warn('[ASSISTANTS] ⚠️ Error loading Yandex assistants:', e.message);
           }
 
+          try {
+            // Cascade-агенты: диалоги пишутся под grok-id (cascade_assistant_id),
+            // поэтому в фильтр кладём именно его как id.
+            const agentData = await api.get('/agent/list');
+            const agentList = Array.isArray(agentData?.agents) ? agentData.agents : [];
+            let cascadeCount = 0;
+            agentList.forEach(a => {
+              if (a.assistant_type === 'cascade' && a.cascade_assistant_id) {
+                assistants.push({ id: a.cascade_assistant_id, name: a.name, type: 'cascade' });
+                cascadeCount++;
+              }
+            });
+            console.log(`[ASSISTANTS] ✅ Loaded ${cascadeCount} Cascade assistants`);
+          } catch (e) {
+            console.warn('[ASSISTANTS] ⚠️ Error loading Cascade assistants:', e.message);
+          }
+
           console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
           renderAssistantFilter();
           
@@ -3043,6 +3076,7 @@
         const geminiAssistants = assistants.filter(a => a.type === 'gemini');
         const cartesiaAssistants = assistants.filter(a => a.type === 'cartesia');
         const yandexAssistants = assistants.filter(a => a.type === 'yandex');
+        const cascadeAssistants = assistants.filter(a => a.type === 'cascade');
 
         if (openaiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
@@ -3092,7 +3126,19 @@
           assistantFilter.appendChild(optgroup);
         }
 
-        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini,', cartesiaAssistants.length, 'Cartesia, and', yandexAssistants.length, 'Yandex');
+        if (cascadeAssistants.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = '🌊 Cascade';
+          cascadeAssistants.forEach(assistant => {
+            const option = document.createElement('option');
+            option.value = assistant.id;
+            option.textContent = assistant.name;
+            optgroup.appendChild(option);
+          });
+          assistantFilter.appendChild(optgroup);
+        }
+
+        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini,', cartesiaAssistants.length, 'Cartesia,', yandexAssistants.length, 'Yandex, and', cascadeAssistants.length, 'Cascade');
       }
       
       // ============================================================================
@@ -3184,6 +3230,8 @@
             ? '<span class="assistant-type-badge cartesia" style="margin-left: 0.5rem;">Cartesia</span>'
             : type === 'yandex'
             ? '<span class="assistant-type-badge yandex" style="margin-left: 0.5rem;">Яндекс</span>'
+            : type === 'cascade'
+            ? '<span class="assistant-type-badge cascade" style="margin-left: 0.5rem;">Cascade</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
@@ -3227,10 +3275,11 @@
               const messageDiv = document.createElement('div');
               const assistantClass = type === 'gemini' ? 'message assistant gemini'
                 : type === 'cartesia' ? 'message assistant cartesia'
-                : type === 'yandex' ? 'message assistant yandex' : 'message assistant';
+                : type === 'yandex' ? 'message assistant yandex'
+                : type === 'cascade' ? 'message assistant cascade' : 'message assistant';
               messageDiv.className = msg.type === 'user' ? 'message user' : assistantClass;
 
-              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : type === 'yandex' ? '🔴' : '🤖');
+              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : type === 'yandex' ? '🔴' : type === 'cascade' ? '🌊' : '🤖');
               
               // Function calls под сообщениями
               let functionCallsHtml = '';

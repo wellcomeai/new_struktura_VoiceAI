@@ -23,6 +23,7 @@ from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
+from backend.models.grok_assistant import GrokAssistantConfig  # 🆕 cascade
 from backend.models.function_log import FunctionLog
 from backend.schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
 
@@ -39,14 +40,14 @@ class ConversationService:
     @staticmethod
     def _find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
         """
-        Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia и Yandex.
+        Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia, Yandex и cascade.
 
         Args:
             db: Database session
             assistant_id: UUID ассистента как строка
 
         Returns:
-            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | None
+            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | 'cascade' | None
         """
         assistant = None
         assistant_type = None
@@ -73,6 +74,11 @@ class ConversationService:
                         assistant = db.query(YandexAssistantConfig).get(assistant_uuid)
                         if assistant:
                             assistant_type = "yandex"
+                        else:
+                            # Если не найден - проверяем cascade (GrokAssistantConfig)
+                            assistant = db.query(GrokAssistantConfig).get(assistant_uuid)
+                            if assistant:
+                                assistant_type = assistant.assistant_type or "cascade"
 
         except ValueError:
             # Пробуем как строку
@@ -99,6 +105,12 @@ class ConversationService:
                         ).first()
                         if assistant:
                             assistant_type = "yandex"
+                        else:
+                            assistant = db.query(GrokAssistantConfig).filter(
+                                GrokAssistantConfig.id.cast(str) == assistant_id
+                            ).first()
+                            if assistant:
+                                assistant_type = assistant.assistant_type or "cascade"
 
         return assistant, assistant_type
     

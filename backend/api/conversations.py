@@ -37,6 +37,7 @@ from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
+from backend.models.grok_assistant import GrokAssistantConfig  # 🆕 cascade
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
@@ -64,7 +65,7 @@ SYSTEM_MESSAGE_PATTERNS = [
 
 def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
     """
-    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia + Yandex).
+    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia + Yandex + cascade).
 
     Returns:
         List[UUID]: Список всех assistant_id
@@ -89,11 +90,19 @@ def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
         YandexAssistantConfig.user_id == user_id
     ).all()
 
+    # Cascade assistants (GrokAssistantConfig с assistant_type='cascade').
+    # Их звонки телефонии пишутся в conversations под grok-id.
+    cascade_ids = db.query(GrokAssistantConfig.id).filter(
+        GrokAssistantConfig.user_id == user_id,
+        GrokAssistantConfig.assistant_type == "cascade"
+    ).all()
+
     all_ids = (
         [a.id for a in openai_ids]
         + [a.id for a in gemini_ids]
         + [a.id for a in cartesia_ids]
         + [a.id for a in yandex_ids]
+        + [a.id for a in cascade_ids]
     )
 
     return all_ids
@@ -137,6 +146,14 @@ def find_assistant_by_id(db: Session, assistant_id: UUID):
 
     if assistant:
         return assistant, 'yandex'
+
+    # Try cascade (GrokAssistantConfig)
+    assistant = db.query(GrokAssistantConfig).filter(
+        GrokAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, assistant.assistant_type or 'cascade'
 
     return None, None
 
@@ -358,6 +375,12 @@ async def get_conversation_sessions(
         ).all()
         yandex_id_set = {str(y.id) for y in yandex_ids}
 
+        cascade_ids = db.query(GrokAssistantConfig.id).filter(
+            GrokAssistantConfig.user_id == current_user.id,
+            GrokAssistantConfig.assistant_type == "cascade"
+        ).all()
+        cascade_id_set = {str(c.id) for c in cascade_ids}
+
         # =============================================================================
         # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
         # =============================================================================
@@ -531,6 +554,8 @@ async def get_conversation_sessions(
                 assistant_type = 'cartesia'
             elif str(s.assistant_id) in yandex_id_set:
                 assistant_type = 'yandex'
+            elif str(s.assistant_id) in cascade_id_set:
+                assistant_type = 'cascade'
             else:
                 assistant_type = 'openai'
             
