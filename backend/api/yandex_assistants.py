@@ -11,7 +11,7 @@ Handles CRUD operations for Yandex SpeechKit Realtime assistant configs.
 за свои токены со своего биллинга Yandex Cloud.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Dict, Any
@@ -28,6 +28,7 @@ from backend.models.yandex_assistant import (
     DEFAULT_YANDEX_MAX_TOKENS,
 )
 from backend.core.dependencies import get_current_user, check_assistant_limit
+from backend.services.assistant_limit_service import exclude_agent_owned
 
 logger = get_logger(__name__)
 
@@ -293,6 +294,10 @@ async def update_api_keys(
 
 @router.get("")
 async def get_yandex_assistants(
+    include_agent_voices: bool = Query(
+        False,
+        description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -303,9 +308,12 @@ async def get_yandex_assistants(
     try:
         logger.info(f"[YANDEX-API] Fetching assistants for user {current_user.id}")
 
-        assistants = db.query(YandexAssistantConfig).filter(
+        query = db.query(YandexAssistantConfig).filter(
             YandexAssistantConfig.user_id == current_user.id
-        ).order_by(YandexAssistantConfig.created_at.desc()).all()
+        )
+        if not include_agent_voices:
+            query = exclude_agent_owned(query, YandexAssistantConfig, db, current_user.id)
+        assistants = query.order_by(YandexAssistantConfig.created_at.desc()).all()
 
         logger.info(f"[YANDEX-API] Found {len(assistants)} Yandex assistants")
 

@@ -530,9 +530,13 @@ document.addEventListener('DOMContentLoaded', function() {
       
       console.log('[ASSISTANTS] Loading assistants...');
       
+      // include_agent_voices=true — здесь выбирают, кем позвонить контакту,
+      // поэтому голоса агентов обзвона доступны (на страницах управления
+      // ассистентами они скрыты).
+
       // 1. Загружаем OpenAI ассистентов
       try {
-        const openaiData = await api.get('/assistants');
+        const openaiData = await api.get('/assistants?include_agent_voices=true');
         const openaiList = Array.isArray(openaiData) ? openaiData : (openaiData.assistants || []);
         
         openaiList.forEach(a => {
@@ -551,7 +555,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // 2. Загружаем Gemini ассистентов
       try {
-        const geminiData = await api.get('/gemini-assistants');
+        const geminiData = await api.get('/gemini-assistants?include_agent_voices=true');
         const geminiList = Array.isArray(geminiData) ? geminiData : [];
         
         geminiList.forEach(a => {
@@ -570,7 +574,7 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // 3. Загружаем Cartesia ассистентов
       try {
-        const cartesiaData = await api.get('/cartesia-assistants');
+        const cartesiaData = await api.get('/cartesia-assistants?include_agent_voices=true');
         const cartesiaList = Array.isArray(cartesiaData) ? cartesiaData : (cartesiaData.assistants || []);
 
         cartesiaList.forEach(a => {

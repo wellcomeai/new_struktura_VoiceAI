@@ -3117,15 +3117,18 @@
         
         try {
           const type = typeSelect.value;
+          // include_agent_voices=true — голоса агентов обзвона по умолчанию
+          // скрыты из списков, но привязать номер напрямую к такому голосу
+          // можно (в отличие от страниц управления ассистентами).
           const endpoints = {
-            openai: '/assistants',
-            gemini: '/gemini-assistants',
-            cartesia: '/cartesia-assistants',
-            yandex: '/yandex-assistants',
-            cascade: '/grok-assistants/cascade',
+            openai: '/assistants?include_agent_voices=true',
+            gemini: '/gemini-assistants?include_agent_voices=true',
+            cartesia: '/cartesia-assistants?include_agent_voices=true',
+            yandex: '/yandex-assistants?include_agent_voices=true',
+            cascade: '/grok-assistants/cascade?include_agent_voices=true',
             agent: '/telephony/bindable-agents'
           };
-          const endpoint = endpoints[type] || '/assistants';
+          const endpoint = endpoints[type] || '/assistants?include_agent_voices=true';
 
           const data = await api.get(endpoint);
 

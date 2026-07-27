@@ -12,7 +12,7 @@ Handles CRUD operations for Gemini Live API voice assistants.
 ✅ FIX: Explicit delete of related records before assistant deletion
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -24,6 +24,7 @@ from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.core.dependencies import get_current_user, check_assistant_limit
+from backend.services.assistant_limit_service import exclude_agent_owned
 
 logger = get_logger(__name__)
 
@@ -202,21 +203,28 @@ def build_assistant_response(assistant: GeminiAssistantConfig) -> GeminiAssistan
 
 @router.get("", response_model=List[GeminiAssistantResponse])
 async def get_gemini_assistants(
+    include_agent_voices: bool = Query(
+        False,
+        description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Get all Gemini assistants for the current user.
-    
+
     Returns:
         List of Gemini assistant configurations
     """
     try:
         logger.info(f"[GEMINI-API] Fetching assistants for user {current_user.id}")
-        
-        assistants = db.query(GeminiAssistantConfig).filter(
+
+        query = db.query(GeminiAssistantConfig).filter(
             GeminiAssistantConfig.user_id == current_user.id
-        ).order_by(GeminiAssistantConfig.created_at.desc()).all()
+        )
+        if not include_agent_voices:
+            query = exclude_agent_owned(query, GeminiAssistantConfig, db, current_user.id)
+        assistants = query.order_by(GeminiAssistantConfig.created_at.desc()).all()
         
         logger.info(f"[GEMINI-API] Found {len(assistants)} Gemini assistants")
         

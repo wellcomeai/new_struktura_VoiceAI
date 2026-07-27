@@ -32,21 +32,28 @@ router = APIRouter()
 
 @router.get("/", response_model=List[AssistantResponse])
 async def get_assistants(
+    include_agent_voices: bool = Query(
+        False,
+        description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
+    ),
     current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
 ):
     """
     Get all assistants for the current user.
-    
+
     Args:
+        include_agent_voices: включить голосовых ассистентов агентов обзвона
         current_user: Current authenticated user (with active subscription)
         db: Database session dependency
-    
+
     Returns:
         List of AssistantResponse objects
     """
     try:
-        return await AssistantService.get_assistants(db, str(current_user.id))
+        return await AssistantService.get_assistants(
+            db, str(current_user.id), include_agent_voices=include_agent_voices
+        )
     except HTTPException:
         raise
     except Exception as e:

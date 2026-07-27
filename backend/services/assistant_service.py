@@ -22,18 +22,27 @@ class AssistantService:
     """Service for assistant operations"""
     
     @staticmethod
-    async def get_assistants(db: Session, user_id: str) -> List[AssistantResponse]:
+    async def get_assistants(
+        db: Session, user_id: str, include_agent_voices: bool = False
+    ) -> List[AssistantResponse]:
         """
         Get all assistants for a user
-        
+
         Args:
             db: Database session
             user_id: User ID
-            
+            include_agent_voices: включить голосовых ассистентов агентов обзвона
+                (по умолчанию скрыты — они управляются со страницы agent.html)
+
         Returns:
             List of assistant responses
         """
-        assistants = db.query(AssistantConfig).filter(AssistantConfig.user_id == user_id).all()
+        from backend.services.assistant_limit_service import exclude_agent_owned
+
+        query = db.query(AssistantConfig).filter(AssistantConfig.user_id == user_id)
+        if not include_agent_voices:
+            query = exclude_agent_owned(query, AssistantConfig, db, user_id)
+        assistants = query.all()
         
         result = []
         for assistant in assistants:

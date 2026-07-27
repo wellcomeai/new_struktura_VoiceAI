@@ -14,7 +14,7 @@ PRODUCTION VERSION 1.3
 - v1.3: Cascade API keys endpoints + route order fix
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional, Any
@@ -29,6 +29,7 @@ from backend.core.dependencies import (
     get_current_user, get_current_user_flexible,
     check_assistant_limit, check_assistant_limit_flexible,
 )
+from backend.services.assistant_limit_service import exclude_agent_owned
 
 logger = get_logger(__name__)
 
@@ -580,13 +581,20 @@ async def purchase_cascade_credits(
 
 @router.get("/cascade", response_model=List[CascadeAssistantResponse])
 async def list_cascade_assistants(
+    include_agent_voices: bool = Query(
+        False,
+        description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible)
 ):
-    assistants = db.query(GrokAssistantConfig).filter(
+    query = db.query(GrokAssistantConfig).filter(
         GrokAssistantConfig.user_id == current_user.id,
         GrokAssistantConfig.assistant_type == "cascade"
-    ).order_by(GrokAssistantConfig.created_at.desc()).all()
+    )
+    if not include_agent_voices:
+        query = exclude_agent_owned(query, GrokAssistantConfig, db, current_user.id)
+    assistants = query.order_by(GrokAssistantConfig.created_at.desc()).all()
     return [cascade_to_response(a) for a in assistants]
 
 
@@ -670,15 +678,24 @@ async def delete_cascade_assistant(
 
 @router.get("", response_model=List[GrokAssistantResponse])
 async def get_grok_assistants(
+    include_agent_voices: bool = Query(
+        False,
+        description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
         logger.info(f"[GROK-API] Fetching assistants for user {current_user.id}")
-        assistants = db.query(GrokAssistantConfig).filter(
+        # Агент никогда не создаёт assistant_type='grok' (только 'cascade'),
+        # так что фильтр здесь — на будущее, для единообразия с остальными.
+        query = db.query(GrokAssistantConfig).filter(
             GrokAssistantConfig.user_id == current_user.id,
             GrokAssistantConfig.assistant_type == "grok"
-        ).order_by(GrokAssistantConfig.created_at.desc()).all()
+        )
+        if not include_agent_voices:
+            query = exclude_agent_owned(query, GrokAssistantConfig, db, current_user.id)
+        assistants = query.order_by(GrokAssistantConfig.created_at.desc()).all()
         logger.info(f"[GROK-API] Found {len(assistants)} Grok assistants")
         return [grok_to_response(a) for a in assistants]
     except Exception as e:

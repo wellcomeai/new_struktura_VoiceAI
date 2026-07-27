@@ -1310,7 +1310,9 @@
       async function loadAssistants() {
         try {
           setLoading(true);
-          const assistants = await api.get('/assistants');
+          // include_agent_voices=true — с этой страницы можно позвонить и
+          // голосом агента обзвона, хотя в списках ассистентов он скрыт.
+          const assistants = await api.get('/assistants?include_agent_voices=true');
           
           if (assistants.length === 0) {
             assistantsList.innerHTML = `

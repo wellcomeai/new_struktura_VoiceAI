@@ -55,6 +55,23 @@ def get_agent_owned_assistant_ids(db: Session, user_id: Any) -> Set[UUID]:
     return {value for row in rows for value in row if value is not None}
 
 
+def exclude_agent_owned(query, model, db: Session, user_id: Any, excluded: Set[UUID] = None):
+    """
+    Убрать из выборки голосовых ассистентов, принадлежащих агентам обзвона.
+
+    Используется в списках ассистентов на страницах провайдеров: такой ассистент
+    — внутренность агента, управляется только со страницы agent.html, и в общем
+    списке ему делать нечего. Признак — внешний ключ из agent_configs, а не имя:
+    пользователь волен назвать своего ассистента как угодно.
+
+    excluded — заранее посчитанный набор ID (см. get_agent_owned_assistant_ids),
+    чтобы не бегать в agent_configs отдельно на каждого провайдера.
+    """
+    if excluded is None:
+        excluded = get_agent_owned_assistant_ids(db, user_id)
+    return query.filter(model.id.notin_(excluded)) if excluded else query
+
+
 def get_assistants_breakdown(db: Session, user_id: Any) -> Dict[str, int]:
     """
     Количество ассистентов пользователя по провайдерам (без ассистентов агента).
@@ -66,9 +83,7 @@ def get_assistants_breakdown(db: Session, user_id: Any) -> Dict[str, int]:
 
     def count(model, *extra_filters) -> int:
         query = db.query(model).filter(model.user_id == user_id, *extra_filters)
-        if excluded:
-            query = query.filter(model.id.notin_(excluded))
-        return query.count()
+        return exclude_agent_owned(query, model, db, user_id, excluded).count()
 
     breakdown = {
         "openai": count(AssistantConfig),
