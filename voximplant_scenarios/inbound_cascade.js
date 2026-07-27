@@ -190,6 +190,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     // Замер TTFB голоса.
     let firstDeltaLoggedForTurn = false;
     let turnStartedAt = 0;
+    // turnId последнего подтверждённого хода — нужен реконсиляции, чтобы понять,
+    // относится ли поздний финал к ходу, который прямо сейчас в работе.
+    let currentTurnId = -1;
 
     // Разовый лог формы события.
     const loggedShapes = new Set();
@@ -222,6 +225,33 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         } else {
             assistantMessageBuffer += (assistantMessageBuffer ? "\n" : "") + text;
         }
+    };
+
+    // Заменяет обрезанную реплику клиента полным текстом — и в истории для LLM,
+    // и в логе разговора (иначе имя/марка/год не доедут до CRM). Возвращает
+    // true, если нашли что чинить.
+    const replaceUserMessage = (oldText, newText) => {
+        if (!oldText || !newText || oldText === newText) return false;
+        let patched = false;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === "user" && messages[i].content === oldText) {
+                messages[i].content = newText;
+                patched = true;
+                break;
+            }
+        }
+        for (let i = dialogLog.length - 1; i >= 0; i--) {
+            if (dialogLog[i].role === "user" && dialogLog[i].text === oldText) {
+                dialogLog[i].text = newText;
+                dialogLog[i].corrected = true;
+                break;
+            }
+        }
+        userMessageBuffer = dialogLog
+            .filter((d) => d.role === "user")
+            .map((d) => d.text)
+            .join("\n");
+        return patched;
     };
 
     const sendConversationLog = async () => {
@@ -284,6 +314,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 `[CASCADE] ===BILLING=== cost=${call_cost} dur=${call_duration}s ` +
                 `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} session=${call_session_history_id || "none"}`
             );
+            // Сводка turn-taking: по ней видно на проде, сколько ходов закрылось
+            // какой причиной, сколько было удержаний и сколько обрезок поймала
+            // реконсиляция. Без неё эффект правок проверить нечем.
+            try {
+                if (turnTaking) Logger.write(`[CASCADE] ===TURN_STATS=== ${turnTaking.statsSummary()}`);
+            } catch (e) { /* noop */ }
             await sendConversationLog();
 
             try { call.hangup(); } catch (e) { /* noop */ }
@@ -337,8 +373,25 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         Logger.write(`[CASCADE] ===FIRST_DELTA=== +${dt}ms${tag ? " " + tag : ""}`);
     };
 
+    // --- Оценка «агент сейчас звучит» ---
+    // Нужна turn-taking рантайму, чтобы barge-in считался только настоящим
+    // перебиванием. Realtime-плеер VoxTTS не отдаёт событие окончания
+    // воспроизведения, поэтому ведём оценку по объёму отданного в TTS текста
+    // (~16 симв/с для русской речи). Оценка намеренно консервативна (скорее
+    // недооценит длительность), чтобы не глушить настоящее перебивание.
+    const TTS_MS_PER_CHAR = 60;
+    const TTS_TAIL_MS = 300;
+    let agentAudioUntil = 0;
+    const noteAgentAudio = (text) => {
+        if (!text) return;
+        agentAudioUntil = Math.max(agentAudioUntil, Date.now()) + text.length * TTS_MS_PER_CHAR;
+    };
+    const stopAgentAudio = () => { agentAudioUntil = 0; };
+    const isAgentSpeaking = () => Date.now() < agentAudioUntil + TTS_TAIL_MS;
+
     const ttsSendText = (text) => {
         if (!text) return;
+        noteAgentAudio(text);
         ttsPlayer.send({ send_text: { text } });
     };
     const ttsFlush = () => {
@@ -697,13 +750,29 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         turnTaking = await VoxTurnTaking.create({
             call,
             stt,
-            vadOptions: { threshold: 0.5, minSilenceDurationMs: 200, speechPadMs: 10 },
+            // Пауза 0.2с считалась концом речи и рвала фразу на сегменты —
+            // для русской разговорной речи это норма внутри предложения.
+            vadOptions: { threshold: 0.5, minSilenceDurationMs: 650, speechPadMs: 200 },
             turnDetectorOptions: { threshold: 0.7 },
             policy: {
                 confidentEouProbability: 0.8,
                 transcriptSettleFastMs: 120,
                 transcriptSettleMs: 350,
-                userSpeechTimeoutMs: 700,
+                // Фолбэк больше не основной механизм закрытия: детектор его
+                // отодвигает через вето (см. vetoHold*Ms).
+                userSpeechTimeoutMs: 900,
+                vetoStrongProbability: 0.15,
+                vetoSoftProbability: 0.4,
+                vetoHoldStrongMs: 2000,
+                vetoHoldSoftMs: 1400,
+                maxVetoHolds: 3,
+                maxTurnHoldMs: 4000,
+                interimStableMs: 400,
+                maxInterimWaitMs: 1500,
+                userSpeakingRecheckMs: 250,
+                userSpeakingMaxHoldMs: 15000,
+                reconcileWindowMs: 5000,
+                bargeInMinSpeechMs: 150,
                 shortUtteranceExtensionMs: 900,
                 fastShortUtteranceTimeoutMs: 500,
                 shortUtteranceMaxChars: 12,
@@ -725,6 +794,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 speculativeEouProbability: 0.6,
             },
             enableLogging: true,
+            isAgentSpeaking,
 
             onSpeculativeTurn: (input, version) => {
                 if (terminating) return;
@@ -739,6 +809,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             onUserTurn: (input, version) => {
                 if (terminating) return;
                 firstDeltaLoggedForTurn = false;
+                currentTurnId = version;
                 turnStartedAt = Date.now();
                 Logger.write(`[CASCADE] ===USER=== ${input}`);
                 logDialog("user", input);
@@ -767,9 +838,29 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 startMain(messages.slice(), version);
             },
 
+            // Поздний ASR-финал оказался длиннее того, что ушло в LLM. Раньше он
+            // просто выбрасывался — вместе с именем, маркой, годом авто. Теперь
+            // чиним историю всегда, а если агент ещё не успел заговорить — ещё и
+            // перегенериваем ответ по полному тексту.
+            onTurnCorrection: (fullText, turnId, meta) => {
+                if (terminating) return;
+                const fixed = replaceUserMessage(meta.sentText, fullText);
+                const canRegen = currentTurnId === turnId && !firstDeltaLoggedForTurn;
+                Logger.write(
+                    `[CASCADE] ===TURN_CORRECTION=== lag=${meta.lagMs}ms ` +
+                    `regen=${canRegen ? "yes" : "no"} history=${fixed ? "fixed" : "miss"} :: ${fullText}`
+                );
+                if (!canRegen) return;
+                ttsPlayer?.clearBuffer();
+                stopAgentAudio();
+                abandonSpec();
+                startMain(messages.slice(), turnId);
+            },
+
             onInterrupt: () => {
                 if (terminating) return;
                 ttsPlayer?.clearBuffer();
+                stopAgentAudio();
                 abandonSpec();
                 main.accepting = false;
                 if (main.id) mainStaleIds.add(main.id);
@@ -786,6 +877,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         if (config.first_phrase) {
             messages.push({ role: "assistant", content: config.first_phrase });
             logDialog("assistant", config.first_phrase);
+            noteAgentAudio(config.first_phrase);
             ttsPlayer.send({ send_text: { text: config.first_phrase, flush_context: {} } });
             warmup(llmMain);
             if (!toolsEnabled) warmup(llmSpec);
