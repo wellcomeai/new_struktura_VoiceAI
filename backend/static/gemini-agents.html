@@ -1473,6 +1473,9 @@
       <a href="/static/yandex-agents.html" class="sidebar-nav-item">
         <i class="fab fa-yandex"></i> Яндекс агенты
       </a>
+      <a href="/static/cascade.html" class="sidebar-nav-item">
+        <i class="fas fa-water"></i> Cascade агенты
+      </a>
       <a href="/static/knowledge-base.html" class="sidebar-nav-item">
         <i class="fas fa-book"></i> База знаний
       </a>
@@ -2002,10 +2005,6 @@
     // Привилегированные пользователи (неограниченный лимит ассистентов)
     const PRIVILEGED_USERS = ['well96well@gmail.com', 'stas@gmail.com'];
     
-    // Специальные лимиты для отдельных пользователей
-    const SPECIAL_ASSISTANT_LIMITS = {
-      'v83839370@gmail.com': 25
-    };
     
     // ============================================================================
     // МАТРИЦА ДОСТУПА К ФУНКЦИЯМ ПО ТАРИФАМ
@@ -2051,11 +2050,12 @@
     
     // Информация о лимитах ассистентов
     let assistantsLimitInfo = {
-      openaiCount: 0,
-      geminiCount: 0,
       totalCount: 0,
       maxAllowed: 3,
-      canCreate: true
+      canCreate: true,
+      unlimited: false,
+      subscriptionActive: true,
+      breakdown: {}
     };
     
     // Все голоса Gemini (30 штук)
@@ -2157,16 +2157,6 @@
       return currentUser.is_admin || PRIVILEGED_USERS.includes(currentUser.email);
     }
     
-    /**
-     * Получить специальный лимит для пользователя
-     * @returns {number|null} Специальный лимит или null если нет
-     */
-    function getSpecialLimit() {
-      if (currentUser && currentUser.email && SPECIAL_ASSISTANT_LIMITS[currentUser.email]) {
-        return SPECIAL_ASSISTANT_LIMITS[currentUser.email];
-      }
-      return null;
-    }
     
     /**
      * Загрузить информацию о количестве ассистентов и лимитах
@@ -2174,81 +2164,37 @@
      */
     async function loadAssistantsLimitInfo() {
       try {
-        console.log('[LIMITS] Загрузка информации о лимитах ассистентов...');
-        
-        // Проверяем привилегированных пользователей сразу
-        if (isPrivilegedUser()) {
-          console.log('[LIMITS] Привилегированный пользователь - неограниченный доступ');
-          assistantsLimitInfo = {
-            openaiCount: 0,
-            geminiCount: 0,
-            totalCount: 0,
-            maxAllowed: 999999,
-            canCreate: true
-          };
-          return assistantsLimitInfo;
+        // Единый источник правды: сервер сам считает ассистентов по всем
+        // провайдерам (OpenAI, Gemini, Grok, Cascade, Cartesia, Yandex, Translate)
+        // и применяет те же правила, что и при создании.
+        const usage = await apiRequest('/subscriptions/assistants-usage');
+
+        if (usage.plan_code) {
+          currentUserPlanCode = usage.plan_code;
         }
-        
-        // Параллельно запрашиваем все данные
-        const [openaiAssistants, geminiAssistants, subscription] = await Promise.all([
-          apiRequest('/assistants').catch(err => {
-            console.warn('[LIMITS] Ошибка загрузки OpenAI ассистентов:', err);
-            return [];
-          }),
-          apiRequest('/gemini-assistants').catch(err => {
-            console.warn('[LIMITS] Ошибка загрузки Gemini ассистентов:', err);
-            return [];
-          }),
-          apiRequest('/subscriptions/my-subscription').catch(err => {
-            console.warn('[LIMITS] Ошибка загрузки подписки:', err);
-            return null;
-          })
-        ]);
-        
-        const openaiCount = Array.isArray(openaiAssistants) ? openaiAssistants.length : 0;
-        const geminiCount = Array.isArray(geminiAssistants) ? geminiAssistants.length : 0;
-        const totalCount = openaiCount + geminiCount;
-        
-        // Сохраняем код текущего плана
-        if (subscription && subscription.subscription_plan && subscription.subscription_plan.code) {
-          currentUserPlanCode = subscription.subscription_plan.code;
-          console.log('[LIMITS] Код тарифа пользователя:', currentUserPlanCode);
-        }
-        
-        // Определяем лимит с учётом привилегий
-        let maxAllowed = 3; // Дефолтный лимит
-        
-        // Проверяем специальный лимит для пользователя
-        const specialLimit = getSpecialLimit();
-        if (specialLimit !== null) {
-          maxAllowed = specialLimit;
-          console.log(`[LIMITS] Специальный лимит для ${currentUser.email}: ${maxAllowed}`);
-        } else if (subscription && subscription.subscription_plan && subscription.subscription_plan.max_assistants) {
-          // Лимит из подписки
-          maxAllowed = subscription.subscription_plan.max_assistants;
-        }
-        
+
         assistantsLimitInfo = {
-          openaiCount,
-          geminiCount,
-          totalCount,
-          maxAllowed,
-          canCreate: totalCount < maxAllowed
+          totalCount: usage.used,
+          maxAllowed: usage.max,
+          canCreate: usage.can_create,
+          unlimited: !!usage.unlimited,
+          subscriptionActive: usage.subscription_active !== false,
+          breakdown: usage.breakdown || {}
         };
-        
+
         console.log('[LIMITS] Информация о лимитах:', assistantsLimitInfo);
-        
         return assistantsLimitInfo;
-        
+
       } catch (error) {
         console.error('[LIMITS] Ошибка загрузки информации о лимитах:', error);
-        // В случае ошибки разрешаем создание (проверка будет на бэкенде)
+        // В случае ошибки разрешаем создание — лимит всё равно проверит бэкенд
         assistantsLimitInfo = {
-          openaiCount: 0,
-          geminiCount: 0,
           totalCount: 0,
           maxAllowed: 3,
-          canCreate: true
+          canCreate: true,
+          unlimited: false,
+          subscriptionActive: true,
+          breakdown: {}
         };
         return assistantsLimitInfo;
       }

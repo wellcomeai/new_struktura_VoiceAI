@@ -214,6 +214,15 @@ const api = {
     console.log('[API] Запрос информации о подписке');
     return this.get('/subscriptions/my-subscription');
   },
+
+  /**
+   * Расход лимита ассистентов по всем провайдерам сразу
+   * (OpenAI, Gemini, Grok, Cascade, Cartesia, Yandex, Translate)
+   */
+  getAssistantsUsage() {
+    console.log('[API] Запрос расхода лимита ассистентов');
+    return this.get('/subscriptions/assistants-usage');
+  },
   
   // ============================================================================
   // АГЕНТЫ (АССИСТЕНТЫ) - OpenAI

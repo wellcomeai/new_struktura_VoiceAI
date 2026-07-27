@@ -28,6 +28,12 @@ SPECIAL_ASSISTANT_LIMITS = {
     "v83839370@gmail.com": 25,
 }
 
+# Пользователи без лимита ассистентов (помимо is_admin)
+PRIVILEGED_UNLIMITED_EMAILS = {
+    "well96well@gmail.com",
+    "stas@gmail.com",
+}
+
 
 async def get_current_user(
     user_id: str = Depends(get_current_user_id),
@@ -314,11 +320,11 @@ async def check_assistant_limit(
     Raises:
         HTTPException: If user has reached their assistant limit or subscription expired
     """
-    from backend.models.assistant import AssistantConfig
+    from backend.services.assistant_limit_service import count_user_assistants
     from backend.services.user_service import UserService
-    
+
     # Admin и привилегированные пользователи имеют неограниченное количество ассистентов
-    if current_user.is_admin or current_user.email == "well96well@gmail.com" or current_user.email == "stas@gmail.com":
+    if current_user.is_admin or current_user.email in PRIVILEGED_UNLIMITED_EMAILS:
         return current_user
     
     # Get subscription status
@@ -347,10 +353,10 @@ async def check_assistant_limit(
             }
         )
     
-    # Count user's assistants
-    assistant_count = db.query(AssistantConfig).filter(
-        AssistantConfig.user_id == current_user.id
-    ).count()
+    # Count user's assistants across every provider (OpenAI, Gemini, Grok,
+    # Cascade, Cartesia, Yandex, Translate). Голосовые ассистенты мастера
+    # Voicyfy Agent в лимит не входят.
+    assistant_count = count_user_assistants(db, current_user.id)
     
     # ✅ НОВОЕ: Проверяем специальные лимиты для отдельных пользователей
     if current_user.email in SPECIAL_ASSISTANT_LIMITS:

@@ -27,7 +27,7 @@ from backend.models.yandex_assistant import (
     DEFAULT_YANDEX_TEMPERATURE,
     DEFAULT_YANDEX_MAX_TOKENS,
 )
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, check_assistant_limit
 
 logger = get_logger(__name__)
 
@@ -354,7 +354,9 @@ async def get_yandex_assistant(
 async def create_yandex_assistant(
     assistant_data: YandexAssistantCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # check_assistant_limit проверяет активность подписки + общий лимит
+    # ассистентов по всем провайдерам
+    current_user: User = Depends(check_assistant_limit)
 ):
     """Create a new Yandex assistant."""
     try:

@@ -13,9 +13,9 @@ from backend.core.logging import get_logger
 from backend.core.dependencies import get_current_user
 from backend.db.session import get_db
 from backend.models.user import User
-from backend.models.assistant import AssistantConfig
 from backend.models.subscription import SubscriptionPlan
 from backend.schemas.subscription import UserSubscriptionInfo
+from backend.services.assistant_limit_service import count_user_assistants, get_assistants_usage
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -104,10 +104,8 @@ async def get_my_subscription(
             # ✅ ИСПРАВЛЕНО: Берём max_assistants напрямую из БД
             max_assistants = subscription_plan.max_assistants
         
-        # Get current assistants count
-        current_assistants = db.query(AssistantConfig).filter(
-            AssistantConfig.user_id == current_user.id
-        ).count()
+        # Get current assistants count (по всем провайдерам, не только OpenAI)
+        current_assistants = count_user_assistants(db, current_user.id)
         
         # Default trial plan if no plan is set
         plan_info = {
@@ -177,6 +175,32 @@ async def get_my_subscription(
             "current_assistants": 0,
             "error": "default_fallback_data"  # Флаг для фронтенда, что это данные по умолчанию
         }
+
+
+@router.get("/assistants-usage", response_model=Dict[str, Any])
+async def get_assistants_usage_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Расход лимита ассистентов пользователя.
+
+    Единый источник для всех страниц агентов: считает ассистентов по всем
+    провайдерам (OpenAI, Gemini, Grok, Cascade, Cartesia, Yandex, Translate)
+    и применяет те же правила, что и check_assistant_limit при создании.
+
+    Returns:
+        used, max, unlimited, can_create, subscription_active, plan_code, breakdown
+    """
+    try:
+        return await get_assistants_usage(db, current_user)
+    except Exception as e:
+        logger.error(f"Error getting assistants usage: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get assistants usage"
+        )
+
 
 @router.get("/plans", response_model=List[Dict[str, Any]])
 async def get_subscription_plans(

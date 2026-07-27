@@ -17,6 +17,7 @@ from backend.models.assistant import AssistantConfig
 from backend.models.file import File
 from backend.models.subscription import SubscriptionPlan
 from backend.schemas.user import UserUpdate, UserResponse, UserDetailResponse
+from backend.services.assistant_limit_service import count_user_assistants
 
 logger = get_logger(__name__)
 
@@ -384,24 +385,22 @@ class UserService:
             if has_active_subscription and user.subscription_plan_id:
                 plan = db.query(SubscriptionPlan).get(user.subscription_plan_id)
                 if plan:
-                    if plan.code == "free":
-                        max_assistants = 1  # Тестовый период
-                    else:
-                        max_assistants = 3  # Оплаченный период
+                    # Лимит берём из БД (start=5, profi=10 и т.д.), а не из хардкода.
+                    # Тот же источник, что и у /api/subscriptions/my-subscription,
+                    # иначе фронт и бэкенд показывают разные лимиты.
+                    max_assistants = plan.max_assistants
             elif has_active_subscription:
                 # Если подписка активна, но план не найден - даем базовый лимит
                 max_assistants = 1
-            
+
             # Вычисляем, сколько дней осталось
             days_left = None
             if subscription_end_date and has_active_subscription:
                 delta = subscription_end_date - now
                 days_left = max(0, delta.days)
-            
-            # Получаем текущее количество ассистентов
-            current_assistants = db.query(AssistantConfig).filter(
-                AssistantConfig.user_id == user.id
-            ).count()
+
+            # Текущее количество ассистентов — по всем провайдерам сразу
+            current_assistants = count_user_assistants(db, user.id)
             
             return {
                 "active": has_active_subscription,

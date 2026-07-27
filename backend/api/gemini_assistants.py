@@ -23,7 +23,7 @@ from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, check_assistant_limit
 
 logger = get_logger(__name__)
 
@@ -271,7 +271,9 @@ async def get_gemini_assistant(
 async def create_gemini_assistant(
     assistant_data: GeminiAssistantCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # check_assistant_limit проверяет активность подписки + общий лимит
+    # ассистентов по всем провайдерам
+    current_user: User = Depends(check_assistant_limit)
 ):
     """
     Create a new Gemini assistant.

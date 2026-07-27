@@ -17,7 +17,7 @@ from backend.core.logging import get_logger
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, check_assistant_limit
 
 logger = get_logger(__name__)
 
@@ -292,7 +292,9 @@ async def get_cartesia_assistant(
 async def create_cartesia_assistant(
     assistant_data: CartesiaAssistantCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # check_assistant_limit проверяет активность подписки + общий лимит
+    # ассистентов по всем провайдерам
+    current_user: User = Depends(check_assistant_limit)
 ):
     """Create a new Cartesia assistant."""
     try:

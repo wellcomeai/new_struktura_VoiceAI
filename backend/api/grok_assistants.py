@@ -25,7 +25,7 @@ from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, check_assistant_limit
 
 logger = get_logger(__name__)
 
@@ -568,7 +568,9 @@ async def list_cascade_assistants(
 async def create_cascade_assistant(
     data: CascadeAssistantCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # check_assistant_limit проверяет активность подписки + общий лимит
+    # ассистентов по всем провайдерам
+    current_user: User = Depends(check_assistant_limit)
 ):
     # ✅ Каскад работает на СЕРВЕРНОМ ключе OpenAI (settings.OPENAI_API_KEY),
     # пользовательский ключ больше не требуется. Расход LLM оплачивается
@@ -667,7 +669,9 @@ async def get_grok_assistants(
 async def create_grok_assistant(
     assistant_data: GrokAssistantCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # check_assistant_limit проверяет активность подписки + общий лимит
+    # ассистентов по всем провайдерам
+    current_user: User = Depends(check_assistant_limit)
 ):
     try:
         logger.info(f"[GROK-API] Creating Grok assistant for user {current_user.id}")

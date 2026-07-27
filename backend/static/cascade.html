@@ -3,17 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Яндекс агенты | Voicyfy</title>
+  <title>Cascade агенты | Voicyfy</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#fc3f1d">
+  <meta name="theme-color" content="#2563eb">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap">
   <style>
     /* ============================================================================
        CSS VARIABLES
@@ -34,9 +31,10 @@
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-md: 0.5rem;
       --radius-lg: 1rem;
-      --yandex-gradient: linear-gradient(135deg, #fc3f1d, #d93517);
-      --yandex-light: #fff1ee;
-      --yandex-accent: #fc3f1d;
+      --cascade-gradient: linear-gradient(135deg, #2563eb, #1d4ed8);
+      --cascade-light: #eff6ff;
+      --cascade-accent: #2563eb;
+      --cascade-accent-hover: #1d4ed8;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -64,17 +62,6 @@
       border-bottom: 1px solid var(--border-color);
     }
 
-    .sidebar-logo span {
-      font-family: 'Syne', -apple-system, BlinkMacSystemFont, sans-serif;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      background: linear-gradient(135deg, #2563eb, #3b82f6);
-      -webkit-background-clip: text;
-      background-clip: text;
-      -webkit-text-fill-color: transparent;
-      color: #2563eb;
-    }
-
     .sidebar-logo {
       display: flex;
       align-items: center;
@@ -93,7 +80,6 @@
       align-items: center;
       justify-content: center;
     }
-
     .logo-icon img {
       width: 100%;
       height: 100%;
@@ -113,18 +99,6 @@
       font-weight: 600;
     }
 
-    .badge-realtime {
-      margin-left: auto;
-      background: #FEF3C7;
-      color: #92400E;
-      font-size: 9px;
-      padding: 2px 6px;
-      border-radius: 4px;
-      text-transform: uppercase;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-    }
-
     .sidebar-nav-item {
       display: flex;
       align-items: center;
@@ -134,19 +108,16 @@
       transition: background-color 0.2s, color 0.2s;
       border-left: 3px solid transparent;
     }
-
     .sidebar-nav-item:hover {
-      background-color: var(--yandex-light);
-      color: var(--yandex-accent);
+      background-color: var(--cascade-light);
+      color: var(--cascade-accent);
     }
-
     .sidebar-nav-item.active {
-      background-color: var(--yandex-light);
-      color: var(--yandex-accent);
-      border-left-color: var(--yandex-accent);
+      background-color: var(--cascade-light);
+      color: var(--cascade-accent);
+      border-left-color: var(--cascade-accent);
       font-weight: 600;
     }
-
     .sidebar-nav-item i { margin-right: 0.75rem; width: 20px; text-align: center; }
 
     .sidebar-footer {
@@ -160,17 +131,15 @@
       cursor: pointer !important;
       position: relative;
     }
-
     .plan-locked-feature::after {
-      content: "🔒";
+      content: "\U0001F512";
       font-size: 0.875rem;
       position: absolute;
       right: 1.5rem;
     }
-
     .plan-locked-feature:hover {
       opacity: 0.8;
-      background-color: var(--yandex-light);
+      background-color: var(--cascade-light);
     }
 
     /* ============================================================================
@@ -201,9 +170,7 @@
       top: 0;
       z-index: 40;
     }
-
     .top-nav-left { display: flex; align-items: center; gap: 1rem; }
-
     .page-title {
       font-size: 1.25rem;
       font-weight: 600;
@@ -211,7 +178,6 @@
       align-items: center;
       gap: 0.5rem;
     }
-
     .top-nav-right { display: flex; align-items: center; gap: 1rem; }
 
     .mobile-menu-toggle {
@@ -239,29 +205,23 @@
       gap: 0.5rem;
       border: none;
     }
-
-    .btn-primary { background: var(--yandex-gradient); color: white; }
+    .btn-primary { background: var(--cascade-gradient); color: white; }
     .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
-
     .btn-outline {
       border: 1px solid var(--border-color);
       background-color: var(--white);
       color: var(--text-gray);
     }
     .btn-outline:hover { background-color: var(--bg-light); }
-
     .btn-secondary {
       background-color: var(--bg-light);
       color: var(--text-gray);
       border: 1px solid var(--border-color);
     }
     .btn-secondary:hover { background-color: var(--border-color); }
-
     .btn-danger { background-color: #ef4444; color: white; }
     .btn-danger:hover { background-color: #dc2626; }
-
     .btn-sm { padding: 0.375rem 0.75rem; font-size: 0.8125rem; }
-
     .btn-icon {
       background: none;
       border: none;
@@ -271,13 +231,12 @@
       border-radius: var(--radius-md);
       transition: all 0.2s;
     }
-    .btn-icon:hover { background-color: var(--bg-light); color: var(--yandex-accent); }
+    .btn-icon:hover { background-color: var(--bg-light); color: var(--cascade-accent); }
 
     /* ============================================================================
        USER DROPDOWN
        ============================================================================ */
     .user-menu { display: flex; align-items: center; gap: 1rem; position: relative; }
-
     .user-button {
       background: none;
       border: none;
@@ -292,12 +251,11 @@
       transition: background-color 0.2s;
     }
     .user-button:hover { background-color: var(--bg-light); }
-
     .user-avatar {
       width: 36px;
       height: 36px;
       border-radius: 50%;
-      background: var(--yandex-gradient);
+      background: var(--cascade-gradient);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -305,7 +263,6 @@
       font-weight: 600;
       font-size: 0.875rem;
     }
-
     .user-dropdown {
       position: absolute;
       top: calc(100% + 0.5rem);
@@ -318,17 +275,14 @@
       overflow: hidden;
       display: none;
     }
-
     .user-dropdown.show {
       display: block;
       animation: dropdown-fade 0.2s ease-in-out forwards;
     }
-
     @keyframes dropdown-fade {
       from { opacity: 0; transform: translateY(-10px); }
       to { opacity: 1; transform: translateY(0); }
     }
-
     .dropdown-item {
       display: flex;
       align-items: center;
@@ -339,8 +293,7 @@
       font-size: 0.875rem;
       transition: background-color 0.2s;
     }
-    .dropdown-item:hover { background-color: var(--bg-light); color: var(--yandex-accent); }
-
+    .dropdown-item:hover { background-color: var(--bg-light); color: var(--cascade-accent); }
     .dropdown-divider { height: 1px; background-color: var(--border-color); margin: 0.25rem 0; }
 
     /* ============================================================================
@@ -349,7 +302,7 @@
     .content-container { padding: 2rem; flex-grow: 1; }
 
     /* ============================================================================
-       API KEYS CARD
+       API KEY CARD
        ============================================================================ */
     .api-keys-card {
       background: var(--white);
@@ -359,7 +312,6 @@
       margin-bottom: 1.5rem;
       box-shadow: var(--shadow-sm);
     }
-
     .api-keys-card h3 {
       font-size: 1rem;
       font-weight: 600;
@@ -368,7 +320,6 @@
       align-items: center;
       gap: 0.5rem;
     }
-
     .api-key-row {
       display: flex;
       align-items: center;
@@ -386,12 +337,10 @@
     }
     .api-key-row input:focus {
       outline: none;
-      border-color: var(--yandex-accent);
-      box-shadow: 0 0 0 3px rgba(252, 63, 29, 0.1);
+      border-color: var(--cascade-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
-
     .api-key-actions { display: flex; gap: 0.5rem; }
-
     .api-key-warning {
       background: #fef3c7;
       border: 1px solid #fbbf24;
@@ -417,17 +366,14 @@
       padding: 2rem;
     }
     .api-key-setup.show { display: flex; }
-
     .api-key-setup-icon {
       font-size: 4rem;
-      background: var(--yandex-gradient);
+      background: var(--cascade-gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       margin-bottom: 1.5rem;
     }
-
     .api-key-setup-title { font-size: 2rem; font-weight: 600; margin-bottom: 1rem; text-align: center; }
-
     .api-key-setup-description {
       color: var(--text-gray);
       max-width: 600px;
@@ -435,7 +381,6 @@
       margin-bottom: 2rem;
       line-height: 1.6;
     }
-
     .api-key-setup-steps {
       background-color: var(--white);
       border-radius: var(--radius-lg);
@@ -448,7 +393,7 @@
     .api-key-setup-steps h3 { margin-bottom: 1rem; }
     .api-key-setup-steps ol { padding-left: 1.5rem; line-height: 1.8; }
     .api-key-setup-steps li { margin-bottom: 0.5rem; }
-    .api-key-setup-steps a { color: var(--yandex-accent); text-decoration: none; }
+    .api-key-setup-steps a { color: var(--cascade-accent); text-decoration: none; }
     .api-key-setup-steps a:hover { text-decoration: underline; }
 
     /* ============================================================================
@@ -462,14 +407,12 @@
       margin-bottom: 2rem;
       padding: 1.5rem;
     }
-
     .card-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 1.5rem;
     }
-
     .card-title { font-size: 1.125rem; font-weight: 600; }
 
     .agents-list-container { display: none; margin-top: 0; }
@@ -481,7 +424,6 @@
       align-items: center;
       margin-bottom: 1.5rem;
     }
-
     .agents-count { color: var(--text-gray); font-weight: 500; margin: 0; }
 
     .agent-items {
@@ -489,7 +431,6 @@
       grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
       gap: 1.5rem;
     }
-
     .agent-item {
       background-color: var(--white);
       border-radius: var(--radius-lg);
@@ -503,11 +444,11 @@
     }
     .agent-item:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
 
-    .yandex-badge {
+    .cascade-badge {
       position: absolute;
       top: 0.75rem;
       right: 0.75rem;
-      background: var(--yandex-gradient);
+      background: var(--cascade-gradient);
       color: white;
       padding: 0.25rem 0.75rem;
       border-radius: 1rem;
@@ -515,14 +456,14 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      box-shadow: 0 2px 8px rgba(252, 63, 29, 0.3);
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
     }
 
     .agent-icon {
       width: 50px;
       height: 50px;
       border-radius: 50%;
-      background: var(--yandex-gradient);
+      background: var(--cascade-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -530,9 +471,7 @@
       font-size: 1.5rem;
       flex-shrink: 0;
     }
-
     .agent-info { flex: 1; min-width: 0; }
-
     .agent-name {
       font-size: 1.25rem;
       font-weight: 600;
@@ -541,7 +480,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
     .agent-description {
       color: var(--text-gray);
       margin-bottom: 0.75rem;
@@ -551,7 +489,6 @@
       overflow: hidden;
       font-size: 0.95rem;
     }
-
     .agent-meta {
       display: flex;
       gap: 1rem;
@@ -559,7 +496,6 @@
       font-size: 0.875rem;
       flex-wrap: wrap;
     }
-
     .agent-actions {
       display: flex;
       flex-direction: column;
@@ -581,13 +517,11 @@
     .edit-container { display: none; }
     .edit-container.show { display: block; }
 
-    /* Tabs */
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--border-color);
       margin-bottom: 0;
     }
-
     .tab {
       padding: 0.75rem 1.5rem;
       color: var(--text-gray);
@@ -601,8 +535,7 @@
       font-size: 0.875rem;
     }
     .tab:hover { color: var(--text-dark); }
-    .tab.active { color: var(--yandex-accent); border-bottom-color: var(--yandex-accent); font-weight: 600; }
-
+    .tab.active { color: var(--cascade-accent); border-bottom-color: var(--cascade-accent); font-weight: 600; }
     .tab-content { display: none; padding: 1.5rem; }
     .tab-content.active { display: block; }
 
@@ -617,16 +550,9 @@
       margin-bottom: 2rem;
       padding: 1.5rem;
     }
-
     .form-group { margin-bottom: 1.5rem; }
     .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.875rem; color: var(--text-dark); }
     .form-group .hint { font-size: 0.75rem; color: var(--text-light); margin-top: 0.25rem; }
-
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-    }
 
     .form-control {
       width: 100%;
@@ -636,14 +562,21 @@
       font-size: 0.875rem;
       color: var(--text-dark);
       transition: all 0.2s;
-      background-color: var(--white);
     }
     .form-control:focus {
       outline: none;
-      border-color: var(--yandex-accent);
-      box-shadow: 0 0 0 3px rgba(252, 63, 29, 0.1);
+      border-color: var(--cascade-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
     textarea.form-control { min-height: 150px; resize: vertical; font-family: inherit; }
+
+    select.form-control {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      padding-right: 2.5rem;
+    }
 
     .form-footer {
       display: flex;
@@ -652,25 +585,11 @@
       margin-top: 2rem;
     }
 
-    /* Slider */
-    .slider-container { display: flex; align-items: center; gap: 1rem; }
-    .slider-container input[type="range"] {
-      flex: 1;
-      -webkit-appearance: none;
-      height: 6px;
-      border-radius: 3px;
-      background: var(--border-color);
-      outline: none;
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
     }
-    .slider-container input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      background: var(--yandex-accent);
-      cursor: pointer;
-    }
-    .slider-value { min-width: 40px; text-align: center; font-weight: 600; color: var(--yandex-accent); }
 
     /* Agent ID info */
     .agent-id-info {
@@ -678,16 +597,16 @@
       align-items: center;
       gap: 1rem;
       padding: 1rem;
-      background-color: var(--yandex-light);
+      background-color: var(--cascade-light);
       border-radius: var(--radius-md);
-      border: 1px solid var(--yandex-accent);
+      border: 1px solid var(--cascade-accent);
       margin-bottom: 1.5rem;
     }
     .agent-id-label { font-weight: 600; color: var(--text-dark); font-size: 0.875rem; }
     .agent-id-value {
       font-family: monospace;
       font-size: 0.85rem;
-      color: var(--yandex-accent);
+      color: var(--cascade-accent);
       background-color: var(--white);
       padding: 0.375rem 0.75rem;
       border-radius: var(--radius-md);
@@ -709,9 +628,8 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    .function-option:hover { background-color: var(--yandex-light); }
+    .function-option:hover { background-color: var(--cascade-light); }
     .function-option input { margin: 0; }
-
     .function-info {
       border: 1px solid var(--border-color);
       margin-top: 1rem;
@@ -719,7 +637,6 @@
       background-color: var(--bg-light);
       border-radius: var(--radius-md);
     }
-
     .function-schema {
       background-color: var(--white);
       padding: 1rem;
@@ -730,7 +647,6 @@
       color: var(--text-dark);
       white-space: pre-wrap;
     }
-
     .functions-loading {
       text-align: center;
       padding: 2rem;
@@ -761,11 +677,11 @@
     .notification.show { transform: translateY(0); opacity: 1; }
     .notification-success { border-left: 4px solid #10b981; }
     .notification-error { border-left: 4px solid #ef4444; }
-    .notification-info { border-left: 4px solid var(--yandex-accent); }
+    .notification-info { border-left: 4px solid var(--cascade-accent); }
     .notification-icon { font-size: 1.25rem; }
     .notification-success .notification-icon { color: #10b981; }
     .notification-error .notification-icon { color: #ef4444; }
-    .notification-info .notification-icon { color: var(--yandex-accent); }
+    .notification-info .notification-icon { color: var(--cascade-accent); }
     .notification-content { flex: 1; }
     .notification-close { background: none; border: none; color: var(--text-gray); cursor: pointer; font-size: 1.125rem; }
 
@@ -782,13 +698,12 @@
       z-index: 500;
     }
     .loading-overlay.show { display: flex; }
-
     .loading-spinner {
       width: 50px;
       height: 50px;
-      border: 5px solid var(--yandex-light);
+      border: 5px solid var(--cascade-light);
       border-radius: 50%;
-      border-top-color: var(--yandex-accent);
+      border-top-color: var(--cascade-accent);
       animation: spin 1s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -807,7 +722,6 @@
       align-items: center;
     }
     .modal-overlay.show { display: flex; }
-
     .modal-box {
       background: var(--white);
       border-radius: var(--radius-lg);
@@ -820,7 +734,6 @@
     .modal-box h3 { margin-bottom: 0.75rem; }
     .modal-box p { color: var(--text-gray); margin-bottom: 1.5rem; font-size: 0.875rem; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; }
-
     @keyframes modal-slide-up {
       from { opacity: 0; transform: translateY(30px) scale(0.95); }
       to { opacity: 1; transform: translateY(0) scale(1); }
@@ -876,10 +789,9 @@
     }
     .feature-blocked-modal .current-plan-info span { font-weight: 600; color: var(--text-dark); }
     .feature-blocked-modal .required-plans { font-size: 0.875rem; color: var(--text-gray); }
-    .feature-blocked-modal .required-plans strong { color: var(--yandex-accent); }
+    .feature-blocked-modal .required-plans strong { color: var(--cascade-accent); }
     .feature-blocked-modal .fb-footer { padding: 1rem 1.5rem 1.5rem; display: flex; gap: 1rem; }
     .feature-blocked-modal .fb-footer .btn { flex: 1; justify-content: center; }
-
     @keyframes modal-fade-in {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -920,7 +832,6 @@
       .form-row { grid-template-columns: 1fr; }
       .user-dropdown { right: auto; left: 0; }
     }
-
     @media (max-width: 480px) {
       .content-container { padding: 0.5rem; }
       .form-section { padding: 1rem; }
@@ -951,12 +862,11 @@
     <nav class="sidebar-nav">
       <div class="sidebar-section">Основное</div>
       <a href="/static/dashboard.html" class="sidebar-nav-item"><i class="fas fa-home"></i> Дашборд</a>
-      <a href="/static/agent.html" class="sidebar-nav-item" id="agent-nav-item"><i class="fas fa-headset"></i> Агент обзвона <span class="badge-realtime">new</span></a>
       <a href="/static/agents.html" class="sidebar-nav-item"><i class="fas fa-robot"></i> OpenAI агенты</a>
       <a href="/static/gemini-agents.html" class="sidebar-nav-item"><i class="fas fa-gem"></i> Gemini агенты</a>
       <a href="/static/cartesia-agents.html" class="sidebar-nav-item"><i class="fas fa-wave-square"></i> Cartesia агенты</a>
-      <a href="/static/yandex-agents.html" class="sidebar-nav-item active"><i class="fab fa-yandex"></i> Яндекс агенты</a>
-      <a href="/static/cascade.html" class="sidebar-nav-item"><i class="fas fa-water"></i> Cascade агенты</a>
+      <a href="/static/yandex-agents.html" class="sidebar-nav-item"><i class="fab fa-yandex"></i> Яндекс агенты</a>
+      <a href="/static/cascade.html" class="sidebar-nav-item active"><i class="fas fa-water"></i> Cascade агенты</a>
       <a href="/static/knowledge-base.html" class="sidebar-nav-item"><i class="fas fa-book"></i> База знаний</a>
       <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony"><i class="fas fa-phone"></i> Телефония</a>
       <a href="/static/conversations.html" class="sidebar-nav-item"><i class="fas fa-comments"></i> Диалоги</a>
@@ -982,8 +892,8 @@
       <div class="top-nav-left">
         <button class="mobile-menu-toggle" id="mobile-menu-toggle"><i class="fas fa-bars"></i></button>
         <h1 class="page-title">
-          <i class="fab fa-yandex" style="color: var(--yandex-accent);"></i>
-          Яндекс агенты
+          <i class="fas fa-water" style="color: var(--cascade-accent);"></i>
+          Cascade агенты
         </h1>
       </div>
       <div class="top-nav-right">
@@ -1007,60 +917,32 @@
     <!-- Content Area -->
     <div class="content-container">
 
-      <!-- API Keys Card -->
-      <div class="api-keys-card" id="api-keys-card">
-        <h3><i class="fas fa-key" style="color: var(--yandex-accent);"></i> Креды Yandex Cloud</h3>
-
-        <div class="api-key-row">
-          <label>API-ключ Yandex Cloud</label>
-          <input type="password" id="yandex-key-input" placeholder="AQVN..." autocomplete="off">
+      <!-- Cascade Credits Card -->
+      <div class="api-keys-card" id="cascade-credits-card">
+        <h3><i class="fas fa-coins" style="color: var(--cascade-accent);"></i> Кредиты Cascade</h3>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 2rem; font-weight: 700; line-height: 1.1;" id="cascade-balance">—</div>
+            <div style="font-size: 0.8125rem; color: var(--text-gray); margin-top: 0.25rem;">
+              Списываются за работу LLM в звонках Cascade
+            </div>
+          </div>
           <div class="api-key-actions">
-            <button class="btn-icon" id="toggle-yandex-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+            <button class="btn btn-outline btn-sm" id="cascade-history-btn"><i class="fas fa-clock-rotate-left"></i> История</button>
+            <button class="btn btn-primary btn-sm" id="cascade-topup-btn"><i class="fas fa-plus"></i> Докупить кредиты</button>
           </div>
         </div>
-
-        <div class="api-key-row">
-          <label>Folder ID (каталог)</label>
-          <input type="text" id="folder-id-input" placeholder="b1g..." autocomplete="off">
-        </div>
-
-        <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
-          <button class="btn btn-primary btn-sm" id="save-keys-btn"><i class="fas fa-save"></i> Сохранить креды</button>
-          <button class="btn btn-secondary btn-sm" id="clear-keys-btn"><i class="fas fa-trash"></i> Очистить</button>
-        </div>
-
-        <div class="api-key-warning" id="keys-warning" style="display: none;">
+        <div class="api-key-warning" id="cascade-lowbalance-warning" style="display: none;">
           <i class="fas fa-exclamation-triangle"></i>
-          <span>Добавьте API-ключ и Folder ID Yandex Cloud для работы агентов</span>
+          <span>Кредиты Cascade закончились — звонки не будут работать. Докупите кредиты.</span>
         </div>
-      </div>
-
-      <!-- Setup Screen (no keys) -->
-      <div class="api-key-setup" id="setup-screen">
-        <div class="api-key-setup-icon"><i class="fab fa-yandex"></i></div>
-        <h2 class="api-key-setup-title">Настройте креды Yandex Cloud</h2>
-        <p class="api-key-setup-description">
-          Для работы Яндекс-агентов (SpeechKit Realtime) необходимо добавить API-ключ Yandex Cloud и Folder ID каталога, с которого будут списываться токены.
-        </p>
-        <div class="api-key-setup-steps">
-          <h3>Как начать:</h3>
-          <ol>
-            <li>Зарегистрируйтесь в <a href="https://console.yandex.cloud/" target="_blank">Yandex Cloud</a> и создайте каталог (folder)</li>
-            <li>Создайте сервисный аккаунт с ролью <b>ai.speechkit-stt.user</b> и <b>ai.speechkit-tts.user</b></li>
-            <li>Выпустите API-ключ для сервисного аккаунта</li>
-            <li>Вставьте API-ключ и Folder ID в поля выше и нажмите «Сохранить креды»</li>
-          </ol>
-        </div>
-        <p style="color: var(--text-light); font-size: 0.875rem; text-align: center;">
-          После добавления кредов вы сможете создавать и управлять Яндекс-агентами
-        </p>
       </div>
 
       <!-- Agents List Container -->
       <div class="agents-list-container" id="agents-list-container">
         <div class="card">
           <div class="card-header">
-            <h2 class="card-title">Ваши голосовые ассистенты на Яндексе</h2>
+            <h2 class="card-title">Ваши голосовые ассистенты Cascade</h2>
           </div>
           <div id="agents-list"></div>
         </div>
@@ -1092,13 +974,13 @@
 
             <div class="form-group">
               <label for="agent-name">Название агента *</label>
-              <input type="text" class="form-control" id="agent-name" placeholder="Мой Яндекс агент" required>
+              <input type="text" class="form-control" id="agent-name" placeholder="Мой Cascade агент" required>
             </div>
 
             <div class="form-group">
               <label for="agent-greeting">Первая фраза (приветствие)</label>
-              <input type="text" class="form-control" id="agent-greeting" placeholder="Здравствуйте! Чем я могу вам помочь?" value="Здравствуйте! Чем я могу вам помочь?" maxlength="500">
-              <p class="hint">Эта фраза будет первым, что скажет ассистент при звонке. Максимум 500 символов.</p>
+              <input type="text" class="form-control" id="agent-greeting" placeholder="Здравствуйте! Чем я могу вам помочь?" value="Здравствуйте! Чем я могу вам помочь?" maxlength="200">
+              <p class="hint">Эта фраза будет первым, что скажет ассистент при звонке. Максимум 200 символов.</p>
             </div>
 
             <div class="form-group">
@@ -1112,55 +994,10 @@
               <p class="hint">Задайте инструкции для вашего ассистента. Это определит его знания, стиль общения и поведение.</p>
             </div>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="agent-model">Модель</label>
-                <select class="form-control" id="agent-model"></select>
-                <p class="hint">Модель Yandex SpeechKit Realtime</p>
-              </div>
-              <div class="form-group">
-                <label for="agent-voice">Голос</label>
-                <select class="form-control" id="agent-voice"></select>
-                <p class="hint">Голос синтеза речи Яндекса</p>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="agent-voice-role">Амплуа голоса (role)</label>
-                <input type="text" class="form-control" id="agent-voice-role" placeholder="например: friendly (опционально)">
-                <p class="hint">Оставьте пустым, если амплуа не нужно</p>
-              </div>
-              <div class="form-group">
-                <label for="agent-language">Язык</label>
-                <input type="text" class="form-control" id="agent-language" value="ru">
-              </div>
-            </div>
-
             <div class="form-group">
-              <label>Temperature</label>
-              <div class="slider-container">
-                <span style="font-size: 0.75rem; color: var(--text-light);">0</span>
-                <input type="range" id="agent-temperature" min="0" max="2" step="0.1" value="0.7">
-                <span style="font-size: 0.75rem; color: var(--text-light);">2</span>
-                <span class="slider-value" id="temperature-value">0.7</span>
-              </div>
-              <p class="hint">Чем выше значение — тем более креативные ответы</p>
-            </div>
-
-            <div class="form-row">
-              <div class="form-group">
-                <label for="agent-max-tokens">Max tokens</label>
-                <input type="number" class="form-control" id="agent-max-tokens" min="1" max="32768" step="1" value="4096">
-                <p class="hint">Максимальная длина ответа модели</p>
-              </div>
-              <div class="form-group" id="agent-active-wrap" style="display: none;">
-                <label for="agent-active">Статус</label>
-                <select class="form-control" id="agent-active">
-                  <option value="true">Активен</option>
-                  <option value="false">Выключен</option>
-                </select>
-              </div>
+              <label for="agent-tts-voice">Голос</label>
+              <select class="form-control" id="agent-tts-voice"></select>
+              <p class="hint">Голос синтеза речи ассистента</p>
             </div>
 
             <div class="form-footer">
@@ -1184,6 +1021,7 @@
             </div>
           </div>
         </div>
+
       </div>
 
     </div>
@@ -1208,6 +1046,21 @@
         <button class="btn btn-secondary" id="confirm-cancel">Отмена</button>
         <button class="btn btn-danger" id="confirm-ok">Удалить</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Cascade Credits Modal (packages + history) -->
+  <div class="modal-overlay" id="cascade-credits-modal">
+    <div class="modal-box" style="max-width: 560px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+        <h3 id="cascade-credits-modal-title" style="margin: 0;">Докупить кредиты Cascade</h3>
+        <button class="btn-icon" id="cascade-credits-modal-close"><i class="fas fa-times"></i></button>
+      </div>
+      <p style="color: var(--text-gray); font-size: 0.875rem; margin-bottom: 1rem;">
+        Баланс: <b id="cascade-modal-balance">—</b> кредитов
+      </p>
+      <div id="cascade-packages-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem;"></div>
+      <div id="cascade-history-list" style="display: none; margin-top: 0.5rem; max-height: 320px; overflow-y: auto;"></div>
     </div>
   </div>
 
@@ -1264,10 +1117,34 @@
       'profi': 'Profi', 'agent': 'Voicyfy Agent'
     };
 
-    const API_BASE_URL = '/api';
+    const TTS_PROVIDERS = {
+      voxtts: [
+        { id: 'Anna', name: 'Анна' },
+        { id: 'Sergey', name: 'Сергей' }
+      ],
+      yandex: [
+        { id: 'alena', name: 'Алёна' },
+        { id: 'filipp', name: 'Филипп' },
+        { id: 'jane', name: 'Джейн' },
+        { id: 'madirus', name: 'Мадирус' },
+        { id: 'omazh', name: 'Омаж' },
+        { id: 'zahar', name: 'Захар' }
+      ],
+      tinkoff: [
+        { id: 'ru_female_tanya', name: 'Таня' },
+        { id: 'ru_male_boris', name: 'Борис' },
+        { id: 'ru_female_alyona', name: 'Алёна' },
+        { id: 'ru_male_dorofeev', name: 'Дорофеев' }
+      ],
+      sber: [
+        { id: 'Nadia', name: 'Надя' },
+        { id: 'Bys_n', name: 'Бас' },
+        { id: 'May_n', name: 'Майя' },
+        { id: 'Tur_n', name: 'Тур' }
+      ]
+    };
 
-    const DEFAULT_MODELS = ['speech-realtime-260528', 'speech-realtime-250923'];
-    const DEFAULT_VOICES = ['marina', 'dasha', 'alexander', 'julia', 'lera', 'masha', 'anton', 'kirill', 'filipp', 'ermil', 'jane', 'omazh', 'zahar', 'madi_ru', 'saule_ru'];
+    const API_BASE_URL = '/api';
 
     // ============================================================================
     // STATE
@@ -1276,10 +1153,13 @@
     let currentAgentId = null;
     let agents = [];
     let availableFunctions = [];
-    let currentAgentFunctions = null; // функции агента как пришли с сервера (страховка от затирания)
+    // Имена включённых у агента функций. Держим отдельно от DOM, чтобы состояние
+    // не терялось из-за гонки между рендером чекбоксов (loadAvailableFunctions)
+    // и загрузкой данных агента (loadAgentData) — какой бы порядок ни сложился,
+    // applyFunctionSelection() приводит чекбоксы к этому состоянию.
+    let selectedFunctionNames = [];
     let isLoading = false;
     let currentUserPlanCode = 'free';
-    let yandexOptions = { models: DEFAULT_MODELS, default_model: 'speech-realtime-260528', voices: DEFAULT_VOICES };
 
     let assistantsLimitInfo = {
       totalCount: 0,
@@ -1373,7 +1253,7 @@
     }
 
     // ============================================================================
-    // PRIVILEGES & LIMITS (как в Gemini/Cartesia)
+    // PRIVILEGES & LIMITS
     // ============================================================================
     function isPrivilegedUser() {
       if (!currentUser) return false;
@@ -1445,7 +1325,7 @@
     }
 
     // ============================================================================
-    // FEATURE ACCESS (тарифы)
+    // FEATURE ACCESS
     // ============================================================================
     function canAccessFeature(feature) {
       if (!currentUser) return true;
@@ -1460,14 +1340,11 @@
     }
 
     function applyFeatureAccessToSidebar() {
-      console.log('[ACCESS] Применяем матрицу доступа для плана:', currentUserPlanCode);
       document.querySelectorAll('.plan-locked-feature').forEach(el => el.classList.remove('plan-locked-feature'));
-
       document.querySelectorAll('[data-feature]').forEach(element => {
         const feature = element.getAttribute('data-feature');
         if (!canAccessFeature(feature)) {
           element.classList.add('plan-locked-feature');
-          console.log(`[ACCESS] Заблокирована функция: ${feature}`);
         }
       });
     }
@@ -1517,108 +1394,60 @@
     }
 
     // ============================================================================
-    // YANDEX OPTIONS (модели/голоса)
+    // CASCADE CREDITS
     // ============================================================================
-    async function loadYandexOptions() {
-      try {
-        const data = await apiRequest('/yandex-assistants/options');
-        if (data && data.models && data.models.length) yandexOptions = data;
-      } catch (e) {
-        console.warn('[OPTIONS] Используем дефолтные модели/голоса:', e.message);
-      }
-      fillSelect('agent-model', yandexOptions.models, yandexOptions.default_model);
-      fillSelect('agent-voice', yandexOptions.voices, 'marina');
+    let cascadeCredits = { balance: 0, input_credits_per_1k: 4, output_credits_per_1k: 25 };
+
+    function renderCascadeBalance() {
+      const el = document.getElementById('cascade-balance');
+      const warn = document.getElementById('cascade-lowbalance-warning');
+      const bal = cascadeCredits.balance || 0;
+      if (el) el.textContent = bal.toLocaleString('ru') + ' кр.';
+      const mbal = document.getElementById('cascade-modal-balance');
+      if (mbal) mbal.textContent = bal.toLocaleString('ru');
+      if (warn) warn.style.display = bal > 0 ? 'none' : 'flex';
     }
 
-    function fillSelect(id, items, selected) {
-      const sel = document.getElementById(id);
-      sel.innerHTML = '';
-      items.forEach(v => {
-        const opt = document.createElement('option');
-        opt.value = v;
-        opt.textContent = v;
-        if (v === selected) opt.selected = true;
-        sel.appendChild(opt);
-      });
-    }
-
-    // ============================================================================
-    // API KEYS (креды Yandex Cloud)
-    // ============================================================================
-    async function loadApiKeysStatus() {
+    async function loadCascadeCredits() {
       try {
-        const status = await apiRequest('/yandex-assistants/api-keys');
-        const keyInput = document.getElementById('yandex-key-input');
-        const folderInput = document.getElementById('folder-id-input');
-        const warning = document.getElementById('keys-warning');
-
-        if (status.yandex_key_preview) keyInput.placeholder = status.yandex_key_preview;
-        if (status.yandex_folder_id) folderInput.placeholder = status.yandex_folder_id;
-
-        const hasKeys = status.has_yandex_key && status.has_folder_id;
-        warning.style.display = hasKeys ? 'none' : 'flex';
-        return hasKeys;
+        const status = await apiRequest('/grok-assistants/cascade/credits/balance');
+        cascadeCredits = {
+          balance: status.cascade_credits_balance || 0,
+          input_credits_per_1k: status.input_credits_per_1k || 4,
+          output_credits_per_1k: status.output_credits_per_1k || 25,
+        };
+        renderCascadeBalance();
       } catch (e) {
-        console.error('Error loading API keys status:', e);
-        return false;
+        console.error('Error loading cascade credits:', e);
       }
     }
 
-    async function saveApiKeys() {
-      const yandexKey = document.getElementById('yandex-key-input').value.trim();
-      const folderId = document.getElementById('folder-id-input').value.trim();
-
-      if (!yandexKey && !folderId) {
-        showNotification('Введите API-ключ и/или Folder ID', 'error');
+    // Сабмит формы Robokassa (редирект на оплату)
+    function submitRobokassaForm(data) {
+      if (!data || !data.payment_url || !data.form_params) {
+        showNotification('Некорректный ответ платёжной системы', 'error');
         return;
       }
-
-      setLoading(true);
-      try {
-        const body = {};
-        if (yandexKey) body.yandex_api_key = yandexKey;
-        if (folderId) body.yandex_folder_id = folderId;
-
-        await apiRequest('/yandex-assistants/api-keys', { method: 'PUT', body });
-
-        document.getElementById('yandex-key-input').value = '';
-        document.getElementById('folder-id-input').value = '';
-
-        showNotification('Креды Yandex Cloud сохранены', 'success');
-        const hasKeys = await loadApiKeysStatus();
-        checkApiKeyAndShowContent(hasKeys);
-
-        if (hasKeys) {
-          await loadAgentsList();
-          await loadAssistantsLimitInfo();
-          applyFeatureAccessToSidebar();
-          updateCreateButtonState();
-        }
-      } catch (e) {
-        showNotification('Ошибка сохранения: ' + e.message, 'error');
-      } finally {
-        setLoading(false);
-      }
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = data.payment_url;
+      Object.entries(data.form_params).forEach(([k, v]) => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = k; inp.value = v;
+        form.appendChild(inp);
+      });
+      document.body.appendChild(form);
+      form.submit();
     }
 
-    async function clearApiKeys() {
-      if (!confirm('Вы уверены, что хотите удалить API-ключ и Folder ID?')) return;
-
+    async function purchaseCascadePackage(code) {
       setLoading(true);
       try {
-        await apiRequest('/yandex-assistants/api-keys', {
-          method: 'PUT',
-          body: { yandex_api_key: '', yandex_folder_id: '' }
+        const data = await apiRequest('/grok-assistants/cascade/credits/purchase', {
+          method: 'POST',
+          body: { package_code: code }
         });
-
-        document.getElementById('yandex-key-input').value = '';
-        document.getElementById('yandex-key-input').placeholder = 'AQVN...';
-        document.getElementById('folder-id-input').value = '';
-        document.getElementById('folder-id-input').placeholder = 'b1g...';
-
-        showNotification('Креды удалены', 'success');
-        const hasKeys = await loadApiKeysStatus();
-        checkApiKeyAndShowContent(hasKeys);
+        submitRobokassaForm(data);
       } catch (e) {
         showNotification('Ошибка: ' + e.message, 'error');
       } finally {
@@ -1626,20 +1455,116 @@
       }
     }
 
-    function checkApiKeyAndShowContent(hasKeys) {
-      const setupScreen = document.getElementById('setup-screen');
+    async function openCascadeCreditsModal() {
+      const modal = document.getElementById('cascade-credits-modal');
+      const list = document.getElementById('cascade-packages-list');
+      const history = document.getElementById('cascade-history-list');
+      document.getElementById('cascade-credits-modal-title').textContent = 'Докупить кредиты Cascade';
+      history.style.display = 'none';
+      list.style.display = 'grid';
+      renderCascadeBalance();
+      modal.classList.add('show');
+      list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-gray);">Загрузка…</div>';
+      try {
+        const data = await apiRequest('/grok-assistants/cascade/credits/packages');
+        const pkgs = (data && data.packages) || [];
+        if (!pkgs.length) {
+          list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-gray);">Нет доступных пакетов</div>';
+          return;
+        }
+        list.innerHTML = pkgs.map(p => `
+          <div style="border:1px solid var(--border-color); border-radius:var(--radius-md); padding:1rem; text-align:center;">
+            <div style="font-weight:600; margin-bottom:0.25rem;">${escapeHtml(p.name)}</div>
+            <div style="font-size:1.25rem; font-weight:700; color:var(--cascade-accent);">${(p.credits).toLocaleString('ru')}</div>
+            <div style="font-size:0.75rem; color:var(--text-light); margin-bottom:0.5rem;">кредитов</div>
+            <div style="font-weight:600; margin-bottom:0.75rem;">${p.price_formatted}</div>
+            <button class="btn btn-primary btn-sm" style="width:100%; justify-content:center;" onclick="purchaseCascadePackage('${p.code}')">Купить</button>
+          </div>`).join('');
+      } catch (e) {
+        list.innerHTML = '<div style="grid-column:1/-1; color:var(--text-light);">Ошибка загрузки</div>';
+      }
+    }
+
+    async function openCascadeHistory() {
+      const modal = document.getElementById('cascade-credits-modal');
+      const list = document.getElementById('cascade-packages-list');
+      const history = document.getElementById('cascade-history-list');
+      document.getElementById('cascade-credits-modal-title').textContent = 'История кредитов Cascade';
+      list.style.display = 'none';
+      history.style.display = 'block';
+      renderCascadeBalance();
+      modal.classList.add('show');
+      history.innerHTML = '<div style="color:var(--text-gray);">Загрузка…</div>';
+      try {
+        const data = await apiRequest('/grok-assistants/cascade/credits/transactions?limit=50');
+        const txs = (data && data.transactions) || [];
+        if (!txs.length) {
+          history.innerHTML = '<div style="color:var(--text-gray);">Пока нет операций</div>';
+          return;
+        }
+        const typeLabels = {
+          trial_grant: 'Тестовый грант', purchase: 'Покупка пакета',
+          spend: 'Списание (звонок)', refund: 'Возврат', manual_adjust: 'Корректировка'
+        };
+        history.innerHTML = txs.map(t => {
+          const amount = t.amount > 0 ? `+${t.amount.toLocaleString('ru')}` : t.amount.toLocaleString('ru');
+          const color = t.amount >= 0 ? '#10b981' : '#ef4444';
+          const dt = t.created_at ? new Date(t.created_at).toLocaleString('ru') : '';
+          // Для списаний (звонков) показываем номер собеседника (хранится в notes),
+          // если он похож на телефон. Токены не показываем.
+          let phone = '';
+          if (t.type === 'spend' && t.notes) {
+            const m = String(t.notes).match(/\+?\d[\d\s()-]{5,}/);
+            if (m) phone = ` · ${escapeHtml(m[0].trim())}`;
+          }
+          return `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--border-color);">
+              <div>
+                <div style="font-size:0.875rem;">${typeLabels[t.type] || t.type}<span style="color:var(--text-light); font-size:0.75rem;">${phone}</span></div>
+                <div style="font-size:0.75rem; color:var(--text-light);">${dt}</div>
+              </div>
+              <div style="font-weight:600; color:${color};">${amount}</div>
+            </div>`;
+        }).join('');
+      } catch (e) {
+        history.innerHTML = '<div style="color:var(--text-light);">Ошибка загрузки</div>';
+      }
+    }
+
+    function closeCascadeCreditsModal() {
+      document.getElementById('cascade-credits-modal').classList.remove('show');
+    }
+
+    function showAgentsContent() {
+      // Ключ больше не нужен: каскад работает на серверном ключе + кредитах.
+      // Список ассистентов доступен всегда.
       const agentsContainer = document.getElementById('agents-list-container');
       const createBtn = document.getElementById('create-agent-btn');
+      agentsContainer.classList.add('show');
+      createBtn.style.display = 'inline-flex';
+      updateCreateButtonState();
+    }
 
-      if (hasKeys) {
-        setupScreen.classList.remove('show');
-        agentsContainer.classList.add('show');
-        createBtn.style.display = 'inline-flex';
-        updateCreateButtonState();
-      } else {
-        setupScreen.classList.add('show');
-        agentsContainer.classList.remove('show');
-        createBtn.style.display = 'none';
+    // ============================================================================
+    // TTS VOICES
+    // ============================================================================
+    function updateVoiceOptions() {
+      // Каскад-сценарий поддерживает только VoxTTS, поэтому голоса всегда VoxTTS.
+      const voiceSelect = document.getElementById('agent-tts-voice');
+      const currentVoice = voiceSelect.value;
+
+      voiceSelect.innerHTML = '';
+      (TTS_PROVIDERS.voxtts || []).forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.textContent = v.name;
+        voiceSelect.appendChild(opt);
+      });
+
+      // Restore previous selection if available
+      if (currentVoice) {
+        const exists = Array.from(voiceSelect.options).some(o => o.value === currentVoice);
+        if (exists) voiceSelect.value = currentVoice;
       }
     }
 
@@ -1648,8 +1573,8 @@
     // ============================================================================
     async function loadAgentsList() {
       try {
-        const data = await apiRequest('/yandex-assistants');
-        agents = data.assistants || [];
+        const data = await apiRequest('/grok-assistants/cascade');
+        agents = Array.isArray(data) ? data : [];
         renderAgentsList();
       } catch (e) {
         console.error('Error loading agents:', e);
@@ -1669,10 +1594,10 @@
 
         container.innerHTML = `
           <div class="empty-state">
-            <div class="empty-icon"><i class="fab fa-yandex"></i></div>
-            <h3 class="empty-title">У вас ещё нет Яндекс-агентов</h3>
+            <div class="empty-icon"><i class="fas fa-water"></i></div>
+            <h3 class="empty-title">У вас ещё нет Cascade агентов</h3>
             <p class="empty-description">
-              Создайте первого голосового ассистента на базе Yandex SpeechKit Realtime
+              Создайте первого голосового ассистента Cascade с LLM через OpenAI и русскоязычным TTS
               ${limitText}
             </p>
             <button class="btn btn-primary" id="empty-create-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
@@ -1691,31 +1616,31 @@
         return;
       }
 
-      // Показываем лимиты
       const limitInfo = isPrivilegedUser()
         ? ''
         : `<small style="color: var(--text-light); font-weight: normal;">(всего ${assistantsLimitInfo.totalCount}/${assistantsLimitInfo.maxAllowed})</small>`;
 
       const headerEl = document.createElement('div');
       headerEl.className = 'agent-list-header';
-      headerEl.innerHTML = `<h4 class="agents-count">Яндекс-агентов: ${agents.length} ${limitInfo}</h4>`;
+      headerEl.innerHTML = `<h4 class="agents-count">Cascade агентов: ${agents.length} ${limitInfo}</h4>`;
       container.appendChild(headerEl);
 
       const listEl = document.createElement('div');
       listEl.className = 'agent-items';
 
       agents.forEach(agent => {
+        const voiceName = getVoiceName(agent.tts_provider, agent.tts_voice);
+
         const agentEl = document.createElement('div');
         agentEl.className = 'agent-item';
         agentEl.innerHTML = `
-          <div class="yandex-badge">Яндекс</div>
-          <div class="agent-icon"><i class="fab fa-yandex"></i></div>
+          <div class="cascade-badge">Cascade</div>
+          <div class="agent-icon"><i class="fas fa-water"></i></div>
           <div class="agent-info">
             <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
-              <span><i class="fas fa-microchip"></i> ${escapeHtml(agent.model)}</span>
-              <span><i class="fas fa-microphone"></i> ${escapeHtml(agent.voice)}${agent.voice_role ? ' / ' + escapeHtml(agent.voice_role) : ''}</span>
+              <span><i class="fas fa-volume-up"></i> ${escapeHtml(voiceName)}</span>
               <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
           </div>
@@ -1729,6 +1654,13 @@
       container.appendChild(listEl);
     }
 
+    function getVoiceName(provider, voiceId) {
+      if (!provider || !voiceId) return '-';
+      const voices = TTS_PROVIDERS[provider] || [];
+      const found = voices.find(v => v.id === voiceId);
+      return found ? found.name : voiceId;
+    }
+
     function escapeHtml(text) {
       const div = document.createElement('div');
       div.textContent = text;
@@ -1738,17 +1670,13 @@
     async function loadAgentData(id) {
       setLoading(true);
       try {
-        // Чекбоксы функций должны существовать ДО fillAgentForm → loadFunctions,
-        // иначе состояние галочек молча теряется (и затирается при сохранении)
-        if (availableFunctions.length === 0) await loadAvailableFunctions();
-        const agent = await apiRequest(`/yandex-assistants/${id}`);
+        const agent = await apiRequest(`/grok-assistants/cascade/${id}`);
         fillAgentForm(agent);
         currentAgentId = id;
         document.getElementById('edit-title').textContent = 'Редактирование: ' + agent.name;
         document.getElementById('delete-agent-btn').style.display = 'inline-flex';
         document.getElementById('agent-id-display').textContent = id;
         document.getElementById('agent-id-info').style.display = 'flex';
-        document.getElementById('agent-active-wrap').style.display = 'block';
       } catch (e) {
         showNotification('Ошибка загрузки агента: ' + e.message, 'error');
         switchToListMode();
@@ -1762,23 +1690,14 @@
       document.getElementById('agent-greeting').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
-      document.getElementById('agent-voice-role').value = agent.voice_role || '';
-      document.getElementById('agent-language').value = agent.language || 'ru';
-      document.getElementById('agent-max-tokens').value = agent.max_tokens ?? 4096;
-      document.getElementById('agent-active').value = String(!!agent.is_active);
 
-      const tempSlider = document.getElementById('agent-temperature');
-      tempSlider.value = agent.temperature ?? 0.7;
-      document.getElementById('temperature-value').textContent = tempSlider.value;
+      // TTS (только VoxTTS)
+      updateVoiceOptions();
+      if (agent.tts_voice) {
+        document.getElementById('agent-tts-voice').value = agent.tts_voice;
+      }
 
-      // Модель/голос агента могут отсутствовать в актуальном списке — добавляем их в начало
-      const models = yandexOptions.models.includes(agent.model) ? yandexOptions.models : [agent.model, ...yandexOptions.models];
-      fillSelect('agent-model', models, agent.model);
-      const voices = yandexOptions.voices.includes(agent.voice) ? yandexOptions.voices : [agent.voice, ...yandexOptions.voices];
-      fillSelect('agent-voice', voices, agent.voice);
-
-      currentAgentFunctions = agent.functions || null;
-      loadFunctions(agent.functions);
+      loadFunctions(agent.functions || []);
     }
 
     function getFormData() {
@@ -1790,24 +1709,15 @@
         }
       });
 
-      // Если список функций не загрузился (чекбоксов нет) — не затираем
-      // сохранённые функции агента, отправляем их как есть
-      const functionsValue = (availableFunctions.length === 0)
-        ? currentAgentFunctions
-        : (enabledFunctions.length > 0 ? enabledFunctions : null);
-
       return {
         name: document.getElementById('agent-name').value.trim(),
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         description: document.getElementById('agent-description').value.trim() || null,
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
-        model: document.getElementById('agent-model').value,
-        voice: document.getElementById('agent-voice').value,
-        voice_role: document.getElementById('agent-voice-role').value.trim() || null,
-        language: document.getElementById('agent-language').value.trim() || 'ru',
-        temperature: parseFloat(document.getElementById('agent-temperature').value) || 0.7,
-        max_tokens: parseInt(document.getElementById('agent-max-tokens').value, 10) || 4096,
-        functions: functionsValue,
+        tts_provider: 'voxtts',
+        tts_voice: document.getElementById('agent-tts-voice').value,
+        is_telephony_enabled: true,
+        functions: enabledFunctions.length > 0 ? enabledFunctions : null,
       };
     }
 
@@ -1821,16 +1731,16 @@
       setLoading(true);
       try {
         if (currentAgentId) {
-          data.is_active = document.getElementById('agent-active').value === 'true';
-          await apiRequest(`/yandex-assistants/${currentAgentId}`, { method: 'PUT', body: data });
+          await apiRequest(`/grok-assistants/cascade/${currentAgentId}`, { method: 'PUT', body: data });
           showNotification('Агент обновлён', 'success');
+          await loadAgentData(currentAgentId);
         } else {
           if (!canCreateAssistant()) {
             showLimitReachedNotification();
             setLoading(false);
             return;
           }
-          const created = await apiRequest('/yandex-assistants', { method: 'POST', body: data });
+          const created = await apiRequest('/grok-assistants/cascade', { method: 'POST', body: data });
           currentAgentId = created.id;
           showNotification('Агент создан', 'success');
           await loadAssistantsLimitInfo();
@@ -1855,7 +1765,7 @@
         document.getElementById('confirm-modal').classList.remove('show');
         setLoading(true);
         try {
-          await apiRequest(`/yandex-assistants/${currentAgentId}`, { method: 'DELETE' });
+          await apiRequest(`/grok-assistants/cascade/${currentAgentId}`, { method: 'DELETE' });
           showNotification('Агент удалён', 'success');
           currentAgentId = null;
           await loadAgentsList();
@@ -1875,13 +1785,11 @@
     // ============================================================================
     async function loadAvailableFunctions() {
       try {
-        console.log('[FUNCTIONS] Загружаем список доступных функций...');
         const functions = await apiRequest('/functions/');
         availableFunctions = functions;
-        console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
         renderFunctions(functions);
       } catch (error) {
-        console.error('[FUNCTIONS] Ошибка загрузки функций:', error);
+        console.error('[FUNCTIONS] Error:', error);
         const container = document.getElementById('functions-container');
         container.innerHTML = `
           <div style="text-align: center; padding: 2rem; color: #ef4444;">
@@ -1945,69 +1853,53 @@
           infoDiv.style.display = this.checked ? 'block' : 'none';
         });
       });
+
+      // Чекбоксы только что отрисованы — приводим их к сохранённому выбору
+      // агента (важно, если данные агента загрузились раньше рендера).
+      applyFunctionSelection();
+    }
+
+    // Приводит чекбоксы функций в соответствие с selectedFunctionNames.
+    function applyFunctionSelection() {
+      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
+        const name = cb.dataset.functionName;
+        const on = selectedFunctionNames.includes(name);
+        cb.checked = on;
+        const info = document.getElementById(`${name}-info`);
+        if (info) info.style.display = on ? 'block' : 'none';
+      });
     }
 
     function loadFunctions(agentFunctions) {
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
-
-      if (!agentFunctions) return;
-
-      // Поддерживаем оба формата: [{name, ...}] / ["name"] и {"enabled_functions": ["name"]}
-      let names = [];
-      if (Array.isArray(agentFunctions)) {
-        names = agentFunctions.map(fn => fn.name || fn);
-      } else if (agentFunctions.enabled_functions) {
-        names = agentFunctions.enabled_functions;
-      }
-
-      names.forEach(name => {
-        const cb = document.querySelector(`input[data-function-name="${name}"]`);
-        if (cb) {
-          cb.checked = true;
-          const info = document.getElementById(`${name}-info`);
-          if (info) info.style.display = 'block';
-        }
-      });
+      selectedFunctionNames = (agentFunctions || [])
+        .map(fn => (fn && fn.name) ? fn.name : fn)
+        .filter(Boolean);
+      // Применяем к уже отрисованным чекбоксам; если рендер ещё не случился,
+      // его финальный applyFunctionSelection() подхватит этот же выбор.
+      applyFunctionSelection();
     }
 
     // ============================================================================
     // NAVIGATION
     // ============================================================================
-    // Состояние страницы живёт в URL (?id= / ?mode=create) — initPage()
-    // восстанавливает его после перезагрузки
-    function setUrlState(params) {
-      const url = new URL(window.location);
-      url.searchParams.delete('id');
-      url.searchParams.delete('mode');
-      Object.entries(params || {}).forEach(([k, v]) => url.searchParams.set(k, v));
-      history.replaceState(null, '', url);
-    }
-
     function navigateToCreateAgent() {
       if (!canCreateAssistant()) {
         showLimitReachedNotification();
         return;
       }
       currentAgentId = null;
-      setUrlState({ mode: 'create' });
       initCreateMode();
       switchToEditMode();
     }
 
     function editAgent(id) {
       currentAgentId = id;
-      setUrlState({ id: id });
       switchToEditMode();
       loadAgentData(id);
     }
 
     function switchToEditMode() {
       document.getElementById('agents-list-container').classList.remove('show');
-      document.getElementById('setup-screen').classList.remove('show');
       document.getElementById('edit-container').classList.add('show');
       document.getElementById('create-agent-btn').style.display = 'none';
 
@@ -2017,7 +1909,6 @@
       document.querySelector('.tab[data-tab="settings"]').classList.add('active');
       document.getElementById('tab-settings').classList.add('active');
 
-      // Загружаем функции если ещё не загружены
       if (availableFunctions.length === 0) loadAvailableFunctions();
     }
 
@@ -2027,8 +1918,6 @@
       document.getElementById('create-agent-btn').style.display = 'inline-flex';
       updateCreateButtonState();
       currentAgentId = null;
-      currentAgentFunctions = null;
-      setUrlState({});
     }
 
     function initCreateMode() {
@@ -2036,29 +1925,16 @@
       document.getElementById('delete-agent-btn').style.display = 'none';
       document.getElementById('agent-id-info').style.display = 'none';
       document.getElementById('agent-id-display').textContent = '-';
-      document.getElementById('agent-active-wrap').style.display = 'none';
 
       document.getElementById('agent-name').value = '';
       document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
-      document.getElementById('agent-voice-role').value = '';
-      document.getElementById('agent-language').value = 'ru';
-      document.getElementById('agent-temperature').value = '0.7';
-      document.getElementById('temperature-value').textContent = '0.7';
-      document.getElementById('agent-max-tokens').value = '4096';
-      document.getElementById('agent-active').value = 'true';
+      updateVoiceOptions();
 
-      fillSelect('agent-model', yandexOptions.models, yandexOptions.default_model);
-      fillSelect('agent-voice', yandexOptions.voices, 'marina');
-
-      // Сбрасываем функции
-      currentAgentFunctions = null;
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
+      // Reset functions
+      selectedFunctionNames = [];
+      applyFunctionSelection();
     }
 
     // ============================================================================
@@ -2068,42 +1944,34 @@
       if (!checkAuth()) return;
 
       await loadUserData();
-
-      // Загружаем лимиты и применяем матрицу доступа к сайдбару всегда,
-      // независимо от наличия кредов
       await loadAssistantsLimitInfo();
       applyFeatureAccessToSidebar();
 
-      await loadYandexOptions();
+      // Initialize TTS voice options
+      updateVoiceOptions();
 
-      const hasKeys = await loadApiKeysStatus();
+      // Баланс кредитов каскада (лениво выдаёт разовый тестовый грант новым юзерам)
+      await loadCascadeCredits();
 
-      if (!hasKeys) {
-        checkApiKeyAndShowContent(false);
-      } else {
+      showAgentsContent();
 
-        // Handle URL params
-        const params = new URLSearchParams(window.location.search);
-        const agentId = params.get('id');
-        const mode = params.get('mode');
+      const params = new URLSearchParams(window.location.search);
+      const agentId = params.get('id');
+      const mode = params.get('mode');
 
-        if (agentId) {
-          checkApiKeyAndShowContent(true);
-          await loadAvailableFunctions();
-          editAgent(agentId);
-        } else if (mode === 'create') {
-          if (!canCreateAssistant()) {
-            showLimitReachedNotification();
-            window.location.href = '/static/yandex-agents.html';
-            return;
-          }
-          checkApiKeyAndShowContent(true);
-          await loadAvailableFunctions();
-          navigateToCreateAgent();
-        } else {
-          checkApiKeyAndShowContent(true);
-          await loadAgentsList();
+      if (agentId) {
+        await loadAvailableFunctions();
+        editAgent(agentId);
+      } else if (mode === 'create') {
+        if (!canCreateAssistant()) {
+          showLimitReachedNotification();
+          window.location.href = '/static/cascade.html';
+          return;
         }
+        await loadAvailableFunctions();
+        navigateToCreateAgent();
+      } else {
+        await loadAgentsList();
       }
     }
 
@@ -2153,14 +2021,12 @@
       }
     });
 
-    // API keys
-    document.getElementById('save-keys-btn').addEventListener('click', saveApiKeys);
-    document.getElementById('clear-keys-btn').addEventListener('click', clearApiKeys);
-
-    // Toggle key visibility
-    document.getElementById('toggle-yandex-key').addEventListener('click', () => {
-      const input = document.getElementById('yandex-key-input');
-      input.type = input.type === 'password' ? 'text' : 'password';
+    // Cascade credits
+    document.getElementById('cascade-topup-btn').addEventListener('click', openCascadeCreditsModal);
+    document.getElementById('cascade-history-btn').addEventListener('click', openCascadeHistory);
+    document.getElementById('cascade-credits-modal-close').addEventListener('click', closeCascadeCreditsModal);
+    document.getElementById('cascade-credits-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'cascade-credits-modal') closeCascadeCreditsModal();
     });
 
     // Tabs
@@ -2172,14 +2038,8 @@
         tab.classList.add('active');
         document.getElementById(`tab-${tabId}`).classList.add('active');
 
-        // Загружаем функции при переходе на таб
         if (tabId === 'functions' && availableFunctions.length === 0) loadAvailableFunctions();
       });
-    });
-
-    // Temperature slider
-    document.getElementById('agent-temperature').addEventListener('input', (e) => {
-      document.getElementById('temperature-value').textContent = e.target.value;
     });
 
     // Confirm modal cancel
@@ -2202,7 +2062,7 @@
       window.location.href = '/static/dashboard.html';
     });
 
-    // Блокировка переходов на заблокированные страницы
+    // Block locked feature navigation
     document.querySelectorAll('[data-feature]').forEach(link => {
       link.addEventListener('click', function(e) {
         if (this.classList.contains('plan-locked-feature')) {
