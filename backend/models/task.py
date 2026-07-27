@@ -56,7 +56,7 @@ class Task(Base):
     # OpenAI ассистент - КТО будет звонить (nullable)
     assistant_id = Column(
         UUID(as_uuid=True), 
-        ForeignKey("assistant_configs.id"), 
+        ForeignKey("assistant_configs.id", ondelete="SET NULL"),
         nullable=True,  # ✅ Теперь nullable
         index=True
     )
@@ -64,7 +64,7 @@ class Task(Base):
     # Gemini ассистент - КТО будет звонить (nullable)
     gemini_assistant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("gemini_assistant_configs.id"),
+        ForeignKey("gemini_assistant_configs.id", ondelete="SET NULL"),
         nullable=True,  # ✅ Новое поле
         index=True
     )
@@ -72,7 +72,7 @@ class Task(Base):
     # Cartesia ассистент - КТО будет звонить (nullable)
     cartesia_assistant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("cartesia_assistant_configs.id"),
+        ForeignKey("cartesia_assistant_configs.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )
@@ -80,7 +80,7 @@ class Task(Base):
     # Yandex ассистент - КТО будет звонить (nullable)
     yandex_assistant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("yandex_assistant_configs.id"),
+        ForeignKey("yandex_assistant_configs.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )
@@ -88,7 +88,7 @@ class Task(Base):
     # Cascade ассистент (grok_assistant_configs, assistant_type='cascade') - nullable
     cascade_assistant_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("grok_assistant_configs.id"),
+        ForeignKey("grok_assistant_configs.id", ondelete="SET NULL"),
         nullable=True,
         index=True
     )

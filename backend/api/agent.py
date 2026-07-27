@@ -16,7 +16,7 @@ from fastapi.responses import Response, StreamingResponse, RedirectResponse, HTM
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, false
 
 from backend.core.logging import get_logger
 from backend.db.session import get_db, SessionLocal
@@ -785,7 +785,8 @@ async def delete_agent(
 ):
     """
     Полное удаление ОДНОГО агента и связанных с ним данных:
-    - tasks этого агента (по его контактам + его «сироты»)
+    - tasks этого агента: и по его контактам, и по его голосовому ассистенту
+      (вторые — «сироты» задач, чей контакт удалили раньше)
     - agent_calls и agent_contacts (каскадятся через FK AgentConfig)
     - AgentConfig
     - голосовой ассистент(ы), привязанные именно к этому агенту
@@ -806,16 +807,30 @@ async def delete_agent(
         ]
 
         # 0. Считаем SCHEDULED-задачи этого агента ДО удаления — для журнала.
+        #
+        # Задача принадлежит агенту, если она указывает на его контакт ИЛИ на
+        # его голосового ассистента. Второе условие обязательно: у задачи,
+        # чей контакт удалили раньше, agent_contact_id обнуляется
+        # (FK ondelete=SET NULL), и по контактам её уже не найти — а FK на
+        # ассистента у неё остаётся и блокирует удаление ассистента.
+        task_ownership = []
+        if contact_ids:
+            task_ownership.append(Task.agent_contact_id.in_(contact_ids))
+        for column, va_id in (
+            (Task.gemini_assistant_id, agent.gemini_assistant_id),
+            (Task.assistant_id, agent.openai_assistant_id),
+            (Task.cartesia_assistant_id, agent.cartesia_assistant_id),
+            (Task.yandex_assistant_id, agent.yandex_assistant_id),
+            (Task.cascade_assistant_id, agent.cascade_assistant_id),
+        ):
+            if va_id:
+                task_ownership.append(column == va_id)
+
         task_filter = [
             Task.user_id == current_user.id,
             Task.is_agent_task == True,
+            or_(*task_ownership) if task_ownership else false(),
         ]
-        if contact_ids:
-            task_filter.append(Task.agent_contact_id.in_(contact_ids))
-        else:
-            # У агента нет контактов → нет привязанных задач для удаления.
-            task_filter.append(Task.agent_contact_id.is_(None))
-            task_filter.append(Task.id.is_(None))  # фактически пусто
 
         scheduled_count = db.query(Task).filter(
             *task_filter, Task.status == TaskStatus.SCHEDULED,
@@ -837,12 +852,10 @@ async def delete_agent(
         ))
 
         # 1. tasks этого агента ПЕРВЫМИ (иначе ON DELETE SET NULL осиротит их).
-        if contact_ids:
-            summary["tasks"] = db.query(Task).filter(
-                Task.user_id == current_user.id,
-                Task.is_agent_task == True,
-                Task.agent_contact_id.in_(contact_ids),
-            ).delete(synchronize_session=False)
+        #    Тот же фильтр принадлежности, что и при подсчёте выше.
+        summary["tasks"] = db.query(Task).filter(*task_filter).delete(
+            synchronize_session=False
+        )
 
         # 2. Голосовые ассистенты, привязанные именно к этому агенту.
         va_total = 0
@@ -2316,11 +2329,20 @@ async def delete_agent_contact(
     if not contact:
         raise HTTPException(status_code=404, detail="not_found")
 
+    # Задачи контакта удаляем явно. Иначе FK ondelete=SET NULL обнулил бы у них
+    # agent_contact_id, и они остались бы висеть без контакта — планировщику
+    # бесполезны, из списка задач агента не убираются, а их FK на голосового
+    # ассистента блокирует последующее удаление агента.
+    deleted_tasks = db.query(Task).filter(
+        Task.user_id == current_user.id,
+        Task.agent_contact_id == contact.id,
+    ).delete(synchronize_session=False)
+
     db.delete(contact)
     db.commit()
 
-    logger.info(f"[AGENT] Deleted contact {contact_id}")
-    return {"detail": "deleted"}
+    logger.info(f"[AGENT] Deleted contact {contact_id} ({deleted_tasks} tasks removed)")
+    return {"detail": "deleted", "tasks_removed": deleted_tasks}
 
 
 @router.get("/pipeline/stages")

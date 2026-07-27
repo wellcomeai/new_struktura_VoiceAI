@@ -1214,6 +1214,66 @@ def ensure_agent_cascade_voice_columns():
         logger.error(f"❌ ensure_agent_cascade_voice_columns error: {e}")
 
 
+def ensure_task_assistant_fk_on_delete():
+    """
+    Идемпотентно переводит FK `tasks.*_assistant_id` на ON DELETE SET NULL.
+
+    Колонки создавались без ON DELETE, то есть с дефолтным NO ACTION: пока на
+    ассистента ссылается хоть одна задача, удалить его нельзя. Из-за этого
+    удаление агента падало с ForeignKeyViolation, если у задачи ранее удалили
+    контакт (agent_contact_id → NULL) и её переставали находить по контактам.
+
+    Задача без ассистента безвредна: планировщик пропускает такие задачи, а
+    удаление агента чистит их явно (см. api/agent.py::delete_agent).
+    """
+    assistant_columns = {
+        "assistant_id", "gemini_assistant_id", "cartesia_assistant_id",
+        "yandex_assistant_id", "cascade_assistant_id",
+    }
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        if not inspector.has_table('tasks'):
+            return
+
+        fixed = 0
+        with engine.connect() as conn:
+            # Имена constraint'ов читаем из БД, а не угадываем: часть колонок
+            # добавлялась разными механизмами и могла получить своё имя.
+            for fk in inspector.get_foreign_keys('tasks'):
+                columns = fk.get('constrained_columns') or []
+                name = fk.get('name')
+                target_table = fk.get('referred_table')
+                if len(columns) != 1 or columns[0] not in assistant_columns:
+                    continue
+                if not name or not target_table:
+                    continue
+                if (fk.get('options') or {}).get('ondelete', '').upper() == 'SET NULL':
+                    continue  # уже починен — не берём лишний раз ACCESS EXCLUSIVE
+
+                column = columns[0]
+                # DROP и ADD в одной транзакции: если ADD не пройдёт
+                # (например, есть висячая ссылка), старый constraint вернётся.
+                trans = conn.begin()
+                try:
+                    conn.execute(text(f'ALTER TABLE tasks DROP CONSTRAINT "{name}"'))
+                    conn.execute(text(
+                        f'ALTER TABLE tasks ADD CONSTRAINT "{name}" '
+                        f'FOREIGN KEY ({column}) REFERENCES {target_table}(id) '
+                        f'ON DELETE SET NULL'
+                    ))
+                    trans.commit()
+                    fixed += 1
+                except Exception as e:
+                    trans.rollback()
+                    logger.error(f"❌ Failed to fix FK {name} on tasks.{column}: {e}")
+
+        if fixed:
+            logger.info(f"✅ tasks assistant FKs switched to ON DELETE SET NULL ({fixed})")
+    except Exception as e:
+        logger.error(f"❌ ensure_task_assistant_fk_on_delete error: {e}")
+
+
 def ensure_agent_knowledge_base_columns():
     """
     Идемпотентно добавляет колонки базы знаний (Pinecone) в agent_configs.
@@ -1643,6 +1703,9 @@ async def startup_event():
 
                 # 🆕 Шаг 13.1: FK-колонки каскад-голоса (agent_configs + tasks)
                 ensure_agent_cascade_voice_columns()
+
+                # 🆕 Шаг 13.2: FK задач на ассистентов → ON DELETE SET NULL
+                ensure_task_assistant_fk_on_delete()
 
                 # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs
                 ensure_agent_knowledge_base_columns()
