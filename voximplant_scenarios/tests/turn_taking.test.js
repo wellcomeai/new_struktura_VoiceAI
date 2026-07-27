@@ -137,21 +137,44 @@ async function t4_reconcile() {
         `turnId=${corrections[0] && corrections[0].turnId} vs version=${turns[0] && turns[0].version}`);
 }
 
-async function t5_reconcileFalsePositive() {
-    console.log("\n[5] Реконсиляция не срабатывает на чужой текст (не расширение)");
-    const { turns, corrections } = await run([
+async function t5_reconcileOwnership() {
+    console.log("\n[5] Чей это финал — решает VAD, а не похожесть текста");
+    // Судья здесь именно VAD: speechStart отмечает НАЧАЛО новой речи, а финал
+    // ASR приходит только по её КОНЦУ. Значит для любой новой фразы speechStart
+    // обязан прийти раньше финала. Если его не было — финал принадлежит уже
+    // закрытому ходу, каким бы непохожим ни выглядел текст (Yandex свободно
+    // переписывает числительные в цифры).
+
+    // (а) speechStart не приходил -> это хвост закрытого хода, а не новый ход.
+    const tail = await run([
         { at: 0,    kind: "speechStart" },
         { at: 50,   kind: "interim", text: "да" },
         { at: 400,  kind: "speechEnd" },
         { at: 700,  kind: "turn", endOfTurn: true, p: 0.95 },
-        { at: 2000, kind: "final", text: "дальше по адресу ленина пять" }, // НЕ расширение «да»
+        { at: 2000, kind: "final", text: "да дальше по адресу ленина пять" },
     ], { policy: POLICY });
+    check("новой речи не было -> фантомный ход не открыт", tail.turns.length === 1,
+        `ходы: ${JSON.stringify(tail.turns.map((t) => t.input))}`);
+    check("текст не потерян — ушёл коррекцией",
+        tail.corrections.length === 1 && /ленина/.test(tail.corrections[0].full),
+        JSON.stringify(tail.corrections));
 
-    check("ложная коррекция не сработала", corrections.length === 0,
-        JSON.stringify(corrections));
-    check("новый текст не потерян — открыт следующий ход",
-        turns.length === 2 && /ленина/.test(turns[1].input),
-        `ходы: ${JSON.stringify(turns.map((t) => t.input))}`);
+    // (б) speechStart пришёл -> это действительно новая реплика, новый ход.
+    const fresh = await run([
+        { at: 0,    kind: "speechStart" },
+        { at: 50,   kind: "interim", text: "да" },
+        { at: 400,  kind: "speechEnd" },
+        { at: 700,  kind: "turn", endOfTurn: true, p: 0.95 },
+        { at: 1500, kind: "speechStart" },   // VAD объявил новую речь
+        { at: 1700, kind: "interim", text: "и ещё по адресу ленина пять" },
+        { at: 2400, kind: "speechEnd" },
+        { at: 2600, kind: "turn", endOfTurn: true, p: 0.95 },
+    ], { policy: POLICY });
+    check("новая речь была -> открыт второй ход",
+        fresh.turns.length === 2 && /ленина/.test(fresh.turns[1].input),
+        `ходы: ${JSON.stringify(fresh.turns.map((t) => t.input))}`);
+    check("первый ход не подменён коррекцией", fresh.corrections.length === 0,
+        JSON.stringify(fresh.corrections));
 }
 
 async function t6_bargeIn() {
@@ -232,16 +255,58 @@ async function t9_emptySegment() {
         "canPlayAgentAudio() === false: агент онемел до конца звонка");
 }
 
+async function t10_renormalizedFinal() {
+    console.log("\n[10] Перенормированный финал Yandex не создаёт фантомный ход");
+    // Реальный случай из тестового звонка 4911441306: interim «две тысячи
+    // тринадцатый», а финал Yandex отдаёт как «2013». Сверка по префиксу это не
+    // узнаёт, и без защиты тот же отрезок речи уезжал в LLM вторым ходом.
+    const cases = [
+        ["две тысячи тринадцатый", "2013"],
+        ["двести тридцать четыре тысячи", "234000"],
+        ["двести тридцать четыре это пробег а по птс владельцев два человека",
+         "234 это пробег а по птс владельцев 2 человека"],
+    ];
+    for (const [spoken, renormalized] of cases) {
+        const { turns, corrections, tt } = await run([
+            { at: 0,    kind: "speechStart" },
+            { at: 100,  kind: "interim", text: spoken },
+            { at: 700,  kind: "speechEnd" },
+            { at: 900,  kind: "turn", endOfTurn: true, p: 0.98 },
+            { at: 2400, kind: "final", text: renormalized },
+        ], { policy: POLICY });
+
+        check(`«${spoken.slice(0, 28)}» -> «${renormalized}»: ровно один ход`,
+            turns.length === 1, `ходы: ${JSON.stringify(turns.map((t) => t.input))}`);
+        check("   ложная коррекция не сработала", corrections.length === 0,
+            JSON.stringify(corrections));
+        check("   перенормировка учтена в статистике",
+            tt.stats().renormalizedFinals === 1, JSON.stringify(tt.stats()));
+    }
+
+    // Обрезка при этом должна ловиться и через перенормировку: слов стало больше.
+    const { corrections } = await run([
+        { at: 0,    kind: "speechStart" },
+        { at: 100,  kind: "interim", text: "двести тридцать" },
+        { at: 700,  kind: "speechEnd" },
+        { at: 900,  kind: "turn", endOfTurn: true, p: 0.98 },
+        { at: 2400, kind: "final", text: "234000 рублей это моя цена" },
+    ], { policy: POLICY });
+    check("настоящая обрезка ловится и после перенормировки",
+        corrections.length === 1 && /рублей/.test(corrections[0].full),
+        JSON.stringify(corrections));
+}
+
 (async () => {
     await t1_logRepro();
     await t2_veto();
     await t3_stalePrediction();
     await t4_reconcile();
-    await t5_reconcileFalsePositive();
+    await t5_reconcileOwnership();
     await t6_bargeIn();
     await t7_noRegression();
     await t8_vadStuck();
     await t9_emptySegment();
+    await t10_renormalizedFinal();
     console.log(failed ? `\nПРОВАЛЕНО проверок: ${failed}` : "\nВсе проверки пройдены.");
     process.exit(failed ? 1 : 0);
 })();

@@ -212,6 +212,7 @@ if (typeof VoxTurnTaking === "undefined") {
                 bargeInsSuppressed: 0,
                 corrections: 0,
                 correctionCharsGained: 0,
+                renormalizedFinals: 0,
                 forcedCloses: 0,
             };
 
@@ -461,14 +462,27 @@ if (typeof VoxTurnTaking === "undefined") {
                 // отправленное — отдаём сценарию как исправление.
                 if (submitted && Date.now() - submitted.at <= policy.reconcileWindowMs) {
                     if (norm === submitted.norm) return; // дубль отправленного
-                    // Расширение — только по границе слова: иначе «да» ложно
-                    // совпадёт с «дальше» и мы починим ход чужим текстом.
+
+                    // Расширение по границе слова: иначе «да» ложно совпадёт с
+                    // «дальше» и мы починим ход чужим текстом.
                     const extendsSent =
                         submitted.norm &&
                         norm.length > submitted.norm.length &&
                         norm.indexOf(submitted.norm) === 0 &&
                         norm.charAt(submitted.norm.length) === " ";
-                    if (extendsSent) {
+
+                    // Yandex отдаёт финал ПЕРЕНОРМИРОВАННЫМ: interim «две тысячи
+                    // тринадцатый» -> финал «2013», «двести тридцать четыре тысячи»
+                    // -> «234000». Сверка по префиксу этого не узнаёт, поэтому
+                    // одного её мало — иначе тот же самый отрезок речи уезжает в
+                    // LLM вторым, фантомным ходом (в тестовом звонке так было
+                    // 3 хода из 8, и один сбил ассистента с толку). Признак
+                    // реальной обрезки, устойчивый к перенормировке: в финале
+                    // СТАЛО БОЛЬШЕ слов, чем мы отправили.
+                    const words = (s) => (s ? s.split(" ").filter(Boolean).length : 0);
+                    const gotMoreWords = words(norm) > words(submitted.norm);
+
+                    if (extendsSent || gotMoreWords) {
                         const lagMs = Date.now() - submitted.at;
                         const gained = text.length - submitted.raw.length;
                         stats.corrections += 1;
@@ -483,6 +497,16 @@ if (typeof VoxTurnTaking === "undefined") {
                         if (onTurnCorrection) {
                             onTurnCorrection(text, correctedTurnId, { sentText, lagMs });
                         }
+                        return;
+                    }
+
+                    // Слов не прибавилось, а VAD о новой речи ещё не сообщил —
+                    // значит это тот же отрезок аудио, просто записанный иначе.
+                    // Новым ходом он быть не может: новую речь VAD объявил бы
+                    // раньше, чем ASR успел отдать по ней финал.
+                    if (!acceptingTranscript) {
+                        stats.renormalizedFinals += 1;
+                        log(`===ASR_RENORMALIZED=== sent="${submitted.raw}" final="${text}" — не новый ход`);
                         return;
                     }
                 }
@@ -737,6 +761,7 @@ if (typeof VoxTurnTaking === "undefined") {
                         `veto=${stats.holdsVeto} | stale_predictions=${stats.stalePredictions} | ` +
                         `barge-in: real=${stats.bargeIns} suppressed=${stats.bargeInsSuppressed} | ` +
                         `truncations=${stats.corrections} (+${stats.correctionCharsGained} chars) | ` +
+                        `renormalized=${stats.renormalizedFinals} | ` +
                         `forced=${stats.forcedCloses}`
                     );
                 },
