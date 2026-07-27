@@ -752,7 +752,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             stt,
             // Пауза 0.2с считалась концом речи и рвала фразу на сегменты —
             // для русской разговорной речи это норма внутри предложения.
-            vadOptions: { threshold: 0.5, minSilenceDurationMs: 650, speechPadMs: 200 },
+            // 500мс — текущий компромисс скорость/перебивания (см. коммент к
+            // DEFAULTS.vadOptions в vox-turn-taking.js). Ниже опускать только
+            // после звонка с собеседником, который формулирует на ходу.
+            vadOptions: { threshold: 0.5, minSilenceDurationMs: 500, speechPadMs: 200 },
             turnDetectorOptions: { threshold: 0.7 },
             policy: {
                 confidentEouProbability: 0.8,

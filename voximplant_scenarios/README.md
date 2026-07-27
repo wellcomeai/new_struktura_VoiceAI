@@ -65,7 +65,7 @@ Pipecat Smart Turn) → OpenAI gpt-5.4-nano (Chat Completions, stateless, руч
 | Решение по interim | Закрывали по последнему interim, финал (в среднем +4.6с) выбрасывался | Ждём, пока ASR перестанет дописывать (`interimStableMs`), потолок `maxInterimWaitMs` |
 | Поздний финал | Выбрасывался; мог приклеиться к следующей реплике | Реконсиляция: если финал расширяет отправленное — `onTurnCorrection`, сценарий чинит историю и (если агент ещё молчит) перегенеривает ответ — `TURN_TRUNCATED` |
 | Barge-in | `onInterrupt` на каждый `speechStart` — по сути счётчик сегментов VAD | Только когда агент реально звучит (`isAgentSpeaking`) и речь продержалась `bargeInMinSpeechMs` |
-| VAD | `minSilenceDurationMs: 200`, `speechPadMs: 10` | `650` / `200` — паузы 0.3-0.5с внутри фразы для русской речи это норма |
+| VAD | `minSilenceDurationMs: 200`, `speechPadMs: 10` | `500` / `200` — паузы 0.3-0.5с внутри фразы для русской речи это норма |
 
 Оценка «агент звучит» живёт в сценариях (`noteAgentAudio` / `isAgentSpeaking`):
 realtime-плеер VoxTTS не отдаёт событие окончания воспроизведения, поэтому она
