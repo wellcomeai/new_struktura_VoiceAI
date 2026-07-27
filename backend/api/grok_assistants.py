@@ -25,7 +25,10 @@ from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
 from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
-from backend.core.dependencies import get_current_user, check_assistant_limit
+from backend.core.dependencies import (
+    get_current_user, get_current_user_flexible,
+    check_assistant_limit, check_assistant_limit_flexible,
+)
 
 logger = get_logger(__name__)
 
@@ -157,8 +160,8 @@ class CascadeAssistantCreate(BaseModel):
     openrouter_model:  str            = Field(default="meta-llama/llama-3.3-70b-instruct")
     temperature:       float          = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens:        int            = Field(default=1024, ge=1, le=8192)
-    tts_provider:      str            = Field(default="yandex")
-    tts_voice:         str            = Field(default="alena")
+    tts_provider:      str            = Field(default="voxtts")
+    tts_voice:         str            = Field(default="Anna")
     tts_lang:          str            = Field(default="ru")
     asr_lang:          str            = Field(default="ru")
     functions:         Optional[List[dict]] = None
@@ -310,6 +313,29 @@ def validate_audio_format(fmt: str) -> str:
     return fmt if fmt in valid_formats else "audio/pcm"
 
 
+def validate_cascade_tts(provider: Optional[str], voice: Optional[str]) -> None:
+    """
+    Проверить пару TTS-провайдер + голос каскад-ассистента.
+
+    Без этой проверки неизвестный голос молча заменялся дефолтным уже на
+    звонке — интеграция по API-ключу получала не тот голос, который просила.
+    """
+    if provider is not None and provider not in TTS_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}",
+        )
+    if voice is None:
+        return
+    provider_voices = TTS_PROVIDERS.get(provider or "voxtts", {}).get("voices", [])
+    valid = [v["id"] for v in provider_voices]
+    if voice not in valid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown TTS voice for provider '{provider or 'voxtts'}'. Available: {valid}",
+        )
+
+
 def get_cascade_or_404(assistant_id: str, user_id: str, db: Session) -> GrokAssistantConfig:
     try:
         uid = uuid.UUID(assistant_id)
@@ -432,10 +458,10 @@ class CascadePurchaseRequest(BaseModel):
 @router.get("/cascade/credits/balance")
 async def get_cascade_credits_balance(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
 ):
-    """Баланс кредитов каскада. Лениво выдаёт разовый тестовый грант (1500),
-    если пользователь его ещё не получал (для новых юзеров)."""
+    """Баланс кредитов каскада. Лениво выдаёт разовый тестовый грант
+    (CascadeCreditService.TRIAL_CREDITS), если юзер его ещё не получал."""
     from backend.services.cascade_credit_service import (
         CascadeCreditService, INPUT_CREDITS_PER_1K, OUTPUT_CREDITS_PER_1K,
     )
@@ -555,7 +581,7 @@ async def purchase_cascade_credits(
 @router.get("/cascade", response_model=List[CascadeAssistantResponse])
 async def list_cascade_assistants(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_flexible)
 ):
     assistants = db.query(GrokAssistantConfig).filter(
         GrokAssistantConfig.user_id == current_user.id,
@@ -568,15 +594,14 @@ async def list_cascade_assistants(
 async def create_cascade_assistant(
     data: CascadeAssistantCreate,
     db: Session = Depends(get_db),
-    # check_assistant_limit проверяет активность подписки + общий лимит
-    # ассистентов по всем провайдерам
-    current_user: User = Depends(check_assistant_limit)
+    # check_assistant_limit_flexible проверяет активность подписки + общий
+    # лимит ассистентов по всем провайдерам; авторизация — JWT или X-Api-Key
+    current_user: User = Depends(check_assistant_limit_flexible)
 ):
     # ✅ Каскад работает на СЕРВЕРНОМ ключе OpenAI (settings.OPENAI_API_KEY),
     # пользовательский ключ больше не требуется. Расход LLM оплачивается
     # кредитами каскада (cascade_credits_balance).
-    if data.tts_provider not in TTS_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}")
+    validate_cascade_tts(data.tts_provider, data.tts_voice)
 
     assistant = GrokAssistantConfig(
         user_id=current_user.id, assistant_type="cascade",
@@ -603,7 +628,7 @@ async def create_cascade_assistant(
 async def get_cascade_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_flexible)
 ):
     a = get_cascade_or_404(assistant_id, str(current_user.id), db)
     return cascade_to_response(a)
@@ -614,11 +639,11 @@ async def update_cascade_assistant(
     assistant_id: str,
     data: CascadeAssistantUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_flexible)
 ):
     a = get_cascade_or_404(assistant_id, str(current_user.id), db)
-    if data.tts_provider and data.tts_provider not in TTS_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}")
+    # Голос проверяем против провайдера, который будет у ассистента после апдейта
+    validate_cascade_tts(data.tts_provider or a.tts_provider, data.tts_voice)
     for key, value in data.dict(exclude_unset=True).items():
         setattr(a, key, value)
     db.commit()
@@ -631,7 +656,7 @@ async def update_cascade_assistant(
 async def delete_cascade_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user_flexible)
 ):
     a = get_cascade_or_404(assistant_id, str(current_user.id), db)
     db.delete(a)

@@ -1,8 +1,10 @@
 # Voicyfy Agent API — создание и настройка автономных агентов
 
 API для программного управления автономными агентами обзвона Voicyfy
-(страница `https://voicyfy.ru/static/agent.html`). Предназначено для
-интеграций вроде Claude Code: агент создаётся и настраивается HTTP-запросами.
+(страница `https://voicyfy.ru/static/agent.html`) и каскад-ассистентами
+(страница `https://voicyfy.ru/static/cascade.html`). Предназначено для
+интеграций вроде Claude Code: агент или ассистент создаётся и настраивается
+HTTP-запросами.
 
 Документ также содержит полный справочник возможностей агента (инструменты
 оркестратора, функции голосового агента, каналы, автоматика, тарифы) — чтобы
@@ -27,9 +29,9 @@ X-Api-Key: vfy_...
 
 Ошибки авторизации: `401 {"detail": "invalid_api_key"}`.
 
-Доступные по ключу эндпоинты — только перечисленные ниже (создание,
-редактирование и чтение агентов + справочник моделей). Всё остальное API
-Voicyfy по ключу недоступно.
+Доступные по ключу эндпоинты — только перечисленные ниже: агенты (создание,
+редактирование, чтение + справочник моделей) и каскад-ассистенты (CRUD +
+баланс кредитов каскада). Всё остальное API Voicyfy по ключу недоступно.
 
 ---
 
@@ -205,6 +207,8 @@ PostCall и чата — агент «помнит» клиента между �
 | `google_calendar_create_event` / `google_calendar_find_events` | Записать на встречу / посмотреть календарь владельца | подключён Google Calendar |
 | `gmail_send_email` / `gmail_fetch_emails` | Отправить/прочитать письмо с Gmail владельца | подключён Gmail |
 
+Набор одинаков для всех голосовых провайдеров, включая `cascade`.
+
 **Чего у голосового агента НЕТ** (важно для промптов):
 
 - нет CRM-инструментов (контакты, стадии, заметки) — всё это делает PostCall
@@ -306,9 +310,18 @@ PostCall и чата — агент «помнит» клиента между �
   выбранной модели `orchestrator_model`. Баланс ниже 100 кредитов —
   оркестратор не запускается (`402 insufficient_credits`). Пакеты пополнения
   покупаются в кабинете на странице агента.
-- **Голосовая часть оплачивается отдельно** от кредитов: пользователь
-  подключает собственные API-ключи голосовых провайдеров (OpenAI / Gemini /
-  Cartesia / Yandex) и телефонию Voximplant (номера, минуты, SMS) в кабинете.
+- **Голосовая часть оплачивается отдельно** от кредитов оркестратора:
+  пользователь подключает собственные API-ключи голосовых провайдеров
+  (OpenAI / Gemini / Cartesia / Yandex) и телефонию Voximplant (номера,
+  минуты, SMS) в кабинете.
+- **Каскад — исключение: свои ключи не нужны.** Голосовая часть каскада
+  работает на внутренних ресурсах платформы и оплачивается **кредитами
+  каскада** — это отдельный кошелёк, не связанный ни с кредитами
+  оркестратора, ни с подпиской. Он доступен на всех тарифах, включая
+  бесплатный, новым пользователям начисляется стартовый пакет, пополнение —
+  в кабинете на странице каскад-агентов. Если кредиты каскада закончились,
+  звонки каскад-ассистентов не идут, пока баланс не пополнят; на остальные
+  типы ассистентов это не влияет.
 - **Telegram-бот агента** — подключается в кабинете (токен бота): уведомления
   владельцу + полноценный чат с оркестратором прямо в Telegram.
 - **Личный Telegram-аккаунт** — подключается в кабинете (телефон → код →
@@ -320,7 +333,9 @@ PostCall и чата — агент «помнит» клиента между �
 - **База знаний** — создаётся в кабинете на странице агента (векторная БД);
   флаг `has_knowledge_base` в объекте агента показывает её наличие.
 - **Лимит**: до 3 агентов на аккаунт; у каждого агента свои контакты, задачи,
-  память и подключения.
+  память и подключения. Это отдельный счётчик: голосовой ассистент, который
+  создаётся вместе с агентом, **не занимает** лимит ассистентов тарифа
+  (start — 5, profi — 10).
 
 ---
 
@@ -393,14 +408,14 @@ curl -X POST https://voicyfy.ru/api/agent/create \
 | Поле | Тип | Обяз. | Описание |
 |------|-----|-------|----------|
 | `name` | string | да | Имя агента (1–255 символов) |
-| `assistant_type` | string | да | Провайдер голоса: `gemini` \| `openai` \| `cartesia` \| `yandex` |
+| `assistant_type` | string | да | Провайдер голоса: `cascade` \| `gemini` \| `openai` \| `cartesia` \| `yandex`. `cascade` — единственный, для которого не нужен свой ключ провайдера (см. «Каскад» ниже) |
 | `doc_who_am_i` … `doc_rules_and_goals` | string | да (все 5) | Документы компании для оркестратора |
 | `additional_instructions` | string | нет | Доп. инструкции оркестратора |
 | `voice_additional_instructions` | string | нет | Доп. инструкции голосового агента |
 | `inbound_first_phrase` | string | нет | Приветствие входящих (≤500 символов) |
 | `working_hours_start` / `working_hours_end` | int 0–23 | нет | Рабочие часы для звонков (МСК), по умолчанию 9–21 |
 | `orchestrator_model` | string | нет | Slug из `/orchestrator-models`; по умолчанию — дефолтная |
-| `voice` | string | нет | Имя голоса для gemini/openai/yandex (см. списки ниже) |
+| `voice` | string | нет | Имя голоса для cascade/gemini/openai/yandex (см. списки ниже) |
 | `cartesia_voice_id` | string | нет | ID голоса Cartesia (только для `assistant_type: "cartesia"`) |
 | `voice_speed` | float 0.5–1.5 | нет | Скорость речи (только Cartesia) |
 
@@ -411,6 +426,10 @@ curl -X POST https://voicyfy.ru/api/agent/create \
 телефония Voximplant, задан API-ключ выбранного голосового провайдера
 (в настройках кабинета), активен тариф agent/profi или доступен триал,
 меньше 3 агентов.
+
+Для `assistant_type: "cascade"` ключ провайдера **не нужен** — это
+единственный вариант, который сразу работает без подключения внешних
+сервисов. Остальные предусловия те же.
 
 ### 5. PUT /api/agent/?agent_id={id} — редактировать агента
 
@@ -433,7 +452,7 @@ curl -X PUT "https://voicyfy.ru/api/agent/?agent_id=<uuid>" \
 | `is_active` | bool | Включить/выключить агента |
 | `default_caller_id` | string | Номер, с которого звонит агент |
 | `webhook_url` | string ≤500 | URL вебхука для передачи событий во внешнюю систему |
-| `assistant_type` | string | Смена голосового провайдера (создаётся новый голосовой ассистент; нужен ключ нового провайдера) |
+| `assistant_type` | string | Смена голосового провайдера (создаётся новый голосовой ассистент; нужен ключ нового провайдера — кроме `cascade`, ему ключ не нужен). Голос сбрасывается на дефолтный, если текущий не поддержан новым провайдером |
 
 При изменении `voice_additional_instructions` системный промпт голосового
 агента пересобирается автоматически. При изменении `doc_*` промпт оркестратора
@@ -443,13 +462,14 @@ curl -X PUT "https://voicyfy.ru/api/agent/?agent_id=<uuid>" \
 
 ## Голоса по провайдерам
 
+- **cascade:** `Anna`, `Sergey` (русская речь)
 - **openai:** `alloy`, `echo`, `marin`, `cedar`, `shimmer`, `ash`, `ballad`, `coral`, `sage`, `verse`
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
 - **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
 - **cartesia:** голос задаётся не именем, а `cartesia_voice_id` + опционально `voice_speed` (0.5–1.5)
 
 Невалидное имя голоса → `400 invalid_voice` (в update) или молча дефолт (в create).
-Дефолты: openai — `alloy`, gemini — `Kore`, yandex — `marina`.
+Дефолты: cascade — `Anna`, openai — `alloy`, gemini — `Kore`, yandex — `marina`.
 
 ---
 
@@ -462,6 +482,102 @@ curl -X PUT "https://voicyfy.ru/api/agent/?agent_id=<uuid>" \
 `default_caller_id`, `webhook_url`, `voice`, `cartesia_voice_id`,
 `voice_speed`, `has_knowledge_base`, `created_at`, `updated_at`.
 
+Плюс `assistant_id` и идентификатор голосового ассистента того провайдера,
+который выбран: `gemini_assistant_id`, `openai_assistant_id`,
+`cartesia_assistant_id`, `yandex_assistant_id`, `cascade_assistant_id`
+(заполнен ровно один).
+
+---
+
+## Каскад-ассистенты (отдельно от агента)
+
+Каскад — это ещё и **самостоятельный тип ассистента**, не только голос агента.
+Такой ассистент отвечает на звонки сам, без оркестратора, задач и CRM: у него
+есть системный промпт, приветствие, голос и набор функций.
+
+Главное отличие от остальных типов: **не нужны никакие свои API-ключи** —
+каскад работает на внутренних ресурсах платформы и оплачивается кредитами
+каскада (см. раздел «Тарифы, кредиты и подключения»). Доступен на всех
+тарифах.
+
+Каскад-ассистенты **занимают общий лимит ассистентов тарифа** (start — 5,
+profi — 10) наравне с OpenAI/Gemini/Cartesia/Yandex.
+
+### 6. GET /api/grok-assistants/cascade — список
+
+```bash
+curl -H "X-Api-Key: vfy_..." https://voicyfy.ru/api/grok-assistants/cascade
+```
+
+### 7. POST /api/grok-assistants/cascade — создать
+
+```bash
+curl -X POST https://voicyfy.ru/api/grok-assistants/cascade \
+  -H "X-Api-Key: vfy_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Приёмная АкваЛето",
+    "system_prompt": "Ты — оператор компании «АкваЛето»...",
+    "greeting_message": "Здравствуйте! Компания АкваЛето, чем помочь?",
+    "tts_voice": "Anna"
+  }'
+```
+
+| Поле | Тип | Обяз. | Описание |
+|------|-----|-------|----------|
+| `name` | string | да | Название ассистента (1–255 символов) |
+| `system_prompt` | string | да | Инструкция ассистента — как себя вести в разговоре |
+| `description` | string | нет | Описание для себя (≤500 символов) |
+| `greeting_message` | string | нет | Первая фраза при входящем звонке (≤500 символов) |
+| `tts_voice` | string | нет | Голос: `Anna` или `Sergey`. По умолчанию `Anna` |
+| `tts_provider` | string | нет | Оставляй значение по умолчанию (`voxtts`) |
+| `temperature` | float 0–2 | нет | Креативность ответов, по умолчанию 0.7 |
+| `max_tokens` | int 1–8192 | нет | Лимит длины ответа, по умолчанию 1024 |
+| `functions` | array | нет | Функции ассистента (тот же формат, что у остальных провайдеров) |
+| `is_telephony_enabled` | bool | нет | Разрешить приём звонков, по умолчанию `true` |
+
+Ответ `201` с объектом ассистента; `id` понадобится для остальных запросов.
+
+Ошибки: `400` — неизвестный голос (в ответе список допустимых);
+`402 subscription_required` — нет активной подписки;
+`403 assistant_limit_reached` — исчерпан лимит ассистентов тарифа.
+
+### 8. GET / PUT / DELETE /api/grok-assistants/cascade/{id}
+
+```bash
+# прочитать
+curl -H "X-Api-Key: vfy_..." https://voicyfy.ru/api/grok-assistants/cascade/<uuid>
+
+# изменить (только передаваемые поля)
+curl -X PUT https://voicyfy.ru/api/grok-assistants/cascade/<uuid> \
+  -H "X-Api-Key: vfy_..." -H "Content-Type: application/json" \
+  -d '{"tts_voice": "Sergey", "greeting_message": "АкваЛето, слушаю вас."}'
+
+# удалить
+curl -X DELETE https://voicyfy.ru/api/grok-assistants/cascade/<uuid> \
+  -H "X-Api-Key: vfy_..."
+```
+
+В `PUT` доступны все поля из create плюс `is_active`. `DELETE` возвращает `204`.
+
+### 9. GET /api/grok-assistants/cascade/credits/balance — баланс кредитов
+
+```bash
+curl -H "X-Api-Key: vfy_..." \
+  https://voicyfy.ru/api/grok-assistants/cascade/credits/balance
+```
+
+Возвращает текущий баланс кредитов каскада. Полезно проверить перед тем, как
+обещать пользователю, что ассистент будет принимать звонки: при нулевом
+балансе звонки не идут. Пополнение — только в кабинете.
+
+### Что делается в кабинете, а не по ключу
+
+Привязка ассистента к телефонному номеру, запуск исходящих звонков, покупка
+кредитов и номеров по API-ключу **недоступны** — это делает владелец аккаунта
+на `https://voicyfy.ru/static/cascade.html` и странице телефонии. По ключу
+доступны только создание и настройка самих ассистентов.
+
 ---
 
 ## Ошибки
@@ -470,10 +586,11 @@ curl -X PUT "https://voicyfy.ru/api/agent/?agent_id=<uuid>" \
 |-----|----------|---------|
 | 401 | `invalid_api_key` | Неверный или отозванный API-ключ |
 | 400 | `telephony_not_verified` | Телефония Voximplant не верифицирована (делается в кабинете) |
-| 400 | `api_key_required_gemini` / `api_key_required_openai` / `api_key_required_cartesia` / `api_key_required_yandex` | Не задан ключ голосового провайдера в настройках кабинета |
+| 400 | `api_key_required_gemini` / `api_key_required_openai` / `api_key_required_cartesia` / `api_key_required_yandex` | Не задан ключ голосового провайдера в настройках кабинета. Для `cascade` такой ошибки не бывает — ключ ему не нужен |
 | 400 | `agent_limit_reached` | Уже 3 агента |
 | 400 | `invalid_assistant_type` / `invalid_orchestrator_model` / `invalid_voice` | Невалидное значение поля |
 | 402 | `subscription_required` | Триал использован, нужен тариф |
+| 403 | `assistant_limit_reached` | Исчерпан лимит ассистентов тарифа (при создании каскад-ассистента) |
 | 404 | `not_found` | Агент не найден (чужой или несуществующий `agent_id`) |
 
 ---
@@ -493,6 +610,18 @@ curl -X PUT "https://voicyfy.ru/api/agent/?agent_id=<uuid>" \
    «Гайд: как писать промпты».
 4. `POST /api/agent/create`.
 5. Обработать возможные 400/402 (предусловия выполняются пользователем в кабинете).
+
+**Если у пользователя не подключён ни один голосовой провайдер** — предлагай
+`assistant_type: "cascade"`: ему не нужны свои ключи, он доступен на любом
+тарифе и стартует сразу.
+
+**Создание каскад-ассистента (без агента):**
+1. `GET /api/grok-assistants/cascade` → посмотреть, что уже есть.
+2. `POST /api/grok-assistants/cascade` → `name`, `system_prompt`,
+   `greeting_message`, `tts_voice`.
+3. При `403 assistant_limit_reached` — сказать пользователю, что исчерпан
+   лимит ассистентов тарифа, и предложить удалить лишнего или поднять тариф.
+4. Напомнить, что привязать ассистента к номеру нужно в кабинете.
 
 **При настройке промптов** сверяйся с разделами «Жизненный цикл звонка»,
 «Инструменты оркестратора» и «Функции голосового агента»: инструкции,

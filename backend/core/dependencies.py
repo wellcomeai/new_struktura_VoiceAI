@@ -301,22 +301,21 @@ async def check_subscription_active_for_assistants(
     return current_user
 
 
-async def check_assistant_limit(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-) -> User:
+async def enforce_assistant_limit(db: Session, current_user: User) -> User:
     """
-    Check if the current user has reached their assistant limit
-    
-    ✅ UPDATED: Added support for special assistant limits per user
-    
+    Проверить, что пользователь может создать ещё одного ассистента.
+
+    Общая реализация для двух зависимостей: `check_assistant_limit` (JWT из
+    кабинета) и `check_assistant_limit_flexible` (JWT или персональный
+    API-ключ интеграции). Правила у них обязаны совпадать.
+
     Args:
         db: Database session
         current_user: Current authenticated user
-        
+
     Returns:
         Current user if they haven't reached their assistant limit
-        
+
     Raises:
         HTTPException: If user has reached their assistant limit or subscription expired
     """
@@ -326,7 +325,7 @@ async def check_assistant_limit(
     # Admin и привилегированные пользователи имеют неограниченное количество ассистентов
     if current_user.is_admin or current_user.email in PRIVILEGED_UNLIMITED_EMAILS:
         return current_user
-    
+
     # Get subscription status
     subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
     
@@ -376,8 +375,27 @@ async def check_assistant_limit(
                 "max_assistants": max_assistants
             }
         )
-    
+
     return current_user
+
+
+async def check_assistant_limit(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Лимит ассистентов для эндпоинтов кабинета (авторизация только по JWT)."""
+    return await enforce_assistant_limit(db, current_user)
+
+
+async def check_assistant_limit_flexible(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_flexible)
+) -> User:
+    """
+    Лимит ассистентов для эндпоинтов, открытых во внешний API: авторизация
+    по персональному API-ключу (`X-Api-Key`) ИЛИ по JWT кабинета.
+    """
+    return await enforce_assistant_limit(db, current_user)
 
 
 async def check_subscription_or_show_popup(

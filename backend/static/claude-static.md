@@ -6,7 +6,7 @@
 ## Состав (верхний уровень)
 ### HTML-страницы кабинета
 - `dashboard.html` — дашборд пользователя.
-- `agents.html` — OpenAI-ассистенты; `gemini-agents.html`, `grok-agents.html`, `cartesia-agents.html`, `elevenlabs-agents.html`, `translate.html` — страницы по провайдерам; `gemini-agents_old.html` — легаси.
+- `agents.html` — OpenAI-ассистенты; `gemini-agents.html`, `grok-agents.html`, `cartesia-agents.html`, `yandex-agents.html`, `cascade.html`, `elevenlabs-agents.html`, `translate.html` — страницы по провайдерам; `gemini-agents_old.html` — легаси.
 - `crm.html`, `crm-contact.html` — CRM (список и карточка контакта).
 - `conversations.html` — история диалогов.
 - `telephony.html`, `outbound-calls.html`, `test_outbound-calls.html` — телефония и обзвон.
@@ -14,7 +14,9 @@
 - `knowledge-base.html`, `integrations.html`, `settings.html`, `admin.html` — база знаний, интеграции, настройки, админка.
 - `index.html`, `index_original.html` — входные/легаси страницы; `widget.html` — демо виджета.
 - Юридические/контентные: `privacy-policy.html`, `public-offer.html`, `terms-of-service.html`, `payment-terms.html`, `prompts-wiki.html`, `api-docs.html`, и др.
-- Тестовые: `cascade-test.html`, `test-ga-api.html`.
+- Тестовые: `test-ga-api.html`. `cascade-test.html` — заглушка-редирект на
+  `cascade.html` (страница переименована; заглушка сохраняет query-параметры
+  старых ссылок).
 
 ### Встраиваемые виджеты (JS)
 - `widget.js`, `widget-test-new.js` — основной голосовой web-виджет (OpenAI Realtime).

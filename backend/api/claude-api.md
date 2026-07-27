@@ -12,7 +12,7 @@
 ### Ассистенты по провайдерам (CRUD + embed)
 - `assistants.py` — `/api/assistants` — OpenAI Realtime ассистенты.
 - `gemini_assistants.py` — `/api/gemini-assistants` — Google Gemini Live.
-- `grok_assistants.py` — `/api/grok-assistants` — xAI Grok Voice.
+- `grok_assistants.py` — `/api/grok-assistants` — xAI Grok Voice **и каскад-ассистенты**: `/cascade*` (CRUD, справочник TTS, кошелёк кредитов каскада). Каскад хранится в той же таблице, что и Grok, и различается `assistant_type='cascade'`; порядок роутов важен — все `/cascade/*` объявлены до `/{assistant_id}`. CRUD каскада и `/cascade/credits/balance` принимают авторизацию `get_current_user_flexible` (JWT или `X-Api-Key`), остальные роуты — только JWT.
 - `cartesia_assistants.py` — `/api/cartesia-assistants` — Cartesia TTS.
 - `translate_assistants.py` — `/api/translate-assistants` — ассистент синхронного перевода.
 - `elevenlabs.py` — `/api/elevenlabs` — ElevenLabs-агенты (данные в основном на стороне ElevenLabs API).
@@ -44,7 +44,7 @@
 - `embeds.py` — встраиваемые виджеты (`/embed/{embed_code}` отдаёт HTML), CRUD embed-конфигов. Префикс задаётся внутри.
 
 ### Подписки, платежи, партнёры
-- `subscriptions.py` — `/api/subscriptions` — планы подписки.
+- `subscriptions.py` — `/api/subscriptions` — планы подписки, `/my-subscription`, `/assistants-usage` (единый расход лимита ассистентов по всем провайдерам — этим эндпоинтом пользуются все страницы агентов и дашборд).
 - `subscription_logs.py` — `/api/subscription-logs` — лог событий подписки.
 - `subscription_status.py` — `/check-access`, `/force-check`. ⚠️ В `app.py` напрямую НЕ зарегистрирован — проверяйте подключение.
 - `payments.py` — `/api/payments` — планы, создание платежа, **`/robokassa-result`** (webhook платёжки Robokassa), success/cancel-страницы, статус, диагностика подписи.
@@ -74,6 +74,7 @@
 - **Дублирование по провайдерам.** Пять почти одинаковых `*_assistants.py` — общие правки нужно вносить во все. Объединённой абстракции нет.
 - **`voximplant.py` большой** (v3.9, ~2000 строк) — ищите конкретный эндпоинт, не читайте целиком.
 - Привилегированные email'ы и спец-лимиты зашиты в `core/dependencies.py` — влияют на доступ к `admin.py` и обход проверок подписки.
+- Создание ассистентов у всех провайдеров закрыто зависимостью `check_assistant_limit` / `check_assistant_limit_flexible`; лимит общий на все типы. Добавляя нового провайдера, не забудь повесить её на его POST-роут.
 
 ## Связанные файлы документации
 - `../claude-backend.md` — родительская
