@@ -130,7 +130,9 @@ async function deleteAgent(){
     `  • Все контакты агента\n` +
     `  • Всю историю звонков и транскрипты\n` +
     `  • Все запланированные задачи\n` +
-    `  • Голосовых ассистентов агента\n\n` +
+    `  • Голосовых ассистентов агента и их диалоги\n\n` +
+    `Телефонные номера останутся у вас, но будут отвязаны от агента —\n` +
+    `входящие перестанут на него приходить.\n\n` +
     `Это действие необратимо.\n\n` +
     `Чтобы подтвердить — введите имя агента:\n"${agentName}"`;
 
@@ -146,10 +148,12 @@ async function deleteAgent(){
     if(r && r.status===200){
       const data = await r.json();
       const s = data.summary || {};
-      showToast(
-        `Удалено: ${s.tasks||0} задач, ${s.voice_assistants||0} голосовых ассистентов`,
-        'success'
-      );
+      const parts = [
+        `${s.tasks||0} задач`,
+        `${s.voice_assistants||0} голосовых ассистентов`,
+      ];
+      if(s.phone_numbers_unbound) parts.push(`отвязано номеров: ${s.phone_numbers_unbound}`);
+      showToast(`Удалено: ${parts.join(', ')}`, 'success');
       setTimeout(() => location.reload(), 1200);
     } else {
       const err = await r?.json().catch(()=>({}));

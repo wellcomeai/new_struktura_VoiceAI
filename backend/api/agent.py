@@ -23,11 +23,14 @@ from backend.db.session import get_db, SessionLocal
 from backend.core.timezone_utils import adjust_to_working_hours, now_utc, iso_utc
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
-from backend.models.gemini_assistant import GeminiAssistantConfig
+from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
 from backend.models.assistant import AssistantConfig
+from backend.models.conversation import Conversation
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
-from backend.models.yandex_assistant import YandexAssistantConfig, DEFAULT_YANDEX_MODEL
-from backend.models.grok_assistant import GrokAssistantConfig
+from backend.models.yandex_assistant import (
+    YandexAssistantConfig, YandexConversation, DEFAULT_YANDEX_MODEL,
+)
+from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
@@ -452,6 +455,217 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
     return va
 
 
+# Зависимости голосового ассистента, которые надо снять ПЕРЕД его удалением:
+# (модель ассистента) → (модель диалогов провайдера, колонка FK в tasks).
+# У Cartesia своей таблицы диалогов нет — там None.
+_VOICE_ASSISTANT_DEPS = {
+    GeminiAssistantConfig: (GeminiConversation, Task.gemini_assistant_id),
+    AssistantConfig: (Conversation, Task.assistant_id),
+    CartesiaAssistantConfig: (None, Task.cartesia_assistant_id),
+    YandexAssistantConfig: (YandexConversation, Task.yandex_assistant_id),
+    GrokAssistantConfig: (GrokConversation, Task.cascade_assistant_id),
+}
+
+
+_VOICE_MODEL_BY_TYPE = {
+    "gemini": GeminiAssistantConfig,
+    "openai": AssistantConfig,
+    "cartesia": CartesiaAssistantConfig,
+    "yandex": YandexAssistantConfig,
+    "cascade": GrokAssistantConfig,
+}
+
+
+def _all_voice_assistant_targets(agent: AgentConfig):
+    """[(модель, id)] по всем заполненным FK голосовых ассистентов агента.
+
+    В норме заполнен ровно один FK, но у легаси-агентов (до v3.0) мог остаться
+    хвост от прежней схемы — забираем всё, чтобы не плодить сирот.
+    """
+    pairs = (
+        (GeminiAssistantConfig, agent.gemini_assistant_id),
+        (AssistantConfig, agent.openai_assistant_id),
+        (CartesiaAssistantConfig, agent.cartesia_assistant_id),
+        (YandexAssistantConfig, agent.yandex_assistant_id),
+        (GrokAssistantConfig, agent.cascade_assistant_id),
+    )
+    return [(model_cls, va_id) for model_cls, va_id in pairs if va_id]
+
+
+def _repoint_agent_tasks(db: Session, old_targets, new_type: str, new_va_id) -> int:
+    """Перевести задачи агента со старых голосовых ассистентов на нового.
+
+    Вызывается при смене assistant_type — до удаления старых ассистентов.
+    Просто обнулить FK нельзя: планировщик резолвит голосового ассистента
+    именно по нему (task_scheduler._get_assistant_info) и без него помечает
+    запланированный звонок как FAILED «Assistant not found». Плюс delete_agent
+    ищет по этому FK задачи-сироты, чей контакт удалили раньше.
+    """
+    new_column = _VOICE_ASSISTANT_DEPS[_VOICE_MODEL_BY_TYPE[new_type]][1]
+    moved = 0
+    for model_cls, va_id in old_targets:
+        old_column = _VOICE_ASSISTANT_DEPS[model_cls][1]
+        if old_column is new_column:
+            continue
+        moved += db.query(Task).filter(old_column == va_id).update(
+            {old_column: None, new_column: new_va_id}, synchronize_session=False
+        )
+    db.flush()
+    return moved
+
+
+def _delete_voice_assistant(db: Session, model_cls, va_id, user_id) -> bool:
+    """Удалить голосового ассистента агента вместе с его диалогами.
+
+    Диалоги и ссылки из tasks снимаем ЯВНО, а не полагаемся на ON DELETE в БД:
+    в старых схемах эти FK могли быть созданы без каскада, и тогда удаление
+    падало бы с IntegrityError, откатывая всю транзакцию (агент не удалился бы
+    вовсе). Возвращает True, если строка ассистента действительно удалена.
+    """
+    if not va_id:
+        return False
+
+    conv_cls, task_column = _VOICE_ASSISTANT_DEPS[model_cls]
+
+    if conv_cls is not None:
+        db.query(conv_cls).filter(conv_cls.assistant_id == va_id).delete(
+            synchronize_session=False
+        )
+    db.query(Task).filter(task_column == va_id).update(
+        {task_column: None}, synchronize_session=False
+    )
+
+    deleted = db.query(model_cls).filter(
+        model_cls.id == va_id,
+        model_cls.user_id == user_id,
+    ).delete(synchronize_session=False)
+
+    if deleted:
+        # voximplant_phone_numbers.assistant_id — колонка без FK, БД её не
+        # почистит. Номера, оставшиеся на удалённом ассистенте, отвязываем:
+        # иначе телефония показывала бы привязку к несуществующей строке.
+        from backend.models.voximplant_child import VoximplantPhoneNumber
+        stale = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.assistant_id == va_id
+        ).update(
+            {
+                VoximplantPhoneNumber.assistant_type: None,
+                VoximplantPhoneNumber.assistant_id: None,
+            },
+            synchronize_session=False,
+        )
+        if stale:
+            logger.warning(
+                f"[AGENT] Unbound {stale} phone number(s) from deleted assistant {va_id}"
+            )
+
+    db.flush()
+
+    logger.info(
+        f"[AGENT] Voice assistant {va_id} ({model_cls.__name__}) "
+        f"{'deleted' if deleted else 'not found'}"
+    )
+    return bool(deleted)
+
+
+async def _rebind_agent_phone_numbers(db: Session, agent: AgentConfig,
+                                      new_type: str, new_assistant_id) -> int:
+    """Перевести номера, привязанные к агенту, на его нового голосового ассистента.
+
+    Вызывается при смене assistant_type. Без этого номер остался бы указывать на
+    старого ассистента (которого мы удаляем) и на inbound-сценарий прежнего
+    провайдера — входящие звонки сломались бы.
+
+    Правило в Voximplant пересоздаём, т.к. сценарий зависит от типа
+    (inbound_gemini / inbound_cascade / …). Ошибки Voximplant не роняют смену
+    типа: привязка в БД всё равно обновляется, правило можно перевыпустить
+    повторной привязкой номера на странице телефонии.
+    """
+    from backend.models.voximplant_child import VoximplantPhoneNumber
+
+    numbers = db.query(VoximplantPhoneNumber).filter(
+        VoximplantPhoneNumber.agent_config_id == agent.id
+    ).all()
+    if not numbers:
+        return 0
+
+    # Локальные импорты — telephony импортирует agent-модели, на уровне модуля
+    # получилась бы циклическая зависимость.
+    from backend.api.telephony import get_scenario_key, normalize_phone_number
+    from backend.services.voximplant_partner import get_voximplant_partner_service
+
+    scenario_name = get_scenario_key(new_type, "inbound")
+
+    for num in numbers:
+        num.assistant_type = new_type
+        num.assistant_id = new_assistant_id
+
+        child_account = num.child_account
+        if not child_account or not num.vox_rule_id:
+            continue
+
+        raw_scenario_id = child_account.get_scenario_id(scenario_name)
+        if not raw_scenario_id:
+            logger.warning(
+                f"[AGENT] Scenario '{scenario_name}' not found for account "
+                f"{child_account.vox_account_id}, rule for {num.phone_number} left as is"
+            )
+            continue
+
+        # Каскад: сначала vox-turn-taking (объявляет глобальный VoxTurnTaking),
+        # затем сам inbound_cascade — как в telephony.bind_assistant_to_number.
+        if new_type == "cascade":
+            tt_id = child_account.get_scenario_id("vox-turn-taking")
+            scenario_id = [int(tt_id), int(raw_scenario_id)] if tt_id else int(raw_scenario_id)
+        else:
+            scenario_id = int(raw_scenario_id)
+
+        try:
+            service = get_voximplant_partner_service()
+            delete_result = await service.delete_rule(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                rule_id=num.vox_rule_id,
+            )
+            if not delete_result.get("success"):
+                logger.error(
+                    f"[AGENT] Failed to delete old rule {num.vox_rule_id}: "
+                    f"{delete_result.get('error')}"
+                )
+                continue
+
+            phone_pattern = normalize_phone_number(num.phone_number)
+            new_rule = await service.add_rule(
+                child_account_id=child_account.vox_account_id,
+                child_api_key=child_account.vox_api_key,
+                application_id=child_account.vox_application_id,
+                rule_name=f"inbound_{phone_pattern}",
+                rule_pattern=phone_pattern,
+                scenario_id=scenario_id,
+            )
+            if new_rule.get("success"):
+                num.vox_rule_id = str(new_rule.get("rule_id"))
+                logger.info(
+                    f"[AGENT] Rebound {num.phone_number} to {scenario_name} "
+                    f"(rule {num.vox_rule_id})"
+                )
+            else:
+                logger.error(
+                    f"[AGENT] Failed to create rule for {num.phone_number}: "
+                    f"{new_rule.get('error')}"
+                )
+        except Exception as e:
+            logger.error(
+                f"[AGENT] Voximplant rule update failed for {num.phone_number}: {e}",
+                exc_info=True,
+            )
+
+    # Сессия с autoflush=False: сбрасываем новые привязки до того, как удаление
+    # старого ассистента пройдётся bulk-запросом по voximplant_phone_numbers.
+    db.flush()
+    return len(numbers)
+
+
 def _agent_to_dict(agent: AgentConfig) -> dict:
     """Serialize AgentConfig to dict for API response."""
     voice = agent.get_voice_assistant() if agent.assistant_type else agent.gemini_assistant
@@ -666,8 +880,10 @@ async def update_agent(
         if new_type not in VALID_ASSISTANT_TYPES:
             raise HTTPException(status_code=400, detail="invalid_assistant_type")
         _check_assistant_keys(new_type, current_user)
-        # Create new voice assistant; keep old one (numbers/history may reference it),
-        # just clear the old FK.
+        # Старых ассистентов запоминаем ДО обнуления FK — после смены типа они
+        # никому не нужны и удаляются (иначе копились бы «сироты»: висят в
+        # списках провайдера и съедают лимит ассистентов тарифа).
+        old_voice_targets = _all_voice_assistant_targets(agent)
         new_voice = _create_voice_assistant(
             new_type, agent.name, current_user.id, db,
             voice_additional_instructions=agent.voice_additional_instructions,
@@ -699,7 +915,26 @@ async def update_agent(
             AgentConnector.status == "connected",
         ).all():
             _voice_set_connector_function(new_voice, _conn.toolkit, True)
-        logger.info(f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id}")
+
+        # FK на старых ассистентов уже сняты — сбрасываем это в БД до их удаления.
+        db.flush()
+
+        # Запланированные звонки переводим на нового ассистента — иначе после
+        # удаления старого планировщик уронил бы их с «Assistant not found».
+        moved_tasks = _repoint_agent_tasks(db, old_voice_targets, new_type, new_voice.id)
+
+        # Номера агента переводим на нового ассистента (и на inbound-сценарий
+        # нового провайдера), иначе входящие ушли бы к удалённому ассистенту.
+        rebound = await _rebind_agent_phone_numbers(db, agent, new_type, new_voice.id)
+
+        for _model_cls, _va_id in old_voice_targets:
+            _delete_voice_assistant(db, _model_cls, _va_id, current_user.id)
+
+        logger.info(
+            f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id} "
+            f"(old voice assistants removed: {len(old_voice_targets)}, "
+            f"tasks moved: {moved_tasks}, phones rebound: {rebound})"
+        )
 
     # ── Смена модели оркестратора ──
     if "orchestrator_model" in update_data and update_data["orchestrator_model"]:
@@ -788,14 +1023,16 @@ async def delete_agent(
     - tasks этого агента: и по его контактам, и по его голосовому ассистенту
       (вторые — «сироты» задач, чей контакт удалили раньше)
     - agent_calls и agent_contacts (каскадятся через FK AgentConfig)
+    - отвязка телефонных номеров агента (номера остаются у пользователя)
     - AgentConfig
-    - голосовой ассистент(ы), привязанные именно к этому агенту
+    - голосовой ассистент(ы), привязанные именно к этому агенту, вместе с их
+      диалогами
     """
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
-    summary = {"tasks": 0, "voice_assistants": 0}
+    summary = {"tasks": 0, "voice_assistants": 0, "phone_numbers_unbound": 0}
 
     try:
         # id контактов этого агента — чтобы удалить только его задачи,
@@ -858,26 +1095,35 @@ async def delete_agent(
         )
 
         # 2. Голосовые ассистенты, привязанные именно к этому агенту.
-        va_total = 0
-        va_targets = [
-            (GeminiAssistantConfig, agent.gemini_assistant_id),
-            (AssistantConfig, agent.openai_assistant_id),
-            (CartesiaAssistantConfig, agent.cartesia_assistant_id),
-            (YandexAssistantConfig, agent.yandex_assistant_id),
-            (GrokAssistantConfig, agent.cascade_assistant_id),
-        ]
+        va_targets = _all_voice_assistant_targets(agent)
 
-        # 3. AgentConfig — каскадом уносит agent_contacts и agent_calls.
+        # 3. Отвязываем номера агента ДО его удаления. FK agent_config_id и так
+        #    обнулится каскадом (ON DELETE SET NULL), но assistant_type/assistant_id
+        #    в voximplant_phone_numbers — обычные колонки без FK: без явной
+        #    очистки номер остался бы висеть на удалённом голосовом ассистенте,
+        #    и входящие на него ломались бы.
+        #    vox_rule_id намеренно НЕ трогаем: правило переиспользуется при
+        #    следующей привязке номера (telephony пересоздаёт его только если
+        #    vox_rule_id заполнен).
+        from backend.models.voximplant_child import VoximplantPhoneNumber
+        agent_numbers = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.agent_config_id == agent.id
+        ).all()
+        for num in agent_numbers:
+            num.assistant_type = None
+            num.assistant_id = None
+            num.first_phrase = None
+            num.agent_config_id = None
+        summary["phone_numbers_unbound"] = len(agent_numbers)
+
+        # 4. AgentConfig — каскадом уносит agent_contacts и agent_calls.
         db.delete(agent)
         db.flush()
 
-        for model_cls, va_id in va_targets:
-            if va_id:
-                va_total += db.query(model_cls).filter(
-                    model_cls.id == va_id,
-                    model_cls.user_id == current_user.id,
-                ).delete(synchronize_session=False)
-        summary["voice_assistants"] = va_total
+        summary["voice_assistants"] = sum(
+            _delete_voice_assistant(db, model_cls, va_id, current_user.id)
+            for model_cls, va_id in va_targets
+        )
 
         db.commit()
     except Exception as e:
@@ -887,7 +1133,8 @@ async def delete_agent(
 
     logger.info(
         f"[AGENT] Fully deleted agent for user {current_user.id}: "
-        f"{summary['tasks']} tasks, {summary['voice_assistants']} voice assistants"
+        f"{summary['tasks']} tasks, {summary['voice_assistants']} voice assistants, "
+        f"{summary['phone_numbers_unbound']} phone numbers unbound"
     )
     return {"detail": "deleted", "summary": summary}
 
