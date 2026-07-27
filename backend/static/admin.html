@@ -342,6 +342,16 @@
       text-decoration: none;
     }
     
+    .btn-sm {
+      padding: 0.35rem 0.7rem;
+      font-size: 0.75rem;
+    }
+
+    .btn-sm.active {
+      border-color: var(--primary-blue);
+      color: var(--primary-blue);
+    }
+
     .btn-primary {
       background-color: var(--primary-blue);
       color: var(--white);
@@ -1703,25 +1713,44 @@
         <div class="modal-body">
           <form id="subscription-form">
             <div class="form-group">
+              <div id="current-plan-line" style="font-size: 0.8125rem; color: var(--text-gray); margin-bottom: 0.75rem;"></div>
+            </div>
+
+            <div class="form-group">
               <label class="form-label" for="plan-code">Тариф</label>
               <select id="plan-code" class="form-control" required>
-                <option value="free">Бесплатный</option>
-                <option value="start">Старт (1490 ₽)</option>
-                <option value="pro">Профессиональный (4990 ₽)</option>
+                <option value="">Загрузка тарифов…</option>
               </select>
+              <div id="plan-details" style="margin-top: 0.5rem; font-size: 0.8125rem; color: var(--text-gray);"></div>
             </div>
-            
+
             <div class="form-group">
               <label class="form-label" for="duration-days">Длительность (дней)</label>
-              <input type="number" id="duration-days" class="form-control" value="30" min="1" max="365" required>
+              <input type="number" id="duration-days" class="form-control" value="30" min="1" max="3650" required>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline btn-sm duration-preset" data-days="30">30 дней</button>
+                <button type="button" class="btn btn-outline btn-sm duration-preset" data-days="90">3 мес</button>
+                <button type="button" class="btn btn-outline btn-sm duration-preset" data-days="180">6 мес</button>
+                <button type="button" class="btn btn-outline btn-sm duration-preset" data-days="365">1 год</button>
+              </div>
             </div>
-            
+
+            <div class="form-group">
+              <label class="form-label" for="subscription-mode">Отсчёт срока</label>
+              <select id="subscription-mode" class="form-control">
+                <option value="extend">Продлить от текущей даты окончания</option>
+                <option value="reset">Начать с сегодня</option>
+              </select>
+            </div>
+
             <div class="form-group">
               <label class="form-checkbox">
                 <input type="checkbox" id="is-trial">
                 <span>Пробный период</span>
               </label>
             </div>
+
+            <div id="subscription-preview" style="font-size: 0.8125rem; color: var(--text-gray); border-top: 1px solid var(--border-color, #e5e7eb); padding-top: 0.75rem;"></div>
           </form>
         </div>
         <div class="modal-footer">
@@ -1807,6 +1836,7 @@
       const subscriptionForm = document.getElementById('subscription-form');
       const planCodeSelect = document.getElementById('plan-code');
       const durationDaysInput = document.getElementById('duration-days');
+      const subscriptionModeSelect = document.getElementById('subscription-mode');
       const isTrialCheckbox = document.getElementById('is-trial');
       const notification = document.getElementById('notification');
       const notificationMessage = document.getElementById('notification-message');
@@ -1920,7 +1950,9 @@
             const data = await response.json();
             
             if (!response.ok) {
-              throw new Error(data.detail || 'Произошла ошибка при выполнении запроса');
+              // Глобальный обработчик в app.py отдаёт {"message": ...},
+              // FastAPI по умолчанию — {"detail": ...}. Читаем оба.
+              throw new Error(data.message || data.detail || 'Произошла ошибка при выполнении запроса');
             }
             
             return data;
@@ -1971,6 +2003,11 @@
         // ✅ v2.2: Исправлено - теперь отправляем JSON body
         updateUserSubscription(userId, data) {
           return this.post(`/admin/users/${userId}/subscription`, data);
+        },
+
+        // Тарифная сетка: коды, цены, лимиты, доступ к агенту
+        getPlans() {
+          return this.get('/admin/plans');
         },
 
         resetUserPassword(userId, newPassword) {
@@ -2927,27 +2964,111 @@
         }
       }
       
+      // ==================== Тарифы ====================
+
+      // Тарифная сетка с бэкенда: единый источник цен, лимитов и того, какой
+      // тариф даёт доступ к агенту-оркестратору. Хардкодить список тарифов
+      // здесь нельзя — он разъезжается с прайсом (так в админке и появился
+      // несуществующий код `pro`).
+      let plansGrid = [];
+      let currentSubscriptionEnd = null;   // дата окончания текущей подписки
+
+      async function loadPlans() {
+        if (plansGrid.length) return plansGrid;
+        plansGrid = await api.getPlans();
+        planCodeSelect.innerHTML = '';
+        plansGrid.forEach(plan => {
+          const option = document.createElement('option');
+          option.value = plan.code;
+          const price = plan.price ? `${plan.price.toLocaleString('ru-RU')} ₽/мес` : 'бесплатно';
+          option.textContent = `${plan.name} — ${price}`;
+          planCodeSelect.appendChild(option);
+        });
+        return plansGrid;
+      }
+
+      function getSelectedPlan() {
+        return plansGrid.find(p => p.code === planCodeSelect.value) || null;
+      }
+
+      function renderPlanDetails() {
+        const plan = getSelectedPlan();
+        const details = document.getElementById('plan-details');
+        if (!plan) {
+          details.innerHTML = '';
+          return;
+        }
+        const bits = [`Ассистентов: <strong>${plan.max_assistants}</strong>`];
+        bits.push(plan.grants_agent_access
+          ? 'Агент-оркестратор: <strong style="color: var(--success, #16a34a)">да</strong>'
+          : 'Агент-оркестратор: <strong>нет</strong>');
+        if (plan.deprecated) {
+          bits.push('<strong style="color: var(--danger, #dc2626)">устаревший тариф</strong>');
+        } else if (plan.in_db_mismatch) {
+          bits.push('<span title="Строка в subscription_plans разойдётся с сеткой — будет исправлена при сохранении">запись в БД будет обновлена</span>');
+        }
+        details.innerHTML = `${plan.description}<br>${bits.join(' · ')}`;
+      }
+
+      function renderSubscriptionPreview() {
+        const preview = document.getElementById('subscription-preview');
+        const days = parseInt(durationDaysInput.value, 10);
+        if (!days || days < 1) {
+          preview.textContent = '';
+          return;
+        }
+        const mode = subscriptionModeSelect.value;
+        let start = new Date();
+        if (mode === 'extend' && currentSubscriptionEnd && currentSubscriptionEnd > start) {
+          start = new Date(currentSubscriptionEnd);
+        }
+        const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+        const fmt = d => d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        preview.innerHTML = `Действует с <strong>${fmt(start)}</strong> по <strong>${fmt(end)}</strong>`;
+      }
+
       async function openSubscriptionModal(userId) {
         try {
           ui.setLoading(true);
-          
+
           if (!userId && selectedUserId) {
             userId = selectedUserId;
           }
-          
+
           if (!userId) {
             throw new Error('ID пользователя не указан');
           }
-          
-          if (!selectedUserId || selectedUserId !== userId) {
-            const userData = await api.getUserDetails(userId);
-            selectedUserId = userId;
-            
-            const subscription = userData.subscription;
-            planCodeSelect.value = userData.user.subscription_plan || 'free';
-            isTrialCheckbox.checked = userData.user.is_trial || false;
-          }
-          
+
+          await loadPlans();
+
+          // Данные тянем всегда: тариф мог измениться с прошлого открытия,
+          // а раньше при повторном открытии для того же юзера форма оставалась
+          // со старыми значениями.
+          const userData = await api.getUserDetails(userId);
+          selectedUserId = userId;
+
+          const subscription = userData.subscription || {};
+          const currentCode = userData.user.subscription_plan || 'free';
+
+          currentSubscriptionEnd = subscription.end_date ? new Date(subscription.end_date) : null;
+
+          const known = plansGrid.some(p => p.code === currentCode);
+          planCodeSelect.value = known ? currentCode : 'free';
+          isTrialCheckbox.checked = userData.user.is_trial || false;
+          durationDaysInput.value = 30;
+          subscriptionModeSelect.value = 'extend';
+
+          const endLabel = currentSubscriptionEnd
+            ? ui.formatDate(subscription.end_date)
+            : 'нет даты окончания';
+          document.getElementById('current-plan-line').innerHTML =
+            `Пользователь: <strong>${userData.user.email}</strong><br>` +
+            `Текущий тариф: <strong>${currentCode}</strong>${known ? '' : ' (нет в сетке)'} · до ${endLabel} · ` +
+            `${subscription.is_active ? 'активна' : 'истекла'}`;
+
+          renderPlanDetails();
+          renderSubscriptionPreview();
+
           ui.showModal();
         } catch (error) {
           ui.showNotification(error.message || 'Ошибка при открытии формы изменения подписки', 'error');
@@ -3047,6 +3168,25 @@
       modalClose.addEventListener('click', ui.hideModal);
       modalCancel.addEventListener('click', ui.hideModal);
 
+      // Тарифная модалка: пересчёт подсказок при любом изменении формы
+      planCodeSelect.addEventListener('change', function() {
+        renderPlanDetails();
+        const plan = getSelectedPlan();
+        if (plan) isTrialCheckbox.checked = plan.is_trial_default;
+        renderSubscriptionPreview();
+      });
+      durationDaysInput.addEventListener('input', renderSubscriptionPreview);
+      subscriptionModeSelect.addEventListener('change', renderSubscriptionPreview);
+
+      document.querySelectorAll('.duration-preset').forEach(button => {
+        button.addEventListener('click', function() {
+          durationDaysInput.value = this.getAttribute('data-days');
+          document.querySelectorAll('.duration-preset').forEach(b => b.classList.remove('active'));
+          this.classList.add('active');
+          renderSubscriptionPreview();
+        });
+      });
+
       // Сброс пароля — закрытие модала
       passwordModalClose.addEventListener('click', () => {
         passwordModal.classList.remove('visible');
@@ -3095,21 +3235,43 @@
           return;
         }
         
+        const durationDays = parseInt(durationDaysInput.value, 10);
+        if (!durationDays || durationDays < 1 || durationDays > 3650) {
+          ui.showNotification('Длительность должна быть от 1 до 3650 дней', 'error');
+          return;
+        }
+
+        const selectedPlan = getSelectedPlan();
+        if (!selectedPlan) {
+          ui.showNotification('Выберите тариф', 'error');
+          return;
+        }
+        if (selectedPlan.deprecated) {
+          ui.showNotification('Это устаревший тариф, выберите действующий', 'error');
+          return;
+        }
+
         try {
           ui.setLoading(true);
-          
+
           // ✅ Отправляем как JSON body (не query params)
           const subscriptionData = {
             plan_code: planCodeSelect.value,
-            duration_days: parseInt(durationDaysInput.value, 10),
-            is_trial: isTrialCheckbox.checked
+            duration_days: durationDays,
+            is_trial: isTrialCheckbox.checked,
+            mode: subscriptionModeSelect.value
           };
-          
-          console.log('Отправляем данные:', subscriptionData);
-          
+
           const result = await api.updateUserSubscription(selectedUserId, subscriptionData);
-          
-          ui.showNotification('Подписка успешно изменена', 'success');
+          const sub = (result && result.subscription) || {};
+
+          let message = result.message || 'Тариф изменён';
+          // Тариф даёт доступ к агенту, но ручная блокировка его перекрывает —
+          // предупреждаем, иначе выглядит как будто смена тарифа не сработала.
+          if (sub.grants_agent_access && sub.agent_subscription_blocked) {
+            message += '. Внимание: у пользователя стоит ручная блокировка агента — доступ не выдан';
+          }
+          ui.showNotification(message, 'success');
           ui.hideModal();
           
           if (document.querySelector('.tab[data-tab="user-details"]').style.display !== 'none') {

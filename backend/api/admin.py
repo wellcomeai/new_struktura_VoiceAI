@@ -46,12 +46,136 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+# ============================================================================
+# ТАРИФНАЯ СЕТКА ДЛЯ АДМИНКИ
+# ============================================================================
+# Платные тарифы берём из SUBSCRIPTION_PLANS_CONFIG (backend/api/payments.py) —
+# это единственный источник цен и лимитов, по которому реально выставляются
+# счета. Здесь добавляем то, чего в оплате нет: бесплатные тарифы и legacy
+# `agent`. Так админка не разъезжается с прайсом на лендинге.
+
+# Бесплатные и legacy-тарифы — их нельзя купить, но админ может назначить.
+NON_PAYABLE_PLANS = {
+    "free": {
+        "name": "Бесплатный",
+        "price": 0.0,
+        "max_assistants": 1,
+        "description": "Базовый доступ: 1 ассистент, без телефонии и CRM",
+        "is_trial_default": True,
+    },
+    "referral_trial": {
+        "name": "Реферальный триал",
+        "price": 0.0,
+        "max_assistants": 3,
+        "description": "Расширенный пробный период для приглашённых пользователей",
+        "is_trial_default": True,
+    },
+    "agent": {
+        "name": "Агент (legacy)",
+        "price": 4990.0,
+        "max_assistants": 10,
+        "description": "Старый тариф автономного агента, оставлен для совместимости",
+        "is_trial_default": False,
+    },
+}
+
+# Тарифы, дающие доступ к агенту-оркестратору.
+# Зеркало User.is_profi_plan() / User._legacy_agent_plan_active() — меняешь там,
+# поправь и здесь, иначе админка будет обещать доступ, которого нет.
+AGENT_ACCESS_PLAN_CODES = {"profi", "agent"}
+
+# Порядок отображения в выпадающем списке админки (от младшего к старшему).
+PLAN_DISPLAY_ORDER = ["free", "referral_trial", "ai_voice", "start", "profi", "agent"]
+
+
+def get_admin_plan_grid() -> Dict[str, Dict[str, Any]]:
+    """Полная тарифная сетка, доступная админу для назначения."""
+    from backend.api.payments import SUBSCRIPTION_PLANS_CONFIG
+
+    grid: Dict[str, Dict[str, Any]] = {}
+
+    for code, cfg in SUBSCRIPTION_PLANS_CONFIG.items():
+        grid[code] = {
+            "code": code,
+            "name": cfg["name"],
+            "price": float(cfg["base_price"]),
+            "max_assistants": cfg["max_assistants"],
+            "description": cfg["description"],
+            "is_trial_default": False,
+            "payable": True,
+        }
+
+    for code, cfg in NON_PAYABLE_PLANS.items():
+        grid[code] = {
+            "code": code,
+            "name": cfg["name"],
+            "price": cfg["price"],
+            "max_assistants": cfg["max_assistants"],
+            "description": cfg["description"],
+            "is_trial_default": cfg["is_trial_default"],
+            "payable": False,
+        }
+
+    for code, entry in grid.items():
+        entry["grants_agent_access"] = code in AGENT_ACCESS_PLAN_CODES
+
+    return grid
+
+
+def _sync_plan_row(db: Session, code: str, entry: Dict[str, Any]):
+    """
+    Найти план в subscription_plans, создав или починив его по тарифной сетке.
+
+    Лимит ассистентов пользователя берётся из этой строки БД
+    (UserService.check_subscription_status), поэтому расхождение с сеткой —
+    это не косметика: назначив «Старт», пользователь получил бы старый лимит.
+    """
+    from backend.models.subscription import SubscriptionPlan
+
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == code).first()
+
+    if not plan:
+        plan = SubscriptionPlan(
+            code=code,
+            name=entry["name"],
+            price=entry["price"],
+            max_assistants=entry["max_assistants"],
+            description=entry["description"],
+            is_active=True,
+        )
+        db.add(plan)
+        db.flush()
+        logger.info(f"[ADMIN] Created subscription plan '{code}' from tariff grid")
+        return plan
+
+    changes = []
+    if plan.max_assistants != entry["max_assistants"]:
+        changes.append(f"max_assistants {plan.max_assistants} -> {entry['max_assistants']}")
+        plan.max_assistants = entry["max_assistants"]
+    if float(plan.price or 0) != entry["price"]:
+        changes.append(f"price {plan.price} -> {entry['price']}")
+        plan.price = entry["price"]
+    if plan.name != entry["name"]:
+        changes.append(f"name '{plan.name}' -> '{entry['name']}'")
+        plan.name = entry["name"]
+    if changes:
+        db.flush()
+        logger.info(f"[ADMIN] Synced plan '{code}' with tariff grid: {', '.join(changes)}")
+
+    return plan
+
+
 # ✅ v2.2: Pydantic модель для обновления подписки
 class SubscriptionUpdateRequest(BaseModel):
     """Модель запроса на обновление подписки"""
     plan_code: str
     duration_days: int = 30
-    is_trial: bool = False
+    # None — взять значение по умолчанию для выбранного тарифа
+    # (бесплатные считаются пробными, платные — нет).
+    is_trial: Optional[bool] = None
+    # extend — продлить от текущей даты окончания (если подписка ещё активна),
+    # reset — отсчитывать срок с сегодняшнего дня.
+    mode: str = "extend"
 
 
 class AdminPasswordResetRequest(BaseModel):
@@ -298,6 +422,63 @@ async def get_user_details(
         )
 
 
+@router.get("/plans", response_model=List[Dict[str, Any]])
+async def get_admin_plans(
+    current_user: User = Depends(check_admin_access),
+    db: Session = Depends(get_db)
+):
+    """
+    Тарифная сетка для админки: что именно можно назначить пользователю.
+
+    Отдаёт цену, лимит ассистентов и признак доступа к агенту-оркестратору по
+    каждому тарифу, плюс `in_db_mismatch` — расходится ли строка в
+    subscription_plans с сеткой (при назначении она будет починена).
+    """
+    from backend.models.subscription import SubscriptionPlan
+
+    grid = get_admin_plan_grid()
+    db_plans = {p.code: p for p in db.query(SubscriptionPlan).all()}
+
+    result = []
+    for code in PLAN_DISPLAY_ORDER:
+        entry = grid.get(code)
+        if not entry:
+            continue
+        row = db_plans.get(code)
+        result.append({
+            **entry,
+            "in_db": row is not None,
+            "in_db_mismatch": bool(
+                row is not None and (
+                    row.max_assistants != entry["max_assistants"]
+                    or float(row.price or 0) != entry["price"]
+                )
+            ),
+        })
+
+    # Тарифы, которых нет в сетке, но которые уже проставлены кому-то в БД
+    # (например мусорный `pro` из старой админки) — показываем, чтобы админ их
+    # видел и мог переназначить человека на нормальный тариф.
+    for code, row in db_plans.items():
+        if code in grid:
+            continue
+        result.append({
+            "code": code,
+            "name": f"{row.name} (нет в сетке)",
+            "price": float(row.price or 0),
+            "max_assistants": row.max_assistants,
+            "description": "Устаревший тариф из БД — назначать не следует",
+            "is_trial_default": False,
+            "payable": False,
+            "grants_agent_access": False,
+            "in_db": True,
+            "in_db_mismatch": False,
+            "deprecated": True,
+        })
+
+    return result
+
+
 @router.post("/users/{user_id}/subscription", response_model=Dict[str, Any])
 async def update_user_subscription(
     user_id: str = Path(..., description="User ID"),
@@ -306,50 +487,68 @@ async def update_user_subscription(
     db: Session = Depends(get_db)
 ):
     """
-    Update subscription for a specific user.
-    Admin only endpoint.
-    
-    ✅ v2.2: Исправлено - теперь принимает JSON body вместо query параметров
+    Сменить тариф пользователя. Только для админа.
+
+    ✅ v2.2: принимает JSON body вместо query параметров
+    ✅ v2.3: plan_code проверяется по тарифной сетке, строка в subscription_plans
+             синхронизируется с ней (иначе лимит ассистентов был бы взят из
+             устаревшей записи), добавлен режим extend/reset
     """
     try:
         # Get user with validation
         user = await UserService.get_user_by_id(db, user_id)
-        
-        # Find subscription plan
-        from backend.models.subscription import SubscriptionPlan
-        plan = db.query(SubscriptionPlan).filter(
-            SubscriptionPlan.code == request.plan_code
-        ).first()
-        
-        if not plan:
-            # Create default plan if not found
-            plan = SubscriptionPlan(
-                code=request.plan_code,
-                name=request.plan_code.capitalize(),
-                price=0 if request.plan_code == "free" else (1490 if request.plan_code == "start" else 4990),
-                max_assistants=1 if request.plan_code == "free" else (3 if request.plan_code == "start" else 10),
-                description=f"{request.plan_code.capitalize()} subscription plan",
-                is_active=True
+
+        grid = get_admin_plan_grid()
+        entry = grid.get(request.plan_code)
+        if not entry:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Неизвестный тариф '{request.plan_code}'. "
+                    f"Допустимые: {', '.join(PLAN_DISPLAY_ORDER)}"
+                ),
             )
-            db.add(plan)
-            db.flush()
-            
-        # Set start date (either now or extend from current subscription)
+
+        if not 1 <= request.duration_days <= 3650:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="duration_days должен быть от 1 до 3650",
+            )
+
+        if request.mode not in ("extend", "reset"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="mode должен быть 'extend' или 'reset'",
+            )
+
+        # План в БД создаём или чиним по сетке — из него берётся лимит ассистентов.
+        plan = _sync_plan_row(db, request.plan_code, entry)
+
+        # extend — продлеваем от текущей даты окончания, reset — считаем с сегодня.
         now = datetime.now(timezone.utc)
         start_date = now
-        
-        if user.subscription_end_date and user.subscription_end_date > now:
-            start_date = user.subscription_end_date
-            
+        if request.mode == "extend":
+            current_end = user.subscription_end_date
+            if current_end and current_end.tzinfo is None:
+                current_end = current_end.replace(tzinfo=timezone.utc)
+            if current_end and current_end > now:
+                start_date = current_end
+
+        is_trial = (
+            entry["is_trial_default"] if request.is_trial is None else request.is_trial
+        )
+
+        previous_plan = user.subscription_plan or "—"
+
         # Update user subscription
         user.subscription_plan = request.plan_code  # ✅ Обновляем и текстовое поле
         user.subscription_plan_id = plan.id
         user.subscription_start_date = start_date
         user.subscription_end_date = start_date + timedelta(days=request.duration_days)
-        user.is_trial = request.is_trial
-        
+        user.is_trial = is_trial
+
         db.commit()
-        
+
         # Log subscription event
         await SubscriptionService.log_subscription_event(
             db=db,
@@ -357,23 +556,37 @@ async def update_user_subscription(
             action="admin_update",
             plan_id=str(plan.id),
             plan_code=request.plan_code,
-            details=f"Admin {current_user.email} updated subscription to {request.plan_code} for {request.duration_days} days until {user.subscription_end_date.strftime('%Y-%m-%d')}"
+            details=(
+                f"Admin {current_user.email} changed plan {previous_plan} -> "
+                f"{request.plan_code} ({request.mode}) for {request.duration_days} days "
+                f"until {user.subscription_end_date.strftime('%Y-%m-%d')}, "
+                f"trial={is_trial}"
+            )
         )
-        
+
         # Return updated subscription info
+        db.refresh(user)
         subscription_status = await UserService.check_subscription_status(db, user_id)
-        
+
         return {
             "success": True,
-            "message": f"Subscription updated for user {user.email}",
+            "message": f"Тариф пользователя {user.email} изменён на «{entry['name']}»",
             "subscription": {
                 "plan": request.plan_code,
+                "plan_name": entry["name"],
                 "plan_id": str(plan.id),
+                "previous_plan": previous_plan,
                 "start_date": user.subscription_start_date,
                 "end_date": user.subscription_end_date,
                 "is_trial": user.is_trial,
                 "is_active": subscription_status["active"],
-                "days_left": subscription_status.get("days_left", 0)
+                "days_left": subscription_status.get("days_left", 0),
+                "max_assistants": subscription_status.get("max_assistants"),
+                # Тариф даёт доступ к агенту, но ручная блокировка его перекрывает —
+                # поэтому отдаём и фактический доступ, чтобы админ не гадал.
+                "grants_agent_access": entry["grants_agent_access"],
+                "agent_access_effective": user.has_agent_access(),
+                "agent_subscription_blocked": bool(user.agent_subscription_blocked),
             }
         }
     except HTTPException:
