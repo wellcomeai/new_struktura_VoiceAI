@@ -98,6 +98,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var pending = "";              // накопитель дельт, ещё не ушедших в TTS
     var turnFullText = "";         // весь текст реплики (для переотправки при сбое)
     var turnCtx = null;            // context_id текущей реплики
+    var ctxOpen = false;           // контекст ещё не закрыт (continue:false не уходил)
+    var playerDead = false;        // Cartesia вернула ошибку — плеер непригоден
     var firstChunkOfTurn = true;
     var audioConfirmed = false;    // Cartesia отдала аудио по текущей реплике
     var recoveryStage = 0;         // 0 — норма, 1 — заглушка, 2 — пересоздан плеер
@@ -106,7 +108,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // ── Watchdog / завершение по прощанию ───────────────────────────────────
     var watchdogTimer = null;
     var watchdogDisabled = false;
-    var watchdogFalsePositives = 0;
+    var sawPlayerError = false;    // была явная ошибка плеера на текущей реплике
     var hangupAfterSpeech = false;
     var hangupGuardTimer = null;
 
@@ -395,6 +397,21 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return params;
     }
 
+    // Плеер умер (ошибка от Cartesia) — пересоздаём на ближайшей отправке,
+    // не дожидаясь watchdog'а. Мёртвый плеер молча глотает generationRequest,
+    // поэтому чинить его надо детерминированно, а не по таймеру.
+    function createPlayer(text, more) {
+        ttsPlayer = Cartesia.createRealtimeTTSPlayer(text, {
+            apiKey: CONFIG.cartesia_api_key,
+            // transcript передаётся первым аргументом createRealtimeTTSPlayer
+            generationRequestParameters: buildGenParams(turnCtx, null, more)
+        });
+        playerDead = false;
+        attachPlayerListeners();
+        ttsPlayer.sendMediaTo(call);
+        Logger.write("[Cartesia] Player created (" + TTS_MODEL_ID + ", ctx " + turnCtx + ")");
+    }
+
     // Единственная точка отправки текста в TTS.
     // Плеер создаётся один раз — на первой фразе, которую надо озвучить, —
     // и живёт до конца звонка.
@@ -402,16 +419,15 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!text || !text.trim() || isHangingUp) return;
         if (!turnCtx) turnCtx = newContextId();
 
+        if (ttsPlayer && playerDead) {
+            Logger.write("[Cartesia] player is dead — recreating");
+            try { ttsPlayer.stop(); } catch (err) {}
+            ttsPlayer = null;
+        }
+
         try {
             if (!ttsPlayer) {
-                ttsPlayer = Cartesia.createRealtimeTTSPlayer(text, {
-                    apiKey: CONFIG.cartesia_api_key,
-                    // transcript передаётся первым аргументом createRealtimeTTSPlayer
-                    generationRequestParameters: buildGenParams(turnCtx, null, more)
-                });
-                attachPlayerListeners();
-                ttsPlayer.sendMediaTo(call);
-                Logger.write("[Cartesia] Player created (" + TTS_MODEL_ID + ", ctx " + turnCtx + ")");
+                createPlayer(text, more);
             } else {
                 ttsPlayer.generationRequest(buildGenParams(turnCtx, text, more));
             }
@@ -419,6 +435,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             Logger.write("[Cartesia] ❌ send failed: " + err);
             return;
         }
+
+        // Контекст остаётся открытым, пока не ушёл кусок с continue:false.
+        // Отменять уже закрытый контекст нельзя — Cartesia отвечает
+        // "Invalid context ID", и Voximplant уничтожает плеер.
+        ctxOpen = !!more;
 
         Logger.write("[Cartesia] → \"" + text.substring(0, 60) + "\"" + (more ? "" : " (final)"));
 
@@ -432,23 +453,34 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // Закрыть контекст, когда хвоста текста не осталось: Cartesia ждёт
     // финальный запрос с continue:false, иначе контекст висит открытым.
     function closeTurnContext() {
-        if (!ttsPlayer || !turnCtx) return;
+        if (!ttsPlayer || !turnCtx || playerDead) return;
         try {
             ttsPlayer.generationRequest(buildGenParams(turnCtx, " ", false));
+            ctxOpen = false;
         } catch (err) {
             Logger.write("[Cartesia] close ctx failed: " + err);
         }
     }
 
-    // Прервать текущий контекст, не убивая плеер: WebSocket к Cartesia
-    // остаётся тёплым для следующей реплики.
-    function cancelCurrentContext() {
-        if (!ttsPlayer) return;
+    // Оборвать озвучку, не убивая плеер: WebSocket к Cartesia остаётся тёплым
+    // для следующей реплики.
+    //
+    // cancelContextRequest допустим ТОЛЬКО пока контекст открыт. На закрытом
+    // (уже ушёл continue:false) Cartesia возвращает "Invalid context ID", что
+    // приходит как PlaybackFinished с ошибкой и уносит плеер вместе с собой.
+    // А закрытый контекст — это как раз обычная смена хода: агент договорил,
+    // абонент начал отвечать. То есть без этой проверки плеер умирает на
+    // каждой реплике, а не только при настоящем перебивании.
+    function stopSpeaking() {
+        if (!ttsPlayer || playerDead) return;
         try {
-            if (turnCtx) ttsPlayer.cancelContextRequest({ context_id: turnCtx, cancel: true });
+            if (ctxOpen && turnCtx) {
+                ttsPlayer.cancelContextRequest({ context_id: turnCtx, cancel: true });
+                ctxOpen = false;
+            }
             ttsPlayer.clearBuffer();
         } catch (err) {
-            Logger.write("[Cartesia] cancel failed: " + err);
+            Logger.write("[Cartesia] stopSpeaking failed: " + err);
         }
     }
 
@@ -456,9 +488,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         pending = "";
         turnFullText = "";
         turnCtx = null;
+        ctxOpen = false;
         firstChunkOfTurn = true;
         audioConfirmed = false;
         recoveryStage = 0;
+        sawPlayerError = false;
         mVadStop = 0; mRespCreated = 0; mFirstDelta = 0; mFirstChunk = 0;
     }
 
@@ -476,54 +510,61 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (watchdogTimer) { clearTimeout(watchdogTimer); watchdogTimer = null; }
     }
 
+    // Метрика меряется до РЕАЛЬНОГО звука в трубке, а не до отправки текста в
+    // Cartesia: в прошлом звонке текст уходил в мёртвый плеер, и "total≈271ms"
+    // при фактических 5272 мс никого ни о чём не предупредил.
     function confirmAudio(source, ttfb) {
         disarmWatchdog();
         if (audioConfirmed) return;
         audioConfirmed = true;
 
-        // Аудио всё-таки пришло, хотя watchdog уже успел вклинить заглушку —
-        // значит порог ниже, чем реальная задержка события подтверждения.
-        // Лучше остаться без страховки, чем сыпать "Секунду." в каждую реплику.
-        if (recoveryStage > 0) {
-            watchdogFalsePositives++;
-            Logger.write("⚠️ [Cartesia] watchdog false positive #" + watchdogFalsePositives +
-                " — аудио пришло уже после заглушки (" + source + ")");
-            if (watchdogFalsePositives >= 2) {
-                watchdogDisabled = true;
-                Logger.write("⚠️ [Cartesia] WATCHDOG DISABLED до конца звонка — " +
-                    "событие подтверждения аудио приходит позже " + TTS_WATCHDOG_MS + "ms");
-            }
-        }
-
-        if (mVadStop && mFirstChunk) {
+        if (mVadStop) {
+            var now = Date.now();
             var toFirstToken = mFirstDelta ? (mFirstDelta - mVadStop) : -1;
-            var toTts = mFirstChunk - mVadStop;
-            var ttfbMs = (typeof ttfb === "number") ? ttfb : -1;
+            var toTts = mFirstChunk ? (mFirstChunk - mVadStop) : -1;
             Logger.write("⏱ TURN: vad→token=" + toFirstToken + "ms" +
                 " vad→tts=" + toTts + "ms" +
-                " ttfb=" + ttfbMs + "ms" +
-                " total≈" + (ttfbMs >= 0 ? toTts + ttfbMs : toTts) + "ms" +
+                " vad→audio=" + (now - mVadStop) + "ms" +
+                (typeof ttfb === "number" ? " ttfb=" + ttfb + "ms" : "") +
+                (recoveryStage > 0 ? " (recovery stage " + recoveryStage + ")" : "") +
                 " [" + source + "]");
         }
     }
 
-    // Cartesia не отдала аудио. Ступень 1 — заглушка и переотправка в новом
-    // контексте. Ступень 2 — пересоздание плеера. Дальше не пытаемся, иначе
-    // получим петлю на весь звонок.
+    // Cartesia не отдала аудио.
+    //
+    // Заглушку озвучиваем только при ЯВНОЙ ошибке плеера — тогда мы точно
+    // знаем, что абонент сидит в тишине. Если ошибки не было, у нас нет
+    // доказательства, что аудио не идёт: возможно, просто не приходит событие
+    // подтверждения. В этом случае молча снимаем watchdog до конца звонка —
+    // остаться без страховки лучше, чем вклинивать "Секунду." в каждую реплику.
     function onTtsSilent() {
         watchdogTimer = null;
         if (isInterrupted || isHangingUp || audioConfirmed) return;
 
+        if (!sawPlayerError) {
+            watchdogDisabled = true;
+            Logger.write("⚠️ [Cartesia] watchdog: нет подтверждения аудио за " + TTS_WATCHDOG_MS +
+                "ms, но и ошибок плеера не было — считаем, что событие просто не приходит.");
+            Logger.write("⚠️ [Cartesia] WATCHDOG DISABLED до конца звонка (заглушка не проигрывается)");
+            return;
+        }
+
         var textToRepeat = (turnFullText || "").trim();
 
-        if (recoveryStage === 0 && ttsPlayer) {
+        if (recoveryStage === 0 && ttsPlayer && !playerDead) {
             recoveryStage = 1;
-            Logger.write("⚠️ [Cartesia] no audio in " + TTS_WATCHDOG_MS + "ms — filler + resend");
-            cancelCurrentContext();
+            Logger.write("⚠️ [Cartesia] no audio in " + TTS_WATCHDOG_MS + "ms after error — filler + resend");
+            stopSpeaking();
             turnCtx = newContextId();
             try {
                 ttsPlayer.generationRequest(buildGenParams(turnCtx, FILLER_TEXT + " ", !!textToRepeat));
-                if (textToRepeat) ttsPlayer.generationRequest(buildGenParams(turnCtx, textToRepeat, false));
+                if (textToRepeat) {
+                    ttsPlayer.generationRequest(buildGenParams(turnCtx, textToRepeat, false));
+                    ctxOpen = false;
+                } else {
+                    ctxOpen = false;
+                }
             } catch (err) {
                 Logger.write("[Cartesia] resend failed: " + err);
             }
@@ -536,7 +577,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             Logger.write("⚠️ [Cartesia] still silent — recreating player");
             if (ttsPlayer) { try { ttsPlayer.stop(); } catch (err) {} }
             ttsPlayer = null;
+            playerDead = false;
             turnCtx = null;
+            ctxOpen = false;
             firstChunkOfTurn = true;
             speak(FILLER_TEXT + " ", !!textToRepeat);
             if (textToRepeat) speak(textToRepeat, false);
@@ -552,10 +595,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // =========================================================================
     // Вешаются ДО sendMediaTo, иначе Started может проскочить мимо подписки.
     //
-    // Для долгоживущего RealtimeTTSPlayer доки не фиксируют, срабатывают ли
-    // Started / AudioChunksPlaybackFinished раз за звонок или раз за генерацию,
-    // поэтому слушаем оба (плюс PlaybackFinished) и логируем каждое событие —
-    // на первом же тестовом звонке будет виден реальный порядок.
+    // Наблюдение с тестового звонка: AudioChunksPlaybackFinished не пришёл ни
+    // разу за весь звонок, так что TTFB от платформы получить не удаётся, а
+    // единственный реальный признак начала озвучки — Started. Слушатель на
+    // AudioChunks оставлен: если событие всё-таки появится, оно принесёт TTFB.
+    // Срабатывает ли Started на каждую генерацию у живого плеера, всё ещё
+    // неизвестно — в прошлом звонке плеер не пережил ни одной смены хода.
     function attachPlayerListeners() {
         ttsPlayer.addEventListener(PlayerEvents.Started, function() {
             Logger.write("[Cartesia] ▶ Started");
@@ -570,19 +615,43 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         });
 
         ttsPlayer.addEventListener(PlayerEvents.PlaybackFinished, function(ev) {
-            if (ev && ev.error) {
-                Logger.write("[Cartesia] ❌ PlaybackFinished error: " + ev.error);
-                if (!audioConfirmed && !isInterrupted && !isHangingUp) onTtsSilent();
-                return;
-            }
+            if (ev && ev.error) { onPlayerError("PlaybackFinished: " + ev.error); return; }
+            Logger.write("[Cartesia] ✅ PlaybackFinished");
             confirmAudio("PlaybackFinished");
             if (hangupAfterSpeech) finishHangup("playback finished");
         });
 
         ttsPlayer.addEventListener(PlayerEvents.Error, function(ev) {
-            Logger.write("[Cartesia] ❌ Player error: " + (ev && ev.error));
-            if (!audioConfirmed && !isInterrupted && !isHangingUp) onTtsSilent();
+            onPlayerError("Player.Error: " + (ev && ev.error));
         });
+    }
+
+    // Ошибка от Cartesia уносит плеер с собой: дальнейшие generationRequest
+    // уходят в никуда молча. Поэтому помечаем плеер мёртвым сразу и, если
+    // текущая реплика ещё не зазвучала, чиним не дожидаясь watchdog'а.
+    function onPlayerError(what) {
+        Logger.write("[Cartesia] ❌ " + what);
+        playerDead = true;
+        sawPlayerError = true;
+        ctxOpen = false;
+
+        if (audioConfirmed || isInterrupted || isHangingUp) return;
+        if (!turnFullText) return;   // озвучивать нечего
+
+        disarmWatchdog();
+        Logger.write("[Cartesia] recovering current turn on a fresh player");
+        // pending — это суффикс turnFullText, а не отдельный кусок: обработчик
+        // дельт пишет в оба. Складывать их нельзя, хвост задвоится.
+        var textToRepeat = turnFullText.trim();
+        recoveryStage = 2;
+        try { ttsPlayer.stop(); } catch (err) {}
+        ttsPlayer = null;
+        playerDead = false;
+        turnCtx = null;
+        ctxOpen = false;
+        firstChunkOfTurn = true;
+        pending = "";
+        speak(textToRepeat, false);
     }
 
     function finishHangup(reason) {
@@ -636,6 +705,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             dialogLog.push({ role: 'assistant', text: phrase, ts: Date.now() });
             if (assistantMessageBuffer) assistantMessageBuffer += " ";
             assistantMessageBuffer += phrase;
+            turnFullText = phrase;   // чтобы приветствие тоже можно было переозвучить
             speak(phrase, false);
             return;
         }
@@ -791,13 +861,15 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         OpenAI.RealtimeAPIEvents.InputAudioBufferSpeechStarted,
         function() {
             if (!callAnswered) return;
-            Logger.write("[OpenAI] INTERRUPTION — cancel Cartesia context");
+            Logger.write("[OpenAI] SPEECH STARTED — stop Cartesia" +
+                (ctxOpen ? " (context open → cancel)" : " (context closed → buffer only)"));
             isInterrupted = true;
             disarmWatchdog();
             try { realtimeAPIClient.clearMediaBuffer(); } catch (err) {}
-            cancelCurrentContext();
+            stopSpeaking();
             pending = "";
             turnCtx = null;
+            ctxOpen = false;
             firstChunkOfTurn = true;
         }
     );
