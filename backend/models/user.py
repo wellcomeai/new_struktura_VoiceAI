@@ -84,7 +84,7 @@ class User(Base, BaseModel):
     agent_trial_started_at = Column(DateTime(timezone=True), nullable=True)
     agent_subscription_blocked = Column(Boolean, default=False, nullable=False, index=True)
 
-    # ✅ Кредиты каскад-ассистентов (LLM gpt-5.4-nano на серверном ключе).
+    # ✅ Кредиты каскад-ассистентов (LLM gpt-realtime-2.1-mini на серверном ключе).
     # Отдельный кошелёк, независимый от кредитов оркестратора (credits_balance)
     # и от подписки agent. Доступен на всех тарифах (включая free).
     # Колонки добавляются в БД startup-ALTER (см. app.py fix_missing_columns).

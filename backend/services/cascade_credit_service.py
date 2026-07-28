@@ -3,15 +3,24 @@ CascadeCreditService — атомарный учёт кредитов каска
 
 Отдельный кошелёк (`users.cascade_credits_balance`), независимый от кредитов
 оркестратора (`users.credits_balance`) и от подписки `agent`. Доступен на всех
-тарифах, включая free. Списание — по фактическим токенам LLM gpt-5.4-nano,
+тарифах, включая free. Списание — по фактическим токенам LLM gpt-realtime-2.1-mini,
 которая крутится в Voximplant на СЕРВЕРНОМ ключе OpenAI (settings.OPENAI_API_KEY).
 
 Тарификация (та же конвенция, что у оркестратора: 1 кредит = $0.0001
 себестоимости, ставки уже ×2 → 100% маржа):
 
-    gpt-5.4-nano: $0.20 / 1M input, $1.25 / 1M output
-      input  = $0.0002 / 1k  → ×2 → 4  кредита / 1k
-      output = $0.00125 / 1k → ×2 → 25 кредитов / 1k
+    gpt-realtime-2.1-mini, ТЕКСТОВЫЕ токены (аудио не используем — модель
+    работает как текстовый мозг каскада):
+      $0.60 / 1M input, $0.06 / 1M cached input, $2.40 / 1M output
+      input        = $0.0006  / 1k → ×2 → 12  кредитов / 1k
+      cached input = $0.00006 / 1k → ×2 → 1.2 кредита  / 1k
+      output       = $0.0024  / 1k → ×2 → 48  кредитов / 1k
+
+    Было (gpt-5.4-nano, Chat Completions): 4 / — / 25 кредитов за 1k.
+    Ставка выросла, но итоговый счёт за звонок не обязан вырасти: раньше на
+    КАЖДЫЙ ход пересылалась вся история диалога по полной цене input, а в
+    Realtime она живёт на стороне OpenAI и идёт как cached — в 10 раз дешевле.
+    Cached-токены поэтому считаются отдельной, дробной ставкой.
 
 Все мутации баланса идут строго через SELECT ... FOR UPDATE. Каждая операция
 фиксируется в `credit_transactions` c product='cascade' — единый источник правды
@@ -36,10 +45,12 @@ logger = get_logger(__name__)
 
 PRODUCT = "cascade"
 
-# Ставки списания gpt-5.4-nano (кредитов за 1000 токенов, маржа ×2 уже включена).
-CASCADE_MODEL_SLUG = "openai/gpt-5.4-nano"
-INPUT_CREDITS_PER_1K = 4
-OUTPUT_CREDITS_PER_1K = 25
+# Ставки списания gpt-realtime-2.1-mini (кредитов за 1000 ТЕКСТОВЫХ токенов,
+# маржа ×2 уже включена). CACHED — дробная: cached input на порядок дешевле.
+CASCADE_MODEL_SLUG = "openai/gpt-realtime-2.1-mini"
+INPUT_CREDITS_PER_1K = 12
+CACHED_INPUT_CREDITS_PER_1K = 1.2
+OUTPUT_CREDITS_PER_1K = 48
 
 
 class CascadeCreditService:
@@ -50,12 +61,25 @@ class CascadeCreditService:
     # COST CALCULATION
     # ------------------------------------------------------------------
     @classmethod
-    def calculate_cost(cls, prompt_tokens: int, completion_tokens: int) -> int:
-        """Стоимость вызова в кредитах. Минимум 1 кредит за любой платный вызов."""
+    def calculate_cost(
+        cls,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_prompt_tokens: int = 0,
+    ) -> int:
+        """
+        Стоимость вызова в кредитах. Минимум 1 кредит за любой платный вызов.
+
+        `prompt_tokens` — НЕкэшированный input (сценарий уже вычел из него
+        cached). `cached_prompt_tokens` — то, что Realtime отдал как
+        input_token_details.cached_tokens, тарифицируется по ставке в 10 раз ниже.
+        """
         prompt_tokens = max(0, prompt_tokens or 0)
         completion_tokens = max(0, completion_tokens or 0)
+        cached_prompt_tokens = max(0, cached_prompt_tokens or 0)
         cost = math.ceil(
             (prompt_tokens / 1000.0) * INPUT_CREDITS_PER_1K +
+            (cached_prompt_tokens / 1000.0) * CACHED_INPUT_CREDITS_PER_1K +
             (completion_tokens / 1000.0) * OUTPUT_CREDITS_PER_1K
         )
         return max(1, cost)
@@ -73,14 +97,25 @@ class CascadeCreditService:
         ref_type: str = "cascade_call",
         ref_id: Optional[UUID] = None,
         notes: Optional[str] = None,
+        cached_prompt_tokens: int = 0,
     ) -> Optional[CreditTransaction]:
         """
         Атомарное списание кредитов каскада. SELECT FOR UPDATE на user.
         Если баланса не хватает — списывает в ноль (НЕ в минус) и помечает
         транзакцию `partial=...`. НЕ бросает исключение — звонок уже отработал,
         факт расхода надо зафиксировать. При нулевых токенах — ничего не делает.
+
+        `prompt_tokens` — некэшированный input, `cached_prompt_tokens` — кэш
+        (дешевле в 10 раз). В колонку prompt_tokens пишем их СУММУ, чтобы
+        аналитика по объёму осталась сопоставимой с историей, а разбивка уходит
+        в notes.
         """
-        if (prompt_tokens or 0) <= 0 and (completion_tokens or 0) <= 0:
+        cached_prompt_tokens = max(0, cached_prompt_tokens or 0)
+        if (
+            (prompt_tokens or 0) <= 0
+            and (completion_tokens or 0) <= 0
+            and cached_prompt_tokens <= 0
+        ):
             return None
 
         user = db.execute(
@@ -89,7 +124,7 @@ class CascadeCreditService:
         if not user:
             raise ValueError(f"User {user_id} not found")
 
-        cost = cls.calculate_cost(prompt_tokens, completion_tokens)
+        cost = cls.calculate_cost(prompt_tokens, completion_tokens, cached_prompt_tokens)
 
         current = max(0, user.cascade_credits_balance or 0)
         actual_charge = min(cost, current)
@@ -99,6 +134,8 @@ class CascadeCreditService:
         note_parts = []
         if partial:
             note_parts.append(f"partial: charged {actual_charge}/{cost}")
+        if cached_prompt_tokens:
+            note_parts.append(f"cached={cached_prompt_tokens}")
         if notes:
             note_parts.append(notes)
 
@@ -109,7 +146,7 @@ class CascadeCreditService:
             amount=-cost,
             balance_after=user.cascade_credits_balance,
             model_slug=CASCADE_MODEL_SLUG,
-            prompt_tokens=prompt_tokens,
+            prompt_tokens=max(0, prompt_tokens or 0) + cached_prompt_tokens,
             completion_tokens=completion_tokens,
             ref_type=ref_type,
             ref_id=ref_id,
@@ -120,7 +157,8 @@ class CascadeCreditService:
         db.refresh(tx)
         logger.info(
             f"[CASCADE-CREDITS] Charged user {user_id}: -{cost} (actual -{actual_charge}, "
-            f"balance {user.cascade_credits_balance}, in={prompt_tokens} out={completion_tokens})"
+            f"balance {user.cascade_credits_balance}, in={prompt_tokens} "
+            f"cached={cached_prompt_tokens} out={completion_tokens})"
         )
         return tx
 

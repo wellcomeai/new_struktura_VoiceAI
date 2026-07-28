@@ -436,12 +436,14 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
         )
     elif assistant_type == "cascade":
         # Каскад: GrokAssistantConfig(assistant_type='cascade'), VoxTTS realtime.
-        # LLM (gpt-5.4-nano) на серверном ключе, оплата — кредитами каскада.
+        # LLM (gpt-realtime-2.1-mini) на серверном ключе, оплата — кредитами
+        # каскада. Поле openrouter_model для каскада справочное: сценарий
+        # inbound_cascade/outbound_cascade держит модель у себя в LLM_MODEL.
         cascade_voice = voice if (voice and _is_valid_voice("cascade", voice)) else DEFAULT_CASCADE_VOICE
         va = GrokAssistantConfig(
             id=uuid.uuid4(), user_id=user_id, assistant_type="cascade",
             name=f"{name} Voice", system_prompt=prompt, greeting_message="",
-            openrouter_model="openai/gpt-5.4-nano",
+            openrouter_model="openai/gpt-realtime-2.1-mini",
             temperature=0.7, max_tokens=1024,
             tts_provider="voxtts", tts_voice=cascade_voice,
             tts_lang="ru", asr_lang="ru",

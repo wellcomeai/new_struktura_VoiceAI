@@ -70,7 +70,7 @@ const TYPE_DEFS = [
   { type:'openai', name:'OpenAI Realtime', desc:'gpt-realtime — премиум-качество голоса.' },
   { type:'cartesia', name:'Cartesia', desc:'Cartesia TTS + OpenAI LLM в каскаде, гибкая настройка.' },
   { type:'yandex', name:'Yandex SpeechKit', desc:'Yandex Realtime — российская инфраструктура, оплата в Yandex Cloud.' },
-  { type:'cascade', name:'Cascade', desc:'LLM на нашем ключе (gpt-5.4-nano) + VoxTTS. Без своих ключей — оплата кредитами каскада.' },
+  { type:'cascade', name:'Cascade', desc:'LLM на нашем ключе (gpt-realtime-2.1-mini) + VoxTTS. Без своих ключей — оплата кредитами каскада.' },
 ];
 
 function drawStep0(c){

@@ -1167,14 +1167,18 @@ async def log_conversation_data(
                 }
             
             # 🆕 Списание кредитов каскада по фактическим токенам LLM.
-            # Каскад крутит gpt-5.4-nano на серверном ключе Voicyfy, поэтому расход
-            # LLM оплачивается кредитами каскада (cascade_credits_balance).
+            # Каскад крутит gpt-realtime-2.1-mini на серверном ключе Voicyfy,
+            # поэтому расход LLM оплачивается кредитами каскада
+            # (cascade_credits_balance). prompt_tokens — НЕкэшированный input,
+            # cached_prompt_tokens — кэш (история диалога живёт на стороне
+            # OpenAI и тарифицируется в 10 раз дешевле).
             if assistant_type == "cascade":
                 try:
                     usage = request_data.get("cascade_usage") or {}
                     prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                    cached_prompt_tokens = int(usage.get("cached_prompt_tokens") or 0)
                     completion_tokens = int(usage.get("completion_tokens") or 0)
-                    if prompt_tokens > 0 or completion_tokens > 0:
+                    if prompt_tokens > 0 or completion_tokens > 0 or cached_prompt_tokens > 0:
                         from backend.services.cascade_credit_service import CascadeCreditService
                         # Номер собеседника для истории (нормализованный, без префикса).
                         phone_for_notes = (
@@ -1185,6 +1189,7 @@ async def log_conversation_data(
                             db=db,
                             user_id=assistant.user_id,
                             prompt_tokens=prompt_tokens,
+                            cached_prompt_tokens=cached_prompt_tokens,
                             completion_tokens=completion_tokens,
                             ref_type="cascade_call",
                             notes=phone_for_notes or f"call {call_id or chat_id}",

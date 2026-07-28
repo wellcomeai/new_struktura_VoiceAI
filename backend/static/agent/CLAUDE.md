@@ -5,7 +5,7 @@
 
 Голосовой ассистент агента — один из пяти провайдеров:
 `gemini | openai | cartesia | yandex | cascade` (`AgentConfig.assistant_type`).
-Каскад работает на серверном ключе OpenAI (gpt-5.4-nano) + VoxTTS, оплата —
+Каскад работает на серверном ключе OpenAI (gpt-realtime-2.1-mini) + VoxTTS, оплата —
 кредитами каскада (`users.cascade_credits_balance`); хранится в
 `grok_assistant_configs (assistant_type='cascade')`, исходящие идут через отдельный
 rule `outbound_cascade` (цепочка с `vox-turn-taking`).

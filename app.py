@@ -732,7 +732,7 @@ def check_and_fix_all_missing_columns():
                 'agent_trial_used': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 'agent_trial_started_at': 'TIMESTAMP WITH TIME ZONE NULL',
                 'agent_subscription_blocked': 'BOOLEAN DEFAULT FALSE NOT NULL',
-                # 🆕 Кредиты каскад-ассистентов (LLM gpt-5.4-nano на серверном ключе)
+                # 🆕 Кредиты каскад-ассистентов (LLM gpt-realtime-2.1-mini на серверном ключе)
                 'cascade_credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
                 'cascade_trial_granted': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 # 🆕 Персональный API-ключ Voicyfy (внешние интеграции, Claude Code)

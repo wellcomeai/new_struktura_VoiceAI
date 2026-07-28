@@ -2,28 +2,38 @@
  * outbound_cascade — ИСХОДЯЩИЙ full-cascade Voice AI сценарий Voicyfy.
  *
  *   STT:  встроенный ASR (Yandex v2, streaming + interim), язык из конфига
- *   LLM:  OpenAI gpt-5.4-nano — Chat Completions (stateless, ручная история) + tool calling
+ *   LLM:  OpenAI gpt-realtime-2.1-mini — Realtime API (WebSocket), режим ТОЛЬКО ТЕКСТ
  *   TTS:  VoxTTS (realtime-стриминг, голоса Anna/Sergey)
  *   Turn-taking: Silero VAD + Pipecat Smart Turn через VoxTurnTaking
+ *
+ * ПОЧЕМУ Realtime, а не Chat Completions (переход v2 -> v3):
+ *  WS открыт с начала звонка (нет установки соединения на каждый ход), контекст
+ *  диалога живёт на стороне OpenAI (шлём только новую реплику, старое идёт как
+ *  cached-токены), сама модель дистиллирована под низкую задержку. TTFT падает
+ *  с ~600мс до ~250мс. Прогрев (warmup) за ненадобностью удалён.
+ *
+ * ВАЖНО — TURN DETECTION У МОДЕЛИ ВЫКЛЮЧЕН:
+ *  Realtime — чистый ТЕКСТОВЫЙ мозг: аудио в него не заводится вообще, в сессии
+ *  audio.input.turn_detection = null. Момент «пора отвечать» определяет НАШ
+ *  VoxTurnTaking и явно дёргает responseCreate().
  *
  * ОТЛИЧИЯ ОТ inbound_cascade:
  *  1. Точка входа — AppEvents.Started + VoxEngine.customData() (не CallAlerting).
  *  2. Мы САМИ звоним: VoxEngine.callPSTN(phone, caller_id).
  *  3. Конфиг — /api/telephony/outbound-config?assistant_id=...&assistant_type=cascade.
  *  4. Контекст звонка (задача + CRM) инжектится в system-промпт.
- *  5. READINESS-BEFORE-DIAL: клиент OpenAI / TTS / ASR готовим ДО дозвона — если
+ *  5. READINESS-BEFORE-DIAL: WS к OpenAI / TTS / ASR готовим ДО дозвона — если
  *     что-то не поднялось, PSTN не набираем (0₽ телефонии).
  *  6. MUTE-окно: первые mute_duration_ms после ответа мик абонента закрыт
  *     (флаг micOpen) — «Алло»/шум при поднятии трубки не обрывают приветствие.
  *  7. TOOL CALLING: ассистент может вызывать функции (в т.ч. hangup_call, чтобы
- *     самому завершить звонок). Разбор tool_calls из сырого OpenAI-чанка.
- *  8. Silence hard-timeout ~180с (защита от автоответчика/тишины). Session-TTL
- *     НЕ нужен (это лимит Gemini Live; у Chat Completions его нет).
+ *     самому завершить звонок). Вызов приходит целиком в ResponseOutputItemDone.
+ *  8. Silence hard-timeout ~180с (защита от автоответчика/тишины). У Realtime-
+ *     сессии есть TTL, поэтому обрыв WS переживаем реконнектом (см. ниже).
  *
- * СПЕКУЛЯЦИЯ здесь НЕ используется (в отличие от inbound): в реальных тестах она
- * не срабатывала (быстрый endpointing её вытесняет), а совмещать её с tool-calling
- * небезопасно (спекулятивно выполнять функцию нельзя). Один LLM-клиент, гейтинг
- * по completion-id сохранён.
+ * СПЕКУЛЯЦИЯ здесь не используется (как и в inbound после перехода на Realtime):
+ * при TTFT ~250мс выигрыш копеечный, а с серверным контекстом спекулятивная
+ * реплика отравляет историю диалога.
  *
  * ТРЕБОВАНИЯ:
  * 1. Правило outbound_cascade — цепочка [vox-turn-taking, outbound_cascade].
@@ -328,38 +338,51 @@ if (typeof VoxTurnTaking === "undefined") {
 const BACKEND_URL = "https://voicyfy.ru";
 const LOG_URL = BACKEND_URL + "/api/voximplant/log";
 const FUNCTIONS_URL = BACKEND_URL + "/api/voximplant/functions/execute";
-const LLM_MODEL = "gpt-5.4-nano";
-const LLM_REASONING_EFFORT = "none";
+const LLM_MODEL = "gpt-realtime-2.1-mini";
+// У 2.1-mini есть reasoning-токены (тарифицируются как output). "low" —
+// компромисс качество/задержка, проверенный в cartesia_inbound.
+const LLM_REASONING_EFFORT = "low";
 const SILENCE_HARD_TIMEOUT_MS = 180000;
+// Сколько ждём SessionCreated после подключения WS.
+const SESSION_READY_TIMEOUT_MS = 6000;
+// Сколько раз пробуем поднять WS заново, если он оборвался посреди звонка.
+const MAX_RECONNECTS = 2;
 
-const CC = OpenAI.ChatCompletionsAPIEvents;
+const RT = OpenAI.RealtimeAPIEvents;
 
-function ccPayload(event) {
+// --- Извлечение данных из событий Realtime (провайдерский payload в data) ---
+function rtPayload(event) {
     return event?.data?.payload ?? event?.data ?? {};
 }
-function extractDelta(event) {
-    const p = ccPayload(event);
-    return p?.choices?.[0]?.delta?.content ?? "";
+// Дельта текста (response.output_text.delta).
+function rtDelta(event) {
+    const d = event?.data;
+    if (typeof d?.delta === "string" && d.delta) return d.delta;
+    const p = d?.payload;
+    if (typeof p?.delta === "string" && p.delta) return p.delta;
+    return "";
 }
-function extractCompletionId(event) {
-    const p = ccPayload(event);
-    return p?.id ?? p?.choices?.[0]?.id ?? "";
+// Полный текст ответа (response.output_text.done).
+function rtDoneText(event) {
+    const d = event?.data;
+    if (typeof d?.text === "string" && d.text) return d.text;
+    const p = d?.payload;
+    if (typeof p?.text === "string" && p.text) return p.text;
+    return "";
 }
-function extractFinishReason(event) {
-    const p = ccPayload(event);
-    const fr = p?.choices?.[0]?.finish_reason;
-    return typeof fr === "string" && fr.length > 0 ? fr : "";
+// id генерации: в дельтах лежит плоско (response_id), в response.* — вложенно.
+function rtResponseId(event) {
+    const p = rtPayload(event);
+    return p?.response_id ?? p?.response?.id ?? "";
 }
-function extractToolCallDeltas(event) {
-    const p = ccPayload(event);
-    const tc = p?.choices?.[0]?.delta?.tool_calls;
-    return Array.isArray(tc) ? tc : null;
+// usage приходит в response.done.
+function rtUsage(event) {
+    const p = rtPayload(event);
+    return p?.response?.usage ?? p?.usage ?? null;
 }
-function extractUsage(event) {
-    // При stream_options.include_usage финальный чанк несёт usage с
-    // prompt_tokens / completion_tokens (choices при этом пустой).
-    const p = ccPayload(event);
-    return p && p.usage ? p.usage : null;
+// Модель иногда пишет ответ в несколько строк — "  \n" ломает потоковый синтез.
+function cleanForTTS(text) {
+    return (text || "").replace(/\s*\n+\s*/g, " ");
 }
 
 const TELEPHONY_STYLE_RULES = `
@@ -451,16 +474,22 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
     // --- Состояние LLM/каскада ---
     let call;
     let stt;
-    let llm;
+    let realtime; // OpenAI.RealtimeAPIClient — текстовый мозг каскада
     let ttsPlayer;
     let turnTaking;
     let greeting = "";
+    let systemPrompt = "";
+    let apiKey = "";
+    let reconnectAttempts = 0;
 
-    const messages = []; // [0]=system, далее user/assistant/tool
-    const main = { accepting: false, id: null, text: "", toolCalls: {}, version: -1 };
-    const mainStaleIds = new Set();
+    // Локальная копия диалога. В запросы НЕ уходит (контекст живёт на стороне
+    // OpenAI), нужна только для восстановления после обрыва WS.
+    const messages = []; // [0]=system, далее user/assistant
 
-    let tools = [];
+    // Состояние текущей генерации. Одна активная за раз.
+    const main = { active: false, responseId: null, text: "", version: -1 };
+
+    let realtimeTools = [];
     const functionNameToIdMap = {};
 
     let micOpen = false; // мик абонента открывается после mute-окна
@@ -473,10 +502,12 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
     let record_url = null;
     let call_cost = 0;
     let call_duration = 0;
-    // Учёт токенов LLM для списания кредитов каскада (все completion'ы звонка,
-    // включая warmup и tool-раунды — всё это реальный расход на серверном ключе).
+    // Учёт токенов LLM для списания кредитов каскада. Cached считаем отдельно:
+    // ставка за них на порядок ниже, и именно в них уходит история диалога.
     let totalPromptTokens = 0;
+    let totalCachedPromptTokens = 0;
     let totalCompletionTokens = 0;
+    let usageEventsSeen = 0;
     const dialogLog = [];
     let userMessageBuffer = "";
     let assistantMessageBuffer = "";
@@ -519,61 +550,66 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
 
     const canPlay = () => turnTaking && turnTaking.canPlayAgentAudio();
     const ttsSendText = (text) => {
-        if (text) ttsPlayer.send({ send_text: { text } });
+        if (text) ttsPlayer.send({ send_text: { text: cleanForTTS(text) } });
     };
     const ttsFlush = () => {
         ttsPlayer.send({ send_text: { text: " ", flush_context: {} } });
     };
 
-    const sendCompletion = (msgs) => {
-        const req = {
-            model: LLM_MODEL,
-            reasoning_effort: LLM_REASONING_EFFORT,
-            stream: true,
-            stream_options: { include_usage: true },
-            messages: msgs,
-        };
-        if (tools.length) {
-            req.tools = tools;
-            req.tool_choice = "auto";
-        }
-        llm.createChatCompletions(req);
+    // --- Учёт токенов из response.done ---
+    const accountUsage = (usage) => {
+        usageEventsSeen++;
+        const input = Number(usage.input_tokens) || 0;
+        const output = Number(usage.output_tokens) || 0;
+        const cachedRaw = Number(usage?.input_token_details?.cached_tokens) || 0;
+        const cached = Math.min(Math.max(0, cachedRaw), input);
+        totalCachedPromptTokens += cached;
+        totalPromptTokens += input - cached;
+        totalCompletionTokens += output;
     };
 
-    const warmup = () => {
-        llm.createChatCompletions({
-            model: LLM_MODEL,
-            reasoning_effort: LLM_REASONING_EFFORT,
-            stream: true,
-            stream_options: { include_usage: true },
-            messages: [{ role: "user", content: "привет" }],
+    // --- Гейтинг: событие относится к текущей активной генерации? ---
+    const isCurrent = (event) => {
+        if (!main.active) return false;
+        const id = rtResponseId(event);
+        if (!id) return true;
+        if (!main.responseId) {
+            main.responseId = id;
+            return true;
+        }
+        return id === main.responseId;
+    };
+
+    // --- Отдать реплику абонента модели и запросить ответ ---
+    const sendUserText = (text) => {
+        realtime.conversationItemCreate({
+            item: {
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text: text }],
+            },
         });
     };
-
-    const startMain = (msgs, version) => {
-        if (main.id) mainStaleIds.add(main.id);
-        main.accepting = true;
-        main.id = null;
+    const requestResponse = (version) => {
+        main.active = true;
+        main.responseId = null;
         main.text = "";
-        main.toolCalls = {};
         main.version = version;
-        sendCompletion(msgs);
+        realtime.responseCreate({});
         resetHardTimeout();
     };
 
-    const finalizeMain = () => {
-        const text = main.text;
-        if (text) {
-            messages.push({ role: "assistant", content: text });
-            Logger.write(`[OUT-CASCADE] ===AGENT=== ${text}`);
-            logDialog("assistant", text);
+    const finalizeTurn = (text) => {
+        const clean = (text || "").trim();
+        if (clean) {
+            messages.push({ role: "assistant", content: clean });
+            Logger.write(`[OUT-CASCADE] ===AGENT=== ${clean}`);
+            logDialog("assistant", clean);
         }
         if (canPlay()) ttsFlush();
-        main.accepting = false;
-        if (main.id) mainStaleIds.add(main.id);
-        main.id = null;
+        main.active = false;
+        main.responseId = null;
         main.text = "";
-        main.toolCalls = {};
         resetHardTimeout();
     };
 
@@ -607,38 +643,29 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
         }
     };
 
-    // Разбор и выполнение tool_calls (Chat Completions manual tool loop).
-    const handleToolCalls = async (version) => {
-        const calls = Object.keys(main.toolCalls)
-            .map((k) => main.toolCalls[k])
-            .filter((c) => c && c.name);
+    // Вызов функции приходит целиком в ResponseOutputItemDone (в отличие от
+    // Chat Completions, где tool_calls собирались по дельтам).
+    const handleFunctionCall = async (item) => {
+        const name = item.name;
+        const callIdRef = item.call_id;
+        let args = {};
+        try { args = JSON.parse(item.arguments || "{}"); } catch (e) { /* noop */ }
+        Logger.write(`[OUT-CASCADE] ===FUNCTION=== ${name} ${item.arguments || ""}`);
 
-        // Останавливаем гейтинг текущей генерации.
-        main.accepting = false;
-        if (main.id) mainStaleIds.add(main.id);
-        main.id = null;
+        // Текущая генерация закончилась вызовом функции — снимаем гейт, чтобы
+        // хвостовые события старого response не влияли на следующий.
         const pendingText = main.text;
+        main.active = false;
+        main.responseId = null;
         main.text = "";
-        main.toolCalls = {};
-
-        // Ассистентское сообщение с tool_calls в историю.
-        messages.push({
-            role: "assistant",
-            content: pendingText || null,
-            tool_calls: calls.map((c) => ({
-                id: c.id,
-                type: "function",
-                function: { name: c.name, arguments: c.args || "{}" },
-            })),
-        });
+        if (pendingText.trim()) {
+            messages.push({ role: "assistant", content: pendingText.trim() });
+            logDialog("assistant", pendingText.trim());
+        }
 
         // hangup_call — ассистент сам завершает звонок.
-        const hangup = calls.find((c) => c.name === "hangup_call");
-        if (hangup) {
-            let farewell = "";
-            try {
-                farewell = (JSON.parse(hangup.args || "{}").farewell_message) || "";
-            } catch (e) { /* noop */ }
+        if (name === "hangup_call") {
+            const farewell = args.farewell_message || "";
             Logger.write(`[OUT-CASCADE] ===HANGUP=== ${farewell}`);
             if (farewell) {
                 logDialog("assistant", farewell);
@@ -648,17 +675,18 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             return;
         }
 
-        // Остальные функции: выполнить, вернуть результат в историю.
-        for (const c of calls) {
-            let args = {};
-            try { args = JSON.parse(c.args || "{}"); } catch (e) { /* noop */ }
-            Logger.write(`[OUT-CASCADE] ===FUNCTION=== ${c.name} ${c.args || ""}`);
-            const result = await executeFunction(c.name, args);
-            messages.push({ role: "tool", tool_call_id: c.id, content: String(result) });
-        }
+        const result = await executeFunction(name, args);
         if (terminating) return;
-        // Повторный запрос — модель озвучит ответ по результатам функций.
-        startMain(messages.slice(), version);
+
+        realtime.conversationItemCreate({
+            item: {
+                type: "function_call_output",
+                call_id: callIdRef,
+                output: String(result),
+            },
+        });
+        // Модель озвучит ответ по результату функции.
+        requestResponse(main.version);
     };
 
     const sendConversationLog = async () => {
@@ -674,7 +702,9 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             call_duration: call_duration,
             cascade_usage: {
                 prompt_tokens: totalPromptTokens,
+                cached_prompt_tokens: totalCachedPromptTokens,
                 completion_tokens: totalCompletionTokens,
+                model: LLM_MODEL,
             },
             context: {
                 contact_name: CONTACT_NAME,
@@ -710,14 +740,17 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
             try { stt?.stop(); } catch (e) { /* noop */ }
             try { turnTaking?.close(); } catch (e) { /* noop */ }
+            try { realtime?.close(); } catch (e) { /* noop */ }
 
-            if (main.accepting && main.text) logDialog("assistant", main.text);
+            if (main.active && main.text) logDialog("assistant", main.text);
 
             await new Promise((r) => setTimeout(r, 400));
 
             Logger.write(
                 `[OUT-CASCADE] ===BILLING=== cost=${call_cost} dur=${call_duration}s ` +
-                `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} session=${call_session_history_id || "none"}`
+                `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} ` +
+                `session=${call_session_history_id || "none"} ` +
+                `tokens(in=${totalPromptTokens} cached=${totalCachedPromptTokens} out=${totalCompletionTokens} events=${usageEventsSeen})`
             );
             await sendConversationLog();
 
@@ -758,64 +791,164 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
         return block;
     }
 
-    // --- Обработчик стрима LLM (единственный клиент; текст + tool_calls) ---
-    const attachLlmHandler = () => {
-        llm.addEventListener(CC.Chunk, (event) => {
+    // --- Конфигурация Realtime-сессии ---
+    // withHistory=true только при реконнекте: контекст на стороне OpenAI умер
+    // вместе с сессией, отдаём его стенограммой прямо в instructions. Это
+    // надёжнее, чем пересоздавать items (формат assistant-item зависит от версии API).
+    const buildSessionConfig = (withHistory) => {
+        let instructions = systemPrompt;
+        if (withHistory && messages.length > 1) {
+            const transcript = messages
+                .filter((m) => m.role !== "system" && m.content)
+                .map((m) => (m.role === "user" ? "Собеседник: " : "Ты: ") + m.content)
+                .join("\n");
+            if (transcript) {
+                instructions +=
+                    `\n\nСтенограмма уже состоявшейся части разговора ` +
+                    `(соединение обрывалось, продолжай с этого места):\n${transcript}`;
+            }
+        }
+        return {
+            type: "realtime",
+            output_modalities: ["text"], // голос синтезирует VoxTTS, не модель
+            instructions: instructions,
+            reasoning: { effort: LLM_REASONING_EFFORT },
+            tools: realtimeTools,
+            tool_choice: realtimeTools.length > 0 ? "auto" : "none",
+            // Ход определяем МЫ (VoxTurnTaking), серверный VAD не нужен.
+            // Аудио в клиент не заводится вовсе — это вторая линия защиты.
+            audio: { input: { turn_detection: null } },
+        };
+    };
+
+    // --- Обработчики стрима Realtime (единственный клиент; текст + функции) ---
+    const attachRealtimeHandlers = (client) => {
+        client.addEventListener(RT.ResponseCreated, (event) => {
             if (terminating) return;
-            logShapeOnce("Chunk", event);
-            // Учёт токенов — ДО гейтинга: usage приходит в финальном чанке любого
-            // completion'а (в т.ч. stale/прерванного), и это реальный расход.
-            const usage = extractUsage(event);
+            if (main.active && !main.responseId) {
+                main.responseId = rtResponseId(event) || "";
+            }
+        });
+
+        client.addEventListener(RT.ResponseOutputTextDelta, (event) => {
+            if (terminating) return;
+            logShapeOnce("ResponseOutputTextDelta", event);
+            if (!isCurrent(event)) return;
+            const delta = rtDelta(event);
+            if (!delta) return;
+            main.text += delta;
+            if (canPlay()) {
+                logFirstDelta("");
+                ttsSendText(delta);
+            }
+        });
+
+        client.addEventListener(RT.ResponseOutputTextDone, (event) => {
+            if (terminating) return;
+            if (!isCurrent(event)) return;
+            finalizeTurn(rtDoneText(event) || main.text);
+        });
+
+        client.addEventListener(RT.ResponseOutputItemDone, async (event) => {
+            if (terminating) return;
+            try {
+                const payload = rtPayload(event);
+                const item = payload && payload.item;
+                if (!item || item.type !== "function_call") return;
+                logShapeOnce("ResponseOutputItemDone.function_call", event);
+                await handleFunctionCall(item);
+            } catch (e) {
+                Logger.write(`[OUT-CASCADE] function handler error: ${e}`);
+            }
+        });
+
+        // Финал генерации: токены для биллинга + страховка на случай, если
+        // ResponseOutputTextDone не пришёл, а текст накоплен.
+        client.addEventListener(RT.ResponseDone, (event) => {
+            logShapeOnce("ResponseDone", event);
+            const usage = rtUsage(event);
             if (usage) {
-                if (typeof usage.prompt_tokens === "number") totalPromptTokens += usage.prompt_tokens;
-                if (typeof usage.completion_tokens === "number") totalCompletionTokens += usage.completion_tokens;
+                accountUsage(usage);
+            } else {
+                Logger.write("[OUT-CASCADE] ⚠️ ResponseDone без usage — токены этого хода не учтены");
             }
-            const id = extractCompletionId(event);
-            if (id && mainStaleIds.has(id)) return;
-            if (!main.accepting) {
-                if (id) mainStaleIds.add(id);
-                return;
-            }
-            if (main.id === null) {
-                main.id = id || "";
-            } else if (id && id !== main.id) {
-                return;
-            }
-
-            const text = extractDelta(event);
-            if (text) {
-                main.text += text;
-                if (canPlay()) {
-                    logFirstDelta("");
-                    ttsSendText(text);
-                }
-            }
-
-            const toolDeltas = extractToolCallDeltas(event);
-            if (toolDeltas) {
-                logShapeOnce("Chunk.tool_calls", event);
-                for (const tc of toolDeltas) {
-                    const idx = tc.index != null ? tc.index : 0;
-                    if (!main.toolCalls[idx]) main.toolCalls[idx] = { id: "", name: "", args: "" };
-                    const slot = main.toolCalls[idx];
-                    if (tc.id) slot.id = tc.id;
-                    if (tc.function?.name) slot.name = tc.function.name;
-                    if (tc.function?.arguments) slot.args += tc.function.arguments;
-                }
-            }
-
-            const fr = extractFinishReason(event);
-            if (fr === "tool_calls") {
-                handleToolCalls(main.version);
-            } else if (fr) {
-                finalizeMain();
+            if (terminating) return;
+            if (main.active && isCurrent(event) && main.text) {
+                finalizeTurn(main.text);
             }
         });
 
-        llm.addEventListener(CC.ChatCompletionsAPIError, (event) => {
+        client.addEventListener(RT.Error, (event) => {
             Logger.write("[OUT-CASCADE] ===LLM_ERROR===");
-            if (event?.data) Logger.write(JSON.stringify(event.data));
+            try { Logger.write(JSON.stringify(event?.data)); } catch (e) { /* noop */ }
         });
+    };
+
+    // Поднять WS и дождаться готовности сессии (SessionCreated -> sessionUpdate).
+    const connectRealtime = async (withHistory) => {
+        const client = await OpenAI.createRealtimeAPIClient({
+            apiKey: apiKey,
+            model: LLM_MODEL,
+            type: OpenAI.RealtimeAPIClientType.REALTIME,
+            onWebSocketClose: () => {
+                Logger.write("[OUT-CASCADE] [OpenAI] WS closed");
+                handleRealtimeClose();
+            },
+            onWebSocketError: (err) => {
+                Logger.write(`[OUT-CASCADE] [OpenAI] WS error: ${JSON.stringify(err)}`);
+            },
+        });
+
+        await new Promise((resolve, reject) => {
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                reject(new Error("SessionCreated timeout"));
+            }, SESSION_READY_TIMEOUT_MS);
+
+            client.addEventListener(RT.SessionCreated, () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try {
+                    client.sessionUpdate({ session: buildSessionConfig(withHistory) });
+                    Logger.write("[OUT-CASCADE] [OpenAI] Session configured (text-only, turn_detection=null)");
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            });
+        });
+
+        attachRealtimeHandlers(client);
+        return client;
+    };
+
+    // Обрыв WS посреди звонка: TTL сессии, сеть, рестарт на стороне OpenAI.
+    // Поднимаем заново и отдаём историю стенограммой.
+    const handleRealtimeClose = async () => {
+        if (terminating) return;
+        // До дозвона обрыв означает неготовность — звонок ещё не начался,
+        // readiness-блок разберётся сам.
+        if (!call) return;
+        if (reconnectAttempts >= MAX_RECONNECTS) {
+            Logger.write("[OUT-CASCADE] ===RT_RECONNECT_GIVEUP=== завершаем звонок");
+            terminateCall();
+            return;
+        }
+        reconnectAttempts++;
+        Logger.write(`[OUT-CASCADE] ===RT_RECONNECT=== попытка ${reconnectAttempts}/${MAX_RECONNECTS}`);
+        main.active = false;
+        main.responseId = null;
+        main.text = "";
+        try {
+            realtime = await connectRealtime(true);
+            Logger.write("[OUT-CASCADE] ===RT_RECONNECT_OK===");
+        } catch (e) {
+            Logger.write(`[OUT-CASCADE] ===RT_RECONNECT_FAILED=== ${e}`);
+            terminateCall();
+        }
     };
 
     // --- Обработчики звонка (навешиваем на созданный call) ---
@@ -858,8 +991,11 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
                 policy: {
                     confidentEouProbability: 0.8,
                     transcriptSettleFastMs: 120,
-                    transcriptSettleMs: 350,
-                    userSpeechTimeoutMs: 700,
+                    // Подрезано под быстрый TTFT Realtime: раньше ждали дольше,
+                    // потому что LLM всё равно думал ~600мс. Теперь ожидание
+                    // endpointing'а — самая жирная строка бюджета задержки.
+                    transcriptSettleMs: 250,
+                    userSpeechTimeoutMs: 500,
                     shortUtteranceExtensionMs: 900,
                     fastShortUtteranceTimeoutMs: 500,
                     shortUtteranceMaxChars: 12,
@@ -889,24 +1025,28 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
                     Logger.write(`[OUT-CASCADE] ===USER=== ${input}`);
                     logDialog("user", input);
                     messages.push({ role: "user", content: input });
-                    startMain(messages.slice(), version);
+                    sendUserText(input);
+                    requestResponse(version);
                 },
 
                 onInterrupt: () => {
                     if (terminating || !micOpen) return;
                     ttsPlayer?.clearBuffer();
-                    main.accepting = false;
-                    if (main.id) mainStaleIds.add(main.id);
-                    main.id = null;
+                    if (main.active) {
+                        // Останавливаем генерацию НА СЕРВЕРЕ — иначе модель
+                        // досчитывает ответ, который никто не услышит, и мы за него платим.
+                        try { realtime.responseCancel(); } catch (e) { /* noop */ }
+                    }
+                    main.active = false;
+                    main.responseId = null;
                     main.text = "";
-                    main.toolCalls = {};
                 },
             });
 
             // Приветствие (фиксированная фраза, мимо LLM).
             messages.push({ role: "assistant", content: greeting });
             logDialog("assistant", greeting);
-            ttsPlayer.send({ send_text: { text: greeting, flush_context: {} } });
+            ttsPlayer.send({ send_text: { text: cleanForTTS(greeting), flush_context: {} } });
             resetHardTimeout();
 
             // MUTE-окно: открываем мик абонента только после mute_duration_ms,
@@ -930,10 +1070,11 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             return;
         }
 
+        apiKey = config.api_key;
         greeting = determineGreeting(config.first_phrase);
 
         // system-промпт: контекст (задача + CRM) + база + стиль + анти-повтор приветствия.
-        let systemPrompt = buildContextBlock();
+        systemPrompt = buildContextBlock();
         systemPrompt += (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
         systemPrompt +=
             `\n\nТип звонка: ИСХОДЯЩИЙ (ты звонишь абоненту, номер ${PHONE_NUMBER}). ` +
@@ -951,7 +1092,8 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             `- Текущее время: ${mskTime} (МСК)`;
         messages.push({ role: "system", content: systemPrompt });
 
-        // Функции ассистента -> tools для Chat Completions.
+        // Функции ассистента -> tools Realtime (ПЛОСКИЙ формат: name/description/
+        // parameters на верхнем уровне, в отличие от вложенного у Chat Completions).
         if (config.functions && config.functions.length > 0) {
             const decls = [];
             for (let i = 0; i < config.functions.length; i++) {
@@ -965,22 +1107,26 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
                 }
                 decls.push({
                     type: "function",
-                    function: { name: fn.name, description: desc, parameters: fn.parameters },
+                    name: fn.name,
+                    description: desc,
+                    parameters: fn.parameters,
                 });
             }
-            tools = decls;
+            realtimeTools = decls;
             Logger.write(`[OUT-CASCADE] Functions: ${JSON.stringify(functionNameToIdMap)}`);
         }
 
-        // READINESS: готовим ASR / LLM / TTS ДО дозвона.
+        Logger.write(`[OUT-CASCADE] LLM: ${LLM_MODEL} via Realtime WS (text-only, наш turn-taking)`);
+
+        // READINESS: готовим ASR / LLM / TTS ДО дозвона. WS к OpenAI поднимается
+        // здесь же — если сессия не встала, PSTN не набираем вовсе (0₽ телефонии).
         stt = VoxEngine.createASR({
             profile: asrProfileForLang(config.asr_lang),
             model: asrModelForLang(config.asr_lang),
             interimResults: true,
         });
 
-        llm = await OpenAI.createChatCompletionsAPIClient({ apiKey: config.api_key });
-        attachLlmHandler();
+        realtime = await connectRealtime(false);
 
         if (config.tts_provider && config.tts_provider !== "voxtts") {
             Logger.write(`[OUT-CASCADE] ⚠️ tts_provider='${config.tts_provider}' не поддержан, fallback VoxTTS/Anna`);
@@ -994,9 +1140,8 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             },
         });
 
-        // Прогрев LLM пока идёт дозвон (первый ход абонента будет быстрым).
-        warmup();
-
+        // Прогрев больше не нужен: WS открыт и сессия сконфигурирована ещё до
+        // дозвона, первый ход абонента и так уходит в тёплое соединение.
         Logger.write(`[OUT-CASCADE] Ready -> dialing PSTN ${PHONE_NUMBER}`);
         call = VoxEngine.callPSTN(PHONE_NUMBER, CALLER_ID);
         attachCallHandlers();
