@@ -72,6 +72,28 @@ const SESSION_READY_TIMEOUT_MS = 6000;
 // Сколько раз пробуем поднять WS заново, если он оборвался посреди звонка.
 const MAX_RECONNECTS = 2;
 
+// Пресеты паузы перед ответом (настройка агента, поле silence_duration_ms).
+// Значение = сколько тишины ждёт Silero, прежде чем счесть, что человек
+// замолчал. Это НЕ таймер ответа: вето детектора, стабильность транскрипта и
+// инвариант «клиент говорит» всё равно могут отложить закрытие хода.
+// 300 — быстрый ответ, риск вступить в паузу посреди фразы;
+// 650 — сбалансированный; 1000 — терпеливый.
+// Оценка длительности синтезированной речи: используется, чтобы понимать,
+// звучит ли агент прямо сейчас (для фильтрации ложных перебиваний).
+const MS_PER_CHAR = 95;
+const SILENCE_MS_DEFAULT = 300;
+const SILENCE_MS_MIN = 200;
+const SILENCE_MS_MAX = 1500;
+// Страховочный таймаут держим на фиксированный запас выше тишины: иначе он
+// либо срабатывает раньше VAD, либо висит без нужды.
+const SILENCE_TO_TIMEOUT_MS = 250;
+
+function resolveSilenceMs(raw) {
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v <= 0) return SILENCE_MS_DEFAULT;
+    return Math.min(SILENCE_MS_MAX, Math.max(SILENCE_MS_MIN, Math.round(v)));
+}
+
 const RT = OpenAI.RealtimeAPIEvents;
 
 // --- Извлечение данных из событий Realtime (провайдерский payload в data) ---
@@ -183,6 +205,21 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let firstDeltaLoggedForTurn = false;
     let turnStartedAt = 0;
 
+    // Звучит ли агент прямо сейчас. Нужно VoxTurnTaking, чтобы отличать
+    // настоящее перебивание от любого сегмента VAD: без этого флага рантайм
+    // считает перебиванием каждый шорох (в проде было 9 ложных на 5 настоящих).
+    //
+    // Считаем по «озвученному запасу»: каждый отправленный в VoxTTS кусок
+    // продлевает ожидаемый конец речи. Так флаг не зависит от имён событий
+    // плеера и не залипает, если событие не придёт.
+    let agentSpeakingUntil = 0;
+    const noteAgentAudio = (text) => {
+        const ms = Math.max(300, (text || "").length * MS_PER_CHAR);
+        agentSpeakingUntil = Math.max(agentSpeakingUntil, Date.now()) + ms;
+    };
+    const stopAgentAudio = () => { agentSpeakingUntil = 0; };
+    const isAgentSpeaking = () => Date.now() < agentSpeakingUntil;
+
     // Разовый лог формы события.
     const loggedShapes = new Set();
 
@@ -191,6 +228,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     let callId;
     let apiKey;
     let reconnectAttempts = 0;
+    let silenceMs = SILENCE_MS_DEFAULT;
 
     // --- Данные для /log (запись, стоимость, диалог) ---
     const chat_id = "vox_" + Math.random().toString(36).substring(2, 15);
@@ -283,6 +321,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 `session=${call_session_history_id || "none"} ` +
                 `tokens(in=${totalPromptTokens} cached=${totalCachedPromptTokens} out=${totalCompletionTokens} events=${usageEventsSeen})`
             );
+            // Эффект настроек turn-taking должен быть измерим на проде, а не «на слух».
+            try {
+                if (turnTaking && turnTaking.statsSummary) {
+                    Logger.write(`[CASCADE] ===TURN_STATS=== silence=${silenceMs}ms | ${turnTaking.statsSummary()}`);
+                }
+            } catch (e) { /* noop */ }
             await sendConversationLog();
 
             try { call.hangup(); } catch (e) { /* noop */ }
@@ -341,6 +385,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
     const canPlay = () => !!turnTaking && turnTaking.canPlayAgentAudio();
     const ttsSendText = (text) => {
         if (!text) return;
+        noteAgentAudio(text);
         ttsPlayer.send({ send_text: { text: cleanForTTS(text) } });
     };
     const ttsFlush = () => {
@@ -698,9 +743,16 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             }
         }
 
+        // Пауза перед ответом: пресет из настроек агента (300/650/1000).
+        silenceMs = resolveSilenceMs(config.silence_duration_ms);
+
         Logger.write(`[CASCADE] Assistant: ${config.assistant_name} (${assistantId})`);
         Logger.write(`[CASCADE] Call: ${caller_number} -> ${called_number} | id=${callId}`);
         Logger.write(`[CASCADE] LLM: ${LLM_MODEL} via Realtime WS (text-only, наш turn-taking)`);
+        Logger.write(
+            `[CASCADE] Silence preset: ${silenceMs}ms ` +
+            `(fallback timeout ${silenceMs + SILENCE_TO_TIMEOUT_MS}ms)`
+        );
 
         stt = VoxEngine.createASR({
             profile: asrProfileForLang(config.asr_lang),
@@ -725,21 +777,19 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
         turnTaking = await VoxTurnTaking.create({
             call,
             stt,
-            vadOptions: { threshold: 0.5, minSilenceDurationMs: 200, speechPadMs: 10 },
+            // ВАЖНО: НЕ переопределяем vadOptions целиком и не трогаем таймеры
+            // закрытия хода — дефолты v2 (speechPadMs 200, transcriptSettleMs
+            // 350, вето детектора, стабильность транскрипта) выверены на проде,
+            // и любое их «улучшение» отсюда возвращает дробление фраз.
+            // Единственное, чем управляет сценарий, — пауза перед ответом,
+            // которую владелец агента выбирает пресетом на странице агента.
+            vadOptions: { minSilenceDurationMs: silenceMs },
             turnDetectorOptions: { threshold: 0.7 },
             policy: {
                 confidentEouProbability: 0.8,
-                transcriptSettleFastMs: 120,
-                // Подрезано под быстрый TTFT Realtime: раньше ждали дольше,
-                // потому что LLM всё равно думал ~600мс. Теперь ожидание
-                // endpointing'а — самая жирная строка бюджета задержки.
-                transcriptSettleMs: 250,
-                userSpeechTimeoutMs: 500,
-                shortUtteranceExtensionMs: 900,
-                fastShortUtteranceTimeoutMs: 500,
-                shortUtteranceMaxChars: 12,
-                shortUtteranceMaxWords: 2,
-                lowConfidenceShortUtteranceThreshold: 0.75,
+                userSpeechTimeoutMs: silenceMs + SILENCE_TO_TIMEOUT_MS,
+                // Языковые списки — то, что v2 намеренно оставляет пустыми и
+                // ждёт от сценария.
                 continuationTokens: [
                     "и", "а", "но", "ну", "вот", "так", "значит",
                     "короче", "эм", "ээ", "мм", "это",
@@ -756,6 +806,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             },
             enableLogging: true,
 
+            // Без этого коллбэка VoxTurnTaking считает перебиванием ЛЮБОЙ
+            // сегмент VAD — эхо, кашель, шум линии.
+            isAgentSpeaking: isAgentSpeaking,
+
             onUserTurn: (input, version) => {
                 if (terminating) return;
                 firstDeltaLoggedForTurn = false;
@@ -767,9 +821,63 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
                 requestResponse(version);
             },
 
+            // Yandex досылает полный текст реплики через 2-5с после того, как
+            // ход уже ушёл в модель по interim. Отвечать второй раз нельзя —
+            // собеседник задал один вопрос. Поэтому: правим историю и молча
+            // отдаём модели уточнение, БЕЗ responseCreate.
+            onTurnCorrection: (fullText, correctedTurnId, meta) => {
+                if (terminating || !fullText) return;
+                const sent = (meta && meta.sentText) || "";
+                Logger.write(
+                    `[CASCADE] ===USER_CORRECTED=== (+${meta && meta.lagMs}ms) ` +
+                    `"${sent}" -> "${fullText}"`
+                );
+
+                // Локальная история и то, что уйдёт в CRM: заменяем последнюю
+                // реплику собеседника на полную версию.
+                for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === "user") {
+                        messages[i].content = fullText;
+                        break;
+                    }
+                }
+                for (let i = dialogLog.length - 1; i >= 0; i--) {
+                    if (dialogLog[i].role === "user") {
+                        const old = dialogLog[i].text;
+                        dialogLog[i].text = fullText;
+                        if (userMessageBuffer.endsWith(old)) {
+                            userMessageBuffer =
+                                userMessageBuffer.slice(0, userMessageBuffer.length - old.length) + fullText;
+                        }
+                        break;
+                    }
+                }
+
+                // Модели — служебной репликой, чтобы дальше в диалоге она
+                // опиралась на верный текст, но вслух не отвечала повторно.
+                try {
+                    realtime.conversationItemCreate({
+                        item: {
+                            type: "message",
+                            role: "user",
+                            content: [{
+                                type: "input_text",
+                                text:
+                                    "[Уточнение распознавания: предыдущая реплика собеседника " +
+                                    `полностью звучала так: «${fullText}». Не отвечай на неё повторно, ` +
+                                    "просто учитывай верный текст дальше.]",
+                            }],
+                        },
+                    });
+                } catch (e) {
+                    Logger.write(`[CASCADE] correction item error: ${e}`);
+                }
+            },
+
             onInterrupt: () => {
                 if (terminating) return;
                 ttsPlayer?.clearBuffer();
+                stopAgentAudio();
                 if (main.active) {
                     // Останавливаем генерацию НА СЕРВЕРЕ — иначе модель
                     // досчитывает ответ, который никто не услышит, и мы за него платим.
@@ -791,6 +899,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async ({ call }) => {
             // Фиксированная фраза мимо LLM — мгновенно, без раунда к модели.
             messages.push({ role: "assistant", content: config.first_phrase });
             logDialog("assistant", config.first_phrase);
+            noteAgentAudio(config.first_phrase);
             ttsPlayer.send({ send_text: { text: cleanForTTS(config.first_phrase), flush_context: {} } });
         } else {
             sendUserText("Поприветствуй звонящего одной короткой фразой и спроси, чем можешь помочь.");

@@ -367,6 +367,7 @@ class ScenarioConfigResponse(BaseModel):
     tts_voice:         Optional[str] = None
     tts_lang:          Optional[str] = None
     asr_lang:          Optional[str] = None
+    silence_duration_ms: Optional[int] = None
     # Yandex-specific
     folder_id:         Optional[str] = None
     voice_role:        Optional[str] = None
@@ -419,6 +420,7 @@ class OutboundConfigResponse(BaseModel):
     tts_voice:         Optional[str] = None
     tts_lang:          Optional[str] = None
     asr_lang:          Optional[str] = None
+    silence_duration_ms: Optional[int] = None
     # Yandex-specific
     folder_id:         Optional[str] = None
     voice_role:        Optional[str] = None
@@ -3295,6 +3297,10 @@ async def get_outbound_config(
             tts_voice=assistant.tts_voice if assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if assistant_type == "cascade" else None,
+            # Пауза перед ответом каскад-агента (пресет 300/650/1000 мс).
+            silence_duration_ms=(
+                (assistant.silence_duration_ms or 300) if assistant_type == "cascade" else None
+            ),
             folder_id=folder_id,
             voice_role=assistant.voice_role if assistant_type == "yandex" else None,
         )
@@ -5225,6 +5231,11 @@ async def get_scenario_config(
             tts_voice=assistant.tts_voice if phone_record.assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if phone_record.assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if phone_record.assistant_type == "cascade" else None,
+            # Пауза перед ответом каскад-агента (пресет 300/650/1000 мс).
+            silence_duration_ms=(
+                (assistant.silence_duration_ms or 300)
+                if phone_record.assistant_type == "cascade" else None
+            ),
             folder_id=folder_id,
             voice_role=assistant.voice_role if phone_record.assistant_type == "yandex" else None,
         )

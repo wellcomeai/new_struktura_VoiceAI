@@ -552,6 +552,27 @@
     }
     .form-group { margin-bottom: 1.5rem; }
     .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.875rem; color: var(--text-dark); }
+
+    /* Пресеты паузы перед ответом */
+    .silence-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+    .silence-card {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem;
+      padding: 1rem; text-align: left; cursor: pointer;
+      background: var(--white); border: 2px solid var(--border-color);
+      border-radius: var(--radius-md); transition: border-color .15s, box-shadow .15s, background .15s;
+      font-family: inherit;
+    }
+    .silence-card:hover { border-color: var(--primary-blue-light); box-shadow: var(--shadow-sm); }
+    .silence-card.active { border-color: var(--primary-blue); background: var(--bg-blue-light); box-shadow: var(--shadow-sm); }
+    .silence-card-icon { font-size: 1.25rem; line-height: 1; }
+    .silence-card-title { font-weight: 600; font-size: 0.9375rem; color: var(--text-dark); }
+    .silence-card-value { font-size: 0.8125rem; font-weight: 600; color: var(--primary-blue); }
+    .silence-card-desc { font-size: 0.8125rem; color: var(--text-gray); line-height: 1.4; }
+    .silence-card-use { font-size: 0.75rem; color: var(--text-light); line-height: 1.4; margin-top: 0.25rem; }
+    .silence-estimate { margin-top: 0.75rem; font-weight: 500; color: var(--text-gray); }
+    @media (max-width: 768px) {
+      .silence-presets { grid-template-columns: 1fr; }
+    }
     .form-group .hint { font-size: 0.75rem; color: var(--text-light); margin-top: 0.25rem; }
 
     .form-control {
@@ -998,6 +1019,38 @@
               <label for="agent-tts-voice">Голос</label>
               <select class="form-control" id="agent-tts-voice"></select>
               <p class="hint">Голос синтеза речи ассистента</p>
+            </div>
+
+            <div class="form-group">
+              <label>Пауза перед ответом</label>
+              <p class="hint" style="margin-top:-0.25rem;margin-bottom:0.75rem;">
+                Сколько тишины агент выжидает, прежде чем счесть, что собеседник договорил.
+                Чем меньше — тем быстрее ответ, но выше шанс вступить в паузу посреди фразы.
+              </p>
+              <div class="silence-presets" id="silence-presets">
+                <button type="button" class="silence-card" data-silence="300">
+                  <span class="silence-card-icon">⚡</span>
+                  <span class="silence-card-title">Быстрая</span>
+                  <span class="silence-card-value">300 мс</span>
+                  <span class="silence-card-desc">Агент отвечает заметно быстрее. Иногда может вступить, пока собеседник берёт паузу в середине фразы.</span>
+                  <span class="silence-card-use">Короткие чёткие диалоги: подтверждение заказа, запись на приём, ответы «да/нет»</span>
+                </button>
+                <button type="button" class="silence-card" data-silence="650">
+                  <span class="silence-card-icon">⚖️</span>
+                  <span class="silence-card-title">Сбалансированная</span>
+                  <span class="silence-card-value">650 мс</span>
+                  <span class="silence-card-desc">Компромисс между скоростью и вежливостью.</span>
+                  <span class="silence-card-use">Подходит большинству сценариев</span>
+                </button>
+                <button type="button" class="silence-card" data-silence="1000">
+                  <span class="silence-card-icon">🐢</span>
+                  <span class="silence-card-title">Терпеливая</span>
+                  <span class="silence-card-value">1000 мс</span>
+                  <span class="silence-card-desc">Агент почти никогда не перебивает, но пауза перед ответом заметна.</span>
+                  <span class="silence-card-use">Пожилые собеседники, сложные консультации, когда человек думает вслух</span>
+                </button>
+              </div>
+              <p class="hint silence-estimate" id="silence-estimate"></p>
             </div>
 
             <div class="form-footer">
@@ -1685,6 +1738,28 @@
       }
     }
 
+    // ── Пауза перед ответом (пресеты) ────────────────────────────────────
+    // Оценка задержки: замеры на проде дали ~1,7с полной паузы при 650 мс.
+    // Сдвигая порог тишины, сдвигаем и итог примерно на ту же величину.
+    const SILENCE_DEFAULT = 300;
+    const SILENCE_ESTIMATE = { 300: '1,4', 650: '1,7', 1000: '2,1' };
+    let selectedSilenceMs = SILENCE_DEFAULT;
+
+    function setSilencePreset(ms) {
+      const value = SILENCE_ESTIMATE[ms] ? ms : SILENCE_DEFAULT;
+      selectedSilenceMs = value;
+      document.querySelectorAll('#silence-presets .silence-card').forEach(card => {
+        card.classList.toggle('active', Number(card.dataset.silence) === value);
+      });
+      const est = document.getElementById('silence-estimate');
+      if (est) est.textContent = `Ожидаемая пауза перед ответом ≈ ${SILENCE_ESTIMATE[value]} с`;
+    }
+
+    document.addEventListener('click', (e) => {
+      const card = e.target.closest('#silence-presets .silence-card');
+      if (card) setSilencePreset(Number(card.dataset.silence));
+    });
+
     function fillAgentForm(agent) {
       document.getElementById('agent-name').value = agent.name || '';
       document.getElementById('agent-greeting').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
@@ -1696,6 +1771,8 @@
       if (agent.tts_voice) {
         document.getElementById('agent-tts-voice').value = agent.tts_voice;
       }
+
+      setSilencePreset(Number(agent.silence_duration_ms) || SILENCE_DEFAULT);
 
       loadFunctions(agent.functions || []);
     }
@@ -1716,6 +1793,7 @@
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
         tts_provider: 'voxtts',
         tts_voice: document.getElementById('agent-tts-voice').value,
+        silence_duration_ms: selectedSilenceMs,
         is_telephony_enabled: true,
         functions: enabledFunctions.length > 0 ? enabledFunctions : null,
       };
@@ -1931,6 +2009,7 @@
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
       updateVoiceOptions();
+      setSilencePreset(SILENCE_DEFAULT);
 
       // Reset functions
       selectedFunctionNames = [];

@@ -165,6 +165,8 @@ class CascadeAssistantCreate(BaseModel):
     tts_voice:         str            = Field(default="Anna")
     tts_lang:          str            = Field(default="ru")
     asr_lang:          str            = Field(default="ru")
+    # Пауза перед ответом: 300 (быстрая) / 650 (сбалансированная) / 1000 (терпеливая)
+    silence_duration_ms: int          = Field(default=300, ge=200, le=1500)
     functions:         Optional[List[dict]] = None
     google_sheet_id:   Optional[str]  = None
     is_telephony_enabled: bool        = Field(default=True)
@@ -182,6 +184,7 @@ class CascadeAssistantUpdate(BaseModel):
     tts_voice:         Optional[str]   = None
     tts_lang:          Optional[str]   = None
     asr_lang:          Optional[str]   = None
+    silence_duration_ms: Optional[int] = Field(None, ge=200, le=1500)
     functions:         Optional[List[dict]] = None
     google_sheet_id:   Optional[str]   = None
     is_active:         Optional[bool]  = None
@@ -202,6 +205,7 @@ class CascadeAssistantResponse(BaseModel):
     tts_voice:        Optional[str]
     tts_lang:         str
     asr_lang:         str
+    silence_duration_ms: Optional[int] = None
     functions:        Optional[Any]
     google_sheet_id:  Optional[str]
     is_active:        bool
@@ -360,6 +364,7 @@ def cascade_to_response(a: GrokAssistantConfig) -> CascadeAssistantResponse:
         openrouter_model=a.openrouter_model, temperature=a.temperature, max_tokens=a.max_tokens,
         tts_provider=a.tts_provider, tts_voice=a.tts_voice,
         tts_lang=a.tts_lang or "ru", asr_lang=a.asr_lang or "ru",
+        silence_duration_ms=a.silence_duration_ms or 300,
         functions=a.functions, google_sheet_id=a.google_sheet_id,
         is_active=a.is_active, is_telephony_enabled=a.is_telephony_enabled,
         total_conversations=a.total_conversations, created_at=a.created_at, updated_at=a.updated_at,
@@ -618,6 +623,7 @@ async def create_cascade_assistant(
         openrouter_model=data.openrouter_model, temperature=data.temperature, max_tokens=data.max_tokens,
         tts_provider=data.tts_provider, tts_voice=data.tts_voice,
         tts_lang=data.tts_lang, asr_lang=data.asr_lang,
+        silence_duration_ms=data.silence_duration_ms,
         functions=data.functions, google_sheet_id=data.google_sheet_id,
         is_active=True, is_public=False, is_telephony_enabled=data.is_telephony_enabled,
     )

@@ -751,6 +751,8 @@ def check_and_fix_all_missing_columns():
                 'tts_voice': 'VARCHAR(100) NULL',
                 'tts_lang': "VARCHAR(10) DEFAULT 'ru' NOT NULL",
                 'asr_lang': "VARCHAR(10) DEFAULT 'ru' NOT NULL",
+                # 🆕 Пауза перед ответом каскад-агента (пресет 300/650/1000 мс)
+                'silence_duration_ms': 'INTEGER DEFAULT 300 NULL',
             },
             'assistant_configs': {
                 # Добавьте если нужно

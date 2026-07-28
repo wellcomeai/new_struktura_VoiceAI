@@ -97,6 +97,11 @@ class GrokAssistantConfig(Base):
     tts_voice         = Column(String(100), nullable=True)
     tts_lang          = Column(String(10),  default="ru", nullable=False)
     asr_lang          = Column(String(10),  default="ru", nullable=False)
+    # Пауза перед ответом (пресет на странице агента): сколько тишины ждёт
+    # Silero, прежде чем счесть, что собеседник договорил. 300 — быстрый ответ,
+    # 650 — сбалансированный, 1000 — терпеливый. Сценарий кладёт это значение в
+    # VoxTurnTaking (minSilenceDurationMs), страховочный таймаут = значение+250.
+    silence_duration_ms = Column(Integer, default=300, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="grok_assistants")

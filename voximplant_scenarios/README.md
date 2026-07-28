@@ -26,6 +26,37 @@ TTFT падает с ~600мс до ~250мс. Спекулятивная гене
 Перебивание абонентом теперь вызывает `responseCancel()` — модель реально
 останавливается на сервере, а не досчитывает ответ, который никто не услышит.
 
+## Пауза перед ответом (пресет на странице агента)
+
+Владелец агента выбирает её на `/static/cascade.html`: **300 мс** (быстрая,
+по умолчанию), **650 мс** (сбалансированная), **1000 мс** (терпеливая). Значение
+хранится в `grok_assistant_configs.silence_duration_ms`, приезжает в сценарий
+полем `silence_duration_ms` конфига и кладётся в `VoxTurnTaking`:
+
+```
+vadOptions.minSilenceDurationMs = silence
+policy.userSpeechTimeoutMs      = silence + 250
+```
+
+Это **не** таймер ответа: вето детектора, стабильность транскрипта и инвариант
+«клиент говорит» всё равно могут отложить закрытие хода. Больше сценарий в
+настройки turn-taking не лезет — остальные дефолты v2 выверены на проде, и
+переопределять их из сценария нельзя (ровно это в своё время вернуло дробление
+фраз на сегменты).
+
+Сценарии передают в `VoxTurnTaking.create()` два обязательных коллбэка:
+
+- `isAgentSpeaking` — без него рантайм считает перебиванием **любой** сегмент
+  VAD (эхо, кашель, шум). Считается по «озвученному запасу»: каждый отправленный
+  в VoxTTS кусок продлевает ожидаемый конец речи.
+- `onTurnCorrection` — Yandex досылает полный текст реплики через 2-5 с после
+  того, как ход уже ушёл в модель по interim. Сценарий правит историю (`messages`,
+  `dialog` для CRM) и отдаёт модели уточнение через `conversationItemCreate()`
+  **без** `responseCreate()` — иначе собеседник получает два ответа на один вопрос.
+
+В конце звонка пишется `===TURN_STATS===` (`turnTaking.statsSummary()`) — чтобы
+эффект настроек был измерим на проде, а не «на слух».
+
 **Биллинг:** токены берутся из события `ResponseDone` (`response.usage`), причём
 `input_token_details.cached_tokens` считаются отдельно — в них уходит вся история
 диалога, а стоят они в 10 раз дешевле. В `/api/voximplant/log` уезжают как
@@ -44,7 +75,7 @@ TTFT падает с ~600мс до ~250мс. Спекулятивная гене
 
 | Файл | Имя сценария на Voximplant | Назначение |
 |---|---|---|
-| `vox-turn-taking.js` | `vox-turn-taking` | Хелпер turn-taking. Объявляет глобальный `VoxTurnTaking` (Silero VAD + Pipecat Smart Turn + двухскоростной endpointing), сам ничего не запускает. Отдаёт сценарию `onUserTurn`, `onSpeculativeTurn`, `onInterrupt`, `canPlayAgentAudio()`, `currentVersion()`. Должен стоять ПЕРВЫМ в цепочке правила. Рассчитан на Yandex v2 с `interimResults`. |
+| `vox-turn-taking.js` | `vox-turn-taking` | **v2.1.** Хелпер turn-taking. Объявляет глобальный `VoxTurnTaking` (Silero VAD + Pipecat Smart Turn + двухскоростной endpointing), сам ничего не запускает. Отдаёт сценарию `onUserTurn`, `onSpeculativeTurn`, `onInterrupt`, `canPlayAgentAudio()`, `currentVersion()`. Должен стоять ПЕРВЫМ в цепочке правила. Рассчитан на Yandex v2 с `interimResults`. |
 | `inbound_cascade.js` | `inbound_cascade` | Входящий каскад: конфиг с `/api/telephony/config`, ASR Yandex v2 (interim), LLM gpt-realtime-2.1-mini через **Realtime API** (WS, `output_modalities: ["text"]`, `turn_detection: null`, ключ **серверный** — расход идёт с кредитов каскада), TTS VoxTTS/Anna. Одна активная генерация за раз, гейтинг по `response_id`; перебивание — `responseCancel()`. **Tool-calling**: вызов приходит целиком в `ResponseOutputItemDone`, выполняется через `POST /api/voximplant/functions/execute`, `hangup_call` завершает звонок локально. Ограничение «функции ⊕ спекуляция» снято — спекуляции больше нет. **Запись/стоимость/логирование**: `call.record()` на Connected, `call_session_history_id` из `AppEvents.Started`, стоимость/длительность из события Disconnected, и один `POST /api/voximplant/log` в конце звонка (запись→R2, полная стоимость через GetCallHistory, структурированный `dialog`, токены `cascade_usage`, Telegram). Per-turn `/webhook/transcript` не используется. |
 | `outbound_cascade.js` | `outbound_cascade` | **Исходящий** каскад. Точка входа — `AppEvents.Started` + `VoxEngine.customData()` (phone_number, assistant_id, caller_id, contact_name/task_*/custom_greeting). Конфиг с `/api/telephony/outbound-config`. Задача звонка + CRM инжектятся в system-промпт. **Readiness-before-dial**: ASR/TTS и **WS к OpenAI** поднимаются ДО `VoxEngine.callPSTN` (при сбое не звоним = 0₽) — заодно это заменило прогрев LLM. **Mute-окно** `mute_duration_ms` после ответа (мик абонента закрыт, чтобы «Алло» не оборвало приветствие). **Tool-calling** через Realtime `tools` (плоский формат) — в т.ч. `hangup_call`, чтобы ассистент сам завершил звонок. Silence hard-timeout ~180с. Запись/стоимость/`/log` — как в inbound. **Самодостаточен**: `VoxTurnTaking` встроен в сам файл (идемпотентно), поэтому работает и с одиночным правилом, и с цепочкой — `vox-turn-taking` в цепочке НЕ обязателен. |
 | `cartesia_inbound.js` | `cartesia_inbound` | Входящий half-cascade на **OpenAI Realtime** (`gpt-realtime-2.1-mini`, output text): STT + turn detection + reasoning на стороне OpenAI (Silero/Pipecat не нужны), TTS — VoxTTS/Anna. Ключ — пользовательский (`CONFIG.api_key`). Одиночный сценарий (без цепочки vox-turn-taking). Несмотря на имя, TTS не Cartesia. |
