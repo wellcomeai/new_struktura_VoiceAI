@@ -17,7 +17,7 @@ Voximplant API endpoints для WellcomeAI, обновленные для гиб
 
 from fastapi import APIRouter, WebSocket, Depends, Query, HTTPException, status, Header, Body
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import time
 import uuid
 import json
@@ -458,50 +458,119 @@ async def get_full_call_cost(
 # 🆕 v3.7: ОТЛОЖЕННЫЙ ПЕРЕСЧЁТ СТОИМОСТИ
 # =============================================================================
 
+# Задержки попыток отложенного пересчёта (секунды от предыдущей попытки).
+# Voximplant тарифицирует «прочие ресурсы» (ASR, TTS, WebSocket-потоки,
+# turn detection) с бо́льшей задержкой, чем телефонию: сразу после отбоя
+# GetCallHistory возвращает только calls[], а other_resource_usage ещё пуст.
+RECALC_RETRY_DELAYS = (15, 45, 120, 300)
+
+
+def is_settled_cost(cost_result: Dict[str, Any]) -> bool:
+    """
+    Считаем счёт досчитанным, только когда в нём появились «прочие ресурсы».
+
+    Любой наш звонок через Voximplant использует хотя бы один платный
+    ресурс сверх телефонии (ASR/TTS/WebSocket), поэтому other_cost == 0 —
+    это не «бесплатно», а «биллинг ещё не досчитал». Раньше такой ответ
+    принимался за финальный, отложенный пересчёт не планировался, и в
+    карточке диалога навсегда оставалась одна телефония.
+    """
+    if not cost_result or not cost_result.get("success"):
+        return False
+    return float(cost_result.get("other_cost") or 0) > 0
+
+
 async def delayed_cost_recalculation(
     conversation_id: str,
     call_session_history_id: str,
     account_id: str,
     api_key: str,
-    delay_seconds: int = 15
+    delay_seconds: int = 15,
+    retry_delays: Optional[Tuple[int, ...]] = None,
 ):
     """
     Отложенный пересчёт стоимости звонка.
-    
-    Voximplant обрабатывает биллинг с задержкой, поэтому
-    запрашиваем GetCallHistory через delay_seconds секунд.
-    
+
+    Voximplant обрабатывает биллинг с задержкой, поэтому запрашиваем
+    GetCallHistory через delay_seconds секунд — и, если «прочие ресурсы»
+    ещё не появились, повторяем по RECALC_RETRY_DELAYS. Каждая успешная
+    попытка обновляет запись (лучше показать частичную сумму, чем ноль),
+    цикл останавливается на первом досчитанном ответе.
+
     Args:
         conversation_id: UUID записи разговора в нашей БД
         call_session_history_id: ID сессии звонка в Voximplant
         account_id: ID аккаунта Voximplant
         api_key: API ключ аккаунта
-        delay_seconds: Задержка перед пересчётом (по умолчанию 15 секунд)
+        delay_seconds: Задержка перед первой попыткой
+        retry_delays: Задержки повторов, если счёт ещё не досчитан
     """
     try:
-        logger.info(f"[VOXIMPLANT-DELAYED] ⏳ Scheduled recalculation for {conversation_id} in {delay_seconds}s")
-        
-        # Ждём пока Voximplant обработает биллинг
-        await asyncio.sleep(delay_seconds)
-        
-        logger.info(f"[VOXIMPLANT-DELAYED] 🔄 Starting delayed recalculation for {conversation_id}")
-        
-        # Запрашиваем полную стоимость
-        cost_result = await get_full_call_cost(
-            call_session_history_id=call_session_history_id,
-            account_id=account_id,
-            api_key=api_key
+        delays = (delay_seconds,) + tuple(
+            retry_delays if retry_delays is not None else RECALC_RETRY_DELAYS
         )
-        
-        if not cost_result["success"]:
-            logger.warning(f"[VOXIMPLANT-DELAYED] ⚠️ Failed to get cost: {cost_result.get('error')}")
-            return
-        
-        # Проверяем что есть реальные данные (не нули)
-        if cost_result["total_cost"] == 0 and cost_result["calls_cost"] == 0:
-            logger.warning(f"[VOXIMPLANT-DELAYED] ⚠️ GetCallHistory returned zero cost, skipping update")
-            return
-        
+
+        for attempt, delay in enumerate(delays, start=1):
+            logger.info(
+                f"[VOXIMPLANT-DELAYED] ⏳ Recalculation attempt {attempt}/{len(delays)} "
+                f"for {conversation_id} in {delay}s"
+            )
+            await asyncio.sleep(delay)
+
+            cost_result = await get_full_call_cost(
+                call_session_history_id=call_session_history_id,
+                account_id=account_id,
+                api_key=api_key
+            )
+
+            if not cost_result["success"]:
+                logger.warning(f"[VOXIMPLANT-DELAYED] ⚠️ Failed to get cost: {cost_result.get('error')}")
+                continue
+
+            # Проверяем что есть реальные данные (не нули)
+            if cost_result["total_cost"] == 0 and cost_result["calls_cost"] == 0:
+                logger.warning(f"[VOXIMPLANT-DELAYED] ⚠️ GetCallHistory returned zero cost, retrying")
+                continue
+
+            # Записываем что есть, но при неполном счёте идём на следующий круг.
+            await _apply_cost_result(
+                conversation_id=conversation_id,
+                cost_result=cost_result,
+                delay_seconds=delay,
+                attempt=attempt,
+            )
+
+            if is_settled_cost(cost_result):
+                logger.info(f"[VOXIMPLANT-DELAYED] ✅ Cost settled on attempt {attempt}")
+                return
+
+            logger.info(
+                f"[VOXIMPLANT-DELAYED] ⏭️ other_cost=0 (ASR/TTS/WS ещё не тарифицированы), "
+                f"планируем следующую попытку"
+            )
+
+        logger.warning(
+            f"[VOXIMPLANT-DELAYED] ⚠️ Счёт для {conversation_id} так и не досчитан "
+            f"за {len(delays)} попыток — в карточке останется последняя полученная сумма"
+        )
+
+    except asyncio.CancelledError:
+        logger.info(f"[VOXIMPLANT-DELAYED] ⚠️ Task cancelled for {conversation_id}")
+    except Exception as e:
+        logger.error(f"[VOXIMPLANT-DELAYED] ❌ Error in delayed recalculation: {e}")
+        logger.error(traceback.format_exc())
+
+
+async def _apply_cost_result(
+    conversation_id: str,
+    cost_result: Dict[str, Any],
+    delay_seconds: int,
+    attempt: int,
+):
+    """Записать результат GetCallHistory в conversation. Стоимость только растёт:
+    Voximplant досчитывает позиции постепенно, и меньшая сумма на повторной
+    попытке означала бы неполный ответ, а не удешевление звонка."""
+    try:
         # Обновляем в БД
         db = SessionLocal()
         try:
@@ -516,11 +585,20 @@ async def delayed_cost_recalculation(
             # Сохраняем старую стоимость для логирования
             old_cost = conversation.call_cost
             old_duration = conversation.duration_seconds
-            
-            # Обновляем стоимость
-            conversation.call_cost = cost_result["total_cost"]
-            conversation.duration_seconds = cost_result["duration"]
-            
+
+            # Стоимость только растёт: на ранней попытке Voximplant отдаёт
+            # часть позиций, и откат к меньшей сумме был бы регрессом.
+            new_cost = float(cost_result["total_cost"])
+            if old_cost is not None and float(old_cost) > new_cost:
+                logger.info(
+                    f"[VOXIMPLANT-DELAYED] ↩️ Attempt {attempt}: {new_cost} < сохранённых "
+                    f"{old_cost}, стоимость не понижаем"
+                )
+            else:
+                conversation.call_cost = new_cost
+            if cost_result["duration"]:
+                conversation.duration_seconds = cost_result["duration"]
+
             # Обновляем client_info с breakdown
             # dict() — новый объект, иначе SQLAlchemy может не заметить изменение JSON-поля
             client_info = dict(conversation.client_info or {})
@@ -535,20 +613,23 @@ async def delayed_cost_recalculation(
                 "other_cost": cost_result["other_cost"],
                 "details": cost_result["details"],
                 "script_parts": previous_breakdown.get("script_parts"),
+                "settled": is_settled_cost(cost_result),
                 "recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "recalculation_type": "delayed_auto",
+                "attempt": attempt,
                 "delay_seconds": delay_seconds
             }
-            # Сохраняем старые значения для аудита
-            client_info["original_script_cost"] = old_cost
-            client_info["original_script_duration"] = old_duration
-            
+            # Сохраняем значения от сценария для аудита — только с первой
+            # попытки, иначе повтор затрёт их уже пересчитанными.
+            client_info.setdefault("original_script_cost", old_cost)
+            client_info.setdefault("original_script_duration", old_duration)
+
             conversation.client_info = client_info
-            
+
             db.commit()
-            
+
             logger.info(f"[VOXIMPLANT-DELAYED] ✅ Updated cost for {conversation_id}")
-            logger.info(f"[VOXIMPLANT-DELAYED]    Cost: {old_cost} → {cost_result['total_cost']}")
+            logger.info(f"[VOXIMPLANT-DELAYED]    Cost: {old_cost} → {conversation.call_cost}")
             logger.info(f"[VOXIMPLANT-DELAYED]    Duration: {old_duration} → {cost_result['duration']}")
             logger.info(f"[VOXIMPLANT-DELAYED]    Breakdown: calls={cost_result['calls_cost']}, records={cost_result['records_cost']}, other={cost_result['other_cost']}")
             
@@ -557,11 +638,11 @@ async def delayed_cost_recalculation(
             db.rollback()
         finally:
             db.close()
-            
+
     except asyncio.CancelledError:
-        logger.info(f"[VOXIMPLANT-DELAYED] ⚠️ Task cancelled for {conversation_id}")
+        raise
     except Exception as e:
-        logger.error(f"[VOXIMPLANT-DELAYED] ❌ Error in delayed recalculation: {e}")
+        logger.error(f"[VOXIMPLANT-DELAYED] ❌ Error applying cost result: {e}")
         logger.error(traceback.format_exc())
 
 
@@ -1227,6 +1308,7 @@ async def log_conversation_data(
             call_cost = None
             call_duration = None
             cost_breakdown = None
+            cost_settled = False
             api_credentials = None
             call_log_url = None
 
@@ -1252,8 +1334,13 @@ async def log_conversation_data(
                     if cost_result["success"] and cost_result["total_cost"] > 0:
                         call_cost = cost_result["total_cost"]
                         call_duration = cost_result["duration"]
+                        # Досчитан ли счёт: сразу после отбоя Voximplant обычно
+                        # отдаёт одну телефонию, а ASR/TTS/WebSocket подтягивает
+                        # позже. От этого зависит, нужен ли отложенный пересчёт.
+                        cost_settled = is_settled_cost(cost_result)
                         cost_breakdown = {
                             "source": "get_call_history",
+                            "settled": cost_settled,
                             "calls_cost": cost_result["calls_cost"],
                             "records_cost": cost_result["records_cost"],
                             "other_cost": cost_result["other_cost"],
@@ -1263,7 +1350,14 @@ async def log_conversation_data(
                             # из них сценарию виден только ASR.
                             "script_parts": call_cost_parts_from_script,
                         }
-                        logger.info(f"[VOXIMPLANT-v3.9] ✅ Получена ПОЛНАЯ стоимость: {call_cost}")
+                        if cost_settled:
+                            logger.info(f"[VOXIMPLANT-v3.9] ✅ Получена ПОЛНАЯ стоимость: {call_cost}")
+                        else:
+                            logger.warning(
+                                f"[VOXIMPLANT-v3.9] ⚠️ Стоимость неполная ({call_cost}): "
+                                f"other_resource_usage пуст (ASR/TTS/WebSocket ещё не "
+                                f"тарифицированы). Будет отложенный пересчёт"
+                            )
                     else:
                         logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Не удалось получить полную стоимость: {cost_result.get('error')}")
                         logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Будет запланирован отложенный пересчёт")
@@ -1559,9 +1653,13 @@ async def log_conversation_data(
             # ================================================================
             delayed_recalc_scheduled = False
             
-            if (call_session_history_id 
-                and api_credentials 
-                and not cost_breakdown 
+            # Планируем всегда, пока счёт не досчитан. Раньше условием было
+            # `not cost_breakdown`: если немедленный GetCallHistory успевал
+            # вернуть одну телефонию, пересчёт не планировался и заниженная
+            # сумма оставалась в базе навсегда.
+            if (call_session_history_id
+                and api_credentials
+                and not cost_settled
                 and db_result):
                 try:
                     logger.info(f"[VOXIMPLANT-v3.9] 📅 Планируем отложенный пересчёт через 15 секунд...")
@@ -2249,11 +2347,15 @@ async def recalculate_call_cost(
         conversation.duration_seconds = cost_result["duration"]
         
         # Обновляем client_info с breakdown
+        previous_breakdown = client_info.get("cost_breakdown") or {}
         client_info["cost_breakdown"] = {
+            "source": "get_call_history",
+            "settled": is_settled_cost(cost_result),
             "calls_cost": cost_result["calls_cost"],
             "records_cost": cost_result["records_cost"],
             "other_cost": cost_result["other_cost"],
             "details": cost_result["details"],
+            "script_parts": previous_breakdown.get("script_parts"),
             "recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         conversation.client_info = client_info
@@ -2411,9 +2513,12 @@ async def recalculate_costs_batch(
                     
                     # Обновляем client_info
                     client_info["cost_breakdown"] = {
+                        "source": "get_call_history",
+                        "settled": is_settled_cost(cost_result),
                         "calls_cost": cost_result["calls_cost"],
                         "records_cost": cost_result["records_cost"],
                         "other_cost": cost_result["other_cost"],
+                        "script_parts": (client_info.get("cost_breakdown") or {}).get("script_parts"),
                         "batch_recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S")
                     }
                     conv.client_info = client_info

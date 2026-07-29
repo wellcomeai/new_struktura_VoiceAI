@@ -1449,7 +1449,7 @@
     // ============================================================================
     // CASCADE CREDITS
     // ============================================================================
-    let cascadeCredits = { balance: 0, input_credits_per_1k: 4, output_credits_per_1k: 25 };
+    let cascadeCredits = { balance: 0, input_credits_per_1k: 7.8, output_credits_per_1k: 31.2 };
 
     function renderCascadeBalance() {
       const el = document.getElementById('cascade-balance');
@@ -1466,8 +1466,8 @@
         const status = await apiRequest('/grok-assistants/cascade/credits/balance');
         cascadeCredits = {
           balance: status.cascade_credits_balance || 0,
-          input_credits_per_1k: status.input_credits_per_1k || 4,
-          output_credits_per_1k: status.output_credits_per_1k || 25,
+          input_credits_per_1k: status.input_credits_per_1k || 7.8,
+          output_credits_per_1k: status.output_credits_per_1k || 31.2,
         };
         renderCascadeBalance();
       } catch (e) {
