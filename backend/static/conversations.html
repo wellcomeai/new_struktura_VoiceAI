@@ -992,7 +992,38 @@
     .footer-item.cost i {
       color: var(--cost-orange);
     }
-    
+
+    /* Разбивка стоимости звонка по позициям Voximplant */
+    .cost-breakdown {
+      margin-top: 0.75rem;
+      padding: 0.75rem 0.9rem;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
+    .cost-breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.2rem 0;
+    }
+
+    .cost-breakdown-row.total {
+      margin-top: 0.35rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid var(--border-color);
+      font-weight: 600;
+      color: var(--cost-orange);
+    }
+
+    .cost-breakdown-note {
+      margin-top: 0.5rem;
+      color: var(--text-gray);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+
     /* Аудиоплеер в модалке */
     .audio-player-section {
       margin-top: 1rem;
@@ -2492,6 +2523,56 @@
         if (cost === null || cost === undefined || cost === 0) return null;
         return cost.toFixed(2) + ' ₽';
       }
+
+      /**
+       * Разбивка стоимости звонка из Voximplant GetCallHistory.
+       *
+       * Три строки счёта: телефония (calls), запись (records) и «прочие
+       * ресурсы» (other_resource_usage). В other входят ASR, TTS,
+       * WebSocket-потоки VAD/turn-detector и детекция конца фразы — из них в
+       * логе сессии виден только ASR, поэтому сумма из лога всегда меньше
+       * той, что показана в карточке. Показываем это явно, чтобы цифру можно
+       * было сверить, а не пересчитывать вручную по логу.
+       */
+      function renderCostBreakdown(breakdown, totalCost) {
+        if (!breakdown) return '';
+        const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
+        const calls = num(breakdown.calls_cost);
+        const records = num(breakdown.records_cost);
+        const other = num(breakdown.other_cost);
+        if (calls === null && records === null && other === null) return '';
+
+        const scriptParts = breakdown.script_parts || null;
+        const asr = scriptParts ? num(scriptParts.asr) : null;
+        // Остаток other после ASR — это TTS + WebSocket + turn detection.
+        const otherRest = (other !== null && asr !== null) ? other - asr : null;
+
+        const row = (label, value) => value === null ? '' : `
+          <div class="cost-breakdown-row">
+            <span>${label}</span>
+            <span>${value.toFixed(2)} ₽</span>
+          </div>
+        `;
+
+        return `
+          <div class="cost-breakdown">
+            ${row('Телефония', calls)}
+            ${row('Запись разговора', records)}
+            ${asr !== null ? row('Распознавание речи (ASR)', asr) : ''}
+            ${otherRest !== null
+              ? row('Синтез речи, WebSocket, turn detection', otherRest)
+              : row('Прочие ресурсы (ASR, TTS, WebSocket)', other)}
+            ${row('Итого', typeof totalCost === 'number' ? totalCost : null)
+              .replace('cost-breakdown-row', 'cost-breakdown-row total')}
+            <div class="cost-breakdown-note">
+              Данные из биллинга Voximplant (GetCallHistory). В логе сессии
+              видны только телефония, ASR и запись — синтез речи и
+              WebSocket-потоки счёт не логируют, поэтому сумма по логу
+              всегда меньше итоговой.
+            </div>
+          </div>
+        `;
+      }
       
       function getAssistantById(id) {
         return assistants.find(a => a.id === id);
@@ -3386,8 +3467,9 @@
                 </div>
               ` : ''}
             </div>
+            ${renderCostBreakdown(dialog.cost_breakdown, dialog.call_cost)}
           `;
-          
+
           if (dialog.record_url) {
             footerHtml += `
               <div class="audio-player-section">

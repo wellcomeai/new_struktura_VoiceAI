@@ -816,6 +816,7 @@ async def get_conversation_detail(
         total_tokens = 0
         total_duration = 0
         total_cost = 0.0
+        cost_breakdown = None
         record_url = None
         log_url = None
         call_session_history_id = None
@@ -896,7 +897,15 @@ async def get_conversation_detail(
             
             if msg.call_cost:
                 total_cost += float(msg.call_cost)
-            
+
+            # Разбивка стоимости из Voximplant GetCallHistory. Нужна, чтобы
+            # цифру в карточке можно было сверить с логом сессии: в логе видны
+            # только телефония, ASR и запись, а в счёт входят ещё TTS,
+            # WebSocket-потоки и turn detection (они внутри other_cost).
+            if not cost_breakdown and client_info.get('cost_breakdown'):
+                cost_breakdown = client_info.get('cost_breakdown')
+
+
             if client_info.get('record_url'):
                 record_url = client_info.get('record_url')
 
@@ -1003,6 +1012,7 @@ async def get_conversation_detail(
             "total_tokens": total_tokens,
             "total_duration": total_duration,
             "call_cost": call_cost,
+            "cost_breakdown": cost_breakdown,
             "record_url": record_url,
             "log_url": log_url,
             "has_structured_dialog": has_structured_dialog,

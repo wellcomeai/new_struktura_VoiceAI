@@ -995,8 +995,17 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
 
     // --- Данные для /log ---
     let record_url = null;
-    let call_cost = 0;
+    // Стоимость звонка по позициям, которые вообще отдают cost в события сценария.
+    // Это НЕ полный счёт: TTS, WebSocket-потоки (VAD + turn-detector) и детекция
+    // конца фразы тарифицируются Voximplant, но событий с cost не присылают —
+    // их видно только в GetCallHistory (other_resource_usage). Поэтому cost
+    // отсюда идёт в бэкенд лишь как fallback, а истина — GetCallHistory.
+    let telephony_cost = 0; // Call.Disconnected / Call.Failed
+    let asr_cost = 0;       // ASR.Stopped
+    let record_cost = 0;    // Call.RecordStopped
     let call_duration = 0;
+    const knownCost = () =>
+        Math.round((telephony_cost + asr_cost + record_cost) * 1e6) / 1e6;
     // Учёт токенов LLM для списания кредитов каскада. Cached считаем отдельно:
     // ставка за них на порядок ниже, и именно в них уходит история диалога.
     let totalPromptTokens = 0;
@@ -1195,7 +1204,14 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             caller_number: caller_number,
             type: "conversation",
             call_type: callType,
-            call_cost: call_cost,
+            // Fallback-стоимость: только те позиции, что видны сценарию.
+            // Бэкенд предпочитает полный счёт из GetCallHistory.
+            call_cost: knownCost(),
+            call_cost_parts: {
+                telephony: telephony_cost,
+                asr: asr_cost,
+                record: record_cost,
+            },
             call_duration: call_duration,
             cascade_usage: {
                 prompt_tokens: totalPromptTokens,
@@ -1244,10 +1260,18 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             await new Promise((r) => setTimeout(r, 400));
 
             Logger.write(
-                `[OUT-CASCADE] ===BILLING=== cost=${call_cost} dur=${call_duration}s ` +
+                `[OUT-CASCADE] ===BILLING=== known_cost=${knownCost()} ` +
+                `(telephony=${telephony_cost} asr=${asr_cost} record=${record_cost}) ` +
+                `dur=${call_duration}s ` +
                 `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} ` +
                 `session=${call_session_history_id || "none"} ` +
                 `tokens(in=${totalPromptTokens} cached=${totalCachedPromptTokens} out=${totalCompletionTokens} events=${usageEventsSeen})`
+            );
+            // Явно: это НЕ итоговый счёт. TTS, WebSocket-потоки и turn detection
+            // не отдают cost в сценарий — полная сумма только в GetCallHistory.
+            Logger.write(
+                `[OUT-CASCADE] ===BILLING_NOTE=== known_cost не включает TTS/WebSocket/turn-detection; ` +
+                `итог смотреть в GetCallHistory(other_resource_usage)`
             );
             // Эффект настроек turn-taking должен быть измерим на проде, а не «на слух».
             try {
@@ -1462,17 +1486,18 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
         });
         call.addEventListener(CallEvents.RecordStopped, (event) => {
             if (event && event.url) record_url = event.url;
+            if (event && event.cost !== undefined) record_cost = Number(event.cost) || 0;
         });
         call.addEventListener(CallEvents.Failed, (event) => {
-            if (event && event.cost !== undefined) call_cost = event.cost;
+            if (event && event.cost !== undefined) telephony_cost = Number(event.cost) || 0;
             if (event && event.duration !== undefined) call_duration = event.duration;
             Logger.write(`[OUT-CASCADE] ===CALL_FAILED=== code=${event?.code} ${event?.reason || ""}`);
             terminateCall();
         });
         call.addEventListener(CallEvents.Disconnected, (event) => {
-            if (event && event.cost !== undefined) call_cost = event.cost;
+            if (event && event.cost !== undefined) telephony_cost = Number(event.cost) || 0;
             if (event && event.duration !== undefined) call_duration = event.duration;
-            Logger.write(`[OUT-CASCADE] ===DISCONNECTED=== cost=${call_cost} dur=${call_duration}s`);
+            Logger.write(`[OUT-CASCADE] ===DISCONNECTED=== telephony=${telephony_cost} dur=${call_duration}s`);
             terminateCall();
         });
 
@@ -1685,6 +1710,10 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
             profile: asrProfileForLang(config.asr_lang),
             model: asrModelForLang(config.asr_lang),
             interimResults: true,
+        });
+        // ASR тарифицируется отдельной строкой и в cost звонка НЕ входит.
+        stt.addEventListener(ASREvents.Stopped, (event) => {
+            if (event && event.cost !== undefined) asr_cost = Number(event.cost) || 0;
         });
 
         realtime = await connectRealtime(false);

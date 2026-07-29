@@ -526,11 +526,15 @@ async def delayed_cost_recalculation(
             client_info = dict(conversation.client_info or {})
             if cost_result.get("log_file_url") and not client_info.get("log_url"):
                 client_info["log_url"] = cost_result["log_file_url"]
+            # Частичный breakdown от сценария не теряем — по нему сверяют лог сессии.
+            previous_breakdown = client_info.get("cost_breakdown") or {}
             client_info["cost_breakdown"] = {
+                "source": "get_call_history",
                 "calls_cost": cost_result["calls_cost"],
                 "records_cost": cost_result["records_cost"],
                 "other_cost": cost_result["other_cost"],
                 "details": cost_result["details"],
+                "script_parts": previous_breakdown.get("script_parts"),
                 "recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "recalculation_type": "delayed_auto",
                 "delay_seconds": delay_seconds
@@ -1101,6 +1105,12 @@ async def log_conversation_data(
         # Fallback значения от скрипта (частичная стоимость)
         call_cost_from_script = request_data.get("call_cost")
         call_duration_from_script = request_data.get("call_duration")
+        # Разбивка от сценария по позициям, которые отдают cost в события
+        # (телефония / ASR / запись). TTS, WebSocket и turn detection cost
+        # в сценарий не присылают — они есть только в GetCallHistory.
+        call_cost_parts_from_script = request_data.get("call_cost_parts")
+        if not isinstance(call_cost_parts_from_script, dict):
+            call_cost_parts_from_script = None
         
         logger.info(f"[VOXIMPLANT-v3.9] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         logger.info(f"[VOXIMPLANT-v3.9] 📥 Получены данные для логирования:")
@@ -1243,10 +1253,15 @@ async def log_conversation_data(
                         call_cost = cost_result["total_cost"]
                         call_duration = cost_result["duration"]
                         cost_breakdown = {
+                            "source": "get_call_history",
                             "calls_cost": cost_result["calls_cost"],
                             "records_cost": cost_result["records_cost"],
                             "other_cost": cost_result["other_cost"],
-                            "details": cost_result["details"]
+                            "details": cost_result["details"],
+                            # Что видел сам сценарий — для сверки с логом сессии.
+                            # other_cost = ASR + TTS + WebSocket + turn detection,
+                            # из них сценарию виден только ASR.
+                            "script_parts": call_cost_parts_from_script,
                         }
                         logger.info(f"[VOXIMPLANT-v3.9] ✅ Получена ПОЛНАЯ стоимость: {call_cost}")
                     else:
@@ -1265,6 +1280,14 @@ async def log_conversation_data(
                 try:
                     call_cost = float(call_cost_from_script)
                     logger.info(f"[VOXIMPLANT-v3.9] 💰 Используем cost от скрипта (fallback): {call_cost}")
+                    # Помечаем, что сумма неполная: без TTS/WebSocket/turn detection.
+                    # Отложенный пересчёт (не запускается при наличии breakdown)
+                    # всё равно сработает — cost_breakdown ниже остаётся None.
+                    if call_cost_parts_from_script:
+                        logger.info(
+                            f"[VOXIMPLANT-v3.9]    Части от скрипта: {call_cost_parts_from_script} "
+                            f"(без TTS/WebSocket/turn detection)"
+                        )
                 except (ValueError, TypeError):
                     pass
             
@@ -1357,7 +1380,15 @@ async def log_conversation_data(
                 
                 if cost_breakdown:
                     client_info["cost_breakdown"] = cost_breakdown
-                
+                elif call_cost_parts_from_script:
+                    # Полного счёта пока нет (GetCallHistory ещё не посчитал) —
+                    # сохраняем хотя бы то, что видел сценарий. Отложенный
+                    # пересчёт перезапишет это полным breakdown.
+                    client_info["cost_breakdown"] = {
+                        "source": "script_partial",
+                        "script_parts": call_cost_parts_from_script,
+                    }
+
                 # Резервное сохранение cost и duration в client_info
                 if call_cost is not None:
                     client_info["call_cost"] = call_cost
