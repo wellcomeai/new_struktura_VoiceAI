@@ -2,33 +2,46 @@ require(Modules.OpenAI);
 require(Modules.Cartesia);
 
 /*
- * Voximplant OUTBOUND Cartesia Script v3.0
+ * Voximplant OUTBOUND Cartesia Script v3.1
  * ====================================================================
- * Портирован на архитектуру INBOUND v3.0. Отличия от OUTBOUND v1.1:
+ * Отличия от v3.0:
  *
- *   1. Один долгоживущий плеер Cartesia на весь звонок вместо
- *      создания/уничтожения на каждую реплику (холодный старт стоил
- *      0.87–1.24 с). Текст досылается через generationRequest().
- *   2. Стриминг: текст уходит в TTS по границам предложений прямо во
- *      время генерации (ResponseOutputTextDelta), а не целиком после
- *      ResponseOutputTextDone.
- *   3. turn_detection перенесён в session.audio.input.turn_detection.
- *      В v1.1 он лежал в корне session и молча игнорировался — реально
- *      работали дефолтные 200 мс вместо заданных 500.
- *   4. Свежий context_id на каждую реплику вместо одного на звонок.
- *   5. max_buffer_delay_ms: 200 вместо дефолтных 3000 у Cartesia.
- *   6. Убран несуществующий параметр progressive. Модель sonic-3.5.
- *   7. Watchdog на молчащий TTS + детект мёртвого плеера
- *      (PlayerEvents.Error) с восстановлением.
- *   8. cleanForTTS — переводы строк ломают синтез.
- *   9. Метрики задержки vad→token / vad→tts / vad→audio в лог.
- *  10. Модель предупреждена, что приветствие уже прозвучало —
- *      не здоровается повторно.
- *  11. Прощание при hangup_call дожидается конца озвучки
- *      (PlaybackFinished + потолок), а не рубится по setTimeout(3000).
- *  12. Мьют: аудио абонента подключается к OpenAI по факту окончания
- *      приветствия, а не по фиксированному таймеру. mute_duration_ms
- *      стал НИЖНЕЙ границей, потолок считается из длины приветствия.
+ *   1. МЬЮТ ФИКСИРОВАННЫЙ. Аудио абонента подключается к OpenAI ровно
+ *      через MUTE_DURATION мс от CallEvents.Connected. Составное условие
+ *      "нижняя граница И конец приветствия ИЛИ потолок" убрано вместе с
+ *      muteMinDone / muteCeilTimer / tryLinkAfterMute.
+ *
+ *   2. ПРИВЕТСТВИЕ ЗАЩИЩЕНО ОТ ОБРЫВА. Раз мьют больше не растягивается
+ *      до конца приветствия, абонент может влезть с "Алло" на середине.
+ *      InputAudioBufferSpeechStarted во время приветствия больше не рвёт
+ *      Cartesia. Реплика модели, которую она на это "Алло" сгенерирует,
+ *      придерживается шлюзом (ttsGateClosed) и уходит в TTS только после
+ *      того, как приветствие доиграло, — иначе два контекста Cartesia
+ *      писали бы в один плеер одновременно.
+ *
+ *   3. ШЛЮЗ СТРАХУЕТСЯ ТАЙМЕРОМ. Если событие конца воспроизведения от
+ *      плеера не придёт, шлюз откроется принудительно по расчётной длине
+ *      приветствия (armGreetingGuard). Без этого один пропущенный ивент
+ *      оставил бы ассистента немым до конца звонка.
+ *
+ *   4. ПРОГРЕВ ПЛЕЕРА. Плеер Cartesia создаётся ДО callPSTN, пока идут
+ *      гудки: WS-хендшейк, TLS, авторизация и прогрев модели съедаются
+ *      бесплатным временем. sendMediaTo(call) отложен до Connected.
+ *      Прогревочный контекст держится открытым keep-alive'ом (" " раз в
+ *      WARMUP_KEEPALIVE_MS) на случай долгих гудков и закрывается в
+ *      finishWarmup(). Любой сбой прогрева не роняет звонок — сценарий
+ *      молча падает на ленивое создание плеера, как в v3.0.
+ *
+ *   5. События плеера, прилетевшие во время прогрева, не доходят до
+ *      confirmAudio / onSpeechFinished / onPlayerError (флаг isWarmingUp),
+ *      иначе они бы сломали логику greetingPending и hangupAfterSpeech.
+ *
+ *   6. Метрика приветствия: connect→audio в лог. В v3.0 приветствие
+ *      вообще не мерилось (confirmAudio писал тайминги только при
+ *      заполненном mVadStop, которого у приветствия нет).
+ *
+ *   7. estimateSpeechMs / SPEECH_CPS сохранены, но переехали с потолка
+ *      мьюта на страховку шлюза приветствия.
  * ====================================================================
  */
 
@@ -48,8 +61,13 @@ var TTS_RETRY_MS        = 1200;         // окно на попытку восс
 var FILLER_TEXT         = "Секунду.";   // заглушка при зависшем синтезе
 var HANGUP_GUARD_MS     = 15000;        // потолок ожидания конца прощания
 var DEFAULT_VOICE_SPEED = 0.9;          // Cartesia: диапазон 0.6–1.5
-var MUTE_TAIL_MS        = 700;          // запас к расчётной длине приветствия
 var SPEECH_CPS          = 14;           // символов/сек при speed 1.0 — оценка длительности
+var GREETING_TAIL_MS    = 2000;         // запас к расчётной длине приветствия для страховки шлюза
+
+// ── Прогрев плеера ──────────────────────────────────────────────────────────
+var WARMUP_ENABLED      = true;         // создавать плеер до набора номера
+var WARMUP_KEEPALIVE_MS = 10000;        // досылать " " в прогревочный контекст, пока идут гудки
+var WARMUP_TEXT         = " ";          // текст, на котором поднимается сокет (тишина)
 
 // ============================================================================
 // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ БИЛЛИНГА
@@ -63,7 +81,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     call_session_history_id = e.sessionId;
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🚀 APP STARTED (OUTBOUND Cartesia v3.0)");
+    Logger.write("🚀 APP STARTED (OUTBOUND Cartesia v3.1)");
     Logger.write("🔑 Session History ID: " + call_session_history_id);
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -94,12 +112,25 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var hangupAfterSpeech = false;
     var hangupGuardTimer  = null;
 
+    // ── Приветствие и шлюз TTS ──────────────────────────────────────────────
+    var greetingText       = "";     // отдельно от turnFullText: тот перетирается новой репликой
+    var greetingPending    = false;  // приветствие ещё звучит
+    var greetingDone       = false;  // приветствие отзвучало
+    var greetingGuardTimer = null;   // страховка на случай пропавшего события конца озвучки
+    var greetingSentAt     = 0;      // метрика connect→audio
+    var greetingLogged     = false;
+    var ttsGateClosed      = false;  // реплики ассистента придерживаются (играет приветствие)
+    var gatedTurnDone      = false;  // придержанная реплика получена целиком, ждёт открытия шлюза
+
     // ── Мьют клиентского аудио ──────────────────────────────────────────────
-    var audioLinked     = false;   // call.sendMediaTo(realtimeAPIClient) уже вызван
-    var muteMinDone     = false;   // прошла нижняя граница мьюта
-    var greetingPending = false;   // приветствие ещё звучит
-    var greetingDone    = false;   // приветствие отзвучало
-    var muteCeilTimer   = null;
+    var audioLinked = false;   // call.sendMediaTo(realtimeAPIClient) уже вызван
+    var muteTimer   = null;
+
+    // ── Прогрев плеера ──────────────────────────────────────────────────────
+    var isWarmingUp    = false;
+    var warmupCtx      = null;
+    var warmupTimer    = null;
+    var warmupStartedAt = 0;
 
     // ── Метрики задержки ────────────────────────────────────────────────────
     var mVadStop = 0, mRespCreated = 0, mFirstDelta = 0, mFirstChunk = 0;
@@ -149,11 +180,11 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var LOG_URL       = "https://voicyfy.ru/api/voximplant/log";
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("📞 OUTBOUND CALL (Cartesia v3.0)");
+    Logger.write("📞 OUTBOUND CALL (Cartesia v3.1)");
     Logger.write("   Target: "     + PHONE_NUMBER);
     Logger.write("   Caller ID: "  + CALLER_ID);
     Logger.write("   Assistant: "  + ASSISTANT_ID);
-    Logger.write("   Mute (min): " + MUTE_DURATION + "ms");
+    Logger.write("   Mute (fixed): " + MUTE_DURATION + "ms");
     Logger.write("   Session ID: " + call_session_history_id);
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -222,8 +253,10 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         if (event && event.duration !== undefined) call_duration = event.duration;
 
         disarmWatchdog();
-        if (hangupGuardTimer) { clearTimeout(hangupGuardTimer); hangupGuardTimer = null; }
-        if (muteCeilTimer)    { clearTimeout(muteCeilTimer);    muteCeilTimer    = null; }
+        disarmWarmupKeepalive();
+        if (hangupGuardTimer)   { clearTimeout(hangupGuardTimer);   hangupGuardTimer   = null; }
+        if (muteTimer)          { clearTimeout(muteTimer);          muteTimer          = null; }
+        if (greetingGuardTimer) { clearTimeout(greetingGuardTimer); greetingGuardTimer = null; }
 
         if (realtimeAPIClient) { try { realtimeAPIClient.close(); } catch (err) {} }
         if (ttsPlayer)         { try { ttsPlayer.stop(); } catch (err) {} ttsPlayer = null; }
@@ -416,6 +449,10 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     function drainPending() {
         if (isInterrupted || !pending) return;
 
+        // Шлюз закрыт — играет приветствие. Дельты копим, в TTS не отдаём:
+        // два контекста Cartesia, пишущих в один плеер, дают кашу в трубке.
+        if (ttsGateClosed) return;
+
         var guard = 0;
         while (pending && guard++ < 32) {
             var cut = findCutIndex(pending);
@@ -476,8 +513,9 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     }
 
     // Единственная точка отправки текста в TTS.
-    // Плеер создаётся один раз — на первой фразе, которую надо озвучить, —
-    // и живёт до конца звонка.
+    // Плеер создаётся один раз — при прогреве до набора номера либо, если
+    // прогрев не удался, на первой фразе, которую надо озвучить, — и живёт
+    // до конца звонка.
     function speak(text, more) {
         if (!text || !text.trim() || isHangingUp || !call) return;
         if (!turnCtx) turnCtx = newContextId();
@@ -556,12 +594,170 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         mVadStop = 0; mRespCreated = 0; mFirstDelta = 0; mFirstChunk = 0;
     }
 
-    // Оценка длительности озвучки — нужна как потолок мьюта, если событие
-    // окончания воспроизведения от плеера так и не придёт.
+    // Оценка длительности озвучки — нужна как страховка шлюза приветствия,
+    // если событие окончания воспроизведения от плеера так и не придёт.
     function estimateSpeechMs(text) {
         var speed = CONFIG.voice_speed || DEFAULT_VOICE_SPEED;
         var cps   = SPEECH_CPS * speed;
         return Math.round(400 + (text.length / cps) * 1000);
+    }
+
+    // =========================================================================
+    // ПРОГРЕВ ПЛЕЕРА (пока идут гудки)
+    // =========================================================================
+    // Холодный старт Cartesia (WS + TLS + auth + прогрев модели) стоил
+    // 0.87–1.24 с и в v3.0 приходился ровно на момент, когда абонент снял
+    // трубку. Здесь плеер поднимается ДО callPSTN на выброшенном контексте
+    // с тишиной, а к звонку прицепляется в Connected.
+    //
+    // Прогрев принципиально не имеет права уронить звонок: любая ошибка →
+    // ttsPlayer = null и ленивое создание плеера, как раньше.
+
+    function warmupPlayer() {
+        if (!WARMUP_ENABLED) return;
+        try {
+            warmupCtx       = newContextId();
+            isWarmingUp     = true;
+            warmupStartedAt = Date.now();
+
+            // continue:true — контекст остаётся открытым, его добивает keep-alive
+            ttsPlayer = Cartesia.createRealtimeTTSPlayer(WARMUP_TEXT, {
+                apiKey: CONFIG.cartesia_api_key,
+                generationRequestParameters: buildGenParams(warmupCtx, null, true)
+            });
+            playerDead = false;
+            attachPlayerListeners();
+            // sendMediaTo(call) НЕ вызываем — звонка ещё нет
+
+            armWarmupKeepalive();
+            Logger.write("🔥 Warmup: плеер создан до набора номера (ctx " + warmupCtx + ")");
+        } catch (err) {
+            Logger.write("⚠️ Warmup failed: " + err + " — работаем по ленивой схеме");
+            isWarmingUp = false;
+            warmupCtx   = null;
+            ttsPlayer   = null;
+        }
+    }
+
+    // Долгие гудки: Cartesia может закрыть простаивающий контекст.
+    function armWarmupKeepalive() {
+        disarmWarmupKeepalive();
+        warmupTimer = setTimeout(function() {
+            warmupTimer = null;
+            if (!isWarmingUp || !ttsPlayer || playerDead) return;
+            try {
+                ttsPlayer.generationRequest(buildGenParams(warmupCtx, " ", true));
+                Logger.write("🔥 Warmup keep-alive");
+            } catch (err) {
+                Logger.write("⚠️ Warmup keep-alive failed: " + err);
+                return;
+            }
+            armWarmupKeepalive();
+        }, WARMUP_KEEPALIVE_MS);
+    }
+
+    function disarmWarmupKeepalive() {
+        if (warmupTimer) { clearTimeout(warmupTimer); warmupTimer = null; }
+    }
+
+    // Абонент снял трубку: закрываем прогревочный контекст, чистим буфер от
+    // накопленной тишины и прицепляем уже тёплый плеер к звонку.
+    function finishWarmup() {
+        if (!isWarmingUp) return;
+        isWarmingUp = false;
+        disarmWarmupKeepalive();
+
+        if (!ttsPlayer) { warmupCtx = null; return; }
+
+        if (playerDead) {
+            Logger.write("⚠️ Warmup: плеер умер до Connected — пересоздадим лениво");
+            try { ttsPlayer.stop(); } catch (err) {}
+            ttsPlayer  = null;
+            playerDead = false;
+            warmupCtx  = null;
+            return;
+        }
+
+        try {
+            if (warmupCtx) ttsPlayer.generationRequest(buildGenParams(warmupCtx, " ", false));
+        } catch (err) {
+            Logger.write("⚠️ Warmup: не удалось закрыть контекст: " + err);
+        }
+        warmupCtx = null;
+
+        try { ttsPlayer.clearBuffer(); } catch (err) {}
+
+        try {
+            ttsPlayer.sendMediaTo(call);
+            Logger.write("🔥 Warmup: плеер прогрет за " + (Date.now() - warmupStartedAt) +
+                "ms и подключён к звонку");
+        } catch (err) {
+            Logger.write("⚠️ Warmup: sendMediaTo failed: " + err + " — пересоздадим лениво");
+            try { ttsPlayer.stop(); } catch (e2) {}
+            ttsPlayer = null;
+        }
+    }
+
+    // Ошибка Cartesia во время прогрева — не повод для recovery-логики
+    // текущей реплики (реплики ещё нет). Просто откатываемся к ленивой схеме.
+    function onWarmupError(what) {
+        Logger.write("⚠️ [Cartesia] warmup error: " + what + " — падаем на ленивое создание плеера");
+        disarmWarmupKeepalive();
+        isWarmingUp = false;
+        warmupCtx   = null;
+        try { if (ttsPlayer) ttsPlayer.stop(); } catch (err) {}
+        ttsPlayer  = null;
+        playerDead = false;
+    }
+
+    // =========================================================================
+    // ШЛЮЗ TTS НА ВРЕМЯ ПРИВЕТСТВИЯ
+    // =========================================================================
+    // Мьют теперь фиксированный, поэтому абонент может влезть с "Алло" ещё до
+    // конца приветствия. Приветствие мы не рвём, но и ответ модели поверх него
+    // пустить нельзя. Шлюз придерживает реплику до конца озвучки приветствия.
+
+    function armGreetingGuard() {
+        var ms = estimateSpeechMs(GREETING) + GREETING_TAIL_MS;
+        Logger.write("🛡 Greeting guard: " + ms + "ms");
+        greetingGuardTimer = setTimeout(function() {
+            greetingGuardTimer = null;
+            if (!greetingPending) return;
+            Logger.write("⚠️ Событие конца приветствия не пришло за " + ms +
+                "ms — открываем шлюз принудительно");
+            onSpeechFinished("greeting guard timeout");
+        }, ms);
+    }
+
+    function releaseTtsGate() {
+        if (!ttsGateClosed) return;
+        ttsGateClosed = false;
+
+        // Контекст приветствия уже закрыт — придержанная реплика должна уйти
+        // в свежий, иначе Cartesia ответит "Invalid context ID".
+        turnCtx          = null;
+        ctxOpen          = false;
+        firstChunkOfTurn = true;
+
+        if (isInterrupted || isHangingUp) {
+            gatedTurnDone = false;
+            pending       = "";
+            return;
+        }
+
+        if (gatedTurnDone) {
+            gatedTurnDone = false;
+            var t = (turnFullText || "").trim();
+            pending = "";
+            if (t) {
+                Logger.write("▶ Отпускаем придержанную реплику (" + t.length + " симв.)");
+                speak(t, false);
+            }
+        } else if (pending) {
+            // Реплика ещё генерируется — догоняем обычным стримом
+            Logger.write("▶ Шлюз открыт, догоняем стрим");
+            drainPending();
+        }
     }
 
     // =========================================================================
@@ -585,6 +781,17 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         disarmWatchdog();
         if (audioConfirmed) return;
         audioConfirmed = true;
+
+        // Приветствие: у него нет mVadStop, поэтому меряем от Connected.
+        // Именно эта цифра показывает, что дал прогрев плеера.
+        if (!mVadStop && greetingSentAt && !greetingLogged) {
+            greetingLogged = true;
+            Logger.write("⏱ GREETING: connect→audio=" + (Date.now() - greetingSentAt) + "ms" +
+                (typeof ttfb === "number" ? " ttfb=" + ttfb + "ms" : "") +
+                (WARMUP_ENABLED ? " [warm]" : " [cold]") +
+                " [" + source + "]");
+            return;
+        }
 
         if (mVadStop) {
             var now = Date.now();
@@ -617,7 +824,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             return;
         }
 
-        var textToRepeat = (turnFullText || "").trim();
+        var textToRepeat = (greetingPending ? greetingText : turnFullText || "").trim();
 
         if (recoveryStage === 0 && ttsPlayer && !playerDead) {
             recoveryStage = 1;
@@ -659,13 +866,19 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     // СОБЫТИЯ ПЛЕЕРА
     // =========================================================================
     // Вешаются ДО sendMediaTo, иначе Started может проскочить мимо подписки.
+    //
+    // Во время прогрева все события глушатся: они относятся к выброшенному
+    // контексту и, дойдя до onSpeechFinished, сломали бы greetingPending
+    // и hangupAfterSpeech.
     function attachPlayerListeners() {
         ttsPlayer.addEventListener(PlayerEvents.Started, function() {
+            if (isWarmingUp) { Logger.write("[Cartesia] ▶ Started (warmup, игнор)"); return; }
             Logger.write("[Cartesia] ▶ Started");
             confirmAudio("Started");
         });
 
         ttsPlayer.addEventListener(PlayerEvents.AudioChunksPlaybackFinished, function(ev) {
+            if (isWarmingUp) { Logger.write("[Cartesia] chunks finished (warmup, игнор)"); return; }
             var ttfb = (ev && typeof ev.timeToFirstByte === "number") ? ev.timeToFirstByte : undefined;
             Logger.write("[Cartesia] ✅ chunks finished (ttfb=" + (ttfb === undefined ? "n/a" : ttfb) + "ms)");
             confirmAudio("AudioChunks", ttfb);
@@ -673,6 +886,11 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         });
 
         ttsPlayer.addEventListener(PlayerEvents.PlaybackFinished, function(ev) {
+            if (isWarmingUp) {
+                if (ev && ev.error) { onWarmupError("PlaybackFinished: " + ev.error); return; }
+                Logger.write("[Cartesia] PlaybackFinished (warmup, игнор)");
+                return;
+            }
             if (ev && ev.error) { onPlayerError("PlaybackFinished: " + ev.error); return; }
             Logger.write("[Cartesia] ✅ PlaybackFinished");
             confirmAudio("PlaybackFinished");
@@ -680,18 +898,20 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         });
 
         ttsPlayer.addEventListener(PlayerEvents.Error, function(ev) {
+            if (isWarmingUp) { onWarmupError("Player.Error: " + (ev && ev.error)); return; }
             onPlayerError("Player.Error: " + (ev && ev.error));
         });
     }
 
-    // Единая точка "озвучка закончилась": снимает мьют после приветствия
+    // Единая точка "озвучка закончилась": открывает шлюз после приветствия
     // и вешает трубку после прощания.
     function onSpeechFinished(reason) {
         if (greetingPending) {
             greetingPending = false;
             greetingDone    = true;
-            Logger.write("👋 Greeting playback finished (" + reason + ")");
-            tryLinkAfterMute();
+            if (greetingGuardTimer) { clearTimeout(greetingGuardTimer); greetingGuardTimer = null; }
+            Logger.write("👋 Приветствие доиграно (" + reason + ")");
+            releaseTtsGate();
         }
         if (hangupAfterSpeech) finishHangup(reason);
     }
@@ -706,13 +926,17 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         ctxOpen        = false;
 
         if (audioConfirmed || isInterrupted || isHangingUp) return;
-        if (!turnFullText) return;   // озвучивать нечего
+
+        // Пока играет приветствие, turnFullText может уже принадлежать
+        // придержанной реплике — восстанавливаем именно приветствие.
+        var recoveringGreeting = greetingPending;
+        var textToRepeat = ((recoveringGreeting ? greetingText : turnFullText) || "").trim();
+        if (!textToRepeat) return;   // озвучивать нечего
 
         disarmWatchdog();
-        Logger.write("[Cartesia] recovering current turn on a fresh player");
-        // pending — это суффикс turnFullText, а не отдельный кусок: обработчик
-        // дельт пишет в оба. Складывать их нельзя, хвост задвоится.
-        var textToRepeat = turnFullText.trim();
+        Logger.write("[Cartesia] recovering " + (recoveringGreeting ? "greeting" : "current turn") +
+            " on a fresh player");
+
         recoveryStage    = 2;
         try { ttsPlayer.stop(); } catch (err) {}
         ttsPlayer        = null;
@@ -720,7 +944,13 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         turnCtx          = null;
         ctxOpen          = false;
         firstChunkOfTurn = true;
-        pending          = "";
+
+        // pending — это суффикс turnFullText, а не отдельный кусок: обработчик
+        // дельт пишет в оба. Складывать их нельзя, хвост задвоится.
+        // Но при восстановлении приветствия pending принадлежит придержанной
+        // реплике и должен пережить восстановление.
+        if (!recoveringGreeting) pending = "";
+
         speak(textToRepeat, false);
     }
 
@@ -733,47 +963,35 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     }
 
     // =========================================================================
-    // МЬЮТ КЛИЕНТСКОГО АУДИО
+    // МЬЮТ КЛИЕНТСКОГО АУДИО — ФИКСИРОВАННОЕ ОКНО
     // =========================================================================
-    // Аудио абонента подключается к OpenAI не по фиксированному таймеру, а по
-    // факту окончания приветствия — иначе длинное приветствие всё равно
-    // перебивалось бы репликой "Алло". mute_duration_ms остаётся НИЖНЕЙ
-    // границей (сколько минимум игнорировать абонента), потолок считается
-    // из расчётной длительности приветствия на случай, если событие окончания
-    // воспроизведения не придёт.
+    // Аудио абонента не маршрутизируется в OpenAI ровно MUTE_DURATION мс от
+    // момента ответа на звонок. Это не "мьют микрофона" в привычном смысле:
+    // сказанное в это окно нигде не буферизуется и в транскрипт не попадёт.
+    //
+    // От длины приветствия окно больше не зависит — за приветствие теперь
+    // отвечает шлюз TTS (releaseTtsGate), а не мьют.
     function linkClientAudio(reason) {
         if (audioLinked || isHangingUp) return;
         if (!call || !realtimeAPIClient) return;
         audioLinked = true;
-        if (muteCeilTimer) { clearTimeout(muteCeilTimer); muteCeilTimer = null; }
+        if (muteTimer) { clearTimeout(muteTimer); muteTimer = null; }
         call.sendMediaTo(realtimeAPIClient);
         Logger.write("🎙️ Client audio → OpenAI connected (" + reason + ")");
     }
 
-    function tryLinkAfterMute() {
-        if (audioLinked) return;
-        if (!muteMinDone || !greetingDone) return;
-        linkClientAudio("mute expired + greeting done");
-    }
-
     function startMuteWindow() {
         if (MUTE_DURATION <= 0) {
-            linkClientAudio("no mute");
+            linkClientAudio("mute disabled");
             return;
         }
 
-        var ceiling = Math.max(MUTE_DURATION, estimateSpeechMs(GREETING) + MUTE_TAIL_MS);
-        Logger.write("🔇 Mute: min " + MUTE_DURATION + "ms, ceiling " + ceiling + "ms");
+        Logger.write("🔇 Mute: фиксированные " + MUTE_DURATION + "ms от Connected");
 
-        setTimeout(function() {
-            muteMinDone = true;
-            tryLinkAfterMute();
+        muteTimer = setTimeout(function() {
+            muteTimer = null;
+            linkClientAudio("fixed mute " + MUTE_DURATION + "ms");
         }, MUTE_DURATION);
-
-        muteCeilTimer = setTimeout(function() {
-            muteCeilTimer = null;
-            linkClientAudio("mute ceiling " + ceiling + "ms");
-        }, ceiling);
     }
 
     // =========================================================================
@@ -878,10 +1096,12 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             if (!callConnected) return;
             isInterrupted = false;
             var vadStop = mVadStop;
-            resetTurnState();
-            mVadStop     = vadStop;      // метрику текущего хода сохраняем
-            mRespCreated = Date.now();
-            Logger.write("[OpenAI] Response started");
+            resetTurnState();          // turnFullText приветствия здесь стирается,
+                                       // но само приветствие живёт в greetingText
+            gatedTurnDone = false;
+            mVadStop      = vadStop;   // метрику текущего хода сохраняем
+            mRespCreated  = Date.now();
+            Logger.write("[OpenAI] Response started" + (ttsGateClosed ? " (шлюз закрыт, придержим)" : ""));
         }
     );
 
@@ -900,7 +1120,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             var clean = cleanForTTS(delta);
             pending      += clean;
             turnFullText += clean;
-            drainPending();
+            drainPending();            // при закрытом шлюзе просто копит
         }
     );
 
@@ -925,6 +1145,15 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             // turnFullText пуст — берём полный текст.
             if (!turnFullText) turnFullText = cleanForTTS(text);
 
+            // Шлюз закрыт — приветствие ещё звучит. Реплика целиком уйдёт в TTS
+            // из releaseTtsGate, когда приветствие доиграет.
+            if (ttsGateClosed) {
+                pending       = "";
+                gatedTurnDone = true;
+                Logger.write("⏸ Реплика придержана до конца приветствия");
+                return;
+            }
+
             var tail = pending;
             pending = "";
 
@@ -944,6 +1173,15 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         OpenAI.RealtimeAPIEvents.InputAudioBufferSpeechStarted,
         function() {
             if (!callConnected) return;
+
+            // Приветствие защищено: не рвём озвучку и не выставляем
+            // isInterrupted, иначе ответ модели на это "Алло" будет отброшен.
+            // Ответ придержит шлюз до конца приветствия.
+            if (greetingPending) {
+                Logger.write("[OpenAI] SPEECH STARTED во время приветствия — озвучку НЕ рвём (защита)");
+                return;
+            }
+
             Logger.write("[OpenAI] SPEECH STARTED — stop Cartesia" +
                 (ctxOpen ? " (context open → cancel)" : " (context closed → buffer only)"));
             isInterrupted = true;
@@ -954,6 +1192,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             turnCtx          = null;
             ctxOpen          = false;
             firstChunkOfTurn = true;
+            gatedTurnDone    = false;
         }
     );
 
@@ -1006,10 +1245,22 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
 
                     if (args.farewell_message && args.farewell_message.trim()) {
                         var farewell = cleanForTTS(args.farewell_message.trim());
-                        resetTurnState();
-                        turnFullText      = farewell;
-                        hangupAfterSpeech = true;
-                        speak(farewell, false);
+
+                        // Если приветствие ещё звучит — дожидаемся его, иначе
+                        // прощание наложится поверх. Крайне редкий, но реальный
+                        // случай при очень длинном приветствии.
+                        if (ttsGateClosed) {
+                            Logger.write("⏸ Прощание придержано до конца приветствия");
+                            turnFullText      = farewell;
+                            gatedTurnDone     = true;
+                            hangupAfterSpeech = true;
+                        } else {
+                            resetTurnState();
+                            turnFullText      = farewell;
+                            hangupAfterSpeech = true;
+                            speak(farewell, false);
+                        }
+
                         // Потолок на случай, если событие окончания озвучки не придёт
                         hangupGuardTimer = setTimeout(function() {
                             finishHangup("guard timeout");
@@ -1073,6 +1324,11 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     );
 
     // =========================================================================
+    // ПРОГРЕВ ПЛЕЕРА ПЕРЕД НАБОРОМ
+    // =========================================================================
+    warmupPlayer();
+
+    // =========================================================================
     // СОВЕРШЕНИЕ ИСХОДЯЩЕГО ЗВОНКА
     // =========================================================================
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -1094,6 +1350,9 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             Logger.write("⚠️ Recording failed: " + recordErr);
         }
 
+        // ── Прицепляем прогретый плеер к звонку ─────────────────────────────
+        finishWarmup();
+
         // ── Приветствие: напрямую в Cartesia, без раунда к модели ───────────
         Logger.write("🤖 AGENT (greeting): \"" + GREETING.substring(0, 60) + "\"");
         dialogLog.push({ role: 'assistant', text: GREETING, ts: Date.now() });
@@ -1101,11 +1360,19 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         assistantMessageBuffer += GREETING;
 
         resetTurnState();
+        greetingText    = GREETING;
         turnFullText    = GREETING;   // чтобы приветствие можно было переозвучить
         greetingPending = true;
-        speak(GREETING, false);
+        greetingDone    = false;
+        greetingLogged  = false;
+        greetingSentAt  = Date.now();
+        ttsGateClosed   = true;       // реплики модели придерживаем до конца приветствия
+        gatedTurnDone   = false;
 
-        // ── Мьют: аудио абонента подключим после приветствия ─────────────────
+        speak(GREETING, false);
+        armGreetingGuard();
+
+        // ── Мьют: фиксированное окно от этого момента ───────────────────────
         startMuteWindow();
     });
 
@@ -1130,11 +1397,13 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     });
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🎉 READY (OUTBOUND Cartesia v3.0)");
+    Logger.write("🎉 READY (OUTBOUND Cartesia v3.1)");
     Logger.write("   🔑 Session: "     + call_session_history_id);
     Logger.write("   🎤 TTS: "         + TTS_MODEL_ID + ", buffer delay " + MAX_BUFFER_DELAY_MS + "ms");
+    Logger.write("   🔥 Warmup: "      + (WARMUP_ENABLED ? "ON, keep-alive " + WARMUP_KEEPALIVE_MS + "ms" : "OFF"));
     Logger.write("   🎧 VAD silence: " + VAD_SILENCE_MS + "ms");
-    Logger.write("   🔇 Mute min: "    + MUTE_DURATION + "ms (ceiling from greeting length)");
+    Logger.write("   🔇 Mute: "        + MUTE_DURATION + "ms (fixed, from Connected)");
+    Logger.write("   🛡 Greeting: "    + "защищено от обрыва, шлюз TTS активен");
     Logger.write("   📝 Structured dialog: ENABLED");
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
