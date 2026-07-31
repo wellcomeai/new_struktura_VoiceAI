@@ -1,0 +1,887 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>OpenSaaS на Amvera — Часть 1: запуск за 30 минут</title>
+<style>
+/* ---------- Шрифты ---------- */
+@font-face { font-family:'Inter'; font-weight:400; font-style:normal; src:url('assets/fonts/Inter-400.ttf') format('truetype'); }
+@font-face { font-family:'Inter'; font-weight:500; font-style:normal; src:url('assets/fonts/Inter-500.ttf') format('truetype'); }
+@font-face { font-family:'Inter'; font-weight:600; font-style:normal; src:url('assets/fonts/Inter-600.ttf') format('truetype'); }
+@font-face { font-family:'Inter'; font-weight:700; font-style:normal; src:url('assets/fonts/Inter-700.ttf') format('truetype'); }
+@font-face { font-family:'JBMono'; font-weight:400; font-style:normal; src:url('assets/fonts/JBMono-400.ttf') format('truetype'); }
+@font-face { font-family:'JBMono'; font-weight:600; font-style:normal; src:url('assets/fonts/JBMono-600.ttf') format('truetype'); }
+
+/* ---------- Токены ---------- */
+:root{
+  --ink:#0f172a; --body:#1e293b; --muted:#64748b; --line:#e2e8f0; --line-soft:#f1f5f9;
+  --blue:#2563eb; --blue-ink:#1d4ed8; --blue-bg:#eff6ff; --blue-line:#bfdbfe;
+  --violet:#7c3aed; --violet-bg:#f5f3ff;
+  --amber:#b45309; --amber-bg:#fffbeb; --amber-line:#fde68a;
+  --red:#b91c1c; --red-bg:#fef2f2; --red-line:#fecaca;
+  --green:#15803d; --green-bg:#f0fdf4; --green-line:#bbf7d0;
+}
+
+/* ---------- Страница ---------- */
+@page { size:A4; margin:19mm 17mm 20mm; }
+@page cover { margin:0; }
+
+*{ box-sizing:border-box; }
+html,body{ margin:0; padding:0; }
+body{
+  font-family:'Inter',sans-serif; font-size:10.4pt; line-height:1.62;
+  color:var(--body); -webkit-font-smoothing:antialiased;
+}
+p{ margin:0 0 9px; }
+strong,b{ font-weight:600; color:var(--ink); }
+a{ color:var(--blue-ink); text-decoration:none; }
+
+/* ---------- Обложка ---------- */
+.cover{ page:cover; break-after:page; height:297mm; width:210mm; position:relative; overflow:hidden;
+  background:linear-gradient(155deg,#0b1226 0%,#131f42 45%,#1e2f6b 100%); color:#fff; }
+.cover .glow{ position:absolute; border-radius:50%; filter:blur(3mm); }
+.cover .g1{ width:120mm; height:120mm; top:-38mm; right:-32mm; background:rgba(37,99,235,.42); }
+.cover .g2{ width:95mm; height:95mm; bottom:-30mm; left:-26mm; background:rgba(124,58,237,.34); }
+.cover .inner{ position:relative; padding:32mm 22mm 0; }
+.cover .kicker{ display:inline-block; font-size:8.6pt; font-weight:600; letter-spacing:.16em;
+  text-transform:uppercase; color:#bfdbfe; border:1px solid rgba(191,219,254,.45);
+  border-radius:99px; padding:4px 13px; }
+.cover h1{ font-size:34pt; line-height:1.13; font-weight:700; margin:14mm 0 0; letter-spacing:-.02em; color:#fff; }
+.cover h1 em{ font-style:normal; background:linear-gradient(92deg,#60a5fa,#a78bfa);
+  -webkit-background-clip:text; background-clip:text; color:transparent; }
+.cover .lede{ font-size:12.6pt; line-height:1.55; color:#cbd5e1; margin:9mm 0 0; max-width:135mm; font-weight:400; }
+.cover .rule{ width:34mm; height:3px; background:linear-gradient(90deg,#60a5fa,#a78bfa); border-radius:2px; margin:11mm 0 0; }
+.cover .facts{ display:flex; gap:7mm; margin:11mm 0 0; }
+.cover .fact{ border:1px solid rgba(255,255,255,.16); background:rgba(255,255,255,.05);
+  border-radius:9px; padding:7px 13px 8px; }
+.cover .fact b{ display:block; font-size:14pt; font-weight:700; color:#fff; line-height:1.2; }
+.cover .fact span{ font-size:8.4pt; color:#94a3b8; }
+.cover .meta{ position:absolute; left:22mm; right:22mm; bottom:20mm;
+  display:flex; justify-content:space-between; align-items:flex-end;
+  border-top:1px solid rgba(255,255,255,.14); padding-top:6mm;
+  font-size:9pt; color:#94a3b8; }
+.cover .meta b{ color:#e2e8f0; font-weight:600; }
+
+/* ---------- Заголовки ---------- */
+h2.sec{ font-size:17pt; font-weight:700; color:var(--ink); letter-spacing:-.015em;
+  margin:0 0 4mm; padding-bottom:3mm; border-bottom:2px solid var(--line); }
+h3{ font-size:11.6pt; font-weight:600; color:var(--ink); margin:7mm 0 2.5mm; }
+h4{ font-size:10.4pt; font-weight:600; color:var(--ink); margin:5mm 0 2mm; }
+h3,h4{ break-after:avoid; }
+
+/* ---------- Шаги ---------- */
+.step{ break-before:page; }
+.step-head{ display:flex; align-items:flex-start; gap:5mm; margin:0 0 5mm;
+  padding-bottom:4mm; border-bottom:2px solid var(--line); }
+.step-num{ flex:0 0 auto; width:13mm; height:13mm; border-radius:10px;
+  background:linear-gradient(140deg,var(--blue),var(--violet)); color:#fff;
+  font-size:16pt; font-weight:700; display:flex; align-items:center; justify-content:center; }
+.step-head .t{ padding-top:.4mm; }
+.step-head .eyebrow{ font-size:8pt; font-weight:600; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--blue); display:block; margin-bottom:1mm; }
+.step-head h2{ font-size:17pt; font-weight:700; color:var(--ink); margin:0; letter-spacing:-.015em; line-height:1.2; }
+
+/* ---------- Списки ---------- */
+ul,ol{ margin:0 0 9px; padding-left:5.4mm; }
+li{ margin-bottom:3.5px; }
+li::marker{ color:var(--blue); font-weight:600; }
+ul.plain{ list-style:none; padding-left:0; }
+ul.plain li{ position:relative; padding-left:6.6mm; margin-bottom:5px; }
+ul.plain li::before{ content:''; position:absolute; left:0; top:2.1mm;
+  width:2.4mm; height:2.4mm; border-radius:50%; background:var(--blue); }
+ul.check{ list-style:none; padding-left:0; }
+ul.check li{ position:relative; padding-left:7.5mm; margin-bottom:5px; }
+ul.check li::before{ content:''; position:absolute; left:0; top:.9mm;
+  width:4.2mm; height:4.2mm; border:1.6px solid var(--blue); border-radius:3px; background:#fff; }
+
+/* ---------- Врезки ---------- */
+.box{ border:1px solid var(--line); border-left:3.5px solid var(--blue);
+  background:var(--blue-bg); border-radius:0 8px 8px 0; padding:4mm 5mm 3mm;
+  margin:5mm 0; break-inside:avoid; }
+.box .lbl{ font-size:8pt; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--blue-ink); display:block; margin-bottom:1.6mm; }
+.box p:last-child, .box ul:last-child{ margin-bottom:0; }
+.box.warn{ border-left-color:var(--amber); background:var(--amber-bg); border-color:var(--amber-line); }
+.box.warn .lbl{ color:var(--amber); }
+.box.danger{ border-left-color:var(--red); background:var(--red-bg); border-color:var(--red-line); }
+.box.danger .lbl{ color:var(--red); }
+.box.tip{ border-left-color:var(--green); background:var(--green-bg); border-color:var(--green-line); }
+.box.tip .lbl{ color:var(--green); }
+
+/* ---------- Код ---------- */
+code{ font-family:'JBMono',monospace; font-size:8.9pt; background:var(--line-soft);
+  border:1px solid var(--line); border-radius:4px; padding:.6px 4px; color:var(--ink); }
+.code{ font-family:'JBMono',monospace; font-size:8.9pt; line-height:1.6;
+  background:#0f172a; color:#e2e8f0; border-radius:8px; padding:4mm 5mm;
+  margin:3.5mm 0; word-break:break-all; white-space:pre-wrap; break-inside:avoid; }
+.code .k{ color:#93c5fd; } .code .v{ color:#fbbf24; } .code .c{ color:#64748b; }
+.code.light{ background:#f8fafc; color:var(--ink); border:1px solid var(--line); }
+.code.light .ph{ color:var(--violet); font-weight:600; }
+
+/* ---------- Таблицы ---------- */
+table{ width:100%; border-collapse:collapse; margin:4mm 0; font-size:9.5pt; break-inside:avoid; }
+th{ text-align:left; font-weight:600; color:var(--ink); font-size:8.4pt;
+  letter-spacing:.06em; text-transform:uppercase; background:var(--line-soft);
+  padding:2.6mm 3mm; border-bottom:1.5px solid var(--line); }
+td{ padding:2.6mm 3mm; border-bottom:1px solid var(--line); vertical-align:top; }
+tr:last-child td{ border-bottom:none; }
+table.bordered{ border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+td code{ white-space:nowrap; }
+
+/* ---------- Иллюстрации ---------- */
+figure{ margin:5mm 0; break-inside:avoid; }
+figure img{ display:block; max-width:100%; max-height:102mm; width:auto; margin:0 auto;
+  border:1px solid var(--line); border-radius:7px; }
+figcaption{ font-size:8.6pt; color:var(--muted); margin-top:2.4mm; text-align:center; line-height:1.45; }
+figcaption b{ color:var(--blue-ink); font-weight:600; }
+figure.tall img{ max-height:122mm; }
+figure.wide img{ max-height:78mm; }
+figure.sm img{ max-height:62mm; }
+
+/* ---------- Прочие блоки ---------- */
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:4mm; margin:4mm 0; break-inside:avoid; }
+h2.sec.cont{ margin-top:10mm; }
+.card{ border:1px solid var(--line); border-radius:9px; padding:3.6mm 4mm; background:#fff; break-inside:avoid; }
+.card b{ display:block; font-size:10.2pt; color:var(--ink); margin-bottom:1.2mm; }
+.card span{ font-size:9pt; color:var(--muted); line-height:1.5; display:block; }
+
+.flow{ display:flex; align-items:stretch; gap:2mm; margin:5mm 0; }
+.flow .n{ flex:1; border:1px solid var(--line); border-radius:9px; padding:3.4mm 3mm;
+  text-align:center; background:#fff; }
+.flow .n i{ display:block; font-style:normal; font-size:8pt; font-weight:700;
+  color:var(--blue); letter-spacing:.1em; margin-bottom:1.4mm; }
+.flow .n b{ display:block; font-size:9.4pt; color:var(--ink); font-weight:600; line-height:1.35; }
+.flow .arr{ flex:0 0 auto; display:flex; align-items:center; color:var(--line); font-size:13pt; }
+
+.toc{ margin:6mm 0 0; }
+.toc .row{ display:flex; align-items:baseline; gap:3mm; padding:2.6mm 0; border-bottom:1px solid var(--line-soft); }
+.toc .row .num{ flex:0 0 9mm; font-weight:700; color:var(--blue); font-size:9.6pt; }
+.toc .row .ttl{ font-size:10.4pt; color:var(--ink); font-weight:500; }
+.toc .row .sub{ color:var(--muted); font-weight:400; font-size:9.2pt; }
+
+.lead{ font-size:11.4pt; line-height:1.6; color:var(--muted); margin:0 0 6mm; }
+.hint{ font-size:9pt; color:var(--muted); margin:-1mm 0 4mm; }
+.divider{ height:1px; background:var(--line); margin:7mm 0; border:0; }
+.kv{ font-size:9.5pt; }
+.kv td:first-child{ width:42mm; font-weight:600; color:var(--ink); }
+.nb{ break-inside:avoid; }
+.pagebreak{ break-before:page; }
+</style>
+</head>
+<body>
+
+<!-- ======================= ОБЛОЖКА ======================= -->
+<div class="cover">
+  <div class="glow g1"></div>
+  <div class="glow g2"></div>
+  <div class="inner">
+    <span class="kicker">Часть 1 · Быстрый старт</span>
+    <h1>Запуск своей<br>SaaS-платформы<br><em>на OpenSaaS</em></h1>
+    <div class="rule"></div>
+    <p class="lede">Пошаговая инструкция: как развернуть готовый шаблон SaaS-сервиса
+      на российском хостинге Amvera и получить работающий сайт с личным кабинетом,
+      подписками и реферальной программой.</p>
+    <div class="facts">
+      <div class="fact"><b>9</b><span>шагов</span></div>
+      <div class="fact"><b>~30</b><span>минут</span></div>
+      <div class="fact"><b>0</b><span>строк кода</span></div>
+    </div>
+  </div>
+  <div class="meta">
+    <div><b>Версия 1.0</b> · июль 2026</div>
+    <div>Шаблон OpenSaaS · Хостинг Amvera</div>
+  </div>
+</div>
+
+<!-- ======================= СОДЕРЖАНИЕ ======================= -->
+<section>
+  <h2 class="sec">Содержание</h2>
+  <p class="lead">Инструкция рассчитана на человека без опыта разработки.
+    Все действия выполняются в браузере — устанавливать программы на компьютер не нужно.</p>
+
+  <div class="toc">
+    <div class="row"><span class="num">—</span><span class="ttl">Что вы получите <span class="sub">· состав платформы и технологии</span></span></div>
+    <div class="row"><span class="num">—</span><span class="ttl">Перед началом <span class="sub">· требования, стоимость, схема процесса</span></span></div>
+    <div class="row"><span class="num">1</span><span class="ttl">Регистрация на GitHub и форк репозитория</span></div>
+    <div class="row"><span class="num">2</span><span class="ttl">Регистрация в Amvera</span></div>
+    <div class="row"><span class="num">3</span><span class="ttl">Создание базы данных PostgreSQL</span></div>
+    <div class="row"><span class="num">4</span><span class="ttl">Сборка строки подключения к базе</span></div>
+    <div class="row"><span class="num">5</span><span class="ttl">Создание приложения и подключение репозитория</span></div>
+    <div class="row"><span class="num">6</span><span class="ttl">Переменные окружения</span></div>
+    <div class="row"><span class="num">7</span><span class="ttl">Сборка и деплой</span></div>
+    <div class="row"><span class="num">8</span><span class="ttl">Домен и HTTPS</span></div>
+    <div class="row"><span class="num">9</span><span class="ttl">Проверка результата</span></div>
+    <div class="row"><span class="num">—</span><span class="ttl">Если что-то пошло не так <span class="sub">· типовые ошибки и решения</span></span></div>
+    <div class="row"><span class="num">—</span><span class="ttl">Что дальше <span class="sub">· переход к Части 2</span></span></div>
+  </div>
+
+  <div class="box warn" style="margin-top:8mm">
+    <span class="lbl">Важно понимать заранее</span>
+    <p>Эта часть доводит проект до <strong>работающего демо в интернете</strong>. Прежде чем
+      пускать на платформу реальных пользователей и принимать платежи, нужно выполнить
+      боевую настройку — она вынесена в Часть 2. Подробности в разделе «Что дальше».</p>
+  </div>
+</section>
+
+<!-- ======================= ЧТО ВЫ ПОЛУЧИТЕ ======================= -->
+<section class="pagebreak">
+  <h2 class="sec">Что вы получите</h2>
+  <p class="lead">OpenSaaS — открытый шаблон SaaS-сервиса. Это не конструктор сайтов,
+    а полноценная кодовая база: типовые функции любого сервиса по подписке уже написаны,
+    вам остаётся развернуть их и наполнить своим продуктом.</p>
+
+  <h3>Функционал «из коробки»</h3>
+  <div class="grid2">
+    <div class="card"><b>Регистрация и вход</b><span>Аккаунты пользователей, подтверждение почты, восстановление пароля, защищённые сессии.</span></div>
+    <div class="card"><b>Подписки и тарифы</b><span>Пробный период, тарифные планы, шаблон приёма платежей через Robokassa.</span></div>
+    <div class="card"><b>Реферальная программа</b><span>Персональные ссылки, учёт приглашённых, начисление комиссии.</span></div>
+    <div class="card"><b>API-ключи</b><span>Выдача ключей пользователям — если ваш продукт предоставляет API.</span></div>
+    <div class="card"><b>Почтовые уведомления</b><span>Письма о регистрации, оплате и смене статуса подписки.</span></div>
+    <div class="card"><b>Панель администратора</b><span>Просмотр пользователей, подписок и платежей в одном месте.</span></div>
+  </div>
+
+  <h3>Технологии под капотом</h3>
+  <p>Знать их не обязательно, но пригодится, когда вы будете дорабатывать платформу
+    самостоятельно или с помощью ИИ-агентов.</p>
+  <table class="kv bordered">
+    <tr><td>Серверная часть</td><td>Python 3.11, FastAPI, SQLAlchemy</td></tr>
+    <tr><td>Интерфейс</td><td>Next.js 14, TypeScript, Tailwind CSS</td></tr>
+    <tr><td>База данных</td><td>PostgreSQL</td></tr>
+    <tr><td>Лицензия</td><td>MIT — можно использовать в коммерческих проектах</td></tr>
+  </table>
+
+  <div class="box">
+    <span class="lbl">Как это выглядит</span>
+    <p>Готовая платформа — публичная страница и личный кабинет пользователя —
+      показана на рисунках 17 и 18 в шаге 9, после того как вы её развернёте.</p>
+  </div>
+</section>
+
+<!-- ======================= ПЕРЕД НАЧАЛОМ ======================= -->
+<section>
+  <h2 class="sec cont">Перед началом</h2>
+
+  <h3>Что понадобится</h3>
+  <ul class="check">
+    <li><strong>Почта</strong> — на неё регистрируются аккаунты GitHub и Amvera.</li>
+    <li><strong>Аккаунт GitHub</strong> — бесплатный, создаётся на шаге 1.</li>
+    <li><strong>Аккаунт Amvera</strong> с пополненным балансом — российский хостинг, оплата картой РФ.</li>
+    <li><strong>30–40 минут свободного времени.</strong> Примерно половину из них занимает ожидание: база данных поднимается около 5 минут, первая сборка приложения — до 10 минут.</li>
+  </ul>
+  <p>Навыки программирования не нужны: весь процесс — это заполнение форм в двух веб-панелях.</p>
+
+  <div class="box tip">
+    <span class="lbl">Совет</span>
+    <p>Заведите текстовый файл и записывайте туда всё, что придумываете по ходу:
+      имя базы, имя пользователя базы, пароль, название проекта. На шаге 4 из этих
+      значений собирается строка подключения, и искать их заново по вкладкам неудобно.</p>
+  </div>
+
+  <h3>Как устроен процесс</h3>
+  <div class="flow">
+    <div class="n"><i>Шаги 1–2</i><b>Аккаунты<br>и копия кода</b></div>
+    <div class="arr">→</div>
+    <div class="n"><i>Шаги 3–4</i><b>База данных<br>и доступ к ней</b></div>
+    <div class="arr">→</div>
+    <div class="n"><i>Шаги 5–7</i><b>Приложение<br>и деплой</b></div>
+    <div class="arr">→</div>
+    <div class="n"><i>Шаги 8–9</i><b>Домен<br>и проверка</b></div>
+  </div>
+  <p>Порядок важен: приложению при первом запуске нужна уже работающая база данных,
+    поэтому она создаётся первой.</p>
+
+  <h3>Сколько это стоит</h3>
+  <p>Платформа состоит из двух платных ресурсов Amvera: база данных и само приложение.
+    Ниже — минимальная конфигурация, которой достаточно для запуска и первых пользователей.</p>
+  <table class="bordered">
+    <thead><tr><th>Ресурс</th><th>Тариф</th><th>Мощность</th><th>Цена</th></tr></thead>
+    <tbody>
+      <tr><td>База данных PostgreSQL</td><td>Начальный Плюс</td><td>0,5 ядра, 1 ГБ ОЗУ</td><td>490 ₽ / 30 дней</td></tr>
+      <tr><td>Диск для базы</td><td>High Performance SSD</td><td>от 1 ГБ</td><td>от 36 ₽ / 30 дней</td></tr>
+      <tr><td>Приложение</td><td>Начальный Плюс</td><td>0,5 ядра, 1 ГБ ОЗУ, 7 ГБ диска</td><td>490 ₽ / 30 дней</td></tr>
+    </tbody>
+  </table>
+  <div class="box">
+    <span class="lbl">Ориентир</span>
+    <p>Около <strong>1 000 ₽ в месяц</strong> за оба ресурса. Цены указаны по состоянию
+      на момент подготовки гайда и берутся из скриншотов панели — актуальные суммы
+      всегда видны в самой форме создания при выборе тарифа.</p>
+  </div>
+
+</section>
+
+<!-- ======================= ШАГ 1 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">1</span>
+    <div class="t"><span class="eyebrow">Шаг 1</span><h2>Регистрация на GitHub и форк репозитория</h2></div>
+  </div>
+
+  <p>GitHub — сервис, где хранится исходный код шаблона. Amvera будет забирать код
+    оттуда при каждой сборке, поэтому вам нужна <strong>своя копия</strong> репозитория:
+    в неё вы сможете вносить изменения, не затрагивая оригинал.</p>
+
+  <h3>1.1. Создайте аккаунт</h3>
+  <p>Зарегистрируйтесь на <a href="https://github.com">github.com</a>, если аккаунта ещё нет.
+    Регистрация бесплатная, потребуется только почта.</p>
+
+  <h3>1.2. Сделайте форк шаблона</h3>
+  <p>Откройте репозиторий шаблона и нажмите кнопку <strong>Fork</strong> в правом верхнем углу.</p>
+  <div class="code light">https://github.com/SturtapHab/OpenSaas</div>
+  <p>На открывшейся странице ничего менять не нужно — подтвердите создание форка.
+    Через несколько секунд в вашем аккаунте появится репозиторий <code>OpenSaas</code>
+    с полной копией кода.</p>
+
+  <figure class="wide">
+    <img src="assets/img/fig01.png" alt="Кнопка Fork в интерфейсе GitHub">
+    <figcaption><b>Рис. 1.</b> Кнопка <strong>Fork</strong> на странице репозитория-шаблона</figcaption>
+  </figure>
+
+  <div class="box">
+    <span class="lbl">Что такое форк</span>
+    <p>Форк — независимая копия чужого репозитория в вашем аккаунте. Оригинал остаётся
+      нетронутым, а все ваши правки живут в копии. Именно её вы подключите к Amvera на шаге 5.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 2 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">2</span>
+    <div class="t"><span class="eyebrow">Шаг 2</span><h2>Регистрация в Amvera</h2></div>
+  </div>
+
+  <p>Amvera — российский облачный провайдер. На нём будут работать база данных
+    и само приложение. Оплата проходит картами российских банков, персональные данные
+    остаются в РФ, VPN для доступа к панели не требуется.</p>
+
+  <div class="code light">https://cloud.amvera.ru</div>
+
+  <h3>Что сделать</h3>
+  <ol>
+    <li>Зарегистрируйтесь и подтвердите почту.</li>
+    <li>Пополните баланс — списание идёт по факту работы ресурсов, посуточно.</li>
+    <li>Запомните <strong>логин аккаунта</strong> — он показан в правом верхнем углу панели.
+      Он понадобится на шаге 4 при сборке строки подключения к базе.</li>
+  </ol>
+
+  <div class="box warn">
+    <span class="lbl">Не пропустите</span>
+    <p>Логин аккаунта Amvera — это не почта и не название проекта. Это короткое имя
+      рядом с балансом в шапке панели. В строке подключения к базе данных он используется
+      как часть адреса сервера, и ошибка в нём — самая частая причина, по которой
+      приложение не может достучаться до базы.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 3 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">3</span>
+    <div class="t"><span class="eyebrow">Шаг 3</span><h2>Создание базы данных PostgreSQL</h2></div>
+  </div>
+
+  <p>База данных хранит пользователей, подписки, платежи и рефералов. Создаём её первой,
+    потому что приложению при запуске нужно к чему-то подключаться.</p>
+
+  <h3>3.1. Откройте раздел PostgreSQL</h3>
+  <p>В левом меню панели Amvera выберите <strong>PostgreSQL</strong> и нажмите
+    <strong>«Создать базу данных»</strong>.</p>
+  <figure class="wide">
+    <img src="assets/img/fig02.png" alt="Раздел PostgreSQL в панели Amvera">
+    <figcaption><b>Рис. 2.</b> Раздел <strong>PostgreSQL</strong> в левом меню и кнопка создания базы</figcaption>
+  </figure>
+
+  <h3>3.2. Этап «Тариф»</h3>
+  <p>Здесь достаточно задать <strong>название проекта</strong> — например <code>opensaas</code>.
+    Регион, тариф базы и тариф диска оставьте по умолчанию: минимальной конфигурации
+    хватает для старта. Нажмите <strong>«Далее»</strong>.</p>
+  <figure class="tall">
+    <img src="assets/img/fig03.png" alt="Этап выбора тарифа при создании базы данных">
+    <figcaption><b>Рис. 3.</b> Этап «Тариф»: заполняется только название проекта</figcaption>
+  </figure>
+
+  <div class="box">
+    <span class="lbl">Запишите</span>
+    <p>Название проекта базы данных пригодится на шаге 4 — оно входит в адрес сервера.
+      Используйте латиницу в нижнем регистре без пробелов.</p>
+  </div>
+
+  <h3>3.3. Этап «Конфигурация»</h3>
+  <p>Заполните три поля — именно из них позже соберётся строка подключения:</p>
+  <table class="bordered">
+    <thead><tr><th>Поле</th><th>Что вводить</th></tr></thead>
+    <tbody>
+      <tr><td>Имя создаваемой БД</td><td>Имя базы, которая будет создана внутри кластера. Латиница, без пробелов.</td></tr>
+      <tr><td>Имя пользователя</td><td>Логин, под которым приложение будет входить в базу.</td></tr>
+      <tr><td>Пароль пользователя</td><td>Пароль этого логина. Придумайте длинный и случайный.</td></tr>
+    </tbody>
+  </table>
+  <p>Версию PostgreSQL, размер кластера и остальные параметры оставьте как есть.
+    Нажмите <strong>«Завершить»</strong>.</p>
+
+  <figure class="tall">
+    <img src="assets/img/fig04.png" alt="Этап конфигурации базы данных">
+    <figcaption><b>Рис. 4.</b> Этап «Конфигурация»: имя базы, имя пользователя и пароль.
+      На скриншоте пароль скрыт — задайте свой</figcaption>
+  </figure>
+
+  <div class="box danger">
+    <span class="lbl">Про пароль</span>
+    <p>Это боевой доступ к базе с данными ваших пользователей. Не используйте
+      простые пароли вроде <code>12345678</code> и не копируйте примеры из инструкций.
+      Сгенерируйте случайную строку от 16 символов и сохраните её в менеджере паролей —
+      восстановить забытый пароль будет нельзя, придётся пересоздавать базу.</p>
+    <p>Не используйте в пароле символы <code>@</code>, <code>:</code>, <code>/</code> и <code>#</code> —
+      они являются служебными в строке подключения и сломают её.</p>
+  </div>
+
+  <h3>3.4. Дождитесь запуска</h3>
+  <p>Создание кластера занимает <strong>около 5 минут</strong>. Дождитесь, пока
+    в списке баз статус проекта не сменится на <strong>«Запущено»</strong>.
+    Только после этого переходите дальше.</p>
+</section>
+
+<!-- ======================= ШАГ 4 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">4</span>
+    <div class="t"><span class="eyebrow">Шаг 4</span><h2>Сборка строки подключения к базе</h2></div>
+  </div>
+
+  <p>Приложению нужен один-единственный адрес, по которому оно найдёт базу и войдёт в неё.
+    Такой адрес называется строкой подключения. Соберите её сейчас и сохраните —
+    на шаге 6 вы вставите её в настройки приложения.</p>
+
+  <h3>4.1. Шаблон строки</h3>
+  <div class="code">postgresql+asyncpg://<span class="v">&lt;ПОЛЬЗОВАТЕЛЬ&gt;</span>:<span class="v">&lt;ПАРОЛЬ&gt;</span>
+@amvera-<span class="v">&lt;ЛОГИН_AMVERA&gt;</span>-cnpg-<span class="v">&lt;ИМЯ_ПРОЕКТА&gt;</span>-rw:5432/<span class="v">&lt;ИМЯ_БД&gt;</span></div>
+  <p class="hint">Здесь строка разбита на две части только для читаемости.
+    В поле её нужно вводить <strong>одной строкой, без переноса и пробелов</strong>.</p>
+
+  <h3>4.2. Откуда брать значения</h3>
+  <table class="bordered">
+    <thead><tr><th>Плейсхолдер</th><th>Где смотреть</th></tr></thead>
+    <tbody>
+      <tr><td><code>&lt;ПОЛЬЗОВАТЕЛЬ&gt;</code></td><td>Шаг 3.3 → поле «Имя пользователя»</td></tr>
+      <tr><td><code>&lt;ПАРОЛЬ&gt;</code></td><td>Шаг 3.3 → поле «Пароль пользователя»</td></tr>
+      <tr><td><code>&lt;ЛОГИН_AMVERA&gt;</code></td><td>Логин вашего аккаунта — справа вверху в панели Amvera</td></tr>
+      <tr><td><code>&lt;ИМЯ_ПРОЕКТА&gt;</code></td><td>Шаг 3.2 → «Название проекта» базы данных</td></tr>
+      <tr><td><code>&lt;ИМЯ_БД&gt;</code></td><td>Шаг 3.3 → поле «Имя создаваемой БД»</td></tr>
+    </tbody>
+  </table>
+
+  <h3>4.3. Что получится</h3>
+  <p>Допустим, логин аккаунта — <code>myaccount</code>, проект базы назван <code>opensaas</code>,
+    пользователь базы — <code>saasuser</code>, имя базы — <code>saasdb</code>. Тогда строка будет такой:</p>
+  <div class="code light">postgresql+asyncpg://<span class="ph">saasuser</span>:<span class="ph">ВАШ_ПАРОЛЬ</span>
+@amvera-<span class="ph">myaccount</span>-cnpg-<span class="ph">opensaas</span>-rw:5432/<span class="ph">saasdb</span></div>
+
+  <div class="box warn">
+    <span class="lbl">Проверьте перед тем, как идти дальше</span>
+    <ul class="plain" style="margin-top:1mm">
+      <li>Строка начинается именно с <code>postgresql+asyncpg://</code>, а не с <code>postgresql://</code>.</li>
+      <li>Угловые скобки <code>&lt;</code> и <code>&gt;</code> удалены — их в готовой строке быть не должно.</li>
+      <li>Служебные части <code>amvera-</code>, <code>-cnpg-</code> и <code>-rw</code> сохранены без изменений.</li>
+      <li>Порт <code>5432</code> на месте, а после него идёт <code>/</code> и имя базы.</li>
+      <li>В строке нет пробелов и переносов — она должна быть одной сплошной строкой.</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <span class="lbl">Почему адрес такой странный</span>
+    <p>Amvera собирает внутреннее сетевое имя базы автоматически из вашего логина
+      и названия проекта. Суффикс <code>-rw</code> означает подключение на чтение и запись.
+      Этот адрес работает только внутри инфраструктуры Amvera — снаружи по нему
+      к базе не подключиться, и это правильно с точки зрения безопасности.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 5 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">5</span>
+    <div class="t"><span class="eyebrow">Шаг 5</span><h2>Создание приложения и подключение репозитория</h2></div>
+  </div>
+
+  <p>Теперь создадим само приложение и свяжем его с вашим форком на GitHub, чтобы
+    Amvera могла забирать оттуда код.</p>
+
+  <h3>5.1. Этап «Тариф»</h3>
+  <p>Перейдите в раздел <strong>«Приложения»</strong> и нажмите
+    <strong>«Создать приложение»</strong>. Как и с базой, заполните только
+    <strong>название проекта</strong>, остальное оставьте по умолчанию.
+    Нажмите <strong>«Далее»</strong>.</p>
+  <figure>
+    <img src="assets/img/fig05.png" alt="Этап выбора тарифа при создании приложения">
+    <figcaption><b>Рис. 5.</b> Этап «Тариф»: задаётся только название проекта</figcaption>
+  </figure>
+
+  <h3>5.2. Этап «Загрузка данных»</h3>
+  <p>Выберите способ загрузки <strong>«Через git»</strong>, вкладку <strong>GitHub</strong>
+    и нажмите <strong>«Сгенерировать»</strong> рядом с полем токена.</p>
+  <figure class="tall">
+    <img src="assets/img/fig06.png" alt="Выбор загрузки через git и генерация токена">
+    <figcaption><b>Рис. 6.</b> Способ загрузки «Через git» и кнопка генерации токена доступа</figcaption>
+  </figure>
+
+  <h3>5.3. Создайте токен доступа на GitHub</h3>
+  <p>Откроется страница GitHub с уже заполненной формой токена — Amvera подставляет
+    нужные права самостоятельно. <strong>Ничего не меняйте</strong> и нажмите внизу
+    <strong>Generate token</strong>.</p>
+  <figure>
+    <img src="assets/img/fig07.png" alt="Форма создания токена на GitHub">
+    <figcaption><b>Рис. 7.</b> Форма создания токена: права уже проставлены, нужно только подтвердить</figcaption>
+  </figure>
+
+  <p>Скопируйте появившийся токен кнопкой копирования справа от поля.</p>
+  <figure class="wide">
+    <img src="assets/img/fig08.png" alt="Созданный токен доступа GitHub">
+    <figcaption><b>Рис. 8.</b> Готовый токен. На скриншоте значение скрыто — у вас там будет своя строка</figcaption>
+  </figure>
+
+  <div class="box danger">
+    <span class="lbl">Токен — это пароль</span>
+    <p>GitHub показывает значение токена <strong>один раз</strong>: закрыв страницу,
+      увидеть его снова нельзя, можно только создать новый. Токен даёт доступ
+      к вашим репозиториям — не публикуйте его, не пересылайте в мессенджерах
+      и не оставляйте в скриншотах.</p>
+  </div>
+
+  <h3>5.4. Вставьте токен в Amvera</h3>
+  <p>Вернитесь на вкладку с панелью Amvera, вставьте токен в поле и нажмите
+    <strong>«Применить»</strong>.</p>
+  <figure class="tall">
+    <img src="assets/img/fig09.png" alt="Вставка токена в панели Amvera">
+    <figcaption><b>Рис. 9.</b> Токен вставлен, нажимаем <strong>«Применить»</strong></figcaption>
+  </figure>
+
+  <h3>5.5. Выберите репозиторий и ветку</h3>
+  <p>После применения токена станут доступны выпадающие списки. Выберите:</p>
+  <ul class="plain">
+    <li><strong>Удалённый репозиторий</strong> — <code>OpenSaas</code>, ваш форк из шага 1.</li>
+    <li><strong>Ветка удалённого репозитория</strong> — <code>main</code>.</li>
+  </ul>
+  <p>Нажмите <strong>«Подключить»</strong>, дождитесь подтверждения и нажмите
+    <strong>«Далее»</strong>.</p>
+  <figure class="tall">
+    <img src="assets/img/fig10.png" alt="Выбор репозитория и ветки main">
+    <figcaption><b>Рис. 10.</b> Репозиторий <code>OpenSaas</code> и ветка <code>main</code> выбраны</figcaption>
+  </figure>
+
+  <div class="box warn">
+    <span class="lbl">Частая ошибка</span>
+    <p>Ветка должна быть именно <strong>main</strong>. В репозитории есть и другие ветки —
+      если выбрать не ту, сборка либо упадёт, либо развернёт не ту версию кода.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 6 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">6</span>
+    <div class="t"><span class="eyebrow">Шаг 6</span><h2>Переменные окружения</h2></div>
+  </div>
+
+  <p>Переменные окружения — это настройки, которые приложение читает при запуске.
+    Через них передаётся всё, чего не должно быть в коде: пароли, адреса, ключи.
+    Для первого запуска достаточно двух.</p>
+
+  <h3>6.1. Добавьте переменные</h3>
+  <p>На этапе <strong>«Переменные»</strong> нажмите
+    <strong>«Добавить переменные и секреты»</strong>. Этап оставьте
+    <strong>«Запуск»</strong> и заполните две строки.</p>
+
+  <h4>Переменная 1 — подключение к базе</h4>
+  <table class="kv bordered">
+    <tr><td>Название</td><td><code>DATABASE_URL</code></td></tr>
+    <tr><td>Значение</td><td>Строка, собранная на шаге 4</td></tr>
+  </table>
+
+  <h4>Переменная 2 — режим SSL</h4>
+  <table class="kv bordered">
+    <tr><td>Название</td><td><code>PGSSLMODE</code></td></tr>
+    <tr><td>Значение</td><td><code>disable</code></td></tr>
+  </table>
+  <p>Вторую переменную оставляем ровно такой: соединение между приложением и базой
+    идёт по закрытой внутренней сети Amvera, шифрование на этом участке не требуется.</p>
+
+  <figure>
+    <img src="assets/img/fig11.png" alt="Окно добавления переменных окружения">
+    <figcaption><b>Рис. 11.</b> Обе переменные заполнены, нажимаем <strong>«Применить»</strong></figcaption>
+  </figure>
+
+  <h3>6.2. Проверьте список</h3>
+  <p>После применения обе переменные появятся в таблице с этапом <strong>«Запуск»</strong>.
+    Сверьте названия символ в символ — они чувствительны к регистру.
+    Затем нажмите <strong>«Далее»</strong>.</p>
+  <figure>
+    <img src="assets/img/fig12.png" alt="Итоговый список переменных окружения">
+    <figcaption><b>Рис. 12.</b> Итоговый список переменных. Значение <code>DATABASE_URL</code>
+      на скриншоте скрыто, у вас там будет ваша строка подключения</figcaption>
+  </figure>
+
+  <div class="box tip">
+    <span class="lbl">Про галочку «Это секрет»</span>
+    <p>Отметка скрывает значение переменной в интерфейсе панели, чтобы пароль не был
+      виден при демонстрации экрана. Для первого запуска её можно не ставить,
+      но для <code>DATABASE_URL</code> это разумная привычка.</p>
+  </div>
+
+  <h3>6.3. Этап «Конфигурация»</h3>
+  <p>Настраивать здесь ничего не нужно: в репозитории уже лежит файл
+    <code>amvera.yml</code> с описанием сборки, и панель подхватывает его сама.
+    Нажмите <strong>«Завершить»</strong>.</p>
+</section>
+
+<!-- ======================= ШАГ 7 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">7</span>
+    <div class="t"><span class="eyebrow">Шаг 7</span><h2>Сборка и деплой</h2></div>
+  </div>
+
+  <p>После нажатия «Завершить» Amvera сразу начинает собирать приложение: скачивает
+    код из вашего репозитория, устанавливает зависимости, собирает интерфейс
+    и запускает контейнер.</p>
+
+  <figure class="wide">
+    <img src="assets/img/fig13.png" alt="Статус «Выполняется сборка»">
+    <figcaption><b>Рис. 13.</b> Статус <strong>«Выполняется сборка»</strong> в списке приложений</figcaption>
+  </figure>
+
+  <h3>Сколько ждать</h3>
+  <ul class="plain">
+    <li><strong>Первая сборка — до 10 минут.</strong> Она самая долгая: скачиваются
+      все библиотеки, кэша ещё нет.</li>
+    <li><strong>Последующие — обычно быстрее</strong>, за счёт закэшированных слоёв.</li>
+  </ul>
+  <p>Дождитесь, пока статус сменится на <strong>«Запущено»</strong>. Ход сборки
+    можно смотреть в реальном времени во вкладке <strong>«Логи»</strong> внутри проекта.</p>
+
+  <div class="box">
+    <span class="lbl">Что происходит внутри</span>
+    <p>При первом запуске приложение само создаёт в базе все нужные таблицы —
+      пользователей, подписок, платежей. Поэтому база должна быть в статусе
+      «Запущено» ещё до старта сборки: если она не поднялась, приложение
+      не сможет подключиться и упадёт с ошибкой.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 8 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">8</span>
+    <div class="t"><span class="eyebrow">Шаг 8</span><h2>Домен и HTTPS</h2></div>
+  </div>
+
+  <p>Приложение запущено, но пока доступно только внутри сети Amvera. Чтобы открыть
+    его из интернета, нужно создать внешнее доменное имя.</p>
+
+  <h3>8.1. Откройте вкладку «Домены»</h3>
+  <p>Зайдите в проект приложения и выберите в меню слева <strong>«Домены»</strong>.
+    Там уже будет один внутренний адрес — он служебный. Нажмите
+    <strong>«Создать доменное имя»</strong>.</p>
+  <figure class="wide">
+    <img src="assets/img/fig14.png" alt="Вкладка «Домены» в проекте приложения">
+    <figcaption><b>Рис. 14.</b> Вкладка <strong>«Домены»</strong> и кнопка создания доменного имени</figcaption>
+  </figure>
+
+  <h3>8.2. Создайте бесплатный домен</h3>
+  <p>В открывшемся окне укажите:</p>
+  <table class="kv bordered">
+    <tr><td>Тип подключения</td><td><code>HTTPS</code></td></tr>
+    <tr><td>Тип домена</td><td>Бесплатный домен Амвера</td></tr>
+  </table>
+  <p>Имя вида <code>&lt;проект&gt;-&lt;логин&gt;.amvera.io</code> подставится автоматически.
+    Нажмите <strong>«Применить»</strong>.</p>
+  <figure>
+    <img src="assets/img/fig15.png" alt="Окно добавления доменного имени">
+    <figcaption><b>Рис. 15.</b> Тип подключения <strong>HTTPS</strong> и бесплатный домен Amvera</figcaption>
+  </figure>
+
+  <h3>8.3. Включите домен</h3>
+  <p>В списке доменов появится новая строка с типом <strong>«Внешний»</strong>.
+    Убедитесь, что <strong>переключатель в колонке «Действие» включён</strong> —
+    без этого домен создан, но не работает.</p>
+  <figure class="wide">
+    <img src="assets/img/fig16.png" alt="Включённый переключатель у внешнего домена">
+    <figcaption><b>Рис. 16.</b> Внешний домен создан, переключатель в колонке
+      <strong>«Действие»</strong> включён</figcaption>
+  </figure>
+
+  <div class="box warn">
+    <span class="lbl">Самая частая причина «сайт не открывается»</span>
+    <p>Выключенный переключатель в колонке «Действие». Если после создания домена
+      браузер показывает ошибку — вернитесь на эту вкладку и проверьте его первым делом.
+      Выдача HTTPS-сертификата может занять ещё пару минут после включения.</p>
+  </div>
+</section>
+
+<!-- ======================= ШАГ 9 ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">9</span>
+    <div class="t"><span class="eyebrow">Шаг 9</span><h2>Проверка результата</h2></div>
+  </div>
+
+  <p>Кликните по адресу домена в списке — откроется ваша платформа. Пройдите
+    короткий чек-лист, чтобы убедиться, что работает не только главная страница,
+    но и серверная часть с базой.</p>
+
+  <h3>Чек-лист запуска</h3>
+  <table class="bordered">
+    <thead><tr><th style="width:52mm">Что проверяем</th><th>Как</th><th style="width:44mm">Ожидаемый результат</th></tr></thead>
+    <tbody>
+      <tr><td>Сайт открывается</td><td>Перейти по адресу домена</td><td>Главная страница платформы, замок HTTPS в адресной строке</td></tr>
+      <tr><td>Серверная часть жива</td><td>Открыть <code>/health</code></td><td>Короткий технический ответ, а не ошибка</td></tr>
+      <tr><td>API отвечает</td><td>Открыть <code>/docs</code></td><td>Страница с документацией методов API</td></tr>
+      <tr><td>База подключена</td><td>Зарегистрировать тестового пользователя</td><td>Регистрация проходит без ошибки</td></tr>
+      <tr><td>Кабинет работает</td><td>Войти под этим пользователем</td><td>Личный кабинет с активным пробным периодом</td></tr>
+    </tbody>
+  </table>
+  <p>Адреса <code>/health</code> и <code>/docs</code> дописываются к вашему домену,
+    например <code>https://ваш-домен.amvera.io/docs</code>.</p>
+
+  <figure>
+    <img src="assets/img/fig17.png" alt="Главная страница запущенной платформы">
+    <figcaption><b>Рис. 17.</b> Главная страница открывается по HTTPS — фронтенд работает</figcaption>
+  </figure>
+  <figure>
+    <img src="assets/img/fig18.png" alt="Личный кабинет после регистрации">
+    <figcaption><b>Рис. 18.</b> Личный кабинет с активным пробным периодом — значит,
+      серверная часть и база данных тоже работают</figcaption>
+  </figure>
+
+  <div class="box tip">
+    <span class="lbl">Готово</span>
+    <p>Если все пять пунктов чек-листа зелёные — ваша SaaS-платформа развёрнута
+      и доступна из интернета. Дальше остаётся привести её в боевой вид.</p>
+  </div>
+</section>
+
+<!-- ======================= ТРАБЛШУТИНГ ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">!</span>
+    <div class="t"><span class="eyebrow">Приложение</span><h2>Если что-то пошло не так</h2></div>
+  </div>
+
+  <p>Начинайте диагностику с вкладки <strong>«Логи»</strong> внутри проекта приложения:
+    там видно, на каком именно этапе всё остановилось.</p>
+
+  <table class="bordered">
+    <thead><tr><th style="width:50mm">Симптом</th><th>Вероятная причина и что делать</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Сборка падает почти сразу</td>
+        <td>Подключён не тот репозиторий или выбрана не ветка <code>main</code>.
+          Откройте вкладку <strong>«Репозиторий»</strong> и переподключите форк, указав ветку <code>main</code>
+          <span style="color:var(--muted)">(шаг 5.5)</span>.</td>
+      </tr>
+      <tr>
+        <td>В логах ошибка подключения к базе данных</td>
+        <td>Неверная строка <code>DATABASE_URL</code> либо база ещё не запустилась.
+          Проверьте, что база в статусе «Запущено», и сверьте строку с шаблоном
+          <span style="color:var(--muted)">(шаг 4)</span>. Частые ошибки: <code>postgresql://</code>
+          вместо <code>postgresql+asyncpg://</code>, забытые угловые скобки, опечатка в логине аккаунта.</td>
+      </tr>
+      <tr>
+        <td>Приложение «Запущено», но сайт не открывается</td>
+        <td>Не создан внешний домен или выключен переключатель в колонке «Действие»
+          <span style="color:var(--muted)">(шаг 8.3)</span>. Также дайте пару минут на выдачу HTTPS-сертификата.</td>
+      </tr>
+      <tr>
+        <td>Главная открывается, но регистрация выдаёт ошибку</td>
+        <td>Фронтенд работает, а серверная часть не может достучаться до базы.
+          Откройте <code>/health</code> и <code>/docs</code> — если они не отвечают,
+          проблема в <code>DATABASE_URL</code> или в самой базе.</td>
+      </tr>
+      <tr>
+        <td>Сборка идёт дольше 15 минут</td>
+        <td>Откройте <strong>«Логи»</strong>. Если там ошибка — исправьте причину
+          и запустите пересборку. Если процесс просто идёт медленно — дождитесь завершения.</td>
+      </tr>
+      <tr>
+        <td>Не приходит письмо о подтверждении почты</td>
+        <td>Это ожидаемо: отправка писем на данном этапе ещё не настроена.
+          SMTP подключается в Части 2.</td>
+      </tr>
+      <tr>
+        <td>Забыт пароль пользователя базы</td>
+        <td>Восстановить его нельзя. Создайте базу заново <span style="color:var(--muted)">(шаг 3)</span>,
+          соберите новую строку подключения и обновите переменную <code>DATABASE_URL</code>
+          во вкладке «Переменные».</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="box">
+    <span class="lbl">Где ещё искать помощь</span>
+    <p>В левом нижнем углу панели Amvera есть <strong>«Чат поддержки»</strong> и
+      <strong>«Документация»</strong> — по вопросам, связанным с хостингом, отвечают там.</p>
+  </div>
+</section>
+
+<!-- ======================= ЧТО ДАЛЬШЕ ======================= -->
+<section class="step">
+  <div class="step-head">
+    <span class="step-num">→</span>
+    <div class="t"><span class="eyebrow">Итог</span><h2>Что дальше</h2></div>
+  </div>
+
+  <p class="lead">Платформа развёрнута и открывается из интернета. Но сейчас она работает
+    на настройках по умолчанию из шаблона — этого достаточно для демонстрации,
+    но недостаточно для реальных пользователей.</p>
+
+  <div class="box danger">
+    <span class="lbl">Не приглашайте пользователей до боевой настройки</span>
+    <p>Прямо сейчас в вашем проекте:</p>
+    <ul class="plain" style="margin-top:2mm">
+      <li>Ключ подписи сессий (<code>SECRET_KEY</code>) взят из публичного шаблона — он одинаковый
+        у всех, кто развернул OpenSaaS, и позволяет подделать вход в чужой аккаунт.</li>
+      <li>Логин и пароль администратора — стандартные из шаблона.</li>
+      <li>Адреса приложения в настройках указывают на <code>localhost</code>, из-за чего часть
+        ссылок в письмах и переходах будет вести не туда.</li>
+      <li>Отправка писем и приём платежей не подключены.</li>
+    </ul>
+  </div>
+
+  <h3>Как выкатывать изменения</h3>
+  <p>Приложение связано с вашим форком на GitHub: любое изменение в ветке <code>main</code>
+    выкатывается на сайт пересборкой проекта в панели Amvera. Пересоздавать приложение
+    и заново вводить переменные при этом не нужно — переменные меняются в любой момент
+    во вкладке <strong>«Переменные»</strong>, туда же добавляются настройки из Части 2.</p>
+
+  <hr class="divider">
+
+  <h3>Что входит в Часть 2</h3>
+  <div class="grid2">
+    <div class="card"><b>Безопасность</b><span>Свой ключ подписи сессий, смена доступа администратора, перевод проекта в боевой режим.</span></div>
+    <div class="card"><b>Адреса и доступы</b><span>Настройка публичных адресов приложения и списка разрешённых источников.</span></div>
+    <div class="card"><b>Почта</b><span>Подключение SMTP: подтверждение регистрации и восстановление пароля.</span></div>
+    <div class="card"><b>Приём платежей</b><span>Подключение Robokassa, настройка тарифов, пробного периода и реферальной комиссии.</span></div>
+    <div class="card"><b>Свой домен</b><span>Переход с бесплатного адреса Amvera на собственное доменное имя.</span></div>
+    <div class="card"><b>Доработка платформы</b><span>Как менять код через ИИ-агентов и выкатывать изменения на прод.</span></div>
+  </div>
+
+  <hr class="divider">
+
+  <h3>Ссылки, которые пригодятся</h3>
+  <table class="kv bordered">
+    <tr><td>Шаблон OpenSaaS</td><td><code>github.com/SturtapHab/OpenSaas</code></td></tr>
+    <tr><td>Панель Amvera</td><td><code>cloud.amvera.ru</code></td></tr>
+    <tr><td>Поддержка Amvera</td><td>Чат поддержки и документация — в левом нижнем углу панели</td></tr>
+    <tr><td>Ваш проект</td><td><code>&lt;название&gt;-&lt;логин&gt;.amvera.io</code> — адрес, созданный на шаге 8</td></tr>
+  </table>
+
+  <div class="box tip">
+    <span class="lbl">Итог Части 1</span>
+    <p>Вы прошли путь от пустого аккаунта до работающего SaaS-сервиса в интернете:
+      сделали копию кода, подняли базу данных, развернули приложение и открыли его
+      по HTTPS-адресу. Дальше — Часть 2: безопасность, почта, платежи и свой домен.</p>
+  </div>
+</section>
+
+</body>
+</html>
