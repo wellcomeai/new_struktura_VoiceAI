@@ -118,18 +118,10 @@ function taskChannelBadge(channel){
   return '<span class="status-badge" style="background:#E0F2FE;color:#0369A1;font-size:10px;padding:2px 7px"><i class="fas fa-paper-plane"></i> Telegram</span>';
 }
 // ── Цена моделей оркестратора ───────────────────────────────────────────────
-// Тир (`low|mid|high|top`) и оценку `credits_per_call` считает бэкенд
-// (TIER_BOUNDS в backend/services/agent_models.py) — здесь только оформление,
-// пороги не дублируем. Оценочных слов («дорогая») сознательно нет: цену
-// называет само число, кружок нужен лишь чтобы быстро сравнить глазами.
-// Кружки — эмодзи, а не CSS: нативный <select> не даёт красить <option>.
-const MODEL_TIER_META = {
-  low:  { dot:'🟢', color:'#10B981' },
-  mid:  { dot:'🔵', color:'#3B82F6' },
-  high: { dot:'🟠', color:'#F59E0B' },
-  top:  { dot:'🔴', color:'#EF4444' },
-};
-const MODEL_TIER_LEGEND = '🟢 до 2 кр · 🔵 до 10 кр · 🟠 до 40 кр · 🔴 выше — примерная цена одного звонка';
+// Только текст, без цветовой индикации: цветные маркеры («дорогая» красным)
+// отталкивали от вполне рабочих моделей. Цену называет само число, а флаг
+// `is_recommended` с бэкенда подсказывает, что выбрать по умолчанию.
+// Оценку `credits_per_call` считает бэкенд (см. services/agent_models.py).
 
 function fmtCredits(n){
   const v = Number(n) || 0;
@@ -144,21 +136,21 @@ function modelCallCost(m){
 }
 function modelOptionsHtml(models, selectedSlug){
   return (models || []).map(m => {
-    const meta = MODEL_TIER_META[m.tier] || MODEL_TIER_META.mid;
     const sel = m.slug === selectedSlug ? ' selected' : '';
-    return `<option value="${esc(m.slug)}"${sel}>${meta.dot} ${esc(m.name)} · ${esc(modelCallCost(m))}</option>`;
+    const rec = m.is_recommended ? ' (рекомендуем)' : '';
+    return `<option value="${esc(m.slug)}"${sel}>${esc(m.name + rec)} · ${esc(modelCallCost(m))}</option>`;
   }).join('');
 }
 function modelHintHtml(m){
   if(!m) return '';
-  const meta = MODEL_TIER_META[m.tier] || MODEL_TIER_META.mid;
   const price = Number(m.credits_per_call)
     ? `${fmtCredits(m.input_credits_per_1k)} кр / 1k входных · `
       + `${fmtCredits(m.output_credits_per_1k)} кр / 1k ответа · `
       + `≈${modelCallCost(m).replace('~','').replace(' кр/звонок','')} кр за типичный звонок`
     : 'Бесплатная модель OpenRouter · списывается минимум 1 кредит за вызов';
-  return `${esc(m.description || '')}`
-    + `<div class="model-price"><span class="model-tier-dot" style="background:${meta.color}"></span>${price}</div>`;
+  const rec = m.is_recommended
+    ? '<span class="model-recommended">Рекомендуем.</span> ' : '';
+  return rec + `${esc(m.description || '')}<div class="model-price">${price}</div>`;
 }
 
 // Направление звонка: входящий (клиент позвонил) / исходящий (агент позвонил)

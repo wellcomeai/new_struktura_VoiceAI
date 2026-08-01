@@ -37,26 +37,16 @@ ORCHESTRATOR_MARGIN = 1.2
 _CREDITS_PER_USD = ORCHESTRATOR_MARGIN * USD_RUB / CREDIT_PRICE_RUB
 
 # Эталонный вызов оркестратора для оценки «≈N кредитов за звонок», которую
-# видит пользователь в селекте модели. Это ОЦЕНКА, а не замер: реальный расход
+# видит пользователь в селекте модели (`credits_per_call`). Цветовой градации
+# у моделей сознательно нет — только число: красные маркеры отталкивали от
+# вполне рабочих моделей. Подсказку «что выбрать» даёт флаг `is_recommended`.
+# Это ОЦЕНКА, а не замер: реальный расход
 # зависит от длины инструкций и истории диалога. Уточнять по факту —
 #   SELECT ROUND(AVG(prompt_tokens)), ROUND(AVG(completion_tokens))
 #   FROM credit_transactions
 #   WHERE product = 'orchestrator' AND type = 'spend'
 #     AND prompt_tokens IS NOT NULL AND created_at > NOW() - INTERVAL '30 days';
 REFERENCE_CALL_TOKENS = (4000, 500)
-
-# Границы ценовых тиров в кредитах за эталонный вызов. Тир — только визуальная
-# группировка для фронта (цветной кружок в селекте), на списание не влияет.
-# Пользователю показывается кружок и само число кредитов, без оценочных слов.
-TIER_BOUNDS = ((2.0, "low"), (10.0, "mid"), (40.0, "high"))
-TIER_FALLBACK = "top"
-
-
-def _tier(credits_per_call: float) -> str:
-    for bound, name in TIER_BOUNDS:
-        if credits_per_call < bound:
-            return name
-    return TIER_FALLBACK
 
 
 def _rates(usd_per_1k_in: float, usd_per_1k_out: float) -> dict:
@@ -78,7 +68,6 @@ def _rates(usd_per_1k_in: float, usd_per_1k_out: float) -> dict:
         "input_credits_per_1k": rate_in,
         "output_credits_per_1k": rate_out,
         "credits_per_call": per_call,
-        "tier": _tier(per_call),
     }
 
 
@@ -132,6 +121,9 @@ ORCHESTRATOR_MODELS = [
         "name": "GPT-5.6 Luna",
         "description": "Самая дешёвая модель OpenAI. Быстрая, 1M контекст. "
                        "Для больших объёмов звонков и лёгких агентных задач.",
+        # Пометка «рекомендуем» в селекте. На модель по умолчанию не влияет —
+        # новым агентам по-прежнему подставляется is_default (DeepSeek V4 Pro).
+        "is_recommended": True,
         **_rates(0.0001, 0.0006),
     },
     {

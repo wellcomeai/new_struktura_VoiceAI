@@ -49,7 +49,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | Файл | Домен | Основные функции / состояние | Backend |
 |------|-------|------------------------------|---------|
 | `agent.css` | Все стили страницы | — | — |
-| `core.js` | Ядро + общие хелперы. **Грузится первым.** | `apiFetch`, `withAgentId`, `handle402`, `getToken`; константы `API`, `TG_API`, `CREDITS_API`, `STAGE_META`, `STAGE_ORDER`, `VOICE_META`*; состояние `agentData`, `currentAgentId`, `agentsList`, `creditsState`…; хелперы `esc`, `fmtDate`, `mskParts`, `relTime`, `pluralRu`, `mskInputToUtc`, `utcToMskInput`, `renderMarkdown`, `showToast`, `stageBadge`, `decisionRu/Badge`, `taskChannelBadge` (бейдж Telegram у задач с `channel="telegram"`), `errText`, `downloadAuthedFile`; цена моделей оркестратора — `MODEL_TIER_META`, `MODEL_TIER_LEGEND`, `fmtCredits`, `modelCallCost`, `modelOptionsHtml`, `modelHintHtml` (используются обоими селектами модели — в модалке настроек и в визарде) | — |
+| `core.js` | Ядро + общие хелперы. **Грузится первым.** | `apiFetch`, `withAgentId`, `handle402`, `getToken`; константы `API`, `TG_API`, `CREDITS_API`, `STAGE_META`, `STAGE_ORDER`, `VOICE_META`*; состояние `agentData`, `currentAgentId`, `agentsList`, `creditsState`…; хелперы `esc`, `fmtDate`, `mskParts`, `relTime`, `pluralRu`, `mskInputToUtc`, `utcToMskInput`, `renderMarkdown`, `showToast`, `stageBadge`, `decisionRu/Badge`, `taskChannelBadge` (бейдж Telegram у задач с `channel="telegram"`), `errText`, `downloadAuthedFile`; цена моделей оркестратора — `fmtCredits`, `modelCallCost`, `modelOptionsHtml`, `modelHintHtml` (используются обоими селектами модели — в модалке настроек и в визарде; только текст, без цветовой индикации) | — |
 | `credits.js` | Кредиты и подписка оркестратора | `loadCredits`, `renderCreditsBadge`, `onSubAction`, `openCreditsModal`, `purchasePackage`, `subscribeAgent`, `openBillingModal`, `submitRobokassaForm` | `/api/credits/*` |
 | `agent-switcher.js` | Мультиагент (v3.1) | `initAgents`, `renderAgentSwitcher`, dropdown, `loadCurrentAgent`, `selectAgent`, `openNewAgentWizard`, `showDashboard`, `renderAgentHeader`, `renderDocsGrid`, `deleteAgent` | `/api/agent` (`/list`, `/`, `/create`) |
 | `dashboard.js` | Раскладка/drawer + дашборд | `applyLayout`, `openDrawer`, `closeDrawer`, `_collectMigrations`, `loadStats`, `loadRecentCalls`, `loadTasks` | `/api/agent/stats`, `/calls`, `/tasks` |
@@ -109,12 +109,6 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 ### Зеркала, которые надо держать синхронными
 - **`STAGE_META` / `STAGE_ORDER`** (`core.js`) ↔ `backend/core/pipeline_stages.py`
   — фиксированный набор стадий воронки. Меняешь стадии на бэке — поправь и здесь.
-- **`MODEL_TIER_META`** (`core.js`) ↔ `TIER_BOUNDS` / `_tier` в
-  `backend/services/agent_models.py` — ключи тиров (`low|mid|high|top`). Сами
-  пороги живут только на бэке и приходят готовым полем `tier`; если добавляешь
-  новый тир — заведи для него оформление здесь, иначе будет фолбэк на `mid`.
-  Легенда `MODEL_TIER_LEGEND` описывает границы словами — её текст надо
-  поправить, если пороги на бэке поменялись.
 - **`VOICE_META` / `OPENAI_VOICES` / `GEMINI_VOICES` / `YANDEX_VOICES`** (`instructions-voice.js`)
   ↔ списки голосов в `backend/api/agent.py` (см. комментарий в нём:
   «Доступные голоса по провайдерам (должны совпадать со списками в agent.html)»).

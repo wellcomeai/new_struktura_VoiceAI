@@ -212,7 +212,6 @@ function openInstructionsModal(){
     document.getElementById('i-model-desc').innerHTML = modelHintHtml(m);
   };
   ms.onchange();
-  document.getElementById('i-model-legend').textContent = MODEL_TIER_LEGEND;
 
   fillCallerIdSelect('i-caller-id');
 
