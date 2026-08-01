@@ -13,7 +13,7 @@ function PhoneCTASection() {
         </div>
 
         <h2>Попробуйте прямо сейчас</h2>
-        <p>Позвоните по номеру ниже и поговорите с голосовым ИИ-ассистентом на базе Google Gemini Live. Ответит мгновенно.</p>
+        <p>Позвоните по номеру ниже и поговорите с голосовым ИИ-ассистентом. Ответит мгновенно.</p>
 
         <a href="tel:+79311071031" className="phone-num">
           <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
