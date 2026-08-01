@@ -167,6 +167,27 @@ cd frontend && npm install && npm run dev
 # Build: npm run build (outputs to backend/static/landing/)
 ```
 
+### ⚠️ ОБЯЗАТЕЛЬНО: пересборка лендинга после правок `frontend/`
+
+Render собирает **только Python** (`buildCommand: pip install -r requirements.txt` в `render.yaml`).
+`npm run build` при деплое **не запускается**. Прод отдаёт закоммиченный бандл из
+`backend/static/landing/` (см. `app.py` → `FileResponse("backend/static/landing/index.html")`).
+
+Поэтому любые изменения в `frontend/src/**` **не попадут на прод**, пока бандл не пересобран
+и не закоммичен. Это уже приводило к тому, что лендинг месяц показывал устаревший контент.
+
+После **любой** правки в `frontend/`:
+```bash
+cd frontend && npm ci && npm run build
+cd .. && git add -A backend/static/landing frontend
+```
+Имена ассетов хешированные (`index-<hash>.js`), Vite чистит `outDir` — старый файл
+удаляется, новый добавляется, `index.html` обновляет ссылки. Все три изменения
+(удаление старого JS, новый JS, изменённый `index.html`) должны попасть в коммит.
+
+Проверка перед коммитом — в `git status` рядом с правками в `frontend/src/**`
+обязаны быть изменения в `backend/static/landing/`. Если их нет — сборка не выполнена.
+
 ## Key API Prefixes
 
 | Prefix | Description |

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import SphereAnimation from './SphereAnimation';
 
-const PHONE = '+79014170600';
-const PHONE_DISPLAY = '+7 901 417-06-00';
+const PHONE = '+79311071031';
+const PHONE_DISPLAY = '+7 931 10-710-31';
 
 const isMobile = () =>
   window.innerWidth < 768 ||
