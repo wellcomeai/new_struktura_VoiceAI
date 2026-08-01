@@ -1427,6 +1427,52 @@ def ensure_agent_inbound_first_phrase_column():
         logger.error(f"❌ ensure_agent_inbound_first_phrase_column error: {e}")
 
 
+def ensure_agent_orchestrator_model_migration():
+    """
+    Переводит агентов с устаревших слагов моделей на актуальные.
+
+    Слаг google/gemini-3.1-pro на OpenRouter не существует (там только
+    -preview), поэтому агент с ним падал при первом же вызове оркестратора,
+    а после ужесточения валидации у него ещё и перестали бы сохраняться
+    настройки. Карта соответствий — LEGACY_MODEL_ALIASES в services/agent_models.py.
+
+    Идемпотентно: повторный запуск не находит строк и ничего не делает.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        from backend.services.agent_models import LEGACY_MODEL_ALIASES
+
+        if not LEGACY_MODEL_ALIASES:
+            return
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for old_slug, new_slug in LEGACY_MODEL_ALIASES.items():
+                    result = conn.execute(
+                        text(
+                            "UPDATE agent_configs SET orchestrator_model = :new "
+                            "WHERE orchestrator_model = :old"
+                        ),
+                        {"new": new_slug, "old": old_slug},
+                    )
+                    if result.rowcount:
+                        logger.info(
+                            f"✅ Orchestrator model migrated: {old_slug} → {new_slug} "
+                            f"({result.rowcount} agents)"
+                        )
+                trans.commit()
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to migrate orchestrator models: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_orchestrator_model_migration error: {e}")
+
+
 def ensure_voice_assistant_fk_rules():
     """
     Идемпотентно приводит правила ON DELETE для FK голосовых ассистентов к SET NULL.
@@ -1696,6 +1742,9 @@ async def startup_event():
 
                 # 🆕 Шаг 11.2: Гарантированный сид пакетов докупки каскада
                 ensure_cascade_credit_packages()
+
+                # 🆕 Шаг 11.3: Устаревшие слаги моделей оркестратора → актуальные
+                ensure_agent_orchestrator_model_migration()
 
                 # 🆕 Шаг 12: Нормализация стадий воронки (calling → active)
                 normalize_agent_contact_stages()

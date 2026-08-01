@@ -205,13 +205,14 @@ function openInstructionsModal(){
   );
 
   const ms = document.getElementById('i-orchestrator_model');
-  ms.innerHTML = orchestratorModels.map(m => `<option value="${m.slug}">${esc(m.name)}</option>`).join('');
+  ms.innerHTML = modelOptionsHtml(orchestratorModels);
   ms.value = agentData.orchestrator_model || (orchestratorModels[0]?.slug || '');
   ms.onchange = () => {
     const m = orchestratorModels.find(x => x.slug === ms.value);
-    document.getElementById('i-model-desc').textContent = m ? m.description : '';
+    document.getElementById('i-model-desc').innerHTML = modelHintHtml(m);
   };
   ms.onchange();
+  document.getElementById('i-model-legend').textContent = MODEL_TIER_LEGEND;
 
   fillCallerIdSelect('i-caller-id');
 

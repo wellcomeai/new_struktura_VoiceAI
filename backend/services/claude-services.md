@@ -6,7 +6,7 @@
 ## Состав
 
 ### Подсистема Voicyfy Agent v5.0 (оркестратор автономного обзвона)
-- `agent_models.py` — справочник `ORCHESTRATOR_MODELS` (slug'и OpenRouter + ставки списания кредитов на 1k input/output токенов); helpers `get_default_model`, `is_valid_model`, `get_model_rates`.
+- `agent_models.py` — справочник `ORCHESTRATOR_MODELS` (slug'и OpenRouter). Ставки списания НЕ хардкодятся: у каждой модели задаётся её себестоимость в $ за 1k токенов, а `_rates()` считает кредиты по формуле `$/1k × ORCHESTRATOR_MARGIN × USD_RUB / CREDIT_PRICE_RUB` (≈×1900.63), плюс `credits_per_call` и `tier` для показа цены в UI. Helpers: `get_default_model`, `is_valid_model`, `get_model_rates`, `resolve_slug` (+ карта `LEGACY_MODEL_ALIASES` для снятых с OpenRouter слагов). Подробности — `docs/credits_system.md`.
 - `agent_prompts.py` — захардкоженные промпты оркестратора и голосового агента; `build_orchestrator_prompt(agent_config)` собирает системный промпт из «документов» компании (кто мы / кому звоним / как говорим / что предлагаем / правила).
 - `agent_orchestrator.py` — три фазы оркестратора: `PreCallOrchestrator` (стратегия перед звонком), `PostCallOrchestrator` (анализ транскрипта после звонка, решение SUCCESS/FOLLOWUP/NO_ANSWER, перезвон), `ChatOrchestrator` (диалог владельца с агентом в чате/Telegram). Каждая фаза имеет ветки v3 (OpenRouter) и legacy v2 (OpenAI Responses API).
 - `agent_tools.py` — определения tools для агента (`AGENT_CHAT_TOOLS`, `AGENT_POSTCALL_TOOLS`), их реализации (create/get контактов, задач, статистики, память контакта, Telegram-уведомление) и диспетчер `execute_tool`; конвертер `to_chat_completions_tools` (Responses API → Chat Completions/OpenRouter).

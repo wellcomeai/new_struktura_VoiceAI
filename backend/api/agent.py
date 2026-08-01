@@ -42,7 +42,9 @@ from backend.core.config import settings
 from backend.core.dependencies import get_current_user, get_current_user_flexible
 from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
-from backend.services.agent_models import ORCHESTRATOR_MODELS, get_default_model, is_valid_model
+from backend.services.agent_models import (
+    ORCHESTRATOR_MODELS, get_default_model, is_valid_model, resolve_slug,
+)
 from backend.services.agent_tools import assistant_task_kwargs
 from backend.services.credit_service import (
     CreditService,
@@ -782,6 +784,9 @@ async def create_agent(
     orchestrator_model = body.orchestrator_model or get_default_model()
     if not is_valid_model(orchestrator_model):
         raise HTTPException(status_code=400, detail="invalid_orchestrator_model")
+    # Устаревший слаг (напр. google/gemini-3.1-pro) приводим к актуальному —
+    # в БД должно лежать только то, что реально существует на OpenRouter.
+    orchestrator_model = resolve_slug(orchestrator_model)
 
     # 3. Telephony must be verified
     _check_telephony_verified(current_user, db)
@@ -942,7 +947,7 @@ async def update_agent(
     if "orchestrator_model" in update_data and update_data["orchestrator_model"]:
         if not is_valid_model(update_data["orchestrator_model"]):
             raise HTTPException(status_code=400, detail="invalid_orchestrator_model")
-        agent.orchestrator_model = update_data["orchestrator_model"]
+        agent.orchestrator_model = resolve_slug(update_data["orchestrator_model"])
 
     docs_changed = False
     doc_fields = ['doc_who_am_i', 'doc_who_we_call', 'doc_how_we_talk',
