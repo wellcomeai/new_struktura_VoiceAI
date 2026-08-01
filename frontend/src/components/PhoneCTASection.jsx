@@ -22,7 +22,7 @@ function PhoneCTASection() {
           +7 901 417-06-00
         </a>
 
-        <p className="phone-hint">Бесплатный тестовый звонок · Cartesia агент · Работает 24/7</p>
+        <p className="phone-hint">Бесплатный тестовый звонок · Работает 24/7</p>
       </div>
     </div>
   );
