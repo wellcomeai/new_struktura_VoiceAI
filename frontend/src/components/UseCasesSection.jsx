@@ -37,7 +37,6 @@ function UseCasesSection() {
               Интегрируйте ИИ-ассистента с вашей телефонной системой для автоматизации входящих и исходящих звонков.
             </p>
             <ul className="use-case-features">
-              <li><i className="fas fa-check"></i> Интеграция с SIP/VoIP системами</li>
               <li><i className="fas fa-check"></i> Обработка входящих звонков</li>
               <li><i className="fas fa-check"></i> Автоматические исходящие звонки</li>
               <li><i className="fas fa-check"></i> Запись и аналитика разговоров</li>
