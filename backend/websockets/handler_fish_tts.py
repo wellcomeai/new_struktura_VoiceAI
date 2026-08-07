@@ -50,9 +50,22 @@ logger = get_logger(__name__)
 
 FISH_WS_URL = "wss://api.fish.audio/v1/tts/live"
 
-# Длительность одного медиа-кадра в звонок. 20 мс — стандартный шаг
-# телефонного тракта; при 8 кГц PCM16 это ровно 320 байт.
+# Длительность одного медиа-кадра в звонок. 20 мс — рекомендованный докой
+# шаг; при 8 кГц PCM16 это ровно 320 байт.
 FRAME_MS = 20
+
+# Сколько тишины от Fish считать концом реплики. MEDIA_STARTED/MEDIA_ENDED
+# у Voximplant относятся к медиапотоку целиком, а он у нас живёт весь звонок,
+# поэтому границу реплики сценарию сообщаем сами — служебными сообщениями
+# speech_started / speech_done.
+UTTERANCE_IDLE_MS = 400
+
+# Насколько далеко вперёд реального времени разрешено убегать.
+# Voximplant буферизует медиа сам и проигрывает в реальном времени, но буфер
+# ограничен 10 секундами — всё сверх того молча отбрасывается. Держим запас
+# вдвое меньше предела: и от переполнения защищает, и не мешает Fish
+# синтезировать быстрее реального времени.
+LEAD_LIMIT_MS = 5000
 
 # Сколько байт PCM16 приходится на кадр при заданной частоте.
 def _frame_bytes(sample_rate: int) -> int:
@@ -84,6 +97,16 @@ class _FishTTSSession:
         self.bytes_sent = 0
         self.started = False
         self.closing = False
+
+        # Учёт опережения реального времени (см. _pump_to_call). Сбрасывается
+        # при barge-in: сценарий чистит буфер Voximplant, и всё, что мы
+        # успели туда отдать, к воспроизведению больше не относится.
+        self.stream_started_at: Optional[float] = None
+        self.queued_ms = 0.0
+
+        # Границы реплики (см. UTTERANCE_IDLE_MS).
+        self.utterance_active = False
+        self.last_audio_at = 0.0
 
         # Поколение соединения с Fish. У Fish нет события отмены синтеза
         # (только start/text/flush/stop), поэтому единственный способ
@@ -122,12 +145,18 @@ class _FishTTSSession:
         )
 
     async def _send_frame(self, payload: bytes) -> None:
-        """Один media-фрейм в звонок."""
+        """
+        Один media-фрейм в звонок.
+
+        timestamp — это сумма сэмплов в предыдущих кадрах (поле таймстампа
+        RTP), а не миллисекунды: для PCM16 число сэмплов равно длине в
+        байтах, делённой на 2. chunk — порядковый номер пакета.
+        """
         await self.ws.send_text(json.dumps({
             "event": "media",
             "sequenceNumber": self.sequence,
             "media": {
-                "timestamp": int(self.bytes_sent / 2 / self.sample_rate * 1000),
+                "timestamp": self.bytes_sent // 2,
                 "chunk": self.chunk,
                 "payload": base64.b64encode(payload).decode("ascii"),
             },
@@ -135,6 +164,18 @@ class _FishTTSSession:
         self.sequence += 1
         self.chunk += 1
         self.bytes_sent += len(payload)
+
+    async def _send_control(self, event: str, payload: dict) -> None:
+        """
+        Служебное сообщение сценарию.
+
+        Идёт по тому же сокету обычным текстовым фреймом: Voximplant отдаёт
+        его в WebSocketEvents.MESSAGE, а медиа-конвейер такие кадры не трогает.
+        """
+        try:
+            await self.ws.send_text(json.dumps({"event": event, **payload}))
+        except Exception as e:
+            logger.warning(f"[FISH-TTS] Failed to send control '{event}': {e}")
 
     async def _send_stop(self) -> None:
         try:
@@ -154,15 +195,17 @@ class _FishTTSSession:
 
     async def _pump_to_call(self) -> None:
         """
-        Равномерно отдаёт накопленный PCM в звонок кадрами по FRAME_MS.
+        Отдаёт накопленный PCM в звонок кадрами по FRAME_MS.
 
-        Темп держим по монотонным часам, а не sleep(FRAME_MS): иначе
-        накапливается дрейф и речь начинает «плыть» на длинных репликах.
+        Темп держит сам Voximplant: он складывает медиа в буфер и проигрывает
+        в реальном времени. Поэтому кадры уходят сразу, как появляются, — так
+        первый звук доходит до абонента без лишней задержки на нашей стороне.
+
+        Единственное ограничение — буфер Voximplant в 10 секунд: всё, что
+        сверх, отбрасывается молча. Поэтому следим, чтобы отданное аудио не
+        убегало от реального времени дальше LEAD_LIMIT_MS.
         """
-        next_tick = time.monotonic()
         while not self.closing:
-            next_tick += FRAME_MS / 1000.0
-
             async with self.buffer_lock:
                 if len(self.audio_buffer) >= self.frame_size:
                     frame = bytes(self.audio_buffer[:self.frame_size])
@@ -170,19 +213,48 @@ class _FishTTSSession:
                 else:
                     frame = None
 
-            if frame is not None:
-                try:
-                    await self._send_frame(frame)
-                except Exception as e:
-                    logger.warning(f"[FISH-TTS] Failed to send frame: {e}")
-                    return
+            if frame is None:
+                # Буфер пуст. Если Fish молчит дольше UTTERANCE_IDLE_MS —
+                # реплика закончилась, сообщаем сценарию, сколько аудио ещё
+                # доигрывает в буфере Voximplant.
+                if (
+                    self.utterance_active
+                    and (time.monotonic() - self.last_audio_at) * 1000.0 > UTTERANCE_IDLE_MS
+                ):
+                    self.utterance_active = False
+                    await self._send_control("speech_done", {
+                        "remaining_ms": max(0, int(self._lead_ms())),
+                    })
 
-            delay = next_tick - time.monotonic()
-            if delay > 0:
-                await asyncio.sleep(delay)
-            else:
-                # Отстали (например, после паузы) — не пытаемся догнать пачкой.
-                next_tick = time.monotonic()
+                # Ждём следующую порцию от Fish. Шаг мелкий, чтобы не
+                # добавлять задержки к началу реплики.
+                await asyncio.sleep(0.005)
+                continue
+
+            if not self.utterance_active:
+                self.utterance_active = True
+                await self._send_control("speech_started", {})
+
+            lead_ms = self._lead_ms()
+            if lead_ms > LEAD_LIMIT_MS:
+                await asyncio.sleep((lead_ms - LEAD_LIMIT_MS) / 1000.0)
+
+            try:
+                await self._send_frame(frame)
+            except Exception as e:
+                logger.warning(f"[FISH-TTS] Failed to send frame: {e}")
+                return
+
+            if self.stream_started_at is None:
+                self.stream_started_at = time.monotonic()
+            self.queued_ms += FRAME_MS
+
+    def _lead_ms(self) -> float:
+        """На сколько миллисекунд отданное аудио опережает реальное время."""
+        if self.stream_started_at is None:
+            return 0.0
+        elapsed_ms = (time.monotonic() - self.stream_started_at) * 1000.0
+        return self.queued_ms - elapsed_ms
 
     # ------------------------------------------------------------------
     # Сторона Fish Audio
@@ -259,6 +331,7 @@ class _FishTTSSession:
                 if event == "audio":
                     audio = message.get("audio") or b""
                     if audio:
+                        self.last_audio_at = time.monotonic()
                         async with self.buffer_lock:
                             self.audio_buffer.extend(audio)
 
@@ -310,6 +383,13 @@ class _FishTTSSession:
 
             async with self.buffer_lock:
                 self.audio_buffer.clear()
+
+            # Очередь в Voximplant сценарий гасит сам (clearMediaBuffer),
+            # поэтому учёт опережения начинаем заново — иначе следующая
+            # реплика простояла бы в throttle из-за уже сброшенного аудио.
+            self.stream_started_at = None
+            self.queued_ms = 0.0
+            self.utterance_active = False
 
             if old_fish is not None:
                 asyncio.create_task(self._close_socket(old_fish))
