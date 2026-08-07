@@ -4517,18 +4517,23 @@ async def admin_setup_cascade_scenarios(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _deploy_provider_scenarios(
+async def _deploy_provider_scenarios_iter(
     db: Session,
     scenario_names: List[str],
     outbound_scenario: str,
-) -> Dict[str, Any]:
+):
     """
-    Копирует сценарии провайдера с родительского аккаунта на все дочерние
-    и заводит правило для исходящих.
+    Раскатка сценариев провайдера с прогрессом по аккаунтам.
 
-    Обобщение логики /admin/setup-yandex-scenarios и /admin/setup-cascade-scenarios:
-    эталонные сценарии живут не в репозитории, а на родительском аккаунте
+    Асинхронный генератор: отдаёт событие на каждый обработанный дочерний
+    аккаунт, поэтому на нём одинаково работают и обычный эндпоинт (собирает
+    всё в один ответ), и SSE (стримит по мере готовности).
+
+    Эталонные сценарии живут не в репозитории, а на родительском аккаунте
     Voximplant — отсюда их и забираем.
+
+    Прогресс по каждому аккаунту коммитится сразу: если клиент отвалится по
+    таймауту, уже сделанное не потеряется, а повторный запуск идемпотентен.
 
     Args:
         scenario_names: имена сценариев на родительском аккаунте
@@ -4574,17 +4579,22 @@ async def _deploy_provider_scenarios(
     child_accounts = db.query(VoximplantChildAccount).all()
     logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
 
-    results: Dict[str, Any] = {
-        "total_accounts":   len(child_accounts),
-        "scripts_added":    0,
-        "scripts_updated":  0,
-        "rules_created":    0,
-        "skipped":          0,
-        "failed":           0,
-        "details":          []
+    yield {
+        "type": "start",
+        "total_accounts": len(child_accounts),
+        "scenarios": sorted(scripts.keys()),
     }
 
-    for child in child_accounts:
+    totals = {
+        "total_accounts":  len(child_accounts),
+        "scripts_added":   0,
+        "scripts_updated": 0,
+        "rules_created":   0,
+        "skipped":         0,
+        "failed":          0,
+    }
+
+    for index, child in enumerate(child_accounts):
         account_result = {
             "account_id":      child.vox_account_id,
             "user_id":         str(child.user_id),
@@ -4595,9 +4605,9 @@ async def _deploy_provider_scenarios(
         }
 
         if not child.vox_application_id:
-            results["skipped"] += 1
+            totals["skipped"] += 1
             account_result["status"] = "skipped_no_app"
-            results["details"].append(account_result)
+            yield {"type": "account", "index": index + 1, **account_result}
             continue
 
         scenario_ids = child.vox_scenario_ids or {}
@@ -4709,12 +4719,37 @@ async def _deploy_provider_scenarios(
             db.commit()
 
         account_result["status"] = "partial" if account_result["errors"] else "ok"
-        results["scripts_added"]   += len(account_result["scripts_added"])
-        results["scripts_updated"] += len(account_result["scripts_updated"])
-        results["rules_created"]   += len(account_result["rules_created"])
+        totals["scripts_added"]   += len(account_result["scripts_added"])
+        totals["scripts_updated"] += len(account_result["scripts_updated"])
+        totals["rules_created"]   += len(account_result["rules_created"])
         if account_result["errors"]:
-            results["failed"] += 1
-        results["details"].append(account_result)
+            totals["failed"] += 1
+
+        yield {"type": "account", "index": index + 1, **account_result}
+
+    yield {"type": "done", **totals}
+
+
+async def _deploy_provider_scenarios(
+    db: Session,
+    scenario_names: List[str],
+    outbound_scenario: str,
+) -> Dict[str, Any]:
+    """
+    Раскатка сценариев провайдера одним ответом.
+
+    Обёртка над _deploy_provider_scenarios_iter для клиентов, которым
+    прогресс не нужен. На большом числе аккаунтов может не уложиться в
+    таймаут прокси — тогда лучше SSE-вариант.
+    """
+    results: Dict[str, Any] = {"details": []}
+
+    async for event in _deploy_provider_scenarios_iter(db, scenario_names, outbound_scenario):
+        if event.get("type") == "account":
+            detail = {k: v for k, v in event.items() if k not in ("type", "index")}
+            results["details"].append(detail)
+        elif event.get("type") == "done":
+            results.update({k: v for k, v in event.items() if k != "type"})
 
     return results
 
@@ -4730,6 +4765,10 @@ async def admin_setup_fish_scenarios(
 
     Перед первым запуском сценарии должны быть загружены на родительский
     аккаунт Voximplant — в репозитории они не хранятся.
+
+    На большом числе аккаунтов запрос может упереться в таймаут прокси
+    (обработчик при этом продолжит работу, прогресс коммитится по каждому
+    аккаунту). Чтобы видеть ход — /admin/setup-fish-scenarios-stream.
     """
     if not current_user.is_admin and current_user.email != "well96well@gmail.com":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -4754,6 +4793,38 @@ async def admin_setup_fish_scenarios(
     except Exception as e:
         logger.error(f"[TELEPHONY-ADMIN] Fish setup error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/setup-fish-scenarios-stream")
+async def admin_setup_fish_scenarios_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: то же, что /admin/setup-fish-scenarios, но SSE-стримом —
+    видно аккаунт за аккаунтом и не упирается в таймаут прокси.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async def generate():
+        try:
+            async for event in _deploy_provider_scenarios_iter(
+                db=db,
+                scenario_names=["inbound_fish", "outbound_fish"],
+                outbound_scenario="outbound_fish",
+            ):
+                yield sse_event(event)
+                # Отдаём управление, чтобы кадр ушёл клиенту сразу, а не
+                # осел в буфере до конца обработки.
+                await asyncio.sleep(0)
+        except HTTPException as e:
+            yield sse_event({"type": "error", "detail": e.detail})
+        except Exception as e:
+            logger.error(f"[TELEPHONY-ADMIN] Fish SSE setup error: {e}", exc_info=True)
+            yield sse_event({"type": "error", "detail": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.post("/admin/setup-yandex-scenarios")
