@@ -1724,8 +1724,8 @@
             <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
-              <span><i class="fas fa-microchip"></i> ${escapeHtml(agent.model)}</span>
-              <span><i class="fas fa-microphone"></i> ${escapeHtml(agent.voice)}${agent.voice_role ? ' / ' + escapeHtml(agent.voice_role) : ''}</span>
+              <span><i class="fas fa-microchip"></i> ${escapeHtml(agent.fish_model || '')}</span>
+              <span><i class="fas fa-microphone"></i> ${agent.fish_voice_id ? escapeHtml(agent.fish_voice_id) : 'голос не задан'}</span>
               <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
           </div>
@@ -2052,15 +2052,15 @@
       document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
-      document.getElementById('agent-voice-role').value = '';
+      document.getElementById('agent-voice').value = '';
       document.getElementById('agent-language').value = 'ru';
       document.getElementById('agent-temperature').value = '0.7';
       document.getElementById('temperature-value').textContent = '0.7';
-      document.getElementById('agent-max-tokens').value = '4096';
       document.getElementById('agent-active').value = 'true';
 
       fillSelect('agent-model', fishOptions.models, fishOptions.default_model);
-      fillSelect('agent-voice', fishOptions.voices, 'marina');
+      fillSelect('agent-latency', fishOptions.latency_modes, fishOptions.default_latency);
+      fillSelect('agent-llm-model', fishOptions.llm_models, fishOptions.default_llm_model);
 
       // Сбрасываем функции
       currentAgentFunctions = null;

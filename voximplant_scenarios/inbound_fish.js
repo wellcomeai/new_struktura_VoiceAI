@@ -97,8 +97,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // ── Состояние текущей реплики ассистента ────────────────────────────────
     var turnFullText = "";
     var turnStarted = false;     // в TTS по этой реплике что-то уже уходило
-    var firstFlushDone = false;
-    var deltaBuffer    = "";     // дельты, ещё не ушедшие в синтез  // ранний flush первого предложения сделан
+    var firstFlushDone = false;  // ранний flush первого предложения сделан
+    var deltaBuffer    = "";     // дельты, ещё не ушедшие в синтез
     var audioConfirmed = false;  // прокси подтвердил начало звука
 
     // ── Watchdog / завершение по прощанию ───────────────────────────────────
