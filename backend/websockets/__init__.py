@@ -34,6 +34,9 @@ from .browser_handler_gemini import handle_gemini_websocket_connection as handle
 from .grok_client import GrokVoiceClient, map_voice_to_grok
 from .handler_grok import handle_grok_websocket_connection
 
+# 🐟 Fish Audio — прокси синтеза речи для сценариев Voximplant
+from .handler_fish_tts import handle_fish_tts_connection
+
 # 📞 Voximplant интеграция
 from .voximplant_adapter import VoximplantAdapter, handle_voximplant_websocket
 from .voximplant_handler import (
@@ -78,6 +81,9 @@ __all__ = [
     "OpenAIRealtimeClientStreaming",
     "StreamingSentenceDetector",
     
+    # 🐟 Fish Audio TTS proxy
+    "handle_fish_tts_connection",
+
     # Voximplant
     "VoximplantAdapter",
     "handle_voximplant_websocket",

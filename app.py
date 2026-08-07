@@ -37,6 +37,8 @@ from backend.api import (
     grok_assistants,  # 🆕 v3.0: Grok Assistants CRUD API
     cartesia_assistants,  # 🆕 v4.0: Cartesia Assistants CRUD API
     yandex_assistants,  # 🆕 Yandex Assistants CRUD API (SpeechKit Realtime)
+    fish_assistants,  # 🆕 Fish Assistants CRUD API (Fish Audio TTS)
+    fish_ws,  # 🆕 Fish Audio TTS proxy WebSocket
     translate_assistants,  # 🆕 v1.0: Translate Assistants CRUD API
     translate_ws,  # 🆕 v1.0: Translate WebSocket API
     contacts,  # ✅ CRM API
@@ -175,10 +177,12 @@ app.include_router(gemini_assistants.router, prefix="/api/gemini-assistants", ta
 app.include_router(grok_assistants.router, prefix="/api/grok-assistants", tags=["Grok Assistants"])  # 🆕 v3.0
 app.include_router(cartesia_assistants.router, prefix="/api/cartesia-assistants", tags=["Cartesia Assistants"])  # 🆕 v4.0
 app.include_router(yandex_assistants.router, prefix="/api/yandex-assistants", tags=["Yandex Assistants"])  # 🆕 Yandex SpeechKit Realtime
+app.include_router(fish_assistants.router, prefix="/api/fish-assistants", tags=["Fish Assistants"])  # 🆕 Fish Audio TTS
 app.include_router(translate_assistants.router, prefix="/api/translate-assistants", tags=["Translate Assistants"])  # 🆕 v1.0
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # BEFORE websocket.router — /ws/llm-stream must match before /ws/{assistant_id}
 app.include_router(translate_ws.router, tags=["Translate WebSocket"])  # BEFORE websocket.router — /ws/translate/{id} must match before /ws/{assistant_id}
+app.include_router(fish_ws.router, tags=["Fish TTS WebSocket"])  # BEFORE websocket.router — /ws/fish/tts/{id} must match before /ws/{assistant_id}
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(grok_ws.router, tags=["Grok WebSocket"])  # 🆕 v3.0
 app.include_router(healthcheck.router, tags=["Health"])
@@ -552,6 +556,71 @@ def create_cartesia_tables():
             raise
 
 
+def create_fish_tables():
+    """
+    Create Fish assistant tables and check missing columns.
+
+    Fish Audio — TTS-провайдер: диалог ведёт OpenAI Realtime в сценарии
+    Voximplant, озвучка идёт через прокси /ws/fish/tts/{assistant_id}.
+    """
+    try:
+        from backend.models.fish_assistant import FishAssistantConfig
+        from backend.models.base import Base
+        from sqlalchemy import text, inspect
+
+        logger.info("🐟 Creating Fish tables and checking missing columns...")
+
+        # Создаем таблицы Fish
+        Base.metadata.create_all(engine)
+
+        inspector = inspect(engine)
+
+        # Проверяем таблицу users для fish_api_key
+        try:
+            if inspector.has_table('users'):
+                columns = inspector.get_columns('users')
+                existing_columns = {col['name']: col for col in columns}
+
+                if 'fish_api_key' not in existing_columns:
+                    logger.info("➕ Adding fish_api_key column to users table...")
+
+                    try:
+                        with engine.connect() as conn:
+                            trans = conn.begin()
+                            try:
+                                conn.execute(text("ALTER TABLE users ADD COLUMN fish_api_key VARCHAR NULL"))
+                                trans.commit()
+                                logger.info("✅ Successfully added fish_api_key column")
+                            except Exception as e:
+                                trans.rollback()
+                                if "already exists" not in str(e).lower():
+                                    logger.error(f"❌ Failed to add fish_api_key: {str(e)}")
+                    except Exception as conn_error:
+                        logger.error(f"❌ Connection error: {str(conn_error)}")
+                else:
+                    logger.info("✅ Column fish_api_key already exists")
+        except Exception as table_error:
+            logger.error(f"❌ Error checking users table: {str(table_error)}")
+
+        # Проверяем таблицы Fish
+        if not inspector.has_table('fish_assistant_configs'):
+            logger.info("➕ Creating missing table: fish_assistant_configs")
+            try:
+                FishAssistantConfig.__table__.create(engine)
+                logger.info("✅ Successfully created table: fish_assistant_configs")
+            except Exception as e:
+                logger.error(f"❌ Failed to create table fish_assistant_configs: {str(e)}")
+        else:
+            logger.info("✅ Table fish_assistant_configs already exists")
+
+        logger.info("✅ Fish tables and columns setup completed")
+
+    except Exception as e:
+        logger.error(f"❌ Error creating Fish tables: {str(e)}")
+        if not settings.PRODUCTION:
+            raise
+
+
 def create_yandex_tables():
     """
     Create Yandex assistant tables and check missing columns
@@ -726,6 +795,7 @@ def check_and_fix_all_missing_columns():
                 'openrouter_api_key': 'VARCHAR(255) NULL',  # 🆕 Cascade
                 'yandex_api_key': 'VARCHAR NULL',  # 🆕 Yandex Cloud API key
                 'yandex_folder_id': 'VARCHAR(100) NULL',  # 🆕 Yandex Cloud folder ID
+                'fish_api_key': 'VARCHAR NULL',  # 🆕 Fish Audio TTS API key
                 'email_verified': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 # 🆕 Система кредитов оркестратора Voicyfy Agent
                 'credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
@@ -1733,6 +1803,9 @@ async def startup_event():
 
                 # 🆕 Шаг 10.1: Создаем таблицы Yandex (SpeechKit Realtime)
                 create_yandex_tables()
+
+                # 🐟 Создаем таблицы Fish
+                create_fish_tables()
 
                 # 🆕 Шаг 11: Сидинг данных системы кредитов (план agent + пакеты)
                 seed_credits_data()

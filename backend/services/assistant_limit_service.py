@@ -27,6 +27,7 @@ from backend.models.grok_assistant import GrokAssistantConfig
 from backend.models.subscription import SubscriptionPlan
 from backend.models.translate_assistant import TranslateAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
+from backend.models.fish_assistant import FishAssistantConfig
 
 logger = get_logger(__name__)
 
@@ -100,6 +101,7 @@ def get_assistants_breakdown(db: Session, user_id: Any) -> Dict[str, int]:
         "cascade": count(GrokAssistantConfig, GrokAssistantConfig.assistant_type == "cascade"),
         "cartesia": count(CartesiaAssistantConfig),
         "yandex": count(YandexAssistantConfig),
+        "fish": count(FishAssistantConfig),
         "translate": count(TranslateAssistantConfig),
     }
     breakdown["total"] = sum(breakdown.values())

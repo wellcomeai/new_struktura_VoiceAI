@@ -46,6 +46,9 @@ from .translate_assistant import TranslateAssistantConfig, TranslateConversation
 # ✅ НОВОЕ: Импортируем Yandex модели (Yandex SpeechKit Realtime API)
 from .yandex_assistant import YandexAssistantConfig, YandexConversation
 
+# ✅ НОВОЕ: Импортируем Fish модель (Fish Audio TTS + OpenAI Realtime)
+from .fish_assistant import FishAssistantConfig
+
 # ✅ НОВОЕ: Импортируем Contact и ContactNote для CRM
 from .contact import Contact, ContactNote
 
@@ -121,6 +124,8 @@ __all__ = [
     # ✅ НОВОЕ: Yandex модели (Yandex SpeechKit Realtime API)
     "YandexAssistantConfig",
     "YandexConversation",
+    # ✅ НОВОЕ: Fish модель (Fish Audio TTS)
+    "FishAssistantConfig",
     # ✅ НОВОЕ: CRM модели
     "Contact",
     "ContactNote",

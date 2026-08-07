@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Яндекс агенты | Voicyfy</title>
+  <title>Fish агенты | Voicyfy</title>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
@@ -34,9 +34,9 @@
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       --radius-md: 0.5rem;
       --radius-lg: 1rem;
-      --yandex-gradient: linear-gradient(135deg, #fc3f1d, #d93517);
-      --yandex-light: #fff1ee;
-      --yandex-accent: #fc3f1d;
+      --fish-gradient: linear-gradient(135deg, #0ea5e9, #2563eb);
+      --fish-light: #eff6ff;
+      --fish-accent: #0ea5e9;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -136,14 +136,14 @@
     }
 
     .sidebar-nav-item:hover {
-      background-color: var(--yandex-light);
-      color: var(--yandex-accent);
+      background-color: var(--fish-light);
+      color: var(--fish-accent);
     }
 
     .sidebar-nav-item.active {
-      background-color: var(--yandex-light);
-      color: var(--yandex-accent);
-      border-left-color: var(--yandex-accent);
+      background-color: var(--fish-light);
+      color: var(--fish-accent);
+      border-left-color: var(--fish-accent);
       font-weight: 600;
     }
 
@@ -170,7 +170,7 @@
 
     .plan-locked-feature:hover {
       opacity: 0.8;
-      background-color: var(--yandex-light);
+      background-color: var(--fish-light);
     }
 
     /* ============================================================================
@@ -240,7 +240,7 @@
       border: none;
     }
 
-    .btn-primary { background: var(--yandex-gradient); color: white; }
+    .btn-primary { background: var(--fish-gradient); color: white; }
     .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
 
     .btn-outline {
@@ -271,7 +271,7 @@
       border-radius: var(--radius-md);
       transition: all 0.2s;
     }
-    .btn-icon:hover { background-color: var(--bg-light); color: var(--yandex-accent); }
+    .btn-icon:hover { background-color: var(--bg-light); color: var(--fish-accent); }
 
     /* ============================================================================
        USER DROPDOWN
@@ -297,7 +297,7 @@
       width: 36px;
       height: 36px;
       border-radius: 50%;
-      background: var(--yandex-gradient);
+      background: var(--fish-gradient);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -339,7 +339,7 @@
       font-size: 0.875rem;
       transition: background-color 0.2s;
     }
-    .dropdown-item:hover { background-color: var(--bg-light); color: var(--yandex-accent); }
+    .dropdown-item:hover { background-color: var(--bg-light); color: var(--fish-accent); }
 
     .dropdown-divider { height: 1px; background-color: var(--border-color); margin: 0.25rem 0; }
 
@@ -386,7 +386,7 @@
     }
     .api-key-row input:focus {
       outline: none;
-      border-color: var(--yandex-accent);
+      border-color: var(--fish-accent);
       box-shadow: 0 0 0 3px rgba(252, 63, 29, 0.1);
     }
 
@@ -420,7 +420,7 @@
 
     .api-key-setup-icon {
       font-size: 4rem;
-      background: var(--yandex-gradient);
+      background: var(--fish-gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       margin-bottom: 1.5rem;
@@ -448,7 +448,7 @@
     .api-key-setup-steps h3 { margin-bottom: 1rem; }
     .api-key-setup-steps ol { padding-left: 1.5rem; line-height: 1.8; }
     .api-key-setup-steps li { margin-bottom: 0.5rem; }
-    .api-key-setup-steps a { color: var(--yandex-accent); text-decoration: none; }
+    .api-key-setup-steps a { color: var(--fish-accent); text-decoration: none; }
     .api-key-setup-steps a:hover { text-decoration: underline; }
 
     /* ============================================================================
@@ -503,11 +503,11 @@
     }
     .agent-item:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
 
-    .yandex-badge {
+    .fish-badge {
       position: absolute;
       top: 0.75rem;
       right: 0.75rem;
-      background: var(--yandex-gradient);
+      background: var(--fish-gradient);
       color: white;
       padding: 0.25rem 0.75rem;
       border-radius: 1rem;
@@ -522,7 +522,7 @@
       width: 50px;
       height: 50px;
       border-radius: 50%;
-      background: var(--yandex-gradient);
+      background: var(--fish-gradient);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -601,7 +601,7 @@
       font-size: 0.875rem;
     }
     .tab:hover { color: var(--text-dark); }
-    .tab.active { color: var(--yandex-accent); border-bottom-color: var(--yandex-accent); font-weight: 600; }
+    .tab.active { color: var(--fish-accent); border-bottom-color: var(--fish-accent); font-weight: 600; }
 
     .tab-content { display: none; padding: 1.5rem; }
     .tab-content.active { display: block; }
@@ -640,7 +640,7 @@
     }
     .form-control:focus {
       outline: none;
-      border-color: var(--yandex-accent);
+      border-color: var(--fish-accent);
       box-shadow: 0 0 0 3px rgba(252, 63, 29, 0.1);
     }
     textarea.form-control { min-height: 150px; resize: vertical; font-family: inherit; }
@@ -667,10 +667,10 @@
       width: 20px;
       height: 20px;
       border-radius: 50%;
-      background: var(--yandex-accent);
+      background: var(--fish-accent);
       cursor: pointer;
     }
-    .slider-value { min-width: 40px; text-align: center; font-weight: 600; color: var(--yandex-accent); }
+    .slider-value { min-width: 40px; text-align: center; font-weight: 600; color: var(--fish-accent); }
 
     /* Agent ID info */
     .agent-id-info {
@@ -678,16 +678,16 @@
       align-items: center;
       gap: 1rem;
       padding: 1rem;
-      background-color: var(--yandex-light);
+      background-color: var(--fish-light);
       border-radius: var(--radius-md);
-      border: 1px solid var(--yandex-accent);
+      border: 1px solid var(--fish-accent);
       margin-bottom: 1.5rem;
     }
     .agent-id-label { font-weight: 600; color: var(--text-dark); font-size: 0.875rem; }
     .agent-id-value {
       font-family: monospace;
       font-size: 0.85rem;
-      color: var(--yandex-accent);
+      color: var(--fish-accent);
       background-color: var(--white);
       padding: 0.375rem 0.75rem;
       border-radius: var(--radius-md);
@@ -709,7 +709,7 @@
       cursor: pointer;
       transition: all 0.2s;
     }
-    .function-option:hover { background-color: var(--yandex-light); }
+    .function-option:hover { background-color: var(--fish-light); }
     .function-option input { margin: 0; }
 
     .function-info {
@@ -761,11 +761,11 @@
     .notification.show { transform: translateY(0); opacity: 1; }
     .notification-success { border-left: 4px solid #10b981; }
     .notification-error { border-left: 4px solid #ef4444; }
-    .notification-info { border-left: 4px solid var(--yandex-accent); }
+    .notification-info { border-left: 4px solid var(--fish-accent); }
     .notification-icon { font-size: 1.25rem; }
     .notification-success .notification-icon { color: #10b981; }
     .notification-error .notification-icon { color: #ef4444; }
-    .notification-info .notification-icon { color: var(--yandex-accent); }
+    .notification-info .notification-icon { color: var(--fish-accent); }
     .notification-content { flex: 1; }
     .notification-close { background: none; border: none; color: var(--text-gray); cursor: pointer; font-size: 1.125rem; }
 
@@ -786,9 +786,9 @@
     .loading-spinner {
       width: 50px;
       height: 50px;
-      border: 5px solid var(--yandex-light);
+      border: 5px solid var(--fish-light);
       border-radius: 50%;
-      border-top-color: var(--yandex-accent);
+      border-top-color: var(--fish-accent);
       animation: spin 1s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -876,7 +876,7 @@
     }
     .feature-blocked-modal .current-plan-info span { font-weight: 600; color: var(--text-dark); }
     .feature-blocked-modal .required-plans { font-size: 0.875rem; color: var(--text-gray); }
-    .feature-blocked-modal .required-plans strong { color: var(--yandex-accent); }
+    .feature-blocked-modal .required-plans strong { color: var(--fish-accent); }
     .feature-blocked-modal .fb-footer { padding: 1rem 1.5rem 1.5rem; display: flex; gap: 1rem; }
     .feature-blocked-modal .fb-footer .btn { flex: 1; justify-content: center; }
 
@@ -955,8 +955,8 @@
       <a href="/static/agents.html" class="sidebar-nav-item"><i class="fas fa-robot"></i> OpenAI агенты</a>
       <a href="/static/gemini-agents.html" class="sidebar-nav-item"><i class="fas fa-gem"></i> Gemini агенты</a>
       <a href="/static/cartesia-agents.html" class="sidebar-nav-item"><i class="fas fa-wave-square"></i> Cartesia агенты</a>
-      <a href="/static/yandex-agents.html" class="sidebar-nav-item active"><i class="fab fa-yandex"></i> Яндекс агенты</a>
-      <a href="/static/fish-agents.html" class="sidebar-nav-item"><i class="fas fa-fish"></i> Fish агенты</a>
+      <a href="/static/yandex-agents.html" class="sidebar-nav-item"><i class="fab fa-yandex"></i> Яндекс агенты</a>
+      <a href="/static/fish-agents.html" class="sidebar-nav-item active"><i class="fas fa-fish"></i> Fish агенты</a>
       <a href="/static/cascade.html" class="sidebar-nav-item"><i class="fas fa-water"></i> Cascade агенты</a>
       <a href="/static/knowledge-base.html" class="sidebar-nav-item"><i class="fas fa-book"></i> База знаний</a>
       <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony"><i class="fas fa-phone"></i> Телефония</a>
@@ -983,8 +983,8 @@
       <div class="top-nav-left">
         <button class="mobile-menu-toggle" id="mobile-menu-toggle"><i class="fas fa-bars"></i></button>
         <h1 class="page-title">
-          <i class="fab fa-yandex" style="color: var(--yandex-accent);"></i>
-          Яндекс агенты
+          <i class="fas fa-fish" style="color: var(--fish-accent);"></i>
+          Fish агенты
         </h1>
       </div>
       <div class="top-nav-right">
@@ -1010,19 +1010,22 @@
 
       <!-- API Keys Card -->
       <div class="api-keys-card" id="api-keys-card">
-        <h3><i class="fas fa-key" style="color: var(--yandex-accent);"></i> Креды Yandex Cloud</h3>
+        <h3><i class="fas fa-key" style="color: var(--fish-accent);"></i> Ключи Fish-агентов</h3>
 
         <div class="api-key-row">
-          <label>API-ключ Yandex Cloud</label>
-          <input type="password" id="yandex-key-input" placeholder="AQVN..." autocomplete="off">
+          <label>API-ключ OpenAI (диалог)</label>
+          <input type="password" id="openai-key-input" placeholder="sk-..." autocomplete="off">
           <div class="api-key-actions">
-            <button class="btn-icon" id="toggle-yandex-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+            <button class="btn-icon" id="toggle-openai-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
           </div>
         </div>
 
         <div class="api-key-row">
-          <label>Folder ID (каталог)</label>
-          <input type="text" id="folder-id-input" placeholder="b1g..." autocomplete="off">
+          <label>API-ключ Fish Audio (озвучка)</label>
+          <input type="password" id="fish-key-input" placeholder="..." autocomplete="off">
+          <div class="api-key-actions">
+            <button class="btn-icon" id="toggle-fish-key" title="Показать/скрыть"><i class="fas fa-eye"></i></button>
+          </div>
         </div>
 
         <div style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
@@ -1032,28 +1035,28 @@
 
         <div class="api-key-warning" id="keys-warning" style="display: none;">
           <i class="fas fa-exclamation-triangle"></i>
-          <span>Добавьте API-ключ и Folder ID Yandex Cloud для работы агентов</span>
+          <span>Добавьте ключи OpenAI и Fish Audio для работы агентов</span>
         </div>
       </div>
 
       <!-- Setup Screen (no keys) -->
       <div class="api-key-setup" id="setup-screen">
-        <div class="api-key-setup-icon"><i class="fab fa-yandex"></i></div>
-        <h2 class="api-key-setup-title">Настройте креды Yandex Cloud</h2>
+        <div class="api-key-setup-icon"><i class="fas fa-fish"></i></div>
+        <h2 class="api-key-setup-title">Настройте ключи Fish-агентов</h2>
         <p class="api-key-setup-description">
-          Для работы Яндекс-агентов (SpeechKit Realtime) необходимо добавить API-ключ Yandex Cloud и Folder ID каталога, с которого будут списываться токены.
+          Диалог ведёт OpenAI Realtime, озвучивает Fish Audio. Нужны оба ключа: OpenAI — за диалог и распознавание речи, Fish Audio — за синтез. Расход идёт с ваших аккаунтов у этих провайдеров.
         </p>
         <div class="api-key-setup-steps">
           <h3>Как начать:</h3>
           <ol>
-            <li>Зарегистрируйтесь в <a href="https://console.yandex.cloud/" target="_blank">Yandex Cloud</a> и создайте каталог (folder)</li>
+            <li>Получите API-ключ в <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a> и в <a href="https://fish.audio/go-api/" target="_blank">Fish Audio</a></li>
             <li>Создайте сервисный аккаунт с ролью <b>ai.speechkit-stt.user</b> и <b>ai.speechkit-tts.user</b></li>
             <li>Выпустите API-ключ для сервисного аккаунта</li>
             <li>Вставьте API-ключ и Folder ID в поля выше и нажмите «Сохранить креды»</li>
           </ol>
         </div>
         <p style="color: var(--text-light); font-size: 0.875rem; text-align: center;">
-          После добавления кредов вы сможете создавать и управлять Яндекс-агентами
+          После добавления ключей вы сможете создавать и управлять Fish-агентами
         </p>
       </div>
 
@@ -1061,7 +1064,7 @@
       <div class="agents-list-container" id="agents-list-container">
         <div class="card">
           <div class="card-header">
-            <h2 class="card-title">Ваши голосовые ассистенты на Яндексе</h2>
+            <h2 class="card-title">Ваши голосовые ассистенты на Fish Audio</h2>
           </div>
           <div id="agents-list"></div>
         </div>
@@ -1093,7 +1096,7 @@
 
             <div class="form-group">
               <label for="agent-name">Название агента *</label>
-              <input type="text" class="form-control" id="agent-name" placeholder="Мой Яндекс агент" required>
+              <input type="text" class="form-control" id="agent-name" placeholder="Мой Fish агент" required>
             </div>
 
             <div class="form-group">
@@ -1115,22 +1118,22 @@
 
             <div class="form-row">
               <div class="form-group">
-                <label for="agent-model">Модель</label>
+                <label for="agent-model">Модель синтеза Fish</label>
                 <select class="form-control" id="agent-model"></select>
-                <p class="hint">Модель Yandex SpeechKit Realtime</p>
+                <p class="hint">Модель озвучки Fish Audio</p>
               </div>
               <div class="form-group">
-                <label for="agent-voice">Голос</label>
-                <select class="form-control" id="agent-voice"></select>
-                <p class="hint">Голос синтеза речи Яндекса</p>
+                <label for="agent-voice">Голос (reference_id)</label>
+                <input type="text" class="form-control" id="agent-voice" placeholder="например: 7f92f8afb8ec43bf81429cc1c9199cb1">
+                <p class="hint">ID голоса из библиотеки fish.audio (в том числе собственный клон)</p>
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group">
-                <label for="agent-voice-role">Амплуа голоса (role)</label>
-                <input type="text" class="form-control" id="agent-voice-role" placeholder="например: friendly (опционально)">
-                <p class="hint">Оставьте пустым, если амплуа не нужно</p>
+                <label for="agent-latency">Режим латентности</label>
+                <select class="form-control" id="agent-latency"></select>
+                <p class="hint">balanced — быстрее первый звук, normal — выше качество</p>
               </div>
               <div class="form-group">
                 <label for="agent-language">Язык</label>
@@ -1151,9 +1154,9 @@
 
             <div class="form-row">
               <div class="form-group">
-                <label for="agent-max-tokens">Max tokens</label>
-                <input type="number" class="form-control" id="agent-max-tokens" min="1" max="32768" step="1" value="4096">
-                <p class="hint">Максимальная длина ответа модели</p>
+                <label for="agent-llm-model">Диалоговая модель</label>
+                <select class="form-control" id="agent-llm-model"></select>
+                <p class="hint">OpenAI Realtime — ведёт диалог и распознаёт речь</p>
               </div>
               <div class="form-group" id="agent-active-wrap" style="display: none;">
                 <label for="agent-active">Статус</label>
@@ -1267,8 +1270,6 @@
 
     const API_BASE_URL = '/api';
 
-    const DEFAULT_MODELS = ['speech-realtime-260528', 'speech-realtime-250923'];
-    const DEFAULT_VOICES = ['marina', 'dasha', 'alexander', 'julia', 'lera', 'masha', 'anton', 'kirill', 'filipp', 'ermil', 'jane', 'omazh', 'zahar', 'madi_ru', 'saule_ru'];
 
     // ============================================================================
     // STATE
@@ -1280,7 +1281,14 @@
     let currentAgentFunctions = null; // функции агента как пришли с сервера (страховка от затирания)
     let isLoading = false;
     let currentUserPlanCode = 'free';
-    let yandexOptions = { models: DEFAULT_MODELS, default_model: 'speech-realtime-260528', voices: DEFAULT_VOICES };
+    let fishOptions = {
+      models: ['s1', 's2-pro', 's2.1-pro', 's2.1-pro-free'],
+      default_model: 's2.1-pro',
+      latency_modes: ['balanced', 'normal'],
+      default_latency: 'balanced',
+      llm_models: ['gpt-realtime-2.1-mini', 'gpt-realtime-1.5'],
+      default_llm_model: 'gpt-realtime-2.1-mini',
+    };
 
     let assistantsLimitInfo = {
       totalCount: 0,
@@ -1384,7 +1392,7 @@
     async function loadAssistantsLimitInfo() {
       try {
         // Единый источник правды: сервер сам считает ассистентов по всем
-        // провайдерам (OpenAI, Gemini, Grok, Cascade, Cartesia, Yandex, Translate)
+        // провайдерам (OpenAI, Gemini, Grok, Cascade, Cartesia, Yandex, Fish, Translate)
         // и применяет те же правила, что и при создании.
         const usage = await apiRequest('/subscriptions/assistants-usage');
 
@@ -1518,17 +1526,18 @@
     }
 
     // ============================================================================
-    // YANDEX OPTIONS (модели/голоса)
+    // FISH OPTIONS (модели синтеза / латентность / диалоговая модель)
     // ============================================================================
-    async function loadYandexOptions() {
+    async function loadFishOptions() {
       try {
-        const data = await apiRequest('/yandex-assistants/options');
-        if (data && data.models && data.models.length) yandexOptions = data;
+        const data = await apiRequest('/fish-assistants/options');
+        if (data && data.models && data.models.length) fishOptions = data;
       } catch (e) {
-        console.warn('[OPTIONS] Используем дефолтные модели/голоса:', e.message);
+        console.warn('[OPTIONS] Используем дефолтные модели:', e.message);
       }
-      fillSelect('agent-model', yandexOptions.models, yandexOptions.default_model);
-      fillSelect('agent-voice', yandexOptions.voices, 'marina');
+      fillSelect('agent-model', fishOptions.models, fishOptions.default_model);
+      fillSelect('agent-latency', fishOptions.latency_modes, fishOptions.default_latency);
+      fillSelect('agent-llm-model', fishOptions.llm_models, fishOptions.default_llm_model);
     }
 
     function fillSelect(id, items, selected) {
@@ -1544,19 +1553,19 @@
     }
 
     // ============================================================================
-    // API KEYS (креды Yandex Cloud)
+    // API KEYS (OpenAI + Fish Audio)
     // ============================================================================
     async function loadApiKeysStatus() {
       try {
-        const status = await apiRequest('/yandex-assistants/api-keys');
-        const keyInput = document.getElementById('yandex-key-input');
-        const folderInput = document.getElementById('folder-id-input');
+        const status = await apiRequest('/fish-assistants/api-keys');
+        const keyInput = document.getElementById('openai-key-input');
+        const fishInput = document.getElementById('fish-key-input');
         const warning = document.getElementById('keys-warning');
 
-        if (status.yandex_key_preview) keyInput.placeholder = status.yandex_key_preview;
-        if (status.yandex_folder_id) folderInput.placeholder = status.yandex_folder_id;
+        if (status.openai_key_preview) keyInput.placeholder = status.openai_key_preview;
+        if (status.fish_key_preview) fishInput.placeholder = status.fish_key_preview;
 
-        const hasKeys = status.has_yandex_key && status.has_folder_id;
+        const hasKeys = status.has_openai_key && status.has_fish_key;
         warning.style.display = hasKeys ? 'none' : 'flex';
         return hasKeys;
       } catch (e) {
@@ -1566,26 +1575,26 @@
     }
 
     async function saveApiKeys() {
-      const yandexKey = document.getElementById('yandex-key-input').value.trim();
-      const folderId = document.getElementById('folder-id-input').value.trim();
+      const openaiKey = document.getElementById('openai-key-input').value.trim();
+      const fishKey = document.getElementById('fish-key-input').value.trim();
 
-      if (!yandexKey && !folderId) {
-        showNotification('Введите API-ключ и/или Folder ID', 'error');
+      if (!openaiKey && !fishKey) {
+        showNotification('Введите ключ OpenAI и/или Fish Audio', 'error');
         return;
       }
 
       setLoading(true);
       try {
         const body = {};
-        if (yandexKey) body.yandex_api_key = yandexKey;
-        if (folderId) body.yandex_folder_id = folderId;
+        if (openaiKey) body.openai_api_key = openaiKey;
+        if (fishKey) body.fish_api_key = fishKey;
 
-        await apiRequest('/yandex-assistants/api-keys', { method: 'PUT', body });
+        await apiRequest('/fish-assistants/api-keys', { method: 'PUT', body });
 
-        document.getElementById('yandex-key-input').value = '';
-        document.getElementById('folder-id-input').value = '';
+        document.getElementById('openai-key-input').value = '';
+        document.getElementById('fish-key-input').value = '';
 
-        showNotification('Креды Yandex Cloud сохранены', 'success');
+        showNotification('Ключи сохранены', 'success');
         const hasKeys = await loadApiKeysStatus();
         checkApiKeyAndShowContent(hasKeys);
 
@@ -1603,21 +1612,21 @@
     }
 
     async function clearApiKeys() {
-      if (!confirm('Вы уверены, что хотите удалить API-ключ и Folder ID?')) return;
+      if (!confirm('Вы уверены, что хотите удалить ключи OpenAI и Fish Audio?')) return;
 
       setLoading(true);
       try {
-        await apiRequest('/yandex-assistants/api-keys', {
+        await apiRequest('/fish-assistants/api-keys', {
           method: 'PUT',
-          body: { yandex_api_key: '', yandex_folder_id: '' }
+          body: { openai_api_key: '', fish_api_key: '' }
         });
 
-        document.getElementById('yandex-key-input').value = '';
-        document.getElementById('yandex-key-input').placeholder = 'AQVN...';
-        document.getElementById('folder-id-input').value = '';
-        document.getElementById('folder-id-input').placeholder = 'b1g...';
+        document.getElementById('openai-key-input').value = '';
+        document.getElementById('openai-key-input').placeholder = 'sk-...';
+        document.getElementById('fish-key-input').value = '';
+        document.getElementById('fish-key-input').placeholder = '...';
 
-        showNotification('Креды удалены', 'success');
+        showNotification('Ключи удалены', 'success');
         const hasKeys = await loadApiKeysStatus();
         checkApiKeyAndShowContent(hasKeys);
       } catch (e) {
@@ -1649,7 +1658,7 @@
     // ============================================================================
     async function loadAgentsList() {
       try {
-        const data = await apiRequest('/yandex-assistants');
+        const data = await apiRequest('/fish-assistants');
         agents = data.assistants || [];
         renderAgentsList();
       } catch (e) {
@@ -1670,10 +1679,10 @@
 
         container.innerHTML = `
           <div class="empty-state">
-            <div class="empty-icon"><i class="fab fa-yandex"></i></div>
-            <h3 class="empty-title">У вас ещё нет Яндекс-агентов</h3>
+            <div class="empty-icon"><i class="fas fa-fish"></i></div>
+            <h3 class="empty-title">У вас ещё нет Fish-агентов</h3>
             <p class="empty-description">
-              Создайте первого голосового ассистента на базе Yandex SpeechKit Realtime
+              Создайте первого голосового ассистента с озвучкой Fish Audio
               ${limitText}
             </p>
             <button class="btn btn-primary" id="empty-create-btn" ${isDisabled ? 'disabled style="opacity: 0.6; cursor: not-allowed;"' : ''}>
@@ -1699,7 +1708,7 @@
 
       const headerEl = document.createElement('div');
       headerEl.className = 'agent-list-header';
-      headerEl.innerHTML = `<h4 class="agents-count">Яндекс-агентов: ${agents.length} ${limitInfo}</h4>`;
+      headerEl.innerHTML = `<h4 class="agents-count">Fish-агентов: ${agents.length} ${limitInfo}</h4>`;
       container.appendChild(headerEl);
 
       const listEl = document.createElement('div');
@@ -1709,8 +1718,8 @@
         const agentEl = document.createElement('div');
         agentEl.className = 'agent-item';
         agentEl.innerHTML = `
-          <div class="yandex-badge">Яндекс</div>
-          <div class="agent-icon"><i class="fab fa-yandex"></i></div>
+          <div class="fish-badge">Fish</div>
+          <div class="agent-icon"><i class="fas fa-fish"></i></div>
           <div class="agent-info">
             <h3 class="agent-name">${escapeHtml(agent.name)}</h3>
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
@@ -1742,7 +1751,7 @@
         // Чекбоксы функций должны существовать ДО fillAgentForm → loadFunctions,
         // иначе состояние галочек молча теряется (и затирается при сохранении)
         if (availableFunctions.length === 0) await loadAvailableFunctions();
-        const agent = await apiRequest(`/yandex-assistants/${id}`);
+        const agent = await apiRequest(`/fish-assistants/${id}`);
         fillAgentForm(agent);
         currentAgentId = id;
         document.getElementById('edit-title').textContent = 'Редактирование: ' + agent.name;
@@ -1763,20 +1772,20 @@
       document.getElementById('agent-greeting').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
-      document.getElementById('agent-voice-role').value = agent.voice_role || '';
+      document.getElementById('agent-voice').value = agent.fish_voice_id || '';
       document.getElementById('agent-language').value = agent.language || 'ru';
-      document.getElementById('agent-max-tokens').value = agent.max_tokens ?? 4096;
       document.getElementById('agent-active').value = String(!!agent.is_active);
 
       const tempSlider = document.getElementById('agent-temperature');
       tempSlider.value = agent.temperature ?? 0.7;
       document.getElementById('temperature-value').textContent = tempSlider.value;
 
-      // Модель/голос агента могут отсутствовать в актуальном списке — добавляем их в начало
-      const models = yandexOptions.models.includes(agent.model) ? yandexOptions.models : [agent.model, ...yandexOptions.models];
-      fillSelect('agent-model', models, agent.model);
-      const voices = yandexOptions.voices.includes(agent.voice) ? yandexOptions.voices : [agent.voice, ...yandexOptions.voices];
-      fillSelect('agent-voice', voices, agent.voice);
+      // Модель агента может отсутствовать в актуальном списке — добавляем её в начало
+      const models = fishOptions.models.includes(agent.fish_model) ? fishOptions.models : [agent.fish_model, ...fishOptions.models];
+      fillSelect('agent-model', models, agent.fish_model);
+      fillSelect('agent-latency', fishOptions.latency_modes, agent.fish_latency);
+      const llmModels = fishOptions.llm_models.includes(agent.llm_model) ? fishOptions.llm_models : [agent.llm_model, ...fishOptions.llm_models];
+      fillSelect('agent-llm-model', llmModels, agent.llm_model);
 
       currentAgentFunctions = agent.functions || null;
       loadFunctions(agent.functions);
@@ -1802,12 +1811,12 @@
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
         description: document.getElementById('agent-description').value.trim() || null,
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
-        model: document.getElementById('agent-model').value,
-        voice: document.getElementById('agent-voice').value,
-        voice_role: document.getElementById('agent-voice-role').value.trim() || null,
+        fish_model: document.getElementById('agent-model').value,
+        fish_voice_id: document.getElementById('agent-voice').value.trim() || null,
+        fish_latency: document.getElementById('agent-latency').value,
+        llm_model: document.getElementById('agent-llm-model').value,
         language: document.getElementById('agent-language').value.trim() || 'ru',
         temperature: parseFloat(document.getElementById('agent-temperature').value) || 0.7,
-        max_tokens: parseInt(document.getElementById('agent-max-tokens').value, 10) || 4096,
         functions: functionsValue,
       };
     }
@@ -1823,7 +1832,7 @@
       try {
         if (currentAgentId) {
           data.is_active = document.getElementById('agent-active').value === 'true';
-          await apiRequest(`/yandex-assistants/${currentAgentId}`, { method: 'PUT', body: data });
+          await apiRequest(`/fish-assistants/${currentAgentId}`, { method: 'PUT', body: data });
           showNotification('Агент обновлён', 'success');
         } else {
           if (!canCreateAssistant()) {
@@ -1831,7 +1840,7 @@
             setLoading(false);
             return;
           }
-          const created = await apiRequest('/yandex-assistants', { method: 'POST', body: data });
+          const created = await apiRequest('/fish-assistants', { method: 'POST', body: data });
           currentAgentId = created.id;
           showNotification('Агент создан', 'success');
           await loadAssistantsLimitInfo();
@@ -1856,7 +1865,7 @@
         document.getElementById('confirm-modal').classList.remove('show');
         setLoading(true);
         try {
-          await apiRequest(`/yandex-assistants/${currentAgentId}`, { method: 'DELETE' });
+          await apiRequest(`/fish-assistants/${currentAgentId}`, { method: 'DELETE' });
           showNotification('Агент удалён', 'success');
           currentAgentId = null;
           await loadAgentsList();
@@ -2050,8 +2059,8 @@
       document.getElementById('agent-max-tokens').value = '4096';
       document.getElementById('agent-active').value = 'true';
 
-      fillSelect('agent-model', yandexOptions.models, yandexOptions.default_model);
-      fillSelect('agent-voice', yandexOptions.voices, 'marina');
+      fillSelect('agent-model', fishOptions.models, fishOptions.default_model);
+      fillSelect('agent-voice', fishOptions.voices, 'marina');
 
       // Сбрасываем функции
       currentAgentFunctions = null;
@@ -2075,7 +2084,7 @@
       await loadAssistantsLimitInfo();
       applyFeatureAccessToSidebar();
 
-      await loadYandexOptions();
+      await loadFishOptions();
 
       const hasKeys = await loadApiKeysStatus();
 
@@ -2095,7 +2104,7 @@
         } else if (mode === 'create') {
           if (!canCreateAssistant()) {
             showLimitReachedNotification();
-            window.location.href = '/static/yandex-agents.html';
+            window.location.href = '/static/fish-agents.html';
             return;
           }
           checkApiKeyAndShowContent(true);
@@ -2159,8 +2168,13 @@
     document.getElementById('clear-keys-btn').addEventListener('click', clearApiKeys);
 
     // Toggle key visibility
-    document.getElementById('toggle-yandex-key').addEventListener('click', () => {
-      const input = document.getElementById('yandex-key-input');
+    document.getElementById('toggle-openai-key').addEventListener('click', () => {
+      const input = document.getElementById('openai-key-input');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+
+    document.getElementById('toggle-fish-key').addEventListener('click', () => {
+      const input = document.getElementById('fish-key-input');
       input.type = input.type === 'password' ? 'text' : 'password';
     });
 

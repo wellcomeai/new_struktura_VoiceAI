@@ -40,6 +40,7 @@ class UserUpdate(BaseModel):
     openrouter_api_key: Optional[str] = Field(None, description="OpenRouter API key")  # 🆕 Cascade
     yandex_api_key: Optional[str] = Field(None, description="Yandex Cloud API key")  # 🆕 Yandex
     yandex_folder_id: Optional[str] = Field(None, description="Yandex Cloud folder ID")  # 🆕 Yandex
+    fish_api_key: Optional[str] = Field(None, description="Fish Audio TTS API key")  # 🆕 Fish
 
     class Config:
         json_schema_extra = {
@@ -87,6 +88,7 @@ class UserResponse(UserBase):
     openrouter_api_key: Optional[str] = Field(None, description="OpenRouter API key")  # 🆕 Cascade
     yandex_api_key: Optional[str] = Field(None, description="Yandex Cloud API key")  # 🆕 Yandex
     yandex_folder_id: Optional[str] = Field(None, description="Yandex Cloud folder ID")  # 🆕 Yandex
+    fish_api_key: Optional[str] = Field(None, description="Fish Audio TTS API key")  # 🆕 Fish
 
     # ✅ Статусы наличия API ключей
     has_api_key: bool = Field(..., description="Whether user has OpenAI API key set")
@@ -96,6 +98,7 @@ class UserResponse(UserBase):
     has_cartesia_api_key: bool = Field(False, description="Whether user has Cartesia API key set")  # 🆕 v4.0
     has_openrouter_api_key: bool = Field(False, description="Whether user has OpenRouter API key set")  # 🆕 Cascade
     has_yandex_api_key: bool = Field(False, description="Whether user has Yandex Cloud API key set")  # 🆕 Yandex
+    has_fish_api_key: bool = Field(False, description="Whether user has Fish Audio API key set")  # 🆕 Fish
     
     # ✅ Поля тарификации
     is_trial: bool = Field(False, description="Whether user is in trial period")

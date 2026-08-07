@@ -133,6 +133,21 @@ def get_scenario_key(assistant_type: str, direction: str) -> str:
     return f"{direction}_{assistant_type}"  # inbound_openai / outbound_gemini
 
 
+def build_fish_tts_url(assistant_id: any) -> str:
+    """
+    URL прокси синтеза Fish для сценария Voximplant.
+
+    Сценарий открывает его через VoxEngine.createWebSocket() и направляет
+    полученные медиа-фреймы в звонок вызовом sendMediaTo(call).
+    """
+    host = (settings.HOST_URL or "").rstrip("/")
+    if host.startswith("https://"):
+        host = "wss://" + host[len("https://"):]
+    elif host.startswith("http://"):
+        host = "ws://" + host[len("http://"):]
+    return f"{host}/ws/fish/tts/{assistant_id}"
+
+
 def validate_phone_id(phone_id: any) -> Optional[str]:
     """
     Валидация phone_id - защита от записи "None" в БД.
@@ -217,6 +232,15 @@ def find_assistant_by_id(db: Session, assistant_id: uuid.UUID) -> tuple[Any, str
 
     if assistant:
         return assistant, "cascade", assistant.user_id
+
+    # Fish (OpenAI Realtime в сценарии + озвучка Fish Audio через наш прокси)
+    from backend.models.fish_assistant import FishAssistantConfig
+    assistant = db.query(FishAssistantConfig).filter(
+        FishAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, "fish", assistant.user_id
 
     return None, None, None
 
@@ -327,7 +351,7 @@ class SipConnectRequest(BaseModel):
     sip_password: str
     phone_number: str       # номер клиента у SIP провайдера (для входящих)
     assistant_id: str
-    assistant_type: str     # "gemini" | "openai" | "cartesia" | "cascade" | "yandex"
+    assistant_type: str     # "gemini" | "openai" | "cartesia" | "cascade" | "yandex" | "fish"
     first_phrase: Optional[str] = None
     custom_proxy: Optional[str] = None  # только для provider="other"
 
@@ -371,6 +395,13 @@ class ScenarioConfigResponse(BaseModel):
     # Yandex-specific
     folder_id:         Optional[str] = None
     voice_role:        Optional[str] = None
+    # Fish-specific
+    fish_voice_id:     Optional[str] = None
+    fish_model:        Optional[str] = None
+    fish_latency:      Optional[str] = None
+    sample_rate:       Optional[int] = None
+    # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
+    fish_tts_url:      Optional[str] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -424,6 +455,13 @@ class OutboundConfigResponse(BaseModel):
     # Yandex-specific
     folder_id:         Optional[str] = None
     voice_role:        Optional[str] = None
+    # Fish-specific
+    fish_voice_id:     Optional[str] = None
+    fish_model:        Optional[str] = None
+    fish_latency:      Optional[str] = None
+    sample_rate:       Optional[int] = None
+    # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
+    fish_tts_url:      Optional[str] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -1866,6 +1904,13 @@ async def get_my_numbers(
                     ).first()
                     assistant_name = assistant.name if assistant else None
                     assistant_model = assistant.model if assistant else None
+                elif num.assistant_type == "fish":
+                    from backend.models.fish_assistant import FishAssistantConfig
+                    assistant = db.query(FishAssistantConfig).filter(
+                        FishAssistantConfig.id == num.assistant_id
+                    ).first()
+                    assistant_name = assistant.name if assistant else None
+                    assistant_model = assistant.llm_model if assistant else None
 
             # 🆕 Если номер привязан к автономному агенту — берём имя агента
             agent_name = None
@@ -2022,6 +2067,12 @@ async def bind_assistant_to_number(
                 YandexAssistantConfig.id == assistant_uuid,
                 YandexAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "fish":
+            from backend.models.fish_assistant import FishAssistantConfig
+            assistant = db.query(FishAssistantConfig).filter(
+                FishAssistantConfig.id == assistant_uuid,
+                FishAssistantConfig.user_id == current_user.id
+            ).first()
         elif request.assistant_type == "agent":
             # Привязка автономного агента: используем его голосовой ассистент.
             from backend.models.agent_config import AgentConfig
@@ -2054,7 +2105,7 @@ async def bind_assistant_to_number(
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade', 'yandex' или 'agent'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade', 'yandex', 'fish' или 'agent'"
             )
 
         if not assistant:
@@ -2765,10 +2816,16 @@ async def start_outbound_call(
                 YandexAssistantConfig.id == assistant_uuid,
                 YandexAssistantConfig.user_id == current_user.id
             ).first()
+        elif request.assistant_type == "fish":
+            from backend.models.fish_assistant import FishAssistantConfig
+            assistant = db.query(FishAssistantConfig).filter(
+                FishAssistantConfig.id == assistant_uuid,
+                FishAssistantConfig.user_id == current_user.id
+            ).first()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade' или 'yandex'"
+                detail="Неверный тип ассистента. Используйте 'openai', 'gemini', 'cartesia', 'cascade', 'yandex' или 'fish'"
             )
 
         if not assistant:
@@ -3200,6 +3257,10 @@ async def get_outbound_config(
             voice = assistant.voice or "marina"
             language = assistant.language or "ru"
             google_sheet_id = assistant.google_sheet_id
+        elif assistant_type == "fish":
+            # Голос живёт на стороне Fish (reference_id), поле voice не используем.
+            language = assistant.language or "ru"
+            google_sheet_id = assistant.google_sheet_id
 
         # =====================================================================
         # 2. Получаем пользователя и API ключ
@@ -3239,6 +3300,11 @@ async def get_outbound_config(
         elif assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id
+        elif assistant_type == "fish":
+            # Диалог ведёт OpenAI Realtime на ключе пользователя; ключ Fish
+            # в сценарий не уходит — синтезом занимается наш прокси, он и
+            # читает fish_api_key из профиля владельца ассистента.
+            api_key = user.openai_api_key
 
         # =====================================================================
         # 3. Формируем функции
@@ -3285,7 +3351,8 @@ async def get_outbound_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if assistant_type == "openai"
-                else (assistant.model if assistant_type in ("gemini", "yandex") else None)
+                else (assistant.model if assistant_type in ("gemini", "yandex")
+                      else (assistant.llm_model if assistant_type == "fish" else None))
             ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
@@ -3303,6 +3370,11 @@ async def get_outbound_config(
             ),
             folder_id=folder_id,
             voice_role=assistant.voice_role if assistant_type == "yandex" else None,
+            fish_voice_id=assistant.fish_voice_id if assistant_type == "fish" else None,
+            fish_model=assistant.fish_model if assistant_type == "fish" else None,
+            fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
+            sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
+            fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
         )
 
     except Exception as e:
@@ -4445,6 +4517,245 @@ async def admin_setup_cascade_scenarios(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _deploy_provider_scenarios(
+    db: Session,
+    scenario_names: List[str],
+    outbound_scenario: str,
+) -> Dict[str, Any]:
+    """
+    Копирует сценарии провайдера с родительского аккаунта на все дочерние
+    и заводит правило для исходящих.
+
+    Обобщение логики /admin/setup-yandex-scenarios и /admin/setup-cascade-scenarios:
+    эталонные сценарии живут не в репозитории, а на родительском аккаунте
+    Voximplant — отсюда их и забираем.
+
+    Args:
+        scenario_names: имена сценариев на родительском аккаунте
+        outbound_scenario: имя сценария, под который нужно правило
+                           (паттерн "<имя>_.*")
+    """
+    service = get_voximplant_partner_service()
+
+    logger.info(f"[TELEPHONY-ADMIN] Fetching scenarios from parent: {scenario_names}")
+
+    scripts: Dict[str, str] = {}
+
+    parent_list = await service.get_parent_scenarios(with_script=False)
+    if not parent_list.get("success"):
+        raise HTTPException(status_code=500, detail="Failed to get parent scenarios")
+
+    for scenario in parent_list.get("scenarios", []):
+        scenario_name = scenario.get("scenario_name")
+        scenario_id = scenario.get("scenario_id")
+
+        if scenario_name not in scenario_names:
+            continue
+
+        script_result = await service.get_scenarios(
+            account_id=service.parent_account_id,
+            api_key=service.parent_api_key,
+            with_script=True,
+            scenario_id=scenario_id
+        )
+
+        if script_result.get("success") and script_result.get("scenarios"):
+            script = script_result["scenarios"][0].get("scenario_script")
+            if script:
+                scripts[scenario_name] = script
+                logger.info(f"[TELEPHONY-ADMIN] Loaded: {scenario_name} ({len(script)} chars)")
+
+    if not scripts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{' / '.join(scenario_names)} not found on parent account.",
+        )
+
+    child_accounts = db.query(VoximplantChildAccount).all()
+    logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
+
+    results: Dict[str, Any] = {
+        "total_accounts":   len(child_accounts),
+        "scripts_added":    0,
+        "scripts_updated":  0,
+        "rules_created":    0,
+        "skipped":          0,
+        "failed":           0,
+        "details":          []
+    }
+
+    for child in child_accounts:
+        account_result = {
+            "account_id":      child.vox_account_id,
+            "user_id":         str(child.user_id),
+            "scripts_added":   [],
+            "scripts_updated": [],
+            "rules_created":   [],
+            "errors":          []
+        }
+
+        if not child.vox_application_id:
+            results["skipped"] += 1
+            account_result["status"] = "skipped_no_app"
+            results["details"].append(account_result)
+            continue
+
+        scenario_ids = child.vox_scenario_ids or {}
+        rule_ids     = child.vox_rule_ids     or {}
+        changed      = False
+
+        for scenario_name, script in scripts.items():
+            if scenario_name in scenario_ids:
+                update_result = await service.update_scenario(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    scenario_id=int(scenario_ids[scenario_name]),
+                    scenario_script=script
+                )
+                if update_result.get("success"):
+                    account_result["scripts_updated"].append(scenario_name)
+                else:
+                    account_result["errors"].append(
+                        f"update {scenario_name}: {update_result.get('error')}"
+                    )
+            else:
+                add_result = await service.add_scenario(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    scenario_name=scenario_name,
+                    scenario_script=script
+                )
+                if add_result.get("success"):
+                    scenario_ids[scenario_name] = str(add_result.get("scenario_id"))
+                    changed = True
+                    account_result["scripts_added"].append(scenario_name)
+                elif "not unique" in (add_result.get("error") or "").lower():
+                    # Сценарий уже заведён вручную — подхватываем его id.
+                    existing = await service.get_scenarios(
+                        account_id=child.vox_account_id,
+                        api_key=child.vox_api_key,
+                        with_script=False
+                    )
+                    found_id = None
+                    if existing.get("success"):
+                        for sc in existing.get("scenarios", []):
+                            if sc.get("scenario_name") == scenario_name:
+                                found_id = sc.get("scenario_id")
+                                break
+                    if found_id:
+                        scenario_ids[scenario_name] = str(found_id)
+                        changed = True
+                        update_result = await service.update_scenario(
+                            child_account_id=child.vox_account_id,
+                            child_api_key=child.vox_api_key,
+                            scenario_id=int(found_id),
+                            scenario_script=script
+                        )
+                        if update_result.get("success"):
+                            account_result["scripts_updated"].append(scenario_name)
+                        else:
+                            account_result["errors"].append(
+                                f"update_recovered {scenario_name}: {update_result.get('error')}"
+                            )
+                    else:
+                        account_result["errors"].append(
+                            f"add {scenario_name}: not unique, but could not find existing scenario"
+                        )
+                else:
+                    account_result["errors"].append(
+                        f"add {scenario_name}: {add_result.get('error')}"
+                    )
+
+        if outbound_scenario not in rule_ids and outbound_scenario in scenario_ids:
+            rule_result = await service.add_rule(
+                child_account_id=child.vox_account_id,
+                child_api_key=child.vox_api_key,
+                application_id=child.vox_application_id,
+                rule_name=outbound_scenario,
+                rule_pattern=f"{outbound_scenario}_.*",
+                scenario_id=int(scenario_ids[outbound_scenario])
+            )
+            if rule_result.get("success"):
+                rule_ids[outbound_scenario] = str(rule_result.get("rule_id"))
+                changed = True
+                account_result["rules_created"].append(outbound_scenario)
+            elif "not unique" in (rule_result.get("error") or "").lower():
+                existing_rules = await service.get_rules(
+                    child_account_id=child.vox_account_id,
+                    child_api_key=child.vox_api_key,
+                    application_id=child.vox_application_id
+                )
+                found_rule = False
+                for r in (existing_rules.get("rules") or []):
+                    if r.get("rule_name") == outbound_scenario:
+                        rule_ids[outbound_scenario] = str(r.get("rule_id"))
+                        changed = True
+                        found_rule = True
+                        break
+                if not found_rule:
+                    account_result["errors"].append(
+                        f"rule {outbound_scenario}: not unique, but could not find existing rule"
+                    )
+            else:
+                account_result["errors"].append(
+                    f"rule {outbound_scenario}: {rule_result.get('error')}"
+                )
+
+        if changed:
+            child.vox_scenario_ids = scenario_ids
+            child.vox_rule_ids     = rule_ids
+            flag_modified(child, "vox_scenario_ids")
+            flag_modified(child, "vox_rule_ids")
+            db.commit()
+
+        account_result["status"] = "partial" if account_result["errors"] else "ok"
+        results["scripts_added"]   += len(account_result["scripts_added"])
+        results["scripts_updated"] += len(account_result["scripts_updated"])
+        results["rules_created"]   += len(account_result["rules_created"])
+        if account_result["errors"]:
+            results["failed"] += 1
+        results["details"].append(account_result)
+
+    return results
+
+
+@router.post("/admin/setup-fish-scenarios")
+async def admin_setup_fish_scenarios(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    ADMIN ONLY: Скопировать inbound_fish и outbound_fish с родительского
+    аккаунта на ВСЕ дочерние + создать правило outbound_fish.
+
+    Перед первым запуском сценарии должны быть загружены на родительский
+    аккаунт Voximplant — в репозитории они не хранятся.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        results = await _deploy_provider_scenarios(
+            db=db,
+            scenario_names=["inbound_fish", "outbound_fish"],
+            outbound_scenario="outbound_fish",
+        )
+
+        logger.info(
+            f"[TELEPHONY-ADMIN] Fish setup complete: "
+            f"added={results['scripts_added']} updated={results['scripts_updated']} "
+            f"rules={results['rules_created']} failed={results['failed']}"
+        )
+
+        return {"success": True, **results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Fish setup error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/admin/setup-yandex-scenarios")
 async def admin_setup_yandex_scenarios(
     db: Session = Depends(get_db),
@@ -5116,6 +5427,19 @@ async def get_scenario_config(
                 functions_config = assistant.functions
                 google_sheet_id = assistant.google_sheet_id
 
+        elif phone_record.assistant_type == "fish":
+            from backend.models.fish_assistant import FishAssistantConfig
+            assistant = db.query(FishAssistantConfig).filter(
+                FishAssistantConfig.id == phone_record.assistant_id
+            ).first()
+
+            if assistant:
+                assistant_name = assistant.name
+                system_prompt = assistant.system_prompt
+                language = assistant.language or "ru"
+                functions_config = assistant.functions
+                google_sheet_id = assistant.google_sheet_id
+
         if not assistant:
             logger.warning(f"[TELEPHONY] Assistant not found: {phone_record.assistant_id}")
             return ScenarioConfigResponse(success=False)
@@ -5168,6 +5492,9 @@ async def get_scenario_config(
         elif phone_record.assistant_type == "yandex":
             api_key = user.yandex_api_key
             folder_id = user.yandex_folder_id
+        elif phone_record.assistant_type == "fish":
+            # См. комментарий в /outbound-config: ключ Fish остаётся на бэкенде.
+            api_key = user.openai_api_key
 
         # First phrase
         first_phrase = phone_record.first_phrase
@@ -5219,7 +5546,8 @@ async def get_scenario_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if phone_record.assistant_type == "openai"
-                else (assistant.model if phone_record.assistant_type in ("gemini", "yandex") else None)
+                else (assistant.model if phone_record.assistant_type in ("gemini", "yandex")
+                      else (assistant.llm_model if phone_record.assistant_type == "fish" else None))
             ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
@@ -5238,6 +5566,14 @@ async def get_scenario_config(
             ),
             folder_id=folder_id,
             voice_role=assistant.voice_role if phone_record.assistant_type == "yandex" else None,
+            fish_voice_id=assistant.fish_voice_id if phone_record.assistant_type == "fish" else None,
+            fish_model=assistant.fish_model if phone_record.assistant_type == "fish" else None,
+            fish_latency=assistant.fish_latency if phone_record.assistant_type == "fish" else None,
+            sample_rate=assistant.sample_rate if phone_record.assistant_type == "fish" else None,
+            fish_tts_url=(
+                build_fish_tts_url(assistant.id)
+                if phone_record.assistant_type == "fish" else None
+            ),
         )
 
     except Exception as e:

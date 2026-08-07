@@ -35,6 +35,7 @@ class User(Base, BaseModel):
     gemini_api_key = Column(String, nullable=True)  # Google Gemini API key
     grok_api_key = Column(String, nullable=True)    # ✅ v2.9: xAI Grok API key
     cartesia_api_key = Column(String, nullable=True)  # ✅ v4.0: Cartesia TTS API key
+    fish_api_key = Column(String, nullable=True)      # ✅ Fish Audio TTS API key
     openrouter_api_key = Column(String(255), nullable=True)  # ✅ Cascade: OpenRouter API key
     yandex_api_key = Column(String, nullable=True)    # ✅ Yandex Cloud API key (SpeechKit Realtime)
     yandex_folder_id = Column(String(100), nullable=True)  # ✅ Yandex Cloud folder ID
@@ -96,6 +97,7 @@ class User(Base, BaseModel):
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
     grok_assistants = relationship("GrokAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v2.9
     cartesia_assistants = relationship("CartesiaAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v4.0
+    fish_assistants = relationship("FishAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ Fish Audio TTS
     yandex_assistants = relationship("YandexAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ Yandex SpeechKit Realtime
     translate_assistants = relationship("TranslateAssistantConfig", back_populates="user", cascade="all, delete-orphan")  # ✅ v1.0
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
@@ -126,6 +128,7 @@ class User(Base, BaseModel):
         data.pop("gemini_api_key", None)
         data.pop("grok_api_key", None)           # ✅ v2.9: Скрываем Grok API key
         data.pop("cartesia_api_key", None)       # ✅ v4.0: Скрываем Cartesia API key
+        data.pop("fish_api_key", None)           # ✅ Fish: Скрываем Fish Audio API key
         data.pop("openrouter_api_key", None)     # ✅ Cascade: Скрываем OpenRouter API key
         data.pop("yandex_api_key", None)         # ✅ Yandex: Скрываем Yandex Cloud API key
         data.pop("voximplant_api_key", None)
@@ -165,6 +168,10 @@ class User(Base, BaseModel):
     def has_yandex_api_key(self):
         """✅ Yandex: Проверить, настроен ли ключ Yandex Cloud API у пользователя"""
         return bool(self.yandex_api_key)
+
+    def has_fish_api_key(self):
+        """✅ Fish: Проверить, настроен ли ключ Fish Audio API у пользователя"""
+        return bool(self.fish_api_key)
 
     def has_voximplant_config(self):
         """✅ v2.8: Проверить, настроены ли данные Voximplant"""
@@ -377,5 +384,7 @@ class User(Base, BaseModel):
             providers.append("openrouter")
         if self.yandex_api_key:
             providers.append("yandex")
+        if self.fish_api_key:
+            providers.append("fish")
 
         return providers

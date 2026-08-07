@@ -1,0 +1,440 @@
+# backend/websockets/handler_fish_tts.py
+"""
+Прокси Voximplant ⇄ Fish Audio для озвучки реплик ассистента.
+
+Зачем он нужен
+--------------
+У Voximplant нет встроенного модуля Fish (в отличие от Modules.Cartesia),
+а медиа-канал VoxEngine принимает только собственный JSON-протокол:
+
+    {"event":"start", "start":{"mediaFormat":{"encoding":"PCM16","sampleRate":8000}}}
+    {"event":"media", "media":{"timestamp":..,"chunk":..,"payload":"<base64 PCM>"}}
+    {"event":"stop",  "stop":{"mediaInfo":{"bytesSent":..,"duration":..}}}
+
+Fish Audio говорит по своему протоколу на MessagePack
+(wss://api.fish.audio/v1/tts/live). Состыковать их напрямую нельзя —
+этот модуль и есть переходник.
+
+Протокол со стороны сценария (текстовые JSON-фреймы)
+----------------------------------------------------
+    → {"event":"text","text":"кусок реплики"}   отправить текст в синтез
+    → {"event":"flush"}                          синтезировать накопленное сейчас
+    → {"event":"clear"}                          barge-in: бросить очередь аудио
+    → {"event":"stop"}                           завершить сессию
+
+Обратно сценарий получает media-фреймы Voximplant, которые
+`websocket.sendMediaTo(call)` проигрывает в звонок.
+
+Аудио идёт из Fish сразу в PCM16 на нужной частоте (format: "pcm"),
+поэтому перекодировать ничего не требуется — только нарезать на кадры
+и отдавать в темпе реального времени.
+"""
+
+import asyncio
+import base64
+import json
+import time
+import traceback
+from typing import Optional
+
+import msgpack
+import websockets
+from fastapi import WebSocket, WebSocketDisconnect
+from sqlalchemy.orm import Session
+
+from backend.core.logging import get_logger
+from backend.models.fish_assistant import FishAssistantConfig, DEFAULT_FISH_MODEL
+from backend.models.user import User
+
+logger = get_logger(__name__)
+
+FISH_WS_URL = "wss://api.fish.audio/v1/tts/live"
+
+# Длительность одного медиа-кадра в звонок. 20 мс — стандартный шаг
+# телефонного тракта; при 8 кГц PCM16 это ровно 320 байт.
+FRAME_MS = 20
+
+# Сколько байт PCM16 приходится на кадр при заданной частоте.
+def _frame_bytes(sample_rate: int) -> int:
+    return int(sample_rate * (FRAME_MS / 1000.0)) * 2  # 2 байта на сэмпл, моно
+
+
+class _FishTTSSession:
+    """
+    Одна сессия озвучки: живёт столько же, сколько WebSocket от сценария.
+
+    Держит два соединения (сценарий и Fish) и очередь PCM между ними.
+    Очередь нужна, чтобы отдавать аудио в звонок равномерно, а не
+    выплёскивать разом всё, что Fish успел насинтезировать.
+    """
+
+    def __init__(self, websocket: WebSocket, assistant: FishAssistantConfig, api_key: str):
+        self.ws = websocket
+        self.assistant = assistant
+        self.api_key = api_key
+        self.sample_rate = assistant.sample_rate or 8000
+        self.frame_size = _frame_bytes(self.sample_rate)
+
+        self.fish: Optional[websockets.WebSocketClientProtocol] = None
+        self.audio_buffer = bytearray()
+        self.buffer_lock = asyncio.Lock()
+
+        self.sequence = 0
+        self.chunk = 0
+        self.bytes_sent = 0
+        self.started = False
+        self.closing = False
+
+        # Поколение соединения с Fish. У Fish нет события отмены синтеза
+        # (только start/text/flush/stop), поэтому единственный способ
+        # гарантированно оборвать начатую реплику при barge-in —
+        # переподключиться. Аудио из соединения прошлого поколения
+        # отбрасывается, даже если долетело уже после разрыва.
+        self.generation = 0
+
+        # Текст, пришедший от сценария, пока новое соединение ещё
+        # поднимается. Досылается в Fish, как только сокет готов.
+        self.pending_text: list[str] = []
+        self.reconnect_task: Optional[asyncio.Task] = None
+
+    # ------------------------------------------------------------------
+    # Сторона Voximplant
+    # ------------------------------------------------------------------
+
+    async def _send_start(self) -> None:
+        """StartEvent — обязан быть первым фреймом в сторону VoxEngine."""
+        await self.ws.send_text(json.dumps({
+            "event": "start",
+            "sequenceNumber": self.sequence,
+            "start": {
+                "tag": f"fish-{self.assistant.id}",
+                "mediaFormat": {
+                    "encoding": "PCM16",
+                    "sampleRate": self.sample_rate,
+                },
+            },
+        }))
+        self.sequence += 1
+        self.started = True
+        logger.info(
+            f"[FISH-TTS] StartEvent sent: PCM16 @ {self.sample_rate} Hz "
+            f"(frame {self.frame_size} bytes)"
+        )
+
+    async def _send_frame(self, payload: bytes) -> None:
+        """Один media-фрейм в звонок."""
+        await self.ws.send_text(json.dumps({
+            "event": "media",
+            "sequenceNumber": self.sequence,
+            "media": {
+                "timestamp": int(self.bytes_sent / 2 / self.sample_rate * 1000),
+                "chunk": self.chunk,
+                "payload": base64.b64encode(payload).decode("ascii"),
+            },
+        }))
+        self.sequence += 1
+        self.chunk += 1
+        self.bytes_sent += len(payload)
+
+    async def _send_stop(self) -> None:
+        try:
+            await self.ws.send_text(json.dumps({
+                "event": "stop",
+                "sequenceNumber": self.sequence,
+                "stop": {
+                    "mediaInfo": {
+                        "bytesSent": self.bytes_sent,
+                        "duration": int(self.bytes_sent / 2 / self.sample_rate * 1000),
+                    },
+                },
+            }))
+            self.sequence += 1
+        except Exception:
+            pass
+
+    async def _pump_to_call(self) -> None:
+        """
+        Равномерно отдаёт накопленный PCM в звонок кадрами по FRAME_MS.
+
+        Темп держим по монотонным часам, а не sleep(FRAME_MS): иначе
+        накапливается дрейф и речь начинает «плыть» на длинных репликах.
+        """
+        next_tick = time.monotonic()
+        while not self.closing:
+            next_tick += FRAME_MS / 1000.0
+
+            async with self.buffer_lock:
+                if len(self.audio_buffer) >= self.frame_size:
+                    frame = bytes(self.audio_buffer[:self.frame_size])
+                    del self.audio_buffer[:self.frame_size]
+                else:
+                    frame = None
+
+            if frame is not None:
+                try:
+                    await self._send_frame(frame)
+                except Exception as e:
+                    logger.warning(f"[FISH-TTS] Failed to send frame: {e}")
+                    return
+
+            delay = next_tick - time.monotonic()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            else:
+                # Отстали (например, после паузы) — не пытаемся догнать пачкой.
+                next_tick = time.monotonic()
+
+    # ------------------------------------------------------------------
+    # Сторона Fish Audio
+    # ------------------------------------------------------------------
+
+    async def connect_fish(self) -> None:
+        """
+        Открывает WS к Fish, досылает StartEvent и запускает читателя.
+
+        Возвращается только после того, как сокет готов принимать текст,
+        поэтому первый вызов можно ждать синхронно при старте сессии.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "model": self.assistant.fish_model or DEFAULT_FISH_MODEL,
+        }
+
+        fish = await websockets.connect(
+            FISH_WS_URL,
+            extra_headers=headers,
+            ping_interval=20,
+            ping_timeout=20,
+            max_size=None,
+        )
+
+        request = self.assistant.get_fish_start_request()
+        await fish.send(msgpack.packb({"event": "start", "request": request}))
+
+        self.fish = fish
+        generation = self.generation
+
+        logger.info(
+            f"[FISH-TTS] Connected to Fish (generation={generation}): "
+            f"model={headers['model']} voice={request.get('reference_id')} "
+            f"rate={request.get('sample_rate')}"
+        )
+
+        asyncio.create_task(self._read_fish(fish, generation))
+
+        # Текст, накопленный, пока сокет поднимался.
+        pending, self.pending_text = self.pending_text, []
+        for text in pending:
+            await fish.send(msgpack.packb({"event": "text", "text": text}))
+
+    async def _reconnect_fish(self) -> None:
+        """Поднимает свежее соединение после barge-in."""
+        try:
+            await self.connect_fish()
+        except Exception as e:
+            logger.error(f"[FISH-TTS] Reconnect to Fish failed: {e}")
+            self.pending_text.clear()
+
+    async def _read_fish(self, fish, generation: int) -> None:
+        """
+        Читает аудио конкретного соединения и складывает в буфер.
+
+        `generation` фиксируется на момент подключения: если к моменту
+        прихода кадра поколение сессии ушло вперёд (был barge-in), аудио
+        принадлежит прерванной реплике и в звонок не попадает.
+        """
+        try:
+            async for raw in fish:
+                if self.closing or generation != self.generation:
+                    return
+
+                try:
+                    message = msgpack.unpackb(raw, raw=False)
+                except Exception as e:
+                    logger.warning(f"[FISH-TTS] Bad msgpack frame from Fish: {e}")
+                    continue
+
+                event = message.get("event")
+
+                if event == "audio":
+                    audio = message.get("audio") or b""
+                    if audio:
+                        async with self.buffer_lock:
+                            self.audio_buffer.extend(audio)
+
+                elif event == "finish":
+                    reason = message.get("reason")
+                    logger.info(f"[FISH-TTS] Fish finished: reason={reason}")
+                    if reason == "error":
+                        logger.error("[FISH-TTS] Fish reported synthesis error")
+                    return
+
+                elif event == "log":
+                    logger.debug(f"[FISH-TTS] Fish log: {message.get('message')}")
+
+        except websockets.exceptions.ConnectionClosed:
+            # Ожидаемо при barge-in — старый сокет закрывается намеренно.
+            if generation == self.generation and not self.closing:
+                logger.warning("[FISH-TTS] Fish connection closed unexpectedly")
+        except Exception as e:
+            logger.error(f"[FISH-TTS] Fish reader error: {e}")
+
+    # ------------------------------------------------------------------
+    # Команды от сценария
+    # ------------------------------------------------------------------
+
+    async def handle_command(self, message: dict) -> bool:
+        """Обрабатывает команду сценария. Возвращает False, если пора закрываться."""
+        event = message.get("event")
+
+        if event == "text":
+            text = message.get("text") or ""
+            if text:
+                if self.fish is not None:
+                    await self.fish.send(msgpack.packb({"event": "text", "text": text}))
+                else:
+                    # Соединение ещё поднимается после barge-in.
+                    self.pending_text.append(text)
+
+        elif event == "flush":
+            if self.fish is not None:
+                await self.fish.send(msgpack.packb({"event": "flush"}))
+
+        elif event == "clear":
+            # Barge-in: абонент перебил ассистента. Гасим накопленное аудио
+            # и обрываем соединение с Fish — иначе «хвост» прерванной реплики
+            # доиграет поверх следующей.
+            self.generation += 1
+            old_fish, self.fish = self.fish, None
+            self.pending_text.clear()
+
+            async with self.buffer_lock:
+                self.audio_buffer.clear()
+
+            if old_fish is not None:
+                asyncio.create_task(self._close_socket(old_fish))
+
+            self.reconnect_task = asyncio.create_task(self._reconnect_fish())
+            logger.info(f"[FISH-TTS] Barge-in: reconnecting (generation={self.generation})")
+
+        elif event == "stop":
+            return False
+
+        else:
+            logger.warning(f"[FISH-TTS] Unknown command from scenario: {event}")
+
+        return True
+
+    @staticmethod
+    async def _close_socket(fish) -> None:
+        """Аккуратно закрывает соединение с Fish, не роняя вызывающего."""
+        try:
+            await fish.close()
+        except Exception:
+            pass
+
+    async def close(self) -> None:
+        self.closing = True
+
+        if self.reconnect_task is not None:
+            self.reconnect_task.cancel()
+
+        fish, self.fish = self.fish, None
+        if fish is not None:
+            try:
+                await fish.send(msgpack.packb({"event": "stop"}))
+            except Exception:
+                pass
+            await self._close_socket(fish)
+
+
+async def handle_fish_tts_connection(
+    websocket: WebSocket,
+    assistant_id: str,
+    db: Session,
+) -> None:
+    """
+    Точка входа для /ws/fish/tts/{assistant_id}.
+
+    Подключение инициирует сценарий Voximplant через
+    VoxEngine.createWebSocket(); ответные media-фреймы он направляет
+    в звонок вызовом websocket.sendMediaTo(call).
+    """
+    await websocket.accept()
+
+    session: Optional[_FishTTSSession] = None
+    tasks: list[asyncio.Task] = []
+
+    try:
+        # --- ассистент и ключ пользователя ---------------------------------
+        assistant = db.query(FishAssistantConfig).filter(
+            FishAssistantConfig.id == assistant_id
+        ).first()
+
+        if not assistant:
+            logger.warning(f"[FISH-TTS] Assistant not found: {assistant_id}")
+            await websocket.close(code=1008, reason="Assistant not found")
+            return
+
+        if not assistant.is_active:
+            logger.warning(f"[FISH-TTS] Assistant is inactive: {assistant_id}")
+            await websocket.close(code=1008, reason="Assistant is inactive")
+            return
+
+        user = db.query(User).filter(User.id == assistant.user_id).first()
+        api_key = user.fish_api_key if user else None
+
+        if not api_key:
+            logger.warning(f"[FISH-TTS] No Fish API key for assistant {assistant_id}")
+            await websocket.close(code=1008, reason="Fish API key is not configured")
+            return
+
+        # --- поднимаем сессию ----------------------------------------------
+        session = _FishTTSSession(websocket, assistant, api_key)
+
+        try:
+            await session.connect_fish()
+        except Exception as e:
+            logger.error(f"[FISH-TTS] Cannot connect to Fish Audio: {e}")
+            await websocket.close(code=1011, reason="TTS provider unavailable")
+            return
+
+        await session._send_start()
+
+        # Читатель Fish запускается внутри connect_fish (он же переживает
+        # переподключения при barge-in); здесь остаётся только «насос» в звонок.
+        tasks = [asyncio.create_task(session._pump_to_call())]
+
+        # --- команды от сценария --------------------------------------------
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                message = json.loads(raw)
+            except json.JSONDecodeError:
+                logger.warning(f"[FISH-TTS] Non-JSON frame from scenario: {raw[:120]}")
+                continue
+
+            if not await session.handle_command(message):
+                break
+
+    except WebSocketDisconnect:
+        logger.info(f"[FISH-TTS] Scenario disconnected: assistant_id={assistant_id}")
+    except Exception as e:
+        logger.error(f"[FISH-TTS] Session error for {assistant_id}: {e}")
+        logger.error(f"[FISH-TTS] Traceback: {traceback.format_exc()}")
+    finally:
+        if session is not None:
+            await session._send_stop()
+            await session.close()
+
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+        logger.info(f"[FISH-TTS] Session closed: assistant_id={assistant_id}")

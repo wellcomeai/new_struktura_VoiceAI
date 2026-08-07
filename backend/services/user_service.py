@@ -78,6 +78,7 @@ class UserService:
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
             openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
             yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+            fish_api_key=user.fish_api_key,  # 🆕 Fish
             yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
             # ✅ Статусы наличия ключей
@@ -88,6 +89,7 @@ class UserService:
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
             has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
             has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
+            has_fish_api_key=bool(user.fish_api_key),  # 🆕 Fish
 
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -139,6 +141,7 @@ class UserService:
             cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
             openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
             yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+            fish_api_key=user.fish_api_key,  # 🆕 Fish
             yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
             # ✅ Статусы наличия ключей
@@ -149,6 +152,7 @@ class UserService:
             has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
             has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
             has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
+            has_fish_api_key=bool(user.fish_api_key),  # 🆕 Fish
 
             google_sheets_authorized=user.google_sheets_authorized,
             created_at=user.created_at,
@@ -219,6 +223,10 @@ class UserService:
             if 'yandex_api_key' in update_data:
                 user.yandex_api_key = update_data.pop('yandex_api_key')
 
+            # 🆕 Fish: обработка Fish Audio API ключа
+            if 'fish_api_key' in update_data:
+                user.fish_api_key = update_data.pop('fish_api_key')
+
             if 'yandex_folder_id' in update_data:
                 user.yandex_folder_id = update_data.pop('yandex_folder_id')
 
@@ -247,6 +255,7 @@ class UserService:
                 cartesia_api_key=user.cartesia_api_key,  # 🆕 v4.0
                 openrouter_api_key=user.openrouter_api_key,  # 🆕 Cascade
                 yandex_api_key=user.yandex_api_key,  # 🆕 Yandex
+                fish_api_key=user.fish_api_key,  # 🆕 Fish
                 yandex_folder_id=user.yandex_folder_id,  # 🆕 Yandex
 
                 # ✅ Статусы наличия ключей
@@ -257,6 +266,7 @@ class UserService:
                 has_cartesia_api_key=bool(user.cartesia_api_key),  # 🆕 v4.0
                 has_openrouter_api_key=bool(user.openrouter_api_key),  # 🆕 Cascade
                 has_yandex_api_key=bool(user.yandex_api_key),  # 🆕 Yandex
+                has_fish_api_key=bool(user.fish_api_key),  # 🆕 Fish
 
                 google_sheets_authorized=user.google_sheets_authorized,
                 created_at=user.created_at,
