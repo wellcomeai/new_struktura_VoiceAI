@@ -29,6 +29,10 @@ from backend.models.fish_assistant import (
     DEFAULT_FISH_LATENCY,
     FISH_MODELS,
     FISH_LATENCY_MODES,
+    FISH_SPEED_MIN,
+    FISH_SPEED_MAX,
+    FISH_TEMPERATURE_MIN,
+    FISH_TEMPERATURE_MAX,
 )
 from backend.core.dependencies import get_current_user, check_assistant_limit
 from backend.services.assistant_limit_service import exclude_agent_owned
@@ -51,10 +55,10 @@ class FishAssistantCreate(BaseModel):
     fish_model: str = Field(default=DEFAULT_FISH_MODEL, description=f"Fish TTS model: {FISH_MODELS}")
     fish_latency: str = Field(default=DEFAULT_FISH_LATENCY, description=f"Latency mode: {FISH_LATENCY_MODES}")
     sample_rate: int = Field(default=DEFAULT_FISH_SAMPLE_RATE, ge=8000, le=48000, description="PCM sample rate, Hz")
-    voice_speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Voice speed")
+    voice_speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Скорость речи Fish (prosody.speed)")
     llm_model: str = Field(default=DEFAULT_FISH_LLM_MODEL, max_length=100, description="OpenAI Realtime model")
     language: str = Field(default="ru", max_length=10, description="Dialog language")
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="LLM temperature")
+    temperature: float = Field(default=0.7, ge=0.0, le=1.0, description="Живость интонации Fish (0–1)")
     greeting_message: Optional[str] = Field(
         default="Здравствуйте! Чем я могу вам помочь?",
         max_length=500,
@@ -76,7 +80,7 @@ class FishAssistantUpdate(BaseModel):
     voice_speed: Optional[float] = Field(None, ge=0.5, le=2.0)
     llm_model: Optional[str] = Field(None, max_length=100)
     language: Optional[str] = Field(None, max_length=10)
-    temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
+    temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
     greeting_message: Optional[str] = Field(None, max_length=500)
     google_sheet_id: Optional[str] = Field(None, max_length=255)
     functions: Optional[List[Dict]] = None
@@ -222,6 +226,10 @@ async def get_fish_options():
         "llm_models": [DEFAULT_FISH_LLM_MODEL, "gpt-realtime-1.5"],
         "default_llm_model": DEFAULT_FISH_LLM_MODEL,
         "sample_rate": DEFAULT_FISH_SAMPLE_RATE,
+        "speed": {"min": FISH_SPEED_MIN, "max": FISH_SPEED_MAX, "default": 1.0},
+        "temperature": {
+            "min": FISH_TEMPERATURE_MIN, "max": FISH_TEMPERATURE_MAX, "default": 0.7
+        },
     }
 
 

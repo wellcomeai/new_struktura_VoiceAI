@@ -42,11 +42,17 @@ DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1-mini"
 DEFAULT_FISH_SAMPLE_RATE = 8000
 
 # Режим латентности Fish: balanced — минимальное время до первого аудио
-# (то, что нужно голосовому агенту), normal — выше качество, выше задержка.
+# (то, что нужно голосовому агенту), normal — выше качество, выше задержка,
+# low — ещё быстрее старт ценой качества.
 DEFAULT_FISH_LATENCY = "balanced"
 
+# Пределы параметров синтеза Fish (из их API).
+FISH_SPEED_MIN, FISH_SPEED_MAX = 0.5, 2.0
+FISH_TEMPERATURE_MIN, FISH_TEMPERATURE_MAX = 0.0, 1.0
+
 FISH_MODELS = ["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]
-FISH_LATENCY_MODES = ["balanced", "normal"]
+# low — быстрее всего начинает говорить, normal — лучшее качество.
+FISH_LATENCY_MODES = ["low", "balanced", "normal"]
 
 
 class FishAssistantConfig(Base):
@@ -72,11 +78,16 @@ class FishAssistantConfig(Base):
     fish_model = Column(String(50), default=DEFAULT_FISH_MODEL, nullable=False)
     fish_latency = Column(String(20), default=DEFAULT_FISH_LATENCY, nullable=False)
     sample_rate = Column(Integer, default=DEFAULT_FISH_SAMPLE_RATE, nullable=False)
+
+    # Скорость речи Fish (prosody.speed, 0.5–2.0). 1.0 — обычный темп.
     voice_speed = Column(Float, default=1.0, nullable=True)
 
     # LLM settings (OpenAI Realtime на ключе пользователя)
     llm_model = Column(String(100), default=DEFAULT_FISH_LLM_MODEL, nullable=False)
     language = Column(String(10), default="ru", nullable=False)
+
+    # Живость интонации Fish (их temperature, 0–1). К модели OpenAI отношения
+    # не имеет: диалогом правит system_prompt, а это про манеру речи.
     temperature = Column(Float, default=0.7, nullable=True)
 
     # Greeting and logging
@@ -110,11 +121,27 @@ class FishAssistantConfig(Base):
         Прокси досылает его первым сообщением после подключения; format
         всегда pcm — иначе аудио пришлось бы декодировать в сценарии.
         """
+        def clamp(value, low, high, default):
+            if value is None:
+                return default
+            return max(low, min(high, float(value)))
+
         request = {
             "text": "",
             "format": "pcm",
             "sample_rate": self.sample_rate or DEFAULT_FISH_SAMPLE_RATE,
             "latency": self.fish_latency or DEFAULT_FISH_LATENCY,
+            # Живость интонации. Ограничиваем на всякий случай: у старых
+            # записей temperature могла быть до 2 (когда поле трактовалось
+            # как параметр LLM), а Fish принимает только 0–1.
+            "temperature": clamp(
+                self.temperature, FISH_TEMPERATURE_MIN, FISH_TEMPERATURE_MAX, 0.7
+            ),
+            "prosody": {
+                "speed": clamp(
+                    self.voice_speed, FISH_SPEED_MIN, FISH_SPEED_MAX, 1.0
+                ),
+            },
         }
         if self.fish_voice_id:
             request["reference_id"] = self.fish_voice_id

@@ -55,11 +55,13 @@ const API = {
     "/api/fish-assistants/options": {
         models: ["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"],
         default_model: "s2.1-pro",
-        latency_modes: ["balanced", "normal"],
+        latency_modes: ["low", "balanced", "normal"],
         default_latency: "balanced",
         llm_models: ["gpt-realtime-2.1-mini", "gpt-realtime-1.5"],
         default_llm_model: "gpt-realtime-2.1-mini",
         sample_rate: 8000,
+        speed: { min: 0.5, max: 2.0, default: 1.0 },
+        temperature: { min: 0.0, max: 1.0, default: 0.7 },
     },
     "/api/fish-assistants/api-keys": {
         has_openai_key: true, has_fish_key: true,
@@ -144,10 +146,28 @@ const API = {
     const voice = await page.inputValue("#agent-voice");
     check(voice === "", "поле голоса не очищено: " + voice);
 
+    const speed = await page.inputValue("#agent-speed");
+    const temp = await page.inputValue("#agent-temperature");
+    check(speed === "1", "скорость по умолчанию не 1: " + speed);
+    check(temp === "0.7", "живость по умолчанию не 0.7: " + temp);
+    check(await page.getAttribute("#agent-temperature", "max") === "1",
+          "у живости интонации остался старый предел 2 (это диапазон Fish 0–1)");
+    console.log("✅ ползунки: скорость " + speed + ", живость " + temp + " (предел 1)");
+
+    // low должен быть доступен в латентности
+    const latOpts = await page.$$eval("#agent-latency option", (o) => o.map((x) => x.value));
+    check(latOpts.includes("low"), "в латентности нет low: " + latOpts.join(","));
+    const latLabels = await page.$$eval("#agent-latency option", (o) => o.map((x) => x.textContent));
+    check(latLabels.some((t) => t.indexOf("самый быстрый") !== -1),
+          "у режимов латентности нет понятных подписей: " + latLabels.join(" | "));
+    console.log("✅ латентность: " + latOpts.join(", ") + " с человеческими подписями");
+
     // ── 2. Данные, уходящие на сервер ──────────────────────────────────────
     await page.fill("#agent-name", "Мой Fish");
     await page.fill("#agent-voice", "abc123voice");
     await page.fill("#agent-system-prompt", "Промпт");
+    await page.locator("#agent-speed").fill("1.25");
+    await page.locator("#agent-temperature").fill("0.35");
 
     let posted = null;
     await page.route("**/api/fish-assistants", async (route) => {
@@ -169,6 +189,8 @@ const API = {
     check(posted.fish_model === "s2.1-pro", "fish_model не передан: " + JSON.stringify(posted));
     check(posted.fish_latency === "balanced", "fish_latency не передан: " + JSON.stringify(posted));
     check(posted.llm_model === "gpt-realtime-2.1-mini", "llm_model не передан: " + JSON.stringify(posted));
+    check(posted.voice_speed === 1.25, "скорость не передана: " + JSON.stringify(posted));
+    check(posted.temperature === 0.35, "живость не передана: " + JSON.stringify(posted));
     check(!("voice_role" in posted) && !("max_tokens" in posted),
           "в запросе остались поля Yandex: " + JSON.stringify(posted));
     console.log("✅ POST уходит с полями Fish: " + Object.keys(posted).sort().join(", "));
@@ -201,6 +223,7 @@ const API = {
     const editVoice = await page.inputValue("#agent-voice");
     const editModel = await page.inputValue("#agent-model");
     check(editVoice === "voice123", "голос не подтянулся в редактирование: " + editVoice);
+    check(await page.inputValue("#agent-speed") === "1", "скорость не подтянулась в редактирование");
     check(editModel === "s2.1-pro", "модель не подтянулась: " + editModel);
     console.log("✅ режим редактирования заполняет форму из ответа API");
 

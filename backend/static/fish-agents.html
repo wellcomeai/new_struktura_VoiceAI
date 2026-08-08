@@ -1120,12 +1120,12 @@
               <div class="form-group">
                 <label for="agent-model">Модель синтеза Fish</label>
                 <select class="form-control" id="agent-model"></select>
-                <p class="hint">Модель озвучки Fish Audio</p>
+                <p class="hint">s2.1-pro — качество по умолчанию. s1 быстрее и проще, s2.1-pro-free бесплатная, но медленнее стартует.</p>
               </div>
               <div class="form-group">
                 <label for="agent-voice">Голос (reference_id)</label>
                 <input type="text" class="form-control" id="agent-voice" placeholder="например: 7f92f8afb8ec43bf81429cc1c9199cb1">
-                <p class="hint">ID голоса из библиотеки fish.audio (в том числе собственный клон)</p>
+                <p class="hint">ID голоса из библиотеки fish.audio или вашего клона. Открой голос на fish.audio — ID будет в адресной строке.</p>
               </div>
             </div>
 
@@ -1133,7 +1133,7 @@
               <div class="form-group">
                 <label for="agent-latency">Режим латентности</label>
                 <select class="form-control" id="agent-latency"></select>
-                <p class="hint">balanced — быстрее первый звук, normal — выше качество</p>
+                <p class="hint">Компромисс «начать быстрее» ↔ «звучать лучше». low — самый быстрый старт, normal — лучшее качество, balanced — середина.</p>
               </div>
               <div class="form-group">
                 <label for="agent-language">Язык</label>
@@ -1142,21 +1142,32 @@
             </div>
 
             <div class="form-group">
-              <label>Temperature</label>
+              <label>Скорость речи</label>
+              <div class="slider-container">
+                <span style="font-size: 0.75rem; color: var(--text-light);">0.5</span>
+                <input type="range" id="agent-speed" min="0.5" max="2" step="0.05" value="1">
+                <span style="font-size: 0.75rem; color: var(--text-light);">2</span>
+                <span class="slider-value" id="speed-value">1</span>
+              </div>
+              <p class="hint">Темп речи агента. 1 — обычный, меньше — медленнее и разборчивее, больше — быстрее. По телефону выше 1.3 обычно уже тяжело слушать.</p>
+            </div>
+
+            <div class="form-group">
+              <label>Живость интонации</label>
               <div class="slider-container">
                 <span style="font-size: 0.75rem; color: var(--text-light);">0</span>
-                <input type="range" id="agent-temperature" min="0" max="2" step="0.1" value="0.7">
-                <span style="font-size: 0.75rem; color: var(--text-light);">2</span>
+                <input type="range" id="agent-temperature" min="0" max="1" step="0.05" value="0.7">
+                <span style="font-size: 0.75rem; color: var(--text-light);">1</span>
                 <span class="slider-value" id="temperature-value">0.7</span>
               </div>
-              <p class="hint">Чем выше значение — тем более креативные ответы</p>
+              <p class="hint">Насколько по-разному агент произносит фразы. Ниже — ровно и предсказуемо, одинаково от звонка к звонку. Выше — эмоциональнее, но интонация может «гулять». На содержание ответов не влияет — за него отвечает системный промпт.</p>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label for="agent-llm-model">Диалоговая модель</label>
                 <select class="form-control" id="agent-llm-model"></select>
-                <p class="hint">OpenAI Realtime — ведёт диалог и распознаёт речь</p>
+                <p class="hint">Модель OpenAI, которая слушает абонента и придумывает ответ. Отдельное распознавание речи не нужно — она делает это сама.</p>
               </div>
               <div class="form-group" id="agent-active-wrap" style="display: none;">
                 <label for="agent-active">Статус</label>
@@ -1540,13 +1551,20 @@
       fillSelect('agent-llm-model', fishOptions.llm_models, fishOptions.default_llm_model);
     }
 
+    // Человеческие подписи для технических значений в выпадашках
+    const OPTION_LABELS = {
+      low:      'low — самый быстрый старт',
+      balanced: 'balanced — баланс (рекомендуется)',
+      normal:   'normal — лучшее качество',
+    };
+
     function fillSelect(id, items, selected) {
       const sel = document.getElementById(id);
       sel.innerHTML = '';
       items.forEach(v => {
         const opt = document.createElement('option');
         opt.value = v;
-        opt.textContent = v;
+        opt.textContent = OPTION_LABELS[v] || v;
         if (v === selected) opt.selected = true;
         sel.appendChild(opt);
       });
@@ -1776,6 +1794,10 @@
       document.getElementById('agent-language').value = agent.language || 'ru';
       document.getElementById('agent-active').value = String(!!agent.is_active);
 
+      const speedSlider = document.getElementById('agent-speed');
+      speedSlider.value = agent.voice_speed ?? 1;
+      document.getElementById('speed-value').textContent = speedSlider.value;
+
       const tempSlider = document.getElementById('agent-temperature');
       tempSlider.value = agent.temperature ?? 0.7;
       document.getElementById('temperature-value').textContent = tempSlider.value;
@@ -1816,6 +1838,7 @@
         fish_latency: document.getElementById('agent-latency').value,
         llm_model: document.getElementById('agent-llm-model').value,
         language: document.getElementById('agent-language').value.trim() || 'ru',
+        voice_speed: parseFloat(document.getElementById('agent-speed').value) || 1,
         temperature: parseFloat(document.getElementById('agent-temperature').value) || 0.7,
         functions: functionsValue,
       };
@@ -2054,6 +2077,8 @@
       document.getElementById('agent-system-prompt').value = '';
       document.getElementById('agent-voice').value = '';
       document.getElementById('agent-language').value = 'ru';
+      document.getElementById('agent-speed').value = '1';
+      document.getElementById('speed-value').textContent = '1';
       document.getElementById('agent-temperature').value = '0.7';
       document.getElementById('temperature-value').textContent = '0.7';
       document.getElementById('agent-active').value = 'true';
@@ -2193,6 +2218,10 @@
     });
 
     // Temperature slider
+    document.getElementById('agent-speed').addEventListener('input', (e) => {
+      document.getElementById('speed-value').textContent = e.target.value;
+    });
+
     document.getElementById('agent-temperature').addEventListener('input', (e) => {
       document.getElementById('temperature-value').textContent = e.target.value;
     });

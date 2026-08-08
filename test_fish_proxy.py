@@ -315,11 +315,35 @@ async def test_ulaw_fallback():
     print("✅ μ-law: кадр перекодирован, timestamp остался в сэмплах")
 
 
+async def test_speed_and_temperature_reach_fish():
+    """Скорость и живость доезжают до Fish, старые значения зажимаются."""
+    from backend.models.fish_assistant import FishAssistantConfig as F
+
+    a = F(name="t", sample_rate=8000, fish_latency="low",
+          voice_speed=1.4, temperature=0.3, fish_voice_id="v1")
+    req = a.get_fish_start_request()
+    assert req["prosody"]["speed"] == 1.4, req
+    assert req["temperature"] == 0.3, req
+    assert req["latency"] == "low", req
+
+    # У записей, созданных когда temperature считалась параметром LLM,
+    # значение могло быть до 2 — Fish принимает только 0–1.
+    old = F(name="t", sample_rate=8000, temperature=1.8, voice_speed=None)
+    req = old.get_fish_start_request()
+    assert req["temperature"] == 1.0, req
+    assert req["prosody"]["speed"] == 1.0, req
+
+    # и запредельная скорость тоже зажимается
+    fast = F(name="t", sample_rate=8000, voice_speed=9.0)
+    assert fast.get_fish_start_request()["prosody"]["speed"] == 2.0
+    print("✅ speed/temperature уходят в Fish, выходы за диапазон зажимаются")
+
+
 async def main():
     for t in (test_framing, test_text_and_flush, test_barge_in, test_stale_audio_dropped, test_lead_throttle,
               test_utterance_boundaries, test_single_speech_done_per_turn,
               test_no_speech_done_without_flush, test_encoding_matches_rate,
-              test_ulaw_fallback):
+              test_ulaw_fallback, test_speed_and_temperature_reach_fish):
         await t()
     print("\nвсе проверки прокси пройдены")
 
