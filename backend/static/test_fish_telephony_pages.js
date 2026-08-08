@@ -4,7 +4,21 @@
  * тянет своих ассистентов и уходит в запросы с assistant_type="fish".
  */
 const path = require("path");
-const { chromium } = require(path.join(__dirname, "node_modules", "playwright"));
+// playwright ставится отдельно (npm i playwright) — ищем его и рядом со
+// скриптом, и в корне репозитория, и глобально.
+function loadPlaywright() {
+    const candidates = [
+        "playwright",
+        path.join(__dirname, "node_modules", "playwright"),
+        path.join(__dirname, "..", "..", "node_modules", "playwright"),
+    ];
+    for (const c of candidates) {
+        try { return require(c); } catch (e) { /* пробуем следующий */ }
+    }
+    console.error("playwright не найден. Установите: npm i playwright");
+    process.exit(1);
+}
+const { chromium } = loadPlaywright();
 
 const STATIC = "/home/user/new_struktura_VoiceAI/backend/static";
 
