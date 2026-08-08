@@ -71,7 +71,10 @@ async def test_framing():
 
     start = vox.sent[0]
     assert start["event"] == "start", start
-    assert start["start"]["mediaFormat"] == {"encoding": "PCM16", "sampleRate": 8000}, start
+    # 8 кГц PCM16 в терминах WebSocketAudioEncoding называется "PCM8"
+    assert start["start"]["mediaFormat"] == {"encoding": "PCM8", "sampleRate": 8000}, start
+    # tag не шлём: sendMediaTo(call) в сценарии вызывается без тега
+    assert "tag" not in start["start"], start
 
     media = [m for m in vox.sent if m["event"] == "media"]
     assert len(media) == 3, f"ожидалось 3 кадра, отправлено {len(media)}"
@@ -270,10 +273,53 @@ async def test_no_speech_done_without_flush():
     print("✅ без flush конец реплики не объявляется")
 
 
+async def test_encoding_matches_rate():
+    """Имя кодека берётся из перечисления Voximplant, а не из частоты наугад."""
+    from backend.websockets.handler_fish_tts import PCM_ENCODING_BY_RATE
+    assert PCM_ENCODING_BY_RATE[8000] == "PCM8"
+    assert PCM_ENCODING_BY_RATE[16000] == "PCM16"
+
+    vox, fish = FakeVoxWS(), FakeFishWS()
+    s16 = make_session(vox, fish, sample_rate=16000)
+    assert s16.encoding == "PCM16", s16.encoding
+    assert _frame_bytes(16000) == 640, _frame_bytes(16000)
+    print("✅ кодек по частоте: 8000→PCM8, 16000→PCM16")
+
+
+async def test_ulaw_fallback():
+    """FISH_TTS_ENCODING=ULAW перекодирует кадр и вдвое ужимает payload."""
+    import base64 as _b64
+    import backend.websockets.handler_fish_tts as h
+
+    vox, fish = FakeVoxWS(), FakeFishWS()
+    s = make_session(vox, fish)
+    s.encoding = "ULAW"                      # как при FISH_TTS_ENCODING=ULAW
+
+    frame = _frame_bytes(8000)
+    await s._send_start()
+    s.audio_buffer.extend(b"\x11\x22" * (frame // 2))
+
+    pump = asyncio.create_task(s._pump_to_call())
+    await asyncio.sleep(0.05)
+    s.closing = True
+    await pump
+
+    start = vox.sent[0]
+    assert start["start"]["mediaFormat"]["encoding"] == "ULAW", start
+
+    media = [m for m in vox.sent if m["event"] == "media"][0]
+    payload = _b64.b64decode(media["media"]["payload"])
+    assert len(payload) == frame // 2, f"μ-law кадр должен быть вдвое короче: {len(payload)}"
+    # счётчик остаётся в сэмплах, а не в байтах μ-law
+    assert media["media"]["timestamp"] == 0, media
+    print("✅ μ-law: кадр перекодирован, timestamp остался в сэмплах")
+
+
 async def main():
     for t in (test_framing, test_text_and_flush, test_barge_in, test_stale_audio_dropped, test_lead_throttle,
               test_utterance_boundaries, test_single_speech_done_per_turn,
-              test_no_speech_done_without_flush):
+              test_no_speech_done_without_flush, test_encoding_matches_rate,
+              test_ulaw_fallback):
         await t()
     print("\nвсе проверки прокси пройдены")
 

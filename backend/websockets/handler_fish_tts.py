@@ -31,8 +31,10 @@ Fish Audio говорит по своему протоколу на MessagePack
 """
 
 import asyncio
+import audioop
 import base64
 import json
+import os
 import time
 import traceback
 from typing import Optional
@@ -49,6 +51,30 @@ from backend.models.user import User
 logger = get_logger(__name__)
 
 FISH_WS_URL = "wss://api.fish.audio/v1/tts/live"
+
+# Кодек, которым представляемся Voximplant в StartEvent.
+#
+# Названия берём из WebSocketAudioEncoding (voxengine.d.ts), а не из примера
+# в доке: там показан кадр, который Voximplant ОТПРАВЛЯЕТ, и в нём
+# encoding="PCM16" при sampleRate=8000 — с перечислением это расходится.
+#
+#     PCM16_8KHZ  = 'PCM8'    ← 8 кГц
+#     PCM16_16KHZ = 'PCM16'   ← 16 кГц
+#     ULAW        = 'ULAW'    ← 8 кГц, G.711 μ-law
+#
+# На первом боевом звонке мы слали "PCM16" с sampleRate 8000 — Voximplant
+# счёл StartEvent невалидным, MEDIA_STARTED не сработал, и звук в трубку не
+# попал вообще. Отсюда явное сопоставление частоты и имени кодека.
+PCM_ENCODING_BY_RATE = {
+    8000:  "PCM8",
+    16000: "PCM16",
+}
+
+# Запасной вариант: отдавать G.711 μ-law. Именно эта пара (ULAW + 8000)
+# фигурирует в единственном рабочем примере отправителя в документации
+# Voximplant, поэтому её оставляем переключателем на случай, если PCM8
+# тоже не примут. Включается переменной окружения FISH_TTS_ENCODING=ULAW.
+FORCE_ENCODING = (os.getenv("FISH_TTS_ENCODING") or "").strip().upper()
 
 # Длительность одного медиа-кадра в звонок. 20 мс — рекомендованный докой
 # шаг; при 8 кГц PCM16 это ровно 320 байт.
@@ -94,6 +120,13 @@ class _FishTTSSession:
         self.sample_rate = assistant.sample_rate or 8000
         self.frame_size = _frame_bytes(self.sample_rate)
 
+        # Кодек, которым представляемся Voximplant. Из Fish всегда идёт PCM16;
+        # при ULAW кадр перекодируется перед отправкой (см. _encode_frame).
+        if FORCE_ENCODING in ("ULAW", "ALAW"):
+            self.encoding = FORCE_ENCODING
+        else:
+            self.encoding = PCM_ENCODING_BY_RATE.get(self.sample_rate, "PCM8")
+
         self.fish: Optional[websockets.WebSocketClientProtocol] = None
         self.audio_buffer = bytearray()
         self.buffer_lock = asyncio.Lock()
@@ -137,14 +170,19 @@ class _FishTTSSession:
     # ------------------------------------------------------------------
 
     async def _send_start(self) -> None:
-        """StartEvent — обязан быть первым фреймом в сторону VoxEngine."""
+        """
+        StartEvent — обязан быть первым фреймом в сторону VoxEngine.
+
+        Без tag: сценарий вызывает sendMediaTo(call) без тега, а помеченный
+        поток к непомеченному потребителю не привязывается. В рабочем примере
+        из документации tag тоже отсутствует.
+        """
         await self.ws.send_text(json.dumps({
             "event": "start",
             "sequenceNumber": self.sequence,
             "start": {
-                "tag": f"fish-{self.assistant.id}",
                 "mediaFormat": {
-                    "encoding": "PCM16",
+                    "encoding": self.encoding,
                     "sampleRate": self.sample_rate,
                 },
             },
@@ -152,7 +190,7 @@ class _FishTTSSession:
         self.sequence += 1
         self.started = True
         logger.info(
-            f"[FISH-TTS] StartEvent sent: PCM16 @ {self.sample_rate} Hz "
+            f"[FISH-TTS] StartEvent sent: {self.encoding} @ {self.sample_rate} Hz "
             f"(frame {self.frame_size} bytes)"
         )
 
@@ -164,18 +202,31 @@ class _FishTTSSession:
         RTP), а не миллисекунды: для PCM16 число сэмплов равно длине в
         байтах, делённой на 2. chunk — порядковый номер пакета.
         """
+        # timestamp считаем по сэмплам ДО перекодирования: в μ-law на сэмпл
+        # приходится один байт, в PCM16 — два, а счётчик должен остаться
+        # счётчиком сэмплов.
+        samples = self.bytes_sent // 2
+
         await self.ws.send_text(json.dumps({
             "event": "media",
             "sequenceNumber": self.sequence,
             "media": {
-                "timestamp": self.bytes_sent // 2,
+                "timestamp": samples,
                 "chunk": self.chunk,
-                "payload": base64.b64encode(payload).decode("ascii"),
+                "payload": base64.b64encode(self._encode_frame(payload)).decode("ascii"),
             },
         }))
         self.sequence += 1
         self.chunk += 1
         self.bytes_sent += len(payload)
+
+    def _encode_frame(self, pcm16: bytes) -> bytes:
+        """Приводит кадр из Fish (PCM16) к кодеку, заявленному в StartEvent."""
+        if self.encoding == "ULAW":
+            return audioop.lin2ulaw(pcm16, 2)
+        if self.encoding == "ALAW":
+            return audioop.lin2alaw(pcm16, 2)
+        return pcm16
 
     async def _send_control(self, event: str, payload: dict) -> None:
         """

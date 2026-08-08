@@ -72,6 +72,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var ttsQueue = [];
     var ttsFlushQueued = false;
     var ttsReopens = 0;
+    var ttsMediaAccepted = false;  // пришёл ли MEDIA_STARTED (StartEvent принят)
 
     // ── Состояние текущей реплики ассистента ────────────────────────────────
     var turnFullText   = "";
@@ -370,6 +371,20 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             }
         });
 
+        // Voximplant подтверждает, что StartEvent принят и поток привязан.
+        // Если этого события нет — аудио в трубку не попадёт вообще, каким бы
+        // исправным ни выглядел остальной лог (так и вышло на первом звонке:
+        // MEDIA_STARTED не пришёл, потому что StartEvent был отвергнут).
+        ttsSocket.addEventListener(WebSocketEvents.MEDIA_STARTED, function(ev) {
+            ttsMediaAccepted = true;
+            Logger.write("[Fish] ✅ MEDIA_STARTED — поток принят, кодек " +
+                (ev && ev.encoding));
+        });
+
+        ttsSocket.addEventListener(WebSocketEvents.MEDIA_ENDED, function() {
+            Logger.write("[Fish] MEDIA_ENDED — поток закрыт");
+        });
+
         ttsSocket.addEventListener(WebSocketEvents.MESSAGE, function(ev) {
             var msg;
             try {
@@ -569,6 +584,14 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
 
         if (!ttsOpen) {
             Logger.write("⚠️ [Fish] сокет закрыт — ждём переоткрытия");
+            return;
+        }
+
+        if (!ttsMediaAccepted) {
+            Logger.write("❌ [Fish] MEDIA_STARTED так и не пришёл — Voximplant " +
+                "не принял StartEvent прокси. Аудио в трубку не пойдёт: " +
+                "проверьте mediaFormat.encoding (для 8 кГц это PCM8) и что " +
+                "в StartEvent нет tag.");
             return;
         }
 

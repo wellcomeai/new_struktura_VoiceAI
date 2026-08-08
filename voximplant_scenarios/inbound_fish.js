@@ -32,11 +32,14 @@ require(Modules.OpenAI);
  *      перебивание — это clearMediaBuffer() на сокете: очередь гасится
  *      мгновенно, ждать нечего.
  *   4. Границы реплики приходят от прокси служебными сообщениями
- *      speech_started / speech_done. Штатные MEDIA_STARTED / MEDIA_ENDED
- *      здесь бесполезны: они относятся к медиапотоку целиком, а он живёт
- *      весь звонок. speech_done несёт remaining_ms — сколько аудио ещё
- *      доигрывает в буфере Voximplant; по нему кладём трубку после
+ *      speech_started / speech_done: штатные MEDIA_STARTED / MEDIA_ENDED
+ *      для этого не годятся — они относятся к медиапотоку целиком, а он
+ *      живёт весь звонок. speech_done несёт remaining_ms — сколько аудио
+ *      ещё доигрывает в буфере Voximplant; по нему кладём трубку после
  *      прощания, не гадая о длине фразы.
+ *      Сам MEDIA_STARTED при этом слушаем как индикатор: он приходит
+ *      только если Voximplant принял StartEvent прокси. Нет его — значит
+ *      звука в трубке не будет, сколько бы текста мы ни отправили.
  */
 
 // ============================================================================
@@ -93,6 +96,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var ttsQueue = [];           // текст, накопленный до открытия сокета
     var ttsFlushQueued = false;  // в очереди есть незакрытая реплика
     var ttsReopens = 0;
+    var ttsMediaAccepted = false;  // пришёл ли MEDIA_STARTED (StartEvent принят)
 
     // ── Состояние текущей реплики ассистента ────────────────────────────────
     var turnFullText = "";
@@ -366,6 +370,20 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             }
         });
 
+        // Voximplant подтверждает, что StartEvent принят и поток привязан.
+        // Если этого события нет — аудио в трубку не попадёт вообще, каким бы
+        // исправным ни выглядел остальной лог (так и вышло на первом звонке:
+        // MEDIA_STARTED не пришёл, потому что StartEvent был отвергнут).
+        ttsSocket.addEventListener(WebSocketEvents.MEDIA_STARTED, function(ev) {
+            ttsMediaAccepted = true;
+            Logger.write("[Fish] ✅ MEDIA_STARTED — поток принят, кодек " +
+                (ev && ev.encoding));
+        });
+
+        ttsSocket.addEventListener(WebSocketEvents.MEDIA_ENDED, function() {
+            Logger.write("[Fish] MEDIA_ENDED — поток закрыт");
+        });
+
         // Прокси присылает служебные сообщения о границах реплики.
         ttsSocket.addEventListener(WebSocketEvents.MESSAGE, function(ev) {
             var msg;
@@ -568,6 +586,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
         if (!ttsOpen) {
             Logger.write("⚠️ [Fish] сокет закрыт — ждём переоткрытия");
+            return;
+        }
+
+        if (!ttsMediaAccepted) {
+            Logger.write("❌ [Fish] MEDIA_STARTED так и не пришёл — Voximplant " +
+                "не принял StartEvent прокси. Аудио в трубку не пойдёт: " +
+                "проверьте mediaFormat.encoding (для 8 кГц это PCM8) и что " +
+                "в StartEvent нет tag.");
             return;
         }
 
