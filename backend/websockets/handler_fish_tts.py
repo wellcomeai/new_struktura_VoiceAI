@@ -58,7 +58,13 @@ FRAME_MS = 20
 # у Voximplant относятся к медиапотоку целиком, а он у нас живёт весь звонок,
 # поэтому границу реплики сценарию сообщаем сами — служебными сообщениями
 # speech_started / speech_done.
-UTTERANCE_IDLE_MS = 400
+#
+# 400 мс оказалось мало: на боевом звонке Fish отдавал одну реплику тремя
+# пачками с паузами больше 400 мс, и прокси рапортовал три конца реплики
+# подряд (remaining_ms 56 → 3403 → 4831). Для сценария это опасно: по
+# первому speech_done он кладёт трубку после прощания и открывает шлюз
+# приветствия в исходящем — то есть оборвал бы речь на полуслове.
+UTTERANCE_IDLE_MS = 700
 
 # Насколько далеко вперёд реального времени разрешено убегать.
 # Voximplant буферизует медиа сам и проигрывает в реальном времени, но буфер
@@ -107,6 +113,12 @@ class _FishTTSSession:
         # Границы реплики (см. UTTERANCE_IDLE_MS).
         self.utterance_active = False
         self.last_audio_at = 0.0
+
+        # Конец реплики привязан к flush, а не к одной лишь тишине от Fish:
+        # флаг взводится каждым flush и гасится первым же speech_done. Иначе
+        # пауза в середине реплики выглядит как её конец, и сценарий получает
+        # несколько speech_done на один ход.
+        self.flush_pending = False
 
         # Поколение соединения с Fish. У Fish нет события отмены синтеза
         # (только start/text/flush/stop), поэтому единственный способ
@@ -219,9 +231,11 @@ class _FishTTSSession:
                 # доигрывает в буфере Voximplant.
                 if (
                     self.utterance_active
+                    and self.flush_pending
                     and (time.monotonic() - self.last_audio_at) * 1000.0 > UTTERANCE_IDLE_MS
                 ):
                     self.utterance_active = False
+                    self.flush_pending = False
                     await self._send_control("speech_done", {
                         "remaining_ms": max(0, int(self._lead_ms())),
                     })
@@ -370,6 +384,10 @@ class _FishTTSSession:
                     self.pending_text.append(text)
 
         elif event == "flush":
+            # Каждый flush переоткрывает окно ожидания конца реплики: ранний
+            # flush первого предложения и финальный flush хода дают один
+            # speech_done — по последнему из них.
+            self.flush_pending = True
             if self.fish is not None:
                 await self.fish.send(msgpack.packb({"event": "flush"}))
 
@@ -390,6 +408,7 @@ class _FishTTSSession:
             self.stream_started_at = None
             self.queued_ms = 0.0
             self.utterance_active = False
+            self.flush_pending = False
 
             if old_fish is not None:
                 asyncio.create_task(self._close_socket(old_fish))

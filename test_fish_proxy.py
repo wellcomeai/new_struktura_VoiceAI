@@ -185,6 +185,7 @@ async def test_utterance_boundaries():
     s = make_session(vox, fish)
     frame = _frame_bytes(8000)
 
+    await s.handle_command({"event": "flush"})        # ход закрыт сценарием
     s.last_audio_at = __import__("time").monotonic()
     s.audio_buffer.extend(b"\x00" * (frame * 5))     # 100 мс речи
 
@@ -207,9 +208,72 @@ async def test_utterance_boundaries():
     print("✅ границы реплики: speech_started/speech_done + остаток буфера")
 
 
+async def test_single_speech_done_per_turn():
+    """
+    Одна реплика — один speech_done, даже если Fish отдаёт её пачками.
+
+    Регрессия с боевого звонка: Fish присылал длинный ответ тремя порциями
+    с паузами, и прокси рапортовал три конца реплики (remaining_ms
+    56 → 3403 → 4831). Сценарий по первому же кладёт трубку после прощания,
+    то есть обрывал бы речь на полуслове.
+    """
+    import time as _t
+    from backend.websockets.handler_fish_tts import UTTERANCE_IDLE_MS
+    vox, fish = FakeVoxWS(), FakeFishWS()
+    s = make_session(vox, fish)
+    frame = _frame_bytes(8000)
+
+    # сценарий закрыл ход
+    await s.handle_command({"event": "flush"})
+    assert s.flush_pending is True
+
+    pump = asyncio.create_task(s._pump_to_call())
+
+    # три пачки аудио с паузами длиннее старого порога в 400 мс
+    for _ in range(3):
+        s.last_audio_at = _t.monotonic()
+        async with s.buffer_lock:
+            s.audio_buffer.extend(b"\x00" * (frame * 5))
+        await asyncio.sleep(0.5)
+
+    # выдерживаем настоящую паузу — вот теперь реплика точно закончилась
+    await asyncio.sleep((UTTERANCE_IDLE_MS + 250) / 1000.0)
+    s.closing = True
+    await pump
+
+    done = [m for m in vox.sent if m["event"] == "speech_done"]
+    assert len(done) == 1, (
+        f"на один ход пришло {len(done)} speech_done — сценарий оборвёт речь"
+    )
+    assert s.flush_pending is False, "флаг flush не сброшен"
+    print("✅ один speech_done на реплику, отданную пачками")
+
+
+async def test_no_speech_done_without_flush():
+    """Без flush реплика не считается законченной: ход ещё идёт."""
+    import time as _t
+    from backend.websockets.handler_fish_tts import UTTERANCE_IDLE_MS
+    vox, fish = FakeVoxWS(), FakeFishWS()
+    s = make_session(vox, fish)
+    frame = _frame_bytes(8000)
+
+    s.last_audio_at = _t.monotonic()
+    s.audio_buffer.extend(b"\x00" * (frame * 5))
+
+    pump = asyncio.create_task(s._pump_to_call())
+    await asyncio.sleep((UTTERANCE_IDLE_MS + 250) / 1000.0)
+    s.closing = True
+    await pump
+
+    done = [m for m in vox.sent if m["event"] == "speech_done"]
+    assert len(done) == 0, "speech_done пришёл до flush: " + str(done)
+    print("✅ без flush конец реплики не объявляется")
+
+
 async def main():
     for t in (test_framing, test_text_and_flush, test_barge_in, test_stale_audio_dropped, test_lead_throttle,
-              test_utterance_boundaries):
+              test_utterance_boundaries, test_single_speech_done_per_turn,
+              test_no_speech_done_without_flush):
         await t()
     print("\nвсе проверки прокси пройдены")
 
