@@ -28,6 +28,7 @@ from backend.models.fish_assistant import (
     DEFAULT_FISH_SAMPLE_RATE,
     DEFAULT_FISH_LATENCY,
     FISH_MODELS,
+    FISH_SELECTABLE_MODELS,
     FISH_LATENCY_MODES,
     FISH_SPEED_MIN,
     FISH_SPEED_MAX,
@@ -219,7 +220,9 @@ async def verify_assistant_access(
 async def get_fish_options():
     """Справочник моделей синтеза и режимов латентности Fish Audio."""
     return {
-        "models": FISH_MODELS,
+        # В селекторе — только обкатываемая модель; API при этом принимает
+        # весь FISH_MODELS, чтобы старые агенты продолжали сохраняться.
+        "models": FISH_SELECTABLE_MODELS,
         "default_model": DEFAULT_FISH_MODEL,
         "latency_modes": FISH_LATENCY_MODES,
         "default_latency": DEFAULT_FISH_LATENCY,
