@@ -329,6 +329,7 @@
         .assistant-type-tab.active.cartesia i { color: #8b5cf6; }
         .assistant-type-tab.active.yandex i { color: #fc3f1d; }
         .assistant-type-tab.active.cascade i { color: #f59e0b; }
+        .assistant-type-tab.active.fish i { color: #0ea5e9; }
         
         /* Phones Counter */
         .phones-counter {
@@ -656,6 +657,10 @@
                             <i class="fas fa-layer-group"></i>
                             Cascade
                         </div>
+                        <div class="assistant-type-tab fish" data-type="fish">
+                            <i class="fas fa-fish"></i>
+                            Fish
+                        </div>
                     </div>
                     
                     <div id="assistantLoading" class="loading-state">
@@ -785,7 +790,8 @@
                 gemini: [],
                 cartesia: [],
                 yandex: [],
-                cascade: []
+                cascade: [],
+                fish: []
             },
             numbers: [],
             isLoading: false,
@@ -907,6 +913,8 @@
                     endpoint = '/api/yandex-assistants';
                 } else if (type === 'cascade') {
                     endpoint = '/api/grok-assistants/cascade';
+                } else if (type === 'fish') {
+                    endpoint = '/api/fish-assistants';
                 }
                 
                 const response = await fetchWithAuth(endpoint);
@@ -1047,7 +1055,8 @@
                 gemini: '/static/gemini-agents.html',
                 cartesia: '/static/cartesia-agents.html',
                 yandex: '/static/yandex-agents.html',
-                cascade: '/static/cascade.html'
+                cascade: '/static/cascade.html',
+                fish: '/static/fish-agents.html'
             };
             const link = document.getElementById('createAssistantLink');
             if (link) {
