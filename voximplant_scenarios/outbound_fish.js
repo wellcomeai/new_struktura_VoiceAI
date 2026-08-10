@@ -1,7 +1,7 @@
 require(Modules.OpenAI);
 
 /*
- * Voximplant OUTBOUND Fish Script v1.0
+ * Voximplant OUTBOUND Fish Script v1.1
  * ====================================================================
  * Архитектура — та же, что в inbound_fish:
  *   - OpenAI Realtime API (output_modalities: text) ведёт диалог и сам
@@ -25,6 +25,12 @@ require(Modules.OpenAI);
  *      Момент окончания приходит от прокси сообщением speech_done —
  *      длину фразы оценивать не нужно (cartesia_outbound считает её по
  *      символам, здесь это лишнее).
+ *
+ *   5. Контекст звонка из customData (v1.1): имя контакта, задача звонка и
+ *      её описание дописываются в instructions, а custom_greeting (первая
+ *      фраза от PreCall-оркестратора агента обзвона) переопределяет
+ *      приветствие из конфига. В конфиге ассистента этого быть не может:
+ *      один голос обзванивает разных людей по разным поводам.
  */
 
 // ============================================================================
@@ -53,7 +59,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     call_session_history_id = e.sessionId;
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🚀 APP STARTED (OUTBOUND Fish v1.0)");
+    Logger.write("🚀 APP STARTED (OUTBOUND Fish v1.1)");
     Logger.write("🔑 Session History ID: " + call_session_history_id);
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -126,6 +132,16 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var MUTE_DURATION         = callData.mute_duration_ms !== undefined ? callData.mute_duration_ms : 3000;
     var FIRST_PHRASE_OVERRIDE = callData.first_phrase || null;
 
+    // Контекст звонка от бэкенда (агент обзвона / задача из CRM). Приезжает в
+    // script_custom_data — см. voximplant_partner.start_outbound_call.
+    // custom_greeting — первая фраза, которую сочинил PreCall-оркестратор для
+    // конкретного контакта; она приоритетнее приветствия из конфига.
+    var CONTACT_NAME     = callData.contact_name || "";
+    var TASK_TITLE       = callData.task_title || "";
+    var TASK_DESCRIPTION = callData.task_description || "";
+    var API_TASK         = callData.task || "";
+    var CUSTOM_GREETING  = callData.custom_greeting || "";
+
     if (!PHONE_NUMBER || !ASSISTANT_ID) {
         Logger.write("❌ Missing required parameters: phone_number or assistant_id");
         VoxEngine.terminate();
@@ -145,7 +161,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var LOG_URL       = "https://voicyfy.ru/api/voximplant/log";
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("📞 OUTBOUND CALL (Fish v1.0)");
+    Logger.write("📞 OUTBOUND CALL (Fish v1.1)");
     Logger.write("   To: " + PHONE_NUMBER);
     Logger.write("   Caller ID: " + CALLER_ID);
     Logger.write("   Assistant: " + ASSISTANT_ID);
@@ -282,7 +298,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         return;
     }
 
-    GREETING = (FIRST_PHRASE_OVERRIDE || CONFIG.first_phrase || "Здравствуйте!").trim();
+    GREETING = (CUSTOM_GREETING || FIRST_PHRASE_OVERRIDE || CONFIG.first_phrase || "Здравствуйте!").trim();
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     Logger.write("✅ CONFIG LOADED:");
@@ -293,7 +309,54 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
                  " (" + CONFIG.fish_latency + ", " + CONFIG.sample_rate + " Hz)");
     Logger.write("   👋 Greeting: \"" + GREETING.substring(0, 60) + "\"");
     Logger.write("   🔧 Functions: " + (CONFIG.functions ? CONFIG.functions.length : 0));
+    if (CONTACT_NAME || TASK_TITLE || TASK_DESCRIPTION || API_TASK) {
+        Logger.write("   📇 CRM: " + (CONTACT_NAME || "без имени") +
+            (TASK_TITLE ? " | " + TASK_TITLE : ""));
+    }
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    // =========================================================================
+    // КОНТЕКСТ ЗВОНКА → В ПРОМПТ
+    // =========================================================================
+    // Задача звонка и карточка контакта известны только бэкенду, в конфиге
+    // ассистента их нет: один и тот же голос обзванивает разных людей по разным
+    // поводам. Поэтому контекст приезжает в customData и дописывается в
+    // instructions — как в outbound_cascade.
+    function buildContextBlock() {
+        var block = "";
+        if (API_TASK) {
+            block +=
+                "══════════════════════════════════════\n" +
+                "ЗАДАЧА НА ЭТОТ ЗВОНОК\n" +
+                "══════════════════════════════════════\n" +
+                API_TASK + "\n" +
+                "Выполни эту задачу — это главная цель звонка.\n" +
+                "══════════════════════════════════════\n\n";
+        }
+        if (CONTACT_NAME || TASK_TITLE || TASK_DESCRIPTION) {
+            block +=
+                "══════════════════════════════════════\n" +
+                "КОНТЕКСТ ЗВОНКА (CRM)\n" +
+                "══════════════════════════════════════\n";
+            if (CONTACT_NAME)     block += "Клиент: " + CONTACT_NAME + " (обращайся по имени).\n";
+            if (TASK_TITLE)       block += "Задача: " + TASK_TITLE + "\n";
+            if (TASK_DESCRIPTION) block += "Подробности: " + TASK_DESCRIPTION + "\n";
+            block += "══════════════════════════════════════\n\n";
+        }
+        return block;
+    }
+
+    // Реальные номера и текущее время в промпт: без них модель не может
+    // корректно вызвать send_sms (некуда отправлять) и путается в датах.
+    // Для исходящего caller_number — номер клиента, called_number — наш. МСК.
+    function buildCallInfoBlock() {
+        var mskTime = new Date(Date.now() + 3 * 3600 * 1000)
+            .toISOString().replace("T", " ").slice(0, 16);
+        return "\n\nИнформация о звонке:\n" +
+            "- Номер клиента (caller_number): " + PHONE_NUMBER + "\n" +
+            "- Наш номер (called_number): " + CALLER_ID + "\n" +
+            "- Текущее время: " + mskTime + " (МСК)";
+    }
 
     // =========================================================================
     // ПОДГОТОВКА ФУНКЦИЙ
@@ -307,10 +370,19 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
                 var functionId = (i + 1).toString();
                 functionNameToIdMap[tool.function.name] = functionId;
                 Logger.write("   🔧 Function: " + tool.function.name + " → ID: " + functionId);
+                var description = tool.function.description;
+                if (tool.function.name === "hangup_call") {
+                    // Без нажима модель «прощается словами» и держит линию до
+                    // таймаута — на исходящем это лишние минуты телефонии.
+                    description = "КРИТИЧЕСКИ ВАЖНО: вызови эту функцию НЕМЕДЛЕННО, " +
+                        "когда задача звонка выполнена или собеседник хочет закончить " +
+                        "разговор («пока», «до свидания», «всё, спасибо»). Не прощайся " +
+                        "просто словами — вызови функцию.";
+                }
                 voximplantTools.push({
                     type: "function",
                     name: tool.function.name,
-                    description: tool.function.description,
+                    description: description,
                     parameters: tool.function.parameters
                 });
             }
@@ -717,9 +789,10 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             sessionConfigured = true;
             Logger.write("[OpenAI] Session created — configuring");
 
-            var instructions = CONFIG.system_prompt || "";
+            var instructions = buildContextBlock() + (CONFIG.system_prompt || "");
             instructions += "\n\nТы уже поприветствовал абонента фразой: «" +
                 GREETING + "». Не здоровайся повторно.";
+            instructions += buildCallInfoBlock();
 
             realtimeAPIClient.sessionUpdate({
                 session: {
@@ -1034,7 +1107,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     });
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🎉 READY (OUTBOUND Fish v1.0)");
+    Logger.write("🎉 READY (OUTBOUND Fish v1.1)");
     Logger.write("   🔑 Session: "     + call_session_history_id);
     Logger.write("   🐟 TTS: Fish "    + CONFIG.fish_model + " через прокси");
     Logger.write("   🎧 VAD silence: " + VAD_SILENCE_MS + "ms");

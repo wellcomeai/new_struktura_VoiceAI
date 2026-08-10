@@ -93,6 +93,14 @@ class Task(Base):
         index=True
     )
 
+    # Fish ассистент (OpenAI Realtime + Fish Audio TTS) - nullable
+    fish_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("fish_assistant_configs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
     # Пользователь - владелец задачи (обязательно)
     user_id = Column(
         UUID(as_uuid=True), 
@@ -183,6 +191,7 @@ class Task(Base):
     cartesia_assistant = relationship("CartesiaAssistantConfig", foreign_keys=[cartesia_assistant_id])
     yandex_assistant = relationship("YandexAssistantConfig", foreign_keys=[yandex_assistant_id])
     cascade_assistant = relationship("GrokAssistantConfig", foreign_keys=[cascade_assistant_id])
+    fish_assistant = relationship("FishAssistantConfig", foreign_keys=[fish_assistant_id])
     user = relationship("User")
     
     # ==================== Constraints & Indexes ====================
@@ -213,6 +222,8 @@ class Task(Base):
             return "yandex"
         elif self.cascade_assistant_id:
             return "cascade"
+        elif self.fish_assistant_id:
+            return "fish"
         else:
             return "cartesia"
 
@@ -226,6 +237,8 @@ class Task(Base):
             return str(self.yandex_assistant_id)
         elif self.cascade_assistant_id:
             return str(self.cascade_assistant_id)
+        elif self.fish_assistant_id:
+            return str(self.fish_assistant_id)
         else:
             return str(self.cartesia_assistant_id)
     
@@ -238,6 +251,8 @@ class Task(Base):
             "gemini_assistant_id": str(self.gemini_assistant_id) if self.gemini_assistant_id else None,
             "cartesia_assistant_id": str(self.cartesia_assistant_id) if self.cartesia_assistant_id else None,
             "yandex_assistant_id": str(self.yandex_assistant_id) if self.yandex_assistant_id else None,
+            "cascade_assistant_id": str(self.cascade_assistant_id) if self.cascade_assistant_id else None,
+            "fish_assistant_id": str(self.fish_assistant_id) if self.fish_assistant_id else None,
             "assistant_type": self.get_assistant_type(),  # ✅ Новое поле
             "user_id": str(self.user_id),
             "status": self.status.value,

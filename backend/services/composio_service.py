@@ -691,7 +691,7 @@ def composio_user_id_for_agent(agent_config_id) -> str:
 
 
 def _resolve_owner_agent(db, assistant_config):
-    """AgentConfig, владеющий данным голосовым ассистентом (gemini/openai/cartesia), или None."""
+    """AgentConfig, владеющий данным голосовым ассистентом (любого провайдера), или None."""
     aid = getattr(assistant_config, "id", None)
     if not aid:
         return None
@@ -702,6 +702,8 @@ def _resolve_owner_agent(db, assistant_config):
         AgentConfig.openai_assistant_id == aid,
         AgentConfig.cartesia_assistant_id == aid,
         AgentConfig.yandex_assistant_id == aid,
+        AgentConfig.cascade_assistant_id == aid,
+        AgentConfig.fish_assistant_id == aid,
     )).first()
 
 

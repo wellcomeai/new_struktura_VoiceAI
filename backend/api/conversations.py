@@ -38,6 +38,7 @@ from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConvers
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.grok_assistant import GrokAssistantConfig  # 🆕 cascade
+from backend.models.fish_assistant import FishAssistantConfig  # 🆕 fish
 from backend.models.function_log import FunctionLog
 
 logger = get_logger(__name__)
@@ -97,12 +98,19 @@ def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
         GrokAssistantConfig.assistant_type == "cascade"
     ).all()
 
+    # Fish assistants (диалог ведёт OpenAI Realtime в сценарии, озвучка — Fish;
+    # звонок логируется в conversations под fish-id).
+    fish_ids = db.query(FishAssistantConfig.id).filter(
+        FishAssistantConfig.user_id == user_id
+    ).all()
+
     all_ids = (
         [a.id for a in openai_ids]
         + [a.id for a in gemini_ids]
         + [a.id for a in cartesia_ids]
         + [a.id for a in yandex_ids]
         + [a.id for a in cascade_ids]
+        + [a.id for a in fish_ids]
     )
 
     return all_ids
@@ -146,6 +154,14 @@ def find_assistant_by_id(db: Session, assistant_id: UUID):
 
     if assistant:
         return assistant, 'yandex'
+
+    # Try Fish
+    assistant = db.query(FishAssistantConfig).filter(
+        FishAssistantConfig.id == assistant_id
+    ).first()
+
+    if assistant:
+        return assistant, 'fish'
 
     # Try cascade (GrokAssistantConfig)
     assistant = db.query(GrokAssistantConfig).filter(
@@ -381,6 +397,11 @@ async def get_conversation_sessions(
         ).all()
         cascade_id_set = {str(c.id) for c in cascade_ids}
 
+        fish_ids = db.query(FishAssistantConfig.id).filter(
+            FishAssistantConfig.user_id == current_user.id
+        ).all()
+        fish_id_set = {str(f.id) for f in fish_ids}
+
         # =============================================================================
         # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
         # =============================================================================
@@ -555,6 +576,7 @@ async def get_conversation_sessions(
                 CartesiaAssistantConfig,
                 YandexAssistantConfig,
                 GrokAssistantConfig,
+                FishAssistantConfig,
             ):
                 rows = db.query(model.id, model.name).filter(
                     model.id.in_(unique_assistant_ids)
@@ -577,6 +599,8 @@ async def get_conversation_sessions(
                 assistant_type = 'yandex'
             elif str(s.assistant_id) in cascade_id_set:
                 assistant_type = 'cascade'
+            elif str(s.assistant_id) in fish_id_set:
+                assistant_type = 'fish'
             else:
                 assistant_type = 'openai'
             

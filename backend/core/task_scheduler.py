@@ -29,6 +29,7 @@ from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.grok_assistant import GrokAssistantConfig
+from backend.models.fish_assistant import FishAssistantConfig
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
@@ -43,6 +44,20 @@ VOXIMPLANT_API_URL = "https://api.voximplant.com/platform_api/StartScenarios/"
 
 # Timezone по умолчанию
 DEFAULT_TIMEZONE = "Europe/Moscow"
+
+# Провайдеры со своим исходящим сценарием. Каскаду нужна цепочка
+# vox-turn-taking + outbound_cascade, Fish — прокси синтеза (/ws/fish/tts/…);
+# общий outbound_crm ни того, ни другого не умеет.
+OUTBOUND_RULE_BY_TYPE = {
+    "cascade": "outbound_cascade",
+    "fish": "outbound_fish",
+}
+DEFAULT_OUTBOUND_RULE = "outbound_crm"
+
+
+def _outbound_rule_name(assistant_type: Optional[str]) -> str:
+    """Имя правила Voximplant для исходящего звонка этим типом ассистента."""
+    return OUTBOUND_RULE_BY_TYPE.get(assistant_type, DEFAULT_OUTBOUND_RULE)
 
 
 class TaskScheduler:
@@ -192,6 +207,16 @@ class TaskScheduler:
                 assistant_name = cascade_assistant.name
                 assistant_type = "cascade"
                 logger.info(f"   Assistant: {cascade_assistant.name} (Cascade)")
+        elif task.fish_assistant_id:
+            # Fish Assistant (OpenAI Realtime в сценарии + озвучка Fish Audio)
+            fish_assistant = db.query(FishAssistantConfig).filter(
+                FishAssistantConfig.id == task.fish_assistant_id
+            ).first()
+            if fish_assistant:
+                assistant_id = str(task.fish_assistant_id)
+                assistant_name = fish_assistant.name
+                assistant_type = "fish"
+                logger.info(f"   Assistant: {fish_assistant.name} (Fish)")
 
         return assistant_id, assistant_name, assistant_type
     
@@ -470,9 +495,7 @@ class TaskScheduler:
     ) -> Tuple[Optional[str], bool]:
         """Initiate agent call via partner API. Returns (session_id, success)."""
         try:
-            # Каскад-голос требует отдельный сценарий (цепочка vox-turn-taking +
-            # outbound_cascade). Остальные провайдеры идут через общий outbound_crm.
-            outbound_rule_name = "outbound_cascade" if assistant_type == "cascade" else "outbound_crm"
+            outbound_rule_name = _outbound_rule_name(assistant_type)
             rule_id = child_account.get_rule_id(outbound_rule_name)
             if not rule_id:
                 task.call_result = f"Outbound rule '{outbound_rule_name}' not configured"
@@ -716,18 +739,33 @@ class TaskScheduler:
             if task.custom_greeting:
                 logger.info(f"   💬 Custom Greeting: {task.custom_greeting[:80]}...")
             
-            # Получаем rule_id для CRM сценария (единый для всех типов ассистентов)
-            rule_name = "outbound_crm"
+            # Сценарий исходящего: общий outbound_crm для провайдеров, которые он
+            # умеет, и свой сценарий у каскада и Fish (см. _outbound_rule_name).
+            rule_name = _outbound_rule_name(assistant_type)
             rule_id = child_account.get_rule_id(rule_name)
-            
+
             if not rule_id:
                 logger.error(f"[TASK-SCHEDULER] ❌ Rule '{rule_name}' not found in child account")
                 logger.error(f"   Available rules: {list(child_account.vox_rule_ids.keys()) if child_account.vox_rule_ids else 'None'}")
                 task.status = TaskStatus.FAILED
-                task.call_result = f"Outbound rule 'outbound_crm' not configured. Run admin endpoint /api/telephony/admin/setup-crm-rules to create it."
+                task.call_result = (
+                    f"Outbound rule '{rule_name}' not configured. Run the matching admin "
+                    f"endpoint (/api/telephony/admin/setup-crm-rules for outbound_crm, "
+                    f"/admin/setup-fish-scenarios or /admin/setup-cascade-scenarios for "
+                    f"provider rules) to create it."
+                )
                 db.commit()
                 return
-            
+
+            # Активный агент пользователя: его default_caller_id служит запасным
+            # номером, а после успешного старта звонка — ключом для PostCall.
+            # Читать эту переменную ДО присваивания (как было раньше) нельзя:
+            # любая задача без явного task.caller_id падала с UnboundLocalError.
+            agent_config = db.query(AgentConfig).filter(
+                AgentConfig.user_id == contact.user_id,
+                AgentConfig.is_active == True
+            ).first()
+
             # ✅ v4.1: Выбор caller_id — из задачи, агента или автоматически
             caller_id = None
 
@@ -805,11 +843,7 @@ class TaskScheduler:
                 logger.info(f"[TASK-SCHEDULER] ✅ Task {task.id} completed successfully (Partner API)")
                 logger.info(f"   Call session ID: {call_session_id}")
 
-                # ✅ v5.0: Launch PostCall if agent is active
-                agent_config = db.query(AgentConfig).filter(
-                    AgentConfig.user_id == contact.user_id,
-                    AgentConfig.is_active == True
-                ).first()
+                # ✅ v5.0: Launch PostCall if agent is active (agent_config найден выше)
                 if agent_config and task.pre_call_response_id:
                     user = db.query(User).filter(User.id == contact.user_id).first()
                     if user and user.openai_api_key:

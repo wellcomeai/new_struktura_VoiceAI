@@ -24,6 +24,7 @@ from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
 from backend.models.cartesia_assistant import CartesiaAssistantConfig
 from backend.models.yandex_assistant import YandexAssistantConfig
 from backend.models.grok_assistant import GrokAssistantConfig  # 🆕 cascade
+from backend.models.fish_assistant import FishAssistantConfig  # 🆕 fish
 from backend.models.function_log import FunctionLog
 from backend.schemas.conversation import ConversationCreate, ConversationResponse, ConversationStats
 
@@ -37,82 +38,50 @@ class ConversationService:
     # 🆕 v3.2: HELPER METHOD - Find assistant in both tables
     # ==================================================================================
     
+    # Таблицы ассистентов в порядке поиска по ID. Fish обязателен: без него
+    # save_conversation отбрасывал диалоги fish-звонков как «ассистент не найден».
+    _ASSISTANT_TABLES = (
+        (AssistantConfig, "openai"),
+        (GeminiAssistantConfig, "gemini"),
+        (CartesiaAssistantConfig, "cartesia"),
+        (YandexAssistantConfig, "yandex"),
+        (FishAssistantConfig, "fish"),
+        # Каскад и Grok живут в одной таблице и различаются assistant_type.
+        (GrokAssistantConfig, "cascade"),
+    )
+
     @staticmethod
     def _find_assistant_by_id(db: Session, assistant_id: str) -> tuple:
         """
-        Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia, Yandex и cascade.
+        Ищет ассистента по ID в таблицах OpenAI, Gemini, Cartesia, Yandex, Fish и cascade.
 
         Args:
             db: Database session
             assistant_id: UUID ассистента как строка
 
         Returns:
-            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' | 'cartesia' | 'yandex' | 'cascade' | None
+            tuple: (assistant, assistant_type) где assistant_type = 'openai' | 'gemini' |
+                   'cartesia' | 'yandex' | 'fish' | 'cascade' | None
         """
-        assistant = None
-        assistant_type = None
-
         try:
             assistant_uuid = uuid.UUID(assistant_id)
-
-            # Сначала проверяем OpenAI
-            assistant = db.query(AssistantConfig).get(assistant_uuid)
-            if assistant:
-                assistant_type = "openai"
-            else:
-                # Если не найден - проверяем Gemini
-                assistant = db.query(GeminiAssistantConfig).get(assistant_uuid)
-                if assistant:
-                    assistant_type = "gemini"
-                else:
-                    # Если не найден - проверяем Cartesia
-                    assistant = db.query(CartesiaAssistantConfig).get(assistant_uuid)
-                    if assistant:
-                        assistant_type = "cartesia"
-                    else:
-                        # Если не найден - проверяем Yandex
-                        assistant = db.query(YandexAssistantConfig).get(assistant_uuid)
-                        if assistant:
-                            assistant_type = "yandex"
-                        else:
-                            # Если не найден - проверяем cascade (GrokAssistantConfig)
-                            assistant = db.query(GrokAssistantConfig).get(assistant_uuid)
-                            if assistant:
-                                assistant_type = assistant.assistant_type or "cascade"
-
         except ValueError:
-            # Пробуем как строку
-            assistant = db.query(AssistantConfig).filter(
-                AssistantConfig.id.cast(str) == assistant_id
-            ).first()
-            if assistant:
-                assistant_type = "openai"
-            else:
-                assistant = db.query(GeminiAssistantConfig).filter(
-                    GeminiAssistantConfig.id.cast(str) == assistant_id
-                ).first()
-                if assistant:
-                    assistant_type = "gemini"
-                else:
-                    assistant = db.query(CartesiaAssistantConfig).filter(
-                        CartesiaAssistantConfig.id.cast(str) == assistant_id
-                    ).first()
-                    if assistant:
-                        assistant_type = "cartesia"
-                    else:
-                        assistant = db.query(YandexAssistantConfig).filter(
-                            YandexAssistantConfig.id.cast(str) == assistant_id
-                        ).first()
-                        if assistant:
-                            assistant_type = "yandex"
-                        else:
-                            assistant = db.query(GrokAssistantConfig).filter(
-                                GrokAssistantConfig.id.cast(str) == assistant_id
-                            ).first()
-                            if assistant:
-                                assistant_type = assistant.assistant_type or "cascade"
+            assistant_uuid = None
 
-        return assistant, assistant_type
+        for model_cls, model_type in ConversationService._ASSISTANT_TABLES:
+            if assistant_uuid is not None:
+                assistant = db.query(model_cls).get(assistant_uuid)
+            else:
+                # Нестандартный формат id — сравниваем как строку.
+                assistant = db.query(model_cls).filter(
+                    model_cls.id.cast(str) == assistant_id
+                ).first()
+            if assistant:
+                if model_cls is GrokAssistantConfig:
+                    return assistant, (assistant.assistant_type or "cascade")
+                return assistant, model_type
+
+        return None, None
     
     # ==================================================================================
     # 🆕 HELPER METHODS - Phone normalization and call direction extraction

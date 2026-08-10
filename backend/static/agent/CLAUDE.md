@@ -3,12 +3,16 @@
 Дашборд **автономного агента для обзвонов** (не путать с `agents.html` — страницей
 управления OpenAI-ассистентами, у которой своя папка `agents/`).
 
-Голосовой ассистент агента — один из пяти провайдеров:
-`gemini | openai | cartesia | yandex | cascade` (`AgentConfig.assistant_type`).
+Голосовой ассистент агента — один из шести провайдеров:
+`gemini | openai | cartesia | yandex | cascade | fish` (`AgentConfig.assistant_type`).
 Каскад работает на серверном ключе OpenAI (gpt-realtime-2.1-mini) + VoxTTS, оплата —
 кредитами каскада (`users.cascade_credits_balance`); хранится в
 `grok_assistant_configs (assistant_type='cascade')`, исходящие идут через отдельный
 rule `outbound_cascade` (цепочка с `vox-turn-taking`).
+Fish — половинный каскад на ключах пользователя (OpenAI Realtime ведёт диалог,
+озвучивает Fish Audio через прокси `/ws/fish/tts/{id}`); хранится в
+`fish_assistant_configs`, голос задаётся `fish_voice_id` (reference_id из
+библиотеки fish.audio), исходящие идут через rule `outbound_fish`.
 
 Эта папка (`backend/static/agent/`) содержит результат разбиения исходного
 монолитного `agent.html` (~3700 строк) на стили + доменные скрипты.
@@ -109,9 +113,11 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 ### Зеркала, которые надо держать синхронными
 - **`STAGE_META` / `STAGE_ORDER`** (`core.js`) ↔ `backend/core/pipeline_stages.py`
   — фиксированный набор стадий воронки. Меняешь стадии на бэке — поправь и здесь.
-- **`VOICE_META` / `OPENAI_VOICES` / `GEMINI_VOICES` / `YANDEX_VOICES`** (`instructions-voice.js`)
-  ↔ списки голосов в `backend/api/agent.py` (см. комментарий в нём:
-  «Доступные голоса по провайдерам (должны совпадать со списками в agent.html)»).
+- **`VOICE_META` / `OPENAI_VOICES` / `GEMINI_VOICES` / `YANDEX_VOICES` / `CASCADE_VOICES`**
+  (`instructions-voice.js`) ↔ списки голосов в `backend/api/agent.py` (см. комментарий
+  в нём: «Доступные голоса по провайдерам (должны совпадать со списками в agent.html)»).
+  У Cartesia и Fish списка голосов нет — там текстовое поле с id голоса провайдера;
+  `FISH_LATENCY_MODES` ↔ одноимённый список в `backend/models/fish_assistant.py`.
 
 ### Внешние зависимости (в `<head>` agent.html)
 - `marked` + `dompurify` — рендер markdown в чате (`renderMarkdown` в `core.js`).

@@ -208,7 +208,8 @@ def _parse_iso_utc(value) -> Optional[datetime]:
 def assistant_task_kwargs(agent_config) -> dict:
     """
     Возвращает kwargs для Task с правильным FK голосового ассистента
-    в зависимости от assistant_type агента (gemini / openai / cartesia / yandex).
+    в зависимости от assistant_type агента (gemini / openai / cartesia / yandex /
+    cascade / fish).
     Для старых агентов без assistant_type — fallback на gemini_assistant_id.
     """
     if not agent_config:
@@ -223,6 +224,8 @@ def assistant_task_kwargs(agent_config) -> dict:
         return {"yandex_assistant_id": vid}
     if a_type == "cascade":
         return {"cascade_assistant_id": vid}
+    if a_type == "fish":
+        return {"fish_assistant_id": vid}
     # gemini (and legacy default)
     return {"gemini_assistant_id": vid}
 

@@ -504,6 +504,10 @@
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
     }
 
+    .assistant-avatar.fish {
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
+    }
+
     .card-info {
       flex: 1;
       min-width: 0;
@@ -554,6 +558,11 @@
     .assistant-type-badge.cascade {
       background-color: rgba(37, 99, 235, 0.1);
       color: #2563eb;
+    }
+
+    .assistant-type-badge.fish {
+      background-color: rgba(14, 165, 233, 0.1);
+      color: #0ea5e9;
     }
 
     .conversation-date {
@@ -921,6 +930,10 @@
 
     .message.assistant.cascade .message-avatar {
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    }
+
+    .message.assistant.fish .message-avatar {
+      background: linear-gradient(135deg, #0ea5e9, #2563eb);
     }
 
     .message-bubble {
@@ -2975,7 +2988,8 @@
         const avatarClass = assistantType === 'gemini' ? 'assistant-avatar gemini'
           : assistantType === 'cartesia' ? 'assistant-avatar cartesia'
           : assistantType === 'yandex' ? 'assistant-avatar yandex'
-          : assistantType === 'cascade' ? 'assistant-avatar cascade' : 'assistant-avatar';
+          : assistantType === 'cascade' ? 'assistant-avatar cascade'
+          : assistantType === 'fish' ? 'assistant-avatar fish' : 'assistant-avatar';
         const typeBadge = assistantType === 'gemini'
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : assistantType === 'cartesia'
@@ -2984,6 +2998,8 @@
           ? '<span class="assistant-type-badge yandex">Яндекс</span>'
           : assistantType === 'cascade'
           ? '<span class="assistant-type-badge cascade">Cascade</span>'
+          : assistantType === 'fish'
+          ? '<span class="assistant-type-badge fish">Fish</span>'
           : '<span class="assistant-type-badge openai">OpenAI</span>';
         
         let metaItems = '';
@@ -3130,20 +3146,39 @@
           }
 
           try {
-            // Cascade-агенты: диалоги пишутся под grok-id (cascade_assistant_id),
-            // поэтому в фильтр кладём именно его как id.
+            const fishData = await api.get('/fish-assistants');
+            const fishList = Array.isArray(fishData)
+              ? fishData
+              : (fishData.assistants || []);
+            fishList.forEach(a => {
+              assistants.push({ id: a.id, name: a.name, type: 'fish' });
+            });
+            console.log(`[ASSISTANTS] ✅ Loaded ${fishList.length} Fish assistants`);
+          } catch (e) {
+            console.warn('[ASSISTANTS] ⚠️ Error loading Fish assistants:', e.message);
+          }
+
+          try {
+            // Голоса агентов обзвона: диалоги пишутся под id голосового
+            // ассистента, а в списках провайдеров этот ассистент скрыт —
+            // поэтому в фильтр кладём именно его id под именем агента.
             const agentData = await api.get('/agent/list');
             const agentList = Array.isArray(agentData?.agents) ? agentData.agents : [];
             let cascadeCount = 0;
+            let fishAgentCount = 0;
             agentList.forEach(a => {
               if (a.assistant_type === 'cascade' && a.cascade_assistant_id) {
                 assistants.push({ id: a.cascade_assistant_id, name: a.name, type: 'cascade' });
                 cascadeCount++;
               }
+              if (a.assistant_type === 'fish' && a.fish_assistant_id) {
+                assistants.push({ id: a.fish_assistant_id, name: a.name, type: 'fish' });
+                fishAgentCount++;
+              }
             });
-            console.log(`[ASSISTANTS] ✅ Loaded ${cascadeCount} Cascade assistants`);
+            console.log(`[ASSISTANTS] ✅ Loaded ${cascadeCount} Cascade and ${fishAgentCount} Fish agent voices`);
           } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading Cascade assistants:', e.message);
+            console.warn('[ASSISTANTS] ⚠️ Error loading agent voices:', e.message);
           }
 
           console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
@@ -3169,6 +3204,7 @@
         const cartesiaAssistants = assistants.filter(a => a.type === 'cartesia');
         const yandexAssistants = assistants.filter(a => a.type === 'yandex');
         const cascadeAssistants = assistants.filter(a => a.type === 'cascade');
+        const fishAssistants = assistants.filter(a => a.type === 'fish');
 
         if (openaiAssistants.length > 0) {
           const optgroup = document.createElement('optgroup');
@@ -3230,7 +3266,19 @@
           assistantFilter.appendChild(optgroup);
         }
 
-        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini,', cartesiaAssistants.length, 'Cartesia,', yandexAssistants.length, 'Yandex, and', cascadeAssistants.length, 'Cascade');
+        if (fishAssistants.length > 0) {
+          const optgroup = document.createElement('optgroup');
+          optgroup.label = '🐟 Fish';
+          fishAssistants.forEach(assistant => {
+            const option = document.createElement('option');
+            option.value = assistant.id;
+            option.textContent = assistant.name;
+            optgroup.appendChild(option);
+          });
+          assistantFilter.appendChild(optgroup);
+        }
+
+        console.log('[ASSISTANTS] ✅ Filter rendered with', openaiAssistants.length, 'OpenAI,', geminiAssistants.length, 'Gemini,', cartesiaAssistants.length, 'Cartesia,', yandexAssistants.length, 'Yandex,', cascadeAssistants.length, 'Cascade, and', fishAssistants.length, 'Fish');
       }
       
       // ============================================================================
@@ -3324,6 +3372,8 @@
             ? '<span class="assistant-type-badge yandex" style="margin-left: 0.5rem;">Яндекс</span>'
             : type === 'cascade'
             ? '<span class="assistant-type-badge cascade" style="margin-left: 0.5rem;">Cascade</span>'
+            : type === 'fish'
+            ? '<span class="assistant-type-badge fish" style="margin-left: 0.5rem;">Fish</span>'
             : '<span class="assistant-type-badge openai" style="margin-left: 0.5rem;">OpenAI</span>';
           
           modalTitle.innerHTML = `${dialog.assistant_name} ${typeBadge}`;
@@ -3368,10 +3418,11 @@
               const assistantClass = type === 'gemini' ? 'message assistant gemini'
                 : type === 'cartesia' ? 'message assistant cartesia'
                 : type === 'yandex' ? 'message assistant yandex'
-                : type === 'cascade' ? 'message assistant cascade' : 'message assistant';
+                : type === 'cascade' ? 'message assistant cascade'
+                : type === 'fish' ? 'message assistant fish' : 'message assistant';
               messageDiv.className = msg.type === 'user' ? 'message user' : assistantClass;
 
-              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : type === 'yandex' ? '🔴' : type === 'cascade' ? '🌊' : '🤖');
+              const avatarIcon = msg.type === 'user' ? '👤' : (type === 'gemini' ? '✨' : type === 'yandex' ? '🔴' : type === 'cascade' ? '🌊' : type === 'fish' ? '🐟' : '🤖');
               
               // Function calls под сообщениями
               let functionCallsHtml = '';

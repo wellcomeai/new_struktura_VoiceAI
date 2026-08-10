@@ -2099,7 +2099,7 @@ async def bind_assistant_to_number(
                     detail="Голосовой ассистент агента не найден"
                 )
             # Подменяем на реальный голосовой ассистент агента.
-            effective_type = voice_type           # openai | gemini | cartesia | yandex
+            effective_type = voice_type           # openai | gemini | cartesia | yandex | cascade | fish
             assistant_uuid = voice_id             # UUID голосового ассистента
             bound_agent_config_id = agent_cfg.id  # метка «номер привязан к агенту»
         else:
@@ -3042,9 +3042,12 @@ async def public_outbound_call(
                 detail="Правила для исходящих звонков не настроены"
             )
         
-        rule_name = "outbound_crm"
+        # Общий CRM-сценарий умеет не всех: у каскада и Fish свои исходящие
+        # сценарии (цепочка с vox-turn-taking / прокси синтеза Fish).
+        from backend.core.task_scheduler import _outbound_rule_name
+        rule_name = _outbound_rule_name(assistant_type)
         rule_id = child_account.vox_rule_ids.get(rule_name)
-        
+
         if not rule_id:
             logger.warning(f"[TELEPHONY-PUBLIC] Rule '{rule_name}' not found")
             raise HTTPException(

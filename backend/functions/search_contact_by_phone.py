@@ -235,6 +235,20 @@ class SearchContactByPhoneFunction(FunctionBase):
                     ).first()
                     if asst:
                         assistant_name = asst.name
+                elif task.cascade_assistant_id:
+                    from backend.models.grok_assistant import GrokAssistantConfig
+                    asst = db.query(GrokAssistantConfig).filter(
+                        GrokAssistantConfig.id == task.cascade_assistant_id
+                    ).first()
+                    if asst:
+                        assistant_name = asst.name
+                elif task.fish_assistant_id:
+                    from backend.models.fish_assistant import FishAssistantConfig
+                    asst = db.query(FishAssistantConfig).filter(
+                        FishAssistantConfig.id == task.fish_assistant_id
+                    ).first()
+                    if asst:
+                        assistant_name = asst.name
 
                 active_tasks.append({
                     "id": str(task.id),

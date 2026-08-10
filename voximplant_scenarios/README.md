@@ -79,6 +79,8 @@ policy.userSpeechTimeoutMs      = silence + 250
 | `inbound_cascade.js` | `inbound_cascade` | Входящий каскад: конфиг с `/api/telephony/config`, ASR Yandex v2 (interim), LLM gpt-realtime-2.1-mini через **Realtime API** (WS, `output_modalities: ["text"]`, `turn_detection: null`, ключ **серверный** — расход идёт с кредитов каскада), TTS VoxTTS/Anna. Одна активная генерация за раз, гейтинг по `response_id`; перебивание — `responseCancel()`. **Tool-calling**: вызов приходит целиком в `ResponseOutputItemDone`, выполняется через `POST /api/voximplant/functions/execute`, `hangup_call` завершает звонок локально. Ограничение «функции ⊕ спекуляция» снято — спекуляции больше нет. **Запись/стоимость/логирование**: `call.record()` на Connected, `call_session_history_id` из `AppEvents.Started`, стоимость/длительность из события Disconnected, и один `POST /api/voximplant/log` в конце звонка (запись→R2, полная стоимость через GetCallHistory, структурированный `dialog`, токены `cascade_usage`, Telegram). Per-turn `/webhook/transcript` не используется. |
 | `outbound_cascade.js` | `outbound_cascade` | **Исходящий** каскад. Точка входа — `AppEvents.Started` + `VoxEngine.customData()` (phone_number, assistant_id, caller_id, contact_name/task_*/custom_greeting). Конфиг с `/api/telephony/outbound-config`. Задача звонка + CRM инжектятся в system-промпт. **Readiness-before-dial**: ASR/TTS и **WS к OpenAI** поднимаются ДО `VoxEngine.callPSTN` (при сбое не звоним = 0₽) — заодно это заменило прогрев LLM. **Mute-окно** `mute_duration_ms` после ответа (мик абонента закрыт, чтобы «Алло» не оборвало приветствие). **Tool-calling** через Realtime `tools` (плоский формат) — в т.ч. `hangup_call`, чтобы ассистент сам завершил звонок. Silence hard-timeout ~180с. Запись/стоимость/`/log` — как в inbound. **Самодостаточен**: `VoxTurnTaking` встроен в сам файл (идемпотентно), поэтому работает и с одиночным правилом, и с цепочкой — `vox-turn-taking` в цепочке НЕ обязателен. |
 | `cartesia_inbound.js` | `cartesia_inbound` | Входящий half-cascade на **OpenAI Realtime** (`gpt-realtime-2.1-mini`, output text): STT + turn detection + reasoning на стороне OpenAI (Silero/Pipecat не нужны), TTS — VoxTTS/Anna. Ключ — пользовательский (`CONFIG.api_key`). Одиночный сценарий (без цепочки vox-turn-taking). Несмотря на имя, TTS не Cartesia. |
+| `inbound_fish.js` | `inbound_fish` | Входящий half-cascade на **OpenAI Realtime** (output text, ключ пользователя) + озвучка **Fish Audio** через наш прокси: `VoxEngine.createWebSocket(CONFIG.fish_tts_url)` → `/ws/fish/tts/{assistant_id}` → Fish, медиа-фреймы PCM16 обратно в звонок (`sendMediaTo(call)`). Конфиг с `/api/telephony/config`. Отдельный ASR не нужен — транскрибирует сама модель. Реальные номера и время МСК дописываются в `instructions` (нужны для `send_sms`). Одиночный сценарий. |
+| `outbound_fish.js` | `outbound_fish` | **v1.1. Исходящий** Fish. Точка входа — `AppEvents.Started` + `VoxEngine.customData()` (phone_number, assistant_id, caller_id, mute_duration_ms, contact_name/task_*/custom_greeting/task). Конфиг с `/api/telephony/outbound-config`. Сокет к прокси синтеза поднимается ДО `callPSTN` (готов к моменту ответа), приветствие уходит в Fish напрямую без раунда к модели, шлюз TTS придерживает реплики модели до `speech_done` по приветствию. **Контекст звонка** (задача + карточка CRM) и реальные номера/время инжектятся в `instructions`; `custom_greeting` от PreCall-оркестратора агента обзвона приоритетнее приветствия из конфига. `hangup_call` завершает звонок локально, остальные функции — через `POST /api/voximplant/functions/execute`. Используется агентом обзвона с `assistant_type='fish'` (rule `outbound_fish`). |
 
 ## Раскатка (вручную)
 
@@ -96,6 +98,17 @@ policy.userSpeechTimeoutMs      = silence + 250
    `assistant_type: "cascade"`) — бекенд сам создаст inbound-правило с цепочкой.
 4. Исходящий звонок: `StartScenarios` по правилу `outbound_cascade` со
    `script_custom_data` (см. `voximplant_partner.start_outbound_call`).
+
+Fish-сценарии раскатываются так же, своими эндпоинтами:
+
+1. Обновить код `inbound_fish` и `outbound_fish` на родительском аккаунте.
+2. `POST /api/telephony/admin/setup-fish-scenarios` (или
+   `…/setup-fish-scenarios-stream` — SSE с прогрессом по аккаунтам): копирует оба
+   сценария на дочерние аккаунты и создаёт правило `outbound_fish`.
+3. Входящие: `POST /api/telephony/bind-assistant` с `assistant_type: "fish"`
+   (или `"agent"` для агента обзвона с fish-голосом) — правило создаётся само.
+4. Исходящие агента обзвона идут по правилу `outbound_fish`
+   (`task_scheduler._outbound_rule_name`), цепочка сценариев не нужна.
 
 ## Как работает цепочка из двух сценариев в одном правиле
 

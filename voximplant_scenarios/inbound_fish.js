@@ -694,6 +694,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 instructions += "\n\nТы уже поприветствовал абонента фразой: «" +
                     CONFIG.first_phrase.trim() + "». Не здоровайся повторно.";
             }
+            // Реальные номера и время: без них модель не может корректно вызвать
+            // send_sms (некуда отправлять) и путается в датах. МСК (UTC+3).
+            var mskTime = new Date(Date.now() + 3 * 3600 * 1000)
+                .toISOString().replace("T", " ").slice(0, 16);
+            instructions += "\n\nИнформация о звонке:\n" +
+                "- Номер клиента (caller_number): " + caller_number + "\n" +
+                "- Наш номер (called_number): " + called_number + "\n" +
+                "- Текущее время: " + mskTime + " (МСК)";
 
             // turn_detection живёт ВНУТРИ audio.input. В корне session он молча
             // игнорируется, и остаются дефолты OpenAI (silence_duration_ms 200).

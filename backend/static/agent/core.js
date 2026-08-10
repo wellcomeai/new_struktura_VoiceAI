@@ -89,6 +89,7 @@ function errText(detail){
     api_key_required_openai:'Нужен OpenAI API ключ.',
     api_key_required_cartesia:'Нужен Cartesia API ключ.',
     api_key_required_yandex:'Нужны API-ключ и Folder ID Yandex Cloud.',
+    api_key_required_fish:'Нужен API-ключ Fish Audio.',
     invalid_assistant_type:'Неверный тип ассистента.',
     invalid_orchestrator_model:'Неверная модель оркестратора.',
     already_exists:'Агент уже существует.',

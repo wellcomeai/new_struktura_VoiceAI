@@ -1286,6 +1286,49 @@ def ensure_agent_cascade_voice_columns():
         logger.error(f"❌ ensure_agent_cascade_voice_columns error: {e}")
 
 
+def ensure_agent_fish_voice_columns():
+    """
+    Идемпотентно добавляет FK-колонки fish-голоса:
+      • agent_configs.fish_assistant_id  → fish_assistant_configs
+      • tasks.fish_assistant_id          → fish_assistant_configs
+    Позволяет агенту обзвона использовать Fish Audio как голосовой провайдер.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        if not inspector.has_table('fish_assistant_configs'):
+            return
+        stmts = []
+        if inspector.has_table('agent_configs'):
+            cols = {c['name'] for c in inspector.get_columns('agent_configs')}
+            if 'fish_assistant_id' not in cols:
+                stmts.append(
+                    "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "
+                    "fish_assistant_id UUID REFERENCES fish_assistant_configs(id) ON DELETE SET NULL"
+                )
+        if inspector.has_table('tasks'):
+            cols = {c['name'] for c in inspector.get_columns('tasks')}
+            if 'fish_assistant_id' not in cols:
+                stmts.append(
+                    "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "
+                    "fish_assistant_id UUID REFERENCES fish_assistant_configs(id) ON DELETE SET NULL"
+                )
+        if not stmts:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for s in stmts:
+                    conn.execute(text(s))
+                trans.commit()
+                logger.info(f"✅ Added fish voice FK columns ({len(stmts)})")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add fish voice FK columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_fish_voice_columns error: {e}")
+
+
 def ensure_task_assistant_fk_on_delete():
     """
     Идемпотентно переводит FK `tasks.*_assistant_id` на ON DELETE SET NULL.
@@ -1300,7 +1343,7 @@ def ensure_task_assistant_fk_on_delete():
     """
     assistant_columns = {
         "assistant_id", "gemini_assistant_id", "cartesia_assistant_id",
-        "yandex_assistant_id", "cascade_assistant_id",
+        "yandex_assistant_id", "cascade_assistant_id", "fish_assistant_id",
     }
     try:
         from sqlalchemy import text, inspect
@@ -1828,7 +1871,10 @@ async def startup_event():
                 # 🆕 Шаг 13.1: FK-колонки каскад-голоса (agent_configs + tasks)
                 ensure_agent_cascade_voice_columns()
 
-                # 🆕 Шаг 13.2: FK задач на ассистентов → ON DELETE SET NULL
+                # 🆕 Шаг 13.2: FK-колонки fish-голоса (agent_configs + tasks)
+                ensure_agent_fish_voice_columns()
+
+                # 🆕 Шаг 13.3: FK задач на ассистентов → ON DELETE SET NULL
                 ensure_task_assistant_fk_on_delete()
 
                 # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs

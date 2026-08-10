@@ -2,8 +2,9 @@
 Agent Config model for Voicyfy Agent — autonomous calling AI agent.
 Stores orchestrator config, onboarding documents, and chat history per user.
 
-✅ v3.0: multi-provider voice assistant (gemini / openai / cartesia / yandex),
-         hardcoded orchestrator prompts (uses_hardcoded_prompt), OpenRouter model.
+✅ v3.0: multi-provider voice assistant (gemini / openai / cartesia / yandex /
+         cascade / fish), hardcoded orchestrator prompts (uses_hardcoded_prompt),
+         OpenRouter model.
 """
 import uuid
 from datetime import datetime
@@ -22,9 +23,9 @@ class AgentConfig(Base):
     is_active = Column(Boolean, default=False, nullable=False)
 
     # ── Тип голосового ассистента — выбирается при создании, можно менять ──
-    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia | yandex | cascade
+    assistant_type = Column(String(20), nullable=True)  # gemini | openai | cartesia | yandex | cascade | fish
 
-    # ── FK на голосового ассистента (заполняется ровно один из пяти) ──
+    # ── FK на голосового ассистента (заполняется ровно один из шести) ──
     gemini_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("gemini_assistant_configs.id", ondelete="SET NULL"),
@@ -49,6 +50,11 @@ class AgentConfig(Base):
     cascade_assistant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("grok_assistant_configs.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    fish_assistant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("fish_assistant_configs.id", ondelete="SET NULL"),
         nullable=True
     )
 
@@ -146,6 +152,9 @@ class AgentConfig(Base):
     cascade_assistant = relationship(
         "GrokAssistantConfig", foreign_keys=[cascade_assistant_id]
     )
+    fish_assistant = relationship(
+        "FishAssistantConfig", foreign_keys=[fish_assistant_id]
+    )
 
     def get_voice_assistant(self):
         """Универсальный геттер — вернёт активного голосового ассистента."""
@@ -159,6 +168,8 @@ class AgentConfig(Base):
             return self.yandex_assistant
         if self.assistant_type == "cascade":
             return self.cascade_assistant
+        if self.assistant_type == "fish":
+            return self.fish_assistant
         return None
 
     def get_voice_assistant_id(self):
@@ -172,6 +183,8 @@ class AgentConfig(Base):
             return self.yandex_assistant_id
         if self.assistant_type == "cascade":
             return self.cascade_assistant_id
+        if self.assistant_type == "fish":
+            return self.fish_assistant_id
         return None
 
     def has_knowledge_base(self) -> bool:

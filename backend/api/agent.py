@@ -31,6 +31,11 @@ from backend.models.yandex_assistant import (
     YandexAssistantConfig, YandexConversation, DEFAULT_YANDEX_MODEL,
 )
 from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
+from backend.models.fish_assistant import (
+    FishAssistantConfig, FISH_MODELS, FISH_LATENCY_MODES,
+    DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY, DEFAULT_FISH_SAMPLE_RATE,
+    DEFAULT_FISH_LLM_MODEL,
+)
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
@@ -63,7 +68,7 @@ router = APIRouter()
 # ============================================================================
 
 
-VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex", "cascade")
+VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex", "cascade", "fish")
 
 # Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
 OPENAI_VOICES = [
@@ -89,6 +94,16 @@ DEFAULT_GEMINI_VOICE = "Kore"
 DEFAULT_OPENAI_VOICE = "alloy"
 DEFAULT_YANDEX_VOICE = "marina"
 DEFAULT_CASCADE_VOICE = "Anna"
+
+
+def _valid_fish_model(model: Optional[str]) -> str:
+    """Модель синтеза Fish из запроса или дефолт, если пришло что-то чужое."""
+    return model if model in FISH_MODELS else DEFAULT_FISH_MODEL
+
+
+def _valid_fish_latency(latency: Optional[str]) -> str:
+    """Режим латентности Fish из запроса или дефолт."""
+    return latency if latency in FISH_LATENCY_MODES else DEFAULT_FISH_LATENCY
 
 
 def _is_valid_voice(assistant_type: str, voice: str) -> bool:
@@ -119,6 +134,8 @@ def _resolve_voice_assistant(db: Session, agent: AgentConfig):
         return db.query(YandexAssistantConfig).filter(YandexAssistantConfig.id == va_id).first()
     if agent.assistant_type == "cascade":
         return db.query(GrokAssistantConfig).filter(GrokAssistantConfig.id == va_id).first()
+    if agent.assistant_type == "fish":
+        return db.query(FishAssistantConfig).filter(FishAssistantConfig.id == va_id).first()
     return None
 
 
@@ -202,10 +219,14 @@ class AgentCreateRequest(BaseModel):
     working_hours_start: int = Field(default=9, ge=0, le=23)
     working_hours_end: int = Field(default=21, ge=0, le=23)
     orchestrator_model: Optional[str] = None  # default → get_default_model()
-    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed.
+    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed,
+    # для fish — fish_voice_id + fish_model/fish_latency + voice_speed.
     voice: Optional[str] = None
     cartesia_voice_id: Optional[str] = None
     voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
+    fish_voice_id: Optional[str] = Field(None, max_length=255)
+    fish_model: Optional[str] = None
+    fish_latency: Optional[str] = None
 
 
 class AgentUpdateRequest(BaseModel):
@@ -225,10 +246,14 @@ class AgentUpdateRequest(BaseModel):
     webhook_url: Optional[str] = Field(None, max_length=500)
     orchestrator_model: Optional[str] = None
     assistant_type: Optional[str] = None
-    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed.
+    # Голос (gemini/openai/yandex). Для cartesia — cartesia_voice_id + voice_speed,
+    # для fish — fish_voice_id + fish_model/fish_latency + voice_speed.
     voice: Optional[str] = None
     cartesia_voice_id: Optional[str] = None
     voice_speed: Optional[float] = Field(None, ge=0.5, le=1.5)
+    fish_voice_id: Optional[str] = Field(None, max_length=255)
+    fish_model: Optional[str] = None
+    fish_latency: Optional[str] = None
 
 
 class AgentChatRequest(BaseModel):
@@ -375,6 +400,13 @@ def _check_assistant_keys(assistant_type: str, current_user: User):
         # пользовательский ключ не нужен. Проверять баланс здесь не нужно:
         # гейт по кредитам стоит на старте звонка (outbound-config / config).
         pass
+    elif assistant_type == "fish":
+        # Fish — половинный каскад на пользовательских ключах: диалог ведёт
+        # OpenAI Realtime, озвучивает Fish Audio (через наш прокси синтеза).
+        if not current_user.openai_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_openai")
+        if not current_user.fish_api_key:
+            raise HTTPException(status_code=400, detail="api_key_required_fish")
 
 
 # Функции, доступные голосовому агенту во время звонка по умолчанию.
@@ -391,11 +423,13 @@ def _default_voice_functions():
 
 def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
                             voice=None, cartesia_voice_id=None, voice_speed=None,
-                            voice_additional_instructions=None):
+                            voice_additional_instructions=None,
+                            fish_voice_id=None, fish_model=None, fish_latency=None):
     """Create a voice assistant of the given type with the hardcoded base prompt.
 
     voice — имя голоса для gemini/openai/yandex; для cartesia используются
-    cartesia_voice_id и voice_speed. Если не передано — берутся дефолты.
+    cartesia_voice_id и voice_speed, для fish — fish_voice_id, fish_model,
+    fish_latency и voice_speed. Если не передано — берутся дефолты.
     voice_additional_instructions — доп.инструкции по поведению в живом звонке,
     дописываются к базовому промпту голосового агента.
     """
@@ -452,6 +486,21 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             is_active=True, is_public=False, is_telephony_enabled=True,
             functions=_default_voice_functions(),
         )
+    elif assistant_type == "fish":
+        # Fish: диалог ведёт OpenAI Realtime внутри сценария Voximplant,
+        # озвучка идёт через наш прокси синтеза (/ws/fish/tts/{id}) на ключе
+        # Fish владельца. Голос — reference_id из библиотеки fish.audio.
+        va = FishAssistantConfig(
+            id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
+            system_prompt=prompt, greeting_message="", is_active=True,
+            fish_voice_id=(fish_voice_id or None),
+            fish_model=_valid_fish_model(fish_model),
+            fish_latency=_valid_fish_latency(fish_latency),
+            sample_rate=DEFAULT_FISH_SAMPLE_RATE,
+            voice_speed=(voice_speed if voice_speed is not None else 1.0),
+            llm_model=DEFAULT_FISH_LLM_MODEL, language="ru",
+            functions=_default_voice_functions(),
+        )
     else:
         raise HTTPException(status_code=400, detail="invalid_assistant_type")
     db.add(va)
@@ -468,6 +517,8 @@ _VOICE_ASSISTANT_DEPS = {
     CartesiaAssistantConfig: (None, Task.cartesia_assistant_id),
     YandexAssistantConfig: (YandexConversation, Task.yandex_assistant_id),
     GrokAssistantConfig: (GrokConversation, Task.cascade_assistant_id),
+    # У Fish своей таблицы диалогов нет — звонки пишутся в conversations.
+    FishAssistantConfig: (None, Task.fish_assistant_id),
 }
 
 
@@ -477,6 +528,7 @@ _VOICE_MODEL_BY_TYPE = {
     "cartesia": CartesiaAssistantConfig,
     "yandex": YandexAssistantConfig,
     "cascade": GrokAssistantConfig,
+    "fish": FishAssistantConfig,
 }
 
 
@@ -492,6 +544,7 @@ def _all_voice_assistant_targets(agent: AgentConfig):
         (CartesiaAssistantConfig, agent.cartesia_assistant_id),
         (YandexAssistantConfig, agent.yandex_assistant_id),
         (GrokAssistantConfig, agent.cascade_assistant_id),
+        (FishAssistantConfig, agent.fish_assistant_id),
     )
     return [(model_cls, va_id) for model_cls, va_id in pairs if va_id]
 
@@ -685,12 +738,17 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "cartesia_assistant_id": str(agent.cartesia_assistant_id) if agent.cartesia_assistant_id else None,
         "yandex_assistant_id": str(agent.yandex_assistant_id) if agent.yandex_assistant_id else None,
         "cascade_assistant_id": str(agent.cascade_assistant_id) if agent.cascade_assistant_id else None,
+        "fish_assistant_id": str(agent.fish_assistant_id) if agent.fish_assistant_id else None,
         "voice_assistant_name": voice_name,
         "gemini_assistant_name": voice_name,  # backward-compat for older frontend
         # Каскад хранит голос в tts_voice; остальные — в voice.
         "voice": getattr(voice, "tts_voice", None) if agent.assistant_type == "cascade" else getattr(voice, "voice", None),
         "cartesia_voice_id": getattr(voice, "cartesia_voice_id", None),
         "voice_speed": getattr(voice, "voice_speed", None),
+        # Fish: голос задаётся reference_id из библиотеки fish.audio.
+        "fish_voice_id": getattr(voice, "fish_voice_id", None),
+        "fish_model": getattr(voice, "fish_model", None),
+        "fish_latency": getattr(voice, "fish_latency", None),
         "name": agent.name,
         "is_active": agent.is_active,
         "orchestrator_model": agent.orchestrator_model,
@@ -814,6 +872,9 @@ async def create_agent(
         cartesia_voice_id=body.cartesia_voice_id,
         voice_speed=body.voice_speed,
         voice_additional_instructions=body.voice_additional_instructions,
+        fish_voice_id=body.fish_voice_id,
+        fish_model=body.fish_model,
+        fish_latency=body.fish_latency,
     )
 
     # 7. Create the AgentConfig (uses_hardcoded_prompt = TRUE, no orchestrator_prompt)
@@ -827,6 +888,7 @@ async def create_agent(
         cartesia_assistant_id=voice_assistant.id if body.assistant_type == "cartesia" else None,
         yandex_assistant_id=voice_assistant.id if body.assistant_type == "yandex" else None,
         cascade_assistant_id=voice_assistant.id if body.assistant_type == "cascade" else None,
+        fish_assistant_id=voice_assistant.id if body.assistant_type == "fish" else None,
         is_active=True,
         orchestrator_model=orchestrator_model,
         orchestrator_prompt=None,  # собирается на лету из захардкоженного шаблона
@@ -894,12 +956,16 @@ async def update_agent(
         new_voice = _create_voice_assistant(
             new_type, agent.name, current_user.id, db,
             voice_additional_instructions=agent.voice_additional_instructions,
+            fish_voice_id=update_data.get("fish_voice_id"),
+            fish_model=update_data.get("fish_model"),
+            fish_latency=update_data.get("fish_latency"),
         )
         agent.gemini_assistant_id = None
         agent.openai_assistant_id = None
         agent.cartesia_assistant_id = None
         agent.yandex_assistant_id = None
         agent.cascade_assistant_id = None
+        agent.fish_assistant_id = None
         if new_type == "gemini":
             agent.gemini_assistant_id = new_voice.id
         elif new_type == "openai":
@@ -910,6 +976,8 @@ async def update_agent(
             agent.yandex_assistant_id = new_voice.id
         elif new_type == "cascade":
             agent.cascade_assistant_id = new_voice.id
+        elif new_type == "fish":
+            agent.fish_assistant_id = new_voice.id
         agent.assistant_type = new_type
         # Если у агента есть база знаний — переносим функцию поиска на нового
         # голосового ассистента.
@@ -972,7 +1040,10 @@ async def update_agent(
             va.system_prompt = build_voice_agent_prompt(agent.voice_additional_instructions)
 
     # ── Голос: пишем в связанный голосовой конфиг ──
-    voice_touched = any(k in update_data for k in ("voice", "cartesia_voice_id", "voice_speed"))
+    voice_touched = any(k in update_data for k in (
+        "voice", "cartesia_voice_id", "voice_speed",
+        "fish_voice_id", "fish_model", "fish_latency",
+    ))
     if voice_touched:
         va = _resolve_voice_assistant(db, agent)
         if va is not None:
@@ -992,6 +1063,15 @@ async def update_agent(
             elif agent.assistant_type == "cartesia":
                 if "cartesia_voice_id" in update_data:
                     va.cartesia_voice_id = update_data["cartesia_voice_id"] or None
+                if update_data.get("voice_speed") is not None:
+                    va.voice_speed = update_data["voice_speed"]
+            elif agent.assistant_type == "fish":
+                if "fish_voice_id" in update_data:
+                    va.fish_voice_id = update_data["fish_voice_id"] or None
+                if update_data.get("fish_model"):
+                    va.fish_model = _valid_fish_model(update_data["fish_model"])
+                if update_data.get("fish_latency"):
+                    va.fish_latency = _valid_fish_latency(update_data["fish_latency"])
                 if update_data.get("voice_speed") is not None:
                     va.voice_speed = update_data["voice_speed"]
 
@@ -1066,6 +1146,7 @@ async def delete_agent(
             (Task.cartesia_assistant_id, agent.cartesia_assistant_id),
             (Task.yandex_assistant_id, agent.yandex_assistant_id),
             (Task.cascade_assistant_id, agent.cascade_assistant_id),
+            (Task.fish_assistant_id, agent.fish_assistant_id),
         ):
             if va_id:
                 task_ownership.append(column == va_id)

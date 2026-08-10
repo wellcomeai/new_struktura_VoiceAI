@@ -97,6 +97,9 @@ const YANDEX_VOICES = ['marina','dasha','alexander','julia','lera','masha','anto
 const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'marina', cascade:'Anna' };
 // Голоса каскада — VoxTTS realtime (должны совпадать с CASCADE_VOICES в backend/api/agent.py).
 const CASCADE_VOICES = ['Anna','Sergey'];
+// Режимы синтеза Fish (должны совпадать с FISH_LATENCY_MODES в backend/models/fish_assistant.py).
+const FISH_LATENCY_MODES = ['low','balanced','normal'];
+const FISH_LATENCY_LABELS = { low:'Быстрый старт', balanced:'Сбалансированный', normal:'Качественный' };
 
 // Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
 const VOICE_META = {
@@ -147,8 +150,31 @@ function updateVoicePreview(sel, descId, type){
 }
 
 // Рендер контрола выбора голоса по типу ассистента.
-// ids: { voice, vid, spd, spdv, desc } — id элементов (модалка и визард используют разные).
+// ids: { voice, vid, spd, spdv, desc, fvid, flat } — id элементов (модалка и визард используют разные).
 function voiceControlHtml(type, cur, ids){
+  if(type==='fish'){
+    // У Fish голос — reference_id из библиотеки fish.audio (в т.ч. свой клон),
+    // фиксированного списка голосов нет. Модель синтеза не показываем: пока
+    // обкатывается только одна (см. FISH_SELECTABLE_MODELS на бэке).
+    const spd = (cur.voice_speed!=null) ? cur.voice_speed : 1.0;
+    const lat = cur.fish_latency || 'balanced';
+    const latOpts = FISH_LATENCY_MODES.map(m =>
+      `<option value="${m}" ${m===lat?'selected':''}>${FISH_LATENCY_LABELS[m]||m}</option>`).join('');
+    return `<div class="form-group">
+        <label class="form-label">Fish Voice ID</label>
+        <input type="text" class="form-input" id="${ids.fvid}" value="${esc(cur.fish_voice_id||'')}" placeholder="e58b0d7efca34eb38d5c4985e378abcb">
+        <div class="form-hint">ID голоса из <a href="https://fish.audio/" target="_blank">fish.audio</a> (можно свой клон). Пустое поле — голос по умолчанию.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Скорость голоса: <span id="${ids.spdv}">${spd}</span></label>
+        <input type="range" id="${ids.spd}" min="0.5" max="1.5" step="0.1" value="${spd}" style="width:100%" oninput="document.getElementById('${ids.spdv}').textContent=this.value">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Режим синтеза</label>
+        <select class="form-select" id="${ids.flat}">${latOpts}</select>
+        <div class="form-hint">Быстрее — раньше начинает говорить, качественнее — ровнее интонация.</div>
+      </div>`;
+  }
   if(type==='cartesia'){
     const spd = (cur.voice_speed!=null) ? cur.voice_speed : 1.0;
     return `<div class="form-group">
@@ -176,6 +202,16 @@ function voiceControlHtml(type, cur, ids){
 
 // Считать выбранный голос в объект для тела запроса.
 function readVoiceBody(type, ids){
+  if(type==='fish'){
+    const vidEl = document.getElementById(ids.fvid);
+    const spdEl = document.getElementById(ids.spd);
+    const latEl = document.getElementById(ids.flat);
+    return {
+      fish_voice_id: vidEl ? (vidEl.value.trim() || null) : null,
+      voice_speed: spdEl ? (parseFloat(spdEl.value) || 1.0) : 1.0,
+      fish_latency: latEl ? latEl.value : null,
+    };
+  }
   if(type==='cartesia'){
     const vidEl = document.getElementById(ids.vid);
     const spdEl = document.getElementById(ids.spd);
@@ -188,8 +224,8 @@ function readVoiceBody(type, ids){
   return { voice: vEl ? vEl.value : null };
 }
 
-const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val', desc:'i-voice-desc' };
-const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val', desc:'w-voice-desc' };
+const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val', desc:'i-voice-desc', fvid:'i-fish-voice-id', flat:'i-fish-latency' };
+const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val', desc:'w-voice-desc', fvid:'w-fish-voice-id', flat:'w-fish-latency' };
 
 // ════════════════ INSTRUCTIONS MODAL ════════════════
 function openInstructionsModal(){
@@ -200,7 +236,13 @@ function openInstructionsModal(){
   document.getElementById('i-inbound_first_phrase').value = agentData.inbound_first_phrase || '';
   document.getElementById('i-voice-group').innerHTML = voiceControlHtml(
     agentData.assistant_type || 'gemini',
-    { voice: agentData.voice, cartesia_voice_id: agentData.cartesia_voice_id, voice_speed: agentData.voice_speed },
+    {
+      voice: agentData.voice,
+      cartesia_voice_id: agentData.cartesia_voice_id,
+      voice_speed: agentData.voice_speed,
+      fish_voice_id: agentData.fish_voice_id,
+      fish_latency: agentData.fish_latency,
+    },
     I_VOICE_IDS
   );
 
