@@ -1231,6 +1231,14 @@
     let currentAgentId = null;
     let agents = [];
     let availableFunctions = [];
+    // Имена включённых у агента функций. Держим отдельно от DOM, чтобы состояние
+    // не терялось из-за гонки между рендером чекбоксов (loadAvailableFunctions)
+    // и загрузкой данных агента (loadAgentData) — какой бы порядок ни сложился,
+    // applyFunctionSelection() приводит чекбоксы к этому состоянию.
+    let selectedFunctionNames = [];
+    // Функции агента как пришли с сервера (страховка от затирания при сохранении,
+    // если каталог функций так и не загрузился и чекбоксов в DOM нет).
+    let currentAgentFunctions = null;
     let isLoading = false;
     let currentUserPlanCode = 'free';
 
@@ -1689,6 +1697,7 @@
       speedSlider.value = agent.voice_speed || 1.0;
       document.getElementById('voice-speed-value').textContent = speedSlider.value;
 
+      currentAgentFunctions = agent.functions || null;
       loadFunctions(agent.functions || []);
     }
 
@@ -1701,6 +1710,12 @@
         }
       });
 
+      // Если каталог функций не загрузился (чекбоксов в DOM нет) — не затираем
+      // сохранённые функции агента, отправляем их как есть.
+      const functionsValue = (availableFunctions.length === 0)
+        ? currentAgentFunctions
+        : (enabledFunctions.length > 0 ? enabledFunctions : null);
+
       return {
         name: document.getElementById('agent-name').value.trim(),
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
@@ -1708,7 +1723,7 @@
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
         cartesia_voice_id: document.getElementById('agent-voice-id').value.trim() || null,
         voice_speed: parseFloat(document.getElementById('agent-voice-speed').value),
-        functions: enabledFunctions.length > 0 ? enabledFunctions : null,
+        functions: functionsValue,
       };
     }
 
@@ -1774,26 +1789,38 @@
     // ============================================================================
     // FUNCTIONS
     // ============================================================================
+    // Каталог функций грузим ровно один раз: switchToEditMode() и клик по вкладке
+    // «Функции» могут позвать загрузку параллельно, а повторный renderFunctions()
+    // пересоздал бы чекбоксы и сбросил уже сделанный (ещё не сохранённый) выбор.
+    let functionsLoadPromise = null;
+
     async function loadAvailableFunctions() {
-      try {
-        console.log('[FUNCTIONS] Загружаем список доступных функций...');
-        const functions = await apiRequest('/functions/');
-        availableFunctions = functions;
-        console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
-        renderFunctions(functions);
-      } catch (error) {
-        console.error('[FUNCTIONS] Ошибка загрузки функций:', error);
-        const container = document.getElementById('functions-container');
-        container.innerHTML = `
-          <div style="text-align: center; padding: 2rem; color: #ef4444;">
-            <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
-            <p>Ошибка загрузки функций: ${error.message}</p>
-            <button class="btn btn-outline" onclick="loadAvailableFunctions()" style="margin-top: 1rem;">
-              <i class="fas fa-sync-alt"></i> Попробовать снова
-            </button>
-          </div>
-        `;
-      }
+      if (functionsLoadPromise) return functionsLoadPromise;
+
+      functionsLoadPromise = (async () => {
+        try {
+          console.log('[FUNCTIONS] Загружаем список доступных функций...');
+          const functions = await apiRequest('/functions/');
+          availableFunctions = functions;
+          console.log('[FUNCTIONS] Загружено функций:', availableFunctions.length);
+          renderFunctions(functions);
+        } catch (error) {
+          console.error('[FUNCTIONS] Ошибка загрузки функций:', error);
+          functionsLoadPromise = null; // разрешаем повторную попытку
+          const container = document.getElementById('functions-container');
+          container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #ef4444;">
+              <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
+              <p>Ошибка загрузки функций: ${error.message}</p>
+              <button class="btn btn-outline" onclick="loadAvailableFunctions()" style="margin-top: 1rem;">
+                <i class="fas fa-sync-alt"></i> Попробовать снова
+              </button>
+            </div>
+          `;
+        }
+      })();
+
+      return functionsLoadPromise;
     }
 
     function renderFunctions(functions) {
@@ -1846,25 +1873,30 @@
           infoDiv.style.display = this.checked ? 'block' : 'none';
         });
       });
+
+      // Чекбоксы только что отрисованы — приводим их к сохранённому выбору
+      // агента (важно, если данные агента загрузились раньше рендера).
+      applyFunctionSelection();
+    }
+
+    // Приводит чекбоксы функций в соответствие с selectedFunctionNames.
+    function applyFunctionSelection() {
+      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
+        const name = cb.dataset.functionName;
+        const on = selectedFunctionNames.includes(name);
+        cb.checked = on;
+        const info = document.getElementById(`${name}-info`);
+        if (info) info.style.display = on ? 'block' : 'none';
+      });
     }
 
     function loadFunctions(agentFunctions) {
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
-
-      if (!agentFunctions) return;
-      agentFunctions.forEach(fn => {
-        const name = fn.name || fn;
-        const cb = document.querySelector(`input[data-function-name="${name}"]`);
-        if (cb) {
-          cb.checked = true;
-          const info = document.getElementById(`${name}-info`);
-          if (info) info.style.display = 'block';
-        }
-      });
+      selectedFunctionNames = (agentFunctions || [])
+        .map(fn => (fn && fn.name) ? fn.name : fn)
+        .filter(Boolean);
+      // Применяем к уже отрисованным чекбоксам; если рендер ещё не случился,
+      // его финальный applyFunctionSelection() подхватит этот же выбор.
+      applyFunctionSelection();
     }
 
     // ============================================================================
@@ -1908,6 +1940,8 @@
       document.getElementById('create-agent-btn').style.display = 'inline-flex';
       updateCreateButtonState();
       currentAgentId = null;
+      currentAgentFunctions = null;
+      selectedFunctionNames = [];
     }
 
     function initCreateMode() {
@@ -1925,11 +1959,9 @@
       document.getElementById('voice-speed-value').textContent = '1.0';
 
       // Сбрасываем функции
-      document.querySelectorAll('input[type="checkbox"][data-function-name]').forEach(cb => {
-        cb.checked = false;
-        const info = document.getElementById(`${cb.dataset.functionName}-info`);
-        if (info) info.style.display = 'none';
-      });
+      currentAgentFunctions = null;
+      selectedFunctionNames = [];
+      applyFunctionSelection();
     }
 
     // ============================================================================

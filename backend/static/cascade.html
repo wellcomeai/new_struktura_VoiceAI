@@ -1211,6 +1211,9 @@
     // и загрузкой данных агента (loadAgentData) — какой бы порядок ни сложился,
     // applyFunctionSelection() приводит чекбоксы к этому состоянию.
     let selectedFunctionNames = [];
+    // Функции агента как пришли с сервера (страховка от затирания при сохранении,
+    // если каталог функций так и не загрузился и чекбоксов в DOM нет).
+    let currentAgentFunctions = null;
     let isLoading = false;
     let currentUserPlanCode = 'free';
 
@@ -1774,6 +1777,7 @@
 
       setSilencePreset(Number(agent.silence_duration_ms) || SILENCE_DEFAULT);
 
+      currentAgentFunctions = agent.functions || null;
       loadFunctions(agent.functions || []);
     }
 
@@ -1786,6 +1790,12 @@
         }
       });
 
+      // Если каталог функций не загрузился (чекбоксов в DOM нет) — не затираем
+      // сохранённые функции агента, отправляем их как есть.
+      const functionsValue = (availableFunctions.length === 0)
+        ? currentAgentFunctions
+        : (enabledFunctions.length > 0 ? enabledFunctions : null);
+
       return {
         name: document.getElementById('agent-name').value.trim(),
         greeting_message: document.getElementById('agent-greeting').value.trim() || null,
@@ -1795,7 +1805,7 @@
         tts_voice: document.getElementById('agent-tts-voice').value,
         silence_duration_ms: selectedSilenceMs,
         is_telephony_enabled: true,
-        functions: enabledFunctions.length > 0 ? enabledFunctions : null,
+        functions: functionsValue,
       };
     }
 
@@ -1861,24 +1871,36 @@
     // ============================================================================
     // FUNCTIONS
     // ============================================================================
+    // Каталог функций грузим ровно один раз: switchToEditMode() и клик по вкладке
+    // «Функции» могут позвать загрузку параллельно, а повторный renderFunctions()
+    // пересоздал бы чекбоксы и сбросил уже сделанный (ещё не сохранённый) выбор.
+    let functionsLoadPromise = null;
+
     async function loadAvailableFunctions() {
-      try {
-        const functions = await apiRequest('/functions/');
-        availableFunctions = functions;
-        renderFunctions(functions);
-      } catch (error) {
-        console.error('[FUNCTIONS] Error:', error);
-        const container = document.getElementById('functions-container');
-        container.innerHTML = `
-          <div style="text-align: center; padding: 2rem; color: #ef4444;">
-            <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
-            <p>Ошибка загрузки функций: ${error.message}</p>
-            <button class="btn btn-outline" onclick="loadAvailableFunctions()" style="margin-top: 1rem;">
-              <i class="fas fa-sync-alt"></i> Попробовать снова
-            </button>
-          </div>
-        `;
-      }
+      if (functionsLoadPromise) return functionsLoadPromise;
+
+      functionsLoadPromise = (async () => {
+        try {
+          const functions = await apiRequest('/functions/');
+          availableFunctions = functions;
+          renderFunctions(functions);
+        } catch (error) {
+          console.error('[FUNCTIONS] Error:', error);
+          functionsLoadPromise = null; // разрешаем повторную попытку
+          const container = document.getElementById('functions-container');
+          container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #ef4444;">
+              <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 1rem;"></i>
+              <p>Ошибка загрузки функций: ${error.message}</p>
+              <button class="btn btn-outline" onclick="loadAvailableFunctions()" style="margin-top: 1rem;">
+                <i class="fas fa-sync-alt"></i> Попробовать снова
+              </button>
+            </div>
+          `;
+        }
+      })();
+
+      return functionsLoadPromise;
     }
 
     function renderFunctions(functions) {
@@ -1996,6 +2018,8 @@
       document.getElementById('create-agent-btn').style.display = 'inline-flex';
       updateCreateButtonState();
       currentAgentId = null;
+      currentAgentFunctions = null;
+      selectedFunctionNames = [];
     }
 
     function initCreateMode() {
@@ -2012,6 +2036,7 @@
       setSilencePreset(SILENCE_DEFAULT);
 
       // Reset functions
+      currentAgentFunctions = null;
       selectedFunctionNames = [];
       applyFunctionSelection();
     }
