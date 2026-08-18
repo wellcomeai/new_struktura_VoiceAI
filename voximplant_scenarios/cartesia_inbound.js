@@ -127,7 +127,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var ASSISTANT_ID = null;
     var functionNameToIdMap = {};
 
-    var CONFIG_URL = "https://voicyfy.ru/api/telephony/config?phone=" + called_number.replace(/\D/g, '');
+    // caller → бэкенд ищет контакт звонящего в базе агента и дописывает
+    // карточку клиента в system_prompt + подставляет имя в first_phrase.
+    var CONFIG_URL = "https://voicyfy.ru/api/telephony/config?phone=" + called_number.replace(/\D/g, '') + "&caller=" + caller_number.replace(/\D/g, '');
     var FUNCTIONS_URL = "https://voicyfy.ru/api/voximplant/functions/execute";
     var LOG_URL = "https://voicyfy.ru/api/voximplant/log";
 
