@@ -1,0 +1,1236 @@
+/*
+ * Voximplant INBOUND Gemini Script v7.9
+ * ====================================================================
+ *
+ * 🆕 v7.9 (изменения относительно v7.8):
+ *   ✅ SILENCE PING FIX: таймер тишины привязан к РЕАЛЬНОМУ окончанию
+ *      аудио (WebSocketMediaEnded), а не к транскрипции.
+ *
+ *      Проблема v7.8: транскрипция ответа приходит быстрее, чем аудио
+ *      проигрывается клиенту (Gemini генерирует быстрее реального времени).
+ *      Отсчёт 8с тишины стартовал, когда ассистент ЕЩЁ ГОВОРИЛ в трубку →
+ *      пинг «Алло, вы меня слышите?» прилетал клиенту сразу после длинной
+ *      фразы, не давая времени ответить.
+ *
+ *      Решение:
+ *      - Флаг assistantAudioPlaying: true на MediaStarted, false на MediaEnded
+ *      - Пинг-таймер (8с) взводится ТОЛЬКО когда аудио ассистента не играет
+ *      - На MediaEnded → resetSilenceTimer() → честный отсчёт 8с тишины
+ *        ПОСЛЕ того, как клиент дослушал фразу
+ *      - В колбэке пинга контрольная проверка флага (double-check)
+ *      - Хард-таймаут 180с работает как раньше (страховка от зависших сессий)
+ *
+ * v7.8:
+ *   ✅ VAD TUNING: realtimeInputConfig.automaticActivityDetection
+ *      (sensitivity HIGH/HIGH, prefixPaddingMs 100, silenceDurationMs 500)
+ *   ✅ proactiveAudio — УДАЛЁН (в телефонии все реплики адресованы ассистенту)
+ *
+ * v7.7:
+ *   ✅ SILENCE PING: через 8 сек тишины клиента ассистент сам подаёт голос
+ *   ✅ contextWindowCompression — ЗАКОММЕНТИРОВАНО
+ *   ✅ sessionResumption — ЗАКОММЕНТИРОВАНО
+ *
+ * v7.6: Поддержка Gemini 2.5 И 3.1 в одном сценарии
+ *   ✅ Модель читается из CONFIG.model (не хардкод)
+ *   ✅ IS_31 флаг — автоматически определяет версию по строке модели
+ *   ✅ thinkingConfig: 2.5 → thinkingBudget:0 / 3.1 → thinkingLevel:"minimal"
+ *   ✅ Greeting trigger: 2.5 → sendClientContent / 3.1 → sendRealtimeInput
+ *   ✅ GoAway / sessionWarning / farewell: тот же switch по IS_31
+ *
+ * 🔧 FIX (v7.6): sendMediaBetween для 3.1 вызывается ПОСЛЕ turnComplete
+ *   приветствия. Предотвращает interrupted во время приветствия.
+ *
+ * Поддерживаемые модели:
+ *   - "gemini-2.5-flash-native-audio-preview-12-2025"  → IS_31 = false
+ *   - "models/gemini-2.5-flash-native-audio-preview-12-2025" → IS_31 = false
+ *   - "gemini-3.1-flash-live-preview"                  → IS_31 = true
+ *
+ * ФЛОУ:
+ *   1. CallAlerting → call.ring() → клиент слышит гудки
+ *   2. Загрузка конфига (CONFIG.model определяет версию)
+ *   3. Retry подключения к Gemini (до 3 попыток × 3 сек)
+ *   4. SetupComplete → call.answer()
+ *   5. Connected: запись звонка, ждём FirstAudioPacketReceived
+ *   6. FirstAudioPacketReceived: sendMediaTo + greeting trigger
+ *   7. Gemini отвечает → full duplex (2.5 сразу / 3.1 после turnComplete)
+ *   8. Пустой turnComplete → retry greeting (до 2 попыток)
+ *   9. Все попытки провалились → TTS fallback → hangup
+ *
+ * ====================================================================
+ */
+
+require(Modules.Gemini);
+require(Modules.Recorder);
+
+// ====================================================================
+// ЛОГИРОВАНИЕ
+// ====================================================================
+const LOG_LEVEL = "info"; // "debug" | "info" | "error"
+
+function log(level, msg) {
+    if (level === "error") {
+        Logger.write("❌ " + msg);
+    } else if (level === "info" && (LOG_LEVEL === "info" || LOG_LEVEL === "debug")) {
+        Logger.write(msg);
+    } else if (level === "debug" && LOG_LEVEL === "debug") {
+        Logger.write("🔍 " + msg);
+    }
+}
+
+// ====================================================================
+// STATE MACHINE
+// ====================================================================
+const STATE = {
+    INIT: "INIT",
+    CONFIG_LOADING: "CONFIG_LOADING",
+    GEMINI_CONNECTING: "GEMINI_CONNECTING",
+    ANSWERING: "ANSWERING",
+    WAITING_AUDIO: "WAITING_AUDIO",
+    GREETING_SENT: "GREETING_SENT",
+    CONVERSATION: "CONVERSATION",
+    TERMINATING: "TERMINATING"
+};
+
+// ====================================================================
+// КОНФИГУРАЦИЯ
+// ====================================================================
+const SETUP_TIMEOUT_MS = 3000;
+const MAX_RETRY_ATTEMPTS = 3;
+const MAX_GREETING_ATTEMPTS = 2;
+const GREETING_TIMEOUT_MS = 7000;
+const SILENCE_TIMEOUT_MS = 180000;
+const SILENCE_PING_MS = 8000;               // v7.7: пинг после 8 сек тишины
+                                            // v7.9: отсчёт идёт ПОСЛЕ окончания аудио ассистента
+const GEMINI_SESSION_WARNING_MS = 9 * 60 * 1000;
+const GEMINI_SESSION_MAX_MS = 10 * 60 * 1000;
+
+// ====================================================================
+// v7.8: ПАРАМЕТРЫ ВСТРОЕННОГО VAD (тюнинг отзывчивости)
+//
+// VAD_PREFIX_PADDING_MS — сколько мс звук должен "продержаться", чтобы
+//   VAD засчитал НАЧАЛО речи. 100 мс — баланс для телефонии.
+//
+// VAD_SILENCE_DURATION_MS — сколько мс тишины ждать, чтобы засчитать
+//   КОНЕЦ реплики клиента. 500 мс — стартовое значение; медленно → 300-400,
+//   перебивает клиента на паузах → 600-700.
+// ====================================================================
+const VAD_PREFIX_PADDING_MS = 100;
+const VAD_SILENCE_DURATION_MS = 500;
+
+const TTS_FALLBACK_MESSAGE = "Извините, временные технические проблемы. Пожалуйста, перезвоните позже.";
+
+// ====================================================================
+// ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ для session ID
+// ====================================================================
+let call_session_history_id = null;
+
+VoxEngine.addEventListener(AppEvents.Started, function(e) {
+    call_session_history_id = e.sessionId;
+    log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    log("info", "🚀 APP STARTED (INBOUND Gemini v7.9 — silence ping anchored to MediaEnded)");
+    log("info", "🔑 Session History ID: " + call_session_history_id);
+    log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+});
+
+VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
+    const call = e.call;
+    let geminiLiveAPIClient = null;
+    let activePath = null;
+
+    // ====================================================================
+    // СОСТОЯНИЕ
+    // ====================================================================
+    let currentState = STATE.INIT;
+
+    function setState(newState) {
+        log("debug", "📊 STATE: " + currentState + " → " + newState);
+        currentState = newState;
+    }
+
+    const chat_id = "vox_" + Math.random().toString(36).substring(2, 15);
+    const caller_number = call.callerid() || "unknown";
+    const called_number = e.destination || "unknown";
+    const call_id = call.id();
+
+    let record_url = null;
+    let call_cost = 0;
+    let call_duration = 0;
+
+    // ====================================================================
+    // v7.6: ФЛАГ ВЕРСИИ МОДЕЛИ (определяется после загрузки конфига)
+    // ====================================================================
+    let IS_31 = false; // true для gemini-3.1-flash-live-preview
+
+    // ====================================================================
+    // 🆕 v7.9: ФЛАГ — ИГРАЕТ ЛИ СЕЙЧАС АУДИО АССИСТЕНТА
+    // true  → между WebSocketMediaStarted и WebSocketMediaEnded
+    // false → аудио доиграло, клиент в тишине
+    // Пока true — пинг тишины НЕ взводится и НЕ срабатывает.
+    // ====================================================================
+    let assistantAudioPlaying = false;
+
+    // ====================================================================
+    // 📞 ГУДКИ — СРАЗУ
+    // ====================================================================
+    call.ring();
+    log("info", "📞 RING → клиент слышит гудки");
+
+    // ====================================================================
+    // ТАЙМЕРЫ
+    // ====================================================================
+    let greetingTimeoutId = null;
+    let silenceTimeoutId = null;
+    let silencePingTimeoutId = null;        // v7.7: таймер пинга при тишине
+    let sessionWarningTimeoutId = null;
+    let sessionMaxTimeoutId = null;
+
+    function clearAllTimers() {
+        if (greetingTimeoutId)       { clearTimeout(greetingTimeoutId);       greetingTimeoutId = null; }
+        if (silenceTimeoutId)        { clearTimeout(silenceTimeoutId);         silenceTimeoutId = null; }
+        if (silencePingTimeoutId)    { clearTimeout(silencePingTimeoutId);     silencePingTimeoutId = null; }
+        if (sessionWarningTimeoutId) { clearTimeout(sessionWarningTimeoutId);  sessionWarningTimeoutId = null; }
+        if (sessionMaxTimeoutId)     { clearTimeout(sessionMaxTimeoutId);      sessionMaxTimeoutId = null; }
+    }
+
+    // ====================================================================
+    // 🆕 v7.9: СБРОС ТАЙМЕРОВ ТИШИНЫ
+    //
+    // Пинг (8с): взводится ТОЛЬКО если аудио ассистента сейчас не играет.
+    //   Пока ассистент говорит — таймер пинга не существует в принципе.
+    //   Честный отсчёт стартует на WebSocketMediaEnded (аудио доиграло).
+    //
+    // Хард-таймаут (180с): взводится всегда в CONVERSATION — страховка
+    //   от полностью зависших сессий, на него флаг аудио не влияет.
+    // ====================================================================
+    function resetSilenceTimer() {
+        if (silenceTimeoutId)     { clearTimeout(silenceTimeoutId);     silenceTimeoutId = null; }
+        if (silencePingTimeoutId) { clearTimeout(silencePingTimeoutId); silencePingTimeoutId = null; }
+
+        if (currentState === STATE.CONVERSATION) {
+
+            // Пинг — только в реальной тишине (аудио ассистента не играет)
+            if (!assistantAudioPlaying) {
+                silencePingTimeoutId = setTimeout(function() {
+                    // 🆕 v7.9: double-check — если аудио вдруг играет, пинг пропускаем
+                    // (перезапуск придёт на ближайшем MediaEnded)
+                    if (currentState === STATE.CONVERSATION && !assistantAudioPlaying) {
+                        log("info", "🔔 SILENCE PING: клиент молчит " + (SILENCE_PING_MS / 1000) + "с после конца аудио, подаём голос");
+                        // Формулируем как КОМАНДУ произнести фразу (чтобы модель не зачитала служебный текст)
+                        sendRuntimeText("Произнеси вслух короткую фразу, чтобы проверить, на связи ли собеседник, например: Алло, вы меня слышите?");
+                    } else {
+                        log("debug", "🔕 Ping skipped: assistant audio is playing");
+                    }
+                }, SILENCE_PING_MS);
+            }
+
+            // Хард-таймаут — всегда
+            silenceTimeoutId = setTimeout(function() {
+                log("error", "⏱️ SILENCE TIMEOUT: " + (SILENCE_TIMEOUT_MS / 1000) + "s");
+                terminateCall();
+            }, SILENCE_TIMEOUT_MS);
+        }
+    }
+
+    // ====================================================================
+    // GREETING
+    // ====================================================================
+    let greetingMessage = "";
+    let geminiStartedSpeaking = false;
+    let greetingAttempt = 0;
+
+    function determineGreeting(configFirstPhrase) {
+        if (configFirstPhrase) return configFirstPhrase;
+        return "Здравствуйте! Чем могу помочь?";
+    }
+
+    // ====================================================================
+    // v7.6: GREETING TRIGGER — метод зависит от версии модели
+    //
+    // Gemini 2.5 → sendClientContent (turns + turnComplete)
+    // Gemini 3.1 → sendRealtimeInput (text) — sendClientContent запрещён
+    //              в 3.1 для runtime-сообщений, только для initial history
+    // ====================================================================
+    function sendGreetingTrigger() {
+        greetingAttempt++;
+
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log("info", "👋 GREETING ATTEMPT #" + greetingAttempt + "/" + MAX_GREETING_ATTEMPTS);
+        log("info", "   Expected: \"" + greetingMessage.substring(0, 60) + "\"");
+        log("info", "   Timeout: " + (GREETING_TIMEOUT_MS / 1000) + "s");
+        log("info", "   Model version: " + (IS_31 ? "3.1 (sendRealtimeInput)" : "2.5 (sendClientContent)"));
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        const greetingText = "Начни разговор, первым произнеси: \"" + greetingMessage + "\"";
+
+        if (IS_31) {
+            // ✅ Gemini 3.1: используем sendRealtimeInput с text
+            geminiLiveAPIClient.sendRealtimeInput({ text: greetingText });
+        } else {
+            // ✅ Gemini 2.5: используем sendClientContent
+            geminiLiveAPIClient.sendClientContent({
+                turns: [{
+                    role: "user",
+                    parts: [{ text: greetingText }]
+                }],
+                turnComplete: true
+            });
+        }
+
+        if (greetingTimeoutId) clearTimeout(greetingTimeoutId);
+        greetingTimeoutId = setTimeout(function() {
+            if (!geminiStartedSpeaking && currentState !== STATE.TERMINATING) {
+                log("info", "⚠️ GREETING TIMEOUT (attempt #" + greetingAttempt + ")");
+
+                if (greetingAttempt < MAX_GREETING_ATTEMPTS) {
+                    log("info", "🔄 Retrying greeting...");
+                    sendGreetingTrigger();
+                } else {
+                    greetingFailed();
+                }
+            }
+        }, GREETING_TIMEOUT_MS);
+    }
+
+    // ====================================================================
+    // ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: отправить текст в Gemini (runtime)
+    // Используется для системных сообщений (GoAway, sessionWarning, farewell, ping)
+    // ====================================================================
+    function sendRuntimeText(text) {
+        if (IS_31) {
+            geminiLiveAPIClient.sendRealtimeInput({ text: text });
+        } else {
+            geminiLiveAPIClient.sendClientContent({
+                turns: [{ role: "user", parts: [{ text: text }] }],
+                turnComplete: true
+            });
+        }
+    }
+
+    // ====================================================================
+    // СТРУКТУРИРОВАННЫЙ ДИАЛОГ
+    // ====================================================================
+    let dialogLog = [];
+    let currentUserText = "";
+    let currentAssistantText = "";
+    let lastRole = null;
+    let logCounter = 0;
+    let userMessageBuffer = "";
+    let assistantMessageBuffer = "";
+
+    function finalizeCurrentTurn() {
+        if (lastRole === "user" && currentUserText.trim()) {
+            dialogLog.push({ role: "user", text: currentUserText.trim(), ts: Date.now() });
+            currentUserText = "";
+        } else if (lastRole === "assistant" && currentAssistantText.trim()) {
+            dialogLog.push({ role: "assistant", text: currentAssistantText.trim(), ts: Date.now() });
+            currentAssistantText = "";
+        }
+    }
+
+    // ====================================================================
+    // КОНФИГУРАЦИЯ
+    // ====================================================================
+    let CONFIG = null;
+    let ASSISTANT_ID = null;
+    let functionNameToIdMap = {};
+
+    const CONFIG_URL = "https://voicyfy.ru/api/telephony/config?phone=" + called_number.replace(/\D/g, "") + "&caller=" + caller_number.replace(/\D/g, "");
+    const FUNCTIONS_URL = "https://voicyfy.ru/api/voximplant/functions/execute";
+    const LOG_URL = "https://voicyfy.ru/api/voximplant/log";
+
+    log("info", "📞 INBOUND CALL (Gemini v7.9)");
+    log("info", "   From: " + caller_number + " → To: " + called_number);
+    log("info", "   Call ID: " + call_id);
+
+    // ====================================================================
+    // ПОДГОТОВКА КОНФИГУРАЦИИ GEMINI
+    // v7.6: thinkingConfig зависит от IS_31
+    // v7.8: realtimeInputConfig (VAD tuning) — для ОБЕИХ версий
+    // v7.8: proactiveAudio — УДАЛЁН
+    // ====================================================================
+    let finalSystemPrompt = "";
+    let geminiTools = [];
+    let GEMINI_MODEL = "";
+
+    function buildGeminiConfig() {
+        const config = {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: CONFIG.voice || "Aoede" } }
+            },
+            systemInstruction: { parts: [{ text: finalSystemPrompt }] },
+            inputAudioTranscription: { model: "default", language: CONFIG.language || "ru" },
+            outputAudioTranscription: { model: "default" },
+            toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+
+            // ════════════════════════════════════════════════════════
+            // v7.8: ТЮНИНГ ВСТРОЕННОГО VAD
+            // startOfSpeechSensitivity HIGH — VAD легче засчитывает
+            //   начало речи (важно для тихой/телефонной речи)
+            // endOfSpeechSensitivity HIGH — VAD быстрее фиксирует
+            //   конец реплики
+            // prefixPaddingMs — фильтр коротких шумов на старте речи
+            // silenceDurationMs — сколько тишины ждать до "конец
+            //   реплики" (главный параметр отзывчивости)
+            // ════════════════════════════════════════════════════════
+            realtimeInputConfig: {
+                automaticActivityDetection: {
+                    startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+                    endOfSpeechSensitivity: "END_SENSITIVITY_HIGH",
+                    prefixPaddingMs: VAD_PREFIX_PADDING_MS,
+                    silenceDurationMs: VAD_SILENCE_DURATION_MS
+                }
+            }
+
+            // v7.7: contextWindowCompression ЗАКОММЕНТИРОВАНО (тест таймингов, короткие звонки)
+            // contextWindowCompression: { slidingWindow: {} },
+            // v7.7: sessionResumption ЗАКОММЕНТИРОВАНО
+            // sessionResumption: {}
+        };
+
+        // v7.6: thinkingConfig — разные параметры для 2.5 и 3.1
+        if (IS_31) {
+            config.thinkingConfig = { thinkingLevel: "minimal" };
+        } else {
+            config.thinkingConfig = { thinkingBudget: 0 };
+            // ════════════════════════════════════════════════════════
+            // v7.8: proactiveAudio УДАЛЁН (раньше был enabled для 2.5)
+            // Proactivity позволяла модели РЕШАТЬ, отвечать или нет —
+            // фича для умных колонок. В телефонии ВСЕ реплики адресованы
+            // ассистенту, а на шум модель могла "осознанно молчать" —
+            // выглядело как зависание на 3-4 секунды. НЕ ВОЗВРАЩАТЬ.
+            // ════════════════════════════════════════════════════════
+        }
+
+        return config;
+    }
+
+    // ====================================================================
+    // СОЗДАНИЕ GEMINI КЛИЕНТА С RETRY
+    // ====================================================================
+    let lastResumeHandle = null;
+
+    function attemptGeminiConnection(attemptNum) {
+        return new Promise(async function(resolve, reject) {
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            log("info", "🔌 ATTEMPT #" + attemptNum + "/" + MAX_RETRY_ATTEMPTS + ": Connecting to Gemini...");
+            log("info", "   Model: " + GEMINI_MODEL);
+            log("info", "   Version: " + (IS_31 ? "3.1" : "2.5"));
+            log("info", "   Timeout: " + SETUP_TIMEOUT_MS + "ms");
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            let setupReceived = false;
+            let timeoutId = null;
+            let client = null;
+
+            try {
+                const connectConfig = buildGeminiConfig();
+                if (geminiTools.length > 0) {
+                    connectConfig.tools = geminiTools;
+                }
+
+                client = await Gemini.createLiveAPIClient({
+                    apiKey: CONFIG.api_key,
+                    model: GEMINI_MODEL,
+                    connectConfig: connectConfig,
+                    backend: Gemini.Backend.GEMINI_API,
+                    onWebSocketClose: function(event) {
+                        log("info", "🔌 Gemini WebSocket closed (attempt #" + attemptNum + ")" +
+                            (event ? " code: " + event.code : ""));
+
+                        if (!setupReceived) {
+                            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                            reject(new Error("WebSocket closed before SetupComplete"));
+                        } else if (currentState !== STATE.TERMINATING && activePath === "A") {
+                            terminateCall();
+                        }
+                    }
+                });
+
+                log("info", "   ✅ Client created, waiting SetupComplete...");
+
+                client.addEventListener(
+                    Gemini.LiveAPIEvents.SetupComplete,
+                    function(event) {
+                        if (setupReceived) return;
+                        setupReceived = true;
+
+                        if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+
+                        log("info", "   ✅ SetupComplete received! (attempt #" + attemptNum + ")");
+                        resolve(client);
+                    }
+                );
+
+                timeoutId = setTimeout(function() {
+                    if (!setupReceived) {
+                        log("info", "   ⚠️ TIMEOUT " + SETUP_TIMEOUT_MS + "ms (attempt #" + attemptNum + ")");
+                        try { client.close(); } catch(err) {}
+                        client = null;
+                        reject(new Error("SetupComplete timeout"));
+                    }
+                }, SETUP_TIMEOUT_MS);
+
+            } catch (err) {
+                log("error", "   ❌ createLiveAPIClient error (attempt #" + attemptNum + "): " + err);
+                if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+                reject(err);
+            }
+        });
+    }
+
+    async function connectWithRetry() {
+        for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            if (currentState === STATE.TERMINATING) return null;
+
+            try {
+                const client = await attemptGeminiConnection(attempt);
+                return client;
+            } catch (err) {
+                log("info", "   ❌ Attempt #" + attempt + " failed: " + err.message);
+
+                if (attempt >= MAX_RETRY_ATTEMPTS) {
+                    log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    log("error", "❌ ALL " + MAX_RETRY_ATTEMPTS + " ATTEMPTS FAILED");
+                    log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                }
+            }
+        }
+        return null;
+    }
+
+    // ====================================================================
+    // ЗАВЕРШЕНИЕ ЗВОНКА
+    // ====================================================================
+    let terminatePromise = null;
+
+    const terminateCall = function() {
+        if (terminatePromise) return terminatePromise;
+
+        terminatePromise = (async function() {
+            setState(STATE.TERMINATING);
+            clearAllTimers();
+
+            log("info", "📴 Terminating call... (active path: " + activePath + ")");
+            finalizeCurrentTurn();
+
+            if (geminiLiveAPIClient) {
+                try { geminiLiveAPIClient.close(); } catch (err) {}
+            }
+
+            if (call && record_url) {
+                try { call.stopRecord(); } catch (err) {}
+            }
+
+            await new Promise(function(resolve) { setTimeout(resolve, 500); });
+
+            try {
+                if (call) {
+                    if (typeof call.cost === "function") call_cost = call.cost() || 0;
+                    if (typeof call.duration === "function") call_duration = call.duration() || 0;
+                }
+            } catch (err) {}
+
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            log("info", "💰 BILLING (v7.9):");
+            log("info", "   🔑 Session: " + (call_session_history_id || "NONE"));
+            log("info", "   🛣️ Active Path: " + activePath);
+            log("info", "   🤖 Model: " + GEMINI_MODEL + " (IS_31=" + IS_31 + ")");
+            log("info", "   💰 Cost: " + call_cost + " | ⏱️ Duration: " + call_duration + "s");
+            log("info", "   📝 Dialog turns: " + dialogLog.length);
+            log("info", "   👋 Greeting attempts: " + greetingAttempt);
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            if (userMessageBuffer || assistantMessageBuffer || dialogLog.length > 0) {
+                try {
+                    await sendConversationLog(true);
+                    log("info", "✅ Final log sent");
+                } catch (err) {
+                    log("error", "Final log: " + err);
+                }
+            } else {
+                log("info", "⚠️ No dialog to log");
+            }
+
+            if (call) {
+                try { call.hangup(); } catch (err) {}
+            }
+
+            setTimeout(function() {
+                log("info", "✅ Call terminated. Path: " + activePath +
+                    " | Turns: " + dialogLog.length +
+                    " | Logs: " + logCounter +
+                    " | Greeting attempts: " + greetingAttempt);
+                VoxEngine.terminate();
+            }, 500);
+        })();
+
+        return terminatePromise;
+    };
+
+    // ====================================================================
+    // ЛОГИРОВАНИЕ ДИАЛОГА
+    // ====================================================================
+    async function sendConversationLog(isFinal) {
+        try {
+            if (!userMessageBuffer && !assistantMessageBuffer && dialogLog.length === 0) {
+                log("debug", "Empty dialog, skipping");
+                return;
+            }
+            if (!ASSISTANT_ID) {
+                log("error", "No ASSISTANT_ID");
+                return;
+            }
+
+            logCounter++;
+            log("info", "📤 LOG #" + logCounter + (isFinal ? " (FINAL)" : "") +
+                " | User: " + userMessageBuffer.length + "ch" +
+                " | Assistant: " + assistantMessageBuffer.length + "ch" +
+                " | Turns: " + dialogLog.length);
+
+            const payload = {
+                assistant_id: ASSISTANT_ID,
+                chat_id: chat_id,
+                call_id: call_id,
+                caller_number: "INBOUND:" + caller_number,
+                type: "conversation",
+                data: {
+                    user_message: userMessageBuffer,
+                    assistant_message: assistantMessageBuffer,
+                    dialog: dialogLog
+                }
+            };
+
+            if (isFinal) {
+                if (record_url) payload.record_url = record_url;
+                if (call_session_history_id) payload.call_session_history_id = String(call_session_history_id);
+                payload.call_cost = call_cost;
+                payload.call_duration = call_duration;
+                payload.active_path = activePath;
+                payload.greeting_attempts = greetingAttempt;
+                payload.gemini_model = GEMINI_MODEL;
+                payload.is_31 = IS_31;
+                // v7.8: фиксируем VAD-параметры в финальном логе для A/B анализа
+                payload.vad_config = {
+                    prefix_padding_ms: VAD_PREFIX_PADDING_MS,
+                    silence_duration_ms: VAD_SILENCE_DURATION_MS,
+                    start_sensitivity: "HIGH",
+                    end_sensitivity: "HIGH",
+                    proactive_audio: false
+                };
+            }
+
+            const response = await Net.httpRequestAsync(LOG_URL, {
+                headers: ["Content-Type: application/json"],
+                method: "POST",
+                postData: JSON.stringify(payload)
+            });
+
+            if (response.code == 200) {
+                log("info", "✅ Log #" + logCounter + " sent");
+                if (!isFinal) {
+                    userMessageBuffer = "";
+                    assistantMessageBuffer = "";
+                    dialogLog = [];
+                }
+            } else {
+                log("error", "Log HTTP " + response.code + ": " + response.text);
+            }
+        } catch (error) {
+            log("error", "sendConversationLog: " + error);
+        }
+    }
+
+    // ====================================================================
+    // ОБРАБОТКА ФУНКЦИЙ
+    // ====================================================================
+    async function handleFunctionCall(callId, functionName, args) {
+        try {
+            log("info", "🔧 FUNCTION: " + functionName + " | Args: " + JSON.stringify(args).substring(0, 200));
+
+            if (functionName === "hangup_call") {
+                log("info", "📴 HANGUP" + (args.farewell_message ? ": \"" + args.farewell_message + "\"" : ""));
+
+                if (args.farewell_message) {
+                    sendRuntimeText("Скажи: \"" + args.farewell_message + "\"");
+                    setTimeout(terminateCall, 3000);
+                } else {
+                    terminateCall();
+                }
+
+                geminiLiveAPIClient.sendToolResponse({
+                    functionResponses: [{ id: callId, name: functionName, response: { output: "Call will be terminated" } }]
+                });
+                return;
+            }
+
+            const cleanArgs = Object.assign({}, args);
+            const function_id = cleanArgs.function_id || functionNameToIdMap[functionName];
+            delete cleanArgs.function_id;
+
+            if (!function_id) {
+                log("error", "No function_id for: " + functionName);
+                geminiLiveAPIClient.sendToolResponse({
+                    functionResponses: [{ id: callId, name: functionName, response: { output: "Error: Function ID not found" } }]
+                });
+                return;
+            }
+
+            const payload = {
+                function_id: function_id,
+                arguments: Object.assign({}, cleanArgs, { assistant_id: ASSISTANT_ID }),
+                call_data: { call_id: call_id, chat_id: chat_id, assistant_id: ASSISTANT_ID, caller_number: caller_number }
+            };
+
+            const functionResponse = await Net.httpRequestAsync(FUNCTIONS_URL, {
+                headers: ["Content-Type: application/json"],
+                method: "POST",
+                postData: JSON.stringify(payload)
+            });
+
+            if (functionResponse.code == 200) {
+                const result = JSON.parse(functionResponse.text);
+                log("info", "✅ Function result: " + JSON.stringify(result).substring(0, 200));
+                geminiLiveAPIClient.sendToolResponse({
+                    functionResponses: [{ id: callId, name: functionName, response: { output: JSON.stringify(result) } }]
+                });
+            } else {
+                log("error", "Function HTTP " + functionResponse.code);
+                geminiLiveAPIClient.sendToolResponse({
+                    functionResponses: [{ id: callId, name: functionName, response: { output: "Error: HTTP " + functionResponse.code } }]
+                });
+            }
+        } catch (error) {
+            log("error", "handleFunctionCall: " + error);
+            try {
+                geminiLiveAPIClient.sendToolResponse({
+                    functionResponses: [{ id: callId, name: functionName, response: { output: "Error: " + error } }]
+                });
+            } catch (err) {}
+        }
+    }
+
+    // ====================================================================
+    // GREETING FAILED → TTS FALLBACK + HANGUP
+    // ====================================================================
+    function greetingFailed() {
+        if (currentState === STATE.TERMINATING) return;
+
+        log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log("error", "❌ GREETING FAILED after " + greetingAttempt + " attempts");
+        log("error", "   Gemini не произнёс приветствие → TTS fallback → hangup");
+        log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        try {
+            if (geminiLiveAPIClient) {
+                geminiLiveAPIClient.stopMediaTo(call);
+            }
+        } catch (err) {}
+
+        call.say(TTS_FALLBACK_MESSAGE, { language: Language.RU_RUSSIAN_FEMALE });
+
+        call.addEventListener(CallEvents.PlaybackFinished, function onFallbackDone() {
+            log("info", "✅ TTS fallback finished → terminating");
+            terminateCall();
+        });
+    }
+
+    // ====================================================================
+    // НАСТРОЙКА ОБРАБОТЧИКОВ СОБЫТИЙ GEMINI
+    // ====================================================================
+    function setupGeminiEventHandlers(client) {
+
+        // ──────────────────────────────────────────
+        // ToolCall
+        // ──────────────────────────────────────────
+        client.addEventListener(
+            Gemini.LiveAPIEvents.ToolCall,
+            async function(event) {
+                if (activePath !== "A") return;
+
+                try {
+                    if (!event || !event.data || !event.data.payload) return;
+                    const functionCalls = event.data.payload.functionCalls;
+                    if (!functionCalls || functionCalls.length === 0) return;
+
+                    for (let i = 0; i < functionCalls.length; i++) {
+                        const fc = functionCalls[i];
+                        await handleFunctionCall(fc.id, fc.name, fc.args || {});
+                    }
+                } catch (error) {
+                    log("error", "ToolCall: " + error);
+                }
+            }
+        );
+
+        // ──────────────────────────────────────────
+        // ServerContent
+        // ──────────────────────────────────────────
+        client.addEventListener(
+            Gemini.LiveAPIEvents.ServerContent,
+            async function(event) {
+                if (activePath !== "A") return;
+
+                try {
+                    if (!event || !event.data) return;
+                    const payload = event.data.payload;
+                    if (!payload) return;
+
+                    if (payload.interrupted) {
+                        log("debug", "🔇 INTERRUPTED");
+                        client.clearMediaBuffer();
+                    }
+
+                    if (payload.goAway) {
+                        log("info", "⚠️ GoAway received — connection closing in " +
+                            (payload.goAway.timeLeft || "unknown") + "ms");
+                        if (currentState === STATE.CONVERSATION) {
+                            sendRuntimeText("Пожалуйста, завершите разговор, время сессии подходит к концу.");
+                        }
+                    }
+
+                    // v7.7: sessionResumption отключён в конфиге, но обработчик оставлен
+                    // на случай, если сервер всё же пришлёт апдейт — вреда не будет
+                    if (payload.sessionResumptionUpdate) {
+                        const update = payload.sessionResumptionUpdate;
+                        if (update.resumable && update.newHandle) {
+                            lastResumeHandle = update.newHandle;
+                            log("debug", "🔑 Session resume handle updated");
+                        }
+                    }
+
+                    // ═══════════════════════════════════════
+                    // ТРАНСКРИПЦИЯ ПОЛЬЗОВАТЕЛЯ
+                    // ═══════════════════════════════════════
+                    if (payload.inputTranscription) {
+                        var text = payload.inputTranscription.text;
+
+                        if (currentState === STATE.CONVERSATION ||
+                            (currentState === STATE.GREETING_SENT && geminiStartedSpeaking)) {
+                            if (lastRole === "assistant" && currentAssistantText.trim()) {
+                                dialogLog.push({ role: "assistant", text: currentAssistantText.trim(), ts: Date.now() });
+                                currentAssistantText = "";
+                            }
+                            if (currentUserText && !currentUserText.endsWith(" ")) currentUserText += " ";
+                            currentUserText += text;
+                            lastRole = "user";
+                            if (userMessageBuffer && !userMessageBuffer.endsWith(" ")) userMessageBuffer += " ";
+                            userMessageBuffer += text;
+                            log("info", "👤 USER: \"" + text + "\"");
+                            resetSilenceTimer();
+                        }
+                    }
+
+                    // ═══════════════════════════════════════
+                    // ТРАНСКРИПЦИЯ АССИСТЕНТА
+                    // ═══════════════════════════════════════
+                    if (payload.outputTranscription) {
+                        var text = payload.outputTranscription.text;
+
+                        if (!geminiStartedSpeaking) {
+                            geminiStartedSpeaking = true;
+
+                            if (greetingTimeoutId) {
+                                clearTimeout(greetingTimeoutId);
+                                greetingTimeoutId = null;
+                            }
+
+                            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                            log("info", "✅ GEMINI STARTED SPEAKING (attempt #" + greetingAttempt + ")" +
+                                (IS_31 ? " → waiting turnComplete for full duplex" : " → full duplex ON"));
+                            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                            // 🔧 FIX: для 3.1 НЕ открываем дуплекс здесь —
+                            // ждём turnComplete чтобы избежать interrupted во время приветствия
+                            if (!IS_31) {
+                                VoxEngine.sendMediaBetween(call, geminiLiveAPIClient);
+                                log("info", "🎙️ Full duplex ACTIVE (sendMediaBetween) [2.5]");
+                            }
+                        }
+
+                        // 🆕 v7.9: НЕ вызываем resetSilenceTimer() на транскрипции ассистента.
+                        // Транскрипция приходит быстрее аудио → отсчёт тишины стартовал бы,
+                        // пока ассистент ещё говорит. Теперь якорь — WebSocketMediaEnded.
+                        // Хард-таймаут при этом не пострадает: он перевзводится на
+                        // MediaEnded / turnComplete / речи клиента.
+
+                        if (lastRole === "user" && currentUserText.trim()) {
+                            dialogLog.push({ role: "user", text: currentUserText.trim(), ts: Date.now() });
+                            currentUserText = "";
+                        }
+                        if (currentAssistantText && !currentAssistantText.endsWith(" ") && !text.startsWith(" ")) {
+                            currentAssistantText += " ";
+                        }
+                        currentAssistantText += text;
+                        lastRole = "assistant";
+                        if (assistantMessageBuffer && !assistantMessageBuffer.endsWith(" ") && !text.startsWith(" ")) {
+                            assistantMessageBuffer += " ";
+                        }
+                        assistantMessageBuffer += text;
+                        log("info", "🤖 ASSISTANT: \"" + text + "\"");
+                    }
+
+                    // ═══════════════════════════════════════
+                    // turnComplete
+                    // ═══════════════════════════════════════
+                    if (payload.turnComplete) {
+                        log("debug", "🏁 turnComplete | State: " + currentState +
+                            " | Speaking: " + geminiStartedSpeaking +
+                            " | Attempt: " + greetingAttempt);
+
+                        if (currentState === STATE.GREETING_SENT && geminiStartedSpeaking) {
+                            setState(STATE.CONVERSATION);
+
+                            // 🔧 FIX: для 3.1 открываем дуплекс ТОЛЬКО ПОСЛЕ полного приветствия
+                            if (IS_31) {
+                                VoxEngine.sendMediaBetween(call, geminiLiveAPIClient);
+                                log("info", "🎙️ Full duplex ACTIVE (sendMediaBetween) [3.1 after turnComplete]");
+                            }
+
+                            dialogLog.push({ role: "user", text: "Алло", ts: Date.now() - 5000 });
+                            userMessageBuffer = "Алло";
+                            if (currentAssistantText.trim()) {
+                                dialogLog.push({ role: "assistant", text: currentAssistantText.trim(), ts: Date.now() });
+                                currentAssistantText = "";
+                            }
+                            lastRole = "assistant";
+
+                            log("info", "✅ Greeting complete (attempt #" + greetingAttempt + ") → CONVERSATION");
+                            // v7.9: если аудио приветствия ещё играет — пинг не взведётся
+                            // (assistantAudioPlaying=true), перезапуск придёт на MediaEnded
+                            resetSilenceTimer();
+                        }
+                        else if (currentState === STATE.GREETING_SENT && !geminiStartedSpeaking) {
+                            log("info", "⚠️ Empty turnComplete (attempt #" + greetingAttempt + ")");
+
+                            if (greetingTimeoutId) {
+                                clearTimeout(greetingTimeoutId);
+                                greetingTimeoutId = null;
+                            }
+
+                            if (greetingAttempt < MAX_GREETING_ATTEMPTS) {
+                                log("info", "🔄 Retrying greeting immediately...");
+                                sendGreetingTrigger();
+                            } else {
+                                greetingFailed();
+                            }
+                        }
+                        else if (currentState === STATE.CONVERSATION) {
+                            log("debug", "🏁 Conversation turnComplete");
+                            // v7.9: перезапуск таймеров; пинг взведётся только если
+                            // аудио уже доиграло (иначе — на ближайшем MediaEnded)
+                            resetSilenceTimer();
+                        }
+                    }
+
+                } catch (error) {
+                    log("error", "ServerContent: " + error);
+                }
+            }
+        );
+
+        // ──────────────────────────────────────────
+        // MediaEventStarted — аудио пошло от Gemini
+        // 🆕 v7.9: флаг assistantAudioPlaying = true + снимаем пинг-таймер
+        // ──────────────────────────────────────────
+        client.addEventListener(Gemini.Events.WebSocketMediaStarted, function() {
+            log("debug", "🎵 Media started (audio from Gemini)");
+
+            // 🆕 v7.9: ассистент начал говорить — пинг тишины невозможен
+            assistantAudioPlaying = true;
+            if (silencePingTimeoutId) {
+                clearTimeout(silencePingTimeoutId);
+                silencePingTimeoutId = null;
+                log("debug", "🔕 Ping timer cancelled: assistant audio started");
+            }
+
+            if (!geminiStartedSpeaking && currentState === STATE.GREETING_SENT) {
+                geminiStartedSpeaking = true;
+
+                if (greetingTimeoutId) {
+                    clearTimeout(greetingTimeoutId);
+                    greetingTimeoutId = null;
+                }
+
+                log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                log("info", "✅ GEMINI AUDIO STARTED (attempt #" + greetingAttempt + ")" +
+                    (IS_31 ? " → waiting turnComplete for full duplex" : " → full duplex ON"));
+                log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                // 🔧 FIX: для 3.1 НЕ открываем дуплекс здесь
+                if (!IS_31) {
+                    VoxEngine.sendMediaBetween(call, geminiLiveAPIClient);
+                    log("info", "🎙️ Full duplex ACTIVE (sendMediaBetween) [2.5 audio]");
+                }
+            }
+        });
+
+        // ──────────────────────────────────────────
+        // MediaEventEnded — аудио от Gemini ДОИГРАЛО клиенту
+        // 🆕 v7.9: ГЛАВНЫЙ ЯКОРЬ для таймера тишины.
+        // Именно отсюда стартует честный отсчёт 8с: клиент дослушал
+        // фразу и теперь действительно молчит.
+        // ──────────────────────────────────────────
+        client.addEventListener(Gemini.Events.WebSocketMediaEnded, function() {
+            log("debug", "🎵 Media ended (assistant audio finished playing)");
+
+            assistantAudioPlaying = false;
+
+            if (currentState === STATE.CONVERSATION) {
+                log("debug", "⏱️ Silence countdown starts NOW (audio finished)");
+                resetSilenceTimer();
+            }
+        });
+
+        client.addEventListener(Gemini.LiveAPIEvents.Unknown, function(event) {
+            log("debug", "⚠️ Unknown Gemini event: " + JSON.stringify(event));
+        });
+    }
+
+    // ====================================================================
+    // CONNECTED HANDLER
+    // ====================================================================
+    call.addEventListener(CallEvents.Connected, function() {
+        log("info", "✅ CALL CONNECTED | Path: " + activePath + " | From: " + caller_number);
+
+        call.record({ stereo: false, lossless: false, hd_audio: true });
+
+        if (activePath === "A") {
+            setState(STATE.WAITING_AUDIO);
+            log("info", "⏳ Waiting for FirstAudioPacketReceived before greeting...");
+
+            sessionWarningTimeoutId = setTimeout(function() {
+                log("info", "⚠️ Gemini session: 1 min remaining");
+                if (geminiLiveAPIClient && currentState === STATE.CONVERSATION) {
+                    sendRuntimeText("Пожалуйста, завершите разговор, время сессии подходит к концу.");
+                }
+            }, GEMINI_SESSION_WARNING_MS);
+
+            sessionMaxTimeoutId = setTimeout(function() {
+                log("info", "⏱️ Gemini session TTL reached");
+                terminateCall();
+            }, GEMINI_SESSION_MAX_MS);
+        }
+        else if (activePath === "C") {
+            log("info", "🟡 PATH C: TTS fallback — Gemini unavailable");
+
+            call.say(TTS_FALLBACK_MESSAGE, { language: Language.RU_RUSSIAN_FEMALE });
+
+            call.addEventListener(CallEvents.PlaybackFinished, function onTTSDone() {
+                log("info", "✅ TTS fallback finished → terminating");
+                terminateCall();
+            });
+        }
+    });
+
+    // ====================================================================
+    // FirstAudioPacketReceived — ЗДЕСЬ отправляем greeting
+    // ====================================================================
+    call.addEventListener(CallEvents.FirstAudioPacketReceived, function() {
+        if (activePath !== "A") return;
+        if (currentState !== STATE.WAITING_AUDIO) return;
+
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log("info", "🎙️ FirstAudioPacketReceived — audio stream ready!");
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        geminiLiveAPIClient.sendMediaTo(call);
+        log("info", "🔇 Client mic MUTED (Gemini→client only, waiting greeting)");
+
+        setState(STATE.GREETING_SENT);
+
+        log("info", "📤 Sending greeting trigger (IS_31=" + IS_31 + ")...");
+        sendGreetingTrigger();
+    });
+
+    // ====================================================================
+    // MAIN FLOW
+    // ====================================================================
+    try {
+        // ══════════════════════════════════════════════════════════════
+        // ШАГ 1: ЗАГРУЗКА КОНФИГА
+        // ══════════════════════════════════════════════════════════════
+        setState(STATE.CONFIG_LOADING);
+        log("info", "🔄 Loading config: " + CONFIG_URL);
+
+        const configResponse = await Net.httpRequestAsync(CONFIG_URL);
+
+        if (configResponse.code != 200) {
+            log("error", "Config failed: HTTP " + configResponse.code);
+            VoxEngine.terminate();
+            return;
+        }
+
+        CONFIG = JSON.parse(configResponse.text);
+
+        if (!CONFIG.success || CONFIG.assistant_type !== "gemini") {
+            log("error", "Config invalid: success=" + CONFIG.success + " type=" + CONFIG.assistant_type);
+            VoxEngine.terminate();
+            return;
+        }
+
+        ASSISTANT_ID = CONFIG.assistant_id;
+        greetingMessage = determineGreeting(CONFIG.first_phrase);
+
+        // v7.6: Читаем модель из конфига, определяем IS_31
+        GEMINI_MODEL = CONFIG.model || "models/gemini-2.5-flash-native-audio-preview-12-2025";
+        IS_31 = GEMINI_MODEL.includes("3.1");
+
+        log("info", "✅ CONFIG: " + CONFIG.assistant_name +
+            " | Voice: " + (CONFIG.voice || "Aoede") +
+            " | Lang: " + (CONFIG.language || "ru"));
+        log("info", "   Model: " + GEMINI_MODEL);
+        log("info", "   Version: " + (IS_31 ? "Gemini 3.1 🆕" : "Gemini 2.5"));
+        log("info", "   Greeting: \"" + greetingMessage.substring(0, 60) + "\"");
+        log("info", "   Retry: " + MAX_RETRY_ATTEMPTS + " attempts × " + (SETUP_TIMEOUT_MS / 1000) + "s");
+        log("info", "   VAD: sensitivity HIGH/HIGH | prefix " + VAD_PREFIX_PADDING_MS + "ms | silence " + VAD_SILENCE_DURATION_MS + "ms");
+
+        // ══════════════════════════════════════════════════════════════
+        // ФУНКЦИИ
+        // ══════════════════════════════════════════════════════════════
+        if (CONFIG.functions && CONFIG.functions.length > 0) {
+            const functionDeclarations = [];
+
+            for (let i = 0; i < CONFIG.functions.length; i++) {
+                const tool = CONFIG.functions[i];
+                let funcDef = (tool.type === "function" && tool.function) ? tool.function : (tool.name ? tool : null);
+                if (!funcDef) continue;
+
+                const functionId = (i + 1).toString();
+                functionNameToIdMap[funcDef.name] = functionId;
+
+                let description = funcDef.description;
+                if (funcDef.name === "hangup_call") {
+                    description = "CRITICAL: Call this IMMEDIATELY when user wants to end the call. Triggers: 'пока', 'до свидания', 'завершим'. Do NOT just say goodbye — CALL THIS FUNCTION.";
+                }
+
+                functionDeclarations.push({
+                    name: funcDef.name,
+                    description: description,
+                    parameters: funcDef.parameters
+                });
+            }
+
+            geminiTools = [{ functionDeclarations: functionDeclarations }];
+            log("info", "   Functions: " + JSON.stringify(functionNameToIdMap));
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // SYSTEM PROMPT
+        // ══════════════════════════════════════════════════════════════
+        finalSystemPrompt = CONFIG.system_prompt || "Ты голосовой ассистент. Помогай пользователю.";
+
+        finalSystemPrompt += "\n\n" +
+            "══════════════════════════════════════\n" +
+            "📞 ИНФОРМАЦИЯ О ЗВОНКЕ\n" +
+            "══════════════════════════════════════\n" +
+            "Номер звонящего (caller): " + caller_number + "\n" +
+            "Номер, на который позвонили (called): " + called_number + "\n" +
+            "ID звонка: " + call_id + "\n" +
+            "ID чата: " + chat_id + "\n" +
+            "══════════════════════════════════════\n" +
+            "Используй номер звонящего при необходимости: для идентификации клиента, " +
+            "поиска в CRM, персонализации общения.\n" +
+            "══════════════════════════════════════";
+
+        if (greetingMessage) {
+            finalSystemPrompt += "\n\n" +
+                "══════════════════════════════════════\n" +
+                "🎯 ПЕРВАЯ ФРАЗА\n" +
+                "══════════════════════════════════════\n" +
+                "Когда тебе придёт инструкция начать разговор — НЕМЕДЛЕННО произнеси:\n" +
+                "\"" + greetingMessage + "\"\n" +
+                "Произноси эту фразу точно, без изменений.\n" +
+                "══════════════════════════════════════";
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ШАГ 2: RETRY LOOP — ПОДКЛЮЧЕНИЕ К GEMINI
+        // ══════════════════════════════════════════════════════════════
+        setState(STATE.GEMINI_CONNECTING);
+
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log("info", "🔄 Starting Gemini connection with retry...");
+        log("info", "   📞 Caller hears ringing tones (call.ring sent)");
+        log("info", "   Max wait: ~" + (MAX_RETRY_ATTEMPTS * SETUP_TIMEOUT_MS / 1000) + "s");
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        geminiLiveAPIClient = await connectWithRetry();
+
+        if (geminiLiveAPIClient) {
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            log("info", "🟢 GEMINI READY → PATH A");
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            activePath = "A";
+            setupGeminiEventHandlers(geminiLiveAPIClient);
+
+            setState(STATE.ANSWERING);
+            log("info", "📞 ANSWERING CALL (PATH A: Gemini Module)");
+            call.answer();
+
+        } else {
+            log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            log("error", "🟡 ALL ATTEMPTS FAILED → TTS FALLBACK (PATH C)");
+            log("error", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            activePath = "C";
+            setState(STATE.ANSWERING);
+            call.answer();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ОБРАБОТЧИКИ СОБЫТИЙ ЗВОНКА
+        // ══════════════════════════════════════════════════════════════
+
+        call.addEventListener(CallEvents.RecordStarted, function(event) {
+            log("info", "🎙️ Recording: " + event.url);
+            record_url = event.url;
+        });
+
+        call.addEventListener(CallEvents.RecordStopped, function(event) {
+            log("debug", "🎙️ Recording stopped");
+            if (event.url) record_url = event.url;
+        });
+
+        call.addEventListener(CallEvents.Disconnected, function(event) {
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            log("info", "📴 DISCONNECTED | Path: " + activePath +
+                " | Cost: " + (event.cost || 0) +
+                " | Duration: " + (event.duration || 0) + "s");
+            log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            if (event.cost !== undefined) call_cost = event.cost;
+            if (event.duration !== undefined) call_duration = event.duration;
+            terminateCall();
+        });
+
+        call.addEventListener(CallEvents.Failed, function(event) {
+            log("error", "CALL FAILED | Code: " + event.code + " | " + event.reason);
+            if (event.cost !== undefined) call_cost = event.cost;
+            if (event.duration !== undefined) call_duration = event.duration;
+            terminateCall();
+        });
+
+        // ══════════════════════════════════════════════════════════════
+        // ГОТОВО
+        // ══════════════════════════════════════════════════════════════
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log("info", "🎉 READY (v7.9) | Voice: " + (CONFIG.voice || "Aoede"));
+        log("info", "   🤖 Model: " + GEMINI_MODEL);
+        log("info", "   Version: " + (IS_31 ? "Gemini 3.1 (sendRealtimeInput)" : "Gemini 2.5 (sendClientContent)"));
+        log("info", "   🛡️ Connection: Retry " + MAX_RETRY_ATTEMPTS + "x" + (SETUP_TIMEOUT_MS / 1000) + "s → TTS fallback");
+        log("info", "   🛡️ Greeting: instruction after FirstAudioPacketReceived");
+        log("info", "   🛡️ Greeting retry: " + MAX_GREETING_ATTEMPTS + " attempts × " + (GREETING_TIMEOUT_MS / 1000) + "s");
+        log("info", "   🛡️ Silence: ping " + (SILENCE_PING_MS / 1000) + "s AFTER MediaEnded → hard timeout " + (SILENCE_TIMEOUT_MS / 1000) + "s | Session TTL: " + (GEMINI_SESSION_MAX_MS / 60000) + "min");
+        log("info", "   VAD: HIGH/HIGH | prefix " + VAD_PREFIX_PADDING_MS + "ms | silence " + VAD_SILENCE_DURATION_MS + "ms | proactiveAudio OFF");
+        log("info", "   Context compression: OFF | Session resumption: OFF");
+        log("info", "   🆕 v7.9: ping anchored to real audio end (no ping while assistant speaks)");
+        log("info", "   🔧 FIX: 3.1 sendMediaBetween after turnComplete (no interrupted during greeting)");
+        log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    } catch (error) {
+        log("error", "CRITICAL: " + error);
+        if (error.stack) log("error", error.stack);
+        VoxEngine.terminate();
+    }
+});
