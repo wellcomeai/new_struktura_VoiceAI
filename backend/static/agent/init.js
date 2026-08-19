@@ -50,5 +50,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 
-document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','tasks-cal-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay','tg-account-modal-overlay','import-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') ['edit-modal-overlay','contact-modal-overlay','calls-modal-overlay','tasks-cal-modal-overlay','contacts-list-modal-overlay','contact-details-modal-overlay','instructions-modal-overlay','telegram-modal-overlay','tg-account-modal-overlay','max-account-modal-overlay','import-modal-overlay'].forEach(id=>document.getElementById(id)?.classList.add('hidden')); });
 

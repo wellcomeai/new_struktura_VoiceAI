@@ -176,8 +176,14 @@ function renderContactDetails(c){
     <div class="cd-sms-thread">${c.telegram.map(_cdSmsBubble).join('')}</div>
   ` : '';
 
+  // MAX-переписка (личный аккаунт владельца) — те же пузыри, что SMS.
+  const maxBlock = (c.max && c.max.length) ? `
+    <div style="font-size:13px;font-weight:600;margin:16px 0 8px"><i class="fas fa-comment-dots" style="color:#6D28D9"></i> MAX-переписка (${c.max.length})</div>
+    <div class="cd-sms-thread">${c.max.map(_cdSmsBubble).join('')}</div>
+  ` : '';
+
   _cdTasks = (c.tasks || []).slice().sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
-  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock + smsBlock + tgBlock;
+  document.getElementById('contact-details-body').innerHTML = infoBlock + tasksBlock + memBlock + callsBlock + smsBlock + tgBlock + maxBlock;
   renderContactTasksSection();
 }
 

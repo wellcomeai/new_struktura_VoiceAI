@@ -32,11 +32,12 @@ function renderConnectorsBlock(){
   const s = connectorsState;
   const card = document.getElementById('connectors-card');
 
-  // Личный Telegram (telegram-account.js) живёт в этой же карточке.
+  // Личный Telegram (telegram-account.js) и MAX (max-account.js) живут в этой же карточке.
   const tgAvailable = (typeof tgAccountAvailable === 'function') && tgAccountAvailable();
+  const maxAvailable = (typeof maxAccountAvailable === 'function') && maxAccountAvailable();
 
-  if((!s || !s.configured) && !tgAvailable){
-    // Ни Composio, ни Telegram не настроены на сервере — прячем карточку целиком.
+  if((!s || !s.configured) && !tgAvailable && !maxAvailable){
+    // Ни Composio, ни Telegram, ни MAX не настроены на сервере — прячем карточку целиком.
     if(card) card.style.display = 'none';
     return;
   }
@@ -44,7 +45,8 @@ function renderConnectorsBlock(){
 
   const connected = (s && s.configured) ? (s.connectors || []).filter(c => c.connected) : [];
   const tgSummary = (typeof tgAccountSummaryHtml === 'function') ? tgAccountSummaryHtml() : '';
-  if(!connected.length && !tgSummary){
+  const maxSummary = (typeof maxAccountSummaryHtml === 'function') ? maxAccountSummaryHtml() : '';
+  if(!connected.length && !tgSummary && !maxSummary){
     el.innerHTML = '<div class="empty">Ничего не подключено</div>';
     return;
   }
@@ -53,7 +55,7 @@ function renderConnectorsBlock(){
     const who = c.connected_email ? ' · ' + esc(c.connected_email) : '';
     return `<div style="font-size:13px;color:var(--green-dark,#166534);margin:2px 0">`
       + `<i class="fas fa-circle-check"></i> ${esc(m.label)}${who}</div>`;
-  }).join('') + tgSummary;
+  }).join('') + tgSummary + maxSummary;
 }
 
 function openConnectorsModal(){
@@ -63,6 +65,7 @@ function openConnectorsModal(){
   // Подтянуть свежий статус на случай возврата из OAuth.
   loadConnectors();
   if(typeof loadTgAccount === 'function') loadTgAccount();
+  if(typeof loadMaxAccount === 'function') loadMaxAccount();
 }
 
 function closeConnectorsModal(){
@@ -74,13 +77,14 @@ function renderConnectorsList(){
   const el = document.getElementById('connectors-list');
   if(!el) return;
   const s = connectorsState;
-  // Строка личного Telegram (telegram-account.js) — в общем списке коннекторов.
+  // Строки личных мессенджеров (telegram-account.js, max-account.js) — в общем списке коннекторов.
   const tgRow = (typeof tgAccountConnectorRowHtml === 'function') ? tgAccountConnectorRowHtml() : '';
+  const maxRow = (typeof maxAccountConnectorRowHtml === 'function') ? maxAccountConnectorRowHtml() : '';
   if(!s || !s.configured){
-    el.innerHTML = tgRow || '<div class="empty">Коннекторы недоступны</div>';
+    el.innerHTML = (tgRow + maxRow) || '<div class="empty">Коннекторы недоступны</div>';
     return;
   }
-  el.innerHTML = tgRow + (s.connectors || []).map(c => {
+  el.innerHTML = tgRow + maxRow + (s.connectors || []).map(c => {
     const m = CONNECTOR_META[c.toolkit] || { label: c.toolkit, icon: 'fa-plug', color: '#64748b' };
     let right;
     if(!c.available){

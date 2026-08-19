@@ -73,6 +73,13 @@ from .agent_telegram_account import (
     AgentTelegramMessage,
 )
 
+# ✅ НОВОЕ: Личный аккаунт MAX агента (PyMax, коннектор MAX)
+from .agent_max_account import (
+    AgentMaxAccount,
+    AgentMaxDialog,
+    AgentMaxMessage,
+)
+
 # ✅ НОВОЕ v3.0: Импортируем Voximplant Partner модели
 from .voximplant_child import (
     VoximplantChildAccount,
@@ -148,6 +155,9 @@ __all__ = [
     "AgentTelegramAccount",
     "AgentTelegramDialog",
     "AgentTelegramMessage",
+    "AgentMaxAccount",
+    "AgentMaxDialog",
+    "AgentMaxMessage",
     # ✅ НОВОЕ v3.0: Voximplant Partner модели
     "VoximplantChildAccount",
     "VoximplantPhoneNumber",

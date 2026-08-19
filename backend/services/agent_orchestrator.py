@@ -65,7 +65,7 @@ TIMELINE_MAX_EVENTS = 40      # сколько последних событий
 TIMELINE_DAYS_WINDOW = 30     # окно по времени (дни)
 TIMELINE_CALL_SNIPPET = 300   # длина сниппета транскрипта звонка в ленте
 
-_CHANNEL_ICON = {"call": "📞", "sms": "✉️", "telegram": "✈️"}
+_CHANNEL_ICON = {"call": "📞", "sms": "✉️", "telegram": "✈️", "max": "🅜"}
 
 
 def _timeline_call_events(db, agent_contact, exclude_call_id, since, limit) -> list:
@@ -149,6 +149,26 @@ def _timeline_telegram_events(db, agent_contact, since, limit) -> list:
         return []
 
 
+def _timeline_max_events(db, agent_contact, since, limit) -> list:
+    """События-MAX (личный аккаунт, обе стороны) для таймлайна. Best-effort."""
+    try:
+        from backend.services.max_user_service import get_thread
+        rows = get_thread(db, agent_contact.id, limit=limit)
+        events = []
+        for m in rows:
+            ts = m.created_at
+            if not ts:
+                continue
+            if since is not None and _as_naive_utc(ts) < since:
+                continue
+            who = "агент → клиент" if (m.direction or "inbound") == "outbound" else "клиент → агент"
+            events.append((ts, "max", f"MAX, {who}: {(m.body or '').strip()}"))
+        return events
+    except Exception as e:
+        logger.warning(f"[AGENT] timeline max events failed: {e}")
+        return []
+
+
 def _as_naive_utc(dt):
     """К naive-UTC для единообразного сравнения (часть колонок tz-aware, часть — нет)."""
     if dt is not None and dt.tzinfo is not None:
@@ -180,6 +200,7 @@ def build_conversation_timeline(
         events += _timeline_call_events(db, agent_contact, exclude_call_id, since, max_events)
         events += _timeline_sms_events(db, agent_contact, since, max_events)
         events += _timeline_telegram_events(db, agent_contact, since, max_events)
+        events += _timeline_max_events(db, agent_contact, since, max_events)
         if not events:
             return ""
         # Сортируем по времени (naive-UTC), берём последние N.
@@ -904,9 +925,40 @@ class PostCallOrchestrator:
         is_sms = (call_direction or "").lower() == "sms_inbound"
         is_tg = (call_direction or "").lower() == "telegram_inbound"
         is_tg_out = (call_direction or "").lower() == "telegram_outbound"
+        is_max = (call_direction or "").lower() == "max_inbound"
+        is_max_out = (call_direction or "").lower() == "max_outbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
 
-        if is_tg_out:
+        if is_max_out:
+            direction_line = (
+                "СОБЫТИЕ: ЗАПЛАНИРОВАННАЯ ОТПРАВКА СООБЩЕНИЯ В MAX (личный "
+                "аккаунт владельца) — наступило время написать клиенту. Это не "
+                "звонок и не входящее сообщение: инициатива исходит от тебя, по "
+                "задаче, поставленной ранее."
+            )
+            callback_rule = ""
+            transcript_label = "ИНСТРУКЦИЯ К СООБЩЕНИЮ (что и зачем написать; это НЕ готовый текст)"
+            status_label = "СТАТУС"
+            analyze_line = ""
+        elif is_max:
+            direction_line = (
+                "СОБЫТИЕ: ВХОДЯЩЕЕ СООБЩЕНИЕ В MAX (личный аккаунт владельца) — "
+                "клиент написал в мессенджере MAX, это не звонок."
+            )
+            callback_rule = (
+                "3. Если уместно ответить клиенту — ответь в MAX через\n"
+                "   max_send_message (тем же каналом, которым написал клиент).\n"
+                "   Пиши как живой человек, коротко и по делу, без markdown.\n"
+                "   Если по сути сообщения нужен звонок (клиент просит позвонить,\n"
+                "   договорились о следующем шаге) — запланируй его через\n"
+                "   create_agent_task. Если договорились списаться позже — запланируй\n"
+                "   отложенное сообщение через schedule_max_message (инструкция,\n"
+                "   не готовый текст). Сам факт сообщения НЕ требует звонка."
+            )
+            transcript_label = "ТЕКСТ ВХОДЯЩЕГО СООБЩЕНИЯ MAX"
+            status_label = "СТАТУС"
+            analyze_line = "Проанализируй сообщение клиента и выполни необходимые действия через tools:"
+        elif is_tg_out:
             direction_line = (
                 "СОБЫТИЕ: ЗАПЛАНИРОВАННАЯ ОТПРАВКА СООБЩЕНИЯ В TELEGRAM (личный "
                 "аккаунт владельца) — наступило время написать клиенту. Это не "
@@ -976,20 +1028,23 @@ class PostCallOrchestrator:
                 "     инструкцию «что написать», а не готовый текст."
             )
 
-        if is_tg_out:
-            action_block = """Составь и отправь сообщение клиенту:
+        if is_tg_out or is_max_out:
+            _send_tool = "max_send_message" if is_max_out else "telegram_send_message"
+            _sched_tool = "schedule_max_message" if is_max_out else "schedule_telegram_message"
+            _channel = "MAX" if is_max_out else "Telegram"
+            action_block = f"""Составь и отправь сообщение клиенту:
 1. Сверься с хронологией и памятью выше: если договорённость из инструкции уже
    закрыта (клиент сам ответил, состоялся звонок, вопрос решён) и сообщение
    потеряло смысл — НЕ отправляй его, просто обнови память update_contact_memory
    с пометкой, почему отправка не потребовалась.
 2. Если сообщение уместно — составь текст сам по инструкции и контексту:
    как живой человек, коротко и по делу, без markdown, без канцелярита. Учти
-   тон прошлых касаний. Отправь через telegram_send_message.
+   тон прошлых касаний. Отправь через {_send_tool} (канал {_channel}).
 3. ОБЯЗАТЕЛЬНО вызови update_contact_memory — зафиксируй, что написал (или
    почему не стал) и текущее состояние договорённости.
 4. Смени стадию через move_contact_stage ТОЛЬКО если есть реальное основание.
 5. Если нужен следующий шаг — запланируй его: звонок через create_agent_task
-   или ещё одно отложенное сообщение через schedule_telegram_message.
+   или ещё одно отложенное сообщение через {_sched_tool}.
 6. Если владельцу важно узнать результат — send_telegram_notification."""
         else:
             action_block = f"""{analyze_line}
@@ -1066,6 +1121,49 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             openai_key=(user.openai_api_key or "") if user else "",
             db=db,
             call_direction="telegram_inbound",
+        )
+
+    async def run_for_max(self, agent_call, agent_contact, agent_config, user, message_body, db):
+        """
+        Прогнать входящее сообщение личного MAX через ту же PostCall-логику,
+        что звонки/SMS/Telegram. «Транскрипт» — текст сообщения (полная переписка
+        подмешивается через единую хронологию build_conversation_timeline).
+        Ответить клиенту агент может тулзой max_send_message (домешивается в
+        build_postcall_tools, когда аккаунт подключён).
+        """
+        transcript = f'Клиент написал в MAX: "{(message_body or "").strip()}"'
+        await self._analyze(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=None,
+            transcript=transcript,
+            call_status="answered",
+            duration_seconds=0,
+            openai_key=(user.openai_api_key or "") if user else "",
+            db=db,
+            call_direction="max_inbound",
+        )
+
+    async def run_for_scheduled_max(self, agent_call, agent_contact, agent_config, user, task, db):
+        """
+        Исполнить запланированную задачу «написать клиенту в MAX»
+        (Task.channel="max", ставится тулзой schedule_max_message). Зеркалит
+        run_for_scheduled_telegram. Только v3 (OpenRouter).
+        """
+        transcript = (task.description or "").strip() or (task.title or "").strip()
+        await self._analyze_v3_openrouter(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=task,
+            transcript=transcript,
+            call_status="answered",
+            duration_seconds=0,
+            db=db,
+            call_direction="max_outbound",
         )
 
     async def run_for_scheduled_telegram(self, agent_call, agent_contact, agent_config, user, task, db):
@@ -1158,7 +1256,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # Подставляем стратегию PreCall в текст (симуляция цепочки). Для входящего
         # SMS/Telegram и запланированной отправки в Telegram PreCall не было —
         # блок стратегии не добавляем.
-        if (call_direction or "").lower() not in ("sms_inbound", "telegram_inbound", "telegram_outbound"):
+        if (call_direction or "").lower() not in (
+            "sms_inbound", "telegram_inbound", "telegram_outbound",
+            "max_inbound", "max_outbound",
+        ):
             post_call_input += f"""
 
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
@@ -1181,7 +1282,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             {"role": "user", "content": post_call_input},
         ]
 
-        is_tg_out = (call_direction or "").lower() == "telegram_outbound"
+        # Запланированная исходящая отправка в мессенджер (Telegram или MAX):
+        # не попытка дозвона — счётчик попыток и авто-маппинг стадии не применяем,
+        # в UI отмечаем факт отправки (message_sent).
+        is_tg_out = (call_direction or "").lower() in ("telegram_outbound", "max_outbound")
 
         try:
             client = get_openrouter_client()
@@ -1238,8 +1342,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                         tool_entry["result"] = result_str
                     tool_calls_log.append(tool_entry)
 
-                    # schedule_telegram_message — тоже follow-up задача (channel=telegram)
-                    if tool_name in ("create_agent_task", "schedule_telegram_message"):
+                    # schedule_telegram_message / schedule_max_message — тоже
+                    # follow-up задача (channel=telegram / channel=max)
+                    if tool_name in ("create_agent_task", "schedule_telegram_message", "schedule_max_message"):
                         try:
                             result_data = json.loads(result_str)
                             if result_data.get("ok") and result_data.get("task_id"):
@@ -1248,7 +1353,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                         except Exception:
                             pass
 
-                    if tool_name == "telegram_send_message":
+                    if tool_name in ("telegram_send_message", "max_send_message"):
                         try:
                             if json.loads(result_str).get("ok"):
                                 message_sent = True
@@ -2770,5 +2875,86 @@ async def handle_inbound_telegram(account_id: str, agent_contact_id: str, messag
 
     except Exception as e:
         logger.error(f"[AGENT-TG-USER] handle_inbound_telegram error: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+async def handle_inbound_max(account_id: str, agent_contact_id: str, message_body: str):
+    """
+    Event-driven обработка входящего сообщения личного MAX.
+
+    Вызывается поллером (backend/core/max_poller.py) ПОСЛЕ того, как он сохранил
+    входящие в agent_max_messages, связал диалог с контактом и продвинул
+    last_processed_msg_time (поэтому падение здесь не приводит к повторной
+    обработке). Зеркалит handle_inbound_telegram: проверка доступа →
+    AgentCall(direction="inbound") → PostCall с call_direction="max_inbound"
+    (агент отвечает тулзой max_send_message).
+
+    Открывает собственную сессию БД — безопасно для asyncio.create_task().
+    """
+    from backend.models.agent_max_account import AgentMaxAccount
+
+    db = SessionLocal()
+    try:
+        account = db.query(AgentMaxAccount).filter(
+            AgentMaxAccount.id == account_id
+        ).first()
+        if not account:
+            return
+
+        agent = db.query(AgentConfig).filter(
+            AgentConfig.id == account.agent_config_id,
+        ).first()
+        if not agent or not agent.is_active:
+            logger.info(f"[AGENT-MAX-USER] agent inactive/missing for account {account_id}, skip")
+            return
+
+        user = db.query(User).filter(User.id == account.user_id).first()
+        if not user:
+            return
+
+        # Доступ к агенту (триал/подписка) — как у SMS/Telegram и планировщика.
+        try:
+            if not user.has_active_agent_subscription():
+                logger.info(f"[AGENT-MAX-USER] user {user.id} has no agent access, skip max message")
+                return
+        except Exception:
+            pass
+
+        # v2-агента без личного OpenAI-ключа обслужить не сможем.
+        if not getattr(agent, "uses_hardcoded_prompt", False) and not user.openai_api_key:
+            logger.info(f"[AGENT-MAX-USER] v2 agent {agent.id} without OpenAI key, skip max message")
+            return
+
+        contact = db.query(AgentContact).filter(
+            AgentContact.id == agent_contact_id,
+            AgentContact.agent_config_id == agent.id,
+        ).first()
+        if not contact:
+            return
+
+        inbound_call = AgentCall(
+            agent_contact_id=contact.id,
+            agent_config_id=agent.id,
+            user_id=user.id,
+            source_task_id=None,
+            call_session_id=None,
+            status="calling",
+            direction="inbound",
+            started_at=datetime.utcnow(),
+        )
+        db.add(inbound_call)
+        db.commit()
+
+        logger.info(
+            f"[AGENT-MAX-USER] Inbound MAX message -> agent {agent.id}, "
+            f"contact={contact.id}, call={inbound_call.id}"
+        )
+        await PostCallOrchestrator().run_for_max(
+            inbound_call, contact, agent, user, message_body, db
+        )
+
+    except Exception as e:
+        logger.error(f"[AGENT-MAX-USER] handle_inbound_max error: {e}", exc_info=True)
     finally:
         db.close()

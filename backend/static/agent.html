@@ -709,6 +709,22 @@
   </div>
 </div>
 
+<!-- МОДАЛКА: Личный аккаунт MAX агента (PyMax) -->
+<div class="modal-overlay hidden" id="max-account-modal-overlay">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-comment-dots" style="color:#6D28D9"></i> Личный MAX</div>
+      <button class="modal-close" onclick="closeMaxAccountModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="max-account-modal-body">
+      <div class="empty">Загрузка...</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeMaxAccountModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- Voicyfy Agent — модульные скрипты. Классические (не ES-модули):
      общее глобальное состояние и функции. Порядок: core → фичи → init.
      Документация связок: /static/agent/CLAUDE.md -->
@@ -721,6 +737,7 @@
 <script src="/static/agent/instructions-voice.js"></script>
 <script src="/static/agent/telegram.js"></script>
 <script src="/static/agent/telegram-account.js"></script>
+<script src="/static/agent/max-account.js"></script>
 <script src="/static/agent/contacts.js"></script>
 <script src="/static/agent/calls.js"></script>
 <script src="/static/agent/history.js"></script>

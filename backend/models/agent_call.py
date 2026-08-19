@@ -101,12 +101,13 @@ class AgentCall(Base):
 
     def _resolve_channel(self):
         """
-        Канал события для UI: "sms", "telegram" или "call".
+        Канал события для UI: "sms", "telegram", "max" или "call".
 
         Новые записи помечаются через postcall_log.call_direction ("sms_inbound"
-        / "telegram_inbound" / "telegram_outbound" — запланированная отправка,
-        см. PostCallOrchestrator._analyze / run_for_scheduled_telegram). Для
-        старых записей без пометки — fallback по префиксу транскрипта.
+        / "telegram_inbound" / "telegram_outbound" / "max_inbound" /
+        "max_outbound" — запланированная отправка, см.
+        PostCallOrchestrator._analyze / run_for_scheduled_*). Для старых записей
+        без пометки — fallback по префиксу транскрипта.
         """
         post = self.postcall_log or {}
         if isinstance(post, dict):
@@ -114,12 +115,16 @@ class AgentCall(Base):
                 return "sms"
             if post.get("call_direction") in ("telegram_inbound", "telegram_outbound"):
                 return "telegram"
+            if post.get("call_direction") in ("max_inbound", "max_outbound"):
+                return "max"
         if self.transcript:
             t = self.transcript.strip()
             if t.startswith("Клиент прислал SMS"):
                 return "sms"
             if t.startswith("Клиент написал в Telegram"):
                 return "telegram"
+            if t.startswith("Клиент написал в MAX"):
+                return "max"
         return "call"
 
     def to_dict(self):

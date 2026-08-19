@@ -155,6 +155,15 @@ class Settings(BaseSettings):
     TELEGRAM_SESSION_KEY: Optional[str] = os.getenv("TELEGRAM_SESSION_KEY")
 
     # =========================================================================
+    # ✅ НОВОЕ: Личный аккаунт мессенджера MAX (max.ru) — коннектор MAX (PyMax)
+    # =========================================================================
+    # Ключ Fernet для шифрования сессии MAX в БД (сессия = полный доступ к
+    # аккаунту, в открытом виде не храним). Без него коннектор MAX отключён.
+    # Генерация:
+    # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    MAX_SESSION_KEY: Optional[str] = os.getenv("MAX_SESSION_KEY")
+
+    # =========================================================================
 
     # ✅ ИСПРАВЛЕНО: Улучшенные validators с детальными проверками
     @validator("HOST_URL")

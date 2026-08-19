@@ -2522,6 +2522,15 @@ async def get_agent_contact_details(
     except Exception as e:
         logger.warning(f"[AGENT] failed to load telegram thread for contact {contact_id}: {e}")
     contact_data["telegram"] = telegram
+
+    # MAX-переписка (личный аккаунт владельца) с контактом.
+    max_thread = []
+    try:
+        from backend.services.max_user_service import get_thread as max_get_thread
+        max_thread = [m.to_dict() for m in max_get_thread(db, contact.id, limit=30)]
+    except Exception as e:
+        logger.warning(f"[AGENT] failed to load max thread for contact {contact_id}: {e}")
+    contact_data["max"] = max_thread
     return contact_data
 
 

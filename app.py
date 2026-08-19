@@ -49,6 +49,7 @@ from backend.api import (
     agent,  # ✅ v5.0: Voicyfy Agent API
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
     agent_telegram_account,  # ✅ Личный Telegram-аккаунт агента (MTProto)
+    agent_max_account,  # ✅ Личный аккаунт MAX агента (PyMax)
     credits,  # ✅ Система кредитов оркестратора
 )
 from backend.models.base import create_tables
@@ -56,6 +57,7 @@ from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
+from backend.core.max_poller import start_max_poller  # ✅ Поллер личного MAX агента (PyMax)
 from backend.services.subscription_blocker import start_subscription_blocker  # ✅ Agent subscription blocker
 from backend.api.partners import router as partners_router
 
@@ -205,6 +207,7 @@ app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints ha
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
 app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
 app.include_router(agent_telegram_account.router, prefix="/api/agent/telegram-account", tags=["Agent Telegram Account"])  # ✅ Личный TG-аккаунт агента
+app.include_router(agent_max_account.router, prefix="/api/agent/max-account", tags=["Agent MAX Account"])  # ✅ Личный MAX-аккаунт агента (PyMax)
 app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
 
 # ============================================================================
@@ -1760,6 +1763,27 @@ def ensure_agent_telegram_account_tables():
         logger.error(f"❌ ensure_agent_telegram_account_tables error: {e}")
 
 
+def ensure_agent_max_account_tables():
+    """
+    Идемпотентно создаёт таблицы личного MAX-аккаунта агента (PyMax):
+    agent_max_accounts, agent_max_dialogs, agent_max_messages.
+    Как и остальные agent-таблицы — через ORM-метаданные при старте.
+    """
+    try:
+        from sqlalchemy import inspect
+        from backend.models.agent_max_account import (
+            AgentMaxAccount, AgentMaxDialog, AgentMaxMessage,
+        )
+
+        inspector = inspect(engine)
+        for model in (AgentMaxAccount, AgentMaxDialog, AgentMaxMessage):
+            if not inspector.has_table(model.__tablename__):
+                model.__table__.create(bind=engine, checkfirst=True)
+                logger.info(f"✅ Created table {model.__tablename__}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_max_account_tables error: {e}")
+
+
 def ensure_connectors_agent_identity_migration():
     """
     Однократный сброс старых (пользовательских) подключений коннекторов в pending.
@@ -1903,6 +1927,9 @@ async def startup_event():
                 # 🆕 Шаг 21: Таблицы личного Telegram-аккаунта агента (MTProto)
                 ensure_agent_telegram_account_tables()
 
+                # 🆕 Шаг 21.1: Таблицы личного MAX-аккаунта агента (PyMax)
+                ensure_agent_max_account_tables()
+
                 # 🆕 Шаг 22: FK-колонки yandex_assistant_id (агент + задачи)
                 ensure_yandex_agent_columns()
 
@@ -1954,6 +1981,11 @@ async def startup_event():
             #    TELEGRAM_API_ID/HASH/SESSION_KEY; мультиворкер — claim по БД)
             asyncio.create_task(start_telegram_user_poller(check_interval=60))
             logger.info("✅ Telegram user poller started (check every 60s)")
+
+            # ✅ Поллер личного MAX агента (каждые 60 сек; no-op без
+            #    MAX_SESSION_KEY или недоступной библиотеки pymax; мультиворкер — claim по БД)
+            asyncio.create_task(start_max_poller(check_interval=60))
+            logger.info("✅ MAX user poller started (check every 60s)")
 
         except Exception as e:
             logger.error(f"❌ Error starting schedulers: {str(e)}")

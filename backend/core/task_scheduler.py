@@ -287,8 +287,8 @@ class TaskScheduler:
 
             # 🆕 Telegram-задача: вместо звонка — отложенное сообщение с личного
             # Telegram-аккаунта (текст составит оркестратор в момент отправки).
-            if (task.channel or "call") == "telegram":
-                await self.execute_agent_telegram_task(task, agent_contact, agent_config, user, db)
+            if (task.channel or "call") in ("telegram", "max"):
+                await self.execute_agent_messenger_task(task.channel, task, agent_contact, agent_config, user, db)
                 return
 
             # Get assistant info
@@ -397,49 +397,54 @@ class TaskScheduler:
             except Exception:
                 pass
 
-    async def execute_agent_telegram_task(self, task: Task, agent_contact, agent_config, user, db: Session):
+    async def execute_agent_messenger_task(self, channel: str, task: Task, agent_contact, agent_config, user, db: Session):
         """
-        Исполнить агентскую задачу с channel="telegram": один прогон оркестратора,
-        который по памяти контакта, хронологии и инструкции из task.description
-        составляет сообщение и отправляет его с личного Telegram-аккаунта агента
-        (PostCallOrchestrator.run_for_scheduled_telegram). Звонилка не участвует.
+        Исполнить агентскую задачу с channel="telegram"|"max": один прогон
+        оркестратора, который по памяти контакта, хронологии и инструкции из
+        task.description составляет сообщение и отправляет его с личного аккаунта
+        владельца в нужном мессенджере (PostCallOrchestrator.run_for_scheduled_*).
+        Звонилка не участвует.
 
         Вызывается из execute_agent_task ПОСЛЕ общих проверок (контакт найден,
         агент активен, подписка активна); задача уже залочена (PENDING).
         """
-        from backend.services import telegram_user_service
+        from backend.services import telegram_user_service, max_user_service
         from backend.services.agent_tools import fn_send_telegram_notification
+
+        is_max = (channel == "max")
+        svc = max_user_service if is_max else telegram_user_service
+        label = "MAX" if is_max else "Telegram"
 
         agent_call = None
         try:
-            # Личный TG-аккаунт мог отвалиться между постановкой и исполнением.
-            # Не роняем задачу молча: FAILED + уведомление владельцу через бота.
+            # Личный аккаунт мессенджера мог отвалиться между постановкой и
+            # исполнением. Не роняем молча: FAILED + уведомление владельцу.
             account_ok = (
-                telegram_user_service.is_configured()
-                and telegram_user_service.account_connected(db, agent_config.id)
+                svc.is_configured()
+                and svc.account_connected(db, agent_config.id)
             )
-            # Прогон реализован только для v3-агентов (OpenRouter): тул
-            # schedule_telegram_message домешивается только им.
+            # Прогон реализован только для v3-агентов (OpenRouter): тулы
+            # schedule_*_message домешиваются только им.
             if not getattr(agent_config, "uses_hardcoded_prompt", False):
                 account_ok = False
 
             if not account_ok:
                 task.status = TaskStatus.FAILED
                 task.call_result = json.dumps(
-                    {"error": "telegram_account_unavailable"}, ensure_ascii=False
+                    {"error": f"{channel}_account_unavailable"}, ensure_ascii=False
                 )
                 task.call_completed_at = datetime.utcnow()
                 db.commit()
                 logger.warning(
-                    f"[TASK-SCHEDULER] ✉️ Telegram task {task.id} failed: personal TG account unavailable"
+                    f"[TASK-SCHEDULER] ✉️ {label} task {task.id} failed: personal {label} account unavailable"
                 )
                 try:
                     await fn_send_telegram_notification(
                         {
                             "message": (
-                                f"⚠️ Не смог отправить запланированное сообщение в Telegram "
+                                f"⚠️ Не смог отправить запланированное сообщение в {label} "
                                 f"контакту {agent_contact.name or agent_contact.phone}: "
-                                f"личный Telegram-аккаунт не подключён. "
+                                f"личный {label}-аккаунт не подключён. "
                                 f"Задача: «{task.title}». Подключите аккаунт и создайте задачу заново."
                             )
                         },
@@ -450,7 +455,7 @@ class TaskScheduler:
                 return
 
             # Запись в истории агента (лента/модалка на agent.html); канал события
-            # определится по postcall_log.call_direction="telegram_outbound".
+            # определится по postcall_log.call_direction="telegram_outbound"/"max_outbound".
             agent_call = AgentCall(
                 agent_contact_id=agent_contact.id,
                 agent_config_id=agent_config.id,
@@ -467,17 +472,22 @@ class TaskScheduler:
             db.commit()
 
             orchestrator = PostCallOrchestrator()
-            await orchestrator.run_for_scheduled_telegram(
-                agent_call, agent_contact, agent_config, user, task, db
-            )
+            if is_max:
+                await orchestrator.run_for_scheduled_max(
+                    agent_call, agent_contact, agent_config, user, task, db
+                )
+            else:
+                await orchestrator.run_for_scheduled_telegram(
+                    agent_call, agent_contact, agent_config, user, task, db
+                )
             # Статусы task/agent_call проставил прогон (_analyze_v3_openrouter);
             # фиксируем время завершения задачи.
             task.call_completed_at = datetime.utcnow()
             db.commit()
-            logger.info(f"[TASK-SCHEDULER] ✉️ Telegram task {task.id} completed")
+            logger.info(f"[TASK-SCHEDULER] ✉️ {label} task {task.id} completed")
 
         except Exception as e:
-            logger.error(f"[TASK-SCHEDULER] Error in telegram task {task.id}: {e}", exc_info=True)
+            logger.error(f"[TASK-SCHEDULER] Error in {label} messenger task {task.id}: {e}", exc_info=True)
             try:
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Internal error: {str(e)}"
