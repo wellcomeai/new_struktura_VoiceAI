@@ -1,29 +1,34 @@
 """
 MAX User Service — работа с ЛИЧНЫМ аккаунтом мессенджера MAX (max.ru) агента.
 
-Зеркалит telegram_user_service.py (Telethon), но поверх реверснутой библиотеки
-PyMax (pip: maxapi-python): авторизация личного аккаунта (телефон → SMS-код →
-пароль 2FA), отправка сообщений клиентам от имени владельца и чтение новых
-входящих поллером (backend/core/max_poller.py).
+На базе реверснутой библиотеки PyMax (pip: maxapi-python): авторизация личного
+аккаунта (телефон → SMS-код → пароль 2FA), отправка сообщений клиентам от имени
+владельца и приём входящих.
+
+Транспорт — вариант A (постоянное ONLINE-соединение), НЕ поллинг. Причина: MAX
+требует ONLINE-сессию для отправки (MSG_SEND) и отзывает токен при churn-е
+переподключений (proto.state «Must be ONLINE», FAIL_LOGIN_TOKEN — воспроизвели на
+поллинге). Поэтому на каждый аккаунт держим один живой клиент: входящие приходят
+пушем (on_message → _on_live_message), исходящие идут через тот же ONLINE-клиент
+(send_message из реестра _live_clients), reconnect=True сам чинит сеть. Клиентов
+поднимает/сторожит core/max_connection_supervisor.py.
 
 Ключевые решения:
 - Сессия PyMax (token/device_id/phone/mt_instance_id/sync-маркеры) живёт в БД
   (agent_max_accounts.session_encrypted), зашифрованная Fernet (MAX_SESSION_KEY).
   Файловых SQLite-сессий нет — ФС Render эфемерная. Вместо файла PyMax получает
   кастомный StoreProtocol (_DbSessionStore) поверх этой колонки.
-- Клиент создаётся НА КАЖДУЮ операцию (start → действие → close): вариант B из
-  проектного решения — постоянные соединения в 4 gunicorn-воркерах с рециклингом
-  не живут. client.start() запускается фоновой задачей, работа идёт после
-  события on_start, затем close().
-- Авторизация PyMax проходит ВНУТРИ client.start() (SmsAuthFlow), поэтому шаги
-  «ввести код/пароль» реализованы DB-провайдерами: фоновая задача run_auth ждёт,
-  пока UI положит значение в транзитные колонки sms_code/password_2fa.
+- Первичная авторизация (run_auth) — короткоживущий клиент: PyMax запрашивает
+  SMS-код ВНУТРИ client.start() (SmsAuthFlow), код/пароль приходят через
+  DB-провайдеры (UI кладёт значения в транзитные колонки sms_code/password_2fa).
+- Живой клиент использует _NoReauthFlow: при отзыве токена НЕ шлёт новый SMS
+  (иначе был SMS-шторм), а помечает аккаунт error для ручного переподключения.
 - Совместимость с websockets<12: проект пинит websockets 11 (голосовые прокси
   используют extra_headers), а pymax на импорте тянет websockets.asyncio (>=13)
   — но только ради WebClient, который здесь не используется (TCP Client).
   _ensure_ws_compat() подкладывает заглушки, WebClient при попытке использования
-  упадёт с понятной ошибкой. Ставить maxapi-python нужно с --no-deps
-  (см. requirements-max.txt).
+  упадёт с понятной ошибкой. Сама библиотека ставится с --no-deps
+  (render.yaml buildCommand / вручную в дашборде Render).
 - Все ошибки PyMax конвертируются в {ok: False, error: <код>} — коды маппятся
   на человекочитаемые сообщения в UI и тулзах (error_human).
 
@@ -60,6 +65,13 @@ CODE_POLL_INTERVAL = 2        # сек: период опроса транзит
 _pymax_import_error: Optional[str] = None
 _pymax_module = None            # кэш успешного импорта
 _pymax_import_attempted = False  # чтобы не пытаться (и не спамить в лог) повторно
+
+# Реестр живых постоянных соединений (вариант A). account_id(str) -> запись
+# {"client": Client|None, "task": asyncio.Task, "status": "connecting"|"online"}.
+# Живёт в памяти процесса; все обращения — из одного event loop (supervisor,
+# on_message, тулзы, планировщик работают в общем процессе uvicorn), поэтому
+# блокировки не нужны.
+_live_clients: Dict[str, Dict[str, Any]] = {}
 
 
 def _ensure_ws_compat() -> None:
@@ -662,107 +674,266 @@ async def run_auth(account_id: str) -> None:
 
 
 # ============================================================================
-# ПОЛЛИНГ ВХОДЯЩИХ
+# ПОСТОЯННОЕ СОЕДИНЕНИЕ (вариант A) — один живой ONLINE-клиент на аккаунт.
+#
+# Почему не поллинг: MAX требует ONLINE-сессию для отправки (MSG_SEND) и отзывает
+# токен при churn-е переподключений (см. логи: proto.state «Must be ONLINE»,
+# FAIL_LOGIN_TOKEN). Поэтому держим одно живое соединение: входящие приходят
+# пушем (on_message), исходящие идут через тот же ONLINE-клиент, reconnect=True
+# сам восстанавливает сеть. Supervisor (core/max_connection_supervisor.py)
+# поднимает/перезапускает клиентов и обеспечивает single-owner через lease в БД.
 # ============================================================================
 
-async def poll_dialogs(account_id: str, phone: str, known_last_times: Dict[int, int]) -> Dict[str, Any]:
+class _NoReauthFlow:
     """
-    Снять срез личных диалогов и новые входящие сообщения.
+    Auth-flow для живого клиента: НИКОГДА не запрашивает SMS повторно.
 
-    known_last_times — {max_chat_id: last_processed_msg_time (unix ms)} из БД.
-    Для известных диалогов новые сообщения = входящие с time > last_time; для
-    НЕизвестных (появились после подключения) — последние new_messages входящих
-    (но не больше POLL_MAX_MESSAGES_PER_DIALOG).
-
-    Возвращает {ok, dialogs: [{chat_id, peer_id, name, phone, top_time, is_known,
-    new_messages: [{id, time, text}] (старые → новые)}]} или {ok: False, error}.
-    Только личные диалоги (type=DIALOG): не группы, не каналы, не Saved Messages.
+    Если MAX отозвал токен (FAIL_LOGIN_TOKEN), PyMax сам вызывает relogin() и
+    пытается авторизоваться заново — стандартный SmsAuthFlow на этом шаге послал
+    бы новый SMS-код (что и вызывало SMS-шторм). Здесь мы вместо этого помечаем
+    аккаунт error и падаем без запроса кода: пользователь переподключит вручную.
     """
-    client = None
-    runner = None
+
+    def __init__(self, account_id: str):
+        self.account_id = str(account_id)
+
+    async def authenticate(self, app) -> Any:  # noqa: ANN001
+        _set_account_status(self.account_id, "error", "session_revoked")
+        raise RuntimeError("max_token_revoked")
+
+
+def _register_live_client(account_id: str, client) -> None:
+    entry = _live_clients.get(account_id)
+    if entry is None:
+        _live_clients[account_id] = {"client": client, "task": None, "status": "connecting"}
+    else:
+        entry["client"] = client
+
+
+def _mark_live_status(account_id: str, status: str) -> None:
+    entry = _live_clients.get(account_id)
+    if entry is not None:
+        entry["status"] = status
+
+
+def live_account_ids() -> List[str]:
+    """account_id живых/поднимающихся соединений в ЭТОМ процессе."""
+    return list(_live_clients.keys())
+
+
+def live_client_online(account_id: str) -> bool:
+    entry = _live_clients.get(str(account_id))
+    return bool(entry and entry.get("client") is not None and entry.get("status") == "online")
+
+
+def _match_contact_by_phone(db, agent_config_id, phone):
+    from backend.models.agent_contact import AgentContact
+    from backend.services.sms_history import phone_suffix
+    suf = phone_suffix(phone or "")
+    if not suf:
+        return None
+    return db.query(AgentContact).filter(
+        AgentContact.agent_config_id == agent_config_id,
+        AgentContact.phone.like(f"%{suf}"),
+    ).order_by(AgentContact.created_at.desc()).first()
+
+
+async def _on_live_message(account_id: str, message, client) -> None:
+    """
+    Обработчик входящего пуша от живого клиента. Резолвит контакт, сохраняет
+    сообщение в тред, двигает маркер ДО запуска оркестратора (идемпотентность) и
+    отправляет разбор в handle_inbound_max. Только личные диалоги; свои и
+    служебные сообщения пропускаются.
+    """
+    from backend.db.session import SessionLocal
+    from backend.models.agent_max_account import AgentMaxAccount, AgentMaxDialog
+    from backend.models.agent_contact import AgentContact
+
+    me_id = client.me.contact.id if client.me else 0
+    sender = int(getattr(message, "sender", 0) or 0)
+    chat_id = int(getattr(message, "chat_id", 0) or 0)
+    text = (getattr(message, "text", None) or "").strip()
+    m_time = int(getattr(message, "time", 0) or 0)
+
+    if not sender or not chat_id or sender == int(me_id):
+        return  # своё/системное сообщение
+    if not text:
+        return  # вложения без текста в MVP не обрабатываем
+
+    # Пропускаем известные группы/каналы (по снимку чатов логина).
+    chat = next((c for c in (client.chats or []) if int(getattr(c, "id", 0) or 0) == chat_id), None)
+    if chat is not None and not _is_dialog(chat):
+        return
+
+    # Телефон/имя собеседника (best-effort) — для привязки к контакту агента.
+    phone = None
+    name = None
     try:
-        client, runner = await _start_client(account_id, phone)
-        me_id = client.me.contact.id if client.me else 0
-
-        out: List[Dict[str, Any]] = []
-        need_user_info: List[int] = []
-        for chat in _snapshot_dialogs(client):
-            chat_id = int(chat.id)
-            peer_id = _dialog_peer_id(chat, me_id)
-            last_msg = getattr(chat, "last_message", None)
-            top_time = int(getattr(last_msg, "time", 0) or 0)
-            is_known = chat_id in known_last_times
-
-            new_messages: List[Dict[str, Any]] = []
-            last_time = int(known_last_times.get(chat_id) or 0)
-            # Триггер загрузки истории — любая новая активность с прошлого маркера
-            # (не только последнее сообщение: владелец мог ответить в MAX сам, и
-            # тогда top — исходящее, но между маркером и им могли быть входящие).
-            has_activity = (
-                (top_time > last_time) if is_known
-                else int(getattr(chat, "new_messages", 0) or 0) > 0
-            )
-            if has_activity:
-                try:
-                    history = await client.fetch_history(
-                        chat_id, backward=POLL_MAX_MESSAGES_PER_DIALOG
-                    )
-                except Exception as e:
-                    logger.warning(f"[MAX-USER] fetch_history({chat_id}) failed: {e}")
-                    history = []
-                if not is_known:
-                    unread = int(getattr(chat, "new_messages", 0) or 0)
-                    candidates = sorted(history or [], key=lambda m: int(m.time or 0))
-                    candidates = candidates[-min(unread, POLL_MAX_MESSAGES_PER_DIALOG):] if unread else []
-                else:
-                    candidates = sorted(history or [], key=lambda m: int(m.time or 0))
-                for m in candidates:
-                    if int(getattr(m, "sender", 0) or 0) == int(me_id):
-                        continue
-                    m_time = int(getattr(m, "time", 0) or 0)
-                    if is_known and m_time <= last_time:
-                        continue
-                    body = (getattr(m, "text", None) or "").strip()
-                    if body:
-                        new_messages.append({"id": int(m.id), "time": m_time, "text": body})
-
-            if new_messages or not is_known:
-                if peer_id:
-                    need_user_info.append(peer_id)
-
-            out.append({
-                "chat_id": chat_id,
-                "peer_id": peer_id,
-                "name": None,
-                "phone": None,
-                "top_time": top_time,
-                "is_known": is_known,
-                "new_messages": new_messages,
-            })
-
-        if need_user_info:
-            try:
-                users = await client.get_users(list(set(need_user_info)))
-                peers = {int(u.id): u for u in users if u is not None}
-                for d in out:
-                    u = peers.get(d["peer_id"])
-                    if u is not None:
-                        d["name"] = _display_name(u)
-                        d["phone"] = str(u.phone) if u.phone else None
-            except Exception as e:
-                logger.warning(f"[MAX-USER] poll get_users failed: {e}")
-
-        return {"ok": True, "dialogs": out}
+        u = await client.get_user(sender)
+        if u is not None:
+            phone = str(u.phone) if u.phone else None
+            name = _display_name(u)
     except Exception as e:
-        logger.warning(f"[MAX-USER] poll_dialogs failed: {type(e).__name__}: {e}")
-        return {"ok": False, "error": _error_code(e)}
+        logger.warning(f"[MAX-LIVE] get_user({sender}) failed: {e}")
+
+    db = SessionLocal()
+    try:
+        account = db.query(AgentMaxAccount).filter(AgentMaxAccount.id == account_id).first()
+        if not account or account.status != "connected":
+            return
+
+        dialog = db.query(AgentMaxDialog).filter(
+            AgentMaxDialog.account_id == account.id,
+            AgentMaxDialog.max_chat_id == chat_id,
+        ).first()
+        if dialog is None:
+            contact = _match_contact_by_phone(db, account.agent_config_id, phone)
+            dialog = AgentMaxDialog(
+                account_id=account.id,
+                agent_contact_id=(contact.id if contact else None),
+                max_chat_id=chat_id,
+                max_peer_id=sender,
+                max_name=name,
+                last_processed_msg_time=0,
+                created_via="inbound",
+            )
+            db.add(dialog)
+            db.flush()
+        else:
+            if name:
+                dialog.max_name = name
+            if dialog.max_peer_id is None:
+                dialog.max_peer_id = sender
+            if dialog.agent_contact_id is None and phone:
+                c = _match_contact_by_phone(db, account.agent_config_id, phone)
+                if c:
+                    dialog.agent_contact_id = c.id
+
+        # Дедуп: сообщение уже обработано (пуш мог повториться после reconnect).
+        if m_time and m_time <= int(dialog.last_processed_msg_time or 0):
+            db.commit()
+            return
+
+        contact_id = dialog.agent_contact_id
+        if contact_id is None:
+            if (account.reply_scope or "contacts") != "all":
+                dialog.last_processed_msg_time = max(m_time, int(dialog.last_processed_msg_time or 0))
+                db.commit()
+                return
+            contact = AgentContact(
+                agent_config_id=account.agent_config_id,
+                user_id=account.user_id,
+                phone=phone or f"max:{chat_id}",
+                name=name,
+                status="new",
+            )
+            db.add(contact)
+            db.flush()
+            dialog.agent_contact_id = contact.id
+            contact_id = contact.id
+            logger.info(f"[MAX-LIVE] 🆕 Создан AgentContact {contact_id} для входящего MAX {chat_id}")
+
+        # Сохраняем входящее и двигаем маркер ДО оркестратора (идемпотентность).
+        store_message(
+            db, account, "inbound", text,
+            agent_contact_id=contact_id,
+            max_chat_id=chat_id,
+            max_message_id=int(getattr(message, "id", 0) or 0),
+        )
+        dialog.last_processed_msg_time = max(m_time, int(dialog.last_processed_msg_time or 0))
+        db.commit()
+
+        from backend.services.agent_orchestrator import handle_inbound_max
+        logger.info(f"[MAX-LIVE] inbound from chat {chat_id} (account {account.id}) → orchestrator")
+        asyncio.create_task(handle_inbound_max(str(account.id), str(contact_id), text))
     finally:
-        if client is not None:
-            await _close_client(client, runner)
+        db.close()
+
+
+async def _run_live_client(account_id: str, phone: str) -> None:
+    """
+    Жизненный цикл одного постоянного клиента. Блокируется до закрытия
+    соединения (client.start() с reconnect=True сам переживает сетевые сбои).
+    Завершается только при отзыве токена/фатальной ошибке — тогда аккаунт
+    помечается error, и supervisor больше его не поднимает до переподключения.
+    """
+    pymax = _import_pymax()
+    client = pymax.Client(
+        phone=phone or "",
+        extra_config=pymax.ExtraConfig(
+            store=_DbSessionStore(account_id),
+            reconnect=True,
+            reconnect_delay=5.0,
+            telemetry=False,
+            log_level="WARNING",
+        ),
+        auth_flow=_NoReauthFlow(account_id),
+    )
+
+    @client.on_start()
+    async def _on_started(c) -> None:  # noqa: ANN001
+        try:
+            c.set_presence(online=True)  # обязательно: MSG_SEND требует ONLINE
+        except Exception:
+            pass
+        _mark_live_status(account_id, "online")
+        logger.info(f"[MAX-LIVE] online account={account_id}")
+
+    @client.on_message()
+    async def _on_msg(message, c) -> None:  # noqa: ANN001
+        try:
+            await _on_live_message(account_id, message, c)
+        except Exception as e:
+            logger.error(f"[MAX-LIVE] on_message error account={account_id}: {e}", exc_info=True)
+
+    _register_live_client(account_id, client)
+    try:
+        await client.start()
+    except Exception as e:
+        code = _error_code(e)
+        logger.warning(f"[MAX-LIVE] client stopped account={account_id}: {code}")
+        if code in ("session_revoked", "session_missing", "max_not_registered") or "revoked" in str(e):
+            _set_account_status(account_id, "error", "session_revoked")
+    finally:
+        _live_clients.pop(account_id, None)
+
+
+def ensure_live_client(account_id: str, phone: str) -> None:
+    """Поднять живой клиент, если он ещё не запущен (idempotent). Не блокирует."""
+    account_id = str(account_id)
+    entry = _live_clients.get(account_id)
+    if entry is not None:
+        task = entry.get("task")
+        if task is None or not task.done():
+            return  # уже поднимается/работает
+        _live_clients.pop(account_id, None)  # мёртвая задача — пересоздадим
+
+    _live_clients[account_id] = {"client": None, "task": None, "status": "connecting"}
+    task = asyncio.create_task(_run_live_client(account_id, phone or ""))
+    _live_clients[account_id]["task"] = task
+    logger.info(f"[MAX-LIVE] launching client account={account_id}")
+
+
+def stop_live_client(account_id: str) -> None:
+    """Остановить живой клиент аккаунта (best-effort)."""
+    account_id = str(account_id)
+    entry = _live_clients.pop(account_id, None)
+    if entry is None:
+        return
+    client = entry.get("client")
+    task = entry.get("task")
+    if client is not None:
+        try:
+            asyncio.create_task(client.close())
+        except Exception:
+            pass
+    if task is not None and not task.done():
+        task.cancel()
+    logger.info(f"[MAX-LIVE] stopped client account={account_id}")
 
 
 # ============================================================================
-# ОТПРАВКА
+# ОТПРАВКА (через живой ONLINE-клиент)
 # ============================================================================
 
 async def send_message(
@@ -774,12 +945,15 @@ async def send_message(
     phone: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Отправить сообщение. Резолв получателя (по мере предпочтительности):
-      1) chat_id — уже известный личный диалог (из AgentMaxDialog);
-      2) peer_id — ID собеседника (chat_id личного диалога вычисляется локально);
-      3) phone — поиск пользователя MAX по номеру (рискованно: антифрод;
-         вызывающий обязан лимитировать).
+    Отправить сообщение через ЖИВОЙ ONLINE-клиент аккаунта (вариант A).
 
+    Требует, чтобы постоянное соединение было поднято в этом процессе (его
+    поднимает supervisor). Резолв получателя:
+      1) chat_id — известный личный диалог (из AgentMaxDialog);
+      2) peer_id — ID собеседника (chat_id личного диалога вычисляется локально);
+      3) phone — поиск пользователя MAX по номеру (рискованно: антифрод).
+
+    account_phone оставлен для совместимости сигнатуры (живому клиенту не нужен).
     Возвращает {ok, max_message_id, msg_time, chat_id, peer_id, name, resolved_via}
     или {ok: False, error}.
     """
@@ -787,12 +961,16 @@ async def send_message(
     if not text:
         return {"ok": False, "error": "empty_text"}
 
-    client = None
-    runner = None
-    try:
-        client, runner = await _start_client(account_id, account_phone)
-        me_id = client.me.contact.id if client.me else 0
+    account_id = str(account_id)
+    entry = _live_clients.get(account_id)
+    if entry is None or entry.get("client") is None or entry.get("status") != "online":
+        # Соединение не поднято в этом процессе (ещё коннектится, упало, или мы
+        # не owner при мультиворкере). В single-process это временное состояние.
+        return {"ok": False, "error": "not_connected"}
+    client = entry["client"]
 
+    try:
+        me_id = client.me.contact.id if client.me else 0
         resolved_via = None
         peer_name = None
         target_chat_id = None
@@ -837,9 +1015,6 @@ async def send_message(
     except Exception as e:
         logger.error(f"[MAX-USER] send_message failed: {type(e).__name__}: {e}")
         return {"ok": False, "error": _error_code(e)}
-    finally:
-        if client is not None:
-            await _close_client(client, runner)
 
 
 # ============================================================================

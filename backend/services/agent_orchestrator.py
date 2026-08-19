@@ -2883,7 +2883,7 @@ async def handle_inbound_max(account_id: str, agent_contact_id: str, message_bod
     """
     Event-driven обработка входящего сообщения личного MAX.
 
-    Вызывается поллером (backend/core/max_poller.py) ПОСЛЕ того, как он сохранил
+    Вызывается живым клиентом (max_user_service._on_live_message) ПОСЛЕ того, как он сохранил
     входящие в agent_max_messages, связал диалог с контактом и продвинул
     last_processed_msg_time (поэтому падение здесь не приводит к повторной
     обработке). Зеркалит handle_inbound_telegram: проверка доступа →

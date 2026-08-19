@@ -57,7 +57,7 @@ from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
-from backend.core.max_poller import start_max_poller  # ✅ Поллер личного MAX агента (PyMax)
+from backend.core.max_connection_supervisor import start_max_supervisor  # ✅ Постоянные соединения личного MAX агента (PyMax)
 from backend.services.subscription_blocker import start_subscription_blocker  # ✅ Agent subscription blocker
 from backend.api.partners import router as partners_router
 
@@ -1982,10 +1982,11 @@ async def startup_event():
             asyncio.create_task(start_telegram_user_poller(check_interval=60))
             logger.info("✅ Telegram user poller started (check every 60s)")
 
-            # ✅ Поллер личного MAX агента (каждые 60 сек; no-op без
-            #    MAX_SESSION_KEY или недоступной библиотеки pymax; мультиворкер — claim по БД)
-            asyncio.create_task(start_max_poller(check_interval=60))
-            logger.info("✅ MAX user poller started (check every 60s)")
+            # ✅ Supervisor постоянных соединений личного MAX агента (сверка каждые
+            #    30 сек; no-op без MAX_SESSION_KEY или недоступной библиотеки pymax;
+            #    мультиворкер — single-owner через lease по БД)
+            asyncio.create_task(start_max_supervisor(check_interval=30))
+            logger.info("✅ MAX connection supervisor started (reconcile every 30s)")
 
         except Exception as e:
             logger.error(f"❌ Error starting schedulers: {str(e)}")
