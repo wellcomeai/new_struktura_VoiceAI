@@ -245,6 +245,50 @@ def get_voximplant_api_credentials(db: Session, user_id: uuid.UUID) -> Optional[
 # 🆕 v3.6: ПОЛУЧЕНИЕ ПОЛНОЙ СТОИМОСТИ ЗВОНКА ЧЕРЕЗ GetCallHistory
 # =============================================================================
 
+def _classify_other_resource(resource_type: str, description: str) -> str:
+    """
+    Тип позиции other_resource_usage для разбивки стоимости в UI:
+    tts / websocket / turn_detection / asr / other.
+
+    Voximplant не документирует resource_type для своего streaming TTS,
+    поэтому смотрим и на resource_type, и на description.
+    """
+    rt = (resource_type or "").upper()
+    desc = (description or "").lower()
+    if rt.startswith("TTS") or "tts" in desc or "texttospeech" in desc.replace(" ", "").replace("-", "") \
+            or "speech synth" in desc or "synthes" in desc:
+        return "tts"
+    if rt == "WEBSOCKET_AUDIO" or "websocket" in desc:
+        return "websocket"
+    if "turn" in desc or "end of utterance" in desc or "eou" in desc or "end-of-" in desc:
+        return "turn_detection"
+    if rt.startswith("ASR") or rt == "TRANSCRIPTION" or "recogni" in desc or "transcri" in desc:
+        return "asr"
+    return "other"
+
+
+def _other_resource_item(resource: Dict[str, Any]) -> Dict[str, Any]:
+    """Нормализованная позиция other_resource_usage для cost_breakdown.other_items."""
+    resource_type = resource.get("resource_type") or ""
+    description = resource.get("description") or ""
+    try:
+        cost = round(float(resource.get("cost") or 0), 6)
+    except (TypeError, ValueError):
+        cost = 0.0
+    try:
+        quantity = int(resource.get("resource_quantity") or 0)
+    except (TypeError, ValueError):
+        quantity = 0
+    return {
+        "kind": _classify_other_resource(resource_type, description),
+        "resource_type": resource_type,
+        "description": description,
+        "cost": cost,
+        "resource_quantity": quantity,
+        "unit": resource.get("unit") or "",
+    }
+
+
 async def get_full_call_cost(
     call_session_history_id: str,
     account_id: str,
@@ -354,13 +398,24 @@ async def get_full_call_cost(
         
         logger.info(f"[VOXIMPLANT-v3.9]    🎙️ Records cost: {records_cost} ({len(records_list)} records)")
         
-        # Суммируем стоимость из other_resource_usage[]
+        # Суммируем стоимость из other_resource_usage[] и сохраняем позиции
+        # по отдельности: TTS, WebSocket-потоки, детекция конца фразы, ASR.
+        # Без этого списка в карточке диалога TTS виден только как остаток
+        # «other минус ASR», а реальную цену синтеза посчитать нельзя.
         other_cost = 0.0
+        other_items = []
         other_list = call_data.get("other_resource_usage", [])
         for resource in other_list:
             cost = resource.get("cost", 0)
             if cost:
                 other_cost += float(cost)
+            item = _other_resource_item(resource)
+            other_items.append(item)
+            logger.info(
+                f"[VOXIMPLANT-v3.9]    ⚡ other[{item['kind']}] "
+                f"type={item['resource_type'] or '-'} desc={item['description'] or '-'} "
+                f"qty={item['resource_quantity']}{item['unit'] or ''} cost={item['cost']}"
+            )
         
         logger.info(f"[VOXIMPLANT-v3.9]    ⚡ Other resources cost: {other_cost} ({len(other_list)} resources)")
         
@@ -385,6 +440,9 @@ async def get_full_call_cost(
             "calls_cost": round(calls_cost, 6),
             "records_cost": round(records_cost, 6),
             "other_cost": round(other_cost, 6),
+            # Позиции other_resource_usage по отдельности (TTS / WebSocket /
+            # turn detection / ASR) — для разбивки в карточке диалога.
+            "other_items": other_items,
             "duration": total_duration,
             # Лог сессии на медиасервере Voximplant — показывается ссылкой
             # в истории звонков и в карточках раздела «Диалоги»
@@ -582,6 +640,7 @@ async def _apply_cost_result(
                 "calls_cost": cost_result["calls_cost"],
                 "records_cost": cost_result["records_cost"],
                 "other_cost": cost_result["other_cost"],
+                "other_items": cost_result.get("other_items"),
                 "details": cost_result["details"],
                 "script_parts": previous_breakdown.get("script_parts"),
                 "settled": is_settled_cost(cost_result),
@@ -1315,6 +1374,7 @@ async def log_conversation_data(
                             "calls_cost": cost_result["calls_cost"],
                             "records_cost": cost_result["records_cost"],
                             "other_cost": cost_result["other_cost"],
+                            "other_items": cost_result.get("other_items"),
                             "details": cost_result["details"],
                             # Что видел сам сценарий — для сверки с логом сессии.
                             # other_cost = ASR + TTS + WebSocket + turn detection,
@@ -2326,6 +2386,7 @@ async def recalculate_call_cost(
             "calls_cost": cost_result["calls_cost"],
             "records_cost": cost_result["records_cost"],
             "other_cost": cost_result["other_cost"],
+            "other_items": cost_result.get("other_items"),
             "details": cost_result["details"],
             "script_parts": previous_breakdown.get("script_parts"),
             "recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S")
@@ -2490,6 +2551,7 @@ async def recalculate_costs_batch(
                         "calls_cost": cost_result["calls_cost"],
                         "records_cost": cost_result["records_cost"],
                         "other_cost": cost_result["other_cost"],
+                        "other_items": cost_result.get("other_items"),
                         "script_parts": (client_info.get("cost_breakdown") or {}).get("script_parts"),
                         "batch_recalculated_at": time.strftime("%Y-%m-%d %H:%M:%S")
                     }

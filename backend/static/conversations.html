@@ -2559,9 +2559,7 @@
         if (calls === null && records === null && other === null) return '';
 
         const scriptParts = breakdown.script_parts || null;
-        const asr = scriptParts ? num(scriptParts.asr) : null;
-        // Остаток other после ASR — это TTS + WebSocket + turn detection.
-        const otherRest = (other !== null && asr !== null) ? other - asr : null;
+        const scriptAsr = scriptParts ? num(scriptParts.asr) : null;
 
         const row = (label, value) => value === null ? '' : `
           <div class="cost-breakdown-row">
@@ -2570,14 +2568,50 @@
           </div>
         `;
 
+        // Позиции other_resource_usage по отдельности (бэкенд отдаёт их в
+        // other_items с типом kind). Если список есть — показываем TTS,
+        // WebSocket и детекцию конца фразы отдельными строками, ASR берём
+        // из биллинга, а не из лога сценария.
+        const items = Array.isArray(breakdown.other_items) ? breakdown.other_items : [];
+        let otherRows = '';
+        if (items.length > 0) {
+          const sumKind = (kind) => items
+            .filter(i => i && i.kind === kind)
+            .reduce((acc, i) => acc + (num(i.cost) || 0), 0);
+          const qtyKind = (kind) => items
+            .filter(i => i && i.kind === kind)
+            .reduce((acc, i) => acc + (num(i.resource_quantity) || 0), 0);
+          const has = (kind) => items.some(i => i && i.kind === kind);
+          const fmtQty = (n) => n.toLocaleString('ru-RU');
+
+          const asrCost = has('asr') ? sumKind('asr') : scriptAsr;
+          const ttsQty = qtyKind('tts');
+          const ttsLabel = ttsQty > 0
+            ? `Синтез речи (TTS) · ${fmtQty(ttsQty)} симв.`
+            : 'Синтез речи (TTS)';
+
+          otherRows =
+            (asrCost !== null ? row('Распознавание речи (ASR)', asrCost) : '') +
+            (has('tts') ? row(ttsLabel, sumKind('tts')) : '') +
+            (has('websocket') ? row('WebSocket-потоки (VAD, turn detection)', sumKind('websocket')) : '') +
+            (has('turn_detection') ? row('Детекция конца фразы', sumKind('turn_detection')) : '') +
+            (has('other') ? row('Прочие ресурсы', sumKind('other')) : '');
+        } else {
+          // Старые диалоги без other_items: остаток other после ASR —
+          // это TTS + WebSocket + turn detection одной строкой.
+          const otherRest = (other !== null && scriptAsr !== null) ? other - scriptAsr : null;
+          otherRows =
+            (scriptAsr !== null ? row('Распознавание речи (ASR)', scriptAsr) : '') +
+            (otherRest !== null
+              ? row('Синтез речи, WebSocket, turn detection', otherRest)
+              : row('Прочие ресурсы (ASR, TTS, WebSocket)', other));
+        }
+
         return `
           <div class="cost-breakdown">
             ${row('Телефония', calls)}
             ${row('Запись разговора', records)}
-            ${asr !== null ? row('Распознавание речи (ASR)', asr) : ''}
-            ${otherRest !== null
-              ? row('Синтез речи, WebSocket, turn detection', otherRest)
-              : row('Прочие ресурсы (ASR, TTS, WebSocket)', other)}
+            ${otherRows}
             ${row('Итого', typeof totalCost === 'number' ? totalCost : null)
               .replace('cost-breakdown-row', 'cost-breakdown-row total')}
             <div class="cost-breakdown-note">
