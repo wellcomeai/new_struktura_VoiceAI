@@ -31,7 +31,7 @@ from sqlalchemy.orm import relationship
 from backend.models.base import Base
 
 # Модель синтеза Fish Audio по умолчанию.
-DEFAULT_FISH_MODEL = "s2.1-pro-free"
+DEFAULT_FISH_MODEL = "s2.1-pro"
 
 # Модель OpenAI Realtime, которая ведёт диалог и транскрибирует речь.
 DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1-mini"
@@ -54,9 +54,9 @@ FISH_TEMPERATURE_MIN, FISH_TEMPERATURE_MAX = 0.0, 1.0
 # отваливаться с 400 при сохранении.
 FISH_MODELS = ["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]
 
-# То, что показываем в селекторе на fish-agents.html. Пока обкатываем
-# только бесплатную модель — остальные убраны из выбора намеренно.
-FISH_SELECTABLE_MODELS = ["s2.1-pro-free"]
+# То, что показываем в селекторе на fish-agents.html. Основная модель —
+# s2.1-pro; бесплатная s2.1-pro-free оставлена как запасной вариант.
+FISH_SELECTABLE_MODELS = ["s2.1-pro", "s2.1-pro-free"]
 
 # low — быстрее всего начинает говорить, normal — лучшее качество.
 FISH_LATENCY_MODES = ["low", "balanced", "normal"]

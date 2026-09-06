@@ -1120,7 +1120,7 @@
               <div class="form-group">
                 <label for="agent-model">Модель синтеза Fish</label>
                 <select class="form-control" id="agent-model"></select>
-                <p class="hint">Сейчас доступна только s2.1-pro-free — бесплатная модель синтеза Fish.</p>
+                <p class="hint">По умолчанию используется s2.1-pro — основная модель синтеза Fish.</p>
               </div>
               <div class="form-group">
                 <label for="agent-voice">Голос (reference_id)</label>
@@ -1293,8 +1293,8 @@
     let isLoading = false;
     let currentUserPlanCode = 'free';
     let fishOptions = {
-      models: ['s2.1-pro-free'],
-      default_model: 's2.1-pro-free',
+      models: ['s2.1-pro', 's2.1-pro-free'],
+      default_model: 's2.1-pro',
       latency_modes: ['balanced', 'normal'],
       default_latency: 'balanced',
       llm_models: ['gpt-realtime-2.1-mini', 'gpt-realtime-1.5'],
