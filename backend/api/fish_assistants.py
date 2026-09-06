@@ -3,7 +3,7 @@
 REST API endpoints for Fish Audio voice assistants management.
 
 Fish Audio — TTS-провайдер. Диалог ведёт OpenAI Realtime
-(gpt-realtime-2.1-mini, output_modalities=["text"]) прямо в сценарии
+(gpt-realtime-2.1, output_modalities=["text"]) прямо в сценарии
 Voximplant, озвучивает Fish через наш прокси /ws/fish/tts/{assistant_id}.
 Оба ключа пользовательские: openai_api_key (LLM) и fish_api_key (TTS).
 
@@ -226,7 +226,7 @@ async def get_fish_options():
         "default_model": DEFAULT_FISH_MODEL,
         "latency_modes": FISH_LATENCY_MODES,
         "default_latency": DEFAULT_FISH_LATENCY,
-        "llm_models": [DEFAULT_FISH_LLM_MODEL, "gpt-realtime-1.5"],
+        "llm_models": [DEFAULT_FISH_LLM_MODEL, "gpt-realtime-2.1-mini", "gpt-realtime-1.5"],
         "default_llm_model": DEFAULT_FISH_LLM_MODEL,
         "sample_rate": DEFAULT_FISH_SAMPLE_RATE,
         "speed": {"min": FISH_SPEED_MIN, "max": FISH_SPEED_MAX, "default": 1.0},

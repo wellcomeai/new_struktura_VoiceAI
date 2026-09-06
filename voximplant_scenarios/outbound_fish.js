@@ -304,7 +304,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     Logger.write("✅ CONFIG LOADED:");
     Logger.write("   📋 Assistant: " + CONFIG.assistant_name);
     Logger.write("   🌐 Language: " + CONFIG.language);
-    Logger.write("   🧠 LLM: " + (CONFIG.model || "gpt-realtime-2.1-mini"));
+    Logger.write("   🧠 LLM: " + (CONFIG.model || "gpt-realtime-2.1"));
     Logger.write("   🐟 Fish voice: " + CONFIG.fish_voice_id + " / " + CONFIG.fish_model +
                  " (" + CONFIG.fish_latency + ", " + CONFIG.sample_rate + " Hz)");
     Logger.write("   👋 Greeting: \"" + GREETING.substring(0, 60) + "\"");
@@ -761,7 +761,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     try {
         realtimeAPIClient = await OpenAI.createRealtimeAPIClient({
             apiKey: CONFIG.api_key,
-            model:  CONFIG.model || "gpt-realtime-2.1-mini",
+            model:  CONFIG.model || "gpt-realtime-2.1",
             type:   OpenAI.RealtimeAPIClientType.REALTIME,
             onWebSocketClose: function() {
                 Logger.write("[OpenAI] WS closed");

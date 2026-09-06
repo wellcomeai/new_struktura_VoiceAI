@@ -14,7 +14,7 @@ const CONFIG = {
     assistant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     assistant_name: "Тестовый Fish",
     api_key: "sk-test",
-    model: "gpt-realtime-2.1-mini",
+    model: "gpt-realtime-2.1",
     system_prompt: "Ты ассистент.",
     first_phrase: "Здравствуйте, это Войсифай.",
     language: "ru",

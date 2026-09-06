@@ -5,7 +5,7 @@ Fish Audio TTS provider integration — config only, call logic lives in Voximpl
 
 Тракт звонка (сценарии inbound_fish / outbound_fish на родительском аккаунте):
 
-    Voximplant ⇄ OpenAI Realtime (gpt-realtime-2.1-mini, output_modalities=["text"])
+    Voximplant ⇄ OpenAI Realtime (gpt-realtime-2.1, output_modalities=["text"])
                     │  модель сама транскрибирует речь, отдельный ASR не нужен
                     ▼
                  текст ответа
@@ -34,7 +34,7 @@ from backend.models.base import Base
 DEFAULT_FISH_MODEL = "s2.1-pro"
 
 # Модель OpenAI Realtime, которая ведёт диалог и транскрибирует речь.
-DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1-mini"
+DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1"
 
 # Частота дискретизации PCM, которую прокси запрашивает у Fish и отдаёт
 # в звонок. 8000 — телефонный тракт Voximplant (PCM16_8KHZ по умолчанию).
