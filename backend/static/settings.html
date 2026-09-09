@@ -1084,51 +1084,7 @@
       </button>
     </div>
     
-    <nav class="sidebar-nav">
-      <a href="/static/dashboard.html" class="sidebar-nav-item">
-        <i class="fas fa-home"></i> Дашборд
-      </a>
-      <a href="/static/agent.html" class="sidebar-nav-item" id="agent-nav-item">
-        <i class="fas fa-headset"></i> Агент обзвона
-        <span class="badge-realtime">new</span>
-      </a>
-      <a href="/static/agents.html" class="sidebar-nav-item">
-        <i class="fas fa-robot"></i> OpenAI агенты
-      </a>
-      <a href="/static/gemini-agents.html" class="sidebar-nav-item locked-feature" id="gemini-agents-nav-item">
-        <i class="fas fa-gem"></i> Gemini агенты
-      </a>
-      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-wave-square"></i> Cartesia агенты
-      </a>
-      <a href="/static/yandex-agents.html" class="sidebar-nav-item">
-        <i class="fab fa-yandex"></i> Яндекс агенты
-      </a>
-      <a href="/static/cascade.html" class="sidebar-nav-item">
-        <i class="fas fa-water"></i> Cascade агенты
-      </a>
-      <a href="/static/fish-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-fish"></i> Fish агенты
-      </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
-        <i class="fas fa-book"></i> База знаний
-      </a>
-      <a href="/static/telephony.html" class="sidebar-nav-item" data-feature="telephony">
-         <i class="fas fa-phone"></i> Телефония
-      </a>
-      <a href="/static/crm.html" class="sidebar-nav-item" data-feature="crm">
-        <i class="fas fa-address-book"></i> CRM
-      </a>
-
-      <div class="sidebar-section">ИИ Интерфейс</div>
-      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
-        <i class="fas fa-microphone"></i> JARVIS AI
-      </a>
-      <div class="sidebar-section">Аккаунт</div>
-      <a href="/static/settings.html" class="sidebar-nav-item active">
-        <i class="fas fa-gear"></i> Настройки
-      </a>
-    </nav>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
     
     <div class="sidebar-footer">
       <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
@@ -1136,6 +1092,7 @@
       </a>
     </div>
   </aside>
+  <script src="/static/js/sidebar.js"></script>
   
   <!-- Основной контент -->
   <main class="main-content" id="main-content">
@@ -1349,6 +1306,94 @@
           </button>
         </div>
       </div>
+
+      <!-- ✅ v6.0: ЕДИНЫЙ КОШЕЛЁК VOICYFY -->
+      <div class="settings-section" id="wallet">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-wallet"></i> Кошелёк Voicyfy
+          </h2>
+        </div>
+        <p class="section-description">
+          С кошелька списываются минуты голосовых моделей (цена модели за минуту разговора).
+          Минуты связи при звонках оплачиваются с баланса телефонии отдельно.
+        </p>
+        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+          <div style="font-size:1.75rem;font-weight:700;font-family:'Syne',sans-serif;" id="wallet-balance-value">…</div>
+          <button type="button" class="btn btn-primary" id="wallet-topup-btn"><i class="fas fa-plus"></i> Пополнить</button>
+          <button type="button" class="btn btn-secondary" id="wallet-refresh-btn"><i class="fas fa-rotate"></i> Обновить</button>
+        </div>
+        <div id="wallet-tariffs" style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;"></div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:.9rem;" id="wallet-tx-table">
+            <thead>
+              <tr style="text-align:left;color:var(--text-gray);border-bottom:1px solid var(--border-color);">
+                <th style="padding:.5rem;">Дата</th>
+                <th style="padding:.5rem;">Операция</th>
+                <th style="padding:.5rem;">Модель</th>
+                <th style="padding:.5rem;">Секунды</th>
+                <th style="padding:.5rem;text-align:right;">Сумма</th>
+                <th style="padding:.5rem;text-align:right;">Баланс</th>
+              </tr>
+            </thead>
+            <tbody id="wallet-tx-body"><tr><td colspan="6" style="padding:1rem;color:var(--text-light);">Загрузка…</td></tr></tbody>
+          </table>
+        </div>
+        <div style="margin-top:.75rem;"><button type="button" class="btn btn-secondary" id="wallet-more-btn" style="display:none;">Показать ещё</button></div>
+      </div>
+      <script>
+      (function(){
+        var TYPES = {topup:'Пополнение', spend:'Списание', refund:'Возврат', welcome_grant:'Приветственный грант', manual_adjust:'Корректировка'};
+        var MODELS = {openai:'OpenAI', gemini:'Gemini', fish:'Fish', yandex:'Яндекс', cascade:'Каскад', cartesia:'Cartesia'};
+        var offset = 0, LIMIT = 30;
+        function hdr(){ var t=localStorage.getItem('auth_token'); return {'Authorization':'Bearer '+t,'Content-Type':'application/json'}; }
+        function rub(k){ return (k/100).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽'; }
+        function loadBalance(){
+          fetch('/api/wallet/balance',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            document.getElementById('wallet-balance-value').textContent = rub(d.balance_kopeks||0);
+          }).catch(function(){});
+        }
+        function loadTariffs(){
+          fetch('/api/wallet/tariffs/me',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var box=document.getElementById('wallet-tariffs'); box.innerHTML='';
+            (d.tariffs||[]).forEach(function(t){
+              var el=document.createElement('span');
+              el.style.cssText='padding:.35rem .7rem;border:1px solid var(--border-color);border-radius:999px;font-size:.8rem;background:var(--bg-light);';
+              var price = t.own_key ? 'ваш ключ, 0 ₽' : (t.price_rub_per_min ? t.price_rub_per_min+' ₽/мин' : 'бесплатно');
+              el.textContent = t.name+': '+price;
+              box.appendChild(el);
+            });
+          }).catch(function(){});
+        }
+        function loadTx(append){
+          fetch('/api/wallet/transactions?limit='+LIMIT+'&offset='+offset,{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var body=document.getElementById('wallet-tx-body');
+            if(!append) body.innerHTML='';
+            var rows=d.transactions||[];
+            if(!rows.length && !append){ body.innerHTML='<tr><td colspan="6" style="padding:1rem;color:var(--text-light);">Операций пока нет</td></tr>'; }
+            rows.forEach(function(tx){
+              var tr=document.createElement('tr'); tr.style.borderBottom='1px solid var(--border-color)';
+              var dt=tx.created_at?new Date(tx.created_at).toLocaleString('ru-RU'):'';
+              var amt=tx.amount_kopeks||0;
+              tr.innerHTML='<td style="padding:.5rem;white-space:nowrap;">'+dt+'</td>'+
+                '<td style="padding:.5rem;">'+(TYPES[tx.type]||tx.type)+(tx.channel?' <span style="color:var(--text-light);font-size:.75rem;">('+(tx.channel==='telephony'?'телефония':'виджет')+')</span>':'')+'</td>'+
+                '<td style="padding:.5rem;">'+(MODELS[tx.model_code]||tx.model_code||'—')+'</td>'+
+                '<td style="padding:.5rem;">'+(tx.seconds!=null?tx.seconds:'—')+'</td>'+
+                '<td style="padding:.5rem;text-align:right;color:'+(amt<0?'#ef4444':'#16a34a')+';font-weight:600;">'+(amt>0?'+':'')+rub(amt)+'</td>'+
+                '<td style="padding:.5rem;text-align:right;">'+rub(tx.balance_after||0)+'</td>';
+              body.appendChild(tr);
+            });
+            offset += rows.length;
+            document.getElementById('wallet-more-btn').style.display = (offset < (d.total||0)) ? '' : 'none';
+          }).catch(function(){});
+        }
+        document.getElementById('wallet-topup-btn').addEventListener('click', function(){ if(window.VoicyfySidebar) window.VoicyfySidebar.openTopupModal(); });
+        document.getElementById('wallet-refresh-btn').addEventListener('click', function(){ offset=0; loadBalance(); loadTx(false); if(window.VoicyfySidebar) window.VoicyfySidebar.refreshBalance(); });
+        document.getElementById('wallet-more-btn').addEventListener('click', function(){ loadTx(true); });
+        loadBalance(); loadTariffs(); loadTx(false);
+        if (location.hash === '#wallet') setTimeout(function(){ document.getElementById('wallet').scrollIntoView({behavior:'smooth'}); }, 300);
+      })();
+      </script>
 
       <!-- 🆕 ПАРТНЕРСКАЯ ПРОГРАММА -->
       <div class="partner-section" id="partner-section">

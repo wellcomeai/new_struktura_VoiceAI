@@ -1714,60 +1714,7 @@
       </button>
     </div>
     
-    <nav class="sidebar-nav">
-      <div class="sidebar-section">Основное</div>
-      <a href="/static/dashboard.html" class="sidebar-nav-item active">
-        <i class="fas fa-home"></i> Дашборд
-      </a>
-      <a href="/static/agent.html" class="sidebar-nav-item" id="agent-nav-item">
-        <i class="fas fa-headset"></i> Агент обзвона
-        <span class="badge-realtime">new</span>
-      </a>
-      <a href="/static/agents.html" class="sidebar-nav-item" id="agents-nav-item">
-        <i class="fas fa-robot"></i> OpenAI агенты
-      </a>
-      <a href="/static/gemini-agents.html" class="sidebar-nav-item" id="gemini-agents-nav-item">
-        <i class="fas fa-gem"></i> Gemini агенты
-       </a>
-      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-wave-square"></i> Cartesia агенты
-      </a>
-      <a href="/static/yandex-agents.html" class="sidebar-nav-item">
-        <i class="fab fa-yandex"></i> Яндекс агенты
-      </a>
-      <a href="/static/cascade.html" class="sidebar-nav-item">
-        <i class="fas fa-water"></i> Cascade агенты
-      </a>
-      <a href="/static/fish-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-fish"></i> Fish агенты
-      </a>
-      <a href="/static/translate.html" class="sidebar-nav-item" id="translate-nav-item">
-        <i class="fas fa-language"></i> Переводчик
-        <span class="badge-realtime">realtime</span>
-      </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item" id="knowledge-nav-item">
-        <i class="fas fa-book"></i> База знаний
-      </a>
-      <a href="/static/telephony.html" class="sidebar-nav-item" id="telephony-nav-item" data-feature="telephony">
-        <i class="fas fa-phone"></i> Телефония
-      </a>
-      <a href="/static/conversations.html" class="sidebar-nav-item" id="conversations-nav-item">
-        <i class="fas fa-comments"></i> Диалоги
-      </a>
-      <a href="/static/crm.html" class="sidebar-nav-item" id="crm-nav-item" data-feature="crm">
-        <i class="fas fa-address-book"></i> CRM
-      </a>
-
-      <div class="sidebar-section">ИИ Интерфейс</div>
-      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
-        <i class="fas fa-microphone"></i> JARVIS AI
-      </a>
-
-      <div class="sidebar-section">Аккаунт</div>
-      <a href="/static/settings.html" class="sidebar-nav-item">
-        <i class="fas fa-gear"></i> Настройки
-      </a>
-    </nav>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
     
     <div class="sidebar-footer">
       <a href="https://voicyfy.ru" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
@@ -1775,6 +1722,7 @@
       </a>
     </div>
   </aside>
+  <script src="/static/js/sidebar.js"></script>
   
   <!-- Основной контент -->
   <main class="main-content" id="main-content">

@@ -1024,45 +1024,7 @@
       </a>
     </div>
     
-    <nav class="sidebar-nav">
-      <div class="sidebar-section">Основное</div>
-      <a href="/static/dashboard.html" class="sidebar-nav-item">
-        <i class="fas fa-home"></i> Дашборд
-      </a>
-      <a href="/static/agents.html" class="sidebar-nav-item">
-        <i class="fas fa-robot"></i> Мои агенты
-      </a>
-      <a href="/static/cartesia-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-wave-square"></i> Cartesia агенты
-      </a>
-      <a href="/static/yandex-agents.html" class="sidebar-nav-item">
-        <i class="fab fa-yandex"></i> Яндекс агенты
-      </a>
-      <a href="/static/cascade.html" class="sidebar-nav-item">
-        <i class="fas fa-water"></i> Cascade агенты
-      </a>
-      <a href="/static/fish-agents.html" class="sidebar-nav-item">
-        <i class="fas fa-fish"></i> Fish агенты
-      </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
-        <i class="fas fa-book"></i> База знаний
-      </a>
-      
-      <div class="sidebar-section">Администрирование</div>
-      <a href="/static/admin.html" class="sidebar-nav-item active">
-        <i class="fas fa-user-shield"></i> Управление
-      </a>
-
-      <div class="sidebar-section">ИИ Интерфейс</div>
-      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
-        <i class="fas fa-microphone"></i> JARVIS AI
-      </a>
-
-      <div class="sidebar-section">Аккаунт</div>
-      <a href="/static/settings.html" class="sidebar-nav-item">
-        <i class="fas fa-gear"></i> Настройки
-      </a>
-    </nav>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
     
     <div class="sidebar-footer">
       <a href="https://voicyfy.ru/static/index.html" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
@@ -1070,6 +1032,7 @@
       </a>
     </div>
   </aside>
+  <script src="/static/js/sidebar.js"></script>
   
   <!-- Основной контент -->
   <main class="main-content">
@@ -1109,6 +1072,7 @@
         <div class="tab active" data-tab="users">Пользователи</div>
         <div class="tab" data-tab="agents">Агенты</div>
         <div class="tab" data-tab="stats">Статистика</div>
+        <div class="tab" data-tab="wallet">Кошелёк и тарифы</div>
         <div class="tab" data-tab="user-details" style="display: none;">Детали пользователя</div>
       </div>
       
@@ -1549,6 +1513,106 @@
       </div>
       
       <!-- Таб с деталями пользователя -->
+      <!-- ✅ v6.0: КОШЕЛЁК И ТАРИФЫ ГОЛОСОВЫХ МОДЕЛЕЙ -->
+      <div class="tab-content" id="wallet-tab">
+        <div class="stats-section">
+          <h3 style="margin-bottom:.75rem;">Витрина голосовых моделей (цена минуты)</h3>
+          <p style="color:var(--text-gray);font-size:.9rem;margin-bottom:1rem;">Изменения применяются сразу, без релиза. Цена 0 — модель бесплатна. Скрытые модели не показываются в витрине создания ассистента, но существующие ассистенты продолжают работать.</p>
+          <div class="table-container">
+            <table class="table" id="tariffs-table">
+              <thead><tr><th>Код</th><th>Название</th><th>Бейдж</th><th>Цена ₽/мин</th><th>Каналы</th><th>Серверный ключ</th><th>В витрине</th><th></th></tr></thead>
+              <tbody id="tariffs-body"><tr><td colspan="8">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="stats-section" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:.75rem;">Расход по моделям</h3>
+          <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;">
+            <label>За период, дней:</label>
+            <input type="number" id="usage-days" class="form-control" value="30" min="1" max="365" style="width:100px;">
+            <button class="btn btn-primary" id="usage-load-btn">Показать</button>
+          </div>
+          <div class="table-container">
+            <table class="table" id="usage-table">
+              <thead><tr><th>Модель</th><th>Сессий</th><th>Минут</th><th>Списано, ₽</th></tr></thead>
+              <tbody id="usage-body"><tr><td colspan="4">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="stats-section" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:.75rem;">Корректировка баланса пользователя</h3>
+          <div style="display:grid;grid-template-columns:2fr 1fr 2fr auto;gap:.5rem;align-items:end;max-width:900px;">
+            <div><label>Email пользователя</label><input type="email" id="adj-email" class="form-control" placeholder="user@example.com"></div>
+            <div><label>Сумма, ₽ (со знаком)</label><input type="number" id="adj-amount" class="form-control" step="1" placeholder="500"></div>
+            <div><label>Комментарий (обязательно)</label><input type="text" id="adj-notes" class="form-control" placeholder="Причина корректировки"></div>
+            <button class="btn btn-primary" id="adj-btn">Применить</button>
+          </div>
+          <div id="adj-result" style="margin-top:.5rem;color:var(--text-gray);font-size:.9rem;"></div>
+        </div>
+      </div>
+      <script>
+      (function(){
+        function hdr(){ return {'Authorization':'Bearer '+localStorage.getItem('auth_token'),'Content-Type':'application/json'}; }
+        function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+        function loadTariffs(){
+          fetch('/api/wallet/admin/tariffs',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var body=document.getElementById('tariffs-body'); body.innerHTML='';
+            (d.tariffs||[]).forEach(function(t){
+              var tr=document.createElement('tr');
+              tr.innerHTML='<td><code>'+esc(t.code)+'</code></td>'+
+                '<td><input class="form-control" data-f="name" value="'+esc(t.name)+'" style="min-width:110px;"></td>'+
+                '<td><input class="form-control" data-f="badge" value="'+esc(t.badge||'')+'" style="min-width:110px;"></td>'+
+                '<td><input class="form-control" data-f="price_rub_per_min" type="number" step="0.01" min="0" value="'+t.price_rub_per_min+'" style="width:100px;"></td>'+
+                '<td><input class="form-control" data-f="channels" value="'+esc((t.channels||[]).join(','))+'" style="width:150px;"></td>'+
+                '<td>'+(t.server_key_available?'<span style="color:#16a34a;">есть</span>':'<span style="color:#ef4444;">нет</span>')+'</td>'+
+                '<td><input type="checkbox" data-f="is_enabled" '+(t.is_enabled?'checked':'')+'></td>'+
+                '<td><button class="btn btn-primary" data-save="'+esc(t.code)+'">Сохранить</button></td>';
+              tr.querySelector('[data-save]').addEventListener('click', function(){
+                var payload={};
+                tr.querySelectorAll('[data-f]').forEach(function(inp){
+                  var f=inp.getAttribute('data-f');
+                  if(inp.type==='checkbox') payload[f]=inp.checked;
+                  else if(f==='price_rub_per_min') payload[f]=parseFloat(inp.value||'0');
+                  else payload[f]=inp.value;
+                });
+                fetch('/api/wallet/admin/tariffs/'+t.code,{method:'PUT',headers:hdr(),body:JSON.stringify(payload)})
+                  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                  .then(function(){ this.textContent='Сохранено'; setTimeout(function(){ loadTariffs(); },800); }.bind(this))
+                  .catch(function(e){ alert('Ошибка сохранения: '+e.message); });
+              });
+              body.appendChild(tr);
+            });
+          }).catch(function(e){ document.getElementById('tariffs-body').innerHTML='<tr><td colspan="8">Ошибка: '+esc(e.message)+'</td></tr>'; });
+        }
+        function loadUsage(){
+          var days=parseInt(document.getElementById('usage-days').value||'30',10);
+          fetch('/api/wallet/admin/usage?days='+days,{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var body=document.getElementById('usage-body'); body.innerHTML='';
+            if(!(d.usage||[]).length){ body.innerHTML='<tr><td colspan="4">Списаний за период нет</td></tr>'; return; }
+            d.usage.forEach(function(u){
+              var tr=document.createElement('tr');
+              tr.innerHTML='<td>'+esc(u.model_code)+'</td><td>'+u.sessions+'</td><td>'+u.minutes+'</td><td>'+u.charged_rub.toLocaleString('ru-RU')+'</td>';
+              body.appendChild(tr);
+            });
+          }).catch(function(){});
+        }
+        document.getElementById('usage-load-btn').addEventListener('click', loadUsage);
+        document.getElementById('adj-btn').addEventListener('click', function(){
+          var payload={email:document.getElementById('adj-email').value.trim(), amount_rub:parseFloat(document.getElementById('adj-amount').value||'0'), notes:document.getElementById('adj-notes').value.trim()};
+          var out=document.getElementById('adj-result');
+          if(!payload.email||!payload.amount_rub||payload.notes.length<3){ out.textContent='Заполните email, сумму и комментарий'; return; }
+          fetch('/api/wallet/admin/adjust',{method:'POST',headers:hdr(),body:JSON.stringify(payload)})
+            .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+            .then(function(res){ out.textContent = res.ok ? ('Готово. Новый баланс: '+res.d.balance_rub+' ₽') : ('Ошибка: '+(res.d.detail||'')); })
+            .catch(function(e){ out.textContent='Ошибка: '+e.message; });
+        });
+        var walletTab=document.querySelector('.tab[data-tab="wallet"]');
+        if(walletTab) walletTab.addEventListener('click', function(){ loadTariffs(); loadUsage(); });
+      })();
+      </script>
+
       <div class="tab-content" id="user-details-tab">
         <div class="card">
           <div class="card-header">

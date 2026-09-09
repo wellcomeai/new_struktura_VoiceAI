@@ -522,40 +522,9 @@
       <a href="/" class="sidebar-logo">WellcomeAI</a>
     </div>
     
-    <nav class="sidebar-nav">
-      <div class="sidebar-section">Основное</div>
-      <a href="/static/dashboard.html" class="sidebar-nav-item">
-        <i class="fas fa-home"></i> Дашборд
-      </a>
-      <a href="/static/agents.html" class="sidebar-nav-item">
-        <i class="fas fa-robot"></i> Мои агенты
-      </a>
-      <a href="/static/knowledge-base.html" class="sidebar-nav-item">
-        <i class="fas fa-book"></i> База знаний
-      </a>
-      
-      <div class="sidebar-section">Расширения</div>
-      <a href="/static/integrations.html" class="sidebar-nav-item active">
-        <i class="fas fa-plug"></i> Интеграции
-      </a>
-      <a href="#" class="sidebar-nav-item locked-feature">
-        <i class="fas fa-wand-magic-sparkles"></i> Навыки
-      </a>
-
-      <div class="sidebar-section">ИИ Интерфейс</div>
-      <a href="/static/voice_llm_interface/" class="sidebar-nav-item">
-        <i class="fas fa-microphone"></i> JARVIS AI
-      </a>
-
-      <div class="sidebar-section">Аккаунт</div>
-      <a href="/static/settings.html" class="sidebar-nav-item">
-        <i class="fas fa-gear"></i> Настройки
-      </a>
-      <a href="#" class="sidebar-nav-item" id="logout-button">
-        <i class="fas fa-sign-out-alt"></i> Выйти
-      </a>
-    </nav>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
   </aside>
+  <script src="/static/js/sidebar.js"></script>
   
   <!-- Основной контент -->
   <main class="main-content">

@@ -37,6 +37,7 @@ function renderProgress(){
 }
 
 async function renderWizard(){
+  if(!wizardTariffs){ loadWizardTariffs().then(()=>{ if(wizardStep===0) renderWizard(); }); }
   renderProgress();
   const c = document.getElementById('wizard-content');
   if(wizardStep===0){ await renderStep0(c); return; }
@@ -56,24 +57,40 @@ async function renderStep0(c){
 }
 
 function keyState(type){
-  const u = wizardUser;
-  if(type==='gemini'){ const ok=!!u.has_gemini_api_key; return { ok, missing: ok?[]:[{field:'gemini_api_key',label:'Google Gemini API Key',ph:'AIza...'}] }; }
-  if(type==='openai'){ const ok=!!u.has_api_key; return { ok, missing: ok?[]:[{field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}] }; }
-  if(type==='cartesia'){ const m=[]; if(!u.has_api_key) m.push({field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}); if(!u.has_cartesia_api_key) m.push({field:'cartesia_api_key',label:'Cartesia API Key',ph:'sk_car_...'}); return { ok:m.length===0, missing:m }; }
-  if(type==='yandex'){ const m=[]; if(!u.has_yandex_api_key) m.push({field:'yandex_api_key',label:'Yandex Cloud API Key',ph:'AQVN...'}); if(!u.yandex_folder_id) m.push({field:'yandex_folder_id',label:'Yandex Cloud Folder ID',ph:'b1g...',t:'text'}); return { ok:m.length===0, missing:m }; }
-  if(type==='cascade'){ return { ok:true, missing:[] }; }  // наш ключ + кредиты каскада
-  if(type==='fish'){ const m=[]; if(!u.has_api_key) m.push({field:'openai_api_key',label:'OpenAI API Key',ph:'sk-...'}); if(!u.has_fish_api_key) m.push({field:'fish_api_key',label:'Fish Audio API Key',ph:'...'}); return { ok:m.length===0, missing:m }; }
-  return { ok:false, missing:[] };
+  // ✅ v6.0: свои ключи больше не обязательны — при их отсутствии работает
+  // серверный ключ Voicyfy, минуты списываются с кошелька по тарифу модели.
+  const u = wizardUser || {};
+  const own = {
+    gemini: !!u.has_gemini_api_key,
+    openai: !!u.has_api_key,
+    yandex: !!(u.has_yandex_api_key && u.yandex_folder_id),
+    cascade: false,
+    fish: !!(u.has_api_key && u.has_fish_api_key),
+    cartesia: !!(u.has_api_key && u.has_cartesia_api_key),
+  };
+  if(!(type in own)) return { ok:false, missing:[], own:false };
+  return { ok:true, missing:[], own: own[type] };
 }
 
 const TYPE_DEFS = [
-  { type:'gemini', name:'Gemini Voice', desc:'Google Gemini Live — лучше всего для русского языка.' },
+  { type:'gemini', name:'Gemini Voice', desc:'Быстрая и экономичная модель — рекомендуем для старта.' },
+  { type:'cascade', name:'Cascade', desc:'Лучшее русское звучание. Бесплатно — платите только за связь.' },
+  { type:'fish', name:'Fish Audio', desc:'Премиальный русский синтез: OpenAI ведёт диалог, Fish озвучивает.' },
+  { type:'yandex', name:'Yandex SpeechKit', desc:'Голоса Yandex SpeechKit, российская инфраструктура.' },
   { type:'openai', name:'OpenAI Realtime', desc:'gpt-realtime — премиум-качество голоса.' },
-  { type:'cartesia', name:'Cartesia', desc:'Cartesia TTS + OpenAI LLM в каскаде, гибкая настройка.' },
-  { type:'yandex', name:'Yandex SpeechKit', desc:'Yandex Realtime — российская инфраструктура, оплата в Yandex Cloud.' },
-  { type:'cascade', name:'Cascade', desc:'LLM на нашем ключе (gpt-realtime-2.1-mini) + VoxTTS. Без своих ключей — оплата кредитами каскада.' },
-  { type:'fish', name:'Fish Audio', desc:'OpenAI Realtime ведёт диалог, озвучивает Fish Audio — живые голоса и свои клоны.' },
 ];
+
+let wizardTariffs = null, wizardTariffsLoading = false;
+function loadWizardTariffs(){
+  if(wizardTariffs) return Promise.resolve(wizardTariffs);
+  if(wizardTariffsLoading) return Promise.resolve({});
+  wizardTariffsLoading = true;
+  return apiFetch('/api/wallet/tariffs/me').then(r => r && r.ok ? r.json() : null).then(d => {
+    wizardTariffs = {};
+    ((d && d.tariffs) || []).forEach(t => { wizardTariffs[t.code] = t; });
+    return wizardTariffs;
+  }).catch(() => { wizardTariffs = {}; return wizardTariffs; });
+}
 
 function drawStep0(c){
   const sel = wizardData.assistant_type;
@@ -82,26 +99,11 @@ function drawStep0(c){
     const ks = keyState(t.type);
     const selected = sel===t.type;
     let keyHtml='';
-    if(selected && t.type==='cascade'){
-      keyHtml += `<div class="form-hint" style="margin-top:8px">Свои ключи не нужны: LLM работает на нашем ключе, оплата — <b>кредитами каскада</b> (списываются за токены звонка). Управление кредитами — на странице «Cascade агенты».</div>`;
-    } else if(selected){
-      if(t.type==='cartesia' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Cartesia работает в каскаде: OpenAI отвечает за понимание речи и текст, Cartesia — за озвучку. Нужны оба ключа.</div>`;
-      if(t.type==='yandex' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Нужны API-ключ сервисного аккаунта и Folder ID каталога Yandex Cloud — оплата токенов идёт с вашего биллинга Yandex Cloud.</div>`;
-      if(t.type==='fish' && ks.missing.length) keyHtml += `<div class="form-hint" style="margin-top:8px">Fish работает в каскаде: OpenAI ведёт диалог и распознаёт речь, Fish Audio озвучивает. Нужны оба ключа.</div>`;
-      const pills = (t.type==='cartesia') ? [
-        {l:'OpenAI', ok:!!wizardUser.has_api_key},
-        {l:'Cartesia', ok:!!wizardUser.has_cartesia_api_key},
-      ] : (t.type==='yandex' ? [
-        {l:'Yandex API', ok:!!wizardUser.has_yandex_api_key},
-        {l:'Folder ID', ok:!!wizardUser.yandex_folder_id},
-      ] : (t.type==='fish' ? [
-        {l:'OpenAI', ok:!!wizardUser.has_api_key},
-        {l:'Fish', ok:!!wizardUser.has_fish_api_key},
-      ] : (t.type==='gemini' ? [{l:'Gemini',ok:!!wizardUser.has_gemini_api_key}] : [{l:'OpenAI',ok:!!wizardUser.has_api_key}])));
-      keyHtml += `<div class="type-key-status">` + pills.map(p => `<span class="key-pill ${p.ok?'ok':'miss'}"><i class="fas ${p.ok?'fa-check':'fa-triangle-exclamation'}"></i> ${p.l} ${p.ok?'настроен':'не настроен'}</span>`).join('') + `</div>`;
-      if(ks.missing.length){
-        keyHtml += `<div class="key-input-block">` + ks.missing.map(m => `<div class="form-group" style="margin-bottom:10px"><label class="form-label">${m.label}</label><input type="${m.t||'password'}" class="form-input" id="wk-${m.field}" placeholder="${m.ph}"></div>`).join('') + `<button class="btn btn-primary btn-sm" onclick="saveWizardKeys('${t.type}')"><i class="fas fa-save"></i> Сохранить и продолжить</button></div>`;
-      }
+    if(selected){
+      const tf = wizardTariffs && wizardTariffs[t.type];
+      const price = tf ? (ks.own ? 'ваш ключ — бесплатно' : (tf.price_rub_per_min ? `${tf.price_rub_per_min} ₽/мин с кошелька Voicyfy` : 'бесплатно')) : (ks.own ? 'ваш ключ — бесплатно' : 'минуты списываются с кошелька Voicyfy');
+      keyHtml += `<div class="type-key-status"><span class="key-pill ok"><i class="fas fa-wallet"></i> ${price}</span></div>`;
+      keyHtml += `<div class="form-hint" style="margin-top:8px">Минуты связи при звонках оплачиваются с баланса телефонии.</div>`;
     }
     return `<div class="type-card ${selected?'selected':''}" onclick="selectType('${t.type}')">
       <div class="type-radio"></div>
