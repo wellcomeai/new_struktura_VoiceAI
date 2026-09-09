@@ -1486,7 +1486,7 @@
       <script>
       (function(){
         var TYPES = {topup:'Пополнение', spend:'Списание', refund:'Возврат', welcome_grant:'Приветственный грант', manual_adjust:'Корректировка'};
-        var MODELS = {openai:'OpenAI', gemini:'Gemini', fish:'Fish', yandex:'Яндекс', cascade:'Каскад', cartesia:'Cartesia'};
+        var MODELS = {openai:'OpenAI', gemini:'Gemini', fish:'Fish Audio', yandex:'Яндекс', cascade:'Каскад', cartesia:'Cartesia'};
         var offset = 0, LIMIT = 30;
         function hdr(){ var t=localStorage.getItem('auth_token'); return {'Authorization':'Bearer '+t,'Content-Type':'application/json'}; }
         function rub(k){ return (k/100).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2})+' ₽'; }

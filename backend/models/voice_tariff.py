@@ -77,7 +77,7 @@ DEFAULT_TARIFFS = [
         "is_enabled": True,
     },
     {
-        "code": "fish", "name": "Fish", "badge": None,
+        "code": "fish", "name": "Fish Audio", "badge": None,
         "description": "Премиальный русский синтез речи",
         "price_kopeks_per_min": 400, "channels": "telephony", "sort_order": 30,
         "is_enabled": True,

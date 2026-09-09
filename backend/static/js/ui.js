@@ -24,7 +24,7 @@
   var MODEL_LOGOS = {
     openai: { file: 'openai.svg', name: 'OpenAI' },
     gemini: { file: 'gemini-color.svg', mono: 'gemini.svg', name: 'Gemini' },
-    fish: { file: 'fishaudio-color.svg', mono: 'fishaudio.svg', name: 'Fish' },
+    fish: { file: 'fishaudio-color.svg', mono: 'fishaudio.svg', name: 'Fish Audio' },
     yandex: { file: 'yandex-color.svg', mono: 'yandex.svg', name: 'Яндекс' },
     cascade: { file: 'cascade-color.svg', mono: 'cascade.svg', name: 'Каскад' },
   };

@@ -1790,6 +1790,14 @@ def ensure_wallet_tables():
             added = TariffService.seed_defaults(db)
             if added:
                 logger.info(f"✅ Seeded {added} default voice model tariffs")
+            # Fish в интерфейсе называется «Fish Audio»: переименовать уже засеянную строку
+            from backend.models.voice_tariff import VoiceModelTariff as _VMT
+            fish_row = db.query(_VMT).filter(_VMT.code == "fish", _VMT.name == "Fish").first()
+            if fish_row:
+                fish_row.name = "Fish Audio"
+                db.commit()
+                TariffService.invalidate()
+                logger.info("✅ Renamed voice tariff fish → «Fish Audio»")
         finally:
             db.close()
 

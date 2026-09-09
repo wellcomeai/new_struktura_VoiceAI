@@ -289,7 +289,7 @@
   const PROVIDERS = {
     openai:  { name: 'OpenAI', list: '/api/assistants/', create: '/api/assistants/', item: id => '/api/assistants/' + id, listShape: 'array', widget: true, embed: id => '/api/assistants/' + id + '/embed-code' },
     gemini:  { name: 'Gemini', list: '/api/gemini-assistants', create: '/api/gemini-assistants', item: id => '/api/gemini-assistants/' + id, listShape: 'array', widget: true, embed: id => '/api/gemini-assistants/' + id + '/embed-code' },
-    fish:    { name: 'Fish', list: '/api/fish-assistants', create: '/api/fish-assistants', item: id => '/api/fish-assistants/' + id, listShape: 'assistants', widget: false, options: '/api/fish-assistants/options' },
+    fish:    { name: 'Fish Audio', list: '/api/fish-assistants', create: '/api/fish-assistants', item: id => '/api/fish-assistants/' + id, listShape: 'assistants', widget: false, options: '/api/fish-assistants/options' },
     yandex:  { name: 'Яндекс', list: '/api/yandex-assistants', create: '/api/yandex-assistants', item: id => '/api/yandex-assistants/' + id, listShape: 'assistants', widget: false, options: '/api/yandex-assistants/options' },
     cascade: { name: 'Каскад', list: '/api/grok-assistants/cascade', create: '/api/grok-assistants/cascade', item: id => '/api/grok-assistants/cascade/' + id, listShape: 'array', widget: false, options: '/api/grok-assistants/cascade/tts-providers' },
   };
@@ -510,13 +510,13 @@
       const chans = t.channels || (p.widget ? ['widget', 'telephony'] : ['telephony']);
       const priceHtml = t.own_key
         ? `<div class="m-own">На вашем API-ключе<small>с кошелька не списывается</small></div>`
-        : `<div class="m-price">${t.price_rub_per_min ? t.price_rub_per_min + ' ₽<small>/ мин</small>' : '0 ₽<small>бесплатно</small>'}</div>${t.price_rub_per_min && code !== 'cascade' ? '<a class="m-key-link" href="/static/settings.html#provider-keys" onclick="event.stopPropagation()" title="Со своим ключом провайдера минуты не списываются">' + ic('key', 'ic-sm') + ' Подключить свой ключ</a>' : ''}`;
+        : `<div class="m-price">${t.price_rub_per_min ? t.price_rub_per_min + ' ₽<small>/ мин</small>' : '0 ₽<small>бесплатно</small>'}</div>${t.price_rub_per_min && code !== 'cascade' ? '<a class="m-key-link" href="/static/settings.html#provider-keys" onclick="event.stopPropagation()" title="Не списывается баланс кошелька Voicyfy">' + ic('key', 'ic-sm') + ' Подключить свой ключ</a>' : ''}`;
       return `<div class="model${state.model === code ? ' selected' : ''}" data-code="${code}" role="radio" aria-checked="${state.model === code}" tabindex="0">
         <span class="m-check">${ic('check', 'ic-sm')}</span>
         <div class="m-head">${VF.logo(code, { size: 18 })}<span class="m-name">${esc(t.name || p.name)}</span></div>
         ${priceHtml}
         <div class="m-desc">${esc(t.description || '')}</div>
-        <div class="m-tags">${t.badge ? `<span class="chip chip-accent">${esc(t.badge)}</span>` : ''}${chans.includes('widget') ? '<span class="chip">Виджет</span><span class="chip">Телефония</span>' : '<span class="chip">Только телефония</span>'}</div>
+        <div class="m-tags">${t.badge ? `<span class="chip chip-accent">${esc(t.badge)}</span>` : ''}${chans.includes('widget') ? '<span class="chip">Виджет</span><span class="chip">Телефония</span>' : '<span class="chip">Только телефония</span>'}${code === 'fish' ? '<span class="chip">Клонирование голоса</span>' : ''}</div>
       </div>`;
     }).join('');
     grid.querySelectorAll('.model').forEach(el => {
@@ -573,7 +573,7 @@
       if (!v.llm_model) v.llm_model = o.default_llm_model || llms[0];
       box.innerHTML = `
         <div class="form-row">
-          <div class="field"><label class="label">Voice ID (Fish Audio)</label><input class="input" data-vf="fish_voice_id" value="${esc(v.fish_voice_id)}" placeholder="reference_id голоса из fish.audio"><div class="hint">Пусто — голос по умолчанию. Свои клоны голоса берите в кабинете Fish Audio.</div></div>
+          <div class="field"><label class="label">Voice ID (Fish Audio)</label><input class="input" data-vf="fish_voice_id" value="${esc(v.fish_voice_id)}" placeholder="reference_id голоса из fish.audio"><div class="hint">Пусто — голос по умолчанию. Можно клонировать свой голос: загрузите образец в кабинете Fish Audio и вставьте сюда reference_id.</div></div>
           <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div></div>
         </div>
         <div class="form-row">
