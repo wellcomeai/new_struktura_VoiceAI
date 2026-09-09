@@ -225,9 +225,14 @@
   // ------------------------------------------------------------------
   var openMenu = null;
   document.addEventListener('mousedown', function (e) {
-    if (openMenu && !openMenu.root.contains(e.target)) openMenu.close();
+    if (openMenu && !openMenu.root.contains(e.target) && !(openMenu.menu && openMenu.menu.contains(e.target))) openMenu.close();
   });
   window.addEventListener('resize', function () { if (openMenu) openMenu.close(); });
+  // Список рисуется порталом в body (position: fixed), чтобы его не обрезали
+  // модалки и контейнеры с overflow. При прокрутке любого контейнера — закрываем.
+  document.addEventListener('scroll', function (e) {
+    if (openMenu && openMenu.menu && !openMenu.menu.contains(e.target)) openMenu.close();
+  }, true);
 
   /**
    * VF.select(container, opts)
@@ -296,20 +301,31 @@
     function positionMenu() {
       var r = btn.getBoundingClientRect();
       var spaceBelow = window.innerHeight - r.bottom;
-      menu.style.maxHeight = Math.max(160, Math.min(320, spaceBelow - 16)) + 'px';
-      if (spaceBelow < 200 && r.top > spaceBelow) { menu.style.top = 'auto'; menu.style.bottom = (btn.offsetHeight + 6) + 'px'; menu.style.marginTop = '0'; menu.style.maxHeight = Math.min(320, r.top - 16) + 'px'; }
-      else { menu.style.top = ''; menu.style.bottom = ''; menu.style.marginTop = '6px'; }
+      var below = !(spaceBelow < 200 && r.top > spaceBelow);
+      var maxH = below ? Math.max(160, Math.min(320, spaceBelow - 16)) : Math.min(320, r.top - 16);
+      menu.style.maxHeight = maxH + 'px';
+      menu.style.left = r.left + 'px';
+      menu.style.width = r.width + 'px';
+      menu.style.minWidth = '0';
+      menu.style.marginTop = '0';
+      if (below) { menu.style.top = (r.bottom + 6) + 'px'; menu.style.bottom = 'auto'; menu.style.transformOrigin = 'top'; }
+      else { menu.style.top = 'auto'; menu.style.bottom = (window.innerHeight - r.top + 6) + 'px'; menu.style.transformOrigin = 'bottom'; }
     }
     function open() {
       if (openMenu && openMenu !== api) openMenu.close();
       state.q = ''; state.hl = Math.max(0, state.flat.indexOf(current()));
-      renderMenu(); positionMenu();
+      renderMenu();
+      // Портал: список живёт в body поверх любых модалок и overflow-контейнеров
+      menu.classList.add('fixed'); menu.style.zIndex = '1300';
+      document.body.appendChild(menu);
+      positionMenu();
       menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); openMenu = api;
-      var inp = menu.querySelector('input'); if (inp) setTimeout(function () { inp.focus(); }, 10);
+      var inp = menu.querySelector('input'); if (inp) setTimeout(function () { inp.focus({ preventScroll: true }); }, 10);
       var sel = menu.querySelector('.vf-menu-item.selected'); if (sel) sel.scrollIntoView({ block: 'nearest' });
     }
     function close() {
       menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
+      if (menu.parentNode === document.body) root.appendChild(menu);
       if (openMenu === api) openMenu = null;
     }
     function choose(i) {
@@ -335,7 +351,7 @@
     renderBtn();
 
     var api = {
-      root: root, open: open, close: close,
+      root: root, menu: menu, open: open, close: close,
       get value() { return state.value; },
       set: function (v, silent) { state.value = v == null ? null : String(v); renderBtn(); if (!silent && opts.onChange) opts.onChange(v, current()); },
       setOptions: function (o) { setData(o); if (!current()) state.value = null; renderBtn(); },

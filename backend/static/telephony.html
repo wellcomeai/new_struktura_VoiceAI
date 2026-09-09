@@ -1882,11 +1882,10 @@
         
         <div class="form-group">
           <label>Ассистент</label>
-          <select id="bind-assistant-select" class="form-control">
-            <option value="">Загрузка...</option>
-          </select>
-          <div class="form-helper" style="font-size:0.75rem; color:var(--text-light); margin-top:0.3rem;">
-            Голосовые ассистенты показаны с их голосовой моделью, ниже — агенты обзвона.
+          <div id="bind-assistant-select"></div>
+          <input type="hidden" id="bind-assistant-value" value="">
+          <div class="form-helper" id="bind-assistant-hint" style="font-size:0.75rem; color:var(--text-light); margin-top:0.3rem;">
+            Голосовые ассистенты показаны с моделью и стоимостью минуты, ниже — агенты обзвона.
           </div>
         </div>
 
@@ -3059,9 +3058,10 @@
         bindAssistantModal.classList.add('show');
       }
       
-      // Загрузка ассистентов для привязки: один селектор с двумя группами —
+      // Загрузка ассистентов для привязки: один селектор (VF.select) с двумя группами —
       // голосовые ассистенты (все модели, кроме скрытой Cartesia) и агенты обзвона.
-      // Значение option: "<тип>:<id>".
+      // Значение option: "<тип>:<id>". Рядом с моделью — стоимость минуты с кошелька
+      // или пометка «На вашем API-ключе», если у пользователя свой ключ провайдера.
       const BIND_MODEL_NAMES = { openai: 'OpenAI', gemini: 'Gemini', fish: 'Fish', yandex: 'Яндекс', cascade: 'Каскад' };
       const BIND_SOURCES = [
         ['gemini',  '/gemini-assistants'],
@@ -3070,66 +3070,113 @@
         ['yandex',  '/yandex-assistants'],
         ['openai',  '/assistants/'],
       ];
+      let bindTariffs = {};
+      let bindSelect = null;
 
       function bindSelection() {
-        const v = document.getElementById('bind-assistant-select').value || '';
+        const v = document.getElementById('bind-assistant-value').value || '';
         const idx = v.indexOf(':');
         if (idx < 0) return { type: null, id: null };
         return { type: v.slice(0, idx), id: v.slice(idx + 1) };
       }
 
+      function bindPriceLabel(type) {
+        const t = bindTariffs[type];
+        if (!t) return '';
+        if (t.own_key) return 'На вашем API-ключе';
+        if (!t.price_rub_per_min) return 'Бесплатно';
+        return t.price_rub_per_min + ' ₽/мин';
+      }
+      function bindModelName(type) {
+        const t = bindTariffs[type];
+        return (t && t.name) || BIND_MODEL_NAMES[type] || type || '';
+      }
+      function bindOptionIcon(type) {
+        // Для неизвестной модели VF.logo рисует нейтральную иконку бота
+        return window.VF ? VF.logo(type, { size: 18 }) : '';
+      }
+      function bindOptionSub(type) {
+        const model = bindModelName(type);
+        const price = bindPriceLabel(type);
+        return [model, price].filter(Boolean).join(' · ');
+      }
+      function updateBindHint() {
+        const { type } = bindSelection();
+        const hint = document.getElementById('bind-assistant-hint');
+        const t = type && bindTariffs[type];
+        if (!t) {
+          hint.textContent = 'Голосовые ассистенты показаны с моделью и стоимостью минуты, ниже — агенты обзвона.';
+          return;
+        }
+        if (t.own_key) hint.textContent = `${bindModelName(type)}: работает на вашем API-ключе, с кошелька не списывается.`;
+        else if (!t.price_rub_per_min) hint.textContent = `${bindModelName(type)}: звонки бесплатны, с кошелька не списывается.`;
+        else hint.textContent = `${bindModelName(type)}: ${t.price_rub_per_min} ₽ за минуту разговора списывается с кошелька.`;
+      }
+
+      function renderBindSelect(groups, placeholder) {
+        const root = document.getElementById('bind-assistant-select');
+        document.getElementById('bind-assistant-value').value = '';
+        bindSelect = VF.select(root, {
+          groups,
+          placeholder: placeholder || 'Выберите ассистента',
+          search: groups.reduce((n, g) => n + g.options.length, 0) > 8,
+          onChange: (value) => {
+            document.getElementById('bind-assistant-value').value = value || '';
+            const geminiModelGroup = document.getElementById('gemini-model-group');
+            geminiModelGroup.style.display = bindSelection().type === 'gemini' ? 'block' : 'none';
+            updateBindHint();
+          }
+        });
+      }
+
       async function loadAssistantsForBind() {
-        const assistantSelect = document.getElementById('bind-assistant-select');
-        assistantSelect.innerHTML = '<option value="">Загрузка...</option>';
+        renderBindSelect([{ label: null, options: [{ value: '', label: 'Загрузка…', disabled: true }] }], 'Загрузка…');
         try {
-          const results = await Promise.all(BIND_SOURCES.map(async ([type, url]) => {
-            try {
-              const data = await api.get(url);
-              const rows = Array.isArray(data) ? data : (data.assistants || []);
-              return rows.map(a => ({ type, id: a.id, name: a.name, is_active: a.is_active }));
-            } catch (e) { return []; }
-          }));
+          const [results, tariffsResp] = await Promise.all([
+            Promise.all(BIND_SOURCES.map(async ([type, url]) => {
+              try {
+                const data = await api.get(url);
+                const rows = Array.isArray(data) ? data : (data.assistants || []);
+                return rows.map(a => ({ type, id: a.id, name: a.name, is_active: a.is_active }));
+              } catch (e) { return []; }
+            })),
+            api.get('/wallet/tariffs/me').catch(() => null),
+          ]);
+          bindTariffs = {};
+          ((tariffsResp && tariffsResp.tariffs) || []).forEach(t => { bindTariffs[t.code] = t; });
+
           let agents = [];
           try { agents = await api.get('/telephony/bindable-agents') || []; } catch (e) { agents = []; }
 
           const voice = results.flat().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
 
-          assistantSelect.innerHTML = '<option value="">Выберите ассистента</option>';
+          const voiceOptions = voice.length
+            ? voice.map(a => ({
+                value: `${a.type}:${a.id}`,
+                label: `${a.name}${a.is_active === false ? ' (выключен)' : ''}`,
+                sub: bindOptionSub(a.type),
+                icon: bindOptionIcon(a.type),
+              }))
+            : [{ value: 'none:voice', label: 'Нет ассистентов — создайте на странице «Голосовые ассистенты»', disabled: true }];
 
-          const gVoice = document.createElement('optgroup');
-          gVoice.label = 'Голосовые ассистенты';
-          if (!voice.length) {
-            const o = document.createElement('option'); o.disabled = true; o.textContent = 'Нет ассистентов — создайте на странице «Голосовые ассистенты»'; gVoice.appendChild(o);
-          }
-          voice.forEach(a => {
-            const o = document.createElement('option');
-            o.value = `${a.type}:${a.id}`;
-            o.textContent = `${a.name} · ${BIND_MODEL_NAMES[a.type] || a.type}${a.is_active === false ? ' (выключен)' : ''}`;
-            gVoice.appendChild(o);
-          });
-          assistantSelect.appendChild(gVoice);
+          const agentOptions = agents.length
+            ? agents.map(a => ({
+                value: `agent:${a.id}`,
+                label: a.name,
+                sub: a.assistant_type ? bindOptionSub(a.assistant_type) : '',
+                icon: bindOptionIcon(a.assistant_type),
+              }))
+            : [{ value: 'none:agent', label: 'Нет агентов с голосом', disabled: true }];
 
-          const gAgents = document.createElement('optgroup');
-          gAgents.label = 'Агенты обзвона';
-          if (!agents.length) {
-            const o = document.createElement('option'); o.disabled = true; o.textContent = 'Нет агентов с голосом'; gAgents.appendChild(o);
-          }
-          agents.forEach(a => {
-            const o = document.createElement('option');
-            o.value = `agent:${a.id}`;
-            o.textContent = `${a.name}${a.assistant_type ? ' · ' + (BIND_MODEL_NAMES[a.assistant_type] || a.assistant_type) : ''}`;
-            gAgents.appendChild(o);
-          });
-          assistantSelect.appendChild(gAgents);
+          renderBindSelect([
+            { label: 'Голосовые ассистенты', options: voiceOptions },
+            { label: 'Агенты обзвона', options: agentOptions },
+          ]);
+          updateBindHint();
         } catch (error) {
-          assistantSelect.innerHTML = '<option value="">Ошибка загрузки</option>';
+          renderBindSelect([{ label: null, options: [{ value: 'none:error', label: 'Ошибка загрузки', disabled: true }] }], 'Ошибка загрузки');
         }
       }
-
-      document.getElementById('bind-assistant-select').addEventListener('change', function() {
-        const geminiModelGroup = document.getElementById('gemini-model-group');
-        geminiModelGroup.style.display = bindSelection().type === 'gemini' ? 'block' : 'none';
-      });
 
       document.getElementById('close-bind-modal').addEventListener('click', () => {
         bindAssistantModal.classList.remove('show');
