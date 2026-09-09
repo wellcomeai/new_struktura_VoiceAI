@@ -493,6 +493,8 @@
       flex-shrink: 0;
     }
 
+    .conversation-card .assistant-avatar.has-logo { background: var(--vf-surface-2, #f7f9fc); border: 1px solid var(--vf-border, #e3e8f0); color: var(--vf-text, #0f172a); }
+    .conversation-card .assistant-avatar.has-logo img.logo { width: 18px; height: 18px; }
     .assistant-avatar.gemini { background: linear-gradient(135deg, var(--gemini-purple), #7c3aed); }
     .assistant-avatar.cartesia { background: linear-gradient(135deg, #06b6d4, #0891b2); }
     .assistant-avatar.yandex { background: linear-gradient(135deg, #fc3f1d, #c93413); }
@@ -2864,6 +2866,8 @@
           : assistantType === 'yandex' ? 'assistant-avatar yandex'
           : assistantType === 'cascade' ? 'assistant-avatar cascade'
           : assistantType === 'fish' ? 'assistant-avatar fish' : 'assistant-avatar';
+        // Логотип модели вместо буквы, если он есть в дизайн-системе (cartesia — буква)
+        const hasLogo = !!(window.VF && VF.MODEL_LOGOS && VF.MODEL_LOGOS[assistantType]);
         const typeBadge = assistantType === 'gemini'
           ? '<span class="assistant-type-badge gemini">Gemini</span>'
           : assistantType === 'cartesia'
@@ -2923,7 +2927,7 @@
 
         card.innerHTML = `
           <div class="card-header">
-            <div class="${avatarClass}">${assistantInitial}</div>
+            <div class="${avatarClass}${hasLogo ? ' has-logo' : ''}">${hasLogo ? VF.logo(assistantType, { bare: true, size: 18 }) : assistantInitial}</div>
             <div class="card-info">
               <div class="assistant-name">
                 <span class="assistant-name-text">${assistantName}</span>
