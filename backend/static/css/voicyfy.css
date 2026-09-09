@@ -8,9 +8,9 @@
 /* ---------- Токены ---------- */
 :root {
   /* Поверхности: три уровня глубины */
-  --vf-bg: #f4f6fb;            /* фон страницы */
+  --vf-bg: #ffffff;            /* фон страницы: единый белый, без серой подложки */
   --vf-surface: #ffffff;       /* панели, карточки */
-  --vf-surface-2: #f8fafc;     /* вложенные блоки, поля в фокусе */
+  --vf-surface-2: #f7f9fc;     /* вложенные блоки, подложки */
   --vf-surface-3: #eef2f8;     /* hover строк, подложки */
 
   --vf-border: #e3e8f0;
@@ -115,6 +115,8 @@ body.vf {
 }
 .vf-sidebar-head { height: var(--vf-topbar-h); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--vf-border); }
 .vf-logo { display: flex; align-items: center; gap: 10px; color: var(--vf-text); font-family: var(--vf-font-display); font-weight: 800; font-size: 19px; letter-spacing: -0.03em; }
+.vf-logo img { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; display: block; }
+.vf-logo .wordmark { background: linear-gradient(135deg, #2563eb, #3b82f6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .vf-logo .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--vf-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
 .vf-logo .mark .ic { width: 16px; height: 16px; }
 .sidebar-nav { padding: 12px 12px; flex: 1; }
@@ -135,7 +137,7 @@ body.vf {
 .vf-main { flex: 1; margin-left: var(--vf-sidebar-w); min-width: 0; display: flex; flex-direction: column; }
 .vf-topbar {
   height: var(--vf-topbar-h); position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 0 28px; background: color-mix(in srgb, var(--vf-bg) 82%, transparent); backdrop-filter: saturate(160%) blur(10px); -webkit-backdrop-filter: saturate(160%) blur(10px);
+  padding: 0 28px; background: color-mix(in srgb, var(--vf-bg) 86%, transparent); backdrop-filter: saturate(160%) blur(10px); -webkit-backdrop-filter: saturate(160%) blur(10px);
   border-bottom: 1px solid var(--vf-border);
 }
 .vf-topbar-left, .vf-topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }

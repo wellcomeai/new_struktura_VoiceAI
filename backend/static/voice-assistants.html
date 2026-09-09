@@ -25,11 +25,13 @@
     .layout.grid-mode .editor { display: none; }
 
     .list-panel { position: sticky; top: calc(var(--vf-topbar-h) + 20px); max-height: calc(100vh - var(--vf-topbar-h) - 40px); display: flex; flex-direction: column; }
-    .layout.grid-mode .list-panel { position: static; max-height: none; }
+    .layout.grid-mode .list-panel { position: static; max-height: none; border: none; box-shadow: none; background: transparent; border-radius: 0; }
+    .layout.grid-mode .list-head { padding: 0 0 14px; border-bottom: none; }
+    .layout.grid-mode .list-head h2 { font-size: 15px; }
     .list-head { padding: 14px 16px; border-bottom: 1px solid var(--vf-border); display: flex; align-items: center; gap: 10px; }
     .list-head h2 { font-size: 14px; }
     .list-body { overflow-y: auto; padding: 8px; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-    .layout.grid-mode .list-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 16px; }
+    .layout.grid-mode .list-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; padding: 0; overflow: visible; }
 
     .a-card { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: var(--vf-r-md); border: 1px solid transparent; cursor: pointer; transition: background var(--vf-fast), border-color var(--vf-fast), box-shadow var(--vf-fast), transform var(--vf-fast); }
     .a-card:hover { background: var(--vf-surface-2); }
@@ -43,6 +45,7 @@
     .layout:not(.grid-mode) .a-card { flex-direction: column; gap: 4px; }
     .layout:not(.grid-mode) .a-card .a-meta { display: flex; margin: 0 0 0 48px; }
     .layout.grid-mode .a-card { background: var(--vf-surface); border-color: var(--vf-border); box-shadow: var(--vf-shadow-1); padding: 16px; border-radius: var(--vf-r-lg); flex-direction: column; gap: 12px; min-height: 148px; }
+    .layout.grid-mode .a-card .a-meta { border-top-color: var(--vf-border); }
     .layout.grid-mode .a-card:hover { box-shadow: var(--vf-shadow-2); transform: translateY(-1px); border-color: var(--vf-border-strong); }
     .layout.grid-mode .a-card .a-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12.5px; color: var(--vf-text-3); line-height: 1.45; flex: 1; }
     .layout.grid-mode .a-card .a-meta { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--vf-border); width: 100%; }
@@ -124,7 +127,7 @@
 <div class="vf-app">
   <aside class="sidebar vf-sidebar" id="sidebar">
     <div class="vf-sidebar-head">
-      <a href="/static/dashboard.html" class="vf-logo"><span class="mark"><svg class="ic"><use href="/static/icons/ui.svg#i-audio-lines"></use></svg></span>Voicyfy</a>
+      <a href="/static/dashboard.html" class="vf-logo"><img src="/static/images/IMG_2820.PNG" alt="Voicyfy" onerror="this.style.display='none'"><span class="wordmark">Voicyfy</span></a>
       <button class="btn btn-ghost btn-icon btn-sm mobile-toggle" id="sidebar-close" aria-label="Закрыть меню"><svg class="ic"><use href="/static/icons/ui.svg#i-x"></use></svg></button>
     </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
