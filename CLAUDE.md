@@ -208,6 +208,7 @@ cd .. && git add -A backend/static/landing frontend
   (посекундно, минимум 10 с, в минус не уходим, идемпотентность по `ref_key`),
   `backend/services/voice_billing.py` (сессия виджета: списание раз в 60 с, стоп при нуле),
   телефония списывается по отчёту `POST /api/voximplant/log` (`call_duration`).
+  Лимита длительности звонка пока нет (сценарии Voximplant не правим).
   Тарифы в таблице `voice_model_tariffs` (правка из админки, `/api/wallet/admin/tariffs`),
   журнал в `wallet_transactions`. Каскад бесплатен, каскад-кредиты за флагом
   `CASCADE_CREDITS_BILLING`. Роутер: `backend/api/wallet.py` (`/api/wallet`).

@@ -70,8 +70,6 @@ class Settings(BaseSettings):
     WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
     WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
     WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
-    # Жёсткий лимит длительности звонка (сценарий получает его в конфиге)
-    VOICE_MAX_CALL_DURATION_SEC: int = int(os.getenv("VOICE_MAX_CALL_DURATION_SEC", "1800"))
     # Лимит одной сессии веб-виджета на серверном ключе
     VOICE_MAX_WIDGET_SESSION_SEC: int = int(os.getenv("VOICE_MAX_WIDGET_SESSION_SEC", "3600"))
     # Флаг обратной совместимости: списание каскад-кредитов по токенам.

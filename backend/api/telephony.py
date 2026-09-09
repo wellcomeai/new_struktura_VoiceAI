@@ -404,8 +404,7 @@ class ScenarioConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
-    # ✅ v6.0: жёсткий лимит длительности звонка (сек) и режим оплаты
-    max_call_duration_sec: Optional[int] = None
+    # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
 
 
@@ -467,8 +466,7 @@ class OutboundConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
-    # ✅ v6.0: жёсткий лимит длительности звонка (сек) и режим оплаты
-    max_call_duration_sec: Optional[int] = None
+    # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
 
 
@@ -3416,7 +3414,6 @@ async def get_outbound_config(
             fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
             sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
             fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
-            max_call_duration_sec=settings.VOICE_MAX_CALL_DURATION_SEC,
             billing_mode=billing_mode,
         )
 
@@ -5675,7 +5672,6 @@ async def get_scenario_config(
                 build_fish_tts_url(assistant.id)
                 if phone_record.assistant_type == "fish" else None
             ),
-            max_call_duration_sec=settings.VOICE_MAX_CALL_DURATION_SEC,
             billing_mode=billing_mode,
         )
 
