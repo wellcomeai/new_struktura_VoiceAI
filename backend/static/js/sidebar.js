@@ -79,7 +79,9 @@
     if (item.feature) a.setAttribute('data-feature', item.feature);
     if (item.admin) a.setAttribute('data-admin', '1');
     // На страницах с дизайн-системой (есть window.VF) — иконки Lucide, иначе Font Awesome
-    a.innerHTML = (window.VF && item.lucide ? window.VF.icon(item.lucide) + '<span>' + item.label + '</span>' : '<i class="' + item.icon + '"></i> ' + item.label);
+    a.innerHTML = (window.VF && item.lucide
+      ? window.VF.icon(item.lucide) + '<span>' + item.label + '</span>' + (item.feature ? window.VF.icon('lock', 'lock') : '')
+      : '<i class="' + item.icon + '"></i> ' + item.label);
     return a;
   }
 
