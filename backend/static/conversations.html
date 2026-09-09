@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#2563eb">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap">
   <style>
     /* Основные стили */
     :root {
@@ -393,8 +393,8 @@
     .filters-bar {
       background-color: var(--white);
       border-radius: var(--radius-lg);
-      padding: 1.5rem;
-      margin-bottom: 2rem;
+      padding: 14px 16px;
+      margin-bottom: 16px;
       box-shadow: var(--shadow-sm);
       border: 1px solid var(--border-color);
       display: flex;
@@ -439,268 +439,233 @@
       gap: 0.75rem;
       flex-wrap: wrap;
     }
+    /* Поля фильтров одной высоты: нативный date-input и кнопка VF.select */
+    body.vf .filters-bar .filter-group label { font-size: 12.5px; font-weight: 600; color: var(--text-gray); margin-bottom: 6px; }
+    body.vf .filters-bar input.filter-select { height: 38px; min-height: 38px; padding: 0 10px; }
+    body.vf .filters-bar .filter-group > div { align-items: stretch; }
+    body.vf .filters-bar .filter-actions .btn { height: 38px; }
     
     /* Grid карточек */
+    /* Сетка диалогов: компактные карточки как в «Голосовых ассистентах» */
     .conversations-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 1.5rem;
-      margin-bottom: 2rem;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
     }
-    
+
     .conversation-card {
-      background-color: var(--white);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: var(--white);
       border-radius: var(--radius-lg);
       border: 1px solid var(--border-color);
-      padding: 1.5rem;
+      padding: 14px 16px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.15s, box-shadow 0.15s;
       box-shadow: var(--shadow-sm);
       position: relative;
+      min-height: 0;
     }
-    
+
     .conversation-card:hover {
       box-shadow: var(--shadow-md);
       border-color: var(--primary-blue-light);
-      transform: translateY(-2px);
     }
-    
+
     .card-header {
       display: flex;
       align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
+      gap: 10px;
       position: relative;
+      padding-right: 28px;
     }
-    
+
     .assistant-avatar {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      border-radius: 9px;
       background: linear-gradient(135deg, var(--primary-blue-light), var(--primary-blue));
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--white);
-      font-size: 1.25rem;
-      font-weight: 600;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
       flex-shrink: 0;
     }
-    
-    .assistant-avatar.gemini {
-      background: linear-gradient(135deg, var(--gemini-purple), #7c3aed);
-    }
 
-    .assistant-avatar.cartesia {
-      background: linear-gradient(135deg, #06b6d4, #0891b2);
-    }
-
-    .assistant-avatar.yandex {
-      background: linear-gradient(135deg, #fc3f1d, #c93413);
-    }
-
-    .assistant-avatar.cascade {
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    }
-
-    .assistant-avatar.fish {
-      background: linear-gradient(135deg, #0ea5e9, #2563eb);
-    }
+    .assistant-avatar.gemini { background: linear-gradient(135deg, var(--gemini-purple), #7c3aed); }
+    .assistant-avatar.cartesia { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+    .assistant-avatar.yandex { background: linear-gradient(135deg, #fc3f1d, #c93413); }
+    .assistant-avatar.cascade { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+    .assistant-avatar.fish { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
 
     .card-info {
       flex: 1;
       min-width: 0;
     }
-    
+
     .assistant-name {
       font-weight: 600;
-      font-size: 0.95rem;
-      margin-bottom: 0.25rem;
+      font-size: 13.5px;
+      line-height: 1.3;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 6px;
     }
-    
-    .assistant-type-badge {
-      font-size: 0.65rem;
-      padding: 0.15rem 0.4rem;
-      border-radius: 0.25rem;
-      font-weight: 600;
+
+    .assistant-name > span:first-child,
+    .assistant-name-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Бейдж провайдера: цвета важнее общего правила моста (body.vf .assistant-type-badge) */
+    body.vf .conversation-card .assistant-type-badge {
+      font-size: 10px;
+      line-height: 1;
+      padding: 3px 6px;
+      border-radius: 5px;
+      font-weight: 700;
+      letter-spacing: .03em;
       text-transform: uppercase;
       flex-shrink: 0;
       white-space: nowrap;
     }
-    
-    .assistant-type-badge.openai {
-      background-color: rgba(37, 99, 235, 0.1);
-      color: var(--primary-blue);
-    }
-    
-    .assistant-type-badge.gemini {
-      background-color: rgba(139, 92, 246, 0.1);
-      color: var(--gemini-purple);
-    }
-
-    .assistant-type-badge.cartesia {
-      background-color: rgba(6, 182, 212, 0.1);
-      color: var(--cartesia-teal);
-    }
-
-    .assistant-type-badge.yandex {
-      background-color: rgba(252, 63, 29, 0.1);
-      color: #fc3f1d;
-    }
-
-    .assistant-type-badge.cascade {
-      background-color: rgba(37, 99, 235, 0.1);
-      color: #2563eb;
-    }
-
-    .assistant-type-badge.fish {
-      background-color: rgba(14, 165, 233, 0.1);
-      color: #0ea5e9;
-    }
+    body.vf .conversation-card .assistant-type-badge.openai { background: rgba(37, 99, 235, 0.1); color: var(--primary-blue); }
+    body.vf .conversation-card .assistant-type-badge.gemini { background: rgba(139, 92, 246, 0.1); color: var(--gemini-purple); }
+    body.vf .conversation-card .assistant-type-badge.cartesia { background: rgba(6, 182, 212, 0.1); color: var(--cartesia-teal); }
+    body.vf .conversation-card .assistant-type-badge.yandex { background: rgba(252, 63, 29, 0.1); color: #fc3f1d; }
+    body.vf .conversation-card .assistant-type-badge.cascade { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
+    body.vf .conversation-card .assistant-type-badge.fish { background: rgba(14, 165, 233, 0.1); color: #0ea5e9; }
 
     .conversation-date {
-      font-size: 0.8rem;
+      font-size: 12px;
       color: var(--text-light);
+      margin-top: 1px;
     }
-    
-    /* Кнопка удаления */
+
+    /* Кнопка удаления: появляется при наведении на карточку */
     .btn-delete {
       position: absolute;
-      top: 0;
-      right: 0;
+      top: -4px;
+      right: -6px;
       background: none;
       border: none;
       color: var(--text-light);
       cursor: pointer;
-      padding: 0.5rem;
-      border-radius: var(--radius-md);
-      transition: all 0.2s;
+      padding: 0;
+      border-radius: 7px;
+      transition: all 0.15s;
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 32px;
-      height: 32px;
+      width: 26px;
+      height: 26px;
       z-index: 10;
+      opacity: 0;
     }
-    
+    .conversation-card:hover .btn-delete,
+    .btn-delete:focus-visible { opacity: 1; }
     .btn-delete:hover {
       background-color: var(--error-red);
-      color: var(--white);
-      transform: scale(1.1);
+      color: #fff;
     }
-    
-    .btn-delete:active {
-      transform: scale(0.95);
-    }
-    
+    .btn-delete i.vf-fa { font-size: 13px; }
+
     .caller-info {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.5rem 0.75rem;
-      background-color: var(--bg-blue-light);
-      border-radius: var(--radius-md);
-      margin-bottom: 1rem;
-      font-size: 0.85rem;
+      gap: 6px;
+      font-size: 12.5px;
+      color: var(--text-gray);
     }
-    
-    .caller-info i {
-      color: var(--primary-blue);
-    }
-    
+    .caller-info i { color: var(--primary-blue); }
+    .caller-info i.vf-fa { font-size: 13px; }
+
     .caller-number {
       font-family: 'Consolas', 'Monaco', monospace;
       font-weight: 600;
       color: var(--text-dark);
+      letter-spacing: .01em;
     }
-    
+
     .conversation-preview {
-      font-size: 0.875rem;
+      font-size: 12.5px;
       color: var(--text-gray);
-      line-height: 1.5;
-      margin-bottom: 1rem;
+      line-height: 1.45;
       display: -webkit-box;
-      -webkit-line-clamp: 3;
+      -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      min-height: 0;
     }
-    
+
     .card-footer {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-top: 1rem;
+      margin-top: auto;
+      padding-top: 8px;
       border-top: 1px solid var(--border-color);
-      font-size: 0.8rem;
+      font-size: 11.5px;
       color: var(--text-light);
       flex-wrap: wrap;
-      gap: 0.5rem;
+      gap: 6px;
     }
-    
+
     .card-meta {
       display: flex;
-      gap: 1rem;
+      gap: 10px;
       flex-wrap: wrap;
     }
-    
+
     .meta-item {
       display: flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 4px;
+      white-space: nowrap;
     }
-    
-    /* Стоимость звонка */
-    .meta-item.cost {
-      color: var(--cost-orange);
-      font-weight: 600;
-    }
-    
-    .meta-item.cost i {
-      color: var(--cost-orange);
-    }
-    
-    /* Иконка записи */
-    .meta-item.recording {
-      color: var(--success-green);
-    }
+    .meta-item i.vf-fa { font-size: 12px; }
 
-    .meta-item.recording i {
-      color: var(--success-green);
-    }
+    .meta-item.cost { color: var(--cost-orange); font-weight: 600; }
+    .meta-item.cost i { color: var(--cost-orange); }
+    .meta-item.recording { color: var(--success-green); }
+    .meta-item.recording i { color: var(--success-green); }
 
     /* Ссылки на запись и лог звонка в карточке (телефония) */
     .card-links {
       display: flex;
-      gap: 0.5rem;
+      gap: 4px;
       flex-wrap: wrap;
     }
 
     .card-link {
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.3rem 0.6rem;
-      border-radius: var(--radius-md);
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 6px;
       border: 1px solid var(--border-color);
       background-color: var(--white);
       color: var(--text-gray);
-      font-size: 0.75rem;
+      font-size: 11px;
       font-weight: 500;
       text-decoration: none;
-      transition: all 0.2s;
+      transition: all 0.15s;
     }
+    .card-link i.vf-fa { font-size: 11px; }
 
     .card-link:hover {
       border-color: var(--primary-blue);
       color: var(--primary-blue);
     }
-    
+
     /* Пустое состояние */
     .empty-state {
       text-align: center;
@@ -716,13 +681,13 @@
       margin-bottom: 1.5rem;
     }
     
-    .empty-state h3 {
+    body.vf .empty-state h3 {
       font-size: 1.25rem;
       margin-bottom: 0.5rem;
       color: var(--text-dark);
     }
     
-    .empty-state p {
+    body.vf .empty-state p {
       color: var(--text-gray);
       margin-bottom: 1.5rem;
     }
@@ -1785,7 +1750,6 @@
       }
     }
   </style>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap">
   <link rel="stylesheet" href="/static/css/voicyfy.css">
   <link rel="stylesheet" href="/static/css/voicyfy-legacy.css">
   <script src="/static/js/ui.js"></script>
@@ -2278,16 +2242,16 @@
         // 🆕 v3.6: Если есть function_calls - показываем это
         if (conversation.function_calls && conversation.function_calls.length > 0) {
           const funcCount = conversation.function_calls.length;
-          return `🔧 ${funcCount} ${funcCount === 1 ? 'функция вызвана' : 'функций вызвано'}`;
+          return `${funcCount} ${funcCount === 1 ? 'функция вызвана' : 'функций вызвано'}`;
         }
         
         // 🆕 v3.6: Если есть длительность - это голосовой диалог
         if (conversation.duration_seconds && conversation.duration_seconds > 0) {
-          return '🎤 Голосовой диалог';
+          return 'Голосовой диалог';
         }
         
         // 🆕 v3.6: Дефолтный текст вместо "Нет сообщений"
-        return '💬 Диалог';
+        return 'Диалог';
       }
       
       // API функции
@@ -3034,7 +2998,7 @@
             <div class="${avatarClass}">${assistantInitial}</div>
             <div class="card-info">
               <div class="assistant-name">
-                ${assistantName}
+                <span class="assistant-name-text">${assistantName}</span>
                 ${typeBadge}
               </div>
               <div class="conversation-date">${formatDate(conversation.created_at)}</div>
@@ -3470,14 +3434,14 @@
             
             // Показываем сообщение если все отфильтровано
             if (filteredMessages.length === 0) {
-              chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">🎤 Голосовой диалог без текстовых сообщений</div>';
+              chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;"><i class="fas fa-microphone"></i> Голосовой диалог без текстовых сообщений</div>';
             }
             
             setTimeout(() => {
               chatContainer.scrollTop = chatContainer.scrollHeight;
             }, 100);
           } else {
-            chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;">🎤 Голосовой диалог без текстовых сообщений</div>';
+            chatContainer.innerHTML = '<div style="text-align: center; color: var(--text-gray); padding: 2rem;"><i class="fas fa-microphone"></i> Голосовой диалог без текстовых сообщений</div>';
           }
           
           let footerHtml = `

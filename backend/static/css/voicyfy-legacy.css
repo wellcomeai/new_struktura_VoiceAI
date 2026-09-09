@@ -37,7 +37,8 @@ body.vf, .vf {
   --orange-500: var(--vf-warning);
 }
 body.vf { font-family: var(--vf-font); background: var(--vf-bg); color: var(--vf-text); font-size: 14px; }
-body.vf * { font-family: inherit; }
+/* Страницы объявляют `* { font-family: Inter }` — оно перебивает наследование Syne у вложенных span */
+body.vf .vf-logo, body.vf .vf-logo .wordmark, body.vf .vf-wallet-balance { font-family: var(--vf-font-display); }
 body.vf i.fas, body.vf i.far, body.vf i.fab { font-family: "Font Awesome 6 Free", "Font Awesome 6 Brands" !important; }
 body.vf i.fab { font-family: "Font Awesome 6 Brands" !important; }
 
