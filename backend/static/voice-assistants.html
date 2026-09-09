@@ -938,12 +938,24 @@
       const p = PROVIDERS[newType];
       const payload = JSON.stringify(stripUndefined(buildPayload(newType, true)));
 
-      // Номера телефонии, привязанные к старому ассистенту — запоминаем ДО любых удалений
+      // Номера телефонии, привязанные к старому ассистенту — запоминаем ДО любых
+      // удалений (FK номера на ассистента — ON DELETE SET NULL). Эндпоинт отдаёт
+      // {numbers: [...]}; 404 — телефония не подключена, номеров нет.
       let numbers = [];
+      let numbersKnown = false;
       try {
         const nr = await api('/api/telephony/my-numbers');
-        numbers = ((nr && nr.ok && Array.isArray(nr.data)) ? nr.data : []).filter(n => String(n.assistant_id || '') === old.id);
-      } catch (e) { numbers = []; }
+        if (nr && nr.ok) {
+          const rows = Array.isArray(nr.data) ? nr.data : ((nr.data && nr.data.numbers) || []);
+          numbers = rows.filter(n => String(n.assistant_id || '') === old.id);
+          numbersKnown = true;
+        } else if (nr && nr.status === 404) {
+          numbersKnown = true;
+        }
+      } catch (e) { numbersKnown = false; }
+      if (!numbersKnown) {
+        throw new Error('Не удалось получить список номеров телефонии, смена модели отменена, чтобы не потерять привязки. Повторите попытку.');
+      }
 
       let r = await api(p.create, { method: 'POST', body: payload });
       let oldDeleted = false;
