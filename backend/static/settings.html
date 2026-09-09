@@ -1296,6 +1296,160 @@
       </div>
 
       <!-- ✅ v6.0: ЕДИНЫЙ КОШЕЛЁК VOICYFY -->
+      <div class="settings-section" id="provider-keys">
+        <div class="section-header">
+          <h2 class="section-title">
+            <i class="fas fa-key"></i> Ключи голосовых провайдеров
+          </h2>
+        </div>
+        <p class="section-description">
+          Без ключей ассистенты работают на ключах платформы, и минуты разговора списываются
+          с кошелька по тарифу модели. Укажите свой ключ провайдера, и разговоры на этой модели
+          перестанут списываться: вы платите провайдеру напрямую.
+        </p>
+        <div class="pk-grid" id="pk-grid"><div class="pk-loading"><i class="fas fa-circle-notch fa-spin"></i> Загрузка…</div></div>
+      </div>
+      <style>
+        .pk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+        .pk-loading { color: var(--vf-text-3, #64748b); font-size: 13.5px; }
+        .pk-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--vf-border, #e3e8f0); border-radius: 14px; background: var(--vf-surface, #fff); }
+        .pk-card.own { border-color: color-mix(in srgb, var(--vf-success, #16a34a) 45%, transparent); }
+        .pk-head { display: flex; align-items: center; gap: 10px; }
+        .pk-name { font-weight: 600; font-size: 14.5px; color: var(--vf-text, #0f172a); flex: 1; min-width: 0; }
+        .pk-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+        .pk-status.own { background: var(--vf-success-soft, #e8f7ee); color: var(--vf-success, #16a34a); }
+        .pk-status.server { background: var(--vf-surface-3, #eef2f8); color: var(--vf-text-3, #64748b); }
+        .pk-status.none { background: var(--vf-warning-soft, #fdf3e2); color: var(--vf-warning, #d97706); }
+        .pk-status i.vf-fa { font-size: 11px; }
+        .pk-hint { font-size: 12.5px; line-height: 1.5; color: var(--vf-text-3, #64748b); }
+        .pk-hint a { color: var(--vf-accent, #2563eb); font-weight: 500; }
+        .pk-current { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; background: var(--vf-surface-2, #f7f9fc); border: 1px solid var(--vf-border, #e3e8f0); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; color: var(--vf-text, #0f172a); }
+        .pk-current .pk-cur-label { font-family: inherit; font-size: 11px; color: var(--vf-text-4, #94a3b8); font-family: var(--vf-font, inherit); }
+        .pk-current code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; background: none; border: none; padding: 0; }
+        .pk-current button { border: none; background: none; color: var(--vf-text-3, #64748b); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 6px; font-family: var(--vf-font, inherit); }
+        .pk-current button:hover { color: var(--vf-danger, #dc2626); background: var(--vf-danger-soft, #fdecec); }
+        .pk-field { position: relative; display: flex; }
+        .pk-field input { width: 100%; height: 38px; padding: 0 38px 0 12px; border: 1px solid var(--vf-border-strong, #cfd7e3); border-radius: 8px; font-size: 13.5px; font-family: inherit; background: var(--vf-surface, #fff); color: var(--vf-text, #0f172a); box-shadow: var(--vf-shadow-1); }
+        .pk-field input:focus { outline: none; border-color: var(--vf-accent, #2563eb); box-shadow: 0 0 0 3px var(--vf-accent-ring, rgba(37,99,235,.18)); }
+        .pk-field .pk-eye { position: absolute; right: 4px; top: 4px; width: 30px; height: 30px; border: none; background: transparent; border-radius: 6px; color: var(--vf-text-3, #64748b); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .pk-field .pk-eye:hover { background: var(--vf-surface-2, #f7f9fc); color: var(--vf-text, #0f172a); }
+        .pk-actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+        .pk-actions .btn { height: 34px; }
+        .pk-price { font-size: 12px; color: var(--vf-text-4, #94a3b8); margin-left: auto; }
+      </style>
+      <script>
+      (function () {
+        // Ключи голосовых провайдеров: свой ключ → разговоры на модели не списываются с кошелька.
+        // Хранение и выбор ключа уже есть на бэкенде (PUT /users/me, provider_keys.resolve);
+        // здесь только интерфейс. Cartesia показывается, если её тариф включён.
+        var PROVIDERS = [
+          { code: 'openai', name: 'OpenAI', fields: [{ key: 'openai_api_key', label: 'API-ключ', ph: 'sk-…' }],
+            hint: 'Нужен для ассистентов OpenAI, а также как часть Fish и Cartesia: диалог там ведёт OpenAI Realtime.',
+            link: 'https://platform.openai.com/api-keys' },
+          { code: 'gemini', name: 'Gemini', fields: [{ key: 'gemini_api_key', label: 'API-ключ', ph: 'AIza…' }],
+            hint: 'Ключ Google AI Studio с доступом к Gemini Live.',
+            link: 'https://aistudio.google.com/apikey' },
+          { code: 'yandex', name: 'Яндекс SpeechKit', fields: [{ key: 'yandex_api_key', label: 'API-ключ', ph: 'AQVN…' }, { key: 'yandex_folder_id', label: 'Folder ID', ph: 'b1g…', plain: true }],
+            hint: 'Ключ сервисного аккаунта и идентификатор каталога Yandex Cloud. Нужны оба, иначе используется ключ платформы.',
+            link: 'https://console.yandex.cloud/' },
+          { code: 'fish', name: 'Fish Audio', fields: [{ key: 'fish_api_key', label: 'API-ключ', ph: 'Ключ Fish Audio' }],
+            hint: 'Fish озвучивает, а диалог ведёт OpenAI. Чтобы модель была на ваших ключах полностью, укажите и ключ OpenAI.',
+            link: 'https://fish.audio/' },
+          { code: 'cartesia', name: 'Cartesia', fields: [{ key: 'cartesia_api_key', label: 'API-ключ', ph: 'sk_car_…' }],
+            hint: 'Cartesia озвучивает, диалог ведёт OpenAI. Нужен и ключ OpenAI.',
+            link: 'https://play.cartesia.ai/', optional: true }
+        ];
+        var grid = document.getElementById('pk-grid');
+        var user = null, tariffs = {};
+        function hdr() { var t = localStorage.getItem('auth_token'); return { 'Authorization': 'Bearer ' + t, 'Content-Type': 'application/json' }; }
+        function esc(v) { return (window.VF && VF.esc) ? VF.esc(v) : String(v == null ? '' : v); }
+        function ic(n, c) { return window.VF ? VF.icon(n, c) : ''; }
+        function toast(msg, type) { if (window.VF && VF.toast) VF.toast(msg, { type: type || 'success' }); else alert(msg); }
+        function mask(v) { if (!v) return ''; return v.length <= 10 ? v.slice(0, 3) + '…' : v.slice(0, 6) + '…' + v.slice(-4); }
+        function hasAll(p) { return p.fields.every(function (f) { return !!(user && user[f.key]); }); }
+        function hasAny(p) { return p.fields.some(function (f) { return !!(user && user[f.key]); }); }
+
+        function statusHtml(p) {
+          var t = tariffs[p.code] || {};
+          if (hasAll(p)) return '<span class="pk-status own">' + ic('circle-check') + ' Ваш ключ · бесплатно</span>';
+          if (t.server_key_available === false) return '<span class="pk-status none">' + ic('triangle-alert') + ' Нужен свой ключ</span>';
+          var price = t.price_rub_per_min ? t.price_rub_per_min + ' ₽/мин' : 'по тарифу';
+          return '<span class="pk-status server">' + ic('wallet') + ' Ключ платформы · ' + esc(price) + '</span>';
+        }
+
+        function render() {
+          grid.innerHTML = PROVIDERS.filter(function (p) { return !p.optional || tariffs[p.code]; }).map(function (p) {
+            var cur = p.fields.filter(function (f) { return user && user[f.key]; }).map(function (f) {
+              return '<div class="pk-current"><span class="pk-cur-label">' + esc(f.label) + '</span><code title="Сохранён">' + esc(f.plain ? user[f.key] : mask(user[f.key])) + '</code>' +
+                '<button type="button" data-clear="' + f.key + '" title="Удалить">' + ic('trash-2', 'ic-sm') + ' Удалить</button></div>';
+            }).join('');
+            var inputs = p.fields.map(function (f) {
+              var saved = user && user[f.key];
+              return '<div class="pk-field"><input type="' + (f.plain ? 'text' : 'password') + '" data-field="' + f.key + '" placeholder="' + esc(saved ? 'Заменить: ' + f.label.toLowerCase() : f.label + ', ' + f.ph) + '" autocomplete="off" spellcheck="false">' +
+                (f.plain ? '' : '<button type="button" class="pk-eye" data-eye title="Показать">' + ic('eye', 'ic-sm') + '</button>') + '</div>';
+            }).join('');
+            return '<div class="pk-card' + (hasAll(p) ? ' own' : '') + '" data-code="' + p.code + '">' +
+              '<div class="pk-head">' + (window.VF ? VF.logo(p.code, { size: 18 }) : '') + '<span class="pk-name">' + esc(p.name) + '</span>' + statusHtml(p) + '</div>' +
+              '<div class="pk-hint">' + esc(p.hint) + ' <a href="' + p.link + '" target="_blank" rel="noopener">Где взять ключ</a></div>' +
+              cur + inputs +
+              '<div class="pk-actions"><button type="button" class="btn btn-primary" data-save>' + ic('save', 'ic-sm') + ' Сохранить</button></div>' +
+            '</div>';
+          }).join('');
+        }
+
+        async function save(card) {
+          var p = PROVIDERS.filter(function (x) { return x.code === card.dataset.code; })[0];
+          var body = {};
+          card.querySelectorAll('input[data-field]').forEach(function (i) { var v = i.value.trim(); if (v) body[i.dataset.field] = v; });
+          if (!Object.keys(body).length) { toast('Введите ключ', 'error'); return; }
+          var btn = card.querySelector('[data-save]'); btn.disabled = true;
+          try {
+            var r = await fetch('/api/users/me', { method: 'PUT', headers: hdr(), body: JSON.stringify(body) });
+            if (!r.ok) throw new Error('Не удалось сохранить ключ');
+            user = await r.json();
+            await loadTariffs();
+            render();
+            toast(hasAll(p) ? p.name + ': ключ сохранён, разговоры на этой модели не списываются' : p.name + ': ключ сохранён', 'success');
+          } catch (e) { toast(e.message, 'error'); btn.disabled = false; }
+        }
+
+        async function clear(field) {
+          if (window.VF && VF.confirm) {
+            var ok = await VF.confirm({ title: 'Удалить ключ?', message: 'Разговоры на этой модели снова будут списываться с кошелька по тарифу.', confirmText: 'Удалить', danger: true });
+            if (!ok) return;
+          }
+          var body = {}; body[field] = null;
+          try {
+            var r = await fetch('/api/users/me', { method: 'PUT', headers: hdr(), body: JSON.stringify(body) });
+            if (!r.ok) throw new Error('Не удалось удалить ключ');
+            user = await r.json();
+            await loadTariffs();
+            render();
+            toast('Ключ удалён', 'success');
+          } catch (e) { toast(e.message, 'error'); }
+        }
+
+        grid.addEventListener('click', function (e) {
+          var eye = e.target.closest('[data-eye]');
+          if (eye) { var inp = eye.parentNode.querySelector('input'); inp.type = inp.type === 'password' ? 'text' : 'password'; eye.innerHTML = ic(inp.type === 'password' ? 'eye' : 'eye-off', 'ic-sm'); return; }
+          var cl = e.target.closest('[data-clear]'); if (cl) { clear(cl.dataset.clear); return; }
+          var sv = e.target.closest('[data-save]'); if (sv) { save(sv.closest('.pk-card')); }
+        });
+        grid.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches('input[data-field]')) save(e.target.closest('.pk-card')); });
+
+        function loadTariffs() {
+          return fetch('/api/wallet/tariffs/me', { headers: hdr() }).then(function (r) { return r.ok ? r.json() : { tariffs: [] }; })
+            .then(function (d) { tariffs = {}; (d.tariffs || []).forEach(function (t) { tariffs[t.code] = t; }); }).catch(function () {});
+        }
+        Promise.all([
+          fetch('/api/users/me', { headers: hdr() }).then(function (r) { return r.ok ? r.json() : null; }).then(function (u) { user = u; }),
+          loadTariffs()
+        ]).then(render).catch(function () { grid.innerHTML = '<div class="pk-loading">Не удалось загрузить ключи</div>'; });
+
+        if (location.hash === '#provider-keys') setTimeout(function () { document.getElementById('provider-keys').scrollIntoView({ behavior: 'smooth' }); }, 300);
+      })();
+      </script>
+
       <div class="settings-section" id="wallet">
         <div class="section-header">
           <h2 class="section-title">
