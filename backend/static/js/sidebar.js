@@ -23,23 +23,23 @@
 
   var MENU = [
     { section: 'Основное' },
-    { href: '/static/dashboard.html', icon: 'fas fa-home', label: 'Дашборд', id: 'dashboard-nav-item' },
-    { href: '/static/agent.html', icon: 'fas fa-headset', label: 'Агент обзвона', id: 'agent-nav-item' },
-    { href: '/static/voice-assistants.html', icon: 'fas fa-robot', label: 'Голосовые ассистенты', id: 'assistants-nav-item',
+    { href: '/static/dashboard.html', icon: 'fas fa-home', lucide: 'house', label: 'Дашборд', id: 'dashboard-nav-item' },
+    { href: '/static/agent.html', icon: 'fas fa-headset', lucide: 'headset', label: 'Агент обзвона', id: 'agent-nav-item' },
+    { href: '/static/voice-assistants.html', icon: 'fas fa-robot', lucide: 'audio-lines', label: 'Голосовые ассистенты', id: 'assistants-nav-item',
       aliases: ['/static/agents.html', '/static/gemini-agents.html', '/static/cartesia-agents.html',
                 '/static/yandex-agents.html', '/static/cascade.html', '/static/fish-agents.html',
                 '/static/knowledge-base.html'] },
-    { href: '/static/conversations.html', icon: 'fas fa-comments', label: 'Диалоги', id: 'conversations-nav-item' },
-    { href: '/static/telephony.html', icon: 'fas fa-phone', label: 'Телефония', id: 'telephony-nav-item', feature: 'telephony' },
-    { href: '/static/crm.html', icon: 'fas fa-address-book', label: 'CRM', id: 'crm-nav-item', feature: 'crm',
+    { href: '/static/conversations.html', icon: 'fas fa-comments', lucide: 'messages-square', label: 'Диалоги', id: 'conversations-nav-item' },
+    { href: '/static/telephony.html', icon: 'fas fa-phone', lucide: 'phone', label: 'Телефония', id: 'telephony-nav-item', feature: 'telephony' },
+    { href: '/static/crm.html', icon: 'fas fa-address-book', lucide: 'contact-round', label: 'CRM', id: 'crm-nav-item', feature: 'crm',
       aliases: ['/static/crm-contact.html'] },
     { section: 'Аккаунт' },
-    { href: '/static/settings.html', icon: 'fas fa-gear', label: 'Настройки', id: 'settings-nav-item' }
+    { href: '/static/settings.html', icon: 'fas fa-gear', lucide: 'settings', label: 'Настройки', id: 'settings-nav-item' }
   ];
 
   var ADMIN_ITEMS = [
     { section: 'Администрирование', admin: true },
-    { href: '/static/admin.html', icon: 'fas fa-user-shield', label: 'Управление', id: 'admin-nav-item', admin: true }
+    { href: '/static/admin.html', icon: 'fas fa-user-shield', lucide: 'shield-check', label: 'Управление', id: 'admin-nav-item', admin: true }
   ];
 
   // Матрица доступа по тарифам (дублирует дашборд, чтобы работать на всех страницах)
@@ -78,7 +78,8 @@
     if (item.id) a.id = item.id;
     if (item.feature) a.setAttribute('data-feature', item.feature);
     if (item.admin) a.setAttribute('data-admin', '1');
-    a.innerHTML = '<i class="' + item.icon + '"></i> ' + item.label;
+    // На страницах с дизайн-системой (есть window.VF) — иконки Lucide, иначе Font Awesome
+    a.innerHTML = (window.VF && item.lucide ? window.VF.icon(item.lucide) + '<span>' + item.label + '</span>' : '<i class="' + item.icon + '"></i> ' + item.label);
     return a;
   }
 
@@ -114,15 +115,16 @@
   // Кошелёк
   // ---------------------------------------------------------------------
   var STYLE = [
-    '.vf-wallet{margin:0 1.5rem 0.75rem;padding:0.85rem 1rem;border:1px solid var(--border-color,#e2e8f0);',
-    'border-radius:0.75rem;background:var(--bg-light,#f8fafc)}',
-    '.vf-wallet-label{font-size:0.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-light,#94a3b8);font-weight:600}',
-    '.vf-wallet-balance{font-size:1.25rem;font-weight:700;color:var(--text-dark,#0f172a);margin:0.15rem 0 0.6rem;font-family:"Syne",sans-serif}',
-    '.vf-wallet-btn{display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;padding:.5rem;',
-    'border:none;border-radius:.5rem;background:var(--primary-blue,#2563eb);color:#fff;font-weight:600;cursor:pointer;font-size:.85rem}',
-    '.vf-wallet-btn:hover{background:var(--primary-blue-dark,#1d4ed8)}',
-    '.vf-wallet-link{display:block;margin-top:.5rem;font-size:.75rem;color:var(--text-gray,#64748b);text-decoration:none;text-align:center}',
-    '.vf-wallet-link:hover{color:var(--primary-blue,#2563eb)}',
+    '.vf-wallet{margin:0 12px 10px;padding:12px 14px;border:1px solid var(--vf-border,var(--border-color,#e2e8f0));',
+    'border-radius:12px;background:var(--vf-surface-2,var(--bg-light,#f8fafc))}',
+    '.vf-wallet-label{display:flex;align-items:center;gap:6px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--vf-text-4,var(--text-light,#94a3b8));font-weight:600}',
+    '.vf-wallet-label .ic{width:14px;height:14px}',
+    '.vf-wallet-balance{font-size:20px;font-weight:700;color:var(--vf-text,var(--text-dark,#0f172a));margin:4px 0 10px;font-family:"Syne",sans-serif;letter-spacing:-.02em}',
+    '.vf-wallet-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:32px;',
+    'border:none;border-radius:8px;background:var(--vf-accent,var(--primary-blue,#2563eb));color:#fff;font-weight:600;cursor:pointer;font-size:13px;box-shadow:0 1px 2px rgba(37,99,235,.3)}',
+    '.vf-wallet-btn:hover{background:var(--vf-accent-hover,var(--primary-blue-dark,#1d4ed8))}',
+    '.vf-wallet-link{display:block;margin-top:8px;font-size:12px;color:var(--vf-text-3,var(--text-gray,#64748b));text-decoration:none;text-align:center}',
+    '.vf-wallet-link:hover{color:var(--vf-accent,var(--primary-blue,#2563eb))}',
     '.vf-modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem}',
     '.vf-modal{background:#fff;border-radius:1rem;width:100%;max-width:420px;padding:1.5rem;box-shadow:0 20px 40px rgba(0,0,0,.2);font-family:inherit}',
     '.vf-modal h3{margin:0 0 .25rem;font-size:1.15rem;color:var(--text-dark,#0f172a)}',
@@ -158,9 +160,9 @@
     card.className = 'vf-wallet';
     card.id = 'vf-wallet-card';
     card.innerHTML =
-      '<div class="vf-wallet-label"><i class="fas fa-wallet"></i> Кошелёк Voicyfy</div>' +
+      '<div class="vf-wallet-label">' + (window.VF ? window.VF.icon('wallet') : '<i class="fas fa-wallet"></i>') + ' Кошелёк Voicyfy</div>' +
       '<div class="vf-wallet-balance" id="vf-wallet-balance">…</div>' +
-      '<button class="vf-wallet-btn" type="button" id="vf-wallet-topup"><i class="fas fa-plus"></i> Пополнить</button>' +
+      '<button class="vf-wallet-btn" type="button" id="vf-wallet-topup">' + (window.VF ? window.VF.icon('plus', 'ic-sm') : '<i class="fas fa-plus"></i>') + ' Пополнить</button>' +
       '<a class="vf-wallet-link" href="/static/settings.html#wallet">История операций</a>';
     var footer = aside.querySelector('.sidebar-footer');
     if (footer) aside.insertBefore(card, footer); else aside.appendChild(card);
