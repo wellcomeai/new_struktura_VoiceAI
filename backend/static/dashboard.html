@@ -348,7 +348,127 @@
       flex-grow: 1;
     }
     
-    /* Секция приветствия */
+    /* ========================================
+       ОНБОРДИНГ / ПРИВЕТСТВИЕ (UI, логика страницы не менялась)
+       ======================================== */
+    .ob-hero {
+      display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr); gap: 40px; align-items: center;
+      padding: 40px 44px; margin-bottom: 28px; border-radius: 20px; position: relative; overflow: hidden;
+      background:
+        radial-gradient(900px 420px at 0% 0%, rgba(37, 99, 235, .08), transparent 60%),
+        radial-gradient(700px 380px at 100% 100%, rgba(37, 99, 235, .06), transparent 60%),
+        var(--vf-surface, #fff);
+      border: 1px solid var(--vf-border, #e5e9f0);
+    }
+    .ob-hero::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background-image: linear-gradient(rgba(15, 23, 42, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 23, 42, .035) 1px, transparent 1px);
+      background-size: 28px 28px; mask-image: radial-gradient(60% 80% at 70% 50%, #000 20%, transparent 100%); -webkit-mask-image: radial-gradient(60% 80% at 70% 50%, #000 20%, transparent 100%);
+    }
+    .ob-hero > * { position: relative; }
+    .ob-eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--vf-text-3, #64748b); margin-bottom: 14px; }
+    .ob-eyebrow-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vf-accent, #2563eb); box-shadow: 0 0 0 4px rgba(37, 99, 235, .15); }
+    .ob-title { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: clamp(28px, 3.2vw, 40px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 800; color: var(--vf-text, #0f172a); margin: 0 0 14px; }
+    .ob-lead { font-size: 15.5px; line-height: 1.6; color: var(--vf-text-2, #334155); max-width: 520px; margin: 0 0 24px; }
+    .ob-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 22px; }
+    .ob-btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: 10px; font-size: 14px; font-weight: 600; text-decoration: none; border: 1px solid transparent; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+    .ob-btn:hover { transform: translateY(-1px); }
+    .ob-btn-primary { background: var(--vf-accent, #2563eb); color: #fff !important; box-shadow: 0 6px 16px rgba(37, 99, 235, .25); }
+    .ob-btn-primary:hover { background: var(--vf-accent-hover, #1d4ed8); box-shadow: 0 8px 22px rgba(37, 99, 235, .3); }
+    .ob-btn-ghost { background: var(--vf-surface, #fff); color: var(--vf-text, #0f172a) !important; border-color: var(--vf-border, #e5e9f0); }
+    .ob-btn-ghost:hover { border-color: #b8c3d4; }
+    .ob-link { display: inline-flex; align-items: center; gap: 6px; background: none; border: none; padding: 0 6px; height: 42px; font-size: 14px; font-weight: 500; color: var(--vf-text-3, #64748b); cursor: pointer; font-family: inherit; }
+    .ob-link:hover { color: var(--vf-accent, #2563eb); }
+    .ob-link .ic { transition: transform .2s ease; }
+    .ob-guide-hidden .ob-link .ic { transform: rotate(-90deg); }
+    .ob-models { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .ob-models-label { font-size: 12px; color: var(--vf-text-4, #94a3b8); margin-right: 2px; }
+    .ob-models-list { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+    .ob-model { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 6px; border-radius: 999px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); font-size: 12.5px; font-weight: 500; color: var(--vf-text-2, #334155); }
+    .ob-model .logo-wrap { width: 22px; height: 22px; border: none; background: transparent; }
+    .ob-model .logo { width: 14px; height: 14px; }
+    .ob-model b { font-weight: 500; color: var(--vf-text-4, #94a3b8); }
+
+    /* Правая часть: имитация звонка */
+    .ob-hero-visual { display: flex; justify-content: center; }
+    .ob-call { width: 100%; max-width: 380px; border-radius: 18px; background: var(--vf-surface, #fff); border: 1px solid var(--vf-border, #e5e9f0); box-shadow: 0 24px 60px -24px rgba(15, 23, 42, .28), 0 1px 2px rgba(15, 23, 42, .06); padding: 16px; transform: rotate(-1.2deg); }
+    .ob-call-head { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--vf-border, #e5e9f0); }
+    .ob-call-avatar { width: 38px; height: 38px; border-radius: 12px; background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); display: flex; align-items: center; justify-content: center; }
+    .ob-call-name { font-size: 13.5px; font-weight: 600; color: var(--vf-text, #0f172a); }
+    .ob-call-sub { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vf-text-4, #94a3b8); margin-top: 2px; }
+    .ob-live { width: 7px; height: 7px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 0 rgba(22, 163, 74, .5); animation: ob-pulse 1.8s ease-out infinite; }
+    @keyframes ob-pulse { 0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); } 100% { box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); } }
+    .ob-wave { margin-left: auto; display: flex; align-items: center; gap: 3px; height: 22px; }
+    .ob-wave i { width: 3px; border-radius: 2px; background: var(--vf-accent, #2563eb); height: 6px; animation: ob-wave 1.1s ease-in-out infinite; }
+    .ob-wave i:nth-child(2) { animation-delay: .12s; } .ob-wave i:nth-child(3) { animation-delay: .24s; } .ob-wave i:nth-child(4) { animation-delay: .36s; } .ob-wave i:nth-child(5) { animation-delay: .48s; }
+    @keyframes ob-wave { 0%, 100% { height: 5px; opacity: .55; } 50% { height: 20px; opacity: 1; } }
+    .ob-msgs { display: flex; flex-direction: column; gap: 8px; padding: 14px 0 4px; }
+    .ob-msg { display: flex; opacity: 0; transform: translateY(6px); animation: ob-msg-in .45s ease forwards; }
+    .ob-msg:nth-child(1) { animation-delay: .2s; } .ob-msg:nth-child(2) { animation-delay: .9s; } .ob-msg:nth-child(3) { animation-delay: 1.7s; } .ob-msg:nth-child(4) { animation-delay: 2.4s; }
+    @keyframes ob-msg-in { to { opacity: 1; transform: none; } }
+    .ob-msg span { max-width: 84%; padding: 8px 12px; border-radius: 14px; font-size: 12.5px; line-height: 1.45; }
+    .ob-msg-user { justify-content: flex-end; } .ob-msg-user span { background: var(--vf-surface-3, #eef2f7); color: var(--vf-text, #0f172a); border-bottom-right-radius: 4px; }
+    .ob-msg-bot span { background: var(--vf-accent, #2563eb); color: #fff; border-bottom-left-radius: 4px; }
+    .ob-call-foot { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--vf-border, #e5e9f0); }
+    .ob-tag { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--vf-surface-2, #f6f8fb); font-size: 11.5px; color: var(--vf-text-3, #64748b); }
+    .ob-tag .ic { width: 13px; height: 13px; color: #16a34a; }
+
+    /* Метрики */
+    .ob-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-bottom: 28px; border: 1px solid var(--vf-border, #e5e9f0); border-radius: 16px; background: var(--vf-surface, #fff); overflow: hidden; }
+    .ob-metric { display: flex; align-items: flex-start; gap: 14px; padding: 20px 22px; }
+    .ob-metric + .ob-metric { border-left: 1px solid var(--vf-border, #e5e9f0); }
+    .ob-metric-icon { width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto; background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); display: flex; align-items: center; justify-content: center; }
+    .ob-metric-value { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; color: var(--vf-text, #0f172a); }
+    .ob-metric-title { font-size: 13px; color: var(--vf-text-3, #64748b); margin-top: 3px; }
+    .ob-metric-sub { font-size: 12px; color: var(--vf-text-4, #94a3b8); margin-top: 3px; min-height: 1em; }
+
+    /* Гид */
+    .ob-guide { margin-bottom: 32px; }
+    .ob-guide-hidden .ob-guide { display: none; }
+    .ob-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .ob-section-head-tight { margin-top: 32px; }
+    .ob-h2 { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 20px; letter-spacing: -0.02em; font-weight: 700; color: var(--vf-text, #0f172a); margin: 0; }
+    .ob-muted { font-size: 13.5px; color: var(--vf-text-3, #64748b); margin: 4px 0 0; }
+    .ob-progress { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; color: var(--vf-text-3, #64748b); white-space: nowrap; }
+    .ob-progress-bar { width: 120px; height: 6px; border-radius: 999px; background: var(--vf-surface-3, #eef2f7); overflow: hidden; }
+    .ob-progress-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--vf-accent, #2563eb); transition: width .6s cubic-bezier(.2, .8, .2, 1); }
+    .ob-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .ob-step { position: relative; display: flex; gap: 14px; padding: 20px; border-radius: 16px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); transition: border-color .15s ease, box-shadow .15s ease; }
+    .ob-step:hover { border-color: #c9d3e2; box-shadow: 0 8px 24px -16px rgba(15, 23, 42, .25); }
+    .ob-step-num { position: relative; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--vf-font-display, 'Syne', sans-serif); font-weight: 700; font-size: 14px; background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); }
+    .ob-step-num i { display: none; }
+    .ob-step.done .ob-step-num { background: #16a34a; color: #fff; }
+    .ob-step.done .ob-step-num span { display: none; }
+    .ob-step.done .ob-step-num i { display: flex; }
+    .ob-step.done h3::after { content: "готово"; margin-left: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #16a34a; }
+    .ob-step-body h3 { font-size: 15px; font-weight: 600; color: var(--vf-text, #0f172a); margin: 5px 0 6px; }
+    .ob-step-body p { font-size: 13.5px; line-height: 1.55; color: var(--vf-text-3, #64748b); margin: 0 0 12px; }
+    .ob-step-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--vf-accent, #2563eb) !important; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+    .ob-step-link .ic { transition: transform .15s ease; }
+    .ob-step-link:hover .ic { transform: translateX(3px); }
+    .ob-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .ob-feature { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border-radius: 16px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); text-decoration: none; color: inherit; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+    .ob-feature:hover { transform: translateY(-2px); border-color: #c9d3e2; box-shadow: 0 10px 28px -18px rgba(15, 23, 42, .3); }
+    .ob-feature-icon { width: 36px; height: 36px; border-radius: 10px; background: var(--vf-surface-2, #f6f8fb); color: var(--vf-text-2, #334155); display: flex; align-items: center; justify-content: center; }
+    .ob-feature:hover .ob-feature-icon { background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); }
+    .ob-feature-title { font-size: 14.5px; font-weight: 600; color: var(--vf-text, #0f172a); }
+    .ob-feature-text { font-size: 13px; line-height: 1.5; color: var(--vf-text-3, #64748b); }
+
+    @media (max-width: 1100px) {
+      .ob-hero { grid-template-columns: 1fr; padding: 32px; }
+      .ob-hero-visual { display: none; }
+      .ob-steps, .ob-features { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 720px) {
+      .ob-hero { padding: 24px 20px; border-radius: 16px; }
+      .ob-title { font-size: 26px; }
+      .ob-metrics { grid-template-columns: 1fr; }
+      .ob-metric + .ob-metric { border-left: none; border-top: 1px solid var(--vf-border, #e5e9f0); }
+      .ob-steps, .ob-features { grid-template-columns: 1fr; }
+      .ob-section-head { flex-direction: column; align-items: flex-start; }
+    }
+
+    /* Секция приветствия (старый блок — оставлен для совместимости стилей) */
     .welcome-section {
       margin-bottom: 2rem;
     }
@@ -1745,25 +1865,160 @@
     
     <!-- Контейнер для содержимого -->
     <div class="content-container" id="content-container">
-      <!-- Секция приветствия -->
-      <div class="welcome-section">
-        <h2 class="welcome-title" id="welcome-message">Добро пожаловать, Александр!</h2>
-        <p class="welcome-subtitle">Управляйте своими голосовыми ассистентами и создавайте новых.</p>
-      </div>
-      
-      <!-- Статистика -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon">
-              <i class="fas fa-robot"></i>
+      <!-- ================= Приветствие / онбординг ================= -->
+      <section class="ob-hero" id="ob-hero">
+        <div class="ob-hero-copy">
+          <div class="ob-eyebrow"><span class="ob-eyebrow-dot"></span>Voicyfy · платформа голосовых ИИ-ассистентов</div>
+          <h1 class="ob-title" id="welcome-message">Добро пожаловать!</h1>
+          <p class="ob-lead">
+            Здесь вы собираете голосовых ассистентов, которые отвечают на звонки, сами обзванивают
+            клиентов и разговаривают с посетителями сайта. Ключи провайдеров уже подключены —
+            вы платите только за минуты разговора с кошелька.
+          </p>
+          <div class="ob-actions">
+            <a href="/static/voice-assistants.html" class="ob-btn ob-btn-primary" data-ob-icon="plus">Создать ассистента</a>
+            <a href="/static/telephony.html" class="ob-btn ob-btn-ghost" data-ob-icon="phone">Подключить номер</a>
+            <button type="button" class="ob-link" id="ob-toggle-guide" data-ob-icon="chevron-down">Как это работает</button>
+          </div>
+          <div class="ob-models" id="ob-models" aria-label="Доступные голосовые модели">
+            <span class="ob-models-label">Работает на</span>
+            <span class="ob-models-list" id="ob-models-list"></span>
+          </div>
+        </div>
+
+        <div class="ob-hero-visual" aria-hidden="true">
+          <div class="ob-call">
+            <div class="ob-call-head">
+              <div class="ob-call-avatar" data-ob-icon="bot"></div>
+              <div>
+                <div class="ob-call-name">Ассистент «Менеджер»</div>
+                <div class="ob-call-sub"><span class="ob-live"></span>Входящий звонок · 00:42</div>
+              </div>
+              <div class="ob-wave"><i></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="ob-msgs">
+              <div class="ob-msg ob-msg-user"><span>Здравствуйте, хочу записаться на завтра</span></div>
+              <div class="ob-msg ob-msg-bot"><span>Конечно! На завтра свободно в 12:00 и 16:30. Какое время удобнее?</span></div>
+              <div class="ob-msg ob-msg-user"><span>Давайте в 16:30</span></div>
+              <div class="ob-msg ob-msg-bot"><span>Записал вас на 16:30. Напомню за час до визита.</span></div>
+            </div>
+            <div class="ob-call-foot">
+              <span class="ob-tag" data-ob-icon="square-check">Запись в CRM</span>
+              <span class="ob-tag" data-ob-icon="calendar">Календарь</span>
+              <span class="ob-tag" data-ob-icon="bell">Уведомление</span>
             </div>
           </div>
-          <div class="stat-value" id="bots-count">0</div>
-          <div class="stat-title">Активных ассистентов</div>
-          <div class="stat-breakdown" id="bots-breakdown"></div>
+        </div>
+      </section>
+
+      <!-- Метрики -->
+      <div class="ob-metrics">
+        <div class="ob-metric">
+          <div class="ob-metric-icon" data-ob-icon="bot"></div>
+          <div>
+            <div class="ob-metric-value" id="bots-count">0</div>
+            <div class="ob-metric-title">Активных ассистентов</div>
+            <div class="ob-metric-sub" id="bots-breakdown"></div>
+          </div>
+        </div>
+        <div class="ob-metric">
+          <div class="ob-metric-icon" data-ob-icon="phone"></div>
+          <div>
+            <div class="ob-metric-value" id="ob-numbers-count">—</div>
+            <div class="ob-metric-title">Телефонных номеров</div>
+            <div class="ob-metric-sub" id="ob-numbers-sub"></div>
+          </div>
+        </div>
+        <div class="ob-metric">
+          <div class="ob-metric-icon" data-ob-icon="wallet"></div>
+          <div>
+            <div class="ob-metric-value" id="ob-wallet-value">—</div>
+            <div class="ob-metric-title">На кошельке</div>
+            <div class="ob-metric-sub" id="ob-wallet-sub"></div>
+          </div>
         </div>
       </div>
+
+      <!-- Гид: три шага и возможности (сворачивается) -->
+      <section class="ob-guide" id="ob-guide">
+        <div class="ob-section-head">
+          <div>
+            <h2 class="ob-h2">Три шага до первого разговора</h2>
+            <p class="ob-muted">Обычно на это уходит меньше десяти минут.</p>
+          </div>
+          <div class="ob-progress" id="ob-progress">
+            <span class="ob-progress-bar"><i id="ob-progress-fill"></i></span>
+            <span id="ob-progress-text">0 из 3</span>
+          </div>
+        </div>
+
+        <ol class="ob-steps">
+          <li class="ob-step" id="ob-step-1">
+            <div class="ob-step-num"><span>1</span><i data-ob-icon="check"></i></div>
+            <div class="ob-step-body">
+              <h3>Соберите ассистента</h3>
+              <p>Опишите, как ему общаться, выберите голос и модель. Подключите базу знаний и функции — запись в CRM, Google-таблицы, уведомления в Telegram.</p>
+              <a href="/static/voice-assistants.html" class="ob-step-link" data-ob-icon="arrow-right">Открыть конструктор</a>
+            </div>
+          </li>
+          <li class="ob-step" id="ob-step-2">
+            <div class="ob-step-num"><span>2</span><i data-ob-icon="check"></i></div>
+            <div class="ob-step-body">
+              <h3>Подключите канал</h3>
+              <p>Купите номер и привяжите ассистента — он начнёт отвечать на звонки. Или вставьте виджет на сайт одной строкой кода и запустите обзвон по базе.</p>
+              <a href="/static/telephony.html" class="ob-step-link" data-ob-icon="arrow-right">Настроить телефонию</a>
+            </div>
+          </li>
+          <li class="ob-step" id="ob-step-3">
+            <div class="ob-step-num"><span>3</span><i data-ob-icon="check"></i></div>
+            <div class="ob-step-body">
+              <h3>Пополните кошелёк</h3>
+              <p>Списание идёт посекундно по цене выбранной модели, каскад — бесплатно. На старте мы уже зачислили подарочные рубли, чтобы вы могли всё проверить.</p>
+              <button type="button" class="ob-step-link" id="ob-topup-btn" data-ob-icon="arrow-right">Пополнить кошелёк</button>
+            </div>
+          </li>
+        </ol>
+
+        <div class="ob-section-head ob-section-head-tight">
+          <div>
+            <h2 class="ob-h2">Что умеет платформа</h2>
+            <p class="ob-muted">Один ассистент — все каналы общения с клиентами.</p>
+          </div>
+        </div>
+
+        <div class="ob-features">
+          <a class="ob-feature" href="/static/telephony.html">
+            <span class="ob-feature-icon" data-ob-icon="phone"></span>
+            <span class="ob-feature-title">Входящие звонки</span>
+            <span class="ob-feature-text">Ассистент отвечает круглосуточно, записывает клиентов и переводит на менеджера.</span>
+          </a>
+          <a class="ob-feature" href="/static/agent.html">
+            <span class="ob-feature-icon" data-ob-icon="headset"></span>
+            <span class="ob-feature-title">Обзвон базы</span>
+            <span class="ob-feature-text">Агент обзвона сам звонит по списку, задаёт вопросы и фиксирует результат.</span>
+          </a>
+          <a class="ob-feature" href="/static/voice-assistants.html">
+            <span class="ob-feature-icon" data-ob-icon="code"></span>
+            <span class="ob-feature-title">Виджет на сайте</span>
+            <span class="ob-feature-text">Голосовой помощник для посетителей — одна строка кода на любой странице.</span>
+          </a>
+          <a class="ob-feature" href="/static/voice-assistants.html?tab=knowledge">
+            <span class="ob-feature-icon" data-ob-icon="book-open"></span>
+            <span class="ob-feature-title">База знаний</span>
+            <span class="ob-feature-text">Загрузите документы — ассистент отвечает по ним, а не выдумывает.</span>
+          </a>
+          <a class="ob-feature" href="/static/crm.html">
+            <span class="ob-feature-icon" data-ob-icon="contact-round"></span>
+            <span class="ob-feature-title">CRM и диалоги</span>
+            <span class="ob-feature-text">Контакты, история разговоров, записи звонков и аналитика в одном месте.</span>
+          </a>
+          <a class="ob-feature" href="/static/voice-assistants.html">
+            <span class="ob-feature-icon" data-ob-icon="puzzle"></span>
+            <span class="ob-feature-title">Интеграции</span>
+            <span class="ob-feature-text">Google Sheets, Telegram, вебхуки, календарь и произвольные API-запросы.</span>
+          </a>
+        </div>
+      </section>
       
       <!-- Секция для информации о подписке -->
       <div class="subscription-section">
@@ -2773,7 +3028,7 @@
         openai: 'OpenAI',
         gemini: 'Gemini',
         grok: 'Grok',
-        cascade: 'Cascade',
+        cascade: 'Каскад',
         cartesia: 'Cartesia',
         yandex: 'Яндекс',
         translate: 'Переводчики'
@@ -3177,6 +3432,99 @@
       // Запускаем инициализацию
       initializePage();
     });
+  </script>
+  <!-- Онбординг дашборда: иконки, модели с ценами, прогресс шагов. Только UI. -->
+  <script>
+  (function () {
+    if (!window.VF) return;
+    var $ = function (id) { return document.getElementById(id); };
+    var token = null;
+    try { token = localStorage.getItem('auth_token'); } catch (e) {}
+    function api(path) {
+      return fetch('/api' + path, { headers: token ? { 'Authorization': 'Bearer ' + token } : {} })
+        .then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    }
+    function fmtRub(v) {
+      var n = Number(v || 0);
+      return (Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' ₽';
+    }
+
+    // Иконки Lucide вместо разметки-заглушек
+    document.querySelectorAll('[data-ob-icon]').forEach(function (el) {
+      var name = el.getAttribute('data-ob-icon');
+      var svg = VF.icon(name, el.classList.contains('ob-step-num') || el.tagName === 'I' ? 'ic-sm' : '');
+      if (el.tagName === 'I' || el.classList.contains('ob-call-avatar') || el.classList.contains('ob-metric-icon') || el.classList.contains('ob-feature-icon')) el.innerHTML = svg;
+      else el.insertAdjacentHTML(el.classList.contains('ob-step-link') || el.id === 'ob-toggle-guide' ? 'beforeend' : 'afterbegin', svg);
+    });
+
+    // Сворачивание гида (память в браузере)
+    var root = $('content-container');
+    var hidden = false;
+    try { hidden = localStorage.getItem('vf_dash_guide_hidden') === '1'; } catch (e) {}
+    function applyGuide() {
+      root.classList.toggle('ob-guide-hidden', hidden);
+      var t = $('ob-toggle-guide');
+      t.childNodes[0].nodeValue = hidden ? 'Как это работает ' : 'Скрыть подсказки ';
+    }
+    $('ob-toggle-guide').addEventListener('click', function () {
+      hidden = !hidden;
+      try { localStorage.setItem('vf_dash_guide_hidden', hidden ? '1' : '0'); } catch (e) {}
+      applyGuide();
+      if (!hidden) $('ob-guide').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    applyGuide();
+
+    $('ob-topup-btn').addEventListener('click', function () {
+      if (window.VoicyfySidebar && VoicyfySidebar.openTopupModal) VoicyfySidebar.openTopupModal();
+      else location.href = '/static/settings.html#wallet';
+    });
+
+    // Прогресс шагов
+    var steps = { 1: false, 2: false, 3: false };
+    function renderProgress() {
+      var n = [1, 2, 3].filter(function (k) { return steps[k]; }).length;
+      [1, 2, 3].forEach(function (k) { $('ob-step-' + k).classList.toggle('done', steps[k]); });
+      $('ob-progress-fill').style.width = Math.round(n / 3 * 100) + '%';
+      $('ob-progress-text').textContent = n === 3 ? 'Всё готово' : n + ' из 3';
+    }
+    renderProgress();
+
+    // Шаг 1 — ассистенты: следим за счётчиком, который заполняет основной скрипт страницы
+    var bots = $('bots-count');
+    function syncBots() { steps[1] = parseInt(bots.textContent, 10) > 0; renderProgress(); }
+    new MutationObserver(syncBots).observe(bots, { childList: true, characterData: true, subtree: true });
+    syncBots();
+
+    // Шаг 2 — номера
+    api('/telephony/my-numbers').then(function (r) {
+      var list = r ? (Array.isArray(r) ? r : (r.numbers || [])) : [];
+      $('ob-numbers-count').textContent = r ? list.length : '0';
+      var bound = list.filter(function (x) { return x.assistant_id || x.assistant_name || x.assistant_type; }).length;
+      $('ob-numbers-sub').textContent = list.length ? (bound ? 'с ассистентом: ' + bound : 'без привязки') : 'купите номер в разделе «Телефония»';
+      steps[2] = list.length > 0; renderProgress();
+    });
+
+    // Шаг 3 — кошелёк
+    api('/wallet/balance').then(function (b) {
+      if (!b) { $('ob-wallet-value').textContent = '—'; return; }
+      $('ob-wallet-value').textContent = fmtRub(b.balance_rub);
+      api('/wallet/transactions?type=topup&limit=1').then(function (t) {
+        var topped = !!(t && t.total > 0);
+        steps[3] = topped; renderProgress();
+        $('ob-wallet-sub').textContent = topped ? 'списание посекундно по тарифу модели' : (b.welcome_granted ? 'подарочные рубли уже зачислены' : 'пополните, чтобы начать');
+      });
+    });
+
+    // Модели и цены (как на странице ассистентов)
+    api('/wallet/tariffs/me').then(function (r) {
+      var list = (r && r.tariffs) || [];
+      if (!list.length) { $('ob-models').style.display = 'none'; return; }
+      $('ob-models-list').innerHTML = list.map(function (t) {
+        var price = t.own_key ? 'ваш ключ' : (t.price_rub_per_min ? t.price_rub_per_min + ' ₽/мин' : 'бесплатно');
+        return '<span class="ob-model">' + VF.logo(t.code, { size: 14 }) + VF.esc(t.name) + '<b>' + VF.esc(price) + '</b></span>';
+      }).join('');
+    });
+  })();
   </script>
 </body>
 </html>
