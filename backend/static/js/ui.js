@@ -252,7 +252,10 @@
   // Список рисуется порталом в body (position: fixed), чтобы его не обрезали
   // модалки и контейнеры с overflow. При прокрутке любого контейнера — закрываем.
   document.addEventListener('scroll', function (e) {
-    if (openMenu && openMenu.menu && !openMenu.menu.contains(e.target)) openMenu.close();
+    if (!openMenu || !openMenu.menu || openMenu.menu.contains(e.target)) return;
+    // Прокрутка, «догнавшая» клик (браузер подводит кнопку в видимую область), не закрывает список
+    if (Date.now() - (openMenu.openedAt || 0) < 350) { openMenu.reposition && openMenu.reposition(); return; }
+    openMenu.close();
   }, true);
 
   /**
@@ -319,6 +322,13 @@
         it.addEventListener('click', function () { choose(parseInt(it.getAttribute('data-i'), 10)); });
       });
     }
+    // Прокручиваем только сам список: scrollIntoView мог бы прокрутить страницу,
+    // а прокрутка страницы закрывает открытый список.
+    function scrollItemIntoMenu(item) {
+      var top = item.offsetTop, bottom = top + item.offsetHeight;
+      if (top < menu.scrollTop) menu.scrollTop = top - 6;
+      else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight + 6;
+    }
     function positionMenu() {
       var r = btn.getBoundingClientRect();
       var spaceBelow = window.innerHeight - r.bottom;
@@ -341,9 +351,9 @@
       menu.classList.add('fixed'); menu.style.zIndex = '1300';
       document.body.appendChild(menu);
       positionMenu();
-      menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); openMenu = api;
+      menu.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); openMenu = api; api.openedAt = Date.now();
       var inp = menu.querySelector('input'); if (inp) setTimeout(function () { inp.focus({ preventScroll: true }); }, 10);
-      var sel = menu.querySelector('.vf-menu-item.selected'); if (sel) sel.scrollIntoView({ block: 'nearest' });
+      var sel = menu.querySelector('.vf-menu-item.selected'); if (sel) scrollItemIntoMenu(sel);
     }
     function close() {
       menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
@@ -366,14 +376,14 @@
       else if (e.key === 'Escape') { e.preventDefault(); close(); btn.focus(); return; }
       else return;
       items.forEach(function (x, i) { x.classList.toggle('hl', i === cur); });
-      if (items[cur]) items[cur].scrollIntoView({ block: 'nearest' });
+      if (items[cur]) scrollItemIntoMenu(items[cur]);
     }
     btn.addEventListener('click', function () { menu.classList.contains('open') ? close() : open(); });
     btn.addEventListener('keydown', onKey);
     renderBtn();
 
     var api = {
-      root: root, menu: menu, open: open, close: close,
+      root: root, menu: menu, open: open, close: close, reposition: positionMenu, openedAt: 0,
       get value() { return state.value; },
       set: function (v, silent) { state.value = v == null ? null : String(v); renderBtn(); if (!silent && opts.onChange) opts.onChange(v, current()); },
       setOptions: function (o) { setData(o); if (!current()) state.value = null; renderBtn(); },
