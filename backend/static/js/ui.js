@@ -387,6 +387,11 @@
     if (c) c.addEventListener('click', closeSb);
     scrim.addEventListener('click', closeSb);
     sb.addEventListener('click', function (e) { if (e.target.closest('a')) closeSb(); });
+    var tb = document.querySelector('.vf-topbar');
+    if (tb) {
+      var onScroll = function () { tb.classList.toggle('scrolled', (window.scrollY || document.documentElement.scrollTop) > 4); };
+      window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
+    }
   }
 
   function ready() { loader.hide(); }

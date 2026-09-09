@@ -94,7 +94,7 @@ body.vf {
 .vf p { margin: 0; }
 .vf ::selection { background: var(--vf-accent-soft); }
 .vf :focus-visible { outline: 2px solid var(--vf-accent); outline-offset: 2px; border-radius: 4px; }
-.vf button, .vf input, .vf select, .vf textarea { font: inherit; color: inherit; }
+:where(.vf) :where(button, input, select, textarea) { font: inherit; color: inherit; }
 
 /* Иконки Lucide из спрайта /static/icons/ui.svg */
 .ic { width: 18px; height: 18px; flex: 0 0 auto; display: inline-block; vertical-align: -3px; }
@@ -113,7 +113,7 @@ body.vf {
   background: var(--vf-surface); border-right: 1px solid var(--vf-border);
   display: flex; flex-direction: column; overflow-y: auto; transition: transform var(--vf-normal);
 }
-.vf-sidebar-head { height: var(--vf-topbar-h); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--vf-border); }
+.vf-sidebar-head { height: var(--vf-topbar-h); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
 .vf-logo { display: flex; align-items: center; gap: 10px; color: var(--vf-text); font-family: var(--vf-font-display); font-weight: 800; font-size: 19px; letter-spacing: -0.03em; }
 .vf-logo img { width: 30px; height: 30px; border-radius: 8px; object-fit: contain; display: block; }
 .vf-logo .wordmark { background: linear-gradient(135deg, #2563eb, #3b82f6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
@@ -138,8 +138,10 @@ body.vf {
 .vf-topbar {
   height: var(--vf-topbar-h); position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 0 28px; background: color-mix(in srgb, var(--vf-bg) 86%, transparent); backdrop-filter: saturate(160%) blur(10px); -webkit-backdrop-filter: saturate(160%) blur(10px);
-  border-bottom: 1px solid var(--vf-border);
+  border-bottom: 1px solid transparent; transition: border-color var(--vf-fast), box-shadow var(--vf-fast);
 }
+/* Граница и тень у верхней панели появляются только при прокрутке (VF: класс .scrolled) */
+.vf-topbar.scrolled { border-bottom-color: var(--vf-border); box-shadow: 0 4px 12px -8px rgba(15, 23, 42, .12); }
 .vf-topbar-left, .vf-topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .vf-content { padding: 24px 28px 40px; flex: 1; }
 .mobile-toggle, .btn.mobile-toggle { display: none; }
