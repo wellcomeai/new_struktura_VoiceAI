@@ -21,7 +21,6 @@ from backend.models.subscription import SubscriptionPlan, PaymentTransaction
 from backend.models.credit_package import CreditPackage
 from backend.services.credit_service import (
     CreditService,
-    activate_agent_trial,
     AGENT_PLAN_CODE,
 )
 from backend.services.payment_service import RobokassaService
@@ -234,28 +233,15 @@ async def subscribe_agent(
     db: Session = Depends(get_db),
 ):
     """
-    Оформить/продлить тариф agent (5 490 ₽).
-    Если trial ещё не использован — активирует бесплатный trial без оплаты.
+    Оформить/продлить тариф agent (5 490 ₽): всегда создаёт платёж.
+
+    Раньше эндпоинт при неиспользованном триале активировал его вместо оплаты,
+    и кнопка «Оплатить» в модалке тарифов не вела на Robokassa. Триал выдаётся
+    только при первом создании агента (backend/api/agent.py), здесь его нет.
     """
     user = db.query(User).filter(User.id == current_user.id).first()
 
-    # Trial доступен — активируем бесплатно
-    if not user.agent_trial_used:
-        activated = activate_agent_trial(db, user)
-        if activated:
-            db.refresh(user)
-            logger.info(f"[CREDITS] Trial activated for user {user.id} via /subscribe")
-            from datetime import timedelta
-            trial_until = None
-            if user.agent_trial_started_at:
-                trial_until = (user.agent_trial_started_at + timedelta(days=User.AGENT_TRIAL_DAYS)).isoformat()
-            return {
-                "trial_activated": True,
-                "trial_until": trial_until,
-                "credits_balance": user.credits_balance or 0,
-            }
-
-    # Иначе — обычный платёж за тариф agent
+    # Платёж за тариф agent
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == AGENT_PLAN_CODE).first()
     if not plan:
         raise HTTPException(status_code=500, detail="agent_plan_not_found")
