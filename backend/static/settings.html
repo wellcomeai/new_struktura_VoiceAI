@@ -1705,6 +1705,7 @@
       // Управление UI
       const ui = {
         showNotification(message, type = 'success') {
+          if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
           notificationMessage.textContent = message;
           
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
@@ -2409,7 +2410,7 @@
       }
 
       async function generateApiKey(isRegenerate) {
-        if (isRegenerate && !confirm('Перевыпустить ключ? Старый ключ сразу перестанет работать во всех интеграциях.')) {
+        if (isRegenerate && !await VF.confirm({ title: 'Перевыпустить ключ?', message: 'Старый ключ сразу перестанет работать во всех интеграциях.', confirmText: 'Перевыпустить', warning: true, icon: 'refresh-cw' })) {
           return;
         }
         try {
@@ -2425,7 +2426,7 @@
       }
 
       async function revokeApiKey() {
-        if (!confirm('Отозвать ключ? Все интеграции, использующие его, перестанут работать.')) {
+        if (!await VF.confirm({ title: 'Отозвать ключ?', message: 'Все интеграции, использующие его, перестанут работать.', confirmText: 'Отозвать', danger: true })) {
           return;
         }
         try {

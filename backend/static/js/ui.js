@@ -8,6 +8,7 @@
  *   VF.progress.start()/done()      — тонкая полоса прогресса сверху
  *   VF.toast(msg, {type, action, actionLabel, duration})
  *   VF.confirm({title, message, confirmText, cancelText, danger}) → Promise<boolean>
+ *   VF.alert({title, message, okText}) → Promise<void>
  *   VF.modal(el) → {open(), close()} — модалка с фокус-ловушкой и Esc
  *   VF.select(el, {options|groups, value, placeholder, search, onChange}) → api
  *   VF.menu(trigger, items)         — контекстное меню
@@ -220,6 +221,26 @@
     });
   }
 
+  /** VF.alert({title, message|html, okText, icon}) → Promise<void> — замена window.alert */
+  function alertDialog(opts) {
+    opts = typeof opts === 'string' ? { message: opts } : (opts || {});
+    return new Promise(function (resolve) {
+      var backdrop = document.createElement('div');
+      backdrop.className = 'vf-backdrop';
+      backdrop.innerHTML =
+        '<div class="vf-dialog vf-dialog-sm" role="dialog" aria-modal="true">' +
+        '<div class="vf-dialog-head"><div class="row" style="gap:14px;align-items:flex-start">' +
+        '<span class="vf-dialog-icon' + (opts.danger ? ' danger' : '') + '">' + icon(opts.icon || (opts.danger ? 'circle-x' : 'info')) + '</span>' +
+        '<div><h3>' + esc(opts.title || 'Сообщение') + '</h3></div></div></div>' +
+        '<div class="vf-dialog-body" style="padding-left:78px;white-space:pre-wrap;word-break:break-word">' + (opts.html || esc(opts.message || '')) + '</div>' +
+        '<div class="vf-dialog-foot"><button type="button" class="btn btn-primary" data-act="ok" autofocus>' + esc(opts.okText || 'Понятно') + '</button></div></div>';
+      document.body.appendChild(backdrop);
+      var m = modal(backdrop, { onClose: function () { setTimeout(function () { backdrop.remove(); }, 260); resolve(); } });
+      backdrop.querySelector('[data-act="ok"]').addEventListener('click', function () { m.close('ok'); });
+      m.open();
+    });
+  }
+
   // ------------------------------------------------------------------
   // Кастомный селект и меню
   // ------------------------------------------------------------------
@@ -416,7 +437,7 @@
 
   function ready() { loader.hide(); }
 
-  var VF = { icon: icon, logo: logo, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
+  var VF = { icon: icon, logo: logo, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, alert: alertDialog, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
   global.VF = VF;
 
   // Автозапуск: загрузчик сразу, каркас после DOM. Страховка: спрятать через 6 с.

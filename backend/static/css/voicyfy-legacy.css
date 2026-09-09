@@ -79,6 +79,8 @@ body.vf .btn-secondary, body.vf .btn-outline { background: var(--vf-surface); bo
 body.vf .btn-secondary:hover, body.vf .btn-outline:hover { background: var(--vf-surface-2); border-color: var(--vf-border-strong); color: var(--vf-text); }
 body.vf .btn-danger { background: var(--vf-surface); border-color: var(--vf-border-strong); color: var(--vf-danger); }
 body.vf .btn-danger:hover { background: var(--vf-danger-soft); border-color: var(--vf-danger); color: var(--vf-danger); }
+body.vf .btn-danger.btn-solid { background: var(--vf-danger); border-color: var(--vf-danger); color: #fff; }
+body.vf .btn-danger.btn-solid:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 body.vf .btn-success { background: var(--vf-success); border-color: var(--vf-success); color: #fff; }
 body.vf .btn-sm { min-height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 7px; }
 body.vf .btn-lg { min-height: 42px; padding: 0 18px; font-size: 14.5px; }

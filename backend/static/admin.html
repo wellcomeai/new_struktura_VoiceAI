@@ -1573,7 +1573,7 @@
                 fetch('/api/wallet/admin/tariffs/'+t.code,{method:'PUT',headers:hdr(),body:JSON.stringify(payload)})
                   .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
                   .then(function(){ this.textContent='Сохранено'; setTimeout(function(){ loadTariffs(); },800); }.bind(this))
-                  .catch(function(e){ alert('Ошибка сохранения: '+e.message); });
+                  .catch(function(e){ VF.toast('Ошибка сохранения: '+e.message, { type: 'error' }); });
               });
               body.appendChild(tr);
             });
@@ -2097,6 +2097,7 @@
       // Управление UI
       const ui = {
         showNotification(message, type = 'success') {
+          if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');
           notification.classList.add(`notification-${type}`);
           

@@ -237,6 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function showNotification(message, type = 'success') {
+    if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
     notification.classList.remove('notification-success', 'notification-error');
     notification.classList.add(`notification-${type}`);
     
@@ -504,7 +505,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ==================== Delete Note ====================
   async function deleteNote(noteId) {
     try {
-      if (!confirm('Удалить эту заметку?')) {
+      if (!await VF.confirm({ title: 'Удалить заметку?', message: 'Заметка будет удалена без возможности восстановления.', confirmText: 'Удалить', danger: true })) {
         return;
       }
       

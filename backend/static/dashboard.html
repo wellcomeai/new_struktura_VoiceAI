@@ -2812,6 +2812,7 @@
       // ========================================
       const ui = {
         showNotification(message, type = 'success') {
+          if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
           notificationMessage.textContent = message;
           
           notification.classList.remove('notification-success', 'notification-error', 'notification-info');

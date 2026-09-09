@@ -2150,6 +2150,7 @@
       }
       
       function showNotification(message, type = 'success') {
+        if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
         notification.classList.remove('notification-success', 'notification-error', 'notification-info', 'notification-warning');
         notification.classList.add(`notification-${type}`);
         
@@ -2322,12 +2323,12 @@
       
       // Удаление номера
       async function deletePhoneNumber(phoneId, phoneNumber) {
-        const confirmed = confirm(
-          `⚠️ Удалить номер ${formatPhoneNumber(phoneNumber)}?\n\n` +
-          `Номер будет удалён немедленно.\n` +
-          `Средства за текущий месяц возврату не подлежат.\n\n` +
-          `Это действие необратимо.`
-        );
+        const confirmed = await VF.confirm({
+          title: `Удалить номер ${formatPhoneNumber(phoneNumber)}?`,
+          message: 'Номер будет удалён немедленно. Средства за текущий месяц возврату не подлежат. Это действие необратимо.',
+          confirmText: 'Удалить номер',
+          danger: true,
+        });
         if (!confirmed) return;
 
         try {
@@ -3018,7 +3019,13 @@
         if (!selectedNumberToBuy) return;
         
         const priceText = selectedNumberPrice ? ` за ${selectedNumberPrice} ₽` : '';
-        if (!confirm(`Купить номер ${formatPhoneNumber(selectedNumberToBuy)}${priceText}?`)) return;
+        const buyConfirmed = await VF.confirm({
+          title: `Купить номер ${formatPhoneNumber(selectedNumberToBuy)}${priceText}?`,
+          message: 'Стоимость спишется с баланса телефонии. Номер появится в списке «Мои номера».',
+          confirmText: 'Купить',
+          icon: 'phone',
+        });
+        if (!buyConfirmed) return;
         
         try {
           setLoading(true);
@@ -3485,7 +3492,13 @@
       // Отключение SIP транка
       async function disconnectSip(provider) {
         const names = { novofon: 'Новофон', mango: 'Манго Офис', sipuni: 'Sipuni', other: 'провайдер' };
-        if (!confirm(`Отключить SIP транк ${names[provider] || provider}? Входящие звонки перестанут работать.`)) return;
+        const sipConfirmed = await VF.confirm({
+          title: `Отключить SIP транк ${names[provider] || provider}?`,
+          message: 'Входящие звонки через этот транк перестанут работать.',
+          confirmText: 'Отключить',
+          danger: true,
+        });
+        if (!sipConfirmed) return;
         try {
           setLoading(true);
           await api.fetch(`/telephony/sip/${provider}`, { method: 'DELETE' });
@@ -3569,7 +3582,7 @@
               const fullBody = row.getAttribute('data-sms-body');
               const isRead = row.getAttribute('data-sms-read') === 'true';
 
-              alert(fullBody);
+              await VF.alert({ title: 'Текст SMS', message: fullBody, icon: 'messages-square', okText: 'Закрыть' });
 
               if (!isRead) {
                 try {

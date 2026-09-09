@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   function showNotification(message, type = 'success') {
+    if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
     notification.classList.remove('notification-success', 'notification-error', 'notification-info');
     notification.classList.add(`notification-${type}`);
     

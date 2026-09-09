@@ -2359,6 +2359,7 @@
       }
       
       function showNotification(message, type = 'success') {
+        if (window.VF && VF.toast) { VF.toast(message, { type: type || 'success' }); return; }
         notification.classList.remove('notification-success', 'notification-error', 'notification-info');
         notification.classList.add(`notification-${type}`);
         
@@ -2722,7 +2723,7 @@
       }
       
       async function deleteTelegramSettings() {
-        if (!confirm('Вы уверены, что хотите удалить настройки Telegram? Уведомления о звонках перестанут приходить.')) {
+        if (!await VF.confirm({ title: 'Удалить настройки Telegram?', message: 'Уведомления о звонках перестанут приходить.', confirmText: 'Удалить', danger: true })) {
           return;
         }
         
@@ -2866,7 +2867,7 @@
       }
 
       async function deleteWebhookSettings() {
-        if (!confirm('Вы уверены, что хотите удалить настройки webhook? Уведомления о диалогах перестанут приходить.')) {
+        if (!await VF.confirm({ title: 'Удалить настройки webhook?', message: 'Уведомления о диалогах перестанут приходить.', confirmText: 'Удалить', danger: true })) {
           return;
         }
 
@@ -2917,7 +2918,7 @@
       async function deleteConversation(event, conversationId) {
         event.stopPropagation();
         
-        if (!confirm('Вы уверены, что хотите удалить этот диалог? Это действие необратимо.')) {
+        if (!await VF.confirm({ title: 'Удалить диалог?', message: 'История разговора будет удалена. Это действие необратимо.', confirmText: 'Удалить', danger: true })) {
           return;
         }
         
