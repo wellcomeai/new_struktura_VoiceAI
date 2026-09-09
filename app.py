@@ -51,6 +51,7 @@ from backend.api import (
     agent_telegram_account,  # ✅ Личный Telegram-аккаунт агента (MTProto)
     agent_max_account,  # ✅ Личный аккаунт MAX агента (PyMax)
     credits,  # ✅ Система кредитов оркестратора
+    wallet,  # ✅ v6.0: Единый кошелёк + тарифы голосовых моделей
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -209,6 +210,7 @@ app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["A
 app.include_router(agent_telegram_account.router, prefix="/api/agent/telegram-account", tags=["Agent Telegram Account"])  # ✅ Личный TG-аккаунт агента
 app.include_router(agent_max_account.router, prefix="/api/agent/max-account", tags=["Agent MAX Account"])  # ✅ Личный MAX-аккаунт агента (PyMax)
 app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
+app.include_router(wallet.router, tags=["Wallet"])  # ✅ v6.0: единый кошелёк + тарифы (prefix /api/wallet встроен)
 
 # ============================================================================
 # STATIC FILES
@@ -244,6 +246,40 @@ async def voice_interface_redirect(request: Request):
     if query_string:
         url += "?" + query_string
     return RedirectResponse(url=url)
+
+# ✅ v6.0: Единая страница «Голосовые ассистенты» заменила страницы провайдеров.
+# Старые URL (закладки клиентов) редиректим на новую страницу; сами файлы
+# остаются в репозитории для обратной совместимости и быстрого отката.
+LEGACY_PROVIDER_PAGES = {
+    "agents.html": "openai",
+    "gemini-agents.html": "gemini",
+    "cartesia-agents.html": "cartesia",
+    "yandex-agents.html": "yandex",
+    "cascade.html": "cascade",
+    "fish-agents.html": "fish",
+    "grok-agents.html": None,
+    "elevenlabs-agents.html": None,
+    "knowledge-base.html": None,
+    "translate.html": None,
+}
+
+def _make_legacy_redirect(page: str, provider):
+    async def _legacy_redirect(request: Request):
+        url = "/static/voice-assistants.html"
+        params = dict(request.query_params)
+        if provider:
+            params.setdefault("model", provider)
+        if page == "knowledge-base.html":
+            params.setdefault("tab", "knowledge")
+        if params:
+            url += "?" + "&".join(f"{k}={v}" for k, v in params.items())
+        return RedirectResponse(url=url, status_code=302)
+    return _legacy_redirect
+
+
+for _legacy_page, _provider in LEGACY_PROVIDER_PAGES.items():
+    app.add_api_route(f"/static/{_legacy_page}", _make_legacy_redirect(_legacy_page, _provider),
+                      methods=["GET"], include_in_schema=False)
 
 # Монтируем статику
 try:
@@ -808,6 +844,9 @@ def check_and_fix_all_missing_columns():
                 # 🆕 Кредиты каскад-ассистентов (LLM gpt-realtime-2.1-mini на серверном ключе)
                 'cascade_credits_balance': 'INTEGER DEFAULT 0 NOT NULL',
                 'cascade_trial_granted': 'BOOLEAN DEFAULT FALSE NOT NULL',
+                # 🆕 v6.0: Единый рублёвый кошелёк Voicyfy (копейки)
+                'wallet_balance': 'INTEGER DEFAULT 0 NOT NULL',
+                'wallet_welcome_granted': 'BOOLEAN DEFAULT FALSE NOT NULL',
                 # 🆕 Персональный API-ключ Voicyfy (внешние интеграции, Claude Code)
                 'api_key_hash': 'VARCHAR(64) NULL',
                 'api_key_prefix': 'VARCHAR(20) NULL',
@@ -1720,6 +1759,39 @@ def ensure_yandex_agent_columns():
         logger.error(f"❌ ensure_yandex_agent_columns error: {e}")
 
 
+def ensure_wallet_tables():
+    """
+    ✅ v6.0: Идемпотентно создаёт таблицы единого кошелька —
+    voice_model_tariffs (витрина цен) и wallet_transactions (журнал) — и
+    сидирует тарифы по умолчанию. Колонки users.wallet_* добавляет
+    check_and_fix_all_missing_columns(). Alembic не трогаем (несколько head).
+    """
+    try:
+        from sqlalchemy import inspect
+        from backend.models.voice_tariff import VoiceModelTariff
+        from backend.models.wallet_transaction import WalletTransaction
+        from backend.services.wallet_service import TariffService
+        from backend.db.session import SessionLocal
+
+        inspector = inspect(engine)
+        if not inspector.has_table('voice_model_tariffs'):
+            VoiceModelTariff.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table voice_model_tariffs")
+        if not inspector.has_table('wallet_transactions'):
+            WalletTransaction.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table wallet_transactions")
+
+        db = SessionLocal()
+        try:
+            added = TariffService.seed_defaults(db)
+            if added:
+                logger.info(f"✅ Seeded {added} default voice model tariffs")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"❌ ensure_wallet_tables error: {e}")
+
+
 def ensure_agent_connectors_table():
     """
     Идемпотентно создаёт таблицу agent_connectors (внешние коннекторы агента
@@ -1882,6 +1954,9 @@ async def startup_event():
 
                 # 🆕 Шаг 11.2: Гарантированный сид пакетов докупки каскада
                 ensure_cascade_credit_packages()
+
+                # 🆕 Шаг 11.4 (v6.0): Таблицы единого кошелька и витрина тарифов
+                ensure_wallet_tables()
 
                 # 🆕 Шаг 11.3: Устаревшие слаги моделей оркестратора → актуальные
                 ensure_agent_orchestrator_model_migration()

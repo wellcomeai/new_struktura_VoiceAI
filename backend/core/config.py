@@ -54,6 +54,30 @@ class Settings(BaseSettings):
     # ✅ v3.0: OpenRouter — системный ключ для оркестратора Voicyfy Agent
     OPENROUTER_API_KEY: Optional[str] = os.getenv("OPENROUTER_API_KEY")
 
+    # =========================================================================
+    # ✅ v6.0: Серверные ключи голосовых провайдеров (единый кошелёк Voicyfy)
+    # =========================================================================
+    # Подмена ключа происходит в точке выдачи конфига (WS-хендлеры, /config
+    # сценариев Voximplant). В БД ключи НЕ копируются. Если у пользователя
+    # прописан свой ключ — он работает по-старому и бесплатно (soft-режим).
+    GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+    FISH_API_KEY: Optional[str] = os.getenv("FISH_API_KEY")
+    CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
+    YANDEX_API_KEY: Optional[str] = os.getenv("YANDEX_API_KEY")
+    YANDEX_FOLDER_ID: Optional[str] = os.getenv("YANDEX_FOLDER_ID")
+
+    # Кошелёк: приветственный грант новому аккаунту (в рублях) и лимиты сессий.
+    WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
+    WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
+    WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
+    # Жёсткий лимит длительности звонка (сценарий получает его в конфиге)
+    VOICE_MAX_CALL_DURATION_SEC: int = int(os.getenv("VOICE_MAX_CALL_DURATION_SEC", "1800"))
+    # Лимит одной сессии веб-виджета на серверном ключе
+    VOICE_MAX_WIDGET_SESSION_SEC: int = int(os.getenv("VOICE_MAX_WIDGET_SESSION_SEC", "3600"))
+    # Флаг обратной совместимости: списание каскад-кредитов по токенам.
+    # По умолчанию выключено — каскад бесплатен, платит только телефония.
+    CASCADE_CREDITS_BILLING: bool = os.getenv("CASCADE_CREDITS_BILLING", "false").lower() == "true"
+
     # STT (speech-to-text) — распознавание голосовых в веб-чате и Telegram.
     # Основной провайдер — OpenAI, fallback — OpenRouter (если задан ключ).
     STT_OPENAI_MODEL: str = os.getenv("STT_OPENAI_MODEL", "gpt-4o-mini-transcribe")

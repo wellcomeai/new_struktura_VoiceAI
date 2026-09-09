@@ -377,6 +377,56 @@ class RobokassaService:
         return f"OK{inv_id}"
 
     @classmethod
+    async def _process_wallet_topup_payment(
+        cls,
+        db: Session,
+        user: User,
+        inv_id: str,
+        out_sum: str,
+        declared_amount_rub: str,
+    ) -> str:
+        """
+        ✅ v6.0: Пополнение единого кошелька Voicyfy (Shp_wallet_topup=<рубли>).
+        Идемпотентно через transaction.is_processed и через WalletService.topup
+        (один TOPUP на payment_transaction). Начисляем фактически оплаченную
+        сумму OutSum, сверив её с заявленной в Shp_ (защита от подмены).
+        """
+        from backend.services.wallet_service import WalletService
+
+        try:
+            paid = float(out_sum)
+            declared = float(declared_amount_rub)
+        except (ValueError, TypeError):
+            logger.error(f"❌ Invalid wallet topup amounts: out_sum={out_sum}, shp={declared_amount_rub}")
+            return "FAIL"
+        if paid <= 0 or abs(paid - declared) > 0.01:
+            logger.error(f"❌ Wallet topup amount mismatch: paid {paid}, declared {declared}")
+            return "FAIL"
+
+        transaction = db.query(PaymentTransaction).filter(
+            PaymentTransaction.external_payment_id == inv_id
+        ).first()
+        if transaction and transaction.is_processed:
+            logger.info(f"ℹ️ Wallet topup {inv_id} already processed, skipping")
+            return f"OK{inv_id}"
+
+        WalletService.topup(
+            db, user, int(round(paid * 100)), transaction,
+            notes=f"Пополнение через Robokassa, InvId {inv_id}",
+        )
+
+        if transaction:
+            now = datetime.now(timezone.utc)
+            transaction.status = "success"
+            transaction.is_processed = True
+            transaction.paid_at = now
+            transaction.processed_at = now
+            db.commit()
+
+        logger.info(f"✅ Wallet topup +{paid:.2f} ₽ applied to user {user.id}")
+        return f"OK{inv_id}"
+
+    @classmethod
     async def _process_agent_subscription_payment(
         cls,
         db: Session,
@@ -551,7 +601,14 @@ class RobokassaService:
             # =================================================================
             shp_credits_package = custom_params.get("Shp_credits_package")
             shp_cascade_package = custom_params.get("Shp_cascade_package")
+            shp_wallet_topup = custom_params.get("Shp_wallet_topup")
             shp_plan_code = custom_params.get("Shp_plan_code")
+
+            # ✅ v6.0: пополнение единого кошелька Voicyfy
+            if shp_wallet_topup:
+                return await cls._process_wallet_topup_payment(
+                    db, user, inv_id, out_sum, shp_wallet_topup
+                )
 
             if shp_cascade_package:
                 return await cls._process_cascade_package_payment(

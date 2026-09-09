@@ -92,6 +92,12 @@ class User(Base, BaseModel):
     cascade_credits_balance = Column(Integer, default=0, nullable=False)
     cascade_trial_granted = Column(Boolean, default=False, nullable=False)
 
+    # ✅ v6.0: Единый рублёвый кошелёк Voicyfy (хранение в копейках).
+    # Оплачивает «мозг и голос» ассистента по цене модели за минуту при работе
+    # на СЕРВЕРНЫХ ключах. Свой ключ в профиле — работа бесплатно, по-старому.
+    wallet_balance = Column(Integer, default=0, nullable=False)
+    wallet_welcome_granted = Column(Boolean, default=False, nullable=False)
+
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")
@@ -357,6 +363,11 @@ class User(Base, BaseModel):
     def has_cascade_credits(self) -> bool:
         """True если на балансе каскада есть кредиты (>0)."""
         return (self.cascade_credits_balance or 0) > 0
+
+    @property
+    def wallet_balance_rub(self) -> float:
+        """Баланс кошелька в рублях (для UI)."""
+        return round((self.wallet_balance or 0) / 100.0, 2)
 
     def is_email_verified(self):
         """Проверить, подтверждён ли email пользователя"""

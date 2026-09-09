@@ -94,6 +94,10 @@ from .sms_message import SmsMessage
 from .credit_transaction import CreditTransaction, CreditTransactionType
 from .credit_package import CreditPackage
 
+# ✅ v6.0: Единый кошелёк и тарифы голосовых моделей
+from .voice_tariff import VoiceModelTariff
+from .wallet_transaction import WalletTransaction, WalletTransactionType
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -168,4 +172,8 @@ __all__ = [
     "CreditTransaction",
     "CreditTransactionType",
     "CreditPackage",
+    # ✅ v6.0: Единый кошелёк и тарифы голосовых моделей
+    "VoiceModelTariff",
+    "WalletTransaction",
+    "WalletTransactionType",
 ]

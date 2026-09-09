@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 from backend.core.logging import get_logger
 from backend.models.fish_assistant import FishAssistantConfig, DEFAULT_FISH_MODEL
 from backend.models.user import User
+from backend.services import provider_keys  # ✅ v6.0: серверные ключи
 
 logger = get_logger(__name__)
 
@@ -532,7 +533,10 @@ async def handle_fish_tts_connection(
             return
 
         user = db.query(User).filter(User.id == assistant.user_id).first()
-        api_key = user.fish_api_key if user else None
+        # ✅ v6.0: свой ключ Fish → бесплатно; нет ключа → серверный ключ Voicyfy.
+        # Списание за звонок идёт по отчёту сценария (/api/voximplant/log).
+        _resolved = provider_keys.resolve(user, "fish")
+        api_key = _resolved.tts_api_key
 
         if not api_key:
             logger.warning(f"[FISH-TTS] No Fish API key for assistant {assistant_id}")

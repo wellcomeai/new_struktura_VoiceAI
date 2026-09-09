@@ -37,6 +37,8 @@ from websockets.exceptions import ConnectionClosed
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
+from backend.services import provider_keys  # ✅ v6.0: серверные ключи
+from backend.services.voice_billing import VoiceBillingSession  # ✅ v6.0: кошелёк
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
 from backend.models.elevenlabs import ElevenLabsAgent
@@ -521,6 +523,8 @@ async def handle_websocket_connection_new(
 
         # Check subscription
         api_key = None
+        billing_user = None      # ✅ v6.0: юзер, с кошелька которого списываем (серверный ключ)
+        billing_session = None   # ✅ v6.0: посекундный учёт сессии
         if assistant.user_id:
             user = db.query(User).get(assistant.user_id)
             if user:
@@ -555,7 +559,13 @@ async def handle_websocket_connection_new(
                         await websocket.close(code=1008)
                         return
                 
-                api_key = user.openai_api_key
+                # ✅ v6.0: свой ключ в профиле → бесплатно; нет ключа → серверный
+                # ключ Voicyfy и посекундное списание с кошелька.
+                _resolved = provider_keys.resolve(user, "openai")
+                api_key = _resolved.api_key
+                if _resolved.is_server and provider_keys.is_billable(user, "openai"):
+                    billing_user = user
+                    log_to_render(f"💳 Server key mode ({', '.join(_resolved.server_parts)}) → wallet billing")
                 if api_key:
                     log_to_render(f"🔑 API key loaded: {api_key[:10]}...{api_key[-5:]}")
                 else:
@@ -569,6 +579,18 @@ async def handle_websocket_connection_new(
             })
             await websocket.close(code=1008)
             return
+
+        # ✅ v6.0: предпроверка кошелька (минимум — цена одной минуты)
+        if billing_user is not None:
+            billing_session = VoiceBillingSession(
+                billing_user.id, "openai", channel="widget", assistant_id=assistant_id
+            )
+            _ok, _err = billing_session.precheck()
+            if not _ok:
+                log_to_render(f"💳 Wallet insufficient for user {billing_user.id}: {_err}", "WARNING")
+                await websocket.send_json({"type": "error", "error": _err})
+                await websocket.close(code=1008)
+                return
 
         # Create OpenAI Realtime client
         log_to_render(f"🚀 Creating OpenAI Realtime client v3.3...")
@@ -589,6 +611,26 @@ async def handle_websocket_connection_new(
             return
 
         connection_time = time.time() - connect_start
+
+        # ✅ v6.0: старт посекундного списания; при нулевом балансе — корректно завершаем
+        if billing_session is not None:
+            async def _on_wallet_exhausted():
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "error": {
+                            "code": "wallet_exhausted",
+                            "message": "Баланс кошелька Voicyfy исчерпан, разговор завершён. Пополните кошелёк.",
+                            "requires_topup": True,
+                        },
+                    })
+                except Exception:
+                    pass
+                try:
+                    await websocket.close(code=1008)
+                except Exception:
+                    pass
+            billing_session.start(on_exhausted=_on_wallet_exhausted)
         log_to_render(f"✅ Connected to OpenAI in {connection_time:.2f}s")
         log_to_render(f"   Conversation Record ID: {openai_client.conversation_record_id}")  # 🆕 v3.0
 
@@ -819,6 +861,12 @@ async def handle_websocket_connection_new(
         except:
             pass
     finally:
+        # ✅ v6.0: досписание хвоста сессии (минимум 10 секунд)
+        try:
+            if billing_session is not None:
+                await billing_session.stop()
+        except Exception as _be:
+            log_to_render(f"💳 Billing stop error: {_be}", "ERROR")
         if openai_client:
             await openai_client.close()
         

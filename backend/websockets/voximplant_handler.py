@@ -836,11 +836,10 @@ class VoximplantProtocolHandler:
     async def _get_api_key(self, assistant: AssistantConfig) -> Optional[str]:
         """Get OpenAI API key."""
         try:
-            if assistant.user_id:
-                user = self.db.query(User).get(assistant.user_id)
-                if user and user.openai_api_key:
-                    return user.openai_api_key
-            return None
+            user = self.db.query(User).get(assistant.user_id) if assistant.user_id else None
+            # ✅ v6.0: свой ключ → бесплатно; нет ключа → серверный ключ Voicyfy
+            from backend.services import provider_keys
+            return provider_keys.resolve(user, "openai").api_key
         except Exception as e:
             logger.error(f"[VOX-v2.2] Error getting API key: {e}")
             return None

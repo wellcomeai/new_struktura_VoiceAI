@@ -46,6 +46,7 @@ from websockets.exceptions import ConnectionClosed
 
 from backend.core.logging import get_logger
 from backend.models.user import User
+from backend.services import provider_keys  # ✅ v6.0: серверные ключи
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.websockets.gemini_client import GeminiLiveClient
 from backend.services.conversation_service import ConversationService
@@ -157,7 +158,12 @@ async def handle_vox_gemini_websocket(
         # 2. API ключ
         # ──────────────────────────────────────────
         user = db.query(User).get(assistant.user_id) if assistant.user_id else None
-        api_key = getattr(user, "gemini_api_key", None) if user else None
+        # ✅ v6.0: свой ключ → бесплатно; нет ключа → серверный ключ Voicyfy.
+        # Списание за звонок идёт по отчёту сценария (/api/voximplant/log).
+        _resolved = provider_keys.resolve(user, "gemini")
+        api_key = _resolved.api_key
+        if _resolved.is_server:
+            _log("💳 Server Gemini key (wallet billing by call report)")
 
         if not api_key:
             _log("❌ No Gemini API key", "ERROR")

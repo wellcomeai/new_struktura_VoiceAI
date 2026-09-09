@@ -380,33 +380,17 @@ def _check_telephony_verified(current_user: User, db: Session):
 
 
 def _check_assistant_keys(assistant_type: str, current_user: User):
-    """Validate required API keys for the chosen assistant type."""
-    if assistant_type == "gemini":
-        if not current_user.gemini_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_gemini")
-    elif assistant_type == "openai":
-        if not current_user.openai_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_openai")
-    elif assistant_type == "cartesia":
-        if not current_user.openai_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_openai")
-        if not current_user.cartesia_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_cartesia")
-    elif assistant_type == "yandex":
-        if not current_user.yandex_api_key or not current_user.yandex_folder_id:
-            raise HTTPException(status_code=400, detail="api_key_required_yandex")
-    elif assistant_type == "cascade":
-        # Каскад работает на серверном ключе OpenAI + кредитах каскада —
-        # пользовательский ключ не нужен. Проверять баланс здесь не нужно:
-        # гейт по кредитам стоит на старте звонка (outbound-config / config).
-        pass
-    elif assistant_type == "fish":
-        # Fish — половинный каскад на пользовательских ключах: диалог ведёт
-        # OpenAI Realtime, озвучивает Fish Audio (через наш прокси синтеза).
-        if not current_user.openai_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_openai")
-        if not current_user.fish_api_key:
-            raise HTTPException(status_code=400, detail="api_key_required_fish")
+    """
+    Validate required API keys for the chosen assistant type.
+
+    ✅ v6.0: свой ключ в профиле больше не обязателен — при его отсутствии
+    подставляется серверный ключ Voicyfy, а минуты списываются с кошелька.
+    Ошибка только если нет ни пользовательского, ни серверного ключа.
+    """
+    from backend.services import provider_keys
+    keys = provider_keys.resolve(current_user, assistant_type)
+    if assistant_type in ("openai", "gemini", "cartesia", "yandex", "fish", "cascade") and not keys.available:
+        raise HTTPException(status_code=400, detail=f"api_key_required_{assistant_type}")
 
 
 # Функции, доступные голосовому агенту во время звонка по умолчанию.

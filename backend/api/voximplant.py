@@ -27,6 +27,7 @@ import asyncio
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
+from backend.services import provider_keys  # ✅ v6.0: серверные ключи
 from backend.db.session import get_db, SessionLocal
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig
@@ -1256,6 +1257,40 @@ async def log_conversation_data(
                 }
             
             logger.info(f"[VOXIMPLANT-v3.9] ✅ Найден ассистент типа {assistant_type}: {assistant.name}")
+
+            # ✅ v6.0: финальное списание с кошелька по фактическим секундам звонка.
+            # Списываем ТОЛЬКО если разговор шёл на серверном ключе Voicyfy
+            # (свой ключ в профиле — бесплатно). Идемпотентно по ref_key звонка.
+            # Делаем это ДО проверки пустых сообщений: разговор мог быть коротким,
+            # но провайдер за него уже взял деньги.
+            try:
+                _owner = db.query(User).filter(User.id == assistant.user_id).first()
+                _seconds = int(float(call_duration_from_script or 0))
+                if _owner and _seconds > 0 and provider_keys.is_billable(_owner, assistant_type):
+                    from backend.services.wallet_service import WalletService
+                    _usage = request_data.get("cascade_usage") or request_data.get("usage") or {}
+                    _ref = f"call:{call_id or chat_id}"
+                    _phone = (
+                        ConversationService._normalize_phone(caller_number)
+                        if caller_number else None
+                    )
+                    WalletService.charge(
+                        db=db,
+                        user_id=_owner.id,
+                        model_code=assistant_type,
+                        seconds=_seconds,
+                        channel="telephony",
+                        ref_type="call",
+                        ref_key=_ref,
+                        prompt_tokens=(int(_usage.get("prompt_tokens") or 0) +
+                                       int(_usage.get("cached_prompt_tokens") or 0)) or None,
+                        completion_tokens=int(_usage.get("completion_tokens") or 0) or None,
+                        notes=f"assistant={assistant.id} phone={_phone or '-'}",
+                    )
+                elif _owner and _seconds <= 0:
+                    logger.info("[VOXIMPLANT-v3.9] 💳 No call_duration in report — wallet charge skipped")
+            except Exception as e:
+                logger.error(f"[VOXIMPLANT-v3.9] ❌ Wallet charge failed: {e}")
             
             # Получаем данные сообщений
             user_message = data.get("user_message", "")
@@ -1293,7 +1328,10 @@ async def log_conversation_data(
             # (cascade_credits_balance). prompt_tokens — НЕкэшированный input,
             # cached_prompt_tokens — кэш (история диалога живёт на стороне
             # OpenAI и тарифицируется в 10 раз дешевле).
-            if assistant_type == "cascade":
+            # ✅ v6.0: каскад бесплатен (тариф 0 ₽), каскад-кредиты упразднены.
+            # Списание по токенам оставлено за флагом CASCADE_CREDITS_BILLING
+            # для быстрого отката.
+            if assistant_type == "cascade" and settings.CASCADE_CREDITS_BILLING:
                 try:
                     usage = request_data.get("cascade_usage") or {}
                     prompt_tokens = int(usage.get("prompt_tokens") or 0)

@@ -106,6 +106,8 @@ from backend.services.voximplant_partner import (
     SIP_PROVIDER_PROXIES,
 )
 from backend.api.voximplant import build_functions_for_openai
+from backend.services import provider_keys  # ✅ v6.0: серверные ключи
+from backend.services.wallet_service import WalletService, TELEPHONY_START_MINUTES  # ✅ v6.0: кошелёк
 
 logger = get_logger(__name__)
 
@@ -402,6 +404,9 @@ class ScenarioConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
+    # ✅ v6.0: жёсткий лимит длительности звонка (сек) и режим оплаты
+    max_call_duration_sec: Optional[int] = None
+    billing_mode:      Optional[str] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -462,6 +467,9 @@ class OutboundConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
+    # ✅ v6.0: жёсткий лимит длительности звонка (сек) и режим оплаты
+    max_call_duration_sec: Optional[int] = None
+    billing_mode:      Optional[str] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -3195,6 +3203,44 @@ async def public_outbound_call(
         )
 
 
+
+
+# =============================================================================
+# ✅ v6.0: ЕДИНАЯ ТОЧКА ВЫДАЧИ КЛЮЧЕЙ ДЛЯ СЦЕНАРИЕВ (серверные ключи + кошелёк)
+# =============================================================================
+
+def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_prefix: str):
+    """
+    Выбрать ключи для сценария Voximplant и проверить шлагбаум кошелька.
+
+    Возвращает (keys, allowed, billing_mode):
+      keys         — provider_keys.ResolvedKeys (api_key, tts_api_key, folder_id)
+      allowed      — False, если разговор на серверном ключе, а на кошельке
+                     меньше трёх цен минуты (звонок не должен стартовать)
+      billing_mode — "own_key" | "wallet" | "free" | "admin"
+
+    Своих ключей нет → серверные ключи Voicyfy и списание с кошелька по
+    отчёту сценария (/api/voximplant/log). Свой ключ → бесплатно, по-старому.
+    Каскад всегда на серверном ключе OpenAI и бесплатен (тариф 0 ₽).
+    """
+    keys = provider_keys.resolve(user, assistant_type)
+    if not keys.is_server:
+        return keys, True, "own_key"
+    if user.is_admin:
+        return keys, True, "admin"
+    ok, balance, required = WalletService.precheck(
+        db, user.id, assistant_type, TELEPHONY_START_MINUTES
+    )
+    if required <= 0:
+        return keys, True, "free"
+    if not ok:
+        logger.warning(
+            f"{log_prefix} Wallet gate: user {user.id} balance {balance} < required {required} "
+            f"kop for {assistant_type} — key NOT issued"
+        )
+        return keys, False, "wallet"
+    return keys, True, "wallet"
+
 @router.get("/outbound-config", response_model=OutboundConfigResponse)
 async def get_outbound_config(
     assistant_id: str = Query(..., description="UUID ассистента"),
@@ -3274,40 +3320,32 @@ async def get_outbound_config(
             logger.warning(f"[TELEPHONY-OUTBOUND] User not found for assistant: {assistant_id}")
             return OutboundConfigResponse(success=False)
 
-        api_key = None
+        # ✅ v6.0: ключи — из профиля пользователя (бесплатно) или серверные
+        # ключи Voicyfy (списание с кошелька по отчёту сценария). Шлагбаум:
+        # на серверном ключе нужен баланс ≥ трёх цен минуты, иначе звонок не стартует.
         cartesia_api_key = None
         cartesia_voice_id = None
         voice_speed = None
         folder_id = None
-        if assistant_type == "openai":
-            api_key = user.openai_api_key
-        elif assistant_type == "gemini":
-            api_key = user.gemini_api_key
-        elif assistant_type == "cartesia":
-            api_key = user.openai_api_key
-            cartesia_api_key = user.cartesia_api_key
+        keys, allowed, billing_mode = resolve_scenario_keys(
+            db, user, assistant_type, "[TELEPHONY-OUTBOUND]"
+        )
+        if not allowed:
+            return OutboundConfigResponse(success=False)
+        api_key = keys.api_key
+        if assistant_type == "cartesia":
+            cartesia_api_key = keys.tts_api_key
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
-        elif assistant_type == "cascade":
-            # Каскад ходит в OpenAI (gpt-realtime-2.1-mini) через коннектор Voximplant на
-            # СЕРВЕРНОМ ключе Voicyfy (settings.OPENAI_API_KEY). Расход LLM
-            # оплачивается кредитами каскада (cascade_credits_balance).
-            # Гейт: если баланс кредитов исчерпан и юзер не админ — ключ НЕ
-            # отдаём, звонок не стартует (0₽ телефонии). Совпадает с inbound /config.
-            if not (user.is_admin or user.has_cascade_credits()):
-                logger.warning(
-                    f"[TELEPHONY-OUTBOUND] Cascade blocked: no credits for user {user.id}"
-                )
-                return OutboundConfigResponse(success=False)
-            api_key = settings.OPENAI_API_KEY
         elif assistant_type == "yandex":
-            api_key = user.yandex_api_key
-            folder_id = user.yandex_folder_id
-        elif assistant_type == "fish":
-            # Диалог ведёт OpenAI Realtime на ключе пользователя; ключ Fish
-            # в сценарий не уходит — синтезом занимается наш прокси, он и
-            # читает fish_api_key из профиля владельца ассистента.
-            api_key = user.openai_api_key
+            folder_id = keys.folder_id
+        # fish: ключ Fish в сценарий не уходит — синтезом занимается наш прокси
+        # (/ws/fish/tts), он сам подставляет ключ через provider_keys.
+        if not api_key:
+            logger.warning(
+                f"[TELEPHONY-OUTBOUND] No API key available for {assistant_type} (user {user.id})"
+            )
+            return OutboundConfigResponse(success=False)
 
         # =====================================================================
         # 3. Формируем функции
@@ -3378,6 +3416,8 @@ async def get_outbound_config(
             fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
             sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
             fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
+            max_call_duration_sec=settings.VOICE_MAX_CALL_DURATION_SEC,
+            billing_mode=billing_mode,
         )
 
     except Exception as e:
@@ -5537,38 +5577,25 @@ async def get_scenario_config(
             functions = build_functions_for_openai(functions_config)
         
         # API ключ
-        api_key = None
+        # ✅ v6.0: ключи — из профиля (бесплатно) или серверные ключи Voicyfy
+        # (списание с кошелька по отчёту сценария). Шлагбаум: на серверном
+        # ключе нужен баланс ≥ трёх цен минуты, иначе ключ не выдаём (api_key=None)
+        # и входящий сценарий завершится без LLM.
         cartesia_api_key = None
         cartesia_voice_id = None
         voice_speed = None
         folder_id = None
-        if phone_record.assistant_type == "openai":
-            api_key = user.openai_api_key
-        elif phone_record.assistant_type == "gemini":
-            api_key = user.gemini_api_key
-        elif phone_record.assistant_type == "cartesia":
-            api_key = user.openai_api_key
-            cartesia_api_key = user.cartesia_api_key
+        keys, allowed, billing_mode = resolve_scenario_keys(
+            db, user, phone_record.assistant_type, "[TELEPHONY]"
+        )
+        api_key = keys.api_key if allowed else None
+        if phone_record.assistant_type == "cartesia":
+            cartesia_api_key = keys.tts_api_key if allowed else None
             cartesia_voice_id = assistant.cartesia_voice_id
             voice_speed = assistant.voice_speed
-        elif phone_record.assistant_type == "cascade":
-            # Каскад ходит в OpenAI (gpt-realtime-2.1-mini) на СЕРВЕРНОМ ключе Voicyfy
-            # (settings.OPENAI_API_KEY). Расход LLM оплачивается кредитами каскада.
-            # Гейт: если кредиты исчерпаны и юзер не админ — ключ не отдаём
-            # (api_key=None), входящий сценарий каскада прервётся без LLM.
-            if user.is_admin or user.has_cascade_credits():
-                api_key = settings.OPENAI_API_KEY
-            else:
-                logger.warning(
-                    f"[TELEPHONY] Cascade inbound blocked: no credits for user {user.id}"
-                )
-                api_key = None
         elif phone_record.assistant_type == "yandex":
-            api_key = user.yandex_api_key
-            folder_id = user.yandex_folder_id
-        elif phone_record.assistant_type == "fish":
-            # См. комментарий в /outbound-config: ключ Fish остаётся на бэкенде.
-            api_key = user.openai_api_key
+            folder_id = keys.folder_id if allowed else None
+        # fish: ключ Fish остаётся на бэкенде (прокси /ws/fish/tts)
 
         # First phrase
         first_phrase = phone_record.first_phrase
@@ -5648,6 +5675,8 @@ async def get_scenario_config(
                 build_fish_tts_url(assistant.id)
                 if phone_record.assistant_type == "fish" else None
             ),
+            max_call_duration_sec=settings.VOICE_MAX_CALL_DURATION_SEC,
+            billing_mode=billing_mode,
         )
 
     except Exception as e:
