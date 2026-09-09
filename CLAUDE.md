@@ -188,6 +188,32 @@ cd .. && git add -A backend/static/landing frontend
 Проверка перед коммитом — в `git status` рядом с правками в `frontend/src/**`
 обязаны быть изменения в `backend/static/landing/`. Если их нет — сборка не выполнена.
 
+## v6.0: единый ЛК, серверные ключи и кошелёк (ветка 0909-refactoring-v1)
+
+- **Одна страница ассистентов** `backend/static/voice-assistants.html` заменяет `agents.html`,
+  `gemini-agents.html`, `cartesia-agents.html`, `yandex-agents.html`, `cascade.html`,
+  `fish-agents.html`, `knowledge-base.html`. Старые URL редиректятся в `app.py`
+  (`LEGACY_PROVIDER_PAGES`), сами файлы оставлены для отката. Бэкенд и таблицы
+  ассистентов не менялись: страница дёргает CRUD-API нужного провайдера по выбранной модели.
+  Cartesia скрыта из витрины (тариф `is_enabled=false`), но существующие ассистенты работают.
+- **Общий сайдбар** `backend/static/js/sidebar.js`: страницы держат пустой
+  `<nav class="sidebar-nav" id="sidebar-nav"></nav>`, меню рисует скрипт (плюс карточка
+  кошелька и модалка пополнения). Не копируйте меню руками в HTML.
+- **Серверные ключи** `backend/services/provider_keys.py`: свой ключ в профиле → бесплатно,
+  нет ключа → ключ из env (`OPENAI_API_KEY`, `GEMINI_API_KEY`, `FISH_API_KEY`,
+  `YANDEX_API_KEY`+`YANDEX_FOLDER_ID`, `CARTESIA_API_KEY`) и списание с кошелька. Ключи в БД
+  не копируются, подмена в точках выдачи: WS-хендлеры виджета и `/api/telephony/config`,
+  `/api/telephony/outbound-config` (`resolve_scenario_keys`).
+- **Кошелёк** (`users.wallet_balance`, копейки): `backend/services/wallet_service.py`
+  (посекундно, минимум 10 с, в минус не уходим, идемпотентность по `ref_key`),
+  `backend/services/voice_billing.py` (сессия виджета: списание раз в 60 с, стоп при нуле),
+  телефония списывается по отчёту `POST /api/voximplant/log` (`call_duration`).
+  Тарифы в таблице `voice_model_tariffs` (правка из админки, `/api/wallet/admin/tariffs`),
+  журнал в `wallet_transactions`. Каскад бесплатен, каскад-кредиты за флагом
+  `CASCADE_CREDITS_BILLING`. Роутер: `backend/api/wallet.py` (`/api/wallet`).
+- **База знаний** принадлежит пользователю (`pinecone_configs.user_id`), к ассистенту
+  подключается строкой `Pinecone namespace: <ns>` в промпте (таб «База знаний»).
+
 ## Key API Prefixes
 
 | Prefix | Description |
@@ -208,6 +234,7 @@ cd .. && git add -A backend/static/landing frontend
 | `/api/partners` | Partner referral program |
 | `/api/embeds` | Embeddable widget configs |
 | `/api/functions` | Custom AI functions |
+| `/api/wallet` | Кошелёк, тарифы моделей, пополнение (v6.0) |
 | `/ws/openai/{id}` | OpenAI Realtime voice WS |
 | `/ws/gemini/{id}` | Gemini Live voice WS |
 | `/ws/grok/{id}` | Grok Voice WS |
