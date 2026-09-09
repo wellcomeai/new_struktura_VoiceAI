@@ -404,3 +404,11 @@ body.vf {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Мост Font Awesome → Lucide: <i class="fas fa-…"> получает svg внутрь (см. ui.js) */
+i.vf-fa, span.vf-fa { display: inline-flex; align-items: center; justify-content: center; width: 1em; height: 1em; font-style: normal; vertical-align: -0.125em; line-height: 1; }
+.vf-fa > svg.ic { width: 1em; height: 1em; flex: 0 0 auto; }
+.vf-fa.vf-fa-flip > svg { transform: rotate(180deg); }
+.vf-fa.fa-spin > svg, i.fa-spin.vf-fa { animation: vf-spin 1s linear infinite; }
+.vf-fa.fa-fw { width: 1.25em; }
+@keyframes vf-spin { to { transform: rotate(360deg); } }

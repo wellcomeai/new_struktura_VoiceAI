@@ -437,7 +437,91 @@
 
   function ready() { loader.hide(); }
 
-  var VF = { icon: icon, logo: logo, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, alert: alertDialog, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
+  // ------------------------------------------------------------------
+  // Мост Font Awesome → Lucide.
+  // Страницы ЛК исторически размечены <i class="fas fa-…">. Вместо правки
+  // сотен мест шим вставляет внутрь <i> svg из спрайта и следит за
+  // динамической разметкой и сменой className (переключатели eye/eye-slash,
+  // check/copy и т.п.). Элемент <i> остаётся — логика страниц не меняется.
+  // ------------------------------------------------------------------
+  var FA_MAP = {
+    'check-circle': 'circle-check', 'robot': 'bot', 'user': 'user', 'info-circle': 'info', 'phone': 'phone', 'phone-alt': 'phone',
+    'exclamation-circle': 'circle-alert', 'eye': 'eye', 'eye-slash': 'eye-off', 'clock': 'clock', 'trash': 'trash-2', 'trash-alt': 'trash-2',
+    'sync-alt': 'refresh-cw', 'sync': 'refresh-cw', 'rotate': 'rotate-ccw', 'sign-out-alt': 'log-out', 'ruble-sign': 'russian-ruble',
+    'exclamation-triangle': 'triangle-alert', 'chevron-down': 'chevron-down', 'chevron-up': 'chevron-down', 'chevron-right': 'chevron-right', 'chevron-left': 'chevron-left',
+    'times': 'x', 'times-circle': 'circle-x', 'plus': 'plus', 'minus-circle': 'circle-minus', 'coins': 'coins', 'address-book': 'contact-round',
+    'save': 'save', 'plug': 'plug', 'key': 'key', 'headset': 'headset', 'headphones': 'headphones', 'file-alt': 'file-text', 'copy': 'copy',
+    'code': 'code', 'check': 'check', 'calendar-alt': 'calendar', 'calendar': 'calendar', 'calendar-plus': 'calendar-plus', 'brain': 'brain',
+    'book': 'book', 'bars': 'menu', 'lock': 'lock', 'link': 'link', 'unlink': 'unlink', 'infinity': 'infinity', 'edit': 'pen', 'pen': 'pen',
+    'crown': 'crown', 'comments': 'messages-square', 'comment': 'message-square', 'circle': 'circle', 'arrow-up': 'arrow-up', 'arrow-down': 'arrow-down',
+    'arrow-left': 'arrow-left', 'arrow-right': 'arrow-right', 'users': 'users', 'user-friends': 'users', 'user-check': 'user-check',
+    'user-astronaut': 'user-round', 'user-shield': 'shield-check', 'user-clock': 'clock', 'shield-alt': 'shield-check', 'telegram': 'send',
+    'paper-plane': 'send', 'spinner': 'loader-circle', 'circle-notch': 'loader-circle', 'search': 'search', 'history': 'history',
+    'credit-card': 'credit-card', 'wallet': 'wallet', 'star': 'star', 'rocket': 'rocket', 'receipt': 'receipt', 'piggy-bank': 'piggy-bank',
+    'phone-volume': 'phone-call', 'phone-slash': 'phone-off', 'phone-arrow-up-right': 'phone-outgoing', 'microchip': 'cpu', 'globe': 'globe',
+    'gem': 'gem', 'cog': 'settings', 'cogs': 'settings', 'building': 'building', 'bolt': 'zap', 'th': 'layout-grid', 'sticky-note': 'sticky-note',
+    'sms': 'message-square', 'shopping-cart': 'shopping-cart', 'route': 'route', 'mobile-alt': 'smartphone', 'microphone-alt': 'mic', 'microphone': 'mic',
+    'list': 'list', 'inbox': 'inbox', 'hourglass-half': 'hourglass', 'handshake': 'handshake', 'funnel-dollar': 'filter', 'filter': 'filter',
+    'fish': 'fish', 'fire': 'flame', 'columns': 'columns-2', 'chart-column': 'chart-column', 'chart-bar': 'chart-bar', 'briefcase': 'briefcase',
+    'download': 'download', 'upload': 'upload', 'external-link-alt': 'external-link', 'bell': 'bell', 'envelope': 'mail', 'question-circle': 'circle-help',
+    'play': 'play', 'sliders-h': 'sliders-horizontal', 'layer-group': 'layers', 'tag': 'tag', 'map-marker-alt': 'map-pin', 'chart-line': 'trending-up',
+    'volume-up': 'volume-2', 'image': 'image', 'bookmark': 'bookmark', 'folder': 'folder', 'file': 'file', 'puzzle-piece': 'puzzle', 'magic': 'sparkles',
+    'pencil-alt': 'pencil', 'money-bill': 'banknote', 'comment-dots': 'message-circle', 'phone-incoming': 'phone-incoming'
+  };
+  function faName(el) {
+    var cl = el.classList;
+    for (var i = 0; i < cl.length; i++) {
+      if (cl[i].indexOf('fa-') === 0) {
+        var n = cl[i].slice(3);
+        if (n === 'spin' || n === 'fw' || n === 'lg' || n === 'sm' || n === 'xs' || /^\d?x$/.test(n) || n === 'pulse') continue;
+        return n;
+      }
+    }
+    return null;
+  }
+  function faRender(el) {
+    if (!(el.tagName === 'I' || el.tagName === 'SPAN')) return;
+    var n = faName(el);
+    if (!n) return;
+    var lucide = FA_MAP[n] || (document.getElementById('i-' + n) ? n : null);
+    if (!lucide && el.getAttribute('data-vf-fa') !== n) {
+      // Нет аналога — оставляем как есть, но помечаем, чтобы не проверять снова
+      el.setAttribute('data-vf-fa', n);
+      return;
+    }
+    if (!lucide) return;
+    // Важно: не трогаем DOM без необходимости — любая запись класса рождает
+    // новую мутацию, и наблюдатель зациклится.
+    if (el.getAttribute('data-vf-fa') === n && el.firstElementChild) {
+      if (!el.classList.contains('vf-fa')) el.classList.add('vf-fa');
+      return;
+    }
+    el.setAttribute('data-vf-fa', n);
+    if (!el.classList.contains('vf-fa')) el.classList.add('vf-fa');
+    if (n === 'chevron-up' && !el.classList.contains('vf-fa-flip')) el.classList.add('vf-fa-flip');
+    el.innerHTML = icon(lucide);
+  }
+  function faSweep(root) {
+    if (!root || !root.querySelectorAll) return;
+    if (root.matches && (root.tagName === 'I' || root.tagName === 'SPAN') && /(^|\s)fa[srlb]?(\s|$)|(^|\s)fa-/.test(root.className || '')) faRender(root);
+    var list = root.querySelectorAll('i[class*="fa-"], span.fas[class*="fa-"], span.far[class*="fa-"], span.fab[class*="fa-"]');
+    for (var i = 0; i < list.length; i++) faRender(list[i]);
+  }
+  function faShim() {
+    faSweep(document.body);
+    var mo = new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) {
+        var m = muts[i];
+        if (m.type === 'attributes') faRender(m.target);
+        else for (var j = 0; j < m.addedNodes.length; j++) if (m.addedNodes[j].nodeType === 1) faSweep(m.addedNodes[j]);
+      }
+    });
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', faShim);
+  else faShim();
+
+  var VF = { icon: icon, logo: logo, faSweep: faSweep, FA_MAP: FA_MAP, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, alert: alertDialog, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
   global.VF = VF;
 
   // Автозапуск: загрузчик сразу, каркас после DOM. Страховка: спрятать через 6 с.
