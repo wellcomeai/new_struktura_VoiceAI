@@ -412,3 +412,7 @@ i.vf-fa, span.vf-fa { display: inline-flex; align-items: center; justify-content
 .vf-fa.fa-spin > svg, i.fa-spin.vf-fa { animation: vf-spin 1s linear infinite; }
 .vf-fa.fa-fw { width: 1.25em; }
 @keyframes vf-spin { to { transform: rotate(360deg); } }
+
+/* Нативный select, обёрнутый в VF.select (см. ui.js enhanceSelect) */
+select.vf-native-hidden { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden !important; clip: rect(0 0 0 0); }
+.vf-select-native.disabled .vf-select-btn { opacity: .6; cursor: not-allowed; }

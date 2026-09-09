@@ -325,8 +325,9 @@
       var below = !(spaceBelow < 200 && r.top > spaceBelow);
       var maxH = below ? Math.max(160, Math.min(320, spaceBelow - 16)) : Math.min(320, r.top - 16);
       menu.style.maxHeight = maxH + 'px';
+      var w = Math.max(r.width, Math.min(260, window.innerWidth - r.left - 16));
       menu.style.left = r.left + 'px';
-      menu.style.width = r.width + 'px';
+      menu.style.width = w + 'px';
       menu.style.minWidth = '0';
       menu.style.marginTop = '0';
       if (below) { menu.style.top = (r.bottom + 6) + 'px'; menu.style.bottom = 'auto'; menu.style.transformOrigin = 'top'; }
@@ -376,6 +377,7 @@
       get value() { return state.value; },
       set: function (v, silent) { state.value = v == null ? null : String(v); renderBtn(); if (!silent && opts.onChange) opts.onChange(v, current()); },
       setOptions: function (o) { setData(o); if (!current()) state.value = null; renderBtn(); },
+      setPlaceholder: function (p) { opts.placeholder = p; renderBtn(); },
       current: current,
     };
     return api;
@@ -436,6 +438,112 @@
   }
 
   function ready() { loader.hide(); }
+
+  // ------------------------------------------------------------------
+  // Нативный <select> → VF.select без правки логики страниц.
+  // Нативный элемент остаётся в DOM (скрыт), страница читает/пишет его
+  // .value, меняет innerHTML и disabled, слушает change — всё это
+  // синхронизируется с красивым списком в обе стороны.
+  // ------------------------------------------------------------------
+  var nativeValueDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  var nativeIndexDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+  function enhanceSelect(sel) {
+    if (!sel || sel.tagName !== 'SELECT' || sel.multiple || sel.hasAttribute('data-vf-native') || sel.hasAttribute('data-vf-skip')) return null;
+    sel.setAttribute('data-vf-native', '1');
+    var wrap = document.createElement('div');
+    wrap.className = 'vf-select vf-select-native';
+    if (sel.id) wrap.setAttribute('data-for', sel.id);
+    sel.classList.add('vf-native-hidden');
+    sel.parentNode.insertBefore(wrap, sel.nextSibling);
+
+    var syncing = false;
+    function readOptions() {
+      var groups = [], loose = [];
+      Array.prototype.forEach.call(sel.children, function (ch) {
+        if (ch.tagName === 'OPTGROUP') {
+          groups.push({ label: ch.getAttribute('label') || '', options: Array.prototype.map.call(ch.querySelectorAll('option'), optToItem) });
+        } else if (ch.tagName === 'OPTION') loose.push(optToItem(ch));
+      });
+      if (loose.length) groups.unshift({ label: null, options: loose });
+      return groups;
+    }
+    function optToItem(o) {
+      return { value: o.value, label: (o.textContent || '').trim(), disabled: o.disabled, _placeholder: o.value === '' };
+    }
+    var api = select(wrap, {
+      groups: readOptions(),
+      value: sel.value,
+      placeholder: placeholderOf(),
+      search: sel.options.length > 12,
+      onChange: function (v) {
+        syncing = true;
+        try { nativeValueDesc.set.call(sel, v); } finally { syncing = false; }
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        sel.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    function placeholderOf() {
+      var first = sel.options[0];
+      return (first && first.value === '') ? (first.textContent || '').trim() : 'Выберите…';
+    }
+    function refresh() {
+      var groups = readOptions();
+      // Пустой option — это placeholder кнопки. В списке оставляем его только
+      // когда это осмысленный выбор («Все регионы», «Не выбрано»), а не
+      // служебный текст вроде «Выберите…» / «Загрузка…».
+      var total = groups.reduce(function (n, g) { return n + g.options.length; }, 0);
+      groups.forEach(function (g) {
+        g.options = g.options.filter(function (o) {
+          if (!o._placeholder) return true;
+          return total > 1 && !/^(выберите|загрузка|ошибка|select|loading|—|-|\.\.\.)/i.test(o.label);
+        });
+      });
+      groups = groups.filter(function (g) { return g.options.length; });
+      api.setOptions({ groups: groups });
+      var emptyListed = groups.some(function (g) { return g.options.some(function (o) { return o.value === ''; }); });
+      api.set(sel.value === '' && !emptyListed ? null : sel.value, true);
+      wrap.querySelector('.vf-select-btn').disabled = sel.disabled;
+      wrap.classList.toggle('disabled', sel.disabled);
+      api.setPlaceholder(placeholderOf());
+    }
+    // Перехват программной записи value/selectedIndex
+    Object.defineProperty(sel, 'value', {
+      configurable: true,
+      get: function () { return nativeValueDesc.get.call(this); },
+      set: function (v) { nativeValueDesc.set.call(this, v); if (!syncing) refresh(); }
+    });
+    Object.defineProperty(sel, 'selectedIndex', {
+      configurable: true,
+      get: function () { return nativeIndexDesc.get.call(this); },
+      set: function (v) { nativeIndexDesc.set.call(this, v); refresh(); }
+    });
+    var mo = new MutationObserver(function () { refresh(); });
+    mo.observe(sel, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'label'] });
+    // Сброс формы возвращает нативному select первое значение
+    if (sel.form) sel.form.addEventListener('reset', function () { setTimeout(refresh, 0); });
+    refresh();
+    sel._vf = api;
+    return api;
+  }
+  function enhanceSelects(root) {
+    root = root || document;
+    if (!root.querySelectorAll) return;
+    var list = root.querySelectorAll('select.form-control, select.filter-select, select.form-select, select.status-dropdown, select[data-vf-select]');
+    for (var i = 0; i < list.length; i++) enhanceSelect(list[i]);
+  }
+  function selectShim() {
+    if (!document.body || !document.body.classList.contains('vf')) return;
+    enhanceSelects(document);
+    new MutationObserver(function (muts) {
+      for (var i = 0; i < muts.length; i++) for (var j = 0; j < muts[i].addedNodes.length; j++) {
+        var n = muts[i].addedNodes[j];
+        if (n.nodeType !== 1) continue;
+        if (n.tagName === 'SELECT') enhanceSelect(n); else enhanceSelects(n);
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', selectShim);
+  else selectShim();
 
   // ------------------------------------------------------------------
   // Мост Font Awesome → Lucide.
@@ -521,7 +629,7 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', faShim);
   else faShim();
 
-  var VF = { icon: icon, logo: logo, faSweep: faSweep, FA_MAP: FA_MAP, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, alert: alertDialog, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
+  var VF = { icon: icon, logo: logo, faSweep: faSweep, FA_MAP: FA_MAP, enhanceSelect: enhanceSelect, esc: esc, loader: loader, progress: progress, toast: toast, confirm: confirm, alert: alertDialog, modal: modal, select: select, menu: menu, skeleton: skeleton, ready: ready, MODEL_LOGOS: MODEL_LOGOS };
   global.VF = VF;
 
   // Автозапуск: загрузчик сразу, каркас после DOM. Страховка: спрятать через 6 с.
