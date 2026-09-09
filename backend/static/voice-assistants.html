@@ -684,12 +684,15 @@
         const r = await api(p.create, { method: 'POST', body: JSON.stringify(stripUndefined(buildPayload(type, true))) });
         if (!r || !r.ok) throw new Error(errText(r, 'Не удалось создать ассистента'));
         toast('Ассистент создан', 'success');
+        // Сбрасываем флаг до selectAssistant: иначе он спросит «Несохранённые изменения» сразу после сохранения
+        setDirty(false);
         await loadAssistants(); await loadUsage();
         await selectAssistant(String(r.data.id), type);
       } else if (type === state.current.type) {
         const r = await api(p.item(state.current.id), { method: 'PUT', body: JSON.stringify(stripUndefined(buildPayload(type, false))) });
         if (!r || !r.ok) throw new Error(errText(r, 'Не удалось сохранить'));
         toast('Сохранено', 'success');
+        setDirty(false);
         await loadAssistants();
         await selectAssistant(state.current.id, type);
       } else {
