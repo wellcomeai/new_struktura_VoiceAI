@@ -1811,6 +1811,30 @@ def ensure_wallet_tables():
         logger.error(f"❌ ensure_wallet_tables error: {e}")
 
 
+def ensure_conversation_indexes():
+    """
+    Индексы для списка диалогов (/api/conversations/sessions).
+    Таблица conversations общая для всех пользователей, а выборка идёт по
+    assistant_id — без индекса каждый запрос читает таблицу целиком.
+    Alembic не трогаем (несколько head), создаём идемпотентно на старте.
+    """
+    try:
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_conversations_assistant_created "
+                "ON conversations(assistant_id, created_at)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_conversations_session_created "
+                "ON conversations(session_id, created_at)"
+            ))
+            conn.commit()
+            logger.info("✅ Conversation indexes ensured (assistant_id+created_at, session_id+created_at)")
+    except Exception as e:
+        logger.error(f"❌ ensure_conversation_indexes error: {e}")
+
+
 def ensure_agent_connectors_table():
     """
     Идемпотентно создаёт таблицу agent_connectors (внешние коннекторы агента
@@ -2009,6 +2033,7 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
                 ensure_agent_connectors_table()
+                ensure_conversation_indexes()
 
                 # 🆕 Шаг 19: Сброс старых (пользовательских) коннекторов в pending
                 #            после перехода на агентную identity Composio (вариант A)

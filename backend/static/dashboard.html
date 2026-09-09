@@ -453,6 +453,98 @@
     .ob-feature-title { font-size: 14.5px; font-weight: 600; color: var(--vf-text, #0f172a); }
     .ob-feature-text { font-size: 13px; line-height: 1.5; color: var(--vf-text-3, #64748b); }
 
+    /* Карточки статей */
+    .ob-features button.ob-feature { width: 100%; text-align: left; font: inherit; cursor: pointer; }
+    .ob-feature-cat { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--vf-text-4, #94a3b8); }
+    .ob-feature-more { display: inline-flex; align-items: center; gap: 5px; margin-top: auto; padding-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--vf-accent, #2563eb); }
+    .ob-feature-more .ic { width: 14px; height: 14px; transition: transform .15s ease; }
+    .ob-feature:hover .ob-feature-more .ic { transform: translateX(3px); }
+
+    /* Читалка статей */
+    .vf-dialog.ob-article { max-width: 780px; max-height: 92vh; padding: 0; display: flex; flex-direction: column; }
+    .art-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px 12px 36px; background: color-mix(in srgb, var(--vf-surface, #fff) 92%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--vf-border, #e5e9f0); }
+    .art-cat { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--vf-accent, #2563eb); }
+    .art-cat .ic { width: 15px; height: 15px; }
+    .art-close { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); color: var(--vf-text-3, #64748b); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .art-close:hover { background: var(--vf-surface-2, #f6f8fb); color: var(--vf-text, #0f172a); }
+    .art-body { padding: 26px 36px 36px; overflow-y: auto; }
+    body.vf .art-title { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: clamp(24px, 3vw, 30px); line-height: 1.15; letter-spacing: -0.025em; font-weight: 800; color: var(--vf-text, #0f172a); margin: 0 0 12px; }
+    body.vf .art-lead { font-size: 16.5px; line-height: 1.55; color: var(--vf-text-2, #334155); margin: 0 0 22px; }
+    body.vf .art-body h2 { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 19px; letter-spacing: -0.015em; font-weight: 700; color: var(--vf-text, #0f172a); margin: 30px 0 10px; }
+    body.vf .art-body h3 { font-size: 15px; font-weight: 600; color: var(--vf-text, #0f172a); margin: 20px 0 6px; }
+    body.vf .art-body p { font-size: 14.5px; line-height: 1.65; color: var(--vf-text-2, #334155); margin: 0 0 12px; }
+    body.vf .art-body ul, body.vf .art-body ol { margin: 0 0 14px; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+    body.vf .art-body ul li { position: relative; padding-left: 20px; font-size: 14.5px; line-height: 1.55; color: var(--vf-text-2, #334155); }
+    .art-body ul li::before { content: ""; position: absolute; left: 4px; top: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--vf-accent, #2563eb); opacity: .7; }
+    .art-body ol { counter-reset: art; }
+    body.vf .art-body ol li { position: relative; padding-left: 34px; font-size: 14.5px; line-height: 1.55; color: var(--vf-text-2, #334155); counter-increment: art; }
+    .art-body ol li::before { content: counter(art); position: absolute; left: 0; top: 1px; width: 22px; height: 22px; border-radius: 7px; background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+    .art-body li b, .art-body p b { color: var(--vf-text, #0f172a); font-weight: 600; }
+    .art-body code, .art-kbd { font-family: var(--vf-font-mono, ui-monospace, monospace); font-size: 12.5px; background: var(--vf-surface-2, #f7f9fc); border: 1px solid var(--vf-border, #e5e9f0); border-radius: 5px; padding: 1px 6px; color: var(--vf-text, #0f172a); }
+    body.vf .art-body pre { margin: 0 0 14px; padding: 14px 16px; border-radius: 12px; background: #0f172a; color: #e2e8f0; font-family: var(--vf-font-mono, ui-monospace, monospace); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+    .art-body pre code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+    .art-note { display: flex; gap: 12px; padding: 14px 16px; border-radius: 12px; background: var(--vf-accent-soft, #eaf1ff); border: 1px solid color-mix(in srgb, var(--vf-accent, #2563eb) 20%, transparent); margin: 6px 0 18px; }
+    .art-note.warn { background: var(--vf-warning-soft, #fdf3e2); border-color: color-mix(in srgb, var(--vf-warning, #d97706) 25%, transparent); }
+    .art-note .ic { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; color: var(--vf-accent, #2563eb); }
+    .art-note.warn .ic { color: var(--vf-warning, #d97706); }
+    body.vf .art-note p { margin: 0; font-size: 13.5px; }
+    .art-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0 18px; }
+    .art-col { padding: 16px 18px; border-radius: 14px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface-2, #f7f9fc); }
+    .art-col-head { display: flex; align-items: center; gap: 9px; font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 15px; font-weight: 700; color: var(--vf-text, #0f172a); margin-bottom: 8px; }
+    .art-col-head .ic { color: var(--vf-accent, #2563eb); }
+    body.vf .art-col p, body.vf .art-col ul li { font-size: 13.5px; }
+    body.vf .art-col ul { gap: 5px; margin: 0; }
+    .art-col ul li { padding-left: 16px; }
+    .art-col ul li::before { top: 8px; width: 6px; height: 6px; }
+    .art-table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 13.5px; }
+    .art-table th, .art-table td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--vf-border, #e5e9f0); vertical-align: top; color: var(--vf-text-2, #334155); line-height: 1.45; }
+    .art-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--vf-text-4, #94a3b8); font-weight: 600; }
+    .art-table td:first-child { color: var(--vf-text, #0f172a); font-weight: 600; white-space: nowrap; }
+
+    /* Схема: цепочка шагов */
+    .art-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 10px 0 20px; counter-reset: flow; }
+    .art-flow-step { position: relative; padding: 14px 14px 14px 16px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); counter-increment: flow; }
+    .art-flow-step:first-child { border-radius: 14px 0 0 14px; }
+    .art-flow-step:last-child { border-radius: 0 14px 14px 0; }
+    .art-flow-step + .art-flow-step { border-left: none; }
+    .art-flow-step + .art-flow-step::before { content: ""; position: absolute; left: -9px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%) rotate(45deg); background: var(--vf-surface, #fff); border-top: 1px solid var(--vf-border, #e5e9f0); border-right: 1px solid var(--vf-border, #e5e9f0); z-index: 1; }
+    .art-flow-who { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--vf-text-4, #94a3b8); margin-bottom: 8px; }
+    .art-flow-who .ic { width: 13px; height: 13px; }
+    .art-flow-step.orch .art-flow-who { color: #7c3aed; }
+    .art-flow-step.voice .art-flow-who { color: var(--vf-accent, #2563eb); }
+    .art-flow-title { font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 15px; font-weight: 700; color: var(--vf-text, #0f172a); margin-bottom: 6px; }
+    .art-flow-text { font-size: 12.5px; line-height: 1.5; color: var(--vf-text-3, #64748b); }
+    .art-flow-loop { display: flex; align-items: center; justify-content: center; gap: 8px; margin: -12px 0 20px; font-size: 12.5px; color: var(--vf-text-3, #64748b); }
+    .art-flow-loop .ic { width: 14px; height: 14px; }
+
+    /* Схема: два мозга */
+    .art-brains { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin: 10px 0 20px; }
+    .art-brain { padding: 16px 18px; border-radius: 14px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); }
+    .art-brain.orch { border-color: color-mix(in srgb, #7c3aed 35%, transparent); background: color-mix(in srgb, #7c3aed 5%, var(--vf-surface, #fff)); }
+    .art-brain.voice { border-color: color-mix(in srgb, var(--vf-accent, #2563eb) 35%, transparent); background: var(--vf-accent-soft, #eaf1ff); }
+    .art-brain-head { display: flex; align-items: center; gap: 9px; font-family: var(--vf-font-display, 'Syne', sans-serif); font-size: 15px; font-weight: 700; color: var(--vf-text, #0f172a); }
+    .art-brain.orch .art-brain-head .ic { color: #7c3aed; } .art-brain.voice .art-brain-head .ic { color: var(--vf-accent, #2563eb); }
+    .art-brain-sub { font-size: 12px; color: var(--vf-text-3, #64748b); margin: 2px 0 10px 27px; }
+    body.vf .art-brain ul { gap: 5px; margin: 0; } .art-brain ul li { font-size: 13px; padding-left: 16px; } .art-brain ul li::before { top: 8px; width: 6px; height: 6px; }
+    .art-brains-link { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--vf-text-4, #94a3b8); font-size: 11px; text-align: center; max-width: 96px; }
+    .art-brains-link .ic { width: 22px; height: 22px; }
+    .art-cta { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 10px; background: var(--vf-accent, #2563eb); color: #fff !important; font-size: 14px; font-weight: 600; text-decoration: none; margin: 4px 0 14px; }
+    .art-cta:hover { background: var(--vf-accent-hover, #1d4ed8); }
+    .art-cta.ghost { background: var(--vf-surface, #fff); color: var(--vf-text, #0f172a) !important; border: 1px solid var(--vf-border, #e5e9f0); }
+    .art-next { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--vf-border, #e5e9f0); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .art-next-label { font-size: 12.5px; color: var(--vf-text-4, #94a3b8); margin-right: 4px; }
+    .art-next button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface, #fff); color: var(--vf-text, #0f172a); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+    .art-next button:hover { border-color: var(--vf-accent, #2563eb); color: var(--vf-accent, #2563eb); }
+    @media (max-width: 720px) {
+      .art-body { padding: 20px 18px 28px; } .art-head { padding-left: 18px; }
+      .art-cols, .art-brains { grid-template-columns: 1fr; }
+      .art-brains-link { flex-direction: row; max-width: none; }
+      .art-flow { grid-template-columns: 1fr; }
+      .art-flow-step:first-child { border-radius: 14px 14px 0 0; } .art-flow-step:last-child { border-radius: 0 0 14px 14px; }
+      .art-flow-step + .art-flow-step { border-left: 1px solid var(--vf-border, #e5e9f0); border-top: none; }
+      .art-flow-step + .art-flow-step::before { display: none; }
+    }
+
     @media (max-width: 1100px) {
       .ob-hero { grid-template-columns: 1fr; padding: 32px; }
       .ob-hero-visual { display: none; }
@@ -1937,16 +2029,12 @@
         </div>
       </div>
 
-      <!-- Гид: три шага и возможности (сворачивается) -->
+      <!-- Гид: три шага и статьи (скрыт по умолчанию, открывается кнопкой «Как это работает») -->
       <section class="ob-guide" id="ob-guide">
         <div class="ob-section-head">
           <div>
             <h2 class="ob-h2">Три шага до первого разговора</h2>
             <p class="ob-muted">Обычно на это уходит меньше десяти минут.</p>
-          </div>
-          <div class="ob-progress" id="ob-progress">
-            <span class="ob-progress-bar"><i id="ob-progress-fill"></i></span>
-            <span id="ob-progress-text">0 из 3</span>
           </div>
         </div>
 
@@ -1954,8 +2042,8 @@
           <li class="ob-step" id="ob-step-1">
             <div class="ob-step-num"><span>1</span><i data-ob-icon="check"></i></div>
             <div class="ob-step-body">
-              <h3>Соберите ассистента</h3>
-              <p>Опишите, как ему общаться, выберите голос и модель. Подключите базу знаний и функции — запись в CRM, Google-таблицы, уведомления в Telegram.</p>
+              <h3>Создайте ассистента</h3>
+              <p>Дайте имя, выберите модель и голос. В системном промпте опишите роль, компанию и как вести разговор: это всё, что ассистент знает о вас. Первая фраза задаёт, с чего он начинает. База знаний и функции нужны, чтобы он отвечал по фактам и записывал клиентов.</p>
               <a href="/static/voice-assistants.html" class="ob-step-link" data-ob-icon="arrow-right">Открыть конструктор</a>
             </div>
           </li>
@@ -1963,60 +2051,371 @@
             <div class="ob-step-num"><span>2</span><i data-ob-icon="check"></i></div>
             <div class="ob-step-body">
               <h3>Подключите канал</h3>
-              <p>Купите номер и привяжите ассистента — он начнёт отвечать на звонки. Или вставьте виджет на сайт одной строкой кода и запустите обзвон по базе.</p>
+              <p>Купите номер в разделе «Телефония» и привяжите к нему ассистента: он начнёт отвечать на входящие. Пока номера нет, проверьте ассистента через виджет прямо в конструкторе.</p>
               <a href="/static/telephony.html" class="ob-step-link" data-ob-icon="arrow-right">Настроить телефонию</a>
             </div>
           </li>
           <li class="ob-step" id="ob-step-3">
             <div class="ob-step-num"><span>3</span><i data-ob-icon="check"></i></div>
             <div class="ob-step-body">
-              <h3>Пополните кошелёк</h3>
-              <p>Списание идёт посекундно по цене выбранной модели, каскад — бесплатно. На старте мы уже зачислили подарочные рубли, чтобы вы могли всё проверить.</p>
-              <button type="button" class="ob-step-link" id="ob-topup-btn" data-ob-icon="arrow-right">Пополнить кошелёк</button>
+              <h3>Пройдите верификацию</h3>
+              <p>После тестов пройдите верификацию личности в разделе «Телефония»: по закону РФ без неё нельзя держать номера. Выберите тип (физлицо, ИП или юрлицо) и следуйте инструкции, это занимает несколько минут.</p>
+              <a href="/static/telephony.html" class="ob-step-link" data-ob-icon="arrow-right">Пройти верификацию</a>
             </div>
           </li>
         </ol>
 
         <div class="ob-section-head ob-section-head-tight">
           <div>
-            <h2 class="ob-h2">Что умеет платформа</h2>
-            <p class="ob-muted">Один ассистент — все каналы общения с клиентами.</p>
+            <h2 class="ob-h2">Как это устроено</h2>
+            <p class="ob-muted">Короткие статьи: что выбрать, как работает агент обзвона и за что списываются деньги.</p>
           </div>
         </div>
 
         <div class="ob-features">
-          <a class="ob-feature" href="/static/telephony.html">
-            <span class="ob-feature-icon" data-ob-icon="phone"></span>
-            <span class="ob-feature-title">Входящие звонки</span>
-            <span class="ob-feature-text">Ассистент отвечает круглосуточно, записывает клиентов и переводит на менеджера.</span>
-          </a>
-          <a class="ob-feature" href="/static/agent.html">
-            <span class="ob-feature-icon" data-ob-icon="headset"></span>
-            <span class="ob-feature-title">Обзвон базы</span>
-            <span class="ob-feature-text">Агент обзвона сам звонит по списку, задаёт вопросы и фиксирует результат.</span>
-          </a>
-          <a class="ob-feature" href="/static/voice-assistants.html">
+          <button type="button" class="ob-feature" data-article="choose">
+            <span class="ob-feature-icon" data-ob-icon="route"></span>
+            <span class="ob-feature-cat">Начало</span>
+            <span class="ob-feature-title">Ассистент или агент обзвона?</span>
+            <span class="ob-feature-text">Два разных инструмента: один отвечает на звонки, второй сам ведёт клиентов. Как выбрать.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="inbound">
+            <span class="ob-feature-icon" data-ob-icon="phone-incoming"></span>
+            <span class="ob-feature-cat">Голосовые ассистенты</span>
+            <span class="ob-feature-title">Входящие и исходящие звонки</span>
+            <span class="ob-feature-text">Ассистент принимает входящие сам. Исходящие вы запускаете вручную или через API.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="widget">
             <span class="ob-feature-icon" data-ob-icon="code"></span>
-            <span class="ob-feature-title">Виджет на сайте</span>
-            <span class="ob-feature-text">Голосовой помощник для посетителей — одна строка кода на любой странице.</span>
-          </a>
-          <a class="ob-feature" href="/static/voice-assistants.html?tab=knowledge">
+            <span class="ob-feature-cat">Голосовые ассистенты</span>
+            <span class="ob-feature-title">Голосовой виджет для сайта</span>
+            <span class="ob-feature-text">Одна строка кода на странице. Работает на OpenAI и Gemini.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="agent">
+            <span class="ob-feature-icon" data-ob-icon="headset"></span>
+            <span class="ob-feature-cat">Агент обзвона</span>
+            <span class="ob-feature-title">Как работает агент обзвона</span>
+            <span class="ob-feature-text">Три фазы звонка, оркестратор и голос, память о каждом клиенте, Telegram и MAX.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="claude">
+            <span class="ob-feature-icon" data-ob-icon="sparkles"></span>
+            <span class="ob-feature-cat">Агент обзвона</span>
+            <span class="ob-feature-title">Настройка через Claude Code</span>
+            <span class="ob-feature-text">Скачайте описание API и попросите Claude Code собрать агента за вас.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="billing">
+            <span class="ob-feature-icon" data-ob-icon="wallet"></span>
+            <span class="ob-feature-cat">Оплата</span>
+            <span class="ob-feature-title">Кредиты и минуты</span>
+            <span class="ob-feature-text">За что списываются рубли с кошелька, а за что кредиты, и где это видно.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="knowledge">
             <span class="ob-feature-icon" data-ob-icon="book-open"></span>
+            <span class="ob-feature-cat">Настройка</span>
             <span class="ob-feature-title">База знаний</span>
-            <span class="ob-feature-text">Загрузите документы — ассистент отвечает по ним, а не выдумывает.</span>
-          </a>
-          <a class="ob-feature" href="/static/crm.html">
+            <span class="ob-feature-text">Загрузите документы, и ассистент отвечает по ним, а не выдумывает.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="crm">
             <span class="ob-feature-icon" data-ob-icon="contact-round"></span>
+            <span class="ob-feature-cat">Данные</span>
             <span class="ob-feature-title">CRM и диалоги</span>
-            <span class="ob-feature-text">Контакты, история разговоров, записи звонков и аналитика в одном месте.</span>
-          </a>
-          <a class="ob-feature" href="/static/voice-assistants.html">
+            <span class="ob-feature-text">Контакты, история разговоров, записи звонков и уведомления в одном месте.</span>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
+          <button type="button" class="ob-feature" data-article="integrations">
             <span class="ob-feature-icon" data-ob-icon="puzzle"></span>
-            <span class="ob-feature-title">Интеграции</span>
+            <span class="ob-feature-cat">Настройка</span>
+            <span class="ob-feature-title">Интеграции и функции</span>
             <span class="ob-feature-text">Google Sheets, Telegram, вебхуки, календарь и произвольные API-запросы.</span>
-          </a>
+            <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
+          </button>
         </div>
       </section>
+
+      <!-- Читалка статей -->
+      <div class="vf-backdrop" id="ob-article-backdrop" style="display:none">
+        <div class="vf-dialog ob-article" role="dialog" aria-modal="true" aria-labelledby="ob-article-title">
+          <div class="art-head">
+            <span class="art-cat" id="ob-article-cat"></span>
+            <button type="button" class="art-close" data-close aria-label="Закрыть"><i data-ob-icon="x"></i></button>
+          </div>
+          <div class="art-body" id="ob-article-body"></div>
+        </div>
+      </div>
+
+      <!-- Тексты статей. Каждая — <template data-art="ключ" data-cat="рубрика" data-icon="иконка"> -->
+      <template data-art="choose" data-cat="Начало" data-icon="route">
+        <h1 class="art-title">Ассистент или агент обзвона: что выбрать</h1>
+        <p class="art-lead">В Voicyfy два разных инструмента. Голосовой ассистент отвечает, когда к нему обращаются. Агент обзвона сам ведёт клиентов от первого звонка до результата.</p>
+        <div class="art-cols">
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="audio-lines"></i> Голосовой ассистент</div>
+            <p>Один голос с одним промптом. Отвечает на входящие звонки и разговаривает с посетителями сайта через виджет.</p>
+            <ul>
+              <li>Принимает входящие сам, круглосуточно</li>
+              <li>Исходящие звонки запускаете вы: вручную или через API</li>
+              <li>Не помнит клиента между звонками, если вы не подключили CRM-функции</li>
+              <li>Оплата минутами с кошелька</li>
+            </ul>
+          </div>
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="headset"></i> Агент обзвона</div>
+            <p>Два «мозга»: оркестратор думает между звонками, голосовой агент говорит в звонке. Всё автоматическое.</p>
+            <ul>
+              <li>Сам звонит по базе, перезванивает, планирует следующий шаг</li>
+              <li>Помнит каждого клиента и ведёт его по воронке</li>
+              <li>Пишет клиентам в Telegram и MAX, отвечает на SMS</li>
+              <li>С ним можно переписываться: спросить, как дела у клиентов</li>
+              <li>Оркестратор оплачивается кредитами, голос минутами</li>
+            </ul>
+          </div>
+        </div>
+        <h2>Когда что подходит</h2>
+        <table class="art-table">
+          <tr><th>Задача</th><th>Что выбрать</th></tr>
+          <tr><td>Отвечать на звонки клиентов</td><td>Голосовой ассистент, привязанный к номеру</td></tr>
+          <tr><td>Консультант на сайте</td><td>Голосовой ассистент с виджетом (OpenAI или Gemini)</td></tr>
+          <tr><td>Обзвонить базу и довести до результата</td><td>Агент обзвона</td></tr>
+          <tr><td>Напоминать, перезванивать, писать в мессенджеры</td><td>Агент обзвона</td></tr>
+          <tr><td>Звонить по вашему событию из своей системы</td><td>Ассистент плюс ваш вызов API исходящего звонка</td></tr>
+        </table>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Агент обзвона создаёт себе голосового ассистента сам. Отдельно собирать его в конструкторе не нужно.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="inbound">Входящие и исходящие</button></div>
+      </template>
+
+      <template data-art="inbound" data-cat="Голосовые ассистенты" data-icon="phone-incoming">
+        <h1 class="art-title">Входящие и исходящие звонки ассистента</h1>
+        <p class="art-lead">Ассистент, привязанный к номеру, принимает входящие без вашего участия. Исходящие звонки он сам не инициирует: их запускаете вы.</p>
+        <h2>Входящие</h2>
+        <p>Купите номер в разделе «Телефония» и нажмите «Привязать» напротив него. С этого момента каждый входящий звонок попадает к ассистенту: он здоровается первой фразой, ведёт разговор по системному промпту и может вызывать функции, например записать клиента в CRM или Google-таблицу.</p>
+        <ul>
+          <li><b>Первая фраза</b> задаётся в конструкторе и звучит сразу после ответа.</li>
+          <li><b>Запись и лог звонка</b> появляются в разделе «Диалоги» после завершения.</li>
+          <li><b>Уведомление</b> о каждом звонке можно получать в Telegram или вебхуком.</li>
+        </ul>
+        <h2>Исходящие</h2>
+        <p>Ассистент не решает сам, кому и когда звонить. Есть два способа запустить исходящий звонок:</p>
+        <ol>
+          <li><b>Вручную</b> со страницы исходящих звонков: укажите номер и ассистента.</li>
+          <li><b>Через API</b> из своей системы: ваш код вызывает эндпоинт исходящего звонка, когда произошло событие, например новая заявка. Так вы строите свою надстройку над Voicyfy.</li>
+        </ol>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Если нужен обзвон, который сам планирует и перезванивает, это задача агента обзвона. У него всё уже включено.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="widget">Виджет для сайта</button></div>
+      </template>
+
+      <template data-art="widget" data-cat="Голосовые ассистенты" data-icon="code">
+        <h1 class="art-title">Голосовой виджет для сайта</h1>
+        <p class="art-lead">Посетитель нажимает кнопку на вашей странице и разговаривает с ассистентом голосом. Подключается одной строкой кода.</p>
+        <h2>Какие модели поддерживаются</h2>
+        <p>Виджет работает с ассистентами на <b>OpenAI</b> и <b>Gemini</b>. Остальные модели (Яндекс, Fish, Каскад) предназначены только для телефонии: в конструкторе у них нет вкладки с кодом виджета.</p>
+        <h2>Как подключить</h2>
+        <ol>
+          <li>Создайте ассистента на OpenAI или Gemini в конструкторе.</li>
+          <li>Откройте вкладку с кодом виджета и скопируйте строку.</li>
+          <li>Вставьте её перед закрывающим тегом <code>&lt;/body&gt;</code> на нужных страницах сайта.</li>
+        </ol>
+        <h2>Как это оплачивается</h2>
+        <p>Разговор через виджет списывается с кошелька по тарифу модели: посекундно, порциями раз в минуту. Когда баланс заканчивается, сессия останавливается. Если в настройках указан ваш собственный ключ провайдера, разговоры через виджет бесплатны.</p>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Виджет тестирует того же ассистента, что и телефония. Удобно проверить промпт до покупки номера.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="billing">Кредиты и минуты</button><button type="button" data-article="knowledge">База знаний</button></div>
+      </template>
+
+      <template data-art="agent" data-cat="Агент обзвона" data-icon="headset">
+        <h1 class="art-title">Как работает агент обзвона</h1>
+        <p class="art-lead">Агент обзвона не просто звонит по списку. Он готовится к каждому звонку, разговаривает, делает выводы и планирует следующий шаг. Всё это автоматически.</p>
+
+        <h2>Два мозга: оркестратор и голос</h2>
+        <p>Внутри агента работают две разные модели, и у каждой свой промпт. Это главное, что нужно понять, чтобы настраивать агента правильно.</p>
+        <div class="art-brains">
+          <div class="art-brain orch">
+            <div class="art-brain-head"><i data-ob-icon="brain"></i> Оркестратор</div>
+            <div class="art-brain-sub">Думает между звонками. Текстовая модель на ваш выбор.</div>
+            <ul>
+              <li>Читает CRM, память о клиенте и всю историю общения</li>
+              <li>Готовит стратегию звонка и первую фразу</li>
+              <li>После звонка делает выводы и ставит задачи</li>
+              <li>Пишет в Telegram и MAX, отвечает на SMS</li>
+              <li>Отвечает вам в чате на вопросы о клиентах</li>
+            </ul>
+          </div>
+          <div class="art-brains-link"><i data-ob-icon="arrow-right"></i><span>передаёт стратегию и первую фразу</span></div>
+          <div class="art-brain voice">
+            <div class="art-brain-head"><i data-ob-icon="audio-lines"></i> Голосовой агент</div>
+            <div class="art-brain-sub">Говорит в живом звонке. Голосовая модель: OpenAI, Gemini, Яндекс, Fish или Каскад.</div>
+            <ul>
+              <li>Ведёт разговор по стратегии оркестратора</li>
+              <li>Отвечает мгновенно, без пауз на размышления</li>
+              <li>Не видит CRM: вся фактура приходит в стратегии или из базы знаний</li>
+              <li>Свои инструкции: тон, манера, запреты</li>
+            </ul>
+          </div>
+        </div>
+        <p>Поэтому на странице агента два поля с инструкциями. <b>Инструкции для оркестратора</b> описывают бизнес, цели и правила принятия решений. <b>Инструкции для голосового агента</b> задают, как звучать в разговоре. Голосовой агент не должен думать о воронке, а оркестратор не должен учить манере речи.</p>
+
+        <h2>Три фазы каждого звонка</h2>
+        <div class="art-flow">
+          <div class="art-flow-step orch">
+            <div class="art-flow-who"><i data-ob-icon="brain"></i> Оркестратор</div>
+            <div class="art-flow-title">Pre-call</div>
+            <div class="art-flow-text">Читает задачу, карточку контакта, память и транскрипт прошлого звонка. Пишет первую фразу, тактику, тон и ключевые тезисы.</div>
+          </div>
+          <div class="art-flow-step voice">
+            <div class="art-flow-who"><i data-ob-icon="phone-call"></i> Голосовой агент</div>
+            <div class="art-flow-title">Звонок</div>
+            <div class="art-flow-text">Набирает номер и разговаривает по стратегии. Может искать в базе знаний и вызывать функции прямо в разговоре.</div>
+          </div>
+          <div class="art-flow-step orch">
+            <div class="art-flow-who"><i data-ob-icon="brain"></i> Оркестратор</div>
+            <div class="art-flow-title">Post-call</div>
+            <div class="art-flow-text">Читает транскрипт. Обновляет память, двигает клиента по воронке, планирует перезвон или сообщение, уведомляет вас о важном.</div>
+          </div>
+        </div>
+        <div class="art-flow-loop"><i data-ob-icon="rotate-ccw"></i> Следующий звонок начинается с pre-call, уже с обновлённой памятью</div>
+        <p>Итог каждого звонка фиксируется как успех, недозвон или «нужно продолжить». Если не дозвонились, агент сам перезвонит через сутки. Если поговорили, но цель не достигнута, перезвонит через один-три дня или напишет в мессенджер, если это уместнее. Входящие звонки проходят через тот же post-call, но перезвон планируется только когда он действительно нужен.</p>
+
+        <h2>Почему агент помнит всех клиентов</h2>
+        <p>У каждого контакта в базе агента есть память: краткая сводка, ключевые факты, лучшее время для звонка и история тона. Оркестратор обновляет её после каждого разговора и каждого сообщения. Перед следующим звонком память автоматически попадает в контекст, поэтому агент не переспрашивает то, что клиент уже говорил, и не звонит в неудобное время.</p>
+        <p>Клиенты движутся по воронке: новый, в работе, успех, отказ, «не звонить». Стадия меняется только при реальном основании, например явном отказе. «Клиент думает» стадию не меняет. Воронка видна на канбан-доске на странице агента.</p>
+
+        <h2>Telegram, MAX и SMS</h2>
+        <p>Агент общается с клиентами не только голосом. Подключите личный аккаунт Telegram или MAX, и оркестратор сможет писать клиентам от вашего имени, читать и отвечать на входящие сообщения. Входящие SMS на номер агента он тоже обрабатывает: ответить, запланировать звонок, обновить память.</p>
+        <ul>
+          <li><b>Отложенные сообщения.</b> Агент сам ставит задачи «напомнить» и «написать позже». В момент отправки он сверяется с актуальным контекстом: если договорённость уже закрыта, сообщение не уйдёт.</li>
+          <li><b>Рабочие часы.</b> Запланированные звонки автоматически сдвигаются в рабочее окно, которое вы задали.</li>
+          <li><b>Уведомления вам.</b> Горячий лид, жалоба или просьба позвать человека приходят вам в Telegram сразу.</li>
+        </ul>
+
+        <h2>Чат с агентом</h2>
+        <p>С агентом можно просто переписываться: в кабинете на его странице или через Telegram-бота. Спросите, как идут дела у клиентов, кого он планирует обзвонить завтра, попросите поставить задачу или перенести звонок. Он отвечает по данным своей CRM, а не по памяти модели.</p>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Оркестратор списывает кредиты за каждый свой запуск: pre-call, post-call, ответ в чате, обработка входящего сообщения. Голос списывает минуты с кошелька. Подробнее в статье «Кредиты и минуты».</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="claude">Настройка через Claude Code</button><button type="button" data-article="billing">Кредиты и минуты</button></div>
+      </template>
+
+      <template data-art="claude" data-cat="Агент обзвона" data-icon="sparkles">
+        <h1 class="art-title">Как настроить агента обзвона через Claude Code</h1>
+        <p class="art-lead">У агента есть API. Скачайте описание, откройте его в Claude Code и попросите собрать агента под вашу задачу: промпты, голос, модель и настройки он напишет сам.</p>
+        <h2>Что понадобится</h2>
+        <ol>
+          <li><b>API-ключ.</b> Сгенерируйте его в разделе «Настройки», блок «API-ключ для интеграций». Ключ показывается один раз.</li>
+          <li><b>Описание API.</b> Один файл в формате Markdown: как устроен агент, жизненный цикл звонка, инструменты, гайд по промптам и все эндпоинты с примерами.</li>
+          <li><b>Claude Code</b> или любой другой ИИ-агент, который умеет читать файлы и делать HTTP-запросы.</li>
+        </ol>
+        <a class="art-cta" href="/static/agent-api.md" download="voicyfy-agent-api.md"><i data-ob-icon="download"></i> Скачать описание API (Markdown)</a>
+        <h2>Как это делается</h2>
+        <ol>
+          <li>Положите файл в папку проекта и откройте Claude Code в этой папке.</li>
+          <li>Опишите задачу своими словами и укажите ключ. Например:</li>
+        </ol>
+<pre><code>Прочитай voicyfy-agent-api.md. Создай агента обзвона для стоматологии
+«Улыбка»: обзваниваем пациентов, которые не были больше полугода,
+и записываем на профилактический осмотр. Говорим по-дружески, без давления.
+Голос — Gemini, оркестратор — DeepSeek. Мой API-ключ: vfy_...</code></pre>
+        <p>Claude Code прочитает документ, напишет инструкции для оркестратора и голосового агента по правилам из гайда и вызовет эндпоинт создания. Дальше агента можно править так же: «сделай тон формальнее», «добавь правило не звонить после 19:00».</p>
+        <div class="art-note warn"><i data-ob-icon="triangle-alert"></i><p>По ключу доступны только эндпоинты агента и каскад-ассистентов. Контакты, задачи и телефонию по-прежнему настраивайте в кабинете.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="billing">Кредиты и минуты</button></div>
+      </template>
+
+      <template data-art="billing" data-cat="Оплата" data-icon="wallet">
+        <h1 class="art-title">Кредиты и минуты: за что списываются деньги</h1>
+        <p class="art-lead">В Voicyfy два счётчика. Минуты разговора оплачиваются рублями с кошелька. Работа оркестратора агента обзвона оплачивается кредитами.</p>
+        <div class="art-cols">
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="wallet"></i> Кошелёк, рубли</div>
+            <p>Всё, что звучит голосом: звонки ассистентов, звонки агента обзвона, разговоры через виджет.</p>
+            <ul>
+              <li>Цена за минуту зависит от модели: смотрите витрину в конструкторе</li>
+              <li>Списание посекундное, минимум 10 секунд за разговор</li>
+              <li>Виджет списывает порциями раз в минуту и останавливается при нуле</li>
+              <li>Телефония списывается по отчёту о звонке после его завершения</li>
+              <li>Свой ключ провайдера в настройках: разговоры на этой модели бесплатны</li>
+            </ul>
+          </div>
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="coins"></i> Кредиты</div>
+            <p>Только оркестратор агента обзвона. Списываются за токены каждого его запуска.</p>
+            <ul>
+              <li>Pre-call перед звонком и post-call после</li>
+              <li>Ответ в чате и обработка входящих сообщений</li>
+              <li>Ставка зависит от выбранной модели оркестратора</li>
+              <li>Ниже 100 кредитов оркестратор не запускается</li>
+              <li>Пакеты покупаются на странице агента</li>
+            </ul>
+          </div>
+        </div>
+        <h2>Пример одного звонка агента</h2>
+        <p>Агент звонит клиенту, разговор длится две минуты на Gemini. С кошелька спишутся две минуты по тарифу Gemini. Кредиты спишутся дважды: за pre-call и за post-call, в зависимости от объёма контекста. Если после звонка агент ещё напишет клиенту в Telegram, это ещё один запуск оркестратора.</p>
+        <h2>Где это видно</h2>
+        <ul>
+          <li><b>Кошелёк</b> в левом меню: баланс, пополнение и ссылка на историю операций в настройках. В истории каждая строка привязана к модели и каналу.</li>
+          <li><b>Кредиты</b> на странице агента обзвона: баланс и пакеты.</li>
+          <li><b>Стоимость звонка</b> в карточке диалога и в истории звонков телефонии.</li>
+        </ul>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Каскад-ассистенты оплачивают голос отдельными кредитами каскада, это третий счётчик. Он не связан ни с кошельком, ни с кредитами оркестратора.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="choose">Что выбрать</button></div>
+      </template>
+
+      <template data-art="knowledge" data-cat="Настройка" data-icon="book-open">
+        <h1 class="art-title">База знаний</h1>
+        <p class="art-lead">Загрузите прайс, описание услуг или регламенты, и ассистент будет отвечать по документам, а не по общим знаниям модели.</p>
+        <h2>Как это работает</h2>
+        <p>Документы разбиваются на фрагменты и сохраняются в векторную базу. Во время разговора ассистент ищет подходящие фрагменты по смыслу вопроса и опирается на них в ответе. Поиск происходит только когда он нужен, поэтому база не раздувает промпт.</p>
+        <h2>Как подключить</h2>
+        <ol>
+          <li>Откройте вкладку «База знаний» в конструкторе ассистентов и создайте базу.</li>
+          <li>Добавьте текст или документы.</li>
+          <li>Подключите базу к нужному ассистенту: в его промпте появится строка с именем базы.</li>
+        </ol>
+        <p>Базы знаний принадлежат вам, а не конкретному ассистенту: одну базу можно подключить к нескольким. У агента обзвона своя база на его странице.</p>
+        <div class="art-note"><i data-ob-icon="info"></i><p>В промпте всё равно опишите роль и правила разговора. База знаний отвечает на вопрос «что», промпт на вопрос «как».</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="integrations">Интеграции и функции</button><button type="button" data-article="widget">Виджет для сайта</button></div>
+      </template>
+
+      <template data-art="crm" data-cat="Данные" data-icon="contact-round">
+        <h1 class="art-title">CRM и диалоги</h1>
+        <p class="art-lead">Каждый разговор сохраняется: текст, длительность, стоимость, запись и лог звонка. Клиенты собираются в контакты.</p>
+        <h2>Диалоги</h2>
+        <p>В разделе «Диалоги» лежат все разговоры ассистентов: с телефонии и с виджета. Откройте карточку, чтобы прочитать переписку, послушать запись и посмотреть, какие функции вызывались. Фильтруйте по ассистенту и дате.</p>
+        <h2>CRM</h2>
+        <p>Раздел «CRM» хранит контакты: имя, телефон, компания, заметки и история всех диалогов с этим человеком. Ассистент может создавать и обновлять контакты сам через функции. У агента обзвона своя база контактов и своя воронка на его странице.</p>
+        <h2>Уведомления</h2>
+        <ul>
+          <li><b>Telegram.</b> Отчёт о каждом звонке в ваш чат: номер, длительность, стоимость, текст разговора, ссылка на запись.</li>
+          <li><b>Вебхук.</b> POST-запрос на ваш сервер после каждого диалога, чтобы забирать данные в свою систему.</li>
+        </ul>
+        <p>Оба подключаются кнопками над списком диалогов.</p>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="integrations">Интеграции и функции</button><button type="button" data-article="agent">Как работает агент обзвона</button></div>
+      </template>
+
+      <template data-art="integrations" data-cat="Настройка" data-icon="puzzle">
+        <h1 class="art-title">Интеграции и функции</h1>
+        <p class="art-lead">Функции дают ассистенту руки: записать клиента, отправить уведомление, дёрнуть ваш API прямо во время разговора.</p>
+        <h2>Что доступно</h2>
+        <ul>
+          <li><b>Google-таблицы.</b> Добавить строку с данными клиента и итогом разговора.</li>
+          <li><b>Google Документы.</b> Прочитать документ и использовать его содержимое в ответе.</li>
+          <li><b>Telegram.</b> Отправить уведомление вам или менеджеру в момент разговора.</li>
+          <li><b>Вебхук.</b> Отправить данные на ваш URL.</li>
+          <li><b>Произвольный API-запрос.</b> Проверить наличие товара, забронировать слот, узнать статус заказа.</li>
+          <li><b>CRM Voicyfy.</b> Создать задачу или контакт.</li>
+          <li><b>Завершить звонок.</b> Положить трубку, когда разговор закончен.</li>
+          <li><b>Текущее время.</b> Чтобы ассистент ориентировался в датах.</li>
+        </ul>
+        <h2>Как подключить</h2>
+        <ol>
+          <li>Откройте ассистента в конструкторе, вкладка «Функции».</li>
+          <li>Включите нужную функцию и заполните её параметры, например ID таблицы.</li>
+          <li>В промпте объясните, когда её вызывать: «после того как клиент назвал имя и телефон, запиши его в таблицу».</li>
+        </ol>
+        <div class="art-note"><i data-ob-icon="info"></i><p>У агента обзвона свой набор инструментов у оркестратора: CRM, расписание, Telegram, MAX, календарь и почта. Они включаются на странице агента.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="knowledge">База знаний</button><button type="button" data-article="crm">CRM и диалоги</button></div>
+      </template>
       
       <!-- Секция для информации о подписке -->
       <div class="subscription-section">
@@ -3448,18 +3847,25 @@
       return (Number.isInteger(n) ? n.toLocaleString('ru-RU') : n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' ₽';
     }
 
-    // Иконки Lucide вместо разметки-заглушек
-    document.querySelectorAll('[data-ob-icon]').forEach(function (el) {
-      var name = el.getAttribute('data-ob-icon');
-      var svg = VF.icon(name, el.classList.contains('ob-step-num') || el.tagName === 'I' ? 'ic-sm' : '');
-      if (el.tagName === 'I' || el.classList.contains('ob-call-avatar') || el.classList.contains('ob-metric-icon') || el.classList.contains('ob-feature-icon')) el.innerHTML = svg;
-      else el.insertAdjacentHTML(el.classList.contains('ob-step-link') || el.id === 'ob-toggle-guide' ? 'beforeend' : 'afterbegin', svg);
-    });
+    // Иконки Lucide вместо разметки-заглушек (в статьях — при открытии)
+    function renderIcons(root) {
+      root.querySelectorAll('[data-ob-icon]').forEach(function (el) {
+        if (el.getAttribute('data-ob-done')) return;
+        el.setAttribute('data-ob-done', '1');
+        var name = el.getAttribute('data-ob-icon');
+        var small = el.classList.contains('ob-step-num') || el.tagName === 'I';
+        var svg = VF.icon(name, small ? 'ic-sm' : '');
+        var replace = el.tagName === 'I' || el.classList.contains('ob-call-avatar') || el.classList.contains('ob-metric-icon') || el.classList.contains('ob-feature-icon');
+        if (replace) el.innerHTML = svg;
+        else el.insertAdjacentHTML(el.classList.contains('ob-step-link') || el.id === 'ob-toggle-guide' ? 'beforeend' : 'afterbegin', svg);
+      });
+    }
+    renderIcons(document);
 
-    // Сворачивание гида (память в браузере)
+    // Гид скрыт по умолчанию; кнопка «Как это работает» раскрывает, выбор запоминается
     var root = $('content-container');
-    var hidden = false;
-    try { hidden = localStorage.getItem('vf_dash_guide_hidden') === '1'; } catch (e) {}
+    var hidden = true;
+    try { hidden = localStorage.getItem('vf_dash_guide_hidden') !== '0'; } catch (e) {}
     function applyGuide() {
       root.classList.toggle('ob-guide-hidden', hidden);
       var t = $('ob-toggle-guide');
@@ -3473,43 +3879,27 @@
     });
     applyGuide();
 
-    $('ob-topup-btn').addEventListener('click', function () {
-      if (window.VoicyfySidebar && VoicyfySidebar.openTopupModal) VoicyfySidebar.openTopupModal();
-      else location.href = '/static/settings.html#wallet';
-    });
-
-    // Прогресс шагов
-    var steps = { 1: false, 2: false, 3: false };
-    function renderProgress() {
-      var n = [1, 2, 3].filter(function (k) { return steps[k]; }).length;
-      [1, 2, 3].forEach(function (k) { $('ob-step-' + k).classList.toggle('done', steps[k]); });
-      $('ob-progress-fill').style.width = Math.round(n / 3 * 100) + '%';
-      $('ob-progress-text').textContent = n === 3 ? 'Всё готово' : n + ' из 3';
-    }
-    renderProgress();
-
-    // Шаг 1 — ассистенты: следим за счётчиком, который заполняет основной скрипт страницы
+    // Отметки «готово» у шагов 1 и 2. Шаг 3 (верификация) не проверяем —
+    // статус верификации на странице телефонии пока не показываем.
     var bots = $('bots-count');
-    function syncBots() { steps[1] = parseInt(bots.textContent, 10) > 0; renderProgress(); }
+    function syncBots() { $('ob-step-1').classList.toggle('done', parseInt(bots.textContent, 10) > 0); }
     new MutationObserver(syncBots).observe(bots, { childList: true, characterData: true, subtree: true });
     syncBots();
 
-    // Шаг 2 — номера
     api('/telephony/my-numbers').then(function (r) {
       var list = r ? (Array.isArray(r) ? r : (r.numbers || [])) : [];
       $('ob-numbers-count').textContent = r ? list.length : '0';
       var bound = list.filter(function (x) { return x.assistant_id || x.assistant_name || x.assistant_type; }).length;
       $('ob-numbers-sub').textContent = list.length ? (bound ? 'с ассистентом: ' + bound : 'без привязки') : 'купите номер в разделе «Телефония»';
-      steps[2] = list.length > 0; renderProgress();
+      $('ob-step-2').classList.toggle('done', bound > 0);
     });
 
-    // Шаг 3 — кошелёк
+    // Кошелёк
     api('/wallet/balance').then(function (b) {
       if (!b) { $('ob-wallet-value').textContent = '—'; return; }
       $('ob-wallet-value').textContent = fmtRub(b.balance_rub);
       api('/wallet/transactions?type=topup&limit=1').then(function (t) {
         var topped = !!(t && t.total > 0);
-        steps[3] = topped; renderProgress();
         $('ob-wallet-sub').textContent = topped ? 'списание посекундно по тарифу модели' : (b.welcome_granted ? 'подарочные рубли уже зачислены' : 'пополните, чтобы начать');
       });
     });
@@ -3523,6 +3913,31 @@
         return '<span class="ob-model">' + VF.logo(t.code, { size: 14 }) + VF.esc(t.name) + '<b>' + VF.esc(price) + '</b></span>';
       }).join('');
     });
+
+    // Статьи: тексты лежат в <template data-art>, читалка — одна модалка
+    var backdrop = $('ob-article-backdrop');
+    var reader = VF.modal(backdrop);
+    var body = $('ob-article-body');
+    function openArticle(key) {
+      var tpl = document.querySelector('template[data-art="' + key + '"]');
+      if (!tpl) return;
+      body.innerHTML = '';
+      body.appendChild(tpl.content.cloneNode(true));
+      $('ob-article-cat').innerHTML = VF.icon(tpl.getAttribute('data-icon') || 'book-open') + VF.esc(tpl.getAttribute('data-cat') || '');
+      renderIcons(body);
+      var h = body.querySelector('.art-title'); if (h) h.id = 'ob-article-title';
+      body.scrollTop = 0;
+      if (!reader.isOpen) reader.open();
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-article]');
+      if (!btn) return;
+      e.preventDefault();
+      openArticle(btn.getAttribute('data-article'));
+    });
+    // Прямая ссылка на статью: /static/dashboard.html#article=agent
+    var m = /[#&]article=([a-z]+)/.exec(location.hash);
+    if (m) { hidden = false; applyGuide(); openArticle(m[1]); }
   })();
   </script>
 </body>

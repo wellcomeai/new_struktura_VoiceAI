@@ -379,9 +379,6 @@
 
     /* Webhook модалка использует telegram-* классы для единообразия,
        но с собственным акцентным цветом заголовка */
-    .webhook-modal .modal-header {
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-    }
 
     /* Контейнер для содержимого */
     .content-container {
@@ -665,6 +662,14 @@
       border-color: var(--primary-blue);
       color: var(--primary-blue);
     }
+
+    /* Скелетоны карточек на время первой загрузки */
+    .skeleton-card { pointer-events: none; }
+    .sk { border-radius: 6px; background: linear-gradient(90deg, var(--vf-surface-2, #f1f5f9) 25%, var(--vf-surface-3, #e2e8f0) 50%, var(--vf-surface-2, #f1f5f9) 75%); background-size: 200% 100%; animation: sk-shimmer 1.3s ease-in-out infinite; }
+    .sk-avatar { width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0; }
+    .sk-line { height: 12px; margin: 3px 0; }
+    .sk-thin { height: 9px; }
+    @keyframes sk-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
     /* Пустое состояние */
     .empty-state {
@@ -1079,184 +1084,93 @@
        TELEGRAM SETTINGS MODAL
        ============================================================================ */
     
-    .telegram-modal {
-      max-width: 520px;
-    }
-    
+    /* Модалки уведомлений (Telegram / Webhook) в стиле дизайн-системы.
+       Разметка и id полей сохранены — логика страницы не меняется. */
+    .telegram-modal { max-width: 540px; padding: 0; overflow: hidden; }
     .telegram-modal .modal-header {
-      background: linear-gradient(135deg, var(--telegram-blue), #006699);
-      color: white;
-      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      display: flex; align-items: center; gap: 12px; padding: 18px 20px 16px; margin: 0;
+      background: var(--vf-surface, #fff); border-bottom: 1px solid var(--vf-border, #e5e9f0); border-radius: 0;
     }
-    
-    .telegram-modal .modal-title {
-      color: white;
-    }
-    
-    .telegram-modal .modal-title i {
-      font-size: 1.5rem;
-    }
-    
+    .telegram-modal .modal-header-content { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+    .telegram-modal .nm-icon { width: 38px; height: 38px; border-radius: 11px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; background: var(--vf-accent-soft, #eaf1ff); color: var(--vf-accent, #2563eb); }
+    .telegram-modal .nm-icon i.vf-fa { font-size: 18px; }
+    .telegram-modal .modal-title { font-size: 16px; font-weight: 700; color: var(--vf-text, #0f172a); margin: 0; display: flex; align-items: center; gap: 8px; letter-spacing: -0.01em; }
+    .telegram-modal .nm-sub { font-size: 12.5px; color: var(--vf-text-3, #64748b); margin-top: 2px; }
     .telegram-modal .modal-close {
-      color: rgba(255, 255, 255, 0.8);
+      width: 32px; height: 32px; border-radius: 8px; border: none; background: transparent; color: var(--vf-text-3, #64748b);
+      font-size: 22px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; flex: 0 0 auto;
     }
-    
-    .telegram-modal .modal-close:hover {
-      background-color: rgba(255, 255, 255, 0.1);
-      color: white;
-    }
-    
-    .telegram-modal-body {
-      padding: 1.5rem;
-      max-height: 60vh;
-      overflow-y: auto;
-    }
-    
-    .telegram-instruction {
-      background-color: var(--bg-blue-light);
-      border-radius: var(--radius-md);
-      padding: 1rem;
-      margin-bottom: 1.5rem;
-      font-size: 0.875rem;
-      line-height: 1.6;
-    }
-    
-    .telegram-instruction h4 {
-      font-size: 0.9rem;
-      margin-bottom: 0.75rem;
-      color: var(--primary-blue);
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    
-    .telegram-instruction ol {
-      margin: 0;
-      padding-left: 1.25rem;
-      color: var(--text-gray);
-    }
-    
-    .telegram-instruction li {
-      margin-bottom: 0.5rem;
-    }
-    
-    .telegram-instruction code {
-      background-color: rgba(0, 0, 0, 0.05);
-      padding: 0.15rem 0.4rem;
-      border-radius: 0.25rem;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 0.8rem;
-    }
-    
-    .telegram-instruction a {
-      color: var(--telegram-blue);
-      text-decoration: none;
-    }
-    
-    .telegram-instruction a:hover {
-      text-decoration: underline;
-    }
-    
-    .telegram-form-group {
-      margin-bottom: 1.25rem;
-    }
-    
-    .telegram-form-group label {
-      display: block;
-      font-size: 0.875rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-      color: var(--text-dark);
-    }
-    
-    .telegram-form-group .input-hint {
-      font-size: 0.75rem;
-      color: var(--text-light);
-      margin-top: 0.35rem;
-    }
-    
-    .telegram-input-wrapper {
-      position: relative;
-      display: flex;
-      gap: 0.5rem;
-    }
-    
-    .telegram-input {
-      flex: 1;
-      padding: 0.75rem 1rem;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      font-size: 0.9rem;
-      transition: all 0.2s;
-    }
-    
-    .telegram-input:focus {
-      outline: none;
-      border-color: var(--telegram-blue);
-      box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.15);
-    }
-    
-    .telegram-input.error {
-      border-color: var(--error-red);
-    }
-    
-    .btn-toggle-visibility {
-      padding: 0.75rem;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      background: var(--white);
-      cursor: pointer;
-      color: var(--text-gray);
-      transition: all 0.2s;
-    }
-    
-    .btn-toggle-visibility:hover {
-      background-color: var(--bg-light);
-      color: var(--text-dark);
-    }
-    
+    .telegram-modal .modal-close:hover { background: var(--vf-surface-2, #f6f8fb); color: var(--vf-text, #0f172a); }
+
+    .telegram-modal-body { padding: 18px 20px; max-height: calc(90vh - 150px); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+
+    /* Статус подключения: пилюля */
     .telegram-status {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.75rem 1rem;
-      border-radius: var(--radius-md);
-      font-size: 0.875rem;
-      margin-bottom: 1rem;
+      display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; white-space: nowrap; flex: 0 0 auto;
     }
-    
-    .telegram-status.configured {
-      background-color: rgba(16, 185, 129, 0.1);
-      color: var(--success-green);
+    .telegram-status i.vf-fa { font-size: 8px; }
+    .telegram-status.configured { background: var(--vf-success-soft, #e8f7ee); color: var(--vf-success, #16a34a); }
+    .telegram-status.not-configured { background: var(--vf-surface-3, #eef2f8); color: var(--vf-text-3, #64748b); }
+
+    /* Инструкция: сворачиваемый блок */
+    .telegram-instruction { border: 1px solid var(--vf-border, #e5e9f0); border-radius: 12px; background: var(--vf-surface-2, #f7f9fc); }
+    .telegram-instruction summary {
+      list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 11px 14px;
+      font-size: 13px; font-weight: 600; color: var(--vf-text, #0f172a); user-select: none;
     }
-    
-    .telegram-status.not-configured {
-      background-color: rgba(148, 163, 184, 0.1);
-      color: var(--text-gray);
+    .telegram-instruction summary::-webkit-details-marker { display: none; }
+    .telegram-instruction summary .nm-chev { margin-left: auto; color: var(--vf-text-4, #94a3b8); transition: transform .15s; display: flex; }
+    .telegram-instruction[open] summary .nm-chev { transform: rotate(180deg); }
+    .telegram-instruction summary i.vf-fa { color: var(--vf-accent, #2563eb); }
+    .telegram-instruction .nm-help-body { padding: 0 14px 14px; font-size: 13px; line-height: 1.55; color: var(--vf-text-2, #475569); }
+    .telegram-instruction h4 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--vf-text-4, #94a3b8); margin: 12px 0 8px; display: flex; align-items: center; gap: 6px; }
+    .telegram-instruction h4:first-child { margin-top: 0; }
+    .telegram-instruction p { margin: 0 0 8px; }
+    .telegram-instruction ul, .telegram-instruction ol { margin: 0 0 10px; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+    .telegram-instruction ul li { display: flex; align-items: flex-start; gap: 8px; }
+    .telegram-instruction ul li i.vf-fa { color: var(--vf-accent, #2563eb); font-size: 14px; margin-top: 2px; flex: 0 0 auto; }
+    .telegram-instruction ol { counter-reset: nm; }
+    .telegram-instruction ol li { display: flex; align-items: flex-start; gap: 8px; counter-increment: nm; }
+    .telegram-instruction ol li::before {
+      content: counter(nm); flex: 0 0 auto; width: 18px; height: 18px; border-radius: 6px; background: var(--vf-surface, #fff); border: 1px solid var(--vf-border, #e5e9f0);
+      font-size: 11px; font-weight: 600; color: var(--vf-text-3, #64748b); display: inline-flex; align-items: center; justify-content: center; margin-top: 1px;
     }
-    
+    .telegram-instruction code { font-family: var(--vf-font-mono, ui-monospace, monospace); font-size: 12px; background: var(--vf-surface, #fff); border: 1px solid var(--vf-border, #e5e9f0); border-radius: 5px; padding: 1px 5px; color: var(--vf-text, #0f172a); }
+    .telegram-instruction a { color: var(--vf-accent, #2563eb); font-weight: 500; text-decoration: none; }
+    .telegram-instruction a:hover { text-decoration: underline; }
+
+    /* Форма */
+    .nm-form { display: flex; flex-direction: column; gap: 14px; }
+    .telegram-form-group { display: flex; flex-direction: column; gap: 6px; }
+    .telegram-form-group label { font-size: 12.5px; font-weight: 600; color: var(--vf-text-2, #475569); }
+    .telegram-form-group .input-hint { font-size: 12px; color: var(--vf-text-4, #94a3b8); }
+    .telegram-input-wrapper { position: relative; display: flex; align-items: center; }
+    .telegram-input-wrapper .telegram-input { padding-right: 40px; }
+    .telegram-input {
+      width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--vf-border-strong, #cfd7e3); border-radius: 8px;
+      background: var(--vf-surface, #fff); color: var(--vf-text, #0f172a); font-size: 14px; font-family: inherit;
+      box-shadow: var(--vf-shadow-1); transition: border-color .15s, box-shadow .15s;
+    }
+    .telegram-input::placeholder { color: var(--vf-text-4, #94a3b8); }
+    .telegram-input:focus { outline: none; border-color: var(--vf-accent, #2563eb); box-shadow: 0 0 0 3px var(--vf-accent-ring, rgba(37,99,235,.18)); }
+    .telegram-input.error { border-color: var(--vf-danger, #dc2626); box-shadow: 0 0 0 3px rgba(220, 38, 38, .15); }
+    .btn-toggle-visibility {
+      position: absolute; right: 4px; top: 4px; width: 30px; height: 30px; border-radius: 6px; border: none; background: transparent;
+      color: var(--vf-text-3, #64748b); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .btn-toggle-visibility:hover { background: var(--vf-surface-2, #f6f8fb); color: var(--vf-text, #0f172a); }
+    .nm-switch { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--vf-text, #0f172a); }
+    .nm-switch input { width: 16px; height: 16px; accent-color: var(--vf-accent, #2563eb); cursor: pointer; margin: 0; }
+
     .telegram-modal-footer {
-      padding: 1rem 1.5rem;
-      border-top: 1px solid var(--border-color);
-      display: flex;
-      gap: 0.75rem;
-      flex-wrap: wrap;
+      display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--vf-border, #e5e9f0); background: var(--vf-surface-2, #f7f9fc);
     }
-    
-    .telegram-modal-footer .btn {
-      flex: 1;
-      justify-content: center;
-      min-width: 120px;
-    }
-    
-    .btn-test {
-      background-color: var(--success-green);
-      color: white;
-    }
-    
-    .btn-test:hover {
-      background-color: #0d9668;
-    }
+    .telegram-modal-footer .nm-spacer { flex: 1; }
+    .telegram-modal-footer .btn { height: 36px; }
+    .btn-test { background: var(--vf-surface, #fff); color: var(--vf-success, #16a34a); border: 1px solid var(--vf-border, #e5e9f0); }
+    .btn-test:hover:not([disabled]) { border-color: var(--vf-success, #16a34a); background: var(--vf-success-soft, #e8f7ee); }
+    .btn-test[disabled] { opacity: .55; cursor: not-allowed; }
     
     .btn-danger {
       background-color: var(--error-red);
@@ -1895,66 +1809,66 @@
     <div class="modal telegram-modal">
       <div class="modal-header">
         <div class="modal-header-content">
-          <h2 class="modal-title">
-            <i class="fab fa-telegram"></i> Telegram уведомления
-          </h2>
+          <span class="nm-icon"><i class="fab fa-telegram"></i></span>
+          <div style="min-width:0;">
+            <h2 class="modal-title">Telegram уведомления</h2>
+            <div class="nm-sub">Отчёт о каждом звонке в ваш чат или группу</div>
+          </div>
         </div>
-        <button class="modal-close" id="telegram-modal-close">&times;</button>
-      </div>
-      
-      <div class="telegram-modal-body">
-        <!-- Статус -->
         <div class="telegram-status not-configured" id="telegram-status">
           <i class="fas fa-circle"></i>
           <span id="telegram-status-text">Не настроено</span>
         </div>
-        
-        <!-- Инструкция -->
-        <div class="telegram-instruction">
-          <h4><i class="fas fa-info-circle"></i> Как это работает?</h4>
-          <p style="margin-bottom: 0.75rem; color: var(--text-dark);">
-            После завершения каждого звонка вы получите уведомление в Telegram с:
-          </p>
-          <ul style="margin-left: 1rem; margin-bottom: 1rem; color: var(--text-gray);">
-            <li>📞 Номером звонящего и направлением звонка</li>
-            <li>⏱️ Длительностью и стоимостью</li>
-            <li>💬 Полным диалогом (текст разговора)</li>
-            <li>🎧 Ссылкой на аудиозапись</li>
-          </ul>
-          
-          <h4><i class="fas fa-cog"></i> Настройка за 2 минуты:</h4>
-          <ol>
-            <li>Откройте <a href="https://t.me/BotFather" target="_blank">@BotFather</a> в Telegram</li>
-            <li>Отправьте команду <code>/newbot</code> и следуйте инструкциям</li>
-            <li>Скопируйте полученный <strong>токен бота</strong></li>
-            <li>Напишите вашему боту любое сообщение (чтобы активировать чат)</li>
-            <li>Откройте <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> и скопируйте ваш <strong>Chat ID</strong></li>
-          </ol>
-        </div>
-        
-        <!-- Форма -->
-        <div class="telegram-form-group">
-          <label for="telegram-bot-token">Bot Token</label>
-          <div class="telegram-input-wrapper">
-            <input type="password" id="telegram-bot-token" class="telegram-input" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
-            <button type="button" class="btn-toggle-visibility" id="toggle-token-visibility">
-              <i class="fas fa-eye"></i>
-            </button>
+        <button class="modal-close" id="telegram-modal-close" aria-label="Закрыть">&times;</button>
+      </div>
+
+      <div class="telegram-modal-body">
+        <details class="telegram-instruction" open>
+          <summary><i class="fas fa-info-circle"></i> Как это работает <span class="nm-chev"><i class="fas fa-chevron-down"></i></span></summary>
+          <div class="nm-help-body">
+            <p>После завершения каждого звонка вы получите уведомление в Telegram:</p>
+            <ul>
+              <li><i class="fas fa-phone"></i><span>Номер звонящего и направление звонка</span></li>
+              <li><i class="fas fa-clock"></i><span>Длительность и стоимость</span></li>
+              <li><i class="fas fa-comment"></i><span>Полный текст разговора</span></li>
+              <li><i class="fas fa-headphones"></i><span>Ссылка на аудиозапись</span></li>
+            </ul>
+            <h4><i class="fas fa-cog"></i> Настройка за две минуты</h4>
+            <ol>
+              <li><span>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a> в Telegram</span></li>
+              <li><span>Отправьте команду <code>/newbot</code> и следуйте инструкциям</span></li>
+              <li><span>Скопируйте полученный <strong>токен бота</strong></span></li>
+              <li><span>Напишите вашему боту любое сообщение, чтобы активировать чат</span></li>
+              <li><span>Откройте <a href="https://t.me/userinfobot" target="_blank" rel="noopener">@userinfobot</a> и скопируйте ваш <strong>Chat ID</strong></span></li>
+            </ol>
           </div>
-          <div class="input-hint">Токен от @BotFather (формат: 123456789:ABC...)</div>
-        </div>
-        
-        <div class="telegram-form-group">
-          <label for="telegram-chat-id">Chat ID</label>
-          <input type="text" id="telegram-chat-id" class="telegram-input" placeholder="123456789">
-          <div class="input-hint">Ваш числовой ID из @userinfobot (или ID группы/канала)</div>
+        </details>
+
+        <div class="nm-form">
+          <div class="telegram-form-group">
+            <label for="telegram-bot-token">Bot Token</label>
+            <div class="telegram-input-wrapper">
+              <input type="password" id="telegram-bot-token" class="telegram-input" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" autocomplete="off">
+              <button type="button" class="btn-toggle-visibility" id="toggle-token-visibility" aria-label="Показать токен">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+            <div class="input-hint">Токен от @BotFather в формате 123456789:ABC…</div>
+          </div>
+
+          <div class="telegram-form-group">
+            <label for="telegram-chat-id">Chat ID</label>
+            <input type="text" id="telegram-chat-id" class="telegram-input" placeholder="123456789" autocomplete="off">
+            <div class="input-hint">Ваш числовой ID из @userinfobot или ID группы/канала</div>
+          </div>
         </div>
       </div>
-      
+
       <div class="telegram-modal-footer">
         <button class="btn btn-danger" id="telegram-delete-btn" style="display: none;">
           <i class="fas fa-trash"></i> Удалить
         </button>
+        <span class="nm-spacer"></span>
         <button class="btn btn-test" id="telegram-test-btn" disabled>
           <i class="fas fa-paper-plane"></i> Тест
         </button>
@@ -1970,55 +1884,53 @@
     <div class="modal telegram-modal webhook-modal">
       <div class="modal-header">
         <div class="modal-header-content">
-          <h2 class="modal-title">
-            <i class="fas fa-link"></i> Webhook уведомления
-          </h2>
+          <span class="nm-icon"><i class="fas fa-link"></i></span>
+          <div style="min-width:0;">
+            <h2 class="modal-title">Webhook уведомления</h2>
+            <div class="nm-sub">POST-запрос на ваш сервер после каждого диалога</div>
+          </div>
         </div>
-        <button class="modal-close" id="webhook-modal-close">&times;</button>
-      </div>
-
-      <div class="telegram-modal-body">
-        <!-- Статус -->
         <div class="telegram-status not-configured" id="webhook-status">
           <i class="fas fa-circle"></i>
           <span id="webhook-status-text">Не настроено</span>
         </div>
+        <button class="modal-close" id="webhook-modal-close" aria-label="Закрыть">&times;</button>
+      </div>
 
-        <!-- Инструкция -->
-        <div class="telegram-instruction">
-          <h4><i class="fas fa-info-circle"></i> Как это работает?</h4>
-          <p style="margin-bottom: 0.75rem; color: var(--text-dark);">
-            После завершения каждого диалога (веб-чат и телефония) на указанный URL
-            отправляется POST-запрос с событием <code>conversation.completed</code>:
-          </p>
-          <ul style="margin-left: 1rem; margin-bottom: 1rem; color: var(--text-gray);">
-            <li>💬 Полный диалог (массив реплик с ролью и текстом)</li>
-            <li>🤖 Имя, ID и тип ассистента</li>
-            <li>📞 Для телефонии — номер, направление, длительность, стоимость, запись</li>
-            <li>🔖 Поле <code>source</code> = <code>web_chat</code> или <code>telephony</code></li>
-          </ul>
+      <div class="telegram-modal-body">
+        <details class="telegram-instruction" open>
+          <summary><i class="fas fa-info-circle"></i> Как это работает <span class="nm-chev"><i class="fas fa-chevron-down"></i></span></summary>
+          <div class="nm-help-body">
+            <p>После завершения каждого диалога (веб-чат и телефония) на указанный URL уходит POST-запрос с событием <code>conversation.completed</code>:</p>
+            <ul>
+              <li><i class="fas fa-comment"></i><span>Полный диалог: массив реплик с ролью и текстом</span></li>
+              <li><i class="fas fa-robot"></i><span>Имя, ID и тип ассистента</span></li>
+              <li><i class="fas fa-phone"></i><span>Для телефонии: номер, направление, длительность, стоимость, запись</span></li>
+              <li><i class="fas fa-tag"></i><span>Поле <code>source</code> = <code>web_chat</code> или <code>telephony</code></span></li>
+            </ul>
+            <h4><i class="fas fa-cog"></i> Как проверить</h4>
+            <ol>
+              <li><span>Создайте временный URL на <a href="https://webhook.site" target="_blank" rel="noopener">webhook.site</a></span></li>
+              <li><span>Вставьте его в поле ниже и включите отправку</span></li>
+              <li><span>Сделайте тестовый звонок или веб-чат: событие появится на webhook.site</span></li>
+            </ol>
+          </div>
+        </details>
 
-          <h4><i class="fas fa-cog"></i> Как проверить:</h4>
-          <ol>
-            <li>Создайте временный URL на <a href="https://webhook.site" target="_blank">webhook.site</a></li>
-            <li>Вставьте его в поле ниже и включите отправку</li>
-            <li>Сделайте тестовый звонок или веб-чат — событие появится на webhook.site</li>
-          </ol>
-        </div>
+        <div class="nm-form">
+          <div class="telegram-form-group">
+            <label for="webhook-url">Webhook URL</label>
+            <input type="text" id="webhook-url" class="telegram-input" placeholder="https://your-server.com/voicyfy-webhook" autocomplete="off">
+            <div class="input-hint">URL вашего сервера для приёма POST-запросов (http:// или https://)</div>
+          </div>
 
-        <!-- Форма -->
-        <div class="telegram-form-group">
-          <label for="webhook-url">Webhook URL</label>
-          <input type="text" id="webhook-url" class="telegram-input" placeholder="https://your-server.com/voicyfy-webhook">
-          <div class="input-hint">URL вашего сервера для приёма POST-запросов (http:// или https://)</div>
-        </div>
-
-        <div class="telegram-form-group">
-          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="webhook-enabled" style="width: auto; cursor: pointer;">
-            Включить отправку вебхуков
-          </label>
-          <div class="input-hint">Если выключено — уведомления отправляться не будут</div>
+          <div class="telegram-form-group">
+            <label class="nm-switch" for="webhook-enabled">
+              <input type="checkbox" id="webhook-enabled">
+              Включить отправку вебхуков
+            </label>
+            <div class="input-hint">Если выключено, уведомления отправляться не будут</div>
+          </div>
         </div>
       </div>
 
@@ -2026,6 +1938,7 @@
         <button class="btn btn-danger" id="webhook-delete-btn" style="display: none;">
           <i class="fas fa-trash"></i> Удалить
         </button>
+        <span class="nm-spacer"></span>
         <button class="btn btn-primary" id="webhook-save-btn">
           <i class="fas fa-save"></i> Сохранить
         </button>
@@ -2318,6 +2231,21 @@
       
       // UI функции
       function setLoading(loading) {
+        // Пока карточек ещё нет — рисуем скелетоны в сетке, оверлей только
+        // при перелистывании и смене фильтров.
+        const hasCards = conversationsGrid.querySelector('.conversation-card');
+        if (loading && !hasCards) {
+          conversationsGrid.innerHTML = Array.from({ length: 8 }, () => `
+            <div class="conversation-card skeleton-card" aria-hidden="true">
+              <div class="card-header"><div class="sk sk-avatar"></div><div class="card-info"><div class="sk sk-line" style="width:60%"></div><div class="sk sk-line sk-thin" style="width:35%"></div></div></div>
+              <div class="sk sk-line" style="width:45%"></div>
+              <div class="sk sk-line" style="width:90%"></div>
+              <div class="card-footer"><div class="sk sk-line sk-thin" style="width:40%"></div></div>
+            </div>`).join('');
+          loadingOverlay.style.display = 'none';
+          return;
+        }
+        if (!loading) conversationsGrid.querySelectorAll('.skeleton-card').forEach(el => el.remove());
         loadingOverlay.style.display = loading ? 'flex' : 'none';
       }
       
@@ -3039,102 +2967,34 @@
       // ============================================================================
       
       async function loadAssistants() {
-        try {
-          assistants = [];
-          console.log('[ASSISTANTS] Loading assistants for filter...');
-          
-          try {
-            const openaiData = await api.get('/assistants');
-            const openaiList = Array.isArray(openaiData) ? openaiData : [];
-            openaiList.forEach(a => {
-              assistants.push({ id: a.id, name: a.name, type: 'openai' });
+        // Списки провайдеров грузим параллельно: раньше шесть запросов шли
+        // по очереди, и список диалогов ждал их все.
+        assistants = [];
+        const asList = (d) => Array.isArray(d) ? d : (d && Array.isArray(d.assistants) ? d.assistants : []);
+        const loaders = [
+          ['openai',   () => api.get('/assistants').then(d => asList(d).map(a => ({ id: a.id, name: a.name, type: 'openai' })))],
+          ['gemini',   () => api.get('/gemini-assistants').then(d => asList(d).map(a => ({ id: a.id, name: a.name, type: 'gemini' })))],
+          ['cartesia', () => api.get('/cartesia-assistants').then(d => asList(d).map(a => ({ id: a.id, name: a.name, type: 'cartesia' })))],
+          ['yandex',   () => api.get('/yandex-assistants').then(d => asList(d).map(a => ({ id: a.id, name: a.name, type: 'yandex' })))],
+          ['fish',     () => api.get('/fish-assistants').then(d => asList(d).map(a => ({ id: a.id, name: a.name, type: 'fish' })))],
+          // Голоса агентов обзвона: диалоги пишутся под id голосового
+          // ассистента, а в списках провайдеров этот ассистент скрыт —
+          // поэтому в фильтр кладём именно его id под именем агента.
+          ['agents',   () => api.get('/agent/list').then(d => {
+            const out = [];
+            (Array.isArray(d?.agents) ? d.agents : []).forEach(a => {
+              if (a.assistant_type === 'cascade' && a.cascade_assistant_id) out.push({ id: a.cascade_assistant_id, name: a.name, type: 'cascade' });
+              if (a.assistant_type === 'fish' && a.fish_assistant_id) out.push({ id: a.fish_assistant_id, name: a.name, type: 'fish' });
             });
-            console.log(`[ASSISTANTS] ✅ Loaded ${openaiList.length} OpenAI assistants`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading OpenAI assistants:', e.message);
-          }
-          
-          try {
-            const geminiData = await api.get('/gemini-assistants');
-            const geminiList = Array.isArray(geminiData) ? geminiData : [];
-            geminiList.forEach(a => {
-              assistants.push({ id: a.id, name: a.name, type: 'gemini' });
-            });
-            console.log(`[ASSISTANTS] ✅ Loaded ${geminiList.length} Gemini assistants`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading Gemini assistants:', e.message);
-          }
-
-          try {
-            const cartesiaData = await api.get('/cartesia-assistants');
-            const cartesiaList = Array.isArray(cartesiaData)
-              ? cartesiaData
-              : (cartesiaData.assistants || []);
-            cartesiaList.forEach(a => {
-              assistants.push({ id: a.id, name: a.name, type: 'cartesia' });
-            });
-            console.log(`[ASSISTANTS] ✅ Loaded ${cartesiaList.length} Cartesia assistants`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading Cartesia assistants:', e.message);
-          }
-
-          try {
-            const yandexData = await api.get('/yandex-assistants');
-            const yandexList = Array.isArray(yandexData)
-              ? yandexData
-              : (yandexData.assistants || []);
-            yandexList.forEach(a => {
-              assistants.push({ id: a.id, name: a.name, type: 'yandex' });
-            });
-            console.log(`[ASSISTANTS] ✅ Loaded ${yandexList.length} Yandex assistants`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading Yandex assistants:', e.message);
-          }
-
-          try {
-            const fishData = await api.get('/fish-assistants');
-            const fishList = Array.isArray(fishData)
-              ? fishData
-              : (fishData.assistants || []);
-            fishList.forEach(a => {
-              assistants.push({ id: a.id, name: a.name, type: 'fish' });
-            });
-            console.log(`[ASSISTANTS] ✅ Loaded ${fishList.length} Fish assistants`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading Fish assistants:', e.message);
-          }
-
-          try {
-            // Голоса агентов обзвона: диалоги пишутся под id голосового
-            // ассистента, а в списках провайдеров этот ассистент скрыт —
-            // поэтому в фильтр кладём именно его id под именем агента.
-            const agentData = await api.get('/agent/list');
-            const agentList = Array.isArray(agentData?.agents) ? agentData.agents : [];
-            let cascadeCount = 0;
-            let fishAgentCount = 0;
-            agentList.forEach(a => {
-              if (a.assistant_type === 'cascade' && a.cascade_assistant_id) {
-                assistants.push({ id: a.cascade_assistant_id, name: a.name, type: 'cascade' });
-                cascadeCount++;
-              }
-              if (a.assistant_type === 'fish' && a.fish_assistant_id) {
-                assistants.push({ id: a.fish_assistant_id, name: a.name, type: 'fish' });
-                fishAgentCount++;
-              }
-            });
-            console.log(`[ASSISTANTS] ✅ Loaded ${cascadeCount} Cascade and ${fishAgentCount} Fish agent voices`);
-          } catch (e) {
-            console.warn('[ASSISTANTS] ⚠️ Error loading agent voices:', e.message);
-          }
-
-          console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
-          renderAssistantFilter();
-          
-        } catch (error) {
-          console.error('[ASSISTANTS] ❌ Fatal error loading assistants:', error);
-          assistants = [];
-          renderAssistantFilter();
-        }
+            return out;
+          })]
+        ];
+        const results = await Promise.all(loaders.map(([name, fn]) =>
+          fn().catch(e => { console.warn(`[ASSISTANTS] ⚠️ Error loading ${name}:`, e.message); return []; })
+        ));
+        results.forEach(list => assistants.push(...list));
+        console.log(`[ASSISTANTS] 🎯 Total: ${assistants.length} assistants`);
+        renderAssistantFilter();
       }
       
       function renderAssistantFilter() {
@@ -3665,9 +3525,10 @@
       loadSubscriptionInfo().then(() => {
         applyFeatureAccessToSidebar();
       });
-      loadAssistants().then(() => {
-        loadConversations();
-      });
+      // Список диалогов не ждёт списки ассистентов: имя ассистента приходит
+      // с бэкенда, а фильтр по ассистенту заполнится, когда подгрузится.
+      loadConversations();
+      loadAssistants();
       
       // Загружаем статус Telegram при старте
       loadTelegramSettings();

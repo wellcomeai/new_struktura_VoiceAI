@@ -22,7 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, case, or_, text
 from sqlalchemy.dialects.postgresql import JSONB
-from typing import Optional, List
+import time
+from typing import Dict, Optional, List
 from datetime import datetime
 from uuid import UUID
 from collections import defaultdict
@@ -64,55 +65,35 @@ SYSTEM_MESSAGE_PATTERNS = [
 # 🆕 v2.0: Helper functions for OpenAI + Gemini support
 # =============================================================================
 
+def get_user_assistant_ids_by_type(db: Session, user_id: UUID) -> Dict[str, List[UUID]]:
+    """
+    ID ассистентов пользователя по типам одним проходом (шесть лёгких запросов
+    по индексу user_id). Используется и для фильтра диалогов, и для
+    определения типа ассистента в ответе — раньше те же таблицы читались дважды.
+    """
+    return {
+        "openai": [a.id for a in db.query(AssistantConfig.id).filter(AssistantConfig.user_id == user_id).all()],
+        "gemini": [a.id for a in db.query(GeminiAssistantConfig.id).filter(GeminiAssistantConfig.user_id == user_id).all()],
+        "cartesia": [a.id for a in db.query(CartesiaAssistantConfig.id).filter(CartesiaAssistantConfig.user_id == user_id).all()],
+        # Yandex: телефонные диалоги тоже пишутся в conversations
+        "yandex": [a.id for a in db.query(YandexAssistantConfig.id).filter(YandexAssistantConfig.user_id == user_id).all()],
+        # Cascade: GrokAssistantConfig с assistant_type='cascade', звонки под grok-id
+        "cascade": [a.id for a in db.query(GrokAssistantConfig.id).filter(
+            GrokAssistantConfig.user_id == user_id, GrokAssistantConfig.assistant_type == "cascade").all()],
+        # Fish: диалог ведёт OpenAI Realtime, озвучка Fish, лог под fish-id
+        "fish": [a.id for a in db.query(FishAssistantConfig.id).filter(FishAssistantConfig.user_id == user_id).all()],
+    }
+
+
 def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
     """
-    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia + Yandex + cascade).
+    Получить все ID ассистентов пользователя (OpenAI + Gemini + Cartesia + Yandex + cascade + Fish).
 
     Returns:
         List[UUID]: Список всех assistant_id
     """
-    # OpenAI assistants
-    openai_ids = db.query(AssistantConfig.id).filter(
-        AssistantConfig.user_id == user_id
-    ).all()
-
-    # Gemini assistants
-    gemini_ids = db.query(GeminiAssistantConfig.id).filter(
-        GeminiAssistantConfig.user_id == user_id
-    ).all()
-
-    # Cartesia assistants
-    cartesia_ids = db.query(CartesiaAssistantConfig.id).filter(
-        CartesiaAssistantConfig.user_id == user_id
-    ).all()
-
-    # Yandex assistants (их телефонные диалоги тоже пишутся в conversations)
-    yandex_ids = db.query(YandexAssistantConfig.id).filter(
-        YandexAssistantConfig.user_id == user_id
-    ).all()
-
-    # Cascade assistants (GrokAssistantConfig с assistant_type='cascade').
-    # Их звонки телефонии пишутся в conversations под grok-id.
-    cascade_ids = db.query(GrokAssistantConfig.id).filter(
-        GrokAssistantConfig.user_id == user_id,
-        GrokAssistantConfig.assistant_type == "cascade"
-    ).all()
-
-    # Fish assistants (диалог ведёт OpenAI Realtime в сценарии, озвучка — Fish;
-    # звонок логируется в conversations под fish-id).
-    fish_ids = db.query(FishAssistantConfig.id).filter(
-        FishAssistantConfig.user_id == user_id
-    ).all()
-
-    all_ids = (
-        [a.id for a in openai_ids]
-        + [a.id for a in gemini_ids]
-        + [a.id for a in cartesia_ids]
-        + [a.id for a in yandex_ids]
-        + [a.id for a in cascade_ids]
-        + [a.id for a in fish_ids]
-    )
-
+    by_type = get_user_assistant_ids_by_type(db, user_id)
+    all_ids = [aid for ids in by_type.values() for aid in ids]
     return all_ids
 
 
@@ -332,6 +313,7 @@ async def get_conversation_sessions(
     - page_size: Размер страницы
     """
     try:
+        started_at = time.monotonic()
         logger.info(f"[CONVERSATIONS-API-v3.5] Get sessions request from user {current_user.id}")
         logger.info(f"   Filters: assistant_id={assistant_id}, caller={caller_number}, "
                    f"date_from={date_from}, date_to={date_to}")
@@ -361,9 +343,10 @@ async def get_conversation_sessions(
                     detail=f"Invalid date_to format. Use ISO format (YYYY-MM-DDTHH:MM:SS)"
                 )
         
-        # 🆕 v2.0: Получаем ВСЕ assistant_id пользователя (OpenAI + Gemini)
-        user_assistant_ids = get_user_assistant_ids(db, current_user.id)
-        
+        # Все assistant_id пользователя по типам — один проход вместо двух
+        ids_by_type = get_user_assistant_ids_by_type(db, current_user.id)
+        user_assistant_ids = [aid for ids in ids_by_type.values() for aid in ids]
+
         if not user_assistant_ids:
             logger.info("   User has no assistants")
             return {
@@ -372,35 +355,16 @@ async def get_conversation_sessions(
                 "page": 0,
                 "page_size": limit
             }
-        
-        logger.info(f"   User has {len(user_assistant_ids)} assistants (OpenAI + Gemini + Cartesia)")
 
-        # Создаём sets ID для быстрого определения типа
-        gemini_ids = db.query(GeminiAssistantConfig.id).filter(
-            GeminiAssistantConfig.user_id == current_user.id
-        ).all()
-        gemini_id_set = {str(g.id) for g in gemini_ids}
+        logger.info(f"   User has {len(user_assistant_ids)} assistants (all providers)")
 
-        cartesia_ids = db.query(CartesiaAssistantConfig.id).filter(
-            CartesiaAssistantConfig.user_id == current_user.id
-        ).all()
-        cartesia_id_set = {str(c.id) for c in cartesia_ids}
-
-        yandex_ids = db.query(YandexAssistantConfig.id).filter(
-            YandexAssistantConfig.user_id == current_user.id
-        ).all()
-        yandex_id_set = {str(y.id) for y in yandex_ids}
-
-        cascade_ids = db.query(GrokAssistantConfig.id).filter(
-            GrokAssistantConfig.user_id == current_user.id,
-            GrokAssistantConfig.assistant_type == "cascade"
-        ).all()
-        cascade_id_set = {str(c.id) for c in cascade_ids}
-
-        fish_ids = db.query(FishAssistantConfig.id).filter(
-            FishAssistantConfig.user_id == current_user.id
-        ).all()
-        fish_id_set = {str(f.id) for f in fish_ids}
+        # Тип ассистента по id (для ответа); openai — всё, что не попало в остальные
+        type_by_id = {}
+        for a_type, ids in ids_by_type.items():
+            if a_type == "openai":
+                continue
+            for aid in ids:
+                type_by_id[str(aid)] = a_type
 
         # =============================================================================
         # 🆕 v3.5: Основной запрос БЕЗ preview (preview загружаем отдельно)
@@ -466,7 +430,7 @@ async def get_conversation_sessions(
             .all()
         )
         
-        logger.info(f"✅ Found {len(sessions)} sessions (total: {total})")
+        logger.info(f"✅ Found {len(sessions)} sessions (total: {total}) in {(time.monotonic() - started_at) * 1000:.0f} ms")
         
         # =============================================================================
         # 🆕 v3.5: Загружаем правильные preview - ПЕРВОЕ сообщение по времени
@@ -590,19 +554,7 @@ async def get_conversation_sessions(
         # =============================================================================
         conversations = []
         for s in sessions:
-            # Определяем тип по ID ассистента
-            if str(s.assistant_id) in gemini_id_set:
-                assistant_type = 'gemini'
-            elif str(s.assistant_id) in cartesia_id_set:
-                assistant_type = 'cartesia'
-            elif str(s.assistant_id) in yandex_id_set:
-                assistant_type = 'yandex'
-            elif str(s.assistant_id) in cascade_id_set:
-                assistant_type = 'cascade'
-            elif str(s.assistant_id) in fish_id_set:
-                assistant_type = 'fish'
-            else:
-                assistant_type = 'openai'
+            assistant_type = type_by_id.get(str(s.assistant_id), 'openai')
             
             # 🆕 v3.0: Форматируем стоимость
             call_cost = None
@@ -635,6 +587,7 @@ async def get_conversation_sessions(
                 "function_calls": logs_by_session.get(s.session_id, [])
             })
         
+        logger.info(f"   ⏱ /sessions total {(time.monotonic() - started_at) * 1000:.0f} ms")
         return {
             "conversations": conversations,
             "total": total,

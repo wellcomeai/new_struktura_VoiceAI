@@ -416,3 +416,25 @@ i.vf-fa, span.vf-fa { display: inline-flex; align-items: center; justify-content
 /* Нативный select, обёрнутый в VF.select (см. ui.js enhanceSelect) */
 select.vf-native-hidden { position: absolute !important; width: 1px !important; height: 1px !important; opacity: 0 !important; pointer-events: none !important; margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: hidden !important; clip: rect(0 0 0 0); }
 .vf-select-native.disabled .vf-select-btn { opacity: .6; cursor: not-allowed; }
+
+/* ---------- Прокрутка ---------- */
+/* Тонкий скроллбар в цветах токенов вместо нативной серой полосы; плавный
+   переход к якорям и при программном скролле. Firefox — через scrollbar-*,
+   Chromium/Safari — через ::-webkit-scrollbar. */
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body.vf { overscroll-behavior-y: none; }
+.vf, .vf * { scrollbar-width: thin; scrollbar-color: var(--vf-border-strong) transparent; }
+.vf::-webkit-scrollbar, .vf *::-webkit-scrollbar, body.vf::-webkit-scrollbar { width: 9px; height: 9px; }
+.vf::-webkit-scrollbar-track, .vf *::-webkit-scrollbar-track, body.vf::-webkit-scrollbar-track { background: transparent; }
+.vf::-webkit-scrollbar-thumb, .vf *::-webkit-scrollbar-thumb, body.vf::-webkit-scrollbar-thumb {
+  background: var(--vf-border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box;
+}
+.vf::-webkit-scrollbar-thumb:hover, .vf *::-webkit-scrollbar-thumb:hover, body.vf::-webkit-scrollbar-thumb:hover { background-color: var(--vf-text-4); }
+.vf::-webkit-scrollbar-corner, .vf *::-webkit-scrollbar-corner { background: transparent; }
+/* Скроллбар всей страницы: body.vf лежит на html, стилизуем корень тоже */
+html:has(body.vf)::-webkit-scrollbar { width: 9px; }
+html:has(body.vf)::-webkit-scrollbar-track { background: transparent; }
+html:has(body.vf)::-webkit-scrollbar-thumb { background: var(--vf-border-strong); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+html:has(body.vf)::-webkit-scrollbar-thumb:hover { background-color: var(--vf-text-4); }
+html:has(body.vf) { scrollbar-width: thin; scrollbar-color: var(--vf-border-strong) transparent; }
