@@ -378,12 +378,15 @@
 
   function initShell() {
     var sb = document.querySelector('.vf-sidebar');
+    if (!sb) return;
     var t = document.getElementById('sidebar-toggle'), c = document.getElementById('sidebar-close');
-    if (sb && t) t.addEventListener('click', function () { sb.classList.add('open'); });
-    if (sb && c) c.addEventListener('click', function () { sb.classList.remove('open'); });
-    document.addEventListener('click', function (e) {
-      if (sb && sb.classList.contains('open') && !sb.contains(e.target) && !(t && t.contains(e.target))) sb.classList.remove('open');
-    });
+    var scrim = document.createElement('div'); scrim.className = 'vf-scrim'; document.body.appendChild(scrim);
+    function openSb() { sb.classList.add('open'); scrim.classList.add('show'); }
+    function closeSb() { sb.classList.remove('open'); scrim.classList.remove('show'); }
+    if (t) t.addEventListener('click', function (e) { e.stopPropagation(); openSb(); });
+    if (c) c.addEventListener('click', closeSb);
+    scrim.addEventListener('click', closeSb);
+    sb.addEventListener('click', function (e) { if (e.target.closest('a')) closeSb(); });
   }
 
   function ready() { loader.hide(); }

@@ -365,8 +365,13 @@ body.vf {
   .vf-sidebar.open { transform: none; box-shadow: var(--vf-shadow-3); }
   .vf-main { margin-left: 0; }
   .mobile-toggle, .btn.mobile-toggle { display: inline-flex; }
-  .vf-topbar { padding: 0 14px; }
-  .vf-content { padding: 14px 14px 32px; }
+  .vf-topbar { padding: 0 12px; gap: 8px; }
+  .vf-topbar h1 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .vf-topbar .btn-primary span.btn-text { display: none; }
+  .vf-topbar .btn-primary { padding: 0 10px; }
+  .vf-content { padding: 14px 12px 32px; }
+  .vf-scrim { position: fixed; inset: 0; background: rgba(15,23,42,.4); z-index: 29; opacity: 0; pointer-events: none; transition: opacity var(--vf-normal); }
+  .vf-scrim.show { opacity: 1; pointer-events: auto; }
   .form-row { grid-template-columns: 1fr; }
   .vf-toasts { left: 12px; right: 12px; bottom: 12px; }
   .vf-toast { min-width: 0; max-width: none; }
