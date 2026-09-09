@@ -1359,7 +1359,7 @@
             (d.tariffs||[]).forEach(function(t){
               var el=document.createElement('span');
               el.style.cssText='padding:.35rem .7rem;border:1px solid var(--border-color);border-radius:999px;font-size:.8rem;background:var(--bg-light);';
-              var price = t.own_key ? 'ваш ключ, 0 ₽' : (t.price_rub_per_min ? t.price_rub_per_min+' ₽/мин' : 'бесплатно');
+              var price = t.own_key ? 'на вашем API-ключе' : (t.price_rub_per_min ? t.price_rub_per_min+' ₽/мин' : 'бесплатно');
               el.textContent = t.name+': '+price;
               box.appendChild(el);
             });

@@ -101,7 +101,7 @@ function drawStep0(c){
     let keyHtml='';
     if(selected){
       const tf = wizardTariffs && wizardTariffs[t.type];
-      const price = tf ? (ks.own ? 'ваш ключ — бесплатно' : (tf.price_rub_per_min ? `${tf.price_rub_per_min} ₽/мин с кошелька Voicyfy` : 'бесплатно')) : (ks.own ? 'ваш ключ — бесплатно' : 'минуты списываются с кошелька Voicyfy');
+      const price = ks.own ? 'На вашем API-ключе, с кошелька не списывается' : (tf ? (tf.price_rub_per_min ? `${tf.price_rub_per_min} ₽/мин с кошелька Voicyfy` : 'Бесплатно') : 'Минуты списываются с кошелька Voicyfy');
       keyHtml += `<div class="type-key-status"><span class="key-pill ok"><i class="fas fa-wallet"></i> ${price}</span></div>`;
       keyHtml += `<div class="form-hint" style="margin-top:8px">Минуты связи при звонках оплачиваются с баланса телефонии.</div>`;
     }
