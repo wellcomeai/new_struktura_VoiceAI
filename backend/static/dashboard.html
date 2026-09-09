@@ -456,26 +456,26 @@
     /* Модалка выбора тарифа: карточки вместо вкладок, явные «нет» у ограничений */
     body.vf .payment-modal-content { max-width: 920px; width: calc(100% - 32px); border-radius: 18px; }
     body.vf .payment-modal-body { padding: 20px 24px 8px; }
-    body.vf .plan-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; background: none; padding: 0; border: none; }
-    body.vf .plan-tab {
+    body.vf .plan-tabs, body.vf .expired-plan-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; background: none; padding: 0; border: none; }
+    body.vf .plan-tab, body.vf .expired-plan-tab {
       position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
       padding: 18px 16px 14px; min-height: 100%; border-radius: 14px; border: 1px solid var(--vf-border); background: var(--vf-surface);
       cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; font: inherit; color: var(--vf-text); flex: none;
     }
-    body.vf .plan-tab:hover { border-color: var(--vf-border-strong); transform: translateY(-1px); background: var(--vf-surface); }
-    body.vf .plan-tab.active { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring), var(--vf-shadow-2); background: var(--vf-surface); color: var(--vf-text); }
-    body.vf .plan-tab .recommended-badge { position: absolute; top: -10px; left: 14px; right: auto; padding: 3px 9px; border-radius: 999px; background: var(--vf-accent); color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
-    body.vf .plan-tab .tab-name { font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--vf-text); }
-    body.vf .plan-tab .tab-tagline { font-size: 12.5px; line-height: 1.4; color: var(--vf-text-3); min-height: 35px; }
-    body.vf .plan-tab .tab-price { font-family: var(--vf-font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--vf-text); margin-top: 6px; background: none; padding: 0; }
-    body.vf .plan-tab .tab-price small { font-family: var(--vf-font); font-size: 12px; font-weight: 500; color: var(--vf-text-4); margin-left: 2px; }
-    body.vf .plan-tab .tab-key { font-size: 12.5px; font-weight: 600; color: var(--vf-text-2); padding-bottom: 10px; margin-bottom: 8px; border-bottom: 1px solid var(--vf-border); width: 100%; }
-    body.vf .plan-tab .tab-mini { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--vf-text-2); }
-    body.vf .plan-tab .tab-mini span { display: flex; align-items: center; gap: 6px; }
-    body.vf .plan-tab .tab-mini .ok i { color: var(--vf-success); }
-    body.vf .plan-tab .tab-mini .no { color: var(--vf-text-4); }
-    body.vf .plan-tab .tab-mini .no i { color: var(--vf-danger); }
-    body.vf .plan-tab .tab-mini i.vf-fa { font-size: 12px; }
+    body.vf .plan-tab:hover, body.vf .expired-plan-tab:hover { border-color: var(--vf-border-strong); transform: translateY(-1px); background: var(--vf-surface); }
+    body.vf .plan-tab.active, body.vf .expired-plan-tab.active { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring), var(--vf-shadow-2); background: var(--vf-surface); color: var(--vf-text); }
+    body.vf .plan-tab .recommended-badge, body.vf .expired-plan-tab .recommended-badge { position: absolute; top: -10px; left: 14px; right: auto; padding: 3px 9px; border-radius: 999px; background: var(--vf-accent); color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+    body.vf .plan-tab .tab-name, body.vf .expired-plan-tab .tab-name { font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--vf-text); }
+    body.vf .plan-tab .tab-tagline, body.vf .expired-plan-tab .tab-tagline { font-size: 12.5px; line-height: 1.4; color: var(--vf-text-3); min-height: 35px; }
+    body.vf .plan-tab .tab-price, body.vf .expired-plan-tab .tab-price { font-family: var(--vf-font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--vf-text); margin-top: 6px; background: none; padding: 0; }
+    body.vf .plan-tab .tab-price small, body.vf .expired-plan-tab .tab-price small { font-family: var(--vf-font); font-size: 12px; font-weight: 500; color: var(--vf-text-4); margin-left: 2px; }
+    body.vf .plan-tab .tab-key, body.vf .expired-plan-tab .tab-key { font-size: 12.5px; font-weight: 600; color: var(--vf-text-2); padding-bottom: 10px; margin-bottom: 8px; border-bottom: 1px solid var(--vf-border); width: 100%; }
+    body.vf .plan-tab .tab-mini, body.vf .expired-plan-tab .tab-mini { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--vf-text-2); }
+    body.vf .plan-tab .tab-mini span, body.vf .expired-plan-tab .tab-mini span { display: flex; align-items: center; gap: 6px; }
+    body.vf .plan-tab .tab-mini .ok i, body.vf .expired-plan-tab .tab-mini .ok i { color: var(--vf-success); }
+    body.vf .plan-tab .tab-mini .no, body.vf .expired-plan-tab .tab-mini .no { color: var(--vf-text-4); }
+    body.vf .plan-tab .tab-mini .no i, body.vf .expired-plan-tab .tab-mini .no i { color: var(--vf-danger); }
+    body.vf .plan-tab .tab-mini i.vf-fa, body.vf .expired-plan-tab .tab-mini i.vf-fa { font-size: 12px; }
     /* Agent: тёмная карточка «автономного сотрудника» */
     body.vf .plan-tab-agent { background: #0f172a; border-color: #0f172a; color: #e2e8f0; }
     body.vf .plan-tab-agent:hover { background: #111c33; border-color: #1e293b; }
@@ -489,12 +489,12 @@
     body.vf .plan-warning { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--vf-warning-soft); border: 1px solid color-mix(in srgb, var(--vf-warning) 30%, transparent); color: var(--vf-text); font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
     body.vf .plan-warning i { color: var(--vf-warning); margin-top: 2px; flex: 0 0 auto; }
     body.vf .plan-warning.hidden { display: none; }
-    body.vf .period-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: 12px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); }
-    body.vf .period-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 48px; padding: 6px 10px; border-radius: 9px; border: none; background: transparent; color: var(--vf-text-3); font-size: 13.5px; font-weight: 500; }
-    body.vf .period-tab:hover { color: var(--vf-text); background: color-mix(in srgb, var(--vf-surface) 60%, transparent); }
-    body.vf .period-tab.active { background: var(--vf-surface); color: var(--vf-text); box-shadow: var(--vf-shadow-1); font-weight: 600; }
-    body.vf .period-tab .tab-discount { font-size: 11px; font-weight: 600; color: var(--vf-success); margin: 0; }
-    body.vf .period-tab .best-value-badge { top: -9px; right: 8px; font-size: 10px; padding: 2px 7px; }
+    body.vf .period-tabs, body.vf .expired-period-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: 12px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); }
+    body.vf .period-tab, body.vf .expired-period-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 48px; padding: 6px 10px; border-radius: 9px; border: none; background: transparent; color: var(--vf-text-3); font-size: 13.5px; font-weight: 500; }
+    body.vf .period-tab:hover, body.vf .expired-period-tab:hover { color: var(--vf-text); background: color-mix(in srgb, var(--vf-surface) 60%, transparent); }
+    body.vf .period-tab.active, body.vf .expired-period-tab.active { background: var(--vf-surface); color: var(--vf-text); box-shadow: var(--vf-shadow-1); font-weight: 600; }
+    body.vf .period-tab .tab-discount, body.vf .expired-period-tab .tab-discount { font-size: 11px; font-weight: 600; color: var(--vf-success); margin: 0; }
+    body.vf .period-tab .best-value-badge, body.vf .expired-period-tab .best-value-badge { top: -9px; right: 8px; font-size: 10px; padding: 2px 7px; }
     body.vf .payment-plan-info { display: grid; grid-template-columns: 1fr auto; align-items: center; text-align: left; gap: 4px 20px; padding: 14px 18px; margin-bottom: 16px; border: 1px solid var(--vf-border); border-radius: 14px; background: var(--vf-surface-2); }
     body.vf .payment-plan-name { grid-column: 1; font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; margin: 0; }
     body.vf .payment-plan-assistants { grid-column: 1; font-size: 13px; color: var(--vf-text-3); margin: 0; }
@@ -517,9 +517,20 @@
     body.vf .payment-extra-items span { display: inline-flex; align-items: center; gap: 6px; }
     body.vf .payment-extra-items i { color: var(--vf-accent); }
     body.vf .payment-modal-footer { padding: 16px 24px; }
-    @media (max-width: 900px) { body.vf .plan-tabs { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 560px) { body.vf .plan-tabs { grid-template-columns: 1fr; } body.vf .features-list { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) { body.vf .plan-tabs, body.vf .expired-plan-tabs { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) { body.vf .plan-tabs, body.vf .expired-plan-tabs { grid-template-columns: 1fr; } body.vf .features-list { grid-template-columns: 1fr; } }
 
+    /* Модалка истёкшей подписки: та же ширина и блок выбранного тарифа */
+    body.vf .subscription-expired-content { max-width: 920px; width: calc(100% - 32px); border-radius: 18px; }
+    body.vf .subscription-expired-body { padding: 20px 24px 8px; }
+    body.vf .expired-notice { margin-bottom: 16px; }
+    body.vf .expired-selected-plan { display: grid; grid-template-columns: 1fr auto; align-items: center; text-align: left; gap: 2px 20px; padding: 14px 18px; margin: 0 0 8px; border: 1px solid var(--vf-border); border-radius: 14px; background: var(--vf-surface-2); }
+    body.vf .expired-plan-name { grid-column: 1; font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; margin: 0; color: var(--vf-text); }
+    body.vf .expired-plan-assistants { grid-column: 1; font-size: 13px; color: var(--vf-text-3); margin: 0; }
+    body.vf .expired-plan-price { grid-column: 2; grid-row: 1 / span 2; font-family: var(--vf-font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0; color: var(--vf-text); }
+    body.vf .expired-plan-period { grid-column: 1 / -1; font-size: 12.5px; color: var(--vf-text-3); margin: 4px 0 0; }
+    body.vf .expired-savings-badge { grid-column: 1 / -1; justify-self: start; margin: 4px 0 0; }
+    body.vf .subscription-expired-footer { padding: 16px 24px 20px; }
     /* Диалоги дизайн-системы (подтверждение, читалка) выше модалки оплаты (z-index 9999) */
     body.vf .vf-backdrop { z-index: 10010; }
 
@@ -2755,23 +2766,56 @@
         
         <!-- ✅ ТАБЫ ВЫБОРА ТАРИФА В EXPIRED MODAL -->
         <div class="expired-plan-tabs" id="expired-plan-tabs">
-          <button class="expired-plan-tab active" data-plan="ai_voice">
+          <button class="expired-plan-tab" data-plan="ai_voice" type="button">
             <span class="tab-name">AI Voice</span>
-            <span class="tab-price">1 490 ₽</span>
+            <span class="tab-tagline">Голосовой виджет для сайта</span>
+            <span class="tab-price">1 490 ₽<small>/мес</small></span>
+            <span class="tab-key">до 3 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Виджет на сайт</span>
+              <span class="no"><i class="fas fa-times"></i> Телефония</span>
+              <span class="no"><i class="fas fa-times"></i> CRM</span>
+            </span>
           </button>
-          <button class="expired-plan-tab" data-plan="start">
+          <button class="expired-plan-tab" data-plan="start" type="button">
+            <span class="recommended-badge">Популярный</span>
             <span class="tab-name">Старт</span>
-            <span class="tab-price">2 990 ₽</span>
-            <span class="recommended-badge">Хит</span>
+            <span class="tab-tagline">Звонки, сайт и CRM для бизнеса</span>
+            <span class="tab-price">2 990 ₽<small>/мес</small></span>
+            <span class="tab-key">до 5 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Телефония и исходящие</span>
+              <span class="ok"><i class="fas fa-check"></i> CRM и диалоги</span>
+              <span class="ok"><i class="fas fa-check"></i> Виджет на сайт</span>
+            </span>
           </button>
-          <button class="expired-plan-tab" data-plan="profi">
+          <button class="expired-plan-tab" data-plan="profi" type="button">
             <span class="tab-name">Profi</span>
-            <span class="tab-price">5 990 ₽</span>
+            <span class="tab-tagline">Больше ассистентов и VIP-поддержка</span>
+            <span class="tab-price">5 990 ₽<small>/мес</small></span>
+            <span class="tab-key">до 10 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Всё из Старта</span>
+              <span class="ok"><i class="fas fa-check"></i> VIP-поддержка</span>
+            </span>
           </button>
-          <button class="expired-plan-tab" data-plan="agent">
+          <button class="expired-plan-tab plan-tab-agent" data-plan="agent" type="button">
+            <span class="recommended-badge agent-badge">Автономный сотрудник</span>
             <span class="tab-name">Agent</span>
-            <span class="tab-price">5 490 ₽</span>
+            <span class="tab-tagline">Сам звонит, пишет и ведёт клиентов до результата</span>
+            <span class="tab-price">5 490 ₽<small>/мес</small></span>
+            <span class="tab-key">до 3 агентов обзвона</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Обзвон и перезвоны сам</span>
+              <span class="ok"><i class="fas fa-check"></i> Telegram, MAX, SMS</span>
+              <span class="ok"><i class="fas fa-check"></i> 20 000 кредитов в месяц</span>
+            </span>
           </button>
+        </div>
+
+        <div class="plan-warning hidden" id="expired-plan-warning">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span id="expired-plan-warning-text"></span>
         </div>
 
         <!-- ✅ ТАБЫ ВЫБОРА ПЕРИОДА В EXPIRED MODAL -->
@@ -2940,7 +2984,7 @@
       // Текущий выбранный тариф и период
       let selectedPlan = 'start';
       let selectedPeriod = 1;
-      let expiredSelectedPlan = 'ai_voice';
+      let expiredSelectedPlan = 'start';
       let expiredSelectedPeriod = 1;
 
       // Получаем элементы DOM
@@ -3194,6 +3238,15 @@
           savingsAmount.textContent = formatPrice(savings);
         } else {
           savingsBadge.classList.add('hidden');
+        }
+
+        // Предупреждение об ограничениях тарифа
+        const expiredWarning = document.getElementById('expired-plan-warning');
+        if (plan.warning) {
+          document.getElementById('expired-plan-warning-text').textContent = plan.warning;
+          expiredWarning.classList.remove('hidden');
+        } else {
+          expiredWarning.classList.add('hidden');
         }
 
         // Обновляем кнопку
@@ -3929,6 +3982,18 @@
 
       // Кнопка продления в модальном окне истекшей подписки
       renewSubscriptionBtn.addEventListener('click', async function() {
+        const plan = SUBSCRIPTION_PLANS[expiredSelectedPlan];
+        if (plan && plan.restrictedFeatures.includes('telephony')) {
+          const proceed = window.VF && VF.confirm
+            ? await VF.confirm({
+                title: 'В этом тарифе нет телефонии',
+                message: 'AI Voice работает только как голосовой виджет на сайте: без номеров, звонков и CRM. Если вам нужны звонки, выберите Старт, Profi или Agent.',
+                confirmText: 'Мне нужен только виджет',
+                cancelText: 'Показать тарифы со звонками'
+              })
+            : window.confirm('В тарифе AI Voice нет телефонии и CRM. Продолжить?');
+          if (!proceed) { expiredSelectedPlan = 'start'; updateExpiredModalUI(); return; }
+        }
         ui.hideSubscriptionExpiredModal();
         await handlePayment(expiredSelectedPlan, expiredSelectedPeriod);
       });
