@@ -453,6 +453,76 @@
     .ob-feature-title { font-size: 14.5px; font-weight: 600; color: var(--vf-text, #0f172a); }
     .ob-feature-text { font-size: 13px; line-height: 1.5; color: var(--vf-text-3, #64748b); }
 
+    /* Модалка выбора тарифа: карточки вместо вкладок, явные «нет» у ограничений */
+    body.vf .payment-modal-content { max-width: 920px; width: calc(100% - 32px); border-radius: 18px; }
+    body.vf .payment-modal-body { padding: 20px 24px 8px; }
+    body.vf .plan-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; background: none; padding: 0; border: none; }
+    body.vf .plan-tab {
+      position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+      padding: 18px 16px 14px; min-height: 100%; border-radius: 14px; border: 1px solid var(--vf-border); background: var(--vf-surface);
+      cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; font: inherit; color: var(--vf-text); flex: none;
+    }
+    body.vf .plan-tab:hover { border-color: var(--vf-border-strong); transform: translateY(-1px); background: var(--vf-surface); }
+    body.vf .plan-tab.active { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring), var(--vf-shadow-2); background: var(--vf-surface); color: var(--vf-text); }
+    body.vf .plan-tab .recommended-badge { position: absolute; top: -10px; left: 14px; right: auto; padding: 3px 9px; border-radius: 999px; background: var(--vf-accent); color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+    body.vf .plan-tab .tab-name { font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; letter-spacing: -0.01em; color: var(--vf-text); }
+    body.vf .plan-tab .tab-tagline { font-size: 12.5px; line-height: 1.4; color: var(--vf-text-3); min-height: 35px; }
+    body.vf .plan-tab .tab-price { font-family: var(--vf-font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--vf-text); margin-top: 6px; background: none; padding: 0; }
+    body.vf .plan-tab .tab-price small { font-family: var(--vf-font); font-size: 12px; font-weight: 500; color: var(--vf-text-4); margin-left: 2px; }
+    body.vf .plan-tab .tab-key { font-size: 12.5px; font-weight: 600; color: var(--vf-text-2); padding-bottom: 10px; margin-bottom: 8px; border-bottom: 1px solid var(--vf-border); width: 100%; }
+    body.vf .plan-tab .tab-mini { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--vf-text-2); }
+    body.vf .plan-tab .tab-mini span { display: flex; align-items: center; gap: 6px; }
+    body.vf .plan-tab .tab-mini .ok i { color: var(--vf-success); }
+    body.vf .plan-tab .tab-mini .no { color: var(--vf-text-4); }
+    body.vf .plan-tab .tab-mini .no i { color: var(--vf-danger); }
+    body.vf .plan-tab .tab-mini i.vf-fa { font-size: 12px; }
+    /* Agent: тёмная карточка «автономного сотрудника» */
+    body.vf .plan-tab-agent { background: #0f172a; border-color: #0f172a; color: #e2e8f0; }
+    body.vf .plan-tab-agent:hover { background: #111c33; border-color: #1e293b; }
+    body.vf .plan-tab-agent.active { background: #0f172a; border-color: #7c3aed; box-shadow: 0 0 0 3px rgba(124, 58, 237, .3), var(--vf-shadow-2); color: #e2e8f0; }
+    body.vf .plan-tab-agent .tab-name, body.vf .plan-tab-agent .tab-price { color: #fff; }
+    body.vf .plan-tab-agent .tab-tagline { color: #a5b4cf; }
+    body.vf .plan-tab-agent .tab-key { color: #cbd5e1; border-bottom-color: rgba(148, 163, 184, .25); }
+    body.vf .plan-tab-agent .tab-mini { color: #cbd5e1; }
+    body.vf .plan-tab-agent .tab-mini .ok i { color: #a78bfa; }
+    body.vf .plan-tab-agent .recommended-badge.agent-badge { background: #7c3aed; }
+    body.vf .plan-warning { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--vf-warning-soft); border: 1px solid color-mix(in srgb, var(--vf-warning) 30%, transparent); color: var(--vf-text); font-size: 13px; line-height: 1.5; margin-bottom: 14px; }
+    body.vf .plan-warning i { color: var(--vf-warning); margin-top: 2px; flex: 0 0 auto; }
+    body.vf .plan-warning.hidden { display: none; }
+    body.vf .period-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 0 16px; padding: 4px; border-radius: 12px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); }
+    body.vf .period-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 48px; padding: 6px 10px; border-radius: 9px; border: none; background: transparent; color: var(--vf-text-3); font-size: 13.5px; font-weight: 500; }
+    body.vf .period-tab:hover { color: var(--vf-text); background: color-mix(in srgb, var(--vf-surface) 60%, transparent); }
+    body.vf .period-tab.active { background: var(--vf-surface); color: var(--vf-text); box-shadow: var(--vf-shadow-1); font-weight: 600; }
+    body.vf .period-tab .tab-discount { font-size: 11px; font-weight: 600; color: var(--vf-success); margin: 0; }
+    body.vf .period-tab .best-value-badge { top: -9px; right: 8px; font-size: 10px; padding: 2px 7px; }
+    body.vf .payment-plan-info { display: grid; grid-template-columns: 1fr auto; align-items: center; text-align: left; gap: 4px 20px; padding: 14px 18px; margin-bottom: 16px; border: 1px solid var(--vf-border); border-radius: 14px; background: var(--vf-surface-2); }
+    body.vf .payment-plan-name { grid-column: 1; font-family: var(--vf-font-display); font-size: 18px; font-weight: 700; margin: 0; }
+    body.vf .payment-plan-assistants { grid-column: 1; font-size: 13px; color: var(--vf-text-3); margin: 0; }
+    body.vf .payment-plan-price { grid-column: 2; grid-row: 1 / span 2; display: flex; align-items: baseline; gap: 4px; margin: 0; font-family: var(--vf-font-display); }
+    body.vf .payment-plan-price .price-amount { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+    body.vf .payment-plan-price .price-currency { font-size: 16px; color: var(--vf-text-3); }
+    body.vf .payment-plan-duration { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--vf-text-3); margin: 4px 0 0; justify-content: flex-start; }
+    body.vf .savings-badge, body.vf .monthly-price-info { grid-column: 1 / -1; justify-self: start; margin: 4px 0 0; }
+    body.vf .payment-plan-info { border-radius: 14px; }
+    body.vf .payment-plan-features h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--vf-text-4); margin: 0 0 10px; }
+    body.vf .features-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }
+    body.vf .features-list li { padding: 6px 0; border: none; font-size: 13.5px; }
+    body.vf .features-list li i { width: 18px; text-align: center; }
+    body.vf .features-list li.restricted { color: var(--vf-text-4); }
+    body.vf .features-list li.restricted span { text-decoration: line-through; }
+    body.vf .features-list li.restricted i { color: var(--vf-danger); }
+    body.vf .payment-extra { margin: 6px 24px 0; padding: 12px 14px; border-radius: 12px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); }
+    body.vf .payment-extra-title { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--vf-text-4); margin-bottom: 6px; }
+    body.vf .payment-extra-items { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--vf-text-2); }
+    body.vf .payment-extra-items span { display: inline-flex; align-items: center; gap: 6px; }
+    body.vf .payment-extra-items i { color: var(--vf-accent); }
+    body.vf .payment-modal-footer { padding: 16px 24px; }
+    @media (max-width: 900px) { body.vf .plan-tabs { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) { body.vf .plan-tabs { grid-template-columns: 1fr; } body.vf .features-list { grid-template-columns: 1fr; } }
+
+    /* Диалоги дизайн-системы (подтверждение, читалка) выше модалки оплаты (z-index 9999) */
+    body.vf .vf-backdrop { z-index: 10010; }
+
     /* Карточки статей */
     .ob-features button.ob-feature { width: 100%; text-align: left; font: inherit; cursor: pointer; }
     .ob-feature-cat { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--vf-text-4, #94a3b8); }
@@ -2080,11 +2150,11 @@
             <span class="ob-feature-text">Два разных инструмента: один отвечает на звонки, второй сам ведёт клиентов. Как выбрать.</span>
             <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
           </button>
-          <button type="button" class="ob-feature" data-article="inbound">
+          <button type="button" class="ob-feature" data-article="telephony">
             <span class="ob-feature-icon" data-ob-icon="phone-incoming"></span>
-            <span class="ob-feature-cat">Голосовые ассистенты</span>
-            <span class="ob-feature-title">Входящие и исходящие звонки</span>
-            <span class="ob-feature-text">Ассистент принимает входящие сам. Исходящие вы запускаете вручную или через API.</span>
+            <span class="ob-feature-cat">Телефония</span>
+            <span class="ob-feature-title">Телефония: номера, звонки, баланс</span>
+            <span class="ob-feature-text">Как купить номер, привязать ассистента, что оплачивает баланс телефонии и как запускать исходящие.</span>
             <span class="ob-feature-more">Читать <i data-ob-icon="arrow-right"></i></span>
           </button>
           <button type="button" class="ob-feature" data-article="widget">
@@ -2187,27 +2257,46 @@
           <tr><td>Звонить по вашему событию из своей системы</td><td>Ассистент плюс ваш вызов API исходящего звонка</td></tr>
         </table>
         <div class="art-note"><i data-ob-icon="info"></i><p>Агент обзвона создаёт себе голосового ассистента сам. Отдельно собирать его в конструкторе не нужно.</p></div>
-        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="inbound">Входящие и исходящие</button></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="telephony">Телефония</button></div>
       </template>
 
-      <template data-art="inbound" data-cat="Голосовые ассистенты" data-icon="phone-incoming">
-        <h1 class="art-title">Входящие и исходящие звонки ассистента</h1>
-        <p class="art-lead">Ассистент, привязанный к номеру, принимает входящие без вашего участия. Исходящие звонки он сам не инициирует: их запускаете вы.</p>
-        <h2>Входящие</h2>
-        <p>Купите номер в разделе «Телефония» и нажмите «Привязать» напротив него. С этого момента каждый входящий звонок попадает к ассистенту: он здоровается первой фразой, ведёт разговор по системному промпту и может вызывать функции, например записать клиента в CRM или Google-таблицу.</p>
-        <ul>
-          <li><b>Первая фраза</b> задаётся в конструкторе и звучит сразу после ответа.</li>
-          <li><b>Запись и лог звонка</b> появляются в разделе «Диалоги» после завершения.</li>
-          <li><b>Уведомление</b> о каждом звонке можно получать в Telegram или вебхуком.</li>
-        </ul>
-        <h2>Исходящие</h2>
-        <p>Ассистент не решает сам, кому и когда звонить. Есть два способа запустить исходящий звонок:</p>
+      <template data-art="telephony" data-cat="Телефония" data-icon="phone-incoming">
+        <h1 class="art-title">Телефония: номера, звонки и баланс</h1>
+        <p class="art-lead">Раздел «Телефония» даёт ассистенту настоящий номер. Клиенты звонят на него, ассистент отвечает. Здесь же покупаются номера, проходит верификация и пополняется баланс связи.</p>
+        <h2>Как всё подключить</h2>
         <ol>
-          <li><b>Вручную</b> со страницы исходящих звонков: укажите номер и ассистента.</li>
-          <li><b>Через API</b> из своей системы: ваш код вызывает эндпоинт исходящего звонка, когда произошло событие, например новая заявка. Так вы строите свою надстройку над Voicyfy.</li>
+          <li><b>Подключите телефонию</b> кнопкой на странице. Создаётся ваш телефонный аккаунт с отдельным балансом.</li>
+          <li><b>Пройдите верификацию.</b> По закону РФ номера выдаются только после подтверждения личности: физлицо, ИП или юрлицо. Нажмите «Верификация», выберите тип и следуйте инструкции на открывшейся странице.</li>
+          <li><b>Пополните баланс телефонии.</b> С него оплачиваются номера и минуты связи.</li>
+          <li><b>Купите номер.</b> Городской, мобильный или 8-800. Номер продлевается ежемесячно с баланса телефонии.</li>
+          <li><b>Привяжите ассистента</b> кнопкой «Привязать» напротив номера. С этого момента он отвечает на входящие.</li>
         </ol>
-        <div class="art-note"><i data-ob-icon="info"></i><p>Если нужен обзвон, который сам планирует и перезванивает, это задача агента обзвона. У него всё уже включено.</p></div>
-        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="widget">Виджет для сайта</button></div>
+        <h2>Входящие звонки</h2>
+        <p>Ассистент снимает трубку сам, круглосуточно. Он здоровается первой фразой из настроек, ведёт разговор по системному промпту и может вызывать функции: записать клиента в CRM или таблицу, отправить уведомление. Запись и лог звонка появляются в разделе «Диалоги», а входящие SMS на ваши номера видны на странице телефонии.</p>
+        <h2>Исходящие звонки</h2>
+        <p>Ассистент сам не решает, кому звонить. Исходящий звонок запускаете вы: вручную со страницы исходящих звонков или из своей системы через API, когда произошло событие, например новая заявка. Если нужен обзвон, который сам планирует и перезванивает, это агент обзвона: у него исходящие уже автоматические.</p>
+        <h2>Что оплачивает баланс телефонии</h2>
+        <div class="art-cols">
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="phone"></i> Баланс телефонии</div>
+            <ul>
+              <li>Аренда номеров, списание раз в месяц</li>
+              <li>Минуты связи оператора за входящие и исходящие</li>
+              <li>Приём и отправка SMS</li>
+            </ul>
+          </div>
+          <div class="art-col">
+            <div class="art-col-head"><i data-ob-icon="wallet"></i> Кошелёк Voicyfy</div>
+            <ul>
+              <li>Минуты голосовой модели в том же звонке, по тарифу модели</li>
+              <li>Не списывается, если в настройках указан ваш ключ провайдера</li>
+              <li>Для каскада голос уже заложен в стоимость связи</li>
+            </ul>
+          </div>
+        </div>
+        <p>То есть один звонок трогает два баланса: связь с баланса телефонии и голос с кошелька. Стоимость звонка по связи видна в истории звонков на странице телефонии, стоимость голоса в истории операций кошелька.</p>
+        <div class="art-note warn"><i data-ob-icon="triangle-alert"></i><p>Телефония входит в тарифы Старт, Profi и Agent. В тарифе AI Voice её нет: он только для голосового виджета на сайте.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="billing">Кредиты и минуты</button><button type="button" data-article="agent">Как работает агент обзвона</button></div>
       </template>
 
       <template data-art="widget" data-cat="Голосовые ассистенты" data-icon="code">
@@ -2324,41 +2413,37 @@
 
       <template data-art="billing" data-cat="Оплата" data-icon="wallet">
         <h1 class="art-title">Кредиты и минуты: за что списываются деньги</h1>
-        <p class="art-lead">В Voicyfy два счётчика. Минуты разговора оплачиваются рублями с кошелька. Работа оркестратора агента обзвона оплачивается кредитами.</p>
-        <div class="art-cols">
-          <div class="art-col">
-            <div class="art-col-head"><i data-ob-icon="wallet"></i> Кошелёк, рубли</div>
-            <p>Всё, что звучит голосом: звонки ассистентов, звонки агента обзвона, разговоры через виджет.</p>
-            <ul>
-              <li>Цена за минуту зависит от модели: смотрите витрину в конструкторе</li>
-              <li>Списание посекундное, минимум 10 секунд за разговор</li>
-              <li>Виджет списывает порциями раз в минуту и останавливается при нуле</li>
-              <li>Телефония списывается по отчёту о звонке после его завершения</li>
-              <li>Свой ключ провайдера в настройках: разговоры на этой модели бесплатны</li>
-            </ul>
-          </div>
-          <div class="art-col">
-            <div class="art-col-head"><i data-ob-icon="coins"></i> Кредиты</div>
-            <p>Только оркестратор агента обзвона. Списываются за токены каждого его запуска.</p>
-            <ul>
-              <li>Pre-call перед звонком и post-call после</li>
-              <li>Ответ в чате и обработка входящих сообщений</li>
-              <li>Ставка зависит от выбранной модели оркестратора</li>
-              <li>Ниже 100 кредитов оркестратор не запускается</li>
-              <li>Пакеты покупаются на странице агента</li>
-            </ul>
-          </div>
-        </div>
-        <h2>Пример одного звонка агента</h2>
-        <p>Агент звонит клиенту, разговор длится две минуты на Gemini. С кошелька спишутся две минуты по тарифу Gemini. Кредиты спишутся дважды: за pre-call и за post-call, в зависимости от объёма контекста. Если после звонка агент ещё напишет клиенту в Telegram, это ещё один запуск оркестратора.</p>
-        <h2>Где это видно</h2>
+        <p class="art-lead">В Voicyfy три счётчика. Кошелёк оплачивает голосовую модель, баланс телефонии оплачивает связь, кредиты оплачивают «мозг» агента обзвона. Для ассистентов и агента правила одинаковые.</p>
+        <table class="art-table">
+          <tr><th>Счётчик</th><th>За что списывается</th><th>Где видно</th></tr>
+          <tr><td>Кошелёк Voicyfy</td><td>Минуты голосовой модели: звонки, виджет, звонки агента. Только если модель работала на ключах платформы</td><td>Левое меню, история в настройках</td></tr>
+          <tr><td>Баланс телефонии</td><td>Связь: аренда номеров, минуты оператора, SMS</td><td>Раздел «Телефония»</td></tr>
+          <tr><td>Кредиты</td><td>Оркестратор агента обзвона: за токены каждого его запуска</td><td>Страница агента</td></tr>
+        </table>
+        <h2>Кошелёк: минуты голосовой модели</h2>
         <ul>
-          <li><b>Кошелёк</b> в левом меню: баланс, пополнение и ссылка на историю операций в настройках. В истории каждая строка привязана к модели и каналу.</li>
-          <li><b>Кредиты</b> на странице агента обзвона: баланс и пакеты.</li>
-          <li><b>Стоимость звонка</b> в карточке диалога и в истории звонков телефонии.</li>
+          <li>Цена за минуту зависит от модели: OpenAI, Gemini, Яндекс, Fish. Витрина с ценами в конструкторе ассистентов.</li>
+          <li>Списание посекундное, минимум 10 секунд за разговор.</li>
+          <li>Виджет списывает порциями раз в минуту и останавливается, когда баланс на нуле.</li>
+          <li>Телефония списывает по отчёту о звонке после его завершения.</li>
+          <li>Свой ключ провайдера в настройках: разговоры на этой модели с кошелька не списываются.</li>
+          <li>Каскад с кошелька не списывается: его голос уже заложен в стоимость связи.</li>
         </ul>
-        <div class="art-note"><i data-ob-icon="info"></i><p>Каскад-ассистенты оплачивают голос отдельными кредитами каскада, это третий счётчик. Он не связан ни с кошельком, ни с кредитами оркестратора.</p></div>
-        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="agent">Как работает агент обзвона</button><button type="button" data-article="choose">Что выбрать</button></div>
+        <h2>Баланс телефонии: связь</h2>
+        <p>Это отдельный счёт вашего телефонного аккаунта, пополняется на странице телефонии. С него ежемесячно списывается аренда номеров и поминутно минуты оператора за каждый звонок, входящий и исходящий. Голосовая модель сюда не входит, кроме каскада.</p>
+        <h2>Кредиты: оркестратор агента обзвона</h2>
+        <ul>
+          <li>Списываются за pre-call перед звонком и post-call после него.</li>
+          <li>За ответ в чате и обработку входящих сообщений в Telegram, MAX и SMS.</li>
+          <li>Ставка зависит от выбранной модели оркестратора.</li>
+          <li>Ниже 100 кредитов оркестратор не запускается.</li>
+          <li>Пакеты покупаются на странице агента, тариф Agent даёт 20 000 кредитов в месяц.</li>
+        </ul>
+        <h2>Пример одного звонка агента</h2>
+        <p>Агент звонит клиенту, разговор длится две минуты на Gemini. С баланса телефонии спишутся две минуты связи. С кошелька спишутся две минуты по тарифу Gemini. Кредиты спишутся дважды: за pre-call и за post-call, в зависимости от объёма контекста. Если после звонка агент напишет клиенту в Telegram, это ещё один запуск оркестратора.</p>
+        <p>Обычный ассистент на том же звонке трогает только два первых счётчика: связь и голос. Кредитов у него нет.</p>
+        <div class="art-note"><i data-ob-icon="info"></i><p>Подписка оплачивает доступ к функциям и лимит ассистентов. Минуты, связь и кредиты в неё не входят и списываются отдельно на любом тарифе.</p></div>
+        <div class="art-next"><span class="art-next-label">Дальше</span><button type="button" data-article="telephony">Телефония</button><button type="button" data-article="agent">Как работает агент обзвона</button></div>
       </template>
 
       <template data-art="knowledge" data-cat="Настройка" data-icon="book-open">
@@ -2471,23 +2556,56 @@
       <div class="payment-modal-body">
         <!-- ✅ ТАБЫ ВЫБОРА ТАРИФА -->
         <div class="plan-tabs" id="plan-tabs">
-          <button class="plan-tab active" data-plan="ai_voice">
+          <button class="plan-tab" data-plan="ai_voice" type="button">
             <span class="tab-name">AI Voice</span>
-            <span class="tab-price">1 490 ₽/мес</span>
+            <span class="tab-tagline">Голосовой виджет для сайта</span>
+            <span class="tab-price">1 490 ₽<small>/мес</small></span>
+            <span class="tab-key">до 3 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Виджет на сайт</span>
+              <span class="no"><i class="fas fa-times"></i> Телефония</span>
+              <span class="no"><i class="fas fa-times"></i> CRM</span>
+            </span>
           </button>
-          <button class="plan-tab" data-plan="start">
+          <button class="plan-tab" data-plan="start" type="button">
+            <span class="recommended-badge">Популярный</span>
             <span class="tab-name">Старт</span>
-            <span class="tab-price">2 990 ₽/мес</span>
-            <span class="recommended-badge">Хит</span>
+            <span class="tab-tagline">Звонки, сайт и CRM для бизнеса</span>
+            <span class="tab-price">2 990 ₽<small>/мес</small></span>
+            <span class="tab-key">до 5 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Телефония и исходящие</span>
+              <span class="ok"><i class="fas fa-check"></i> CRM и диалоги</span>
+              <span class="ok"><i class="fas fa-check"></i> Виджет на сайт</span>
+            </span>
           </button>
-          <button class="plan-tab" data-plan="profi">
+          <button class="plan-tab" data-plan="profi" type="button">
             <span class="tab-name">Profi</span>
-            <span class="tab-price">5 990 ₽/мес</span>
+            <span class="tab-tagline">Больше ассистентов и VIP-поддержка</span>
+            <span class="tab-price">5 990 ₽<small>/мес</small></span>
+            <span class="tab-key">до 10 ассистентов</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Всё из Старта</span>
+              <span class="ok"><i class="fas fa-check"></i> VIP-поддержка</span>
+            </span>
           </button>
-          <button class="plan-tab" data-plan="agent">
+          <button class="plan-tab plan-tab-agent" data-plan="agent" type="button">
+            <span class="recommended-badge agent-badge">Автономный сотрудник</span>
             <span class="tab-name">Agent</span>
-            <span class="tab-price">5 490 ₽/мес</span>
+            <span class="tab-tagline">Сам звонит, пишет и ведёт клиентов до результата</span>
+            <span class="tab-price">5 490 ₽<small>/мес</small></span>
+            <span class="tab-key">до 3 агентов обзвона</span>
+            <span class="tab-mini">
+              <span class="ok"><i class="fas fa-check"></i> Обзвон и перезвоны сам</span>
+              <span class="ok"><i class="fas fa-check"></i> Telegram, MAX, SMS</span>
+              <span class="ok"><i class="fas fa-check"></i> 20 000 кредитов в месяц</span>
+            </span>
           </button>
+        </div>
+
+        <div class="plan-warning hidden" id="modal-plan-warning">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span id="modal-plan-warning-text"></span>
         </div>
 
         <!-- ✅ ТАБЫ ВЫБОРА ПЕРИОДА -->
@@ -2534,7 +2652,7 @@
         </div>
         
         <div class="payment-plan-features">
-          <h3>Что входит в тариф:</h3>
+          <h3>Что входит в тариф</h3>
           <ul class="features-list" id="modal-features-list">
             <li>
               <i class="fas fa-robot"></i>
@@ -2564,6 +2682,14 @@
         </div>
       </div>
       
+      <div class="payment-extra">
+        <div class="payment-extra-title">Оплачивается отдельно, на любом тарифе</div>
+        <div class="payment-extra-items">
+          <span><i class="fas fa-wallet"></i> Минуты голосовых моделей с кошелька Voicyfy</span>
+          <span><i class="fas fa-phone"></i> Связь: номера и минуты оператора на балансе телефонии</span>
+          <span><i class="fas fa-coins"></i> Кредиты оркестратора для агента обзвона</span>
+        </div>
+      </div>
       <div class="payment-modal-footer">
         <button class="btn btn-secondary payment-cancel-btn" id="payment-cancel-btn">
           Отмена
@@ -2704,7 +2830,8 @@
           name: 'AI Voice',
           basePrice: 1490,
           maxAssistants: 3,
-          description: 'Базовый тариф для голосовых ассистентов',
+          description: 'Голосовой виджет для сайта, без телефонии',
+          warning: 'В тариф AI Voice не входят телефония, исходящие звонки и CRM. Он подходит, если ассистент нужен только на сайте. Для звонков выберите Старт, Profi или Agent.',
           restrictedFeatures: ['crm', 'telephony', 'outbound_calls'],
           features: [
             { icon: 'fa-robot', text: 'До 3 голосовых ассистентов', available: true },
@@ -2719,7 +2846,7 @@
         },
         start: {
           code: 'start',
-          name: 'Тариф Старт',
+          name: 'Старт',
           basePrice: 2990,
           maxAssistants: 5,
           description: 'Оптимальный тариф для бизнеса',
@@ -2755,16 +2882,18 @@
         },
         agent: {
           code: 'agent',
-          name: 'Voicyfy Agent',
+          name: 'Agent',
           basePrice: 5490,
           maxAssistants: 3,
-          description: 'AI-оркестратор автономных звонков',
+          description: 'Автономный сотрудник: сам звонит, пишет и ведёт клиентов',
           restrictedFeatures: [],
           singlePeriod: true, // продаётся только на 30 дней, без скидок за период
           assistantsLabel: 'До 3 автономных агентов',
           features: [
-            { icon: 'fa-brain', text: 'AI-оркестратор автономных звонков', available: true },
-            { icon: 'fa-user-astronaut', text: 'До 3 автономных агентов', available: true },
+            { icon: 'fa-brain', text: 'Оркестратор планирует звонки, перезванивает и ведёт воронку', available: true },
+            { icon: 'fa-user-astronaut', text: 'До 3 агентов обзвона, у каждого свой голос', available: true },
+            { icon: 'fa-paper-plane', text: 'Общение с клиентами в Telegram, MAX и SMS', available: true },
+            { icon: 'fa-comments', text: 'Чат с агентом: спросите, как дела у клиентов', available: true },
             { icon: 'fa-coins', text: '20 000 кредитов каждый месяц', available: true },
             { icon: 'fa-phone', text: 'Телефония и исходящие звонки', available: true },
             { icon: 'fa-address-book', text: 'CRM и воронка продаж', available: true },
@@ -2809,7 +2938,7 @@
       };
 
       // Текущий выбранный тариф и период
-      let selectedPlan = 'ai_voice';
+      let selectedPlan = 'start';
       let selectedPeriod = 1;
       let expiredSelectedPlan = 'ai_voice';
       let expiredSelectedPeriod = 1;
@@ -3012,6 +3141,15 @@
             <span>${feature.text}</span>
           </li>
         `).join('');
+
+        // Предупреждение об ограничениях тарифа (AI Voice без телефонии и CRM)
+        const warning = document.getElementById('modal-plan-warning');
+        if (plan.warning) {
+          document.getElementById('modal-plan-warning-text').textContent = plan.warning;
+          warning.classList.remove('hidden');
+        } else {
+          warning.classList.add('hidden');
+        }
 
         // Обновляем кнопку оплаты
         document.getElementById('pay-btn-text').textContent = `Оплатить ${formatPrice(finalPrice)} ₽`;
@@ -3664,8 +3802,8 @@
       // ========================================
       
       function showPaymentModal() {
-        // Устанавливаем начальные значения
-        selectedPlan = 'ai_voice';
+        // По умолчанию Старт: с AI Voice люди оплачивали и не находили телефонию
+        selectedPlan = 'start';
         selectedPeriod = 1;
         updatePaymentModalUI();
         
@@ -3772,7 +3910,20 @@
       }
 
       // Кнопка оплаты в основном модальном окне
-      paymentPayBtn.addEventListener('click', function() {
+      paymentPayBtn.addEventListener('click', async function() {
+        // Защитный вопрос перед оплатой тарифа без телефонии
+        const plan = SUBSCRIPTION_PLANS[selectedPlan];
+        if (plan && plan.restrictedFeatures.includes('telephony')) {
+          const proceed = window.VF && VF.confirm
+            ? await VF.confirm({
+                title: 'В этом тарифе нет телефонии',
+                message: 'AI Voice работает только как голосовой виджет на сайте: без номеров, звонков и CRM. Если вам нужны звонки, выберите Старт, Profi или Agent.',
+                confirmText: 'Мне нужен только виджет',
+                cancelText: 'Показать тарифы со звонками'
+              })
+            : window.confirm('В тарифе AI Voice нет телефонии и CRM. Продолжить?');
+          if (!proceed) { selectedPlan = 'start'; updatePaymentModalUI(); return; }
+        }
         handlePayment(selectedPlan, selectedPeriod);
       });
 
