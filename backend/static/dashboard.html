@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- /static/dashboard.html -->
 <!-- ✅ ВЕРСИЯ 3.1: Исправлен подсчёт ассистентов (OpenAI + Gemini) -->
-<html lang="ru">
+<html lang="ru" data-vf-loader="auto">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1695,31 +1695,21 @@
       }
     }
   </style>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap">
+  <link rel="stylesheet" href="/static/css/voicyfy.css">
+  <link rel="stylesheet" href="/static/css/voicyfy-legacy.css">
+  <script src="/static/js/ui.js"></script>
 </head>
-<body>
+<body class="vf">
   <!-- Боковая панель -->
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <a href="/" class="sidebar-logo">
-        <div class="logo-icon">
-          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-          <div style="display:none; width: 30px; height: 30px; border-radius: 0.5rem; background: linear-gradient(135deg, #4a86e8, #2563eb); color: white; align-items: center; justify-content: center; font-size: 0.875rem;">
-            <i class="fas fa-robot"></i>
-          </div>
-        </div>
-        <span>Voicyfy</span>
-      </a>
-      <button class="mobile-toggle" id="sidebar-close">
-        <i class="fas fa-times"></i>
-      </button>
+  <aside class="sidebar vf-sidebar" id="sidebar">
+    <div class="vf-sidebar-head">
+      <a href="/static/dashboard.html" class="vf-logo"><img src="/static/images/IMG_2820.PNG" alt="Voicyfy" onerror="this.style.display='none'"><span class="wordmark">Voicyfy</span></a>
+      <button class="btn btn-ghost btn-icon btn-sm mobile-toggle" id="sidebar-close" aria-label="Закрыть меню"><svg class="ic"><use href="/static/icons/ui.svg#i-x"></use></svg></button>
     </div>
-    
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
-    
     <div class="sidebar-footer">
-      <a href="https://voicyfy.ru" class="btn btn-secondary" style="width: 100%; text-decoration: none; justify-content: center;" id="logout-button">
-        <i class="fas fa-sign-out-alt"></i> Выйти
-      </a>
+      <a href="https://voicyfy.ru" class="btn btn-ghost" style="width:100%;justify-content:flex-start;" id="logout-button"><svg class="ic"><use href="/static/icons/ui.svg#i-log-out"></use></svg> Выйти</a>
     </div>
   </aside>
   <script src="/static/js/sidebar.js"></script>

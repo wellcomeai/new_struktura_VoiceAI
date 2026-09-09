@@ -118,7 +118,6 @@
       .layout:not(.grid-mode) .a-card { min-width: 220px; }
       .editor-body { padding: 16px 14px 8px; }
       .editor-head, .save-bar { padding: 12px 14px; }
-      #search-wrap { display: none; }
       #usage-pill { display: none; }
     }
   </style>
@@ -145,7 +144,7 @@
         <span class="chip chip-outline" id="usage-pill" data-tip="Лимит ассистентов по тарифу">…</span>
       </div>
       <div class="vf-topbar-right">
-        <div class="input-wrap" style="width:220px;" id="search-wrap"><svg class="ic"><use href="/static/icons/ui.svg#i-search"></use></svg><input type="search" class="input" id="list-search" placeholder="Поиск"></div>
+        <input type="hidden" id="list-search" value="">
         <button class="btn btn-primary" id="btn-new"><svg class="ic"><use href="/static/icons/ui.svg#i-plus"></use></svg><span class="btn-text">Создать</span></button>
       </div>
     </header>

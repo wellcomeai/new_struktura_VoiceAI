@@ -378,7 +378,11 @@
 
   function initShell() {
     var sb = document.querySelector('.vf-sidebar');
-    if (!sb) return;
+    if (!sb) {
+      var tb0 = document.querySelector('.top-nav');
+      if (tb0) { var f0 = function () { tb0.classList.toggle('scrolled', (window.scrollY || document.documentElement.scrollTop) > 4); }; window.addEventListener('scroll', f0, { passive: true }); f0(); }
+      return;
+    }
     var t = document.getElementById('sidebar-toggle'), c = document.getElementById('sidebar-close');
     var scrim = document.createElement('div'); scrim.className = 'vf-scrim'; document.body.appendChild(scrim);
     function openSb() { sb.classList.add('open'); scrim.classList.add('show'); }
@@ -387,7 +391,7 @@
     if (c) c.addEventListener('click', closeSb);
     scrim.addEventListener('click', closeSb);
     sb.addEventListener('click', function (e) { if (e.target.closest('a')) closeSb(); });
-    var tb = document.querySelector('.vf-topbar');
+    var tb = document.querySelector('.vf-topbar') || document.querySelector('.top-nav');
     if (tb) {
       var onScroll = function () { tb.classList.toggle('scrolled', (window.scrollY || document.documentElement.scrollTop) > 4); };
       window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
@@ -401,8 +405,12 @@
 
   // Автозапуск: загрузчик сразу, каркас после DOM. Страховка: спрятать через 6 с.
   if (document.documentElement.hasAttribute('data-vf-loader')) {
-    if (document.body) loader.ensure(); else document.addEventListener('DOMContentLoaded', function () { if (!loader._done) loader.ensure(); });
+    if (document.body) loader.ensure(); else document.addEventListener('DOMContentLoaded', function () { loader.ensure(); });
     setTimeout(function () { loader.hide(); }, 6000);
+    // Старые страницы не вызывают VF.ready(): прячем загрузчик после полной загрузки окна
+    if (document.documentElement.getAttribute('data-vf-loader') === 'auto') {
+      window.addEventListener('load', function () { setTimeout(function () { loader.hide(); }, 250); });
+    }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initShell); else initShell();
 })(window);
